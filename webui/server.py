@@ -289,6 +289,14 @@ class Handler(BaseHTTPRequestHandler):
             # handler takes over the raw socket for the lifetime of the connection.
             upgrade = (self.headers.get("Upgrade") or "").strip().lower()
             if upgrade == "websocket":
+                # Try device-bridge handler first (its path is /api/devices/bridge/ws);
+                # if it doesn't claim the request, fall through to the voice WS.
+                try:
+                    from api.device_bridge import handle_websocket as _dev_ws
+                    if _dev_ws(self, parsed):
+                        return
+                except Exception:
+                    pass
                 from api.voice import handle_websocket
                 if handle_websocket(self, parsed):
                     return
