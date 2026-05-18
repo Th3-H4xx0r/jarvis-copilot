@@ -37,25 +37,25 @@ import api.config as config
 import api.profiles as profiles
 
 
-def _install_fake_hermes_cli(monkeypatch):
-    """Stub hermes_cli modules so tests are deterministic and offline.
+def _install_fake_jarviscopilot_cli(monkeypatch):
+    """Stub jarviscopilot_cli modules so tests are deterministic and offline.
 
     Mirrors the helper in test_provider_management.py — kept inline here so
     this regression test stays self-contained and survives refactors there.
     """
-    fake_pkg = types.ModuleType("hermes_cli")
+    fake_pkg = types.ModuleType("jarviscopilot_cli")
     fake_pkg.__path__ = []
 
-    fake_models = types.ModuleType("hermes_cli.models")
+    fake_models = types.ModuleType("jarviscopilot_cli.models")
     fake_models.list_available_providers = lambda: []
     fake_models.provider_model_ids = lambda pid: []
 
-    fake_auth = types.ModuleType("hermes_cli.auth")
+    fake_auth = types.ModuleType("jarviscopilot_cli.auth")
     fake_auth.get_auth_status = lambda _pid: {}
 
-    monkeypatch.setitem(sys.modules, "hermes_cli", fake_pkg)
-    monkeypatch.setitem(sys.modules, "hermes_cli.models", fake_models)
-    monkeypatch.setitem(sys.modules, "hermes_cli.auth", fake_auth)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_pkg)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.models", fake_models)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.auth", fake_auth)
     monkeypatch.delitem(sys.modules, "agent.credential_pool", raising=False)
     monkeypatch.delitem(sys.modules, "agent", raising=False)
 
@@ -116,7 +116,7 @@ class TestIssue1420LMStudioProviderEnvVar:
         assert _PROVIDER_ENV_VAR["lmstudio"] == "LM_API_KEY", (
             f"_PROVIDER_ENV_VAR['lmstudio'] = {_PROVIDER_ENV_VAR['lmstudio']!r}, "
             f"expected 'LM_API_KEY' to match the agent CLI's "
-            f"hermes_cli/auth.py:lmstudio.api_key_env_vars. See #1500."
+            f"jarviscopilot_cli/auth.py:lmstudio.api_key_env_vars. See #1500."
         )
         # The legacy alias must still be registered so users with the pre-#1500
         # env var don't lose detection on upgrade.
@@ -132,7 +132,7 @@ class TestIssue1420LMStudioProviderEnvVar:
 
     def test_lmstudio_has_key_true_when_env_var_set(self, monkeypatch, tmp_path):
         """`LM_API_KEY` in env should mark LM Studio configured in Settings (canonical, post-#1500)."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
         monkeypatch.delenv("LMSTUDIO_API_KEY", raising=False)
         monkeypatch.delenv("LM_API_KEY", raising=False)
@@ -174,7 +174,7 @@ class TestIssue1420LMStudioProviderEnvVar:
         could have lost it on a profile switch. The config.yaml fallback in
         `_provider_has_key` should still detect them.
         """
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
         monkeypatch.delenv("LMSTUDIO_API_KEY", raising=False)
         monkeypatch.delenv("LM_API_KEY", raising=False)
@@ -206,7 +206,7 @@ class TestIssue1420LMStudioProviderEnvVar:
         fix, the card is `configurable=True` (so the user can add a key), which
         is exactly what was missing pre-fix.
         """
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
         monkeypatch.delenv("LMSTUDIO_API_KEY", raising=False)
         monkeypatch.delenv("LM_API_KEY", raising=False)
@@ -235,7 +235,7 @@ class TestIssue1420LMStudioProviderEnvVar:
         with another provider's runtime, but pinning this prevents a future
         edit that does share it from regressing.
         """
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
         # Strip every other detection signal so LMSTUDIO_API_KEY is the only
         # input — any other provider showing has_key=True must be a leak.

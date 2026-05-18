@@ -32,9 +32,9 @@ def test_openai_api_key_env_var_path_detects_openai_codex(monkeypatch):
     env-var block must add *both* "openai" and "openai-codex" to
     detected_providers.
 
-    The primary OAuth detection path (hermes_cli.auth) handles Codex for
+    The primary OAuth detection path (jarviscopilot_cli.auth) handles Codex for
     users who ran `hermes auth login openai-codex`. This test covers the
-    fallback path for environments where hermes_cli is not available or
+    fallback path for environments where jarviscopilot_cli is not available or
     Codex OAuth has not been configured — users will see picker entries but
     need Codex OAuth to actually use them (#1189 known limitation).
     """

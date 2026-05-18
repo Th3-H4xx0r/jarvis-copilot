@@ -25,7 +25,7 @@ def _make_agent_install(tmp_path, *, with_run_agent: bool = True):
     return install, venv_python
 
 
-def _make_hermes_cli(tmp_path, shebang_target: str | None):
+def _make_jarviscopilot_cli(tmp_path, shebang_target: str | None):
     """Write a `hermes` console-script with the given shebang interpreter."""
     bin_dir = tmp_path / "user-bin"
     bin_dir.mkdir()
@@ -37,7 +37,7 @@ def _make_hermes_cli(tmp_path, shebang_target: str | None):
             textwrap.dedent(
                 f"""\
                 #!{shebang_target}
-                from hermes_cli.main import main
+                from jarviscopilot_cli.main import main
                 main()
                 """
             ),
@@ -66,7 +66,7 @@ def _isolate_discover_agent_dir(monkeypatch, tmp_path, hermes_path):
 def test_discovers_agent_dir_from_hermes_shebang(monkeypatch, tmp_path):
     """Happy path: hermes shebang → walk up parents → find run_agent.py → return install."""
     install, venv_python = _make_agent_install(tmp_path)
-    hermes = _make_hermes_cli(tmp_path, str(venv_python))
+    hermes = _make_jarviscopilot_cli(tmp_path, str(venv_python))
     _isolate_discover_agent_dir(monkeypatch, tmp_path, hermes)
     monkeypatch.chdir(tmp_path)  # make Path.home() candidates won't match install
 
@@ -84,7 +84,7 @@ def test_returns_none_when_hermes_not_on_path(monkeypatch, tmp_path):
 def test_returns_none_when_hermes_has_no_shebang(monkeypatch, tmp_path):
     """A `hermes` file without a #! line gives us nothing to introspect."""
     _make_agent_install(tmp_path)
-    hermes = _make_hermes_cli(tmp_path, shebang_target=None)
+    hermes = _make_jarviscopilot_cli(tmp_path, shebang_target=None)
     _isolate_discover_agent_dir(monkeypatch, tmp_path, hermes)
 
     assert bootstrap.discover_agent_dir() is None
@@ -92,7 +92,7 @@ def test_returns_none_when_hermes_has_no_shebang(monkeypatch, tmp_path):
 
 def test_returns_none_when_shebang_interpreter_does_not_walk_to_run_agent(monkeypatch, tmp_path):
     """Shebang points at a system Python — no parent of /usr/bin/python3 has run_agent.py."""
-    hermes = _make_hermes_cli(tmp_path, "/usr/bin/python3")
+    hermes = _make_jarviscopilot_cli(tmp_path, "/usr/bin/python3")
     _isolate_discover_agent_dir(monkeypatch, tmp_path, hermes)
 
     assert bootstrap.discover_agent_dir() is None
@@ -106,7 +106,7 @@ def test_explicit_candidate_takes_precedence_over_shebang(monkeypatch, tmp_path)
 
     # Also set up a hermes-shebang install at a different location — this should NOT win.
     other_install, venv_python = _make_agent_install(tmp_path)
-    hermes = _make_hermes_cli(tmp_path, str(venv_python))
+    hermes = _make_jarviscopilot_cli(tmp_path, str(venv_python))
     _isolate_discover_agent_dir(monkeypatch, tmp_path, hermes)
     monkeypatch.setenv("HERMES_WEBUI_AGENT_DIR", str(explicit_install))
 

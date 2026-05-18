@@ -15,7 +15,7 @@ Phases (run in order; each commits before the next):
     env-vars       HERMES_FOO env-var reads/writes -> JARVISCOPILOT_FOO,
                    with backwards-compat fallback.
     paths          ~/.hermes/ paths -> ~/.jarviscopilot/, with migration.
-    modules        hermes_cli/ -> jarviscopilot_cli/ etc.
+    modules        jarviscopilot_cli/ -> jarviscopilot_cli/ etc.
 
 The script skips: .git, .venv, node_modules, .web-old, __pycache__,
 *.pyc, *.png, *.jpg, *.ico, *.woff*, *.svg, *.onnx, *.bin, *.so, *.exe.

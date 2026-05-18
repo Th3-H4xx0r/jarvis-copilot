@@ -1,4 +1,4 @@
-"""Tests for hermes_cli.gateway."""
+"""Tests for jarviscopilot_cli.gateway."""
 
 import sys
 from types import ModuleType, SimpleNamespace
@@ -6,7 +6,7 @@ from unittest.mock import patch, call
 
 import pytest
 
-import hermes_cli.gateway as gateway
+import jarviscopilot_cli.gateway as gateway
 
 
 def _install_fake_gateway_run(monkeypatch, start_gateway):
@@ -564,4 +564,4 @@ class TestStopProfileGateway:
 def test_module_has_logger():
     """Verify module has a logger instance (regression guard for #27154)."""
     assert hasattr(gateway, "logger")
-    assert gateway.logger.name == "hermes_cli.gateway"
+    assert gateway.logger.name == "jarviscopilot_cli.gateway"

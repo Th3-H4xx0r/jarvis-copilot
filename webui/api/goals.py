@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 try:  # Exposed as a module attribute so tests can monkeypatch it directly.
-    from hermes_cli.goals import (  # type: ignore
+    from jarviscopilot_cli.goals import (  # type: ignore
         CONTINUATION_PROMPT_TEMPLATE,
         DEFAULT_MAX_TURNS,
         GoalManager as _NativeGoalManager,
@@ -52,7 +52,7 @@ def _meta_key(session_id: str) -> str:
 def _profile_db(profile_home: str | Path):
     """Return a SessionDB pinned to *profile_home*, without reading HERMES_HOME.
 
-    The upstream Hermes GoalManager persists through hermes_cli.goals.load_goal(),
+    The upstream Hermes GoalManager persists through jarviscopilot_cli.goals.load_goal(),
     which resolves SessionDB from process-global HERMES_HOME. WebUI sessions are
     profile-scoped and can run concurrently, so the WebUI bridge uses an explicit
     state.db path whenever the caller provides the session's profile home.
@@ -411,7 +411,7 @@ def restore_goal_state(session_id: str, snapshot: Any, *, profile_home: str | Pa
         mgr._save(snapshot)
         return
     try:
-        from hermes_cli.goals import save_goal  # type: ignore
+        from jarviscopilot_cli.goals import save_goal  # type: ignore
 
         save_goal(str(session_id or ""), snapshot)
     except Exception as exc:  # pragma: no cover - native fallback only

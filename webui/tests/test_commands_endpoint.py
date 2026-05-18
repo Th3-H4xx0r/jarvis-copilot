@@ -66,17 +66,17 @@ def test_commands_endpoint_keeps_new_with_reset_alias():
 
 def test_list_commands_returns_empty_for_empty_registry():
     """list_commands(_registry=[]) returns [] -- the same path as when
-    hermes_cli is missing (the empty-or-missing case)."""
+    jarviscopilot_cli is missing (the empty-or-missing case)."""
     from api.commands import list_commands
     assert list_commands(_registry=[]) == []
 
 
 def test_list_commands_degrades_when_agent_missing(monkeypatch):
-    """If hermes_cli.commands is not importable, list_commands() returns []
+    """If jarviscopilot_cli.commands is not importable, list_commands() returns []
     via the ImportError path. Verified by stubbing sys.modules; test cleanup
     is handled by monkeypatch + the fact that we don't reload api.commands."""
     import sys
-    monkeypatch.setitem(sys.modules, 'hermes_cli.commands', None)
+    monkeypatch.setitem(sys.modules, 'jarviscopilot_cli.commands', None)
     # NOTE: we do NOT reload api.commands. The lazy import inside
     # list_commands() will re-attempt the import on each call and hit
     # the stubbed-None module, raising ImportError, taking the fallback path.

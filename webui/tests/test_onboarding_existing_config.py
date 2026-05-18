@@ -348,7 +348,7 @@ class TestOnboardingGateIntegration:
             yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8"
         )
         # Write a fake API key so provider_ready (and thus chat_ready) fires
-        # — but only when hermes_cli imports are available
+        # — but only when jarviscopilot_cli imports are available
         data, _ = _http_get("/api/onboarding/status")
         try:
             if data["system"]["hermes_found"] and data["system"]["imports_ok"]:

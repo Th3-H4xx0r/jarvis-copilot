@@ -133,7 +133,7 @@ elif command -v lsof >/dev/null 2>&1; then
     STOP_PIDS+=" $(lsof -iTCP:8787 -sTCP:LISTEN -Pn -t 2>/dev/null || true)"
 fi
 if command -v pgrep >/dev/null 2>&1; then
-    STOP_PIDS+=" $(pgrep -f 'hermes_cli\.main +gateway +run' 2>/dev/null || true)"
+    STOP_PIDS+=" $(pgrep -f 'jarviscopilot_cli\.main +gateway +run' 2>/dev/null || true)"
 fi
 STOP_PIDS="$(printf '%s\n' $STOP_PIDS | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ' || true)"
 

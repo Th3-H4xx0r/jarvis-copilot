@@ -2,7 +2,7 @@
 
 Earlier WebUI builds auto-detected unknown loopback hosts and persisted
 ``provider: "local"`` to ``config.yaml``. That value is not a registered
-provider in ``hermes_cli.auth.PROVIDER_REGISTRY``, so the agent's auxiliary
+provider in ``jarviscopilot_cli.auth.PROVIDER_REGISTRY``, so the agent's auxiliary
 client (compression, vision, web extraction) raised
 ``"Provider 'local' is set in config.yaml but no API key was found"``
 mid-conversation when the context-compression threshold was hit.

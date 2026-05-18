@@ -6,12 +6,12 @@ from urllib.parse import urlparse
 
 
 def _install_provider_model_ids(monkeypatch, fn):
-    hermes_cli = types.ModuleType("hermes_cli")
-    hermes_cli.__path__ = []
-    models = types.ModuleType("hermes_cli.models")
+    jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
+    jarviscopilot_cli.__path__ = []
+    models = types.ModuleType("jarviscopilot_cli.models")
     models.provider_model_ids = fn
-    monkeypatch.setitem(sys.modules, "hermes_cli", hermes_cli)
-    monkeypatch.setitem(sys.modules, "hermes_cli.models", models)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli", jarviscopilot_cli)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.models", models)
 
 
 def _patch_live_models_basics(monkeypatch, routes, profile="default"):

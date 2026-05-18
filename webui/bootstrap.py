@@ -90,7 +90,7 @@ def ensure_supported_platform() -> None:
         )
 
 
-def _agent_dir_from_hermes_cli() -> Path | None:
+def _agent_dir_from_jarviscopilot_cli() -> Path | None:
     """Resolve the agent install root by inspecting the `hermes` CLI shebang.
 
     The JarvisCopilot installer drops a `hermes` console-script in the user's
@@ -146,7 +146,7 @@ def discover_agent_dir() -> Path | None:
         candidate = Path(raw).expanduser().resolve()
         if candidate.exists() and (candidate / "run_agent.py").exists():
             return candidate
-    return _agent_dir_from_hermes_cli()
+    return _agent_dir_from_jarviscopilot_cli()
 
 
 def discover_launcher_python(agent_dir: Path | None) -> str:

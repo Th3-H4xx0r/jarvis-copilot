@@ -1,7 +1,7 @@
 """Hermes Kanban bridge for the WebUI.
 
 This module exposes a full CRUD API under ``/api/kanban/*`` while keeping
-JarvisCopilot's ``hermes_cli.kanban_db`` as the only source of truth.
+JarvisCopilot's ``jarviscopilot_cli.kanban_db`` as the only source of truth.
 
 Supported operations:
 - Task CRUD (create, read, patch, bulk update, archive)
@@ -25,7 +25,7 @@ _TASK_PREFIX = "/api/kanban/tasks/"
 
 
 def _kb():
-    from hermes_cli import kanban_db as kb
+    from jarviscopilot_cli import kanban_db as kb
 
     return kb
 
@@ -533,7 +533,7 @@ def _config_payload(*, board=None):
     except Exception:
         assignees = []
     try:
-        from hermes_cli.config import load_config
+        from jarviscopilot_cli.config import load_config
 
         cfg = load_config() or {}
     except Exception:
@@ -1123,7 +1123,7 @@ def handle_kanban_get(handler, parsed) -> bool | None:
             return j(handler, payload) or True
         return False
     except ImportError as exc:
-        # hermes_cli not installed (webui-only deploy). Return a clean 503
+        # jarviscopilot_cli not installed (webui-only deploy). Return a clean 503
         # "kanban unavailable" rather than a 500 so the frontend's existing
         # try/catch surfaces a useful toast.
         return bad(handler, f"kanban unavailable: {exc}", status=503)

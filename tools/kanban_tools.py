@@ -48,7 +48,7 @@ def _profile_has_kanban_toolset() -> bool:
     # negligible overhead. The check_fn results are further TTL-cached
     # (~30s) by the tool registry.
     try:
-        from hermes_cli.config import load_config
+        from jarviscopilot_cli.config import load_config
         cfg = load_config()
         toolsets = cfg.get("toolsets", [])
         return "kanban" in toolsets
@@ -147,7 +147,7 @@ def _enforce_worker_task_ownership(tid: str) -> Optional[str]:
 def _connect():
     """Import + connect lazily so the module imports cleanly in non-kanban
     contexts (e.g. test rigs that import every tool module)."""
-    from hermes_cli import kanban_db as kb
+    from jarviscopilot_cli import kanban_db as kb
     return kb, kb.connect()
 
 

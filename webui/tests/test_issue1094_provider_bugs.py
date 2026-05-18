@@ -46,21 +46,21 @@ def _post(path, body=None):
             return {"error": body_text}, e.code
 
 
-def _install_fake_hermes_cli(monkeypatch):
-    """Stub hermes_cli modules so tests are deterministic and offline."""
-    fake_pkg = types.ModuleType("hermes_cli")
+def _install_fake_jarviscopilot_cli(monkeypatch):
+    """Stub jarviscopilot_cli modules so tests are deterministic and offline."""
+    fake_pkg = types.ModuleType("jarviscopilot_cli")
     fake_pkg.__path__ = []
 
-    fake_models = types.ModuleType("hermes_cli.models")
+    fake_models = types.ModuleType("jarviscopilot_cli.models")
     fake_models.list_available_providers = lambda: []
     fake_models.provider_model_ids = lambda pid: []
 
-    fake_auth = types.ModuleType("hermes_cli.auth")
+    fake_auth = types.ModuleType("jarviscopilot_cli.auth")
     fake_auth.get_auth_status = lambda _pid: {}
 
-    monkeypatch.setitem(sys.modules, "hermes_cli", fake_pkg)
-    monkeypatch.setitem(sys.modules, "hermes_cli.models", fake_models)
-    monkeypatch.setitem(sys.modules, "hermes_cli.auth", fake_auth)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_pkg)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.models", fake_models)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.auth", fake_auth)
     monkeypatch.delitem(sys.modules, "agent.credential_pool", raising=False)
     monkeypatch.delitem(sys.modules, "agent", raising=False)
 
@@ -77,7 +77,7 @@ def _setup_clean_config(monkeypatch, tmp_path):
     Also clears provider API key env vars so _provider_has_key()
     doesn't detect keys from the host environment.
     """
-    _install_fake_hermes_cli(monkeypatch)
+    _install_fake_jarviscopilot_cli(monkeypatch)
     monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
 
     # Clear provider API key env vars to prevent host env leaking into tests

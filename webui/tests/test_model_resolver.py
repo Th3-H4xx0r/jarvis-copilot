@@ -350,7 +350,7 @@ def test_default_provider_models_not_prefixed(monkeypatch):
 # ── get_available_models(): phantom "Custom" group regression ─────────────
 #
 # When the user has model.provider set to a real provider (e.g. openai-codex)
-# AND a model.base_url set, hermes_cli reports the 'custom' pseudo-provider as
+# AND a model.base_url set, jarviscopilot_cli reports the 'custom' pseudo-provider as
 # authenticated. The WebUI picker must NOT build a separate "Custom" group in
 # that case — the base_url belongs to the active provider.
 
@@ -394,18 +394,18 @@ def test_no_phantom_custom_group_when_active_provider_is_set(monkeypatch):
     under a phantom "Custom" group instead of the "OpenAI Codex" group."""
     import sys, types
 
-    # Force hermes_cli to report both the real provider and the phantom
+    # Force jarviscopilot_cli to report both the real provider and the phantom
     # 'custom' as authenticated, simulating what list_available_providers()
     # returns when base_url is configured.
-    fake_mod = types.ModuleType('hermes_cli.models')
+    fake_mod = types.ModuleType('jarviscopilot_cli.models')
     fake_mod.list_available_providers = lambda: [
         {'id': 'openai-codex', 'authenticated': True},
         {'id': 'custom',       'authenticated': True},
     ]
-    fake_auth = types.ModuleType('hermes_cli.auth')
+    fake_auth = types.ModuleType('jarviscopilot_cli.auth')
     fake_auth.get_auth_status = lambda pid: {'key_source': 'env'}
-    monkeypatch.setitem(sys.modules, 'hermes_cli.models', fake_mod)
-    monkeypatch.setitem(sys.modules, 'hermes_cli.auth', fake_auth)
+    monkeypatch.setitem(sys.modules, 'jarviscopilot_cli.models', fake_mod)
+    monkeypatch.setitem(sys.modules, 'jarviscopilot_cli.auth', fake_auth)
 
     result = _available_models_with_full_cfg(
         provider='openai-codex',
@@ -431,16 +431,16 @@ def test_default_model_lands_under_active_provider_group(monkeypatch):
     alphabetically (e.g. 'anthropic'), placed gpt-5.4 in the WRONG group.
     """
     import sys, types
-    fake_mod = types.ModuleType('hermes_cli.models')
+    fake_mod = types.ModuleType('jarviscopilot_cli.models')
     fake_mod.list_available_providers = lambda: [
         {'id': 'anthropic',    'authenticated': True},  # sorts before openai-codex
         {'id': 'openai-codex', 'authenticated': True},
         {'id': 'custom',       'authenticated': True},
     ]
-    fake_auth = types.ModuleType('hermes_cli.auth')
+    fake_auth = types.ModuleType('jarviscopilot_cli.auth')
     fake_auth.get_auth_status = lambda pid: {'key_source': 'env'}
-    monkeypatch.setitem(sys.modules, 'hermes_cli.models', fake_mod)
-    monkeypatch.setitem(sys.modules, 'hermes_cli.auth', fake_auth)
+    monkeypatch.setitem(sys.modules, 'jarviscopilot_cli.models', fake_mod)
+    monkeypatch.setitem(sys.modules, 'jarviscopilot_cli.auth', fake_auth)
 
     result = _available_models_with_full_cfg(
         provider='openai-codex',
@@ -470,16 +470,16 @@ def test_unknown_providers_do_not_inherit_default_model(monkeypatch):
     """
     import sys, types
 
-    fake_mod = types.ModuleType('hermes_cli.models')
+    fake_mod = types.ModuleType('jarviscopilot_cli.models')
     fake_mod.list_available_providers = lambda: [
         {'id': 'openai-codex', 'authenticated': True},
         {'id': 'alibaba',      'authenticated': True},
         {'id': 'minimax-cn',   'authenticated': True},
     ]
-    fake_auth = types.ModuleType('hermes_cli.auth')
+    fake_auth = types.ModuleType('jarviscopilot_cli.auth')
     fake_auth.get_auth_status = lambda pid: {'key_source': 'env'}
-    monkeypatch.setitem(sys.modules, 'hermes_cli.models', fake_mod)
-    monkeypatch.setitem(sys.modules, 'hermes_cli.auth', fake_auth)
+    monkeypatch.setitem(sys.modules, 'jarviscopilot_cli.models', fake_mod)
+    monkeypatch.setitem(sys.modules, 'jarviscopilot_cli.auth', fake_auth)
 
     result = _available_models_with_full_cfg(
         provider='openai-codex',

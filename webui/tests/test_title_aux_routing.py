@@ -511,9 +511,9 @@ class TestBackgroundTitleProfileRouting(unittest.TestCase):
         import api.profiles as profiles
         from api.config import _thread_ctx
         try:
-            from hermes_cli import config as hermes_config
+            from jarviscopilot_cli import config as hermes_config
         except ModuleNotFoundError:
-            pytest.skip('hermes_cli is not installed in this CI environment')
+            pytest.skip('jarviscopilot_cli is not installed in this CI environment')
 
         session = types.SimpleNamespace(profile='work')
         captured = {}

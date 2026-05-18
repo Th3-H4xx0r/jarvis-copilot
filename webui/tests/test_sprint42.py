@@ -215,10 +215,10 @@ class TestRuntimeRouteInjection(unittest.TestCase):
         fake_stream_id = "stream-runtime-route"
         fake_session.active_stream_id = fake_stream_id
         fake_queue = queue.Queue()
-        fake_runtime_module = types.ModuleType("hermes_cli.runtime_provider")
+        fake_runtime_module = types.ModuleType("jarviscopilot_cli.runtime_provider")
         fake_runtime_module.resolve_runtime_provider = resolve_runtime_provider
-        fake_hermes_cli = types.ModuleType("hermes_cli")
-        fake_hermes_cli.runtime_provider = fake_runtime_module
+        fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
+        fake_jarviscopilot_cli.runtime_provider = fake_runtime_module
         fake_hermes_state = types.ModuleType("hermes_state")
         fake_hermes_state.SessionDB = mock.Mock(return_value=fake_session_db)
 
@@ -230,8 +230,8 @@ class TestRuntimeRouteInjection(unittest.TestCase):
              mock.patch.dict(
                  sys.modules,
                  {
-                     "hermes_cli": fake_hermes_cli,
-                     "hermes_cli.runtime_provider": fake_runtime_module,
+                     "jarviscopilot_cli": fake_jarviscopilot_cli,
+                     "jarviscopilot_cli.runtime_provider": fake_runtime_module,
                      "hermes_state": fake_hermes_state,
                  },
              ):
@@ -349,7 +349,7 @@ class TestRuntimeRouteInjection(unittest.TestCase):
 
         fake_stream_id = "stream-interim-callback"
         fake_queue = queue.Queue()
-        fake_rt_module = types.ModuleType("hermes_cli.runtime_provider")
+        fake_rt_module = types.ModuleType("jarviscopilot_cli.runtime_provider")
         fake_rt_module.resolve_runtime_provider = mock.Mock(return_value={
             "provider": "openai-codex",
             "base_url": "https://api.openai.com/v1",
@@ -359,8 +359,8 @@ class TestRuntimeRouteInjection(unittest.TestCase):
             "args": ["exec", "--json"],
             "credential_pool": object(),
         })
-        fake_hermes_cli = types.ModuleType("hermes_cli")
-        fake_hermes_cli.runtime_provider = fake_rt_module
+        fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
+        fake_jarviscopilot_cli.runtime_provider = fake_rt_module
         fake_hermes_state = types.ModuleType("hermes_state")
         fake_hermes_state.SessionDB = mock.Mock(return_value=object())
 
@@ -373,8 +373,8 @@ class TestRuntimeRouteInjection(unittest.TestCase):
              mock.patch("api.config.get_config", return_value={}), \
              mock.patch("api.config._resolve_cli_toolsets", return_value=[]), \
              mock.patch.dict(sys.modules, {
-                 "hermes_cli": fake_hermes_cli,
-                 "hermes_cli.runtime_provider": fake_rt_module,
+                 "jarviscopilot_cli": fake_jarviscopilot_cli,
+                 "jarviscopilot_cli.runtime_provider": fake_rt_module,
                  "hermes_state": fake_hermes_state,
              }):
             streaming.STREAMS[fake_stream_id] = fake_queue
@@ -498,7 +498,7 @@ class TestRuntimeRouteInjection(unittest.TestCase):
 
         fake_stream_id = "stream-clarify-timeout"
         fake_queue = queue.Queue()
-        fake_rt_module = types.ModuleType("hermes_cli.runtime_provider")
+        fake_rt_module = types.ModuleType("jarviscopilot_cli.runtime_provider")
         fake_rt_module.resolve_runtime_provider = mock.Mock(return_value={
             "provider": "openai-codex",
             "base_url": "https://api.openai.com/v1",
@@ -508,8 +508,8 @@ class TestRuntimeRouteInjection(unittest.TestCase):
             "args": ["exec", "--json"],
             "credential_pool": object(),
         })
-        fake_hermes_cli = types.ModuleType("hermes_cli")
-        fake_hermes_cli.runtime_provider = fake_rt_module
+        fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
+        fake_jarviscopilot_cli.runtime_provider = fake_rt_module
         fake_hermes_state = types.ModuleType("hermes_state")
         fake_hermes_state.SessionDB = mock.Mock(return_value=object())
 
@@ -523,8 +523,8 @@ class TestRuntimeRouteInjection(unittest.TestCase):
              mock.patch("api.config._resolve_cli_toolsets", return_value=[]), \
              mock.patch("api.clarify.submit_pending", side_effect=fake_submit_pending), \
              mock.patch.dict(sys.modules, {
-                "hermes_cli": fake_hermes_cli,
-                "hermes_cli.runtime_provider": fake_rt_module,
+                "jarviscopilot_cli": fake_jarviscopilot_cli,
+                "jarviscopilot_cli.runtime_provider": fake_rt_module,
                 "hermes_state": fake_hermes_state,
              }):
             streaming.STREAMS[fake_stream_id] = fake_queue
@@ -840,14 +840,14 @@ class TestCredentialPoolBackwardCompat(unittest.TestCase):
 
         fake_stream_id = "stream-compat-test"
         fake_queue = queue.Queue()
-        fake_rt_module = types.ModuleType("hermes_cli.runtime_provider")
+        fake_rt_module = types.ModuleType("jarviscopilot_cli.runtime_provider")
         fake_rt_module.resolve_runtime_provider = mock.Mock(return_value={
             "provider": "openai", "base_url": None, "api_key": "sk-test",
             "api_mode": "chat_completions", "command": None, "args": [],
             "credential_pool": object(),
         })
-        fake_hermes_cli = types.ModuleType("hermes_cli")
-        fake_hermes_cli.runtime_provider = fake_rt_module
+        fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
+        fake_jarviscopilot_cli.runtime_provider = fake_rt_module
         fake_hermes_state = types.ModuleType("hermes_state")
         fake_hermes_state.SessionDB = mock.Mock(return_value=None)
 
@@ -860,8 +860,8 @@ class TestCredentialPoolBackwardCompat(unittest.TestCase):
              mock.patch("api.config.get_config", return_value={}), \
              mock.patch("api.config._resolve_cli_toolsets", return_value=[]), \
              mock.patch.dict(sys.modules, {
-                 "hermes_cli": fake_hermes_cli,
-                 "hermes_cli.runtime_provider": fake_rt_module,
+                 "jarviscopilot_cli": fake_jarviscopilot_cli,
+                 "jarviscopilot_cli.runtime_provider": fake_rt_module,
                  "hermes_state": fake_hermes_state,
              }):
             streaming.STREAMS[fake_stream_id] = fake_queue

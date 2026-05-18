@@ -414,7 +414,7 @@ def _skill_view_from_active_dir(name: str) -> dict:
         if ":" in str(name or ""):
             try:
                 from agent.skill_utils import is_valid_namespace, parse_qualified_name
-                from hermes_cli.plugins import discover_plugins, get_plugin_manager
+                from jarviscopilot_cli.plugins import discover_plugins, get_plugin_manager
 
                 namespace, _bare = parse_qualified_name(name)
                 if is_valid_namespace(namespace):
@@ -837,7 +837,7 @@ _PROVIDER_ALIASES = {
 }
 
 # OpenAI-compatible /v1/models endpoints for live model discovery.
-# Used as fallback when hermes_cli.provider_model_ids() is unavailable or
+# Used as fallback when jarviscopilot_cli.provider_model_ids() is unavailable or
 # returns [] for a provider (#871).  Kept at module level so the dict is
 # built once, not reconstructed per request.
 _OPENAI_COMPAT_ENDPOINTS = {
@@ -852,7 +852,7 @@ _OPENAI_COMPAT_ENDPOINTS = {
 # NOTE: "openai-codex" is excluded because it maps to the same endpoint as
 # the base "openai" provider (api.openai.com/v1).  When both are configured
 # the openai provider is already wired through provider_model_ids(); codex-
-# specific model filtering happens downstream in hermes_cli.
+# specific model filtering happens downstream in jarviscopilot_cli.
 #
 _LIVE_MODELS_CACHE_TTL = 60.0
 _LIVE_MODELS_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
@@ -3241,7 +3241,7 @@ _PLUGIN_VISIBILITY_HOOK_SET = set(_PLUGIN_VISIBILITY_HOOKS)
 
 def _get_plugin_manager_for_visibility():
     """Return JarvisCopilot's plugin manager for read-only WebUI visibility."""
-    from hermes_cli.plugins import get_plugin_manager
+    from jarviscopilot_cli.plugins import get_plugin_manager
 
     return get_plugin_manager()
 
@@ -5808,7 +5808,7 @@ def handle_post(handler, parsed) -> bool:
                 _main_api_key = None
                 try:
                     from api.oauth import resolve_runtime_provider_with_anthropic_env_lock
-                    from hermes_cli.runtime_provider import resolve_runtime_provider
+                    from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
 
                     _rt = resolve_runtime_provider_with_anthropic_env_lock(
                         resolve_runtime_provider,
@@ -7106,7 +7106,7 @@ def _handle_live_models(handler, parsed):
         # The browser sends whatever active_provider the static endpoint returned;
         # without normalization, provider_model_ids() misses the alias and returns [].
         # Uses the WebUI-owned table (api/config._resolve_provider_alias) which
-        # works even when hermes_cli is not on sys.path.
+        # works even when jarviscopilot_cli is not on sys.path.
         from api.config import _resolve_provider_alias
         provider = _resolve_provider_alias(provider)
 
@@ -7130,7 +7130,7 @@ def _handle_live_models(handler, parsed):
             _agent_dir = _os.path.normpath(_agent_dir)
             if _agent_dir not in _sys.path:
                 _sys.path.insert(0, _agent_dir)
-            from hermes_cli.models import provider_model_ids as _pmi
+            from jarviscopilot_cli.models import provider_model_ids as _pmi
             ids = _pmi(provider)
         except Exception as _import_err:
             logger.debug("provider_model_ids import failed for %s: %s", provider, _import_err)
@@ -7195,7 +7195,7 @@ def _handle_live_models(handler, parsed):
                 return os.getenv(_env, "").strip() if _env else ""
 
             # For 'custom' and 'custom:*' providers, provider_model_ids()
-            # returns [] because they aren't real hermes_cli endpoints.
+            # returns [] because they aren't real jarviscopilot_cli endpoints.
             # Fall back to the custom_providers entries from config.yaml so
             # the live-model enrichment step can add any models that weren't
             # already in the static list (issue #1619).
@@ -8299,7 +8299,7 @@ def _handle_chat_sync(handler, body):
             _api_key = None
             try:
                 from api.oauth import resolve_runtime_provider_with_anthropic_env_lock
-                from hermes_cli.runtime_provider import resolve_runtime_provider
+                from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
 
                 _rt = resolve_runtime_provider_with_anthropic_env_lock(
                     resolve_runtime_provider,
@@ -9244,7 +9244,7 @@ def _handle_session_compress(handler, body):
 
         import api.config as _cfg
         from api.oauth import resolve_runtime_provider_with_anthropic_env_lock
-        import hermes_cli.runtime_provider as _runtime_provider
+        import jarviscopilot_cli.runtime_provider as _runtime_provider
         import run_agent as _run_agent
 
         resolved_model, resolved_provider, resolved_base_url = _cfg.resolve_model_provider(
@@ -9876,7 +9876,7 @@ def _handle_handoff_summary(handler, body):
     try:
         import api.config as _cfg
         from api.oauth import resolve_runtime_provider_with_anthropic_env_lock
-        import hermes_cli.runtime_provider as _runtime_provider
+        import jarviscopilot_cli.runtime_provider as _runtime_provider
         import run_agent as _run_agent
 
         # Try to resolve model from an existing session, fall back to default.

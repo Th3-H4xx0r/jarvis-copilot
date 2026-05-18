@@ -166,7 +166,7 @@ def test_switch_profile_process_wide_false_does_not_mutate_global():
     original_env_home = os.environ.get('HERMES_HOME')
 
     # We need a profile that exists to get past the validation path.
-    # Use 'default' — switch_profile accepts it without requiring hermes_cli.
+    # Use 'default' — switch_profile accepts it without requiring jarviscopilot_cli.
     try:
         result = p.switch_profile('default', process_wide=False)
         # Global must not change

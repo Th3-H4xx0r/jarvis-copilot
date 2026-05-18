@@ -9,7 +9,7 @@ import pytest
 
 pwd = pytest.importorskip("pwd")
 
-import hermes_cli.gateway as gateway_cli
+import jarviscopilot_cli.gateway as gateway_cli
 from gateway import status
 from gateway.restart import (
     DEFAULT_GATEWAY_RESTART_DRAIN_TIMEOUT,
@@ -1832,7 +1832,7 @@ class TestLegacyHermesUnitDetection:
     # Minimal ExecStart that looks like our gateway
     _OUR_UNIT_TEXT = (
         "[Unit]\nDescription=JarvisCopilot Gateway\n[Service]\n"
-        "ExecStart=/usr/bin/python -m hermes_cli.main gateway run --replace\n"
+        "ExecStart=/usr/bin/python -m jarviscopilot_cli.main gateway run --replace\n"
     )
 
     @staticmethod
@@ -1941,15 +1941,15 @@ class TestLegacyHermesUnitDetection:
         """Older installs may have used different python invocations.
 
         ExecStart variants we've seen in the wild:
-          - python -m hermes_cli.main gateway run
-          - python path/to/hermes_cli/main.py gateway run
+          - python -m jarviscopilot_cli.main gateway run
+          - python path/to/jarviscopilot_cli/main.py gateway run
           - hermes gateway run   (direct binary)
           - python path/to/gateway/run.py
         """
         user_dir, _ = self._setup_search_paths(tmp_path, monkeypatch)
         variants = [
-            "ExecStart=/venv/bin/python -m hermes_cli.main gateway run --replace",
-            "ExecStart=/venv/bin/python /opt/hermes/hermes_cli/main.py gateway run",
+            "ExecStart=/venv/bin/python -m jarviscopilot_cli.main gateway run --replace",
+            "ExecStart=/venv/bin/python /opt/hermes/jarviscopilot_cli/main.py gateway run",
             "ExecStart=/usr/local/bin/hermes gateway run --replace",
             "ExecStart=/venv/bin/python /opt/hermes/gateway/run.py",
         ]
@@ -2007,7 +2007,7 @@ class TestRemoveLegacyHermesUnits:
 
     _OUR_UNIT_TEXT = (
         "[Unit]\nDescription=JarvisCopilot Gateway\n[Service]\n"
-        "ExecStart=/usr/bin/python -m hermes_cli.main gateway run --replace\n"
+        "ExecStart=/usr/bin/python -m jarviscopilot_cli.main gateway run --replace\n"
     )
 
     @staticmethod
@@ -2159,7 +2159,7 @@ class TestMigrateLegacyCommand:
 
     def test_migrate_legacy_subparser_accepts_dry_run_and_yes(self):
         """Verify the argparse subparser is registered and parses flags."""
-        import hermes_cli.main as cli_main
+        import jarviscopilot_cli.main as cli_main
 
         parser = cli_main.build_parser() if hasattr(cli_main, "build_parser") else None
         # Fall back to calling main's setup helper if direct access isn't exposed
@@ -2171,11 +2171,11 @@ class TestMigrateLegacyCommand:
 
         project_root = cli_main.PROJECT_ROOT if hasattr(cli_main, "PROJECT_ROOT") else None
         if project_root is None:
-            import hermes_cli.gateway as gw
+            import jarviscopilot_cli.gateway as gw
             project_root = gw.PROJECT_ROOT
 
         result = subprocess.run(
-            [sys.executable, "-m", "hermes_cli.main", "gateway", "--help"],
+            [sys.executable, "-m", "jarviscopilot_cli.main", "gateway", "--help"],
             cwd=str(project_root),
             capture_output=True,
             text=True,
@@ -2213,7 +2213,7 @@ class TestGatewayStatusParser:
         import sys
 
         result = subprocess.run(
-            [sys.executable, "-m", "hermes_cli.main", "gateway", "status", "-l", "--help"],
+            [sys.executable, "-m", "jarviscopilot_cli.main", "gateway", "status", "-l", "--help"],
             cwd=str(gateway_cli.PROJECT_ROOT),
             capture_output=True,
             text=True,

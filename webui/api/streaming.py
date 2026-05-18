@@ -2588,7 +2588,7 @@ def _attempt_credential_self_heal(
             SESSION_AGENT_CACHE, SESSION_AGENT_CACHE_LOCK,
             invalidate_credential_pool_cache,
         )
-        from hermes_cli.runtime_provider import resolve_runtime_provider
+        from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
 
         # 1. Re-read auth.json (triggers a fresh credential scan)
         _fresh_auth = read_auth_json()
@@ -3451,7 +3451,7 @@ def _run_agent_streaming(
             resolved_api_key = None
             try:
                 from api.oauth import resolve_runtime_provider_with_anthropic_env_lock
-                from hermes_cli.runtime_provider import resolve_runtime_provider
+                from jarviscopilot_cli.runtime_provider import resolve_runtime_provider
                 _rt = resolve_runtime_provider_with_anthropic_env_lock(
                     resolve_runtime_provider,
                     requested=resolved_provider,
@@ -3465,7 +3465,7 @@ def _run_agent_streaming(
                 print(f"[webui] WARNING: resolve_runtime_provider failed: {_e}", flush=True)
 
             # Named custom providers (custom:slug) may not be resolvable by
-            # hermes_cli.runtime_provider directly. Fall back to config.yaml
+            # jarviscopilot_cli.runtime_provider directly. Fall back to config.yaml
             # custom_providers[] so WebUI can pass explicit creds/base_url.
             if isinstance(resolved_provider, str) and resolved_provider.startswith("custom:"):
                 _cp_key, _cp_base = resolve_custom_provider_connection(resolved_provider)

@@ -9,11 +9,11 @@ in the frontend also skips the POST when current_is_oauth is set.
 
 Covers:
   1. _provider_api_key_present returns True for minimax-cn when
-     MINIMAX_CN_API_KEY is in env (via hermes_cli.auth.get_auth_status)
+     MINIMAX_CN_API_KEY is in env (via jarviscopilot_cli.auth.get_auth_status)
   2. _status_from_runtime gives chat_ready=True for minimax-cn with a key set
   3. get_onboarding_status returns completed=True for a fully-configured
      unsupported provider when config.yaml exists
-  4. The hermes_cli import failure path is safe (falls back gracefully)
+  4. The jarviscopilot_cli import failure path is safe (falls back gracefully)
 """
 from __future__ import annotations
 
@@ -26,21 +26,21 @@ from unittest import mock
 import pytest
 
 
-def _inject_hermes_cli_auth(get_auth_status_return):
-    """Inject a minimal hermes_cli.auth stub into sys.modules.
+def _inject_jarviscopilot_cli_auth(get_auth_status_return):
+    """Inject a minimal jarviscopilot_cli.auth stub into sys.modules.
 
-    CI doesn't install hermes_cli (it's a separate package).  Tests that
-    exercise the hermes_cli fallback path must inject the module themselves
-    rather than relying on mock.patch('hermes_cli.auth.get_auth_status')
+    CI doesn't install jarviscopilot_cli (it's a separate package).  Tests that
+    exercise the jarviscopilot_cli fallback path must inject the module themselves
+    rather than relying on mock.patch('jarviscopilot_cli.auth.get_auth_status')
     which fails with ModuleNotFoundError when the module isn't installed.
     """
-    mock_auth = types.ModuleType("hermes_cli.auth")
+    mock_auth = types.ModuleType("jarviscopilot_cli.auth")
     mock_auth.get_auth_status = mock.MagicMock(return_value=get_auth_status_return)
-    mock_hermes_cli = types.ModuleType("hermes_cli")
+    mock_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
 
     return mock.patch.dict(sys.modules, {
-        "hermes_cli": mock_hermes_cli,
-        "hermes_cli.auth": mock_auth,
+        "jarviscopilot_cli": mock_jarviscopilot_cli,
+        "jarviscopilot_cli.auth": mock_auth,
     })
 
 
@@ -54,17 +54,17 @@ def _call_provider_api_key_present(provider: str, cfg: dict = None, env_values: 
 
 
 # ---------------------------------------------------------------------------
-# 1. _provider_api_key_present via hermes_cli fallback
+# 1. _provider_api_key_present via jarviscopilot_cli fallback
 # ---------------------------------------------------------------------------
 
 class TestProviderApiKeyPresentFallback:
 
     def test_minimax_cn_logged_in_returns_true(self):
-        """minimax-cn: if hermes_cli.auth.get_auth_status returns logged_in, must be True."""
+        """minimax-cn: if jarviscopilot_cli.auth.get_auth_status returns logged_in, must be True."""
         with mock.patch("api.onboarding._SUPPORTED_PROVIDER_SETUPS", {
             "openrouter": {}, "anthropic": {}, "openai": {}, "custom": {}
         }):
-            with _inject_hermes_cli_auth({"logged_in": True}):
+            with _inject_jarviscopilot_cli_auth({"logged_in": True}):
                 result = _call_provider_api_key_present("minimax-cn")
                 assert result is True
 
@@ -73,24 +73,24 @@ class TestProviderApiKeyPresentFallback:
         with mock.patch("api.onboarding._SUPPORTED_PROVIDER_SETUPS", {
             "openrouter": {}, "anthropic": {}, "openai": {}, "custom": {}
         }):
-            with _inject_hermes_cli_auth({"logged_in": False}):
+            with _inject_jarviscopilot_cli_auth({"logged_in": False}):
                 result = _call_provider_api_key_present("deepseek")
                 assert result is False
 
-    def test_hermes_cli_import_failure_is_safe(self):
-        """If hermes_cli is unavailable, falls back silently to False."""
+    def test_jarviscopilot_cli_import_failure_is_safe(self):
+        """If jarviscopilot_cli is unavailable, falls back silently to False."""
         import builtins
         real_import = builtins.__import__
 
-        def _block_hermes_cli(name, *args, **kwargs):
-            if name.startswith("hermes_cli"):
-                raise ImportError("hermes_cli not available")
+        def _block_jarviscopilot_cli(name, *args, **kwargs):
+            if name.startswith("jarviscopilot_cli"):
+                raise ImportError("jarviscopilot_cli not available")
             return real_import(name, *args, **kwargs)
 
         with mock.patch("api.onboarding._SUPPORTED_PROVIDER_SETUPS", {
             "openrouter": {}, "anthropic": {}, "openai": {}, "custom": {}
         }):
-            with mock.patch("builtins.__import__", side_effect=_block_hermes_cli):
+            with mock.patch("builtins.__import__", side_effect=_block_jarviscopilot_cli):
                 result = _call_provider_api_key_present("minimax-cn")
                 assert result is False  # safe fallback
 

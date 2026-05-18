@@ -625,7 +625,7 @@ def _resolve_cli_toolsets(cfg=None):
     if cfg is None:
         cfg = get_config()
     try:
-        from hermes_cli.tools_config import _get_platform_tools
+        from jarviscopilot_cli.tools_config import _get_platform_tools
         return _normalize_cli_toolsets(_get_platform_tools(cfg, "cli"))
     except Exception:
         # Fallback: read raw list from config (MCP toolsets will be missing)
@@ -676,7 +676,7 @@ _FALLBACK_MODELS = [
     {"provider": "Z.AI",      "id": "zai/glm-4.5",                      "label": "GLM-4.5"},
     {"provider": "Z.AI",      "id": "zai/glm-4.5-flash",                "label": "GLM-4.5 Flash"},
     # OpenRouter free-tier models — must appear in fallback list so they
-    # are visible even when the tool-support filter in hermes_cli strips
+    # are visible even when the tool-support filter in jarviscopilot_cli strips
     # them out of the live catalog (see #1426).
     {"provider": "OpenRouter", "id": "openrouter/elephant-alpha",                   "label": "Elephant Alpha (free)"},
     {"provider": "OpenRouter", "id": "openrouter/owl-alpha",                        "label": "Owl Alpha (free)"},
@@ -721,7 +721,7 @@ _PROVIDER_DISPLAY = {
 # normalisation the provider lands in the ``else`` branch of the group
 # builder and no models are returned — the bug behind #815.
 #
-# This table is authoritative for the WebUI.  When ``hermes_cli.models``
+# This table is authoritative for the WebUI.  When ``jarviscopilot_cli.models``
 # is importable we also merge its ``_PROVIDER_ALIASES`` on top so any
 # new aliases added to the agent automatically apply.  Keeping the local
 # copy means the fix works even in environments where the agent tree is
@@ -766,7 +766,7 @@ _PROVIDER_ALIASES = {
     "xiaomi-mimo": "xiaomi",
     # Legacy alias — earlier WebUI builds wrote ``provider: local`` for unknown
     # loopback endpoints, but ``local`` is not registered in
-    # ``hermes_cli.auth.PROVIDER_REGISTRY``. Routing it through ``custom``
+    # ``jarviscopilot_cli.auth.PROVIDER_REGISTRY``. Routing it through ``custom``
     # lets the agent's auxiliary client take the ``no-key-required``
     # OpenAI-compat path. See #1384.
     "local": "custom",
@@ -777,7 +777,7 @@ def _resolve_provider_alias(name: str) -> str:
     """Return the canonical provider slug for *name*.
 
     Applies the WebUI's local alias table first, then merges any
-    additional aliases the agent provides (when hermes_cli is on
+    additional aliases the agent provides (when jarviscopilot_cli is on
     sys.path). Lookup is case-insensitive and whitespace-trimmed.
     Unknown names pass through unchanged.
     """
@@ -787,7 +787,7 @@ def _resolve_provider_alias(name: str) -> str:
     # Prefer the agent's table when available so new aliases added there
     # work automatically; otherwise fall through to our local copy.
     try:
-        from hermes_cli.models import _PROVIDER_ALIASES as _agent_aliases
+        from jarviscopilot_cli.models import _PROVIDER_ALIASES as _agent_aliases
         if raw in _agent_aliases:
             return _agent_aliases[raw]
     except Exception:
@@ -902,7 +902,7 @@ def _canonicalise_provider_id(name: object) -> str:
     (#1568). Then attempts alias resolution but only if the alias target
     is itself a known canonical id in ``_PROVIDER_DISPLAY`` —  this avoids
     converting ``x-ai`` (canonical in WebUI's data structures) to ``xai``
-    (the hermes_cli alias target which the WebUI doesn't index by).
+    (the jarviscopilot_cli alias target which the WebUI doesn't index by).
 
     Examples::
 
@@ -927,7 +927,7 @@ def _canonicalise_provider_id(name: object) -> str:
         return raw
     # Try alias resolution. Only accept the result if it's itself a
     # canonical id in _PROVIDER_DISPLAY — that prevents aliases pointing
-    # at non-canonical strings (legacy, hermes_cli-specific) from leaking
+    # at non-canonical strings (legacy, jarviscopilot_cli-specific) from leaking
     # in. Falls back to the normalised input otherwise.
     resolved = _resolve_provider_alias(raw)
     if resolved and resolved.lower() in _PROVIDER_DISPLAY:
@@ -1127,7 +1127,7 @@ _PROVIDER_MODELS = {
         {"id": "qwen3.6-plus",     "label": "Qwen3.6 Plus"},
         {"id": "qwen3.5-plus",     "label": "Qwen3.5 Plus"},
     ],
-    # 'gemini' is the hermes_cli provider ID for Google AI Studio
+    # 'gemini' is the jarviscopilot_cli provider ID for Google AI Studio
     # Model IDs are bare — sent directly to:
     #   https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
     "gemini": [
@@ -1467,7 +1467,7 @@ def _deduplicate_model_ids(groups: list[dict]) -> None:
 #      Reuses the same private-IP detection logic used elsewhere in
 #      api/config.py for SSRF host trust.
 _LOCAL_SERVER_PROVIDERS = {
-    "lmstudio",     # canonical (in hermes_cli.models.CANONICAL_PROVIDERS)
+    "lmstudio",     # canonical (in jarviscopilot_cli.models.CANONICAL_PROVIDERS)
     "lm-studio",    # alias used in some custom_providers configs (#1625 Opus NIT)
     "ollama",       # via custom_providers, common pattern
     "llamacpp",     # via custom_providers
@@ -2541,7 +2541,7 @@ def _read_live_provider_model_ids(provider_id: str) -> list[str]:
 
     WebUI's static ``_PROVIDER_MODELS`` table is only a fallback.  The agent CLI
     owns the provider registry and catalog-discovery logic, so ordinary picker
-    groups should ask ``hermes_cli.models.provider_model_ids()`` first (#1240).
+    groups should ask ``jarviscopilot_cli.models.provider_model_ids()`` first (#1240).
     Provider aliases are tried as a secondary lookup because WebUI keeps a few
     display-facing IDs (for example ``google`` / ``x-ai``) that JarvisCopilot CLI may
     normalize internally.
@@ -2550,7 +2550,7 @@ def _read_live_provider_model_ids(provider_id: str) -> list[str]:
     if not pid:
         return []
     try:
-        from hermes_cli.models import provider_model_ids as _provider_model_ids
+        from jarviscopilot_cli.models import provider_model_ids as _provider_model_ids
     except Exception:
         return []
 
@@ -2567,7 +2567,7 @@ def _read_live_provider_model_ids(provider_id: str) -> list[str]:
         try:
             live_ids = _provider_model_ids(candidate) or []
         except Exception:
-            logger.debug("Failed to load %s models from hermes_cli", candidate)
+            logger.debug("Failed to load %s models from jarviscopilot_cli", candidate)
             continue
         result: list[str] = []
         for mid in live_ids:
@@ -2878,8 +2878,8 @@ def get_available_models() -> dict:
 
         _hermes_auth_used = False
         try:
-            from hermes_cli.models import list_available_providers as _lap
-            from hermes_cli.auth import get_auth_status as _gas
+            from jarviscopilot_cli.models import list_available_providers as _lap
+            from jarviscopilot_cli.auth import get_auth_status as _gas
 
             for _p in _lap():
                 if not _p.get("authenticated"):
@@ -2895,7 +2895,7 @@ def get_available_models() -> dict:
 
             # Belt-and-braces: list_available_providers() is the primary signal
             # for OAuth providers, but its `authenticated` field can disagree
-            # with `get_auth_status(<id>).logged_in` on some hermes_cli versions
+            # with `get_auth_status(<id>).logged_in` on some jarviscopilot_cli versions
             # (the two fields are computed via different code paths). When the
             # disagreement happens for Nous Portal, the Settings → Providers
             # card renders the live catalog (because api/providers.py iterates
@@ -3111,7 +3111,7 @@ def get_available_models() -> dict:
                                 # ``provider: local`` here used to break
                                 # compression mid-conversation because ``local``
                                 # is not a registered provider in
-                                # ``hermes_cli.auth.PROVIDER_REGISTRY`` — see #1384.
+                                # ``jarviscopilot_cli.auth.PROVIDER_REGISTRY`` — see #1384.
                                 provider = "custom"
                     except ValueError:
                         pass
@@ -3362,7 +3362,7 @@ def get_available_models() -> dict:
                 provider_name = _PROVIDER_DISPLAY.get(pid, pid.title())
                 if pid == "openrouter":
                     # OpenRouter has two model surfaces:
-                    #   (1) curated tool-supporting catalog via hermes_cli.models.fetch_openrouter_models()
+                    #   (1) curated tool-supporting catalog via jarviscopilot_cli.models.fetch_openrouter_models()
                     #       — the canonical agent-ready list, applies a tool-support filter
                     #       (Kilo-Org/kilocode#9068) that hides image/completion-only models
                     #   (2) free-tier `:free` variants — newly-added models OpenRouter ships
@@ -3377,7 +3377,7 @@ def get_available_models() -> dict:
                     raw_models = []
                     seen_ids = set()
                     try:
-                        from hermes_cli.models import (
+                        from jarviscopilot_cli.models import (
                             fetch_openrouter_models as _fetch_or_models,
                         )
                         live_curated = _fetch_or_models() or []
@@ -3386,7 +3386,7 @@ def get_available_models() -> dict:
                                 seen_ids.add(mid)
                                 raw_models.append({"id": mid, "label": mid})
                     except Exception:
-                        logger.warning("Failed to load OpenRouter curated catalog from hermes_cli")
+                        logger.warning("Failed to load OpenRouter curated catalog from jarviscopilot_cli")
 
                     # Free-tier live fetch — bypasses the tool-support filter so models
                     # OpenRouter has flagged free but hasn't yet annotated with tools=[]
@@ -3454,14 +3454,14 @@ def get_available_models() -> dict:
                 elif pid == "ollama-cloud":
                     raw_models = []
                     try:
-                        from hermes_cli.models import provider_model_ids as _provider_model_ids
+                        from jarviscopilot_cli.models import provider_model_ids as _provider_model_ids
 
                         raw_models = [
                             {"id": mid, "label": _format_ollama_label(mid)}
                             for mid in (_provider_model_ids("ollama-cloud") or [])
                         ]
                     except Exception:
-                        logger.warning("Failed to load Ollama Cloud models from hermes_cli")
+                        logger.warning("Failed to load Ollama Cloud models from jarviscopilot_cli")
 
                     if raw_models:
                         models = _apply_provider_prefix(raw_models, pid, active_provider)
@@ -3482,11 +3482,11 @@ def get_available_models() -> dict:
                     raw_models = []
                     codex_ids = []
                     try:
-                        from hermes_cli.models import provider_model_ids as _provider_model_ids
+                        from jarviscopilot_cli.models import provider_model_ids as _provider_model_ids
 
                         codex_ids = [mid for mid in (_provider_model_ids("openai-codex") or []) if mid]
                     except Exception:
-                        logger.warning("Failed to load OpenAI Codex models from hermes_cli")
+                        logger.warning("Failed to load OpenAI Codex models from jarviscopilot_cli")
 
                     for mid in _read_visible_codex_cache_model_ids():
                         if mid not in codex_ids:
@@ -3513,7 +3513,7 @@ def get_available_models() -> dict:
                     # Nous Portal exposes a curated catalog (~30 models on most
                     # accounts, up to several hundred for enterprise tiers) via
                     # inference-api.nousresearch.com. Like ollama-cloud, we
-                    # live-fetch through hermes_cli.models.provider_model_ids()
+                    # live-fetch through jarviscopilot_cli.models.provider_model_ids()
                     # rather than relying on the static four-entry list, which
                     # chronically drifts out of date (#1538).
                     #
@@ -3529,11 +3529,11 @@ def get_available_models() -> dict:
                     truncated_label_suffix = ""
                     live_fetch_failed = False
                     try:
-                        from hermes_cli.models import provider_model_ids as _provider_model_ids
+                        from jarviscopilot_cli.models import provider_model_ids as _provider_model_ids
 
                         live_ids = _provider_model_ids("nous") or []
                     except Exception:
-                        logger.warning("Failed to load Nous Portal models from hermes_cli")
+                        logger.warning("Failed to load Nous Portal models from jarviscopilot_cli")
                         live_ids = []
                         live_fetch_failed = True
 
@@ -3586,10 +3586,10 @@ def get_available_models() -> dict:
                             "omitting from picker (will retry on next cache rebuild)"
                         )
                     else:
-                        # hermes_cli unavailable / raised — fall back to the
+                        # jarviscopilot_cli unavailable / raised — fall back to the
                         # curated 4-entry static list so the picker is never
                         # empty in this degraded state. This matches pre-#1538
-                        # behaviour for environments without hermes_cli (test
+                        # behaviour for environments without jarviscopilot_cli (test
                         # envs, package mismatches, isolated WebUI builds).
                         raw_models = copy.deepcopy(_PROVIDER_MODELS.get("nous", []))
 
@@ -3613,16 +3613,16 @@ def get_available_models() -> dict:
                     # Two-tier lookup, each in its own try so a failure in one
                     # does not abort the other (the bug pattern that broke
                     # tests/test_issue1527_lmstudio_base_url_classification on
-                    # CI environments where hermes_cli isn't importable —
+                    # CI environments where jarviscopilot_cli isn't importable —
                     # ImportError in the cli tier was hijacking the whole
                     # branch and silently skipping the urlopen fallback).
                     raw_models = []
                     lm_ids: list[str] = []
                     try:
-                        from hermes_cli.models import provider_model_ids as _provider_model_ids
+                        from jarviscopilot_cli.models import provider_model_ids as _provider_model_ids
                         lm_ids = _provider_model_ids("lmstudio") or []
                     except Exception:
-                        logger.debug("hermes_cli LM Studio lookup unavailable; using urlopen fallback")
+                        logger.debug("jarviscopilot_cli LM Studio lookup unavailable; using urlopen fallback")
 
                     if lm_ids:
                         raw_models = [{"id": mid, "label": mid} for mid in lm_ids]
@@ -4338,4 +4338,4 @@ try:
 
     init_profile_state()
 except ImportError:
-    pass  # hermes_cli not available -- default profile only
+    pass  # jarviscopilot_cli not available -- default profile only

@@ -4,7 +4,7 @@ Original PR #1548 added 6 hardcoded `_FALLBACK_MODELS` entries.  This is the
 structural augmentation: WebUI now does TWO live fetches when populating the
 OpenRouter group:
 
-  (1) `hermes_cli.models.fetch_openrouter_models()` — the curated tool-supporting
+  (1) `jarviscopilot_cli.models.fetch_openrouter_models()` — the curated tool-supporting
       list, which goes through the tool-support filter (Kilo-Org/kilocode#9068).
   (2) Direct `https://openrouter.ai/api/v1/models` — filtered to free-tier-only,
       bypassing the tool-support filter so newly-added free variants appear.
@@ -60,7 +60,7 @@ def _isolate_openrouter_cache(monkeypatch):
     Also force `openrouter` as the active provider so the openrouter branch
     in get_available_models() actually runs."""
     try:
-        from hermes_cli import models as _hm
+        from jarviscopilot_cli import models as _hm
 
         monkeypatch.setattr(_hm, "_openrouter_catalog_cache", None, raising=False)
     except Exception:
@@ -112,7 +112,7 @@ def test_openrouter_group_uses_live_fetch_when_available(monkeypatch):
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
     try:
-        from hermes_cli import models as _hm
+        from jarviscopilot_cli import models as _hm
         monkeypatch.setattr(_hm, "_openrouter_catalog_cache", None, raising=False)
     except Exception:
         pass
@@ -139,23 +139,23 @@ def test_openrouter_group_uses_live_fetch_when_available(monkeypatch):
 
 
 def test_openrouter_falls_back_to_static_when_live_fails(monkeypatch):
-    """If both hermes_cli.fetch and the direct urlopen raise, the picker
+    """If both jarviscopilot_cli.fetch and the direct urlopen raise, the picker
     must fall back to the hardcoded `_FALLBACK_MODELS` list — never empty."""
     def _fake_urlopen(req, timeout=None):
         raise OSError("simulated network outage")
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
 
-    # Force hermes_cli to fail too
+    # Force jarviscopilot_cli to fail too
     import sys
-    fake_module = type(sys)("hermes_cli.models")
+    fake_module = type(sys)("jarviscopilot_cli.models")
 
     def _raise(*args, **kwargs):
         raise RuntimeError("simulated import failure")
 
     fake_module.fetch_openrouter_models = _raise
     fake_module.provider_model_ids = lambda *a, **k: []
-    monkeypatch.setitem(sys.modules, "hermes_cli.models", fake_module)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.models", fake_module)
 
     grouped = _get_grouped_models()
     or_group = next((g for g in grouped if g.get("provider_id") == "openrouter"), None)
@@ -195,7 +195,7 @@ def test_free_tier_cap_prevents_picker_drowning(monkeypatch):
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
 
     try:
-        from hermes_cli import models as _hm
+        from jarviscopilot_cli import models as _hm
         monkeypatch.setattr(_hm, "_openrouter_catalog_cache", None, raising=False)
     except Exception:
         pass
@@ -222,10 +222,10 @@ def test_openrouter_dedupe_curated_and_free_tier(monkeypatch):
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
 
     import sys
-    fake_module = type(sys)("hermes_cli.models")
+    fake_module = type(sys)("jarviscopilot_cli.models")
     fake_module.fetch_openrouter_models = lambda **k: [("anthropic/claude-sonnet-4.6", "")]
     fake_module.provider_model_ids = lambda *a, **k: ["anthropic/claude-sonnet-4.6"]
-    monkeypatch.setitem(sys.modules, "hermes_cli.models", fake_module)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.models", fake_module)
 
     grouped = _get_grouped_models()
     or_group = next((g for g in grouped if g.get("provider_id") == "openrouter"), None)

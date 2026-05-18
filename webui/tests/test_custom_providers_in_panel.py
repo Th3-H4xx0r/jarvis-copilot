@@ -14,21 +14,21 @@ import api.profiles as profiles
 from tests._pytest_port import BASE
 
 
-def _install_fake_hermes_cli(monkeypatch):
-    """Stub hermes_cli so tests are deterministic and offline."""
-    fake_pkg = types.ModuleType("hermes_cli")
+def _install_fake_jarviscopilot_cli(monkeypatch):
+    """Stub jarviscopilot_cli so tests are deterministic and offline."""
+    fake_pkg = types.ModuleType("jarviscopilot_cli")
     fake_pkg.__path__ = []
 
-    fake_models = types.ModuleType("hermes_cli.models")
+    fake_models = types.ModuleType("jarviscopilot_cli.models")
     fake_models.list_available_providers = lambda: []
     fake_models.provider_model_ids = lambda pid: []
 
-    fake_auth = types.ModuleType("hermes_cli.auth")
+    fake_auth = types.ModuleType("jarviscopilot_cli.auth")
     fake_auth.get_auth_status = lambda _pid: {}
 
-    monkeypatch.setitem(sys.modules, "hermes_cli", fake_pkg)
-    monkeypatch.setitem(sys.modules, "hermes_cli.models", fake_models)
-    monkeypatch.setitem(sys.modules, "hermes_cli.auth", fake_auth)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_pkg)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.models", fake_models)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.auth", fake_auth)
     monkeypatch.delitem(sys.modules, "agent.credential_pool", raising=False)
     monkeypatch.delitem(sys.modules, "agent", raising=False)
 
@@ -62,7 +62,7 @@ class TestCustomProvidersInGetProviders:
 
     def test_custom_provider_with_models(self, monkeypatch, tmp_path):
         """glmcode custom provider with models should appear in provider list."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
         monkeypatch.setenv("GLMCODE_API_KEY", "test-glm-key-12345678")
 
@@ -104,7 +104,7 @@ class TestCustomProvidersInGetProviders:
 
     def test_custom_provider_with_multi_models(self, monkeypatch, tmp_path):
         """Custom provider with `models` list should expose all entries."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-test-12345678")
 
@@ -135,7 +135,7 @@ class TestCustomProvidersInGetProviders:
 
     def test_custom_provider_no_key(self, monkeypatch, tmp_path):
         """Custom provider without a configured key should show has_key=False."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
         # Ensure TIMICC_API_KEY is not set
         monkeypatch.delenv("TIMICC_API_KEY", raising=False)
@@ -162,7 +162,7 @@ class TestCustomProvidersInGetProviders:
 
     def test_empty_custom_providers_no_crash(self, monkeypatch, tmp_path):
         """get_providers should not crash when custom_providers is empty list."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
 
         old_cfg, old_mtime = self._setup_cfg([])
@@ -182,7 +182,7 @@ class TestCustomProvidersInGetProviders:
 
     def test_custom_provider_bare_api_key(self, monkeypatch, tmp_path):
         """Custom provider with inline api_key (not env ref) should show has_key=True."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
 
         old_cfg, old_mtime = self._setup_cfg([
@@ -204,7 +204,7 @@ class TestCustomProvidersInGetProviders:
 
     def test_custom_provider_parenthesized_port_uses_safe_provider_id(self, monkeypatch, tmp_path):
         """Local setup names with ports must expose the same safe id used by routing."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
         monkeypatch.setenv("LOCAL_PORT_API_KEY", "sk-local-port-test-12345678")
 
@@ -236,7 +236,7 @@ class TestCustomProvidersInGetProviders:
 
     def test_custom_provider_no_name_skipped(self, monkeypatch, tmp_path):
         """Malformed custom provider without name should be silently skipped."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
 
         old_cfg, old_mtime = self._setup_cfg([

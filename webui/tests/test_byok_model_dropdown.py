@@ -71,7 +71,7 @@ class TestActiveProviderNormalization:
         fake_prov = mock.MagicMock()
         fake_prov.return_value = []
         try:
-            import hermes_cli.models as hm
+            import jarviscopilot_cli.models as hm
             monkeypatch.setattr(hm, "list_available_providers", fake_prov)
         except Exception:
             pass
@@ -149,8 +149,8 @@ class TestLiveModelsProviderNormalization:
             "alias normalization must occur before ids = _pmi(provider)"
         )
 
-    def test_alias_resolver_works_without_hermes_cli(self):
-        """Normalization must work even when hermes_cli is not importable —
+    def test_alias_resolver_works_without_jarviscopilot_cli(self):
+        """Normalization must work even when jarviscopilot_cli is not importable —
         CI and installs without the agent cloned alongside the WebUI.
         The WebUI ships its own _PROVIDER_ALIASES table; the agent's table
         is merged only when available."""
@@ -181,12 +181,12 @@ class TestLiveModelsCustomProviderFallback:
     def _install_provider_model_ids(monkeypatch, fn):
         import types
 
-        hermes_cli = types.ModuleType("hermes_cli")
-        hermes_cli.__path__ = []
-        models = types.ModuleType("hermes_cli.models")
+        jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
+        jarviscopilot_cli.__path__ = []
+        models = types.ModuleType("jarviscopilot_cli.models")
         models.provider_model_ids = fn
-        monkeypatch.setitem(sys.modules, "hermes_cli", hermes_cli)
-        monkeypatch.setitem(sys.modules, "hermes_cli.models", models)
+        monkeypatch.setitem(sys.modules, "jarviscopilot_cli", jarviscopilot_cli)
+        monkeypatch.setitem(sys.modules, "jarviscopilot_cli.models", models)
 
     @staticmethod
     def _call_live_models(monkeypatch, cfg, provider):
@@ -251,7 +251,7 @@ class TestLiveModelsCustomProviderFallback:
 
         # Mock provider_model_ids to return [] (simulating no live endpoint)
         try:
-            import hermes_cli.models as hm
+            import jarviscopilot_cli.models as hm
             monkeypatch.setattr(hm, "provider_model_ids", lambda p: [])
         except Exception:
             pass
@@ -389,7 +389,7 @@ class TestKnownProvidersUnaffected:
     def test_custom_unaffected(self):
         """'custom' is not in _PROVIDER_ALIASES so normalization is a no-op."""
         try:
-            from hermes_cli.models import _PROVIDER_ALIASES
+            from jarviscopilot_cli.models import _PROVIDER_ALIASES
             assert "custom" not in _PROVIDER_ALIASES, (
                 "'custom' must not be aliased to anything — it's a special sentinel"
             )
@@ -414,11 +414,11 @@ class TestProviderIdInGroupResponse:
         monkeypatch.setattr(c, "_get_config_path", lambda: cfgfile)
         c.reload_config()
         try:
-            import hermes_cli.models as hm
+            import jarviscopilot_cli.models as hm
             monkeypatch.setattr(hm, "list_available_providers", lambda: [
                 {"id": "zai", "authenticated": True}
             ])
-            import hermes_cli.auth as ha
+            import jarviscopilot_cli.auth as ha
             monkeypatch.setattr(ha, "get_auth_status", lambda p: {"key_source": "env"})
         except Exception:
             pass
@@ -468,7 +468,7 @@ class TestOllamaAliasEdgeCase:
         """'ollama' maps to 'custom' in _PROVIDER_ALIASES — verify this is the
         intended behavior post-normalization (not a silent breakage)."""
         try:
-            from hermes_cli.models import _PROVIDER_ALIASES
+            from jarviscopilot_cli.models import _PROVIDER_ALIASES
             # 'ollama' -> 'custom' means ollama users hit the custom_providers path
             # This is fine — ollama models appear via base_url auto-detection (step 3)
             # in get_available_models, not via _PROVIDER_MODELS lookup.
@@ -496,7 +496,7 @@ class TestGetAvailableModelsReturnsCanonicalProvider:
         monkeypatch.setattr(c, "_get_config_path", lambda: cfgfile)
         c.reload_config()
         try:
-            import hermes_cli.models as hm
+            import jarviscopilot_cli.models as hm
             monkeypatch.setattr(hm, "list_available_providers", lambda: [])
         except Exception:
             pass

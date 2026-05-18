@@ -92,7 +92,7 @@ class TestProfileCreateAPIWithEndpoint:
     _PROFILE_NAME = "test-ep-sprint31"
 
     def _cleanup(self):
-        """Remove the test profile from wherever hermes_cli placed it."""
+        """Remove the test profile from wherever jarviscopilot_cli placed it."""
         home_hermes = pathlib.Path.home() / ".hermes"
         # Walk all profile roots: real ~/.hermes, and any subdirs that might be HERMES_HOME
         roots_to_check = set()

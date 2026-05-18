@@ -1,6 +1,6 @@
 """Expose hermes-agent's COMMAND_REGISTRY to the webui frontend.
 
-This module is the single integration point with hermes_cli.commands.
+This module is the single integration point with jarviscopilot_cli.commands.
 If hermes-agent is unavailable the endpoint degrades to an empty list
 so the frontend can still load with WEBUI_ONLY commands.
 """
@@ -23,18 +23,18 @@ _NEVER_EXPOSE: frozenset[str] = frozenset({
 def list_commands(_registry=None) -> list[dict[str, Any]]:
     """Return COMMAND_REGISTRY entries as JSON-friendly dicts.
 
-    Returns empty list if hermes_cli is not installed (graceful
+    Returns empty list if jarviscopilot_cli is not installed (graceful
     degradation -- the frontend has its own fallback minimum set).
 
     Args:
         _registry: Optional injected registry for testing. When None
-            (production), imports COMMAND_REGISTRY from hermes_cli.
+            (production), imports COMMAND_REGISTRY from jarviscopilot_cli.
     """
     if _registry is None:
         try:
-            from hermes_cli.commands import COMMAND_REGISTRY as _registry
+            from jarviscopilot_cli.commands import COMMAND_REGISTRY as _registry
         except ImportError:
-            logger.warning("hermes_cli.commands not importable -- /api/commands returns []")
+            logger.warning("jarviscopilot_cli.commands not importable -- /api/commands returns []")
             return []
 
     out: list[dict[str, Any]] = []
@@ -56,7 +56,7 @@ def list_commands(_registry=None) -> list[dict[str, Any]]:
 
     # Include plugin-registered slash commands
     try:
-        from hermes_cli.plugins import get_plugin_commands
+        from jarviscopilot_cli.plugins import get_plugin_commands
         plugin_cmds = get_plugin_commands() or {}
         existing_names = {c['name'] for c in out}
         for cmd_name, cmd_info in plugin_cmds.items():
@@ -98,7 +98,7 @@ def execute_plugin_command(command: str) -> str:
         raise ValueError("command is required")
 
     try:
-        from hermes_cli.plugins import (
+        from jarviscopilot_cli.plugins import (
             get_plugin_command_handler,
             resolve_plugin_command_result,
         )

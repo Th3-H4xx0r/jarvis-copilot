@@ -166,12 +166,12 @@ class TestStatusFromRuntimeOAuth:
     def test_copilot_not_ready_without_credentials(self, tmp_path):
         """copilot configured but no credentials -> provider_ready False.
 
-        We mock hermes_cli.auth to be unavailable so the function falls through
+        We mock jarviscopilot_cli.auth to be unavailable so the function falls through
         to the auth.json path.  With no auth.json the result must be False.
         """
         import unittest.mock
 
-        # Prevent the hermes_cli fast path from finding real credentials
+        # Prevent the jarviscopilot_cli fast path from finding real credentials
         with unittest.mock.patch(
             "api.onboarding._provider_oauth_authenticated",
             return_value=False,

@@ -68,18 +68,18 @@ def _install_fake_compression_runtime(monkeypatch, agent_cls):
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
 
     import api.config as _cfg
-    fake_runtime_provider = types.ModuleType("hermes_cli.runtime_provider")
+    fake_runtime_provider = types.ModuleType("jarviscopilot_cli.runtime_provider")
     fake_runtime_provider.resolve_runtime_provider = lambda requested=None: {
         "api_key": "fake-key",
         "provider": requested or "openai",
         "base_url": "https://api.openai.com/v1",
     }
-    fake_hermes_cli = types.ModuleType("hermes_cli")
-    fake_hermes_cli.__path__ = []
-    fake_hermes_cli.runtime_provider = fake_runtime_provider
-    monkeypatch.setitem(sys.modules, "hermes_cli", fake_hermes_cli)
-    monkeypatch.setitem(sys.modules, "hermes_cli.runtime_provider", fake_runtime_provider)
-    import hermes_cli.runtime_provider as _rtp
+    fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
+    fake_jarviscopilot_cli.__path__ = []
+    fake_jarviscopilot_cli.runtime_provider = fake_runtime_provider
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_jarviscopilot_cli)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.runtime_provider", fake_runtime_provider)
+    import jarviscopilot_cli.runtime_provider as _rtp
 
     monkeypatch.setattr(
         _cfg,

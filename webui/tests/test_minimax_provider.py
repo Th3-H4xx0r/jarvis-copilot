@@ -19,7 +19,7 @@ def _force_env_fallback(monkeypatch):
     real_import = builtins.__import__
 
     def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name in ("hermes_cli.models", "hermes_cli.auth"):
+        if name in ("jarviscopilot_cli.models", "jarviscopilot_cli.auth"):
             raise ImportError(name)
         return real_import(name, globals, locals, fromlist, level)
 

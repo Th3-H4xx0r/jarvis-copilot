@@ -10,28 +10,28 @@ import api.profiles as profiles
 _AMBIENT_SOURCES = {"gh_cli", "gh auth token"}
 
 
-def _install_fake_hermes_cli(monkeypatch, *, with_load_pool: bool = False, pool_data: dict | None = None):
-    """Stub hermes_cli modules so tests are deterministic and offline.
+def _install_fake_jarviscopilot_cli(monkeypatch, *, with_load_pool: bool = False, pool_data: dict | None = None):
+    """Stub jarviscopilot_cli modules so tests are deterministic and offline.
 
-    When *with_load_pool* is True, also stubs hermes_cli.credential_pool with a
+    When *with_load_pool* is True, also stubs jarviscopilot_cli.credential_pool with a
     suppression-aware load_pool() implementation that mirrors upstream behaviour:
     entries whose source/label/key_source signals ambient gh-cli auth are filtered out.
     """
-    fake_pkg = types.ModuleType("hermes_cli")
+    fake_pkg = types.ModuleType("jarviscopilot_cli")
     fake_pkg.__path__ = []
 
-    fake_models = types.ModuleType("hermes_cli.models")
+    fake_models = types.ModuleType("jarviscopilot_cli.models")
     fake_models.list_available_providers = lambda: []
     fake_models.provider_model_ids = lambda pid: (
         ["gpt-oss:20b", "qwen3:30b-a3b"] if pid == "ollama-cloud" else []
     )
 
-    fake_auth = types.ModuleType("hermes_cli.auth")
+    fake_auth = types.ModuleType("jarviscopilot_cli.auth")
     fake_auth.get_auth_status = lambda _pid: {}
 
-    monkeypatch.setitem(sys.modules, "hermes_cli", fake_pkg)
-    monkeypatch.setitem(sys.modules, "hermes_cli.models", fake_models)
-    monkeypatch.setitem(sys.modules, "hermes_cli.auth", fake_auth)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_pkg)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.models", fake_models)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.auth", fake_auth)
 
     # Always remove the real agent.credential_pool so get_available_models() takes
     # the ImportError fallback path and reads from the monkeypatched auth store,
@@ -71,7 +71,7 @@ def _install_fake_hermes_cli(monkeypatch, *, with_load_pool: bool = False, pool_
 
 def _call_get_available_models(monkeypatch, tmp_path, auth_payload, *, with_load_pool: bool = False):
     """Call get_available_models() with auth.json pinned to a temp Hermes home."""
-    _install_fake_hermes_cli(
+    _install_fake_jarviscopilot_cli(
         monkeypatch,
         with_load_pool=with_load_pool,
         pool_data=auth_payload.get("credential_pool", {}),
@@ -448,17 +448,17 @@ def test_auth_store_active_provider_alias_is_resolved(monkeypatch, tmp_path):
 
 
 def test_ollama_cloud_empty_catalog_skips_group(monkeypatch, tmp_path):
-    """When hermes_cli returns no models for ollama-cloud, the group is omitted.
+    """When jarviscopilot_cli returns no models for ollama-cloud, the group is omitted.
 
     Matches the named-custom and unknown-provider branches: we don't invent a
     catalog we can't enumerate. The logger.warning in the except branch keeps
     diagnostics available for operators.
     """
-    _install_fake_hermes_cli(monkeypatch)
+    _install_fake_jarviscopilot_cli(monkeypatch)
 
     # Override the stub to return empty for ollama-cloud.
     import sys as _sys
-    _sys.modules["hermes_cli.models"].provider_model_ids = lambda pid: []
+    _sys.modules["jarviscopilot_cli.models"].provider_model_ids = lambda pid: []
 
     auth_payload = {
         "version": 1,
@@ -547,7 +547,7 @@ def test_fallback_path_resolves_alias_when_load_pool_unavailable(monkeypatch, tm
     """When agent.credential_pool can't be imported, the manual-inspection
     branch must still canonicalize pool keys so aliased names (e.g. 'google')
     end up under their canonical provider id ('gemini')."""
-    _install_fake_hermes_cli(monkeypatch)
+    _install_fake_jarviscopilot_cli(monkeypatch)
     # Ensure agent.credential_pool is not importable so the fallback branch runs.
     monkeypatch.setitem(sys.modules, "agent.credential_pool", None)
 

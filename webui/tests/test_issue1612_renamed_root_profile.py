@@ -93,7 +93,7 @@ def test_is_root_profile_handles_list_profiles_failure(monkeypatch):
     import api.profiles as p
 
     def boom():
-        raise RuntimeError("hermes_cli explosion")
+        raise RuntimeError("jarviscopilot_cli explosion")
     monkeypatch.setattr(p, 'list_profiles_api', boom)
     p._invalidate_root_profile_cache()
 

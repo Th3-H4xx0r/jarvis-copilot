@@ -1,4 +1,4 @@
-"""Tests for the Kanban DB layer (hermes_cli.kanban_db)."""
+"""Tests for the Kanban DB layer (jarviscopilot_cli.kanban_db)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from hermes_cli import kanban_db as kb
+from jarviscopilot_cli import kanban_db as kb
 
 
 @pytest.fixture
@@ -170,7 +170,7 @@ def test_claim_fails_on_non_ready(kanban_home):
 
 def test_stale_claim_reclaimed(kanban_home, monkeypatch):
     import signal
-    import hermes_cli.kanban_db as _kb
+    import jarviscopilot_cli.kanban_db as _kb
 
     with kb.connect() as conn:
         t = kb.create_task(conn, title="x", assignee="a")
@@ -204,7 +204,7 @@ def test_stale_claim_with_live_pid_extends_instead_of_reclaiming(
     ``DEFAULT_CLAIM_TTL_SECONDS`` inside a single tool-free LLM call;
     killing those healthy workers produces a respawn loop with zero
     progress."""
-    import hermes_cli.kanban_db as _kb
+    import jarviscopilot_cli.kanban_db as _kb
 
     with kb.connect() as conn:
         t = kb.create_task(conn, title="x", assignee="a")
@@ -247,7 +247,7 @@ def test_stale_claim_reclaim_event_records_diagnostic_payload(
     (#23025: previous payload only had ``stale_lock`` which gives no
     timing context)."""
     import json
-    import hermes_cli.kanban_db as _kb
+    import jarviscopilot_cli.kanban_db as _kb
 
     with kb.connect() as conn:
         t = kb.create_task(conn, title="x", assignee="a")
@@ -610,7 +610,7 @@ def test_dispatch_skips_nonspawnable_into_separate_bucket(kanban_home, monkeypat
     ``skipped_unassigned`` (which is operator-actionable) — they go in
     the dedicated ``skipped_nonspawnable`` bucket so health telemetry
     can suppress false-positive "stuck" warnings."""
-    from hermes_cli import profiles
+    from jarviscopilot_cli import profiles
     monkeypatch.setattr(profiles, "profile_exists", lambda name: False)
     with kb.connect() as conn:
         t = kb.create_task(conn, title="for-terminal", assignee="orion-cc")
@@ -624,7 +624,7 @@ def test_has_spawnable_ready_false_when_only_terminal_lanes(kanban_home, monkeyp
     """``has_spawnable_ready`` returns False when every ready task is
     assigned to a control-plane lane — used by gateway/CLI dispatchers
     to silence the stuck-warn while terminals still have queued work."""
-    from hermes_cli import profiles
+    from jarviscopilot_cli import profiles
     monkeypatch.setattr(profiles, "profile_exists", lambda name: False)
     with kb.connect() as conn:
         kb.create_task(conn, title="t1", assignee="orion-cc")
@@ -636,7 +636,7 @@ def test_has_spawnable_ready_true_when_real_profile_present(kanban_home, monkeyp
     """``has_spawnable_ready`` returns True as soon as ANY ready task
     has an assignee that maps to a real Hermes profile — preserves the
     real "stuck" signal when a daily/agent task is queued."""
-    from hermes_cli import profiles
+    from jarviscopilot_cli import profiles
     monkeypatch.setattr(
         profiles, "profile_exists", lambda name: name == "daily"
     )
@@ -1195,7 +1195,7 @@ def test_connect_falls_back_to_delete_on_locking_protocol(kanban_home, caplog):
             *args, factory=_WalBlockingConnection, **kwargs
         )
 
-    with _patch("hermes_cli.kanban_db.sqlite3.connect", side_effect=wal_blocking_connect):
+    with _patch("jarviscopilot_cli.kanban_db.sqlite3.connect", side_effect=wal_blocking_connect):
         with caplog.at_level("WARNING", logger="hermes_state"):
             conn = kb.connect()
 
@@ -1348,7 +1348,7 @@ def test_migrate_add_optional_columns_tolerates_concurrent_migration(kanban_home
 def test_resolve_hermes_argv_prefers_path_shim(monkeypatch):
     """When `hermes` is on PATH, use the shim — preserves familiar ps output."""
     import shutil
-    import hermes_cli.kanban_db as kb
+    import jarviscopilot_cli.kanban_db as kb
 
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/local/bin/hermes")
     argv = kb._resolve_hermes_argv()
@@ -1356,7 +1356,7 @@ def test_resolve_hermes_argv_prefers_path_shim(monkeypatch):
 
 
 def test_resolve_hermes_argv_falls_back_to_module_form_when_no_path_shim(monkeypatch):
-    """When the shim is not on PATH, fall back to `python -m hermes_cli.main`.
+    """When the shim is not on PATH, fall back to `python -m jarviscopilot_cli.main`.
 
     Pins the correct module name (NOT `hermes` — there is no top-level
     `hermes` package). Regression for #23198: the original PR shipped
@@ -1365,25 +1365,25 @@ def test_resolve_hermes_argv_falls_back_to_module_form_when_no_path_shim(monkeyp
     """
     import shutil
     import sys
-    import hermes_cli.kanban_db as kb
+    import jarviscopilot_cli.kanban_db as kb
 
     monkeypatch.setattr(shutil, "which", lambda name: None)
     argv = kb._resolve_hermes_argv()
-    assert argv == [sys.executable, "-m", "hermes_cli.main"]
+    assert argv == [sys.executable, "-m", "jarviscopilot_cli.main"]
 
 
 def test_resolve_hermes_argv_module_actually_runs():
     """The fallback module name must be importable + runnable.
 
     A unit test that pins the literal string is necessary but not
-    sufficient — if `hermes_cli.main` ever loses `if __name__ == "__main__"`
-    handling or its argparse setup, `python -m hermes_cli.main --version`
+    sufficient — if `jarviscopilot_cli.main` ever loses `if __name__ == "__main__"`
+    handling or its argparse setup, `python -m jarviscopilot_cli.main --version`
     would fail and so would every dispatcher spawn that hits the fallback.
     Run it as a real subprocess to catch that regression.
     """
     import subprocess
     import sys
-    import hermes_cli.kanban_db as kb
+    import jarviscopilot_cli.kanban_db as kb
     import shutil
     import unittest.mock as mock
 

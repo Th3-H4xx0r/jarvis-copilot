@@ -1,4 +1,4 @@
-﻿# ============================================================================
+# ============================================================================
 # Hermes Agent Installer for Windows
 # ============================================================================
 # Installation script for Windows (PowerShell).
@@ -1780,9 +1780,9 @@ function Invoke-SetupWizard {
 
     # Run hermes setup using the venv Python directly (no activation needed)
     if (-not $NoVenv) {
-        & ".\venv\Scripts\python.exe" -m hermes_cli.main setup
+        & ".\venv\Scripts\python.exe" -m jarviscopilot_cli.main setup
     } else {
-        python -m hermes_cli.main setup
+        python -m jarviscopilot_cli.main setup
     }
 
     Pop-Location

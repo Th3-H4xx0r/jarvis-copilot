@@ -227,13 +227,13 @@ def test_no_api_key_handoff_summary_persists_fallback_summary(monkeypatch):
     )
     monkeypatch.setattr(cfg, "resolve_model_provider", lambda resolved_model=None: ("gpt-test", "openrouter", None))
 
-    fake_runtime_module = types.ModuleType("hermes_cli.runtime_provider")
+    fake_runtime_module = types.ModuleType("jarviscopilot_cli.runtime_provider")
     fake_runtime_module.resolve_runtime_provider = lambda requested=None: {"api_key": "", "provider": "openrouter", "base_url": None}
-    fake_hermes_cli = types.ModuleType("hermes_cli")
-    fake_hermes_cli.__path__ = []
-    fake_hermes_cli.runtime_provider = fake_runtime_module
-    monkeypatch.setitem(sys.modules, "hermes_cli", fake_hermes_cli)
-    monkeypatch.setitem(sys.modules, "hermes_cli.runtime_provider", fake_runtime_module)
+    fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
+    fake_jarviscopilot_cli.__path__ = []
+    fake_jarviscopilot_cli.runtime_provider = fake_runtime_module
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_jarviscopilot_cli)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.runtime_provider", fake_runtime_module)
 
     response = routes._handle_handoff_summary(object(), {"session_id": "session-without-api-key"})
 
@@ -282,17 +282,17 @@ def test_exception_handoff_summary_persists_fallback_summary(monkeypatch):
     )
     monkeypatch.setattr(cfg, "resolve_model_provider", lambda resolved_model=None: ("gpt-test", "openrouter", None))
 
-    fake_runtime_module = types.ModuleType("hermes_cli.runtime_provider")
+    fake_runtime_module = types.ModuleType("jarviscopilot_cli.runtime_provider")
     fake_runtime_module.resolve_runtime_provider = lambda requested=None: {
         "api_key": "x",
         "provider": "openrouter",
         "base_url": None,
     }
-    fake_hermes_cli = types.ModuleType("hermes_cli")
-    fake_hermes_cli.__path__ = []
-    fake_hermes_cli.runtime_provider = fake_runtime_module
-    monkeypatch.setitem(sys.modules, "hermes_cli", fake_hermes_cli)
-    monkeypatch.setitem(sys.modules, "hermes_cli.runtime_provider", fake_runtime_module)
+    fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
+    fake_jarviscopilot_cli.__path__ = []
+    fake_jarviscopilot_cli.runtime_provider = fake_runtime_module
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_jarviscopilot_cli)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.runtime_provider", fake_runtime_module)
 
     class _Client:
         class completions:
@@ -424,17 +424,17 @@ def test_handoff_summary_retries_once_when_length_limit_reached(monkeypatch):
     fake_run_agent.AIAgent = _LengthAwareAgent
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
 
-    fake_runtime_module = types.ModuleType("hermes_cli.runtime_provider")
+    fake_runtime_module = types.ModuleType("jarviscopilot_cli.runtime_provider")
     fake_runtime_module.resolve_runtime_provider = lambda requested=None: {
         "api_key": "x",
         "provider": "openrouter",
         "base_url": None,
     }
-    fake_hermes_cli = types.ModuleType("hermes_cli")
-    fake_hermes_cli.__path__ = []
-    fake_hermes_cli.runtime_provider = fake_runtime_module
-    monkeypatch.setitem(sys.modules, "hermes_cli", fake_hermes_cli)
-    monkeypatch.setitem(sys.modules, "hermes_cli.runtime_provider", fake_runtime_module)
+    fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
+    fake_jarviscopilot_cli.__path__ = []
+    fake_jarviscopilot_cli.runtime_provider = fake_runtime_module
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_jarviscopilot_cli)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.runtime_provider", fake_runtime_module)
 
     response = routes._handle_handoff_summary(object(), {"session_id": "session-length-retry"})
 
@@ -519,17 +519,17 @@ def test_handoff_summary_falls_back_when_retry_still_incomplete(monkeypatch):
     fake_run_agent.AIAgent = _LengthAwareAgent
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
 
-    fake_runtime_module = types.ModuleType("hermes_cli.runtime_provider")
+    fake_runtime_module = types.ModuleType("jarviscopilot_cli.runtime_provider")
     fake_runtime_module.resolve_runtime_provider = lambda requested=None: {
         "api_key": "x",
         "provider": "openrouter",
         "base_url": None,
     }
-    fake_hermes_cli = types.ModuleType("hermes_cli")
-    fake_hermes_cli.__path__ = []
-    fake_hermes_cli.runtime_provider = fake_runtime_module
-    monkeypatch.setitem(sys.modules, "hermes_cli", fake_hermes_cli)
-    monkeypatch.setitem(sys.modules, "hermes_cli.runtime_provider", fake_runtime_module)
+    fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
+    fake_jarviscopilot_cli.__path__ = []
+    fake_jarviscopilot_cli.runtime_provider = fake_runtime_module
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_jarviscopilot_cli)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.runtime_provider", fake_runtime_module)
 
     response = routes._handle_handoff_summary(object(), {"session_id": "session-length-fallback"})
 

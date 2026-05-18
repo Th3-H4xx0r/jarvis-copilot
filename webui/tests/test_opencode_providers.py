@@ -66,11 +66,11 @@ def test_opencode_go_in_provider_models():
 # ── Env-var fallback detection ────────────────────────────────────────
 
 def _models_with_env_key(monkeypatch, env_var, expected_provider_display):
-    """Helper: fake hermes_cli unavailable, set an env var, check detection."""
-    # Force the env-var fallback path by making hermes_cli import fail
-    fake_mod = types.ModuleType("hermes_cli.models")
+    """Helper: fake jarviscopilot_cli unavailable, set an env var, check detection."""
+    # Force the env-var fallback path by making jarviscopilot_cli import fail
+    fake_mod = types.ModuleType("jarviscopilot_cli.models")
     fake_mod.list_available_providers = None  # will raise on call
-    monkeypatch.setitem(sys.modules, "hermes_cli.models", fake_mod)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.models", fake_mod)
     monkeypatch.delattr(fake_mod, "list_available_providers")
 
     old_cfg = dict(config.cfg)
@@ -119,7 +119,7 @@ def test_live_models_handler_delegates_to_provider_model_ids():
     import pathlib
     routes_src = (pathlib.Path(__file__).parent.parent / "api" / "routes.py").read_text()
     assert "provider_model_ids" in routes_src, (
-        "_handle_live_models must call hermes_cli.models.provider_model_ids() "
+        "_handle_live_models must call jarviscopilot_cli.models.provider_model_ids() "
         "to delegate all provider-specific live-fetch logic to the agent"
     )
     # The old per-provider base_url hardcoding should be gone

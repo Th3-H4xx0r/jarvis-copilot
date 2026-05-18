@@ -45,7 +45,7 @@ from tools.environments.local import _find_shell, _resolve_safe_cwd, _sanitize_s
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from hermes_cli.config import get_hermes_home
+from jarviscopilot_cli.config import get_hermes_home
 
 logger = logging.getLogger(__name__)
 

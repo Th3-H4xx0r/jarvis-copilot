@@ -24,11 +24,11 @@ REPO_ROOT = Path(__file__).parent.parent.resolve()
 
 
 # ---------------------------------------------------------------------------
-# Helper: build a fake hermes_cli.auth module so tests work without the dep
+# Helper: build a fake jarviscopilot_cli.auth module so tests work without the dep
 # ---------------------------------------------------------------------------
 
 def _make_fake_auth(logged_in: bool, error: str | None = None, key_source: str = "oauth"):
-    mod = types.ModuleType("hermes_cli.auth")
+    mod = types.ModuleType("jarviscopilot_cli.auth")
     def get_auth_status(pid):
         if logged_in:
             return {"logged_in": True, "key_source": key_source}
@@ -57,7 +57,7 @@ class TestGetProvidersOauthBlock:
         # Patch _provider_has_key to return our desired value
         with patch.object(prov_mod, "_provider_has_key", return_value=has_key_in_config), \
              patch.object(prov_mod, "_provider_is_oauth", side_effect=lambda pid: pid in ("openai-codex", "nous", "copilot")), \
-             patch.dict(sys.modules, {"hermes_cli.auth": fake_auth_module}), \
+             patch.dict(sys.modules, {"jarviscopilot_cli.auth": fake_auth_module}), \
              patch.object(prov_mod, "get_config", return_value={}):
             result = prov_mod.get_providers()
 
@@ -116,23 +116,23 @@ class TestGetProvidersOauthBlock:
         assert p["has_key"] is True
         assert p["auth_error"] == err_msg
 
-    def test_hermes_cli_import_error_does_not_discard_config_yaml_key(self):
+    def test_jarviscopilot_cli_import_error_does_not_discard_config_yaml_key(self):
         """
         REGRESSION TEST (#1202 Bug 1 - exception path):
-        If hermes_cli.auth cannot be imported, has_key from _provider_has_key()
+        If jarviscopilot_cli.auth cannot be imported, has_key from _provider_has_key()
         must be preserved. Before the fix, the except clause forced has_key=False.
         """
         import api.providers as prov_mod
 
         # Use a module that raises ImportError
-        bad_mod = types.ModuleType("hermes_cli.auth")
+        bad_mod = types.ModuleType("jarviscopilot_cli.auth")
         def bad_get_auth_status(pid):
-            raise ImportError("hermes_cli not installed")
+            raise ImportError("jarviscopilot_cli not installed")
         bad_mod.get_auth_status = bad_get_auth_status
 
         with patch.object(prov_mod, "_provider_has_key", return_value=True), \
              patch.object(prov_mod, "_provider_is_oauth", side_effect=lambda pid: pid in ("openai-codex", "nous", "copilot")), \
-             patch.dict(sys.modules, {"hermes_cli.auth": bad_mod}), \
+             patch.dict(sys.modules, {"jarviscopilot_cli.auth": bad_mod}), \
              patch.object(prov_mod, "get_config", return_value={}):
             result = prov_mod.get_providers()
 
@@ -140,7 +140,7 @@ class TestGetProvidersOauthBlock:
         p = providers.get("openai-codex")
         assert p is not None
         assert p["has_key"] is True, (
-            "REGRESSION: hermes_cli import failure discarded config.yaml token. "
+            "REGRESSION: jarviscopilot_cli import failure discarded config.yaml token. "
             "Exception handler must not override a known-good has_key=True."
         )
 
@@ -149,7 +149,7 @@ class TestGetProvidersOauthBlock:
         import api.providers as prov_mod
         auth = _make_fake_auth(logged_in=False)
         with patch.object(prov_mod, "_provider_has_key", return_value=False), \
-             patch.dict(sys.modules, {"hermes_cli.auth": auth}), \
+             patch.dict(sys.modules, {"jarviscopilot_cli.auth": auth}), \
              patch.object(prov_mod, "get_config", return_value={}):
             result = prov_mod.get_providers()
 
@@ -255,7 +255,7 @@ class TestI18nNewKeys:
         import api.providers as prov_mod
         auth = _make_fake_auth(logged_in=False)
         with patch.object(prov_mod, "_provider_has_key", return_value=False), \
-             patch.dict(sys.modules, {"hermes_cli.auth": auth}), \
+             patch.dict(sys.modules, {"jarviscopilot_cli.auth": auth}), \
              patch.object(prov_mod, "get_config", return_value={}):
             result = prov_mod.get_providers()
 

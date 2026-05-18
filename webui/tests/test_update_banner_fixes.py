@@ -543,17 +543,17 @@ class TestUpdateSummaryRouteModelSelection:
         monkeypatch.setattr(cfg, 'resolve_model_provider', fake_resolve_model_provider)
         monkeypatch.setattr(cfg, 'resolve_custom_provider_connection', lambda provider: (None, None))
 
-        fake_runtime_provider = types.ModuleType('hermes_cli.runtime_provider')
+        fake_runtime_provider = types.ModuleType('jarviscopilot_cli.runtime_provider')
         fake_runtime_provider.resolve_runtime_provider = lambda requested=None: {
             'api_key': 'fake-key',
             'provider': requested or 'openai',
             'base_url': 'https://example.test/v1',
         }
-        fake_hermes_cli = types.ModuleType('hermes_cli')
-        fake_hermes_cli.__path__ = []
-        fake_hermes_cli.runtime_provider = fake_runtime_provider
-        monkeypatch.setitem(sys.modules, 'hermes_cli', fake_hermes_cli)
-        monkeypatch.setitem(sys.modules, 'hermes_cli.runtime_provider', fake_runtime_provider)
+        fake_jarviscopilot_cli = types.ModuleType('jarviscopilot_cli')
+        fake_jarviscopilot_cli.__path__ = []
+        fake_jarviscopilot_cli.runtime_provider = fake_runtime_provider
+        monkeypatch.setitem(sys.modules, 'jarviscopilot_cli', fake_jarviscopilot_cli)
+        monkeypatch.setitem(sys.modules, 'jarviscopilot_cli.runtime_provider', fake_runtime_provider)
 
         class FakeAuxClient:
             class chat:

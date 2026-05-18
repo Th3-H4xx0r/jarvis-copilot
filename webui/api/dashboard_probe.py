@@ -67,7 +67,7 @@ def _looks_like_official_dashboard(payload: object) -> bool:
     version = payload.get("version")
     if not isinstance(version, str) or not version.strip():
         return False
-    # Verified against current JarvisCopilot `hermes_cli.web_server.get_status()`:
+    # Verified against current JarvisCopilot `jarviscopilot_cli.web_server.get_status()`:
     # /api/status returns version plus these Hermes-specific fields. Requiring at
     # least one avoids treating any generic {version: ...} local service as the
     # official dashboard.

@@ -41,21 +41,21 @@ def _post(path, body=None):
             return {"error": body_text}, e.code
 
 
-def _install_fake_hermes_cli(monkeypatch):
-    """Stub hermes_cli modules so tests are deterministic and offline."""
-    fake_pkg = types.ModuleType("hermes_cli")
+def _install_fake_jarviscopilot_cli(monkeypatch):
+    """Stub jarviscopilot_cli modules so tests are deterministic and offline."""
+    fake_pkg = types.ModuleType("jarviscopilot_cli")
     fake_pkg.__path__ = []
 
-    fake_models = types.ModuleType("hermes_cli.models")
+    fake_models = types.ModuleType("jarviscopilot_cli.models")
     fake_models.list_available_providers = lambda: []
     fake_models.provider_model_ids = lambda pid: []
 
-    fake_auth = types.ModuleType("hermes_cli.auth")
+    fake_auth = types.ModuleType("jarviscopilot_cli.auth")
     fake_auth.get_auth_status = lambda _pid: {}
 
-    monkeypatch.setitem(sys.modules, "hermes_cli", fake_pkg)
-    monkeypatch.setitem(sys.modules, "hermes_cli.models", fake_models)
-    monkeypatch.setitem(sys.modules, "hermes_cli.auth", fake_auth)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_pkg)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.models", fake_models)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_cli.auth", fake_auth)
     monkeypatch.delitem(sys.modules, "agent.credential_pool", raising=False)
     monkeypatch.delitem(sys.modules, "agent", raising=False)
 
@@ -75,7 +75,7 @@ class TestGetProviders:
 
     def test_returns_list_of_known_providers(self, monkeypatch, tmp_path):
         """GET /api/providers should return a list of all known providers."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
 
         old_cfg = dict(config.cfg)
@@ -105,7 +105,7 @@ class TestGetProviders:
 
     def test_provider_entries_have_required_fields(self, monkeypatch, tmp_path):
         """Each provider entry should have id, display_name, has_key, configurable."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
 
         old_cfg = dict(config.cfg)
@@ -135,7 +135,7 @@ class TestGetProviders:
 
     def test_oauth_providers_not_configurable(self, monkeypatch, tmp_path):
         """OAuth providers (copilot, nous, openai-codex) should not be configurable."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
 
         old_cfg = dict(config.cfg)
@@ -164,15 +164,15 @@ class TestGetProviders:
     def test_openai_codex_provider_card_prefers_live_catalog(self, monkeypatch, tmp_path):
         """OpenAI Codex provider cards should not advertise stale static fallback models.
 
-        /api/models already uses hermes_cli/Codex cache discovery for Codex.  The
+        /api/models already uses jarviscopilot_cli/Codex cache discovery for Codex.  The
         provider card should share that source order so rejected stale entries
         such as gpt-5.5-mini are not presented as currently available when the
         live account catalog excludes them (#1807).
         """
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
 
-        fake_models = sys.modules["hermes_cli.models"]
+        fake_models = sys.modules["jarviscopilot_cli.models"]
         fake_models.provider_model_ids = lambda pid: (
             ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"]
             if pid == "openai-codex"
@@ -217,7 +217,7 @@ class TestSetProviderKey:
 
     def test_set_key_writes_to_env_file(self, monkeypatch, tmp_path):
         """Setting a key should write the env var to ~/.hermes/.env."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
         # Also pin HERMES_HOME so code that reads it directly gets tmp_path,
         # not the conftest session TEST_STATE_DIR that bleeds into the main process.
@@ -251,7 +251,7 @@ class TestSetProviderKey:
 
     def test_remove_key_deletes_from_env_file(self, monkeypatch, tmp_path):
         """Removing a key should delete the env var from .env."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
 
         old_cfg = dict(config.cfg)
@@ -283,7 +283,7 @@ class TestSetProviderKey:
 
     def test_oauth_provider_rejected(self, monkeypatch, tmp_path):
         """Setting a key for an OAuth provider should fail."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
 
         old_cfg = dict(config.cfg)
@@ -307,7 +307,7 @@ class TestSetProviderKey:
 
     def test_short_key_rejected(self, monkeypatch, tmp_path):
         """API keys shorter than 8 chars should be rejected."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
 
         old_cfg = dict(config.cfg)
@@ -415,7 +415,7 @@ class TestRemoveProviderKey:
 
     def test_remove_provider_key_calls_set_with_none(self, monkeypatch, tmp_path):
         """remove_provider_key should delegate to set_provider_key(id, None)."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
 
         old_cfg = dict(config.cfg)
@@ -496,7 +496,7 @@ class TestIssue1410OllamaEnvVarBleed:
     Both providers used to share OLLAMA_API_KEY in _PROVIDER_ENV_VAR. After
     a user added a key for Ollama Cloud, the local Ollama card also lit up
     "API key configured" — incorrect because the runtime in
-    hermes_cli/runtime_provider.py only consumes OLLAMA_API_KEY when the
+    jarviscopilot_cli/runtime_provider.py only consumes OLLAMA_API_KEY when the
     base URL hostname is ollama.com. Local Ollama is keyless by default.
 
     Fix: drop bare "ollama" from _PROVIDER_ENV_VAR so the env-var check is
@@ -508,7 +508,7 @@ class TestIssue1410OllamaEnvVarBleed:
         self, monkeypatch, tmp_path,
     ):
         """OLLAMA_API_KEY in env should mark ollama-cloud configured but not bare ollama."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
         monkeypatch.setenv("OLLAMA_API_KEY", "sk-cloud-key-xyz")
 
@@ -548,7 +548,7 @@ class TestIssue1410OllamaEnvVarBleed:
         self, monkeypatch, tmp_path,
     ):
         """providers.ollama.api_key in config.yaml should still mark local ollama configured."""
-        _install_fake_hermes_cli(monkeypatch)
+        _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
         # Important: clear the env var so the only signal is config.yaml.
         monkeypatch.delenv("OLLAMA_API_KEY", raising=False)

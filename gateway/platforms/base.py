@@ -1667,7 +1667,7 @@ class BasePlatformAdapter(ABC):
         auto-deletion.  Non-fatal if config is unreadable.
         """
         try:
-            from hermes_cli.config import load_config as _load_config
+            from jarviscopilot_cli.config import load_config as _load_config
         except Exception:
             return 0
         try:
@@ -2881,7 +2881,7 @@ class BasePlatformAdapter(ABC):
             # session lifecycle and its cleanup races with the running task
             # (see PR #4926).
             cmd = event.get_command()
-            from hermes_cli.commands import should_bypass_active_session
+            from jarviscopilot_cli.commands import should_bypass_active_session
 
             if should_bypass_active_session(cmd):
                 # /stop, /new, /reset must cancel the in-flight adapter task

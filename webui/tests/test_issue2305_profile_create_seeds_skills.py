@@ -7,11 +7,11 @@
 # Test strategy:
 #   - Mock _DEFAULT_HERMES_HOME to a tmp_path so _resolve_base_hermes_home()
 #     picks up the isolated root.
-#   - Inject a mock 'hermes_cli.profiles' module directly into sys.modules so
-#     that the `from hermes_cli.profiles import seed_profile_skills` inside
+#   - Inject a mock 'jarviscopilot_cli.profiles' module directly into sys.modules so
+#     that the `from jarviscopilot_cli.profiles import seed_profile_skills` inside
 #     create_profile_api resolves to the mock (not the real module).
-#   - Stub hermes_cli.profiles.create_profile to create the profile dir.
-#   - Stub hermes_cli.profiles.seed_profile_skills to record calls.
+#   - Stub jarviscopilot_cli.profiles.create_profile to create the profile dir.
+#   - Stub jarviscopilot_cli.profiles.seed_profile_skills to record calls.
 #   - Verify the no-clone path calls seed exactly once with the resolved path.
 #   - Verify the clone path calls seed zero times.
 #   - Verify a raising seed still returns a profile dict (best-effort).
@@ -58,38 +58,38 @@ def fake_hermes_home(tmp_path, monkeypatch):
     return fake_home
 
 
-def _install_hermes_cli_profiles_mock(create_impl, seed_impl):
-    # Inject a mock 'hermes_cli.profiles' module directly into sys.modules.
-    # This is the only way to intercept `from hermes_cli.profiles import X`
+def _install_jarviscopilot_cli_profiles_mock(create_impl, seed_impl):
+    # Inject a mock 'jarviscopilot_cli.profiles' module directly into sys.modules.
+    # This is the only way to intercept `from jarviscopilot_cli.profiles import X`
     # inside create_profile_api — patch.dict(sys.modules, ...) only modifies
     # existing keys and cannot add new ones.
-    mock = ModuleType('hermes_cli.profiles')
+    mock = ModuleType('jarviscopilot_cli.profiles')
     mock.create_profile = create_impl
     mock.seed_profile_skills = seed_impl
-    sys.modules['hermes_cli'] = ModuleType('hermes_cli')
-    sys.modules['hermes_cli.profiles'] = mock
+    sys.modules['jarviscopilot_cli'] = ModuleType('jarviscopilot_cli')
+    sys.modules['jarviscopilot_cli.profiles'] = mock
     return mock
 
 
-def _remove_hermes_cli():
+def _remove_jarviscopilot_cli():
     for key in list(sys.modules):
-        if key == 'hermes_cli' or key.startswith('hermes_cli.'):
+        if key == 'jarviscopilot_cli' or key.startswith('jarviscopilot_cli.'):
             del sys.modules[key]
 
 
-# Module references saved at import time so we can restore the real hermes_cli
-# after each test that overwrites sys.modules['hermes_cli.profiles'].  This
+# Module references saved at import time so we can restore the real jarviscopilot_cli
+# after each test that overwrites sys.modules['jarviscopilot_cli.profiles'].  This
 # prevents the `FallbackDoesNotCrash` tests from finding a deleted entry and
 # incorrectly skipping.
-_real_hermes_cli = sys.modules.get('hermes_cli')
-_real_hermes_cli_profiles = sys.modules.get('hermes_cli.profiles')
+_real_jarviscopilot_cli = sys.modules.get('jarviscopilot_cli')
+_real_jarviscopilot_cli_profiles = sys.modules.get('jarviscopilot_cli.profiles')
 
 
-def _restore_real_hermes_cli():
-    if _real_hermes_cli is not None:
-        sys.modules['hermes_cli'] = _real_hermes_cli
-    if _real_hermes_cli_profiles is not None:
-        sys.modules['hermes_cli.profiles'] = _real_hermes_cli_profiles
+def _restore_real_jarviscopilot_cli():
+    if _real_jarviscopilot_cli is not None:
+        sys.modules['jarviscopilot_cli'] = _real_jarviscopilot_cli
+    if _real_jarviscopilot_cli_profiles is not None:
+        sys.modules['jarviscopilot_cli.profiles'] = _real_jarviscopilot_cli_profiles
 
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
@@ -104,15 +104,15 @@ class TestNoCloneSeedsSkills:
         def fake_seed(profile_path, quiet=None):
             calls.append({'profile_path': profile_path, 'quiet': quiet})
 
-        _remove_hermes_cli()
-        _install_hermes_cli_profiles_mock(fake_create, fake_seed)
+        _remove_jarviscopilot_cli()
+        _install_jarviscopilot_cli_profiles_mock(fake_create, fake_seed)
 
         try:
             with patch.object(profiles_mod, 'list_profiles_api', return_value=[]):
                 result = profiles_mod.create_profile_api('testprofile')
         finally:
-            _remove_hermes_cli()
-            _restore_real_hermes_cli()
+            _remove_jarviscopilot_cli()
+            _restore_real_jarviscopilot_cli()
 
         # seed_profile_skills must have been called exactly once.
         assert len(calls) == 1, f'Expected 1 seed call, got {len(calls)}: {calls}'
@@ -137,8 +137,8 @@ class TestCloneSkipsSeeding:
         def fake_seed(profile_path, quiet=None):
             calls.append({'profile_path': profile_path, 'quiet': quiet})
 
-        _remove_hermes_cli()
-        _install_hermes_cli_profiles_mock(fake_create, fake_seed)
+        _remove_jarviscopilot_cli()
+        _install_jarviscopilot_cli_profiles_mock(fake_create, fake_seed)
 
         try:
             with patch.object(profiles_mod, 'list_profiles_api', return_value=[]):
@@ -146,8 +146,8 @@ class TestCloneSkipsSeeding:
                     'clonedprofile', clone_from='sourceprofile'
                 )
         finally:
-            _remove_hermes_cli()
-            _restore_real_hermes_cli()
+            _remove_jarviscopilot_cli()
+            _restore_real_jarviscopilot_cli()
 
         # seed must not be called at all when cloning.
         assert calls == [], f'seed_profile_skills was called during clone: {calls}'
@@ -165,16 +165,16 @@ class TestSeedFailureIsBestEffort:
         def fake_seed(profile_path, quiet=None):
             raise RuntimeError('Bundled skill installation failed')
 
-        _remove_hermes_cli()
-        _install_hermes_cli_profiles_mock(fake_create, fake_seed)
+        _remove_jarviscopilot_cli()
+        _install_jarviscopilot_cli_profiles_mock(fake_create, fake_seed)
 
         try:
             with caplog.at_level(std_logging.WARNING):
                 with patch.object(profiles_mod, 'list_profiles_api', return_value=[]):
                     result = profiles_mod.create_profile_api('failprofile')
         finally:
-            _remove_hermes_cli()
-            _restore_real_hermes_cli()
+            _remove_jarviscopilot_cli()
+            _restore_real_jarviscopilot_cli()
 
         # A warning must have been logged naming the profile.
         warning_messages = [rec.message for rec in caplog.records if rec.levelno == std_logging.WARNING]
@@ -188,24 +188,24 @@ class TestSeedFailureIsBestEffort:
 
 class TestHermesCliUnavailableFallbackDoesNotCrash:
     def test_fallback_create_still_produces_profile_dict(self, fake_hermes_home):
-        # Simulate hermes_cli being present but create_profile raising ImportError
+        # Simulate jarviscopilot_cli being present but create_profile raising ImportError
         # (e.g. in a Docker/standalone environment where the profiles sub-module
         # fails to load). This exercises the _create_profile_fallback path and
         # confirms the new seed block does not interfere with it.
         #
-        # We cannot permanently delete hermes_cli.profiles from sys.modules (it
+        # We cannot permanently delete jarviscopilot_cli.profiles from sys.modules (it
         # may be needed by other tests in this process), so we raise ImportError
         # at the call site by temporarily replacing create_profile on the real
         # module with a function that raises ImportError.
 
-        real_mod = sys.modules.get('hermes_cli.profiles')
+        real_mod = sys.modules.get('jarviscopilot_cli.profiles')
         if real_mod is None:
-            # hermes_cli.profiles was already cleaned up by a prior test in this
+            # jarviscopilot_cli.profiles was already cleaned up by a prior test in this
             # process — skip rather than failing with a confusing assertion.
-            pytest.skip('hermes_cli.profiles not in sys.modules (cleaned up by prior test)')
+            pytest.skip('jarviscopilot_cli.profiles not in sys.modules (cleaned up by prior test)')
 
         orig_create = real_mod.create_profile
-        real_mod.create_profile = MagicMock(side_effect=ImportError('hermes_cli profiles unavailable'))
+        real_mod.create_profile = MagicMock(side_effect=ImportError('jarviscopilot_cli profiles unavailable'))
         try:
             with patch.object(profiles_mod, 'list_profiles_api', return_value=[]):
                 result = profiles_mod.create_profile_api('isolatedprofile')
@@ -225,23 +225,23 @@ class TestHermesCliUnavailableFallbackDoesNotCrash:
 
         # Grab references BEFORE we overwrite sys.modules — once saved here we
         # can safely restore them in finally regardless of what happens in between.
-        real_mod = sys.modules.get('hermes_cli.profiles')
-        real_hermes_cli = sys.modules.get('hermes_cli')
-        if real_mod is None or real_hermes_cli is None:
-            pytest.skip('hermes_cli.profiles not in sys.modules (cleaned up by prior test)')
+        real_mod = sys.modules.get('jarviscopilot_cli.profiles')
+        real_jarviscopilot_cli = sys.modules.get('jarviscopilot_cli')
+        if real_mod is None or real_jarviscopilot_cli is None:
+            pytest.skip('jarviscopilot_cli.profiles not in sys.modules (cleaned up by prior test)')
 
-        # We need hermes_cli.profiles.seed_profile_skills to not exist so that
-        # `from hermes_cli.profiles import seed_profile_skills` raises ImportError.
+        # We need jarviscopilot_cli.profiles.seed_profile_skills to not exist so that
+        # `from jarviscopilot_cli.profiles import seed_profile_skills` raises ImportError.
         # We achieve this by putting a mock module with no seed attr in sys.modules
         # and restoring the real module in the finally block.
-        _remove_hermes_cli()
-        mock = ModuleType('hermes_cli.profiles')
+        _remove_jarviscopilot_cli()
+        mock = ModuleType('jarviscopilot_cli.profiles')
         mock.create_profile = fake_create
         # NO seed_profile_skills attribute — absence causes ImportError in the
         # import statement inside create_profile_api.
-        fake_hermes_cli = ModuleType('hermes_cli')
-        sys.modules['hermes_cli'] = fake_hermes_cli
-        sys.modules['hermes_cli.profiles'] = mock
+        fake_jarviscopilot_cli = ModuleType('jarviscopilot_cli')
+        sys.modules['jarviscopilot_cli'] = fake_jarviscopilot_cli
+        sys.modules['jarviscopilot_cli.profiles'] = mock
 
         try:
             with caplog.at_level(std_logging.DEBUG):
@@ -249,9 +249,9 @@ class TestHermesCliUnavailableFallbackDoesNotCrash:
                     result = profiles_mod.create_profile_api('nohermesprofile')
         finally:
             # Restore the real modules so subsequent tests can use them.
-            _remove_hermes_cli()
-            sys.modules['hermes_cli'] = real_hermes_cli
-            sys.modules['hermes_cli.profiles'] = real_mod
+            _remove_jarviscopilot_cli()
+            sys.modules['jarviscopilot_cli'] = real_jarviscopilot_cli
+            sys.modules['jarviscopilot_cli.profiles'] = real_mod
 
         # Profile is still created.
         assert result['name'] == 'nohermesprofile'

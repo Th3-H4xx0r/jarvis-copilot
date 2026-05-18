@@ -12,10 +12,10 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # Mirror HERMES_* ↔ JARVISCOPILOT_* env vars before any module reads them.
-# Imports the bootstrap from hermes_cli (which is on PYTHONPATH whenever
+# Imports the bootstrap from jarviscopilot_cli (which is on PYTHONPATH whenever
 # the webui is launched via scripts/launch-webui.sh).
 try:
-    from hermes_cli.env_compat import apply as _apply_env_compat
+    from jarviscopilot_cli.env_compat import apply as _apply_env_compat
     _apply_env_compat()
 except Exception:
     pass

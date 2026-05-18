@@ -1,6 +1,6 @@
 """Tests for Slack CLI helpers."""
 
-from hermes_cli.slack_cli import _build_full_manifest
+from jarviscopilot_cli.slack_cli import _build_full_manifest
 
 
 class TestSlackFullManifest:

@@ -164,7 +164,7 @@ def pytest_configure(config):
 # Tests have no legitimate reason to call IMDS — the bedrock-related tests use
 # explicit mocks or env-var creds. Setting AWS_EC2_METADATA_DISABLED before
 # anything imports botocore is the supported way to silence the probe (matches
-# the guard the hermes_cli/doctor.py command already uses in its parallel-probe
+# the guard the jarviscopilot_cli/doctor.py command already uses in its parallel-probe
 # block).
 #
 # Setting this here instead of in a fixture so it lands BEFORE any test-file

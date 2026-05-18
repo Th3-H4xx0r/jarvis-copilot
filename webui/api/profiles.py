@@ -1,6 +1,6 @@
 """
 JarvisCopilot Web UI -- Profile state management.
-Wraps hermes_cli.profiles to provide profile switching for the web UI.
+Wraps jarviscopilot_cli.profiles to provide profile switching for the web UI.
 
 The web UI maintains a process-level "active profile" that determines which
 HERMES_HOME directory is used for config, skills, memory, cron, and API keys.
@@ -21,7 +21,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# ── Constants (match hermes_cli.profiles upstream) ─────────────────────────
+# ── Constants (match jarviscopilot_cli.profiles upstream) ─────────────────────────
 _PROFILE_ID_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,63}$')
 _PROFILE_DIRS = [
     'memories', 'sessions', 'skills', 'skins',
@@ -180,7 +180,7 @@ def _read_active_profile_file() -> str:
 # is the canonical replacement for scattered `if name == 'default':` checks
 # in switch_profile, get_active_hermes_home, _validate_profile_name, etc.
 #
-# Cost note: list_profiles_api() shells out via hermes_cli (non-trivial), so
+# Cost note: list_profiles_api() shells out via jarviscopilot_cli (non-trivial), so
 # we memoize the lookup. The cache is invalidated whenever profiles are
 # created, deleted, renamed, or cloned — i.e. on every mutation site we
 # control.
@@ -219,7 +219,7 @@ def _is_root_profile(name: str) -> bool:
         if _root_profile_name_cache_loaded:
             return name in _root_profile_name_cache
     # Cache miss — populate from list_profiles_api(). Done outside the lock to
-    # avoid holding it across a hermes_cli subprocess call.
+    # avoid holding it across a jarviscopilot_cli subprocess call.
     try:
         infos = list_profiles_api()
     except Exception:
@@ -976,10 +976,10 @@ def switch_profile(name: str, *, process_wide: bool = True) -> dict:
 def list_profiles_api() -> list:
     """List all profiles with metadata, serialized for JSON response."""
     try:
-        from hermes_cli.profiles import list_profiles
+        from jarviscopilot_cli.profiles import list_profiles
         infos = list_profiles()
     except ImportError:
-        # hermes_cli not available -- return just the default
+        # jarviscopilot_cli not available -- return just the default
         return [_default_profile_dict()]
 
     active = get_active_profile_name()
@@ -1000,7 +1000,7 @@ def list_profiles_api() -> list:
 
 
 def _default_profile_dict() -> dict:
-    """Fallback profile dict when hermes_cli is not importable."""
+    """Fallback profile dict when jarviscopilot_cli is not importable."""
     return {
         'name': 'default',
         'path': str(_DEFAULT_HERMES_HOME),
@@ -1015,7 +1015,7 @@ def _default_profile_dict() -> dict:
 
 
 def _validate_profile_name(name: str):
-    """Validate profile name format (matches hermes_cli.profiles upstream)."""
+    """Validate profile name format (matches jarviscopilot_cli.profiles upstream)."""
     if name == 'default':
         raise ValueError("Cannot create a profile named 'default' -- it is the built-in profile.")
     # Use fullmatch (not match) so a trailing newline can't sneak past the $ anchor
@@ -1046,7 +1046,7 @@ def _resolve_named_profile_home(name: str) -> Path:
 
 def _create_profile_fallback(name: str, clone_from: str = None,
                               clone_config: bool = False) -> Path:
-    """Create a profile directory without hermes_cli (Docker/standalone fallback)."""
+    """Create a profile directory without jarviscopilot_cli (Docker/standalone fallback)."""
     profile_dir = _DEFAULT_HERMES_HOME / 'profiles' / name
     if profile_dir.exists():
         raise FileExistsError(f"Profile '{name}' already exists.")
@@ -1253,7 +1253,7 @@ def create_profile_api(name: str, clone_from: str = None,
     _validate_profile_model_selection(default_model, model_provider)
 
     try:
-        from hermes_cli.profiles import create_profile
+        from jarviscopilot_cli.profiles import create_profile
         create_profile(
             name,
             clone_from=clone_from,
@@ -1265,7 +1265,7 @@ def create_profile_api(name: str, clone_from: str = None,
         _create_profile_fallback(name, clone_from, clone_config)
 
     # Resolve the profile directory from the profile list when possible.
-    # hermes_cli and the webui runtime do not always agree on the exact root,
+    # jarviscopilot_cli and the webui runtime do not always agree on the exact root,
     # so we prefer the path returned by list_profiles_api() and fall back to the
     # standard profile location only if the profile cannot be found there yet.
     profile_path = _DEFAULT_HERMES_HOME / 'profiles' / name
@@ -1284,12 +1284,12 @@ def create_profile_api(name: str, clone_from: str = None,
     # receive a second bundled-skill overlay.
     if clone_from is None:
         try:
-            from hermes_cli.profiles import seed_profile_skills
+            from jarviscopilot_cli.profiles import seed_profile_skills
             seed_profile_skills(profile_path, quiet=True)
         except ImportError:
             logger.debug(
                 'seed_profile_skills unavailable — bundled skills not seeded '
-                'for profile %s (hermes_cli not in path)',
+                'for profile %s (jarviscopilot_cli not in path)',
                 name,
             )
         except Exception:
@@ -1312,7 +1312,7 @@ def create_profile_api(name: str, clone_from: str = None,
     _invalidate_root_profile_cache()
 
     # Find and return the newly created profile info.
-    # When hermes_cli is not importable, list_profiles_api() also falls back
+    # When jarviscopilot_cli is not importable, list_profiles_api() also falls back
     # to the stub default-only list and won't find the new profile by name.
     # In that case, return a complete profile dict directly.
     for p in list_profiles_api():
@@ -1348,7 +1348,7 @@ def delete_profile_api(name: str) -> dict:
             )
 
     try:
-        from hermes_cli.profiles import delete_profile
+        from jarviscopilot_cli.profiles import delete_profile
         delete_profile(name, yes=True)
     except ImportError:
         # Manual fallback: just remove the directory

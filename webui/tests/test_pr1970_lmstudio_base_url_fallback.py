@@ -128,16 +128,16 @@ def test_get_provider_base_url_explicit_wins_over_model_fallback():
 
 
 
-def test_lmstudio_fallback_works_when_hermes_cli_unavailable(tmp_path, monkeypatch):
+def test_lmstudio_fallback_works_when_jarviscopilot_cli_unavailable(tmp_path, monkeypatch):
     """The lmstudio branch must populate models from the urlopen fallback even
-    when `from hermes_cli.models import provider_model_ids` raises ImportError.
+    when `from jarviscopilot_cli.models import provider_model_ids` raises ImportError.
 
     Pre-fix, the outer try/except in the lmstudio branch caught the ImportError
     and silently aborted the whole branch, never running the urlopen fallback —
-    a CI-vs-local divergence where local environments with hermes_cli installed
+    a CI-vs-local divergence where local environments with jarviscopilot_cli installed
     worked, and CI (clean editable install) failed with empty model groups.
 
-    Caught in CI on stage-337; fix splits the hermes_cli try from the urlopen
+    Caught in CI on stage-337; fix splits the jarviscopilot_cli try from the urlopen
     fallback so each runs independently.
     """
     import json as _json
@@ -147,19 +147,19 @@ def test_lmstudio_fallback_works_when_hermes_cli_unavailable(tmp_path, monkeypat
 
     import api.config as config
 
-    # Block hermes_cli import the way a CI runner without the package would.
-    blocked_modules = [name for name in list(sys.modules) if name == "hermes_cli" or name.startswith("hermes_cli.")]
+    # Block jarviscopilot_cli import the way a CI runner without the package would.
+    blocked_modules = [name for name in list(sys.modules) if name == "jarviscopilot_cli" or name.startswith("jarviscopilot_cli.")]
     for name in blocked_modules:
         monkeypatch.delitem(sys.modules, name, raising=False)
 
     class _Blocker:
         def find_module(self, name, path=None):
-            if name == "hermes_cli" or name.startswith("hermes_cli."):
+            if name == "jarviscopilot_cli" or name.startswith("jarviscopilot_cli."):
                 return self
             return None
 
         def load_module(self, name):
-            raise ImportError(f"hermes_cli blocked for test: {name}")
+            raise ImportError(f"jarviscopilot_cli blocked for test: {name}")
 
     blocker = _Blocker()
     sys.meta_path.insert(0, blocker)
@@ -206,9 +206,9 @@ providers:
         result = config.get_available_models()
         groups = {g["provider_id"]: g for g in result["groups"]}
 
-        # Fallback must succeed despite hermes_cli being unimportable.
+        # Fallback must succeed despite jarviscopilot_cli being unimportable.
         assert "lmstudio" in groups, (
-            f"lmstudio group missing when hermes_cli unavailable; groups={list(groups)}"
+            f"lmstudio group missing when jarviscopilot_cli unavailable; groups={list(groups)}"
         )
         model_ids = {m["id"] for m in groups["lmstudio"]["models"]}
         assert "qwen3.6-35b-a3b@q6_k" in model_ids

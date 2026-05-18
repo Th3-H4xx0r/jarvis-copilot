@@ -107,10 +107,10 @@ try {
         }
 } catch {}
 
-# Python gateway loop (`python -m hermes_cli.main gateway run ...`).
+# Python gateway loop (`python -m jarviscopilot_cli.main gateway run ...`).
 try {
     Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'pythonw.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -match 'hermes_cli\.main\s+gateway\s+run' } |
+        Where-Object { $_.CommandLine -and $_.CommandLine -match 'jarviscopilot_cli\.main\s+gateway\s+run' } |
         ForEach-Object {
             try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
         }
