@@ -265,6 +265,7 @@ Type=simple
 User=$(id -un)
 Group=$(id -gn)
 WorkingDirectory=$INSTALL_DIR
+Environment=JARVISCOPILOT_PAIRING_REQUIRED=1
 ExecStart=$INSTALL_DIR/scripts/launch-webui.sh
 Restart=on-failure
 RestartSec=5

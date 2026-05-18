@@ -106,24 +106,38 @@ def _ensure_pairing_module():
 
 # ── HTTP helpers ───────────────────────────────────────────────────────────
 
+def _host_signature(method: str, path: str) -> str | None:
+    """Build the X-JC-Host-Sig header value (`<ts>.<hmac>`).
+
+    Matches webui/api/auth.py:_check_host_signature(). Returns None if
+    the signing key isn't readable (in which case auth'd HTTP calls
+    will get a 401 and the script falls back to disk for read-only ops).
+    """
+    sk_path = _state_dir() / ".signing_key"
+    try:
+        import hmac as _hmac, hashlib as _hashlib
+        sk = sk_path.read_bytes()
+        ts = int(time.time())
+        msg = f"{method.upper()}\n{path}\n{ts}".encode("utf-8")
+        sig = _hmac.new(sk, msg, _hashlib.sha256).hexdigest()
+        return f"{ts}.{sig}"
+    except Exception:
+        return None
+
+
 def _http(method: str, path: str, body: dict | None = None,
-          cookie: str | None = None, timeout: float = 30.0) -> tuple[int, dict]:
-    """Make a request to the webui. Returns (status, parsed_json|{})."""
+          timeout: float = 30.0) -> tuple[int, dict]:
+    """Make a host-signed request to the local webui. Returns (status, json|{})."""
     url = _webui_origin() + path
     data = None
     headers = {"Accept": "application/json", "X-Requested-With": "fetch"}
     if body is not None:
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    if cookie:
-        headers["Cookie"] = cookie
+    sig = _host_signature(method, path)
+    if sig:
+        headers["X-JC-Host-Sig"] = sig
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
-    # The local webui is the one we just pinned auth on — but localhost
-    # requests get an automatic carve-out from check_auth if pairing-mode
-    # is on and the request comes from 127.0.0.1 (NOT IMPLEMENTED YET).
-    # As a fallback, we try a session cookie loaded from the host
-    # signing-key. If that also fails, the operations that require auth
-    # will return 401 and we'll print a hint.
     try:
         ctx = None
         if url.startswith("https://"):
@@ -143,45 +157,6 @@ def _http(method: str, path: str, body: dict | None = None,
             return e.code, {}
     except Exception as e:
         return -1, {"error": str(e)}
-
-
-def _bootstrap_cookie() -> str | None:
-    """Mint a session cookie locally using the webui's signing key.
-
-    The signing key (``STATE_DIR/.signing_key``) is 0600-owned by the
-    same user the webui runs as. If we can read it, we can sign a token
-    that the webui will accept — that's the carve-out for host-local
-    automation. If we can't read the key, return None and the API call
-    will get a 401 (the script then suggests a fix).
-    """
-    sk_path = _state_dir() / ".signing_key"
-    sess_path = _state_dir() / ".sessions.json"
-    try:
-        import hmac as _hmac, hashlib as _hashlib, secrets as _secrets
-        sk = sk_path.read_bytes()
-        token = _secrets.token_hex(32)
-        sig = _hmac.new(sk, token.encode(), _hashlib.sha256).hexdigest()
-        # Persist the session in .sessions.json so verify_session() accepts it.
-        try:
-            data = json.loads(sess_path.read_text(encoding="utf-8")) if sess_path.exists() else {}
-        except Exception:
-            data = {}
-        if not isinstance(data, dict):
-            data = {}
-        # 1 hour TTL is plenty for an agent invocation.
-        data[token] = time.time() + 3600
-        # Atomic write.
-        tmp = sess_path.with_suffix(sess_path.suffix + ".tmp")
-        sess_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(data), encoding="utf-8")
-        try:
-            os.chmod(tmp, 0o600)
-        except OSError:
-            pass
-        os.replace(tmp, sess_path)
-        return f"hermes_session={token}.{sig}"
-    except Exception:
-        return None
 
 
 # ── Commands ───────────────────────────────────────────────────────────────
@@ -232,8 +207,7 @@ def cmd_pair(args) -> int:
 
 
 def cmd_list(args) -> int:
-    cookie = _bootstrap_cookie()
-    status, data = _http("GET", "/api/devices", cookie=cookie)
+    status, data = _http("GET", "/api/devices")
     if status == 200:
         print(json.dumps(data.get("devices", []), indent=2))
         return 0
@@ -271,8 +245,7 @@ def cmd_revoke(args) -> int:
     if not dev_id:
         print(json.dumps({"error": f"no device matching {args.device!r}"}), file=sys.stderr)
         return 1
-    cookie = _bootstrap_cookie()
-    status, data = _http("DELETE", f"/api/devices/{dev_id}", cookie=cookie)
+    status, data = _http("DELETE", f"/api/devices/{dev_id}")
     if status == 200:
         print(json.dumps({"ok": True, "id": dev_id, **data}))
         return 0
@@ -285,8 +258,7 @@ def cmd_logout(args) -> int:
     if not dev_id:
         print(json.dumps({"error": f"no device matching {args.device!r}"}), file=sys.stderr)
         return 1
-    cookie = _bootstrap_cookie()
-    status, data = _http("POST", f"/api/devices/{dev_id}/logout", body={}, cookie=cookie)
+    status, data = _http("POST", f"/api/devices/{dev_id}/logout", body={})
     if status == 200:
         print(json.dumps({"ok": True, "id": dev_id, **data}))
         return 0
@@ -295,8 +267,7 @@ def cmd_logout(args) -> int:
 
 
 def cmd_skills(args) -> int:
-    cookie = _bootstrap_cookie()
-    status, data = _http("GET", "/api/devices/skills", cookie=cookie)
+    status, data = _http("GET", "/api/devices/skills")
     if status == 200:
         print(json.dumps(data.get("skills", []), indent=2))
         return 0
@@ -317,13 +288,12 @@ def cmd_invoke(args) -> int:
     if not isinstance(skill_args, dict):
         print(json.dumps({"error": "--json-args must be a JSON object"}), file=sys.stderr)
         return 1
-    cookie = _bootstrap_cookie()
     status, data = _http("POST", "/api/devices/skills/invoke", body={
         "device_id": dev_id,
         "skill": args.skill,
         "args": skill_args,
         "timeout": args.timeout,
-    }, cookie=cookie, timeout=args.timeout + 5)
+    }, timeout=args.timeout + 5)
     print(json.dumps(data, indent=2))
     return 0 if data.get("ok") else 1
 

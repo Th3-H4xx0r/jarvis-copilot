@@ -149,6 +149,11 @@ PY
 # ---- env for the server ---------------------------------------------
 export HERMES_WEBUI_HOST=0.0.0.0
 export HERMES_WEBUI_PORT="${PORT}"
+# Pairing-required mode: every non-public endpoint demands a valid
+# session cookie. A new device joins by running `jarviscopilot pair`
+# on the host and entering the 6-char code in the browser. Override
+# by exporting JARVISCOPILOT_PAIRING_REQUIRED=0 before launch.
+export JARVISCOPILOT_PAIRING_REQUIRED="${JARVISCOPILOT_PAIRING_REQUIRED:-1}"
 # Tell the webui's voice routes (api/voice.py) and bootstrap discovery
 # where to find Hermes core. The voice module's own _ensure_hermes_on_path()
 # adds this too, but setting PYTHONPATH up front avoids import-order surprises.

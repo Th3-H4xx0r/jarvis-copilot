@@ -134,6 +134,12 @@ if (-not $LanIp) { $LanIp = '<your-host-ip>' }
 # ---- env for the server ---------------------------------------------
 $env:HERMES_WEBUI_HOST = '0.0.0.0'
 $env:HERMES_WEBUI_PORT = $Port
+# Pairing-required: every non-public request needs a valid session.
+# Devices join by running `jarviscopilot pair` and entering the code.
+# Override by setting JARVISCOPILOT_PAIRING_REQUIRED=0 before launch.
+if (-not $env:JARVISCOPILOT_PAIRING_REQUIRED) {
+    $env:JARVISCOPILOT_PAIRING_REQUIRED = '1'
+}
 # Tell the webui's voice routes (api/voice.py) and bootstrap discovery
 # where to find Hermes core. The voice module's own _ensure_hermes_on_path()
 # adds this too, but setting PYTHONPATH up front avoids relying on import
