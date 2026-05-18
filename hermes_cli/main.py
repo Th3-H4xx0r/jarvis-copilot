@@ -5518,6 +5518,20 @@ def cmd_restart(args):
     return _impl(args)
 
 
+def cmd_pair(args):
+    """Generate a one-shot pairing code and wait for a device to claim it."""
+    from hermes_cli.pair_cmd import cmd_pair as _impl
+
+    return _impl(args)
+
+
+def cmd_devices(args):
+    """Manage paired devices (list / revoke / logout)."""
+    from hermes_cli.pair_cmd import cmd_devices as _impl
+
+    return _impl(args)
+
+
 def cmd_cron(args):
     """Cron job management."""
     from hermes_cli.cron import cron_command
@@ -9741,7 +9755,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "kanban", "login", "logout", "logs", "lsp", "mcp", "memory",
         "model", "pairing", "plugins", "postinstall", "profile", "proxy",
-        "restart", "send", "sessions", "setup",
+        "devices", "pair", "restart", "send", "sessions", "setup",
         "skills", "slack", "status", "tools", "uninstall", "update",
         "version", "webhook", "whatsapp", "chat",
         # Help-ish invocations — plugin commands not being listed in
@@ -10438,6 +10452,46 @@ def main():
         help="Which service to restart (default: all)",
     )
     restart_parser.set_defaults(func=cmd_restart)
+
+    # =========================================================================
+    # pair / devices commands — JarvisCopilot device pairing
+    # =========================================================================
+    pair_parser = subparsers.add_parser(
+        "pair",
+        help="Pair a new device (TUI; shows a code, waits for claim)",
+        description=(
+            "Generate a short-lived pairing code and render a TUI showing "
+            "it alongside the URL to visit on the device. Polls until the "
+            "device claims the code or it expires."
+        ),
+    )
+    pair_parser.add_argument(
+        "--ttl", type=int, default=600,
+        help="Code lifetime in seconds (60–3600, default 600)",
+    )
+    pair_parser.add_argument(
+        "--label", default=None,
+        help="Optional label stored alongside the device record",
+    )
+    pair_parser.set_defaults(func=cmd_pair)
+
+    devices_parser = subparsers.add_parser(
+        "devices",
+        help="Manage paired devices (list / revoke / logout)",
+    )
+    devices_sub = devices_parser.add_subparsers(dest="devices_command")
+    devices_sub.add_parser("list", help="List paired devices")
+    _dev_revoke = devices_sub.add_parser(
+        "revoke",
+        help="Revoke pairing and invalidate the device's session",
+    )
+    _dev_revoke.add_argument("device_id", help="Device ID (prefix from `devices list`)")
+    _dev_logout = devices_sub.add_parser(
+        "logout",
+        help="Invalidate the device's session; the device record remains paired",
+    )
+    _dev_logout.add_argument("device_id", help="Device ID (prefix from `devices list`)")
+    devices_parser.set_defaults(func=cmd_devices)
 
     # =========================================================================
     # cron command

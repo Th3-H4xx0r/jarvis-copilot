@@ -51,6 +51,11 @@ PUBLIC_PATHS = frozenset({
     '/api/auth/login', '/api/auth/status',
     '/manifest.json', '/manifest.webmanifest',
     '/session/manifest.json', '/session/manifest.webmanifest',
+    # JarvisCopilot pairing flow — must be reachable without a session so
+    # a fresh device can complete the handshake.
+    '/pair',
+    '/api/auth/pair/claim',
+    '/api/auth/pair/status',
 })
 
 COOKIE_NAME = 'hermes_session'
@@ -290,8 +295,29 @@ def get_password_hash() -> str | None:
 
 
 def is_auth_enabled() -> bool:
-    """True if a password is configured (env var or settings)."""
-    return get_password_hash() is not None
+    """True if a password is configured (env var or settings) OR if
+    JarvisCopilot pairing-required mode is on. In either case, requests
+    without a valid session are rejected by check_auth().
+    """
+    if get_password_hash() is not None:
+        return True
+    try:
+        from api.pairing import is_pairing_required
+        if is_pairing_required():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _pairing_required_safe() -> bool:
+    """is_pairing_required() with a try/except so check_auth never crashes
+    on a malformed settings.json."""
+    try:
+        from api.pairing import is_pairing_required
+        return is_pairing_required()
+    except Exception:
+        return False
 
 
 def verify_password(plain: str) -> bool:
@@ -435,7 +461,12 @@ def check_auth(handler, parsed) -> bool:
         # safe='/' keeps path separators readable; everything else (including
         # `?`, `&`, `=`) gets percent-encoded.
         _next = _urlparse.quote(_path_with_query, safe='/')
-        handler.send_header('Location', 'login?next=' + _next)
+        # JarvisCopilot pairing-mode redirects to /pair instead of /login.
+        # If a password is ALSO configured, /login still works for password
+        # auth — but pairing-mode-only installs have no password to enter.
+        _login_path = 'pair' if (_pairing_required_safe()
+                                 and get_password_hash() is None) else 'login'
+        handler.send_header('Location', _login_path + '?next=' + _next)
         handler.end_headers()
     return False
 

@@ -2481,6 +2481,121 @@ button:hover{background:rgba(124,185,255,.25)}
 </body></html>"""
 
 
+# ── Pair page (JarvisCopilot device pairing) ─────────────────────────────────
+# Self-contained like the login page so a fresh device can pair without any
+# external asset requests (which would 401 in pairing-required mode anyway).
+_PAIR_PAGE_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JarvisCopilot — Pair this device</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0e1626;color:#e8e8f0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{background:#14203a;border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:36px 32px;
+  width:360px;max-width:100%;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.logo{width:56px;height:56px;border-radius:14px;background:linear-gradient(145deg,#f0b341,#e0552b);
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;color:#fff;
+  margin:0 auto 14px;box-shadow:0 6px 24px rgba(224,85,43,.35);letter-spacing:.5px}
+h1{font-size:20px;font-weight:600;text-align:center;margin-bottom:6px}
+.sub{font-size:13px;color:#9aa1bd;text-align:center;margin-bottom:22px;line-height:1.5}
+.code-row{display:flex;gap:6px;justify-content:center;margin-bottom:14px}
+.code-row input{width:38px;height:46px;text-align:center;font-size:22px;font-weight:700;letter-spacing:.5px;
+  border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);
+  color:#e8e8f0;outline:none;text-transform:uppercase;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.code-row input:focus{border-color:rgba(240,179,65,.55);box-shadow:0 0 0 3px rgba(240,179,65,.18)}
+.dash{align-self:center;color:#9aa1bd;font-weight:700;padding:0 4px}
+label{display:block;font-size:12px;color:#9aa1bd;margin-top:14px;margin-bottom:6px}
+input.name{width:100%;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.1);
+  background:rgba(255,255,255,.04);color:#e8e8f0;font-size:14px;outline:none}
+input.name:focus{border-color:rgba(124,185,255,.5);box-shadow:0 0 0 3px rgba(124,185,255,.1)}
+button{width:100%;padding:12px;margin-top:18px;border-radius:10px;border:none;
+  background:linear-gradient(145deg,#f0b341,#e0552b);color:#fff;font-size:14px;font-weight:700;
+  cursor:pointer;transition:filter .15s,transform .05s;letter-spacing:.3px}
+button:hover{filter:brightness(1.06)}
+button:active{transform:translateY(1px)}
+button[disabled]{filter:grayscale(.4) brightness(.7);cursor:not-allowed}
+.msg{margin-top:14px;font-size:13px;text-align:center;min-height:18px}
+.msg.err{color:#ff7a8a}
+.msg.ok{color:#7ae597}
+.hint{margin-top:18px;font-size:11px;color:#6b7390;text-align:center;line-height:1.6}
+.hint code{background:rgba(255,255,255,.06);padding:2px 6px;border-radius:6px;color:#cdd3ec}
+</style></head><body>
+<div class="card">
+  <div class="logo">JC</div>
+  <h1>Pair this device</h1>
+  <p class="sub">Enter the 6-character code shown by <code style="background:rgba(255,255,255,.06);padding:2px 6px;border-radius:6px">jarviscopilot pair</code> on the host.</p>
+  <form id="pair-form" autocomplete="off">
+    <div class="code-row">
+      <input class="c" id="c0" maxlength="1" inputmode="latin" autocapitalize="characters" autofocus>
+      <input class="c" id="c1" maxlength="1" inputmode="latin" autocapitalize="characters">
+      <input class="c" id="c2" maxlength="1" inputmode="latin" autocapitalize="characters">
+      <span class="dash">&minus;</span>
+      <input class="c" id="c3" maxlength="1" inputmode="latin" autocapitalize="characters">
+      <input class="c" id="c4" maxlength="1" inputmode="latin" autocapitalize="characters">
+      <input class="c" id="c5" maxlength="1" inputmode="latin" autocapitalize="characters">
+    </div>
+    <label for="name">Device name (optional)</label>
+    <input class="name" id="name" placeholder="e.g. Pranav's iPhone" maxlength="48">
+    <button type="submit" id="submit">Pair</button>
+    <div id="msg" class="msg"></div>
+  </form>
+  <div class="hint">After pairing, this device gets a long-lived session cookie. Revoke anytime from the Devices tab.</div>
+</div>
+<script>
+(function(){
+  const inputs=[...document.querySelectorAll('.c')];
+  inputs.forEach((el,i)=>{
+    el.addEventListener('input',()=>{
+      el.value=el.value.toUpperCase().replace(/[^A-Z0-9]/g,'');
+      if(el.value && i<inputs.length-1) inputs[i+1].focus();
+    });
+    el.addEventListener('keydown',ev=>{
+      if(ev.key==='Backspace' && !el.value && i>0){inputs[i-1].focus();}
+    });
+    el.addEventListener('paste',ev=>{
+      const txt=(ev.clipboardData||window.clipboardData).getData('text')||'';
+      const cleaned=txt.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6);
+      if(cleaned.length){
+        ev.preventDefault();
+        for(let k=0;k<6;k++) inputs[k].value=cleaned[k]||'';
+        inputs[Math.min(cleaned.length,5)].focus();
+      }
+    });
+  });
+  const msg=document.getElementById('msg');
+  const btn=document.getElementById('submit');
+  document.getElementById('pair-form').addEventListener('submit', async ev=>{
+    ev.preventDefault();
+    const code=inputs.map(e=>e.value).join('');
+    if(code.length!==6){msg.className='msg err';msg.textContent='Enter all 6 characters.';return;}
+    btn.disabled=true;
+    msg.className='msg';msg.textContent='Pairing...';
+    try{
+      const res=await fetch('/api/auth/pair/claim',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({code, name: document.getElementById('name').value})
+      });
+      const data=await res.json().catch(()=>({}));
+      if(res.ok && data.ok){
+        msg.className='msg ok';msg.textContent='Paired. Loading...';
+        const url=new URL(window.location.href);
+        const next=url.searchParams.get('next')||'/';
+        setTimeout(()=>{window.location.href=next;},400);
+      }else{
+        btn.disabled=false;
+        msg.className='msg err';
+        msg.textContent=(data && data.error) || 'Invalid or expired code.';
+      }
+    }catch(e){
+      btn.disabled=false;
+      msg.className='msg err';msg.textContent='Network error. Try again.';
+    }
+  });
+})();
+</script>
+</body></html>"""
+
+
 # ── Logs endpoint ─────────────────────────────────────────────────────────────
 _LOG_FILE_WHITELIST = {
     "agent": "agent.log",
@@ -3327,12 +3442,59 @@ def handle_get(handler, parsed) -> bool:
 
     if parsed.path == "/api/auth/status":
         from api.auth import is_auth_enabled, parse_cookie, verify_session
+        from api.pairing import is_pairing_required
 
         logged_in = False
         if is_auth_enabled():
             cv = parse_cookie(handler)
             logged_in = bool(cv and verify_session(cv))
-        return j(handler, {"auth_enabled": is_auth_enabled(), "logged_in": logged_in})
+        return j(handler, {
+            "auth_enabled": is_auth_enabled(),
+            "logged_in": logged_in,
+            "pairing_required": is_pairing_required(),
+        })
+
+    if parsed.path == "/pair":
+        return t(handler, _PAIR_PAGE_HTML, content_type="text/html; charset=utf-8")
+
+    if parsed.path == "/api/devices":
+        # Authed callers (sidebar Devices tab) get the full list.
+        from api.pairing import list_devices
+        rows = list_devices()
+        # Annotate with bridge-connected status for the devices tab.
+        try:
+            from api.device_bridge import connected_device_ids, skills_for_device
+            connected = set(connected_device_ids())
+        except Exception:
+            connected = set()
+            skills_for_device = None
+        out = []
+        for d in rows:
+            dd = dict(d)
+            dd["online"] = d.get("id") in connected
+            if skills_for_device is not None:
+                dd["skills"] = skills_for_device(d.get("id", "")) or []
+            else:
+                dd["skills"] = []
+            out.append(dd)
+        return j(handler, {"devices": out})
+
+    if parsed.path == "/api/devices/skills":
+        # List every skill currently advertised by a connected device.
+        from api.device_bridge import all_device_skills
+        return j(handler, {"skills": all_device_skills()})
+
+    if parsed.path == "/api/auth/pair/status":
+        # Polled by the CLI; STATE_DIR is local so this could also be read
+        # from disk, but the HTTP endpoint is convenient for `curl` and for
+        # remote-trusted callers that have a valid session.
+        from api.pairing import poll_pairing_code
+        from urllib.parse import parse_qs as _pq
+        qs = _pq(parsed.query or "")
+        code = (qs.get("code", [""])[0] or "").strip().upper()
+        if not code:
+            return j(handler, {"error": "code required"}, status=400)
+        return j(handler, poll_pairing_code(code))
 
     if parsed.path in ("/manifest.json", "/manifest.webmanifest"):
         return _serve_manifest(handler)
@@ -5751,6 +5913,118 @@ def handle_post(handler, parsed) -> bool:
         handler.wfile.write(json.dumps({"ok": True}).encode())
         return True
 
+    # ── Invoke a device-exposed skill ──
+    # POST /api/devices/skills/invoke
+    # body: {"device_id":"...","skill":"...","args":{...},"timeout":30}
+    # Authed callers (chat skill, agent, devops) ask a paired device to
+    # execute one of its registered skills. Synchronous — returns the
+    # device's result or an error.
+    if parsed.path == "/api/devices/skills/invoke":
+        from api.device_bridge import invoke_skill
+        device_id = (body.get("device_id") or "").strip()
+        skill = (body.get("skill") or "").strip()
+        args = body.get("args") or {}
+        timeout = body.get("timeout")
+        try:
+            timeout = float(timeout) if timeout is not None else 30.0
+        except (TypeError, ValueError):
+            timeout = 30.0
+        if not device_id or not skill:
+            return bad(handler, "device_id and skill are required")
+        if not isinstance(args, dict):
+            return bad(handler, "args must be an object")
+        result = invoke_skill(device_id, skill, args, timeout=max(1.0, min(timeout, 120.0)))
+        status = 200 if result.get("ok") else 502
+        return j(handler, result, status=status)
+
+    # ── Device session logout (POST /api/devices/<id>/logout) ──
+    # Invalidates the session bound to a paired device while keeping the
+    # device record so the user can re-auth (e.g. with a fresh pairing
+    # code) without losing the device history.
+    if parsed.path.startswith("/api/devices/") and parsed.path.endswith("/logout"):
+        rest = parsed.path[len("/api/devices/"):-len("/logout")].strip("/")
+        if rest:
+            from api.pairing import list_devices
+            from api.auth import _sessions, _save_sessions
+            prefix = None
+            for d in list_devices():
+                if d.get("id") == rest:
+                    prefix = d.get("session_prefix") or ""
+                    break
+            if prefix is None:
+                return j(handler, {"error": "device not found"}, status=404)
+            removed = 0
+            for tok in list(_sessions.keys()):
+                if tok.startswith(prefix):
+                    _sessions.pop(tok, None)
+                    removed += 1
+            if removed:
+                _save_sessions(_sessions)
+            try:
+                from api.device_bridge import disconnect_device
+                disconnect_device(rest)
+            except Exception:
+                pass
+            return j(handler, {"ok": True, "sessions_invalidated": removed})
+
+    # ── JarvisCopilot pairing — issue a new code from inside the UI ──
+    # Authed callers only (CSRF + session). Mirrors `jarviscopilot pair`
+    # except it returns the code as JSON instead of rendering a TUI.
+    if parsed.path == "/api/devices/pair/start":
+        from api.pairing import create_pairing_code
+        ttl = int(body.get("ttl") or 600)
+        label = (body.get("label") or "").strip() or None
+        info = create_pairing_code(label=label, ttl=ttl)
+        return j(handler, info)
+
+    if parsed.path == "/api/devices/pair/cancel":
+        from api.pairing import cancel_pairing_code
+        code = (body.get("code") or "").strip().upper()
+        return j(handler, {"removed": cancel_pairing_code(code)})
+
+    # ── JarvisCopilot pairing claim (POST) ──
+    # Public endpoint — must be reachable without a session so a fresh
+    # device can complete the handshake. Rate-limited per IP using the
+    # same _check_login_rate machinery as password login.
+    if parsed.path == "/api/auth/pair/claim":
+        from api.auth import (
+            create_session,
+            set_auth_cookie,
+            _check_login_rate,
+            _record_login_attempt,
+        )
+        from api.pairing import claim_pairing_code
+
+        client_ip = handler.client_address[0]
+        if not _check_login_rate(client_ip):
+            return j(
+                handler,
+                {"error": "Too many attempts. Try again in a minute."},
+                status=429,
+            )
+        code = (body.get("code") or "").strip()
+        device_name = (body.get("name") or "").strip()
+        ua = handler.headers.get("User-Agent", "")
+        # claim_pairing_code() returns the session cookie value on success,
+        # None on bad/expired/already-claimed code.
+        cookie_val = claim_pairing_code(
+            code,
+            device_name=device_name,
+            device_ip=client_ip,
+            user_agent=ua,
+        )
+        if not cookie_val:
+            _record_login_attempt(client_ip)
+            return bad(handler, "Invalid or expired pairing code", 401)
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Cache-Control", "no-store")
+        _security_headers(handler)
+        set_auth_cookie(handler, cookie_val)
+        handler.end_headers()
+        handler.wfile.write(json.dumps({"ok": True}).encode())
+        return True
+
     if parsed.path == "/api/auth/logout":
         from api.auth import clear_auth_cookie, invalidate_session, parse_cookie
 
@@ -5813,6 +6087,39 @@ def handle_delete(handler, parsed) -> bool:
         if result is False:
             return _kanban_unknown_endpoint(handler, parsed, "DELETE")
         return True
+
+    # ── Device management ──
+    # DELETE /api/devices/<id> — revoke pairing + invalidate the session.
+    if parsed.path.startswith("/api/devices/"):
+        rest = parsed.path[len("/api/devices/"):].strip("/")
+        if rest and "/" not in rest:
+            from api.pairing import list_devices, revoke_device
+            from api.auth import _sessions, _save_sessions
+            target = None
+            for d in list_devices():
+                if d.get("id") == rest:
+                    target = d
+                    break
+            if not target:
+                return j(handler, {"error": "device not found"}, status=404)
+            # Invalidate any session token whose prefix matches.
+            prefix = target.get("session_prefix") or ""
+            removed_sessions = 0
+            if prefix:
+                for tok in list(_sessions.keys()):
+                    if tok.startswith(prefix):
+                        _sessions.pop(tok, None)
+                        removed_sessions += 1
+                if removed_sessions:
+                    _save_sessions(_sessions)
+            # Drop the device record. Also tell the bridge to disconnect.
+            try:
+                from api.device_bridge import disconnect_device
+                disconnect_device(rest)
+            except Exception:
+                pass
+            revoke_device(rest)
+            return j(handler, {"ok": True, "sessions_revoked": removed_sessions})
     return False
 
 # ── GET route helpers ─────────────────────────────────────────────────────────
