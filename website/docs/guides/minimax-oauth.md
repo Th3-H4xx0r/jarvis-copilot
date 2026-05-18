@@ -1,12 +1,12 @@
 ---
 sidebar_position: 15
 title: "MiniMax OAuth"
-description: "Log into MiniMax via browser OAuth and use MiniMax-M2.7 models in Hermes Agent — no API key required"
+description: "Log into MiniMax via browser OAuth and use MiniMax-M2.7 models in JarvisCopilot — no API key required"
 ---
 
 # MiniMax OAuth
 
-Hermes Agent supports **MiniMax** through a browser-based OAuth login flow, using the same credentials as the [MiniMax portal](https://www.minimax.io). No API key or credit card is required — log in once and Hermes automatically refreshes your session.
+JarvisCopilot supports **MiniMax** through a browser-based OAuth login flow, using the same credentials as the [MiniMax portal](https://www.minimax.io). No API key or credit card is required — log in once and JarvisCopilot automatically refreshes your session.
 
 The transport reuses the `anthropic_messages` adapter (MiniMax exposes an Anthropic Messages-compatible endpoint at `/anthropic`), so all existing tool-calling, streaming, and context features work without any adapter changes.
 
@@ -26,7 +26,7 @@ The transport reuses the `anthropic_messages` adapter (MiniMax exposes an Anthro
 ## Prerequisites
 
 - Python 3.9+
-- Hermes Agent installed
+- JarvisCopilot installed
 - A MiniMax account at [minimax.io](https://www.minimax.io) (global) or [minimaxi.com](https://www.minimaxi.com) (China)
 - A browser available on the local machine (or use `--no-browser` for remote sessions)
 
@@ -34,24 +34,24 @@ The transport reuses the `anthropic_messages` adapter (MiniMax exposes an Anthro
 
 ```bash
 # Launch the provider and model picker
-hermes model
+jarviscopilot model
 # → Select "MiniMax (OAuth)" from the provider list
-# → Hermes opens your browser to the MiniMax authorization page
+# → JarvisCopilot opens your browser to the MiniMax authorization page
 # → Approve access in the browser
 # → Select a model (MiniMax-M2.7 or MiniMax-M2.7-highspeed)
 # → Start chatting
 
-hermes
+jarviscopilot
 ```
 
-After the first login, credentials are stored under `~/.hermes/auth.json` and are refreshed automatically before each session.
+After the first login, credentials are stored under `~/.jarviscopilot/auth.json` and are refreshed automatically before each session.
 
 ## Logging In Manually
 
 You can trigger a login without going through the model picker:
 
 ```bash
-hermes auth add minimax-oauth
+jarviscopilot auth add minimax-oauth
 ```
 
 ### China region
@@ -59,9 +59,9 @@ hermes auth add minimax-oauth
 If your account is on the China platform (`minimaxi.com`), use the China-region OAuth provider id `minimax-cn` instead, or skip OAuth and configure `MINIMAX_CN_API_KEY` / `MINIMAX_CN_BASE_URL` directly. The `--region cn` flag described in older docs is **not** wired through the CLI's argument parser; use the `minimax-cn` provider instead:
 
 ```bash
-hermes auth add minimax-cn --type oauth   # if OAuth is supported on your CN account
+jarviscopilot auth add minimax-cn --type oauth   # if OAuth is supported on your CN account
 # or simpler:
-echo 'MINIMAX_CN_API_KEY=your-key' >> ~/.hermes/.env
+echo 'MINIMAX_CN_API_KEY=your-key' >> ~/.jarviscopilot/.env
 ```
 
 ### Remote / headless sessions
@@ -69,27 +69,27 @@ echo 'MINIMAX_CN_API_KEY=your-key' >> ~/.hermes/.env
 On servers or containers where no browser is available:
 
 ```bash
-hermes auth add minimax-oauth --no-browser
+jarviscopilot auth add minimax-oauth --no-browser
 ```
 
-Hermes will print the verification URL and user code — open the URL on any device and enter the code when prompted.
+JarvisCopilot will print the verification URL and user code — open the URL on any device and enter the code when prompted.
 
 ## The OAuth Flow
 
-Hermes implements a PKCE device-code flow against the MiniMax OAuth endpoints:
+JarvisCopilot implements a PKCE device-code flow against the MiniMax OAuth endpoints:
 
-1. Hermes generates a PKCE verifier / challenge pair and a random state value.
+1. JarvisCopilot generates a PKCE verifier / challenge pair and a random state value.
 2. It POSTs to `{base_url}/oauth/code` with the challenge and receives a `user_code` and `verification_uri`.
 3. Your browser opens `verification_uri`. If prompted, enter the `user_code`.
-4. Hermes polls `{base_url}/oauth/token` until the token arrives (or the deadline passes).
-5. Tokens (`access_token`, `refresh_token`, expiry) are saved to `~/.hermes/auth.json` under the `minimax-oauth` key.
+4. JarvisCopilot polls `{base_url}/oauth/token` until the token arrives (or the deadline passes).
+5. Tokens (`access_token`, `refresh_token`, expiry) are saved to `~/.jarviscopilot/auth.json` under the `minimax-oauth` key.
 
 Token refresh (standard OAuth `refresh_token` grant) runs automatically at each session start when the access token is within 60 seconds of expiry.
 
 ## Checking Login Status
 
 ```bash
-hermes doctor
+jarviscopilot doctor
 ```
 
 The `◆ Auth Providers` section will show:
@@ -107,7 +107,7 @@ or, if not logged in:
 ## Switching Models
 
 ```bash
-hermes model
+jarviscopilot model
 # → Select "MiniMax (OAuth)"
 # → Pick from the model list
 ```
@@ -115,13 +115,13 @@ hermes model
 Or set the model directly:
 
 ```bash
-hermes config set model MiniMax-M2.7
-hermes config set provider minimax-oauth
+jarviscopilot config set model MiniMax-M2.7
+jarviscopilot config set provider minimax-oauth
 ```
 
 ## Configuration Reference
 
-After login, `~/.hermes/config.yaml` will contain entries similar to:
+After login, `~/.jarviscopilot/config.yaml` will contain entries similar to:
 
 ```yaml
 model:
@@ -142,10 +142,10 @@ model:
 All of the following resolve to `minimax-oauth`:
 
 ```bash
-hermes --provider minimax-oauth    # canonical
-hermes --provider minimax-portal   # alias
-hermes --provider minimax-global   # alias
-hermes --provider minimax_oauth    # alias (underscore form)
+jarviscopilot --provider minimax-oauth    # canonical
+jarviscopilot --provider minimax-portal   # alias
+jarviscopilot --provider minimax-global   # alias
+jarviscopilot --provider minimax_oauth    # alias (underscore form)
 ```
 
 ## Environment Variables
@@ -160,7 +160,7 @@ The `minimax-oauth` provider does **not** use `MINIMAX_API_KEY` or `MINIMAX_BASE
 To force the `minimax-oauth` provider at runtime:
 
 ```bash
-HERMES_INFERENCE_PROVIDER=minimax-oauth hermes
+HERMES_INFERENCE_PROVIDER=minimax-oauth jarviscopilot
 ```
 
 ## Models
@@ -178,44 +178,44 @@ Both models support up to 200,000 tokens of context.
 
 ### Token expired — not re-logging in automatically
 
-Hermes refreshes the token on every session start if it is within 60 seconds of expiry. If the access token is already expired (for example, after a long offline period), the refresh happens automatically on the next request. If refresh fails with `refresh_token_reused` or `invalid_grant`, Hermes marks the session as requiring re-login.
+JarvisCopilot refreshes the token on every session start if it is within 60 seconds of expiry. If the access token is already expired (for example, after a long offline period), the refresh happens automatically on the next request. If refresh fails with `refresh_token_reused` or `invalid_grant`, JarvisCopilot marks the session as requiring re-login.
 
-**Fix:** run `hermes auth add minimax-oauth` again to start a fresh login.
+**Fix:** run `jarviscopilot auth add minimax-oauth` again to start a fresh login.
 
 ### Authorization timed out
 
-The device-code flow has a finite expiry window. If you don't approve the login in time, Hermes raises a timeout error.
+The device-code flow has a finite expiry window. If you don't approve the login in time, JarvisCopilot raises a timeout error.
 
-**Fix:** re-run `hermes auth add minimax-oauth` (or `hermes model`). The flow starts fresh.
+**Fix:** re-run `jarviscopilot auth add minimax-oauth` (or `jarviscopilot model`). The flow starts fresh.
 
 ### State mismatch (possible CSRF)
 
-Hermes detected that the `state` value returned by the authorization server does not match what it sent.
+JarvisCopilot detected that the `state` value returned by the authorization server does not match what it sent.
 
 **Fix:** re-run the login. If it persists, check for a proxy or redirect that is modifying the OAuth response.
 
 ### Logging in from a remote server
 
-If `hermes` cannot open a browser window, use `--no-browser`:
+If `jarviscopilot` cannot open a browser window, use `--no-browser`:
 
 ```bash
-hermes auth add minimax-oauth --no-browser
+jarviscopilot auth add minimax-oauth --no-browser
 ```
 
-Hermes prints the URL and code. Open the URL on any device and complete the flow there.
+JarvisCopilot prints the URL and code. Open the URL on any device and complete the flow there.
 
 ### "Not logged into MiniMax OAuth" error at runtime
 
 The auth store has no credentials for `minimax-oauth`. You have not logged in yet, or the credential file was deleted.
 
-**Fix:** run `hermes model` and select MiniMax (OAuth), or run `hermes auth add minimax-oauth`.
+**Fix:** run `jarviscopilot model` and select MiniMax (OAuth), or run `jarviscopilot auth add minimax-oauth`.
 
 ## Logging Out
 
 To remove stored MiniMax OAuth credentials:
 
 ```bash
-hermes auth remove minimax-oauth
+jarviscopilot auth remove minimax-oauth
 ```
 
 ## See Also
@@ -223,4 +223,4 @@ hermes auth remove minimax-oauth
 - [AI Providers reference](../integrations/providers.md)
 - [Environment Variables](../reference/environment-variables.md)
 - [Configuration](../user-guide/configuration.md)
-- [hermes doctor](../reference/cli-commands.md)
+- [jarviscopilot doctor](../reference/cli-commands.md)

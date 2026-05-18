@@ -1,46 +1,46 @@
 ---
 sidebar_position: 2
 title: "TUI"
-description: "Launch the modern terminal UI for Hermes — mouse-friendly, rich overlays, and non-blocking input."
+description: "Launch the modern terminal UI for JarvisCopilot — mouse-friendly, rich overlays, and non-blocking input."
 ---
 
 # TUI
 
-The TUI is the modern front-end for Hermes — a terminal UI backed by the same Python runtime as the [Classic CLI](cli.md). Same agent, same sessions, same slash commands; a cleaner, more responsive surface for interacting with them.
+The TUI is the modern front-end for JarvisCopilot — a terminal UI backed by the same Python runtime as the [Classic CLI](cli.md). Same agent, same sessions, same slash commands; a cleaner, more responsive surface for interacting with them.
 
-It's the recommended way to run Hermes interactively.
+It's the recommended way to run JarvisCopilot interactively.
 
 ## Launch
 
 ```bash
 # Launch the TUI
-hermes --tui
+jarviscopilot --tui
 
 # Resume the latest TUI session (falls back to the latest classic session)
-hermes --tui -c
-hermes --tui --continue
+jarviscopilot --tui -c
+jarviscopilot --tui --continue
 
 # Resume a specific session by ID or title
-hermes --tui -r 20260409_000000_aa11bb
-hermes --tui --resume "my t0p session"
+jarviscopilot --tui -r 20260409_000000_aa11bb
+jarviscopilot --tui --resume "my t0p session"
 
 # Run source directly — skips the prebuild step (for TUI contributors)
-hermes --tui --dev
+jarviscopilot --tui --dev
 ```
 
 You can also enable it via env var:
 
 ```bash
 export HERMES_TUI=1
-hermes          # now uses the TUI
-hermes chat     # same
+jarviscopilot          # now uses the TUI
+jarviscopilot chat     # same
 ```
 
 The classic CLI remains available as the default. Anything documented in [CLI Interface](cli.md) — slash commands, quick commands, skill preloading, personalities, multi-line input, interrupts — works in the TUI identically.
 
 ## Why the TUI
 
-- **Instant first frame** — the banner paints before the app finishes loading, so the terminal never feels frozen while Hermes is starting.
+- **Instant first frame** — the banner paints before the app finishes loading, so the terminal never feels frozen while JarvisCopilot is starting.
 - **Non-blocking input** — type and queue messages before the session is ready. Your first prompt sends the moment the agent comes online.
 - **Rich overlays** — model picker, session picker, approval and clarification prompts all render as modal panels rather than inline flows.
 - **Live session panel** — tools and skills fill in progressively as they initialize.
@@ -52,18 +52,18 @@ Same [skins](features/skins.md) and [personalities](features/personality.md) app
 
 ## Requirements
 
-- **Node.js** ≥ 20 — the TUI runs as a subprocess launched from the Python CLI. `hermes doctor` verifies this.
+- **Node.js** ≥ 20 — the TUI runs as a subprocess launched from the Python CLI. `jarviscopilot doctor` verifies this.
 - **TTY** — like the classic CLI, piping stdin or running in non-interactive environments falls back to single-query mode.
 
-On first launch Hermes installs the TUI's Node dependencies into `ui-tui/node_modules` (one-time, a few seconds). Subsequent launches are fast. If you pull a new Hermes version, the TUI bundle is rebuilt automatically when sources are newer than the dist.
+On first launch JarvisCopilot installs the TUI's Node dependencies into `ui-tui/node_modules` (one-time, a few seconds). Subsequent launches are fast. If you pull a new JarvisCopilot version, the TUI bundle is rebuilt automatically when sources are newer than the dist.
 
 ### External prebuild
 
-Distributions that ship a prebuilt bundle (Nix, system packages) can point Hermes at it:
+Distributions that ship a prebuilt bundle (Nix, system packages) can point JarvisCopilot at it:
 
 ```bash
 export HERMES_TUI_DIR=/path/to/prebuilt/ui-tui
-hermes --tui
+jarviscopilot --tui
 ```
 
 The directory must contain `dist/entry.js`.
@@ -92,7 +92,7 @@ All slash commands work unchanged. A few are TUI-owned — they produce richer o
 | `/details` | Toggle verbose tool-call details (global or per-section) |
 | `/usage` | Rich token / cost / context panel |
 | `/agents` (alias `/tasks`) | Observability overlay — live subagent tree with kill/pause controls, per-branch cost / token / file rollups, turn-by-turn history |
-| `/reload` | Re-reads `~/.hermes/.env` into the running TUI process so newly added API keys take effect without a restart |
+| `/reload` | Re-reads `~/.jarviscopilot/.env` into the running TUI process so newly added API keys take effect without a restart |
 | `/mouse` | Toggle mouse tracking on/off at runtime (also persists to `display.mouse_tracking` in `config.yaml`) |
 
 Every other slash command (including installed skills, quick commands, and personality toggles) works identically to the classic CLI. See [Slash Commands Reference](../reference/slash-commands.md).
@@ -119,7 +119,7 @@ export HERMES_TUI_THEME=light
 
 ## Busy indicator styles
 
-The status-bar busy indicator is pluggable — the default rotates Hermes' kawaii face palette every 2.5 seconds during agent work. Pick a different style via config or the `/indicator` slash command:
+The status-bar busy indicator is pluggable — the default rotates JarvisCopilot' kawaii face palette every 2.5 seconds during agent work. Pick a different style via config or the `/indicator` slash command:
 
 ```yaml
 display:
@@ -130,7 +130,7 @@ Or in-session: `/indicator emoji` (etc.). Styles ship with matched glyph widths 
 
 ## Auto-resume
 
-By default, `hermes --tui` starts a fresh session each launch. To re-attach to the most recent TUI session automatically (useful when your terminal or SSH connection drops unexpectedly), opt in:
+By default, `jarviscopilot --tui` starts a fresh session each launch. To re-attach to the most recent TUI session automatically (useful when your terminal or SSH connection drops unexpectedly), opt in:
 
 ```bash
 export HERMES_TUI_RESUME=1          # most-recent TUI session
@@ -161,7 +161,7 @@ The status line also shows:
 
 ## Configuration
 
-The TUI respects all standard Hermes config: `~/.hermes/config.yaml`, profiles, personalities, skins, quick commands, credential pools, memory providers, tool/skill enablement. No TUI-specific config file exists.
+The TUI respects all standard JarvisCopilot config: `~/.jarviscopilot/config.yaml`, profiles, personalities, skins, quick commands, credential pools, memory providers, tool/skill enablement. No TUI-specific config file exists.
 
 A handful of keys tune the TUI surface specifically:
 
@@ -211,15 +211,15 @@ existing configs keep working unchanged.
 
 ## Sessions
 
-Sessions are shared between the TUI and the classic CLI — both write to the same `~/.hermes/state.db`. You can start a session in one, resume in the other. The session picker surfaces sessions from both sources, with a source tag.
+Sessions are shared between the TUI and the classic CLI — both write to the same `~/.jarviscopilot/state.db`. You can start a session in one, resume in the other. The session picker surfaces sessions from both sources, with a source tag.
 
 See [Sessions](sessions.md) for lifecycle, search, compression, and export.
 
 ## Reverting to the classic CLI
 
-Launching `hermes` (without `--tui`) stays on the classic CLI. To make a machine prefer the TUI, set `HERMES_TUI=1` in your shell profile. To go back, unset it.
+Launching `jarviscopilot` (without `--tui`) stays on the classic CLI. To make a machine prefer the TUI, set `HERMES_TUI=1` in your shell profile. To go back, unset it.
 
-If the TUI fails to launch (no Node, missing bundle, TTY issue), Hermes prints a diagnostic and falls back — rather than leaving you stuck.
+If the TUI fails to launch (no Node, missing bundle, TTY issue), JarvisCopilot prints a diagnostic and falls back — rather than leaving you stuck.
 
 ## See also
 

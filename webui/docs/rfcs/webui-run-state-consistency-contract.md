@@ -4,7 +4,7 @@
 - **Author:** @franksong2702
 - **Created:** 2026-05-16
 - **Tracking issue:** [#2361](https://github.com/nesquena/hermes-webui/issues/2361)
-- **Related architecture:** [#1925](https://github.com/nesquena/hermes-webui/issues/1925), [`hermes-run-adapter-contract.md`](hermes-run-adapter-contract.md)
+- **Related architecture:** [#1925](https://github.com/nesquena/hermes-webui/issues/1925), [`jarviscopilot-run-adapter-contract.md`](jarviscopilot-run-adapter-contract.md)
 
 ## Problem
 
@@ -132,7 +132,7 @@ tracking issue by itself.
 ## Relationship To The Run Adapter RFC
 
 The run adapter RFC defines the longer-term event/control boundary for WebUI and
-Hermes runtime ownership. This RFC defines the consistency rules that the current
+JarvisCopilot runtime ownership. This RFC defines the consistency rules that the current
 WebUI and any future adapter-backed implementation must preserve.
 
 The two documents should be read together:

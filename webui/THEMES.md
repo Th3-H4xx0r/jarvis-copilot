@@ -1,6 +1,6 @@
-# Hermes Web UI — Themes
+# JarvisCopilot Web UI — Themes
 
-Hermes Web UI splits **appearance** into two independent pickers:
+JarvisCopilot Web UI splits **appearance** into two independent pickers:
 
 - **Theme** — the mode: `System`, `Dark`, or `Light`. Drives the background,
   text, surface, and chrome colors.
@@ -46,7 +46,7 @@ absent for light. System mode tracks the OS preference at runtime.
 
 | Skin | Description |
 |------|-------------|
-| **Default** | The original Hermes gold accent. Warm and understated. |
+| **Default** | The original JarvisCopilot gold accent. Warm and understated. |
 | **Ares** | Fiery red. High-energy and assertive. |
 | **Mono** | Neutral gray. Distraction-free, for deep focus. |
 | **Slate** | Slate blue-gray. Subtle and grown-up. |

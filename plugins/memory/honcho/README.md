@@ -12,14 +12,14 @@ AI-native cross-session user modeling with multi-pass dialectic reasoning, sessi
 ## Setup
 
 ```bash
-hermes honcho setup    # full interactive wizard (cloud or local)
-hermes memory setup    # generic picker, also works
+jarviscopilot honcho setup    # full interactive wizard (cloud or local)
+jarviscopilot memory setup    # generic picker, also works
 ```
 
 Or manually:
 ```bash
-hermes config set memory.provider honcho
-echo "HONCHO_API_KEY=***" >> ~/.hermes/.env
+jarviscopilot config set memory.provider honcho
+echo "HONCHO_API_KEY=***" >> ~/.jarviscopilot/.env
 ```
 
 ## Architecture Overview
@@ -105,11 +105,11 @@ Config is read from the first file that exists:
 
 | Priority | Path | Scope |
 |----------|------|-------|
-| 1 | `$HERMES_HOME/honcho.json` | Profile-local (isolated Hermes instances) |
-| 2 | `~/.hermes/honcho.json` | Default profile (shared host blocks) |
+| 1 | `$HERMES_HOME/honcho.json` | Profile-local (isolated JarvisCopilot instances) |
+| 2 | `~/.jarviscopilot/honcho.json` | Default profile (shared host blocks) |
 | 3 | `~/.honcho/config.json` | Global (cross-app interop) |
 
-Host key is derived from the active Hermes profile: `hermes` (default) or `hermes.<profile>`.
+Host key is derived from the active JarvisCopilot profile: `jarviscopilot` (default) or `jarviscopilot.<profile>`.
 
 For every key, resolution order is: **host block > root > env var > default**.
 
@@ -159,10 +159,10 @@ The Honcho session name determines which conversation bucket memory lands in. Re
 | 1 | Manual map (`sessions` config) | `"myproject-main"` |
 | 2 | `/title` command (mid-session rename) | `"refactor-auth"` |
 | 3 | Gateway session key (Telegram, Discord, etc.) | `"agent-main-telegram-dm-8439114563"` |
-| 4 | `per-session` strategy | Hermes session ID (`20260415_a3f2b1`) |
+| 4 | `per-session` strategy | JarvisCopilot session ID (`20260415_a3f2b1`) |
 | 5 | `per-repo` strategy | Git root directory name (`hermes-agent`) |
 | 6 | `per-directory` strategy | Current directory basename (`src`) |
-| 7 | `global` strategy | Workspace name (`hermes`) |
+| 7 | `global` strategy | Workspace name (`jarviscopilot`) |
 
 Gateway platforms always resolve via priority 3 (per-chat isolation) regardless of `sessionStrategy`. The strategy setting only affects CLI sessions.
 
@@ -170,27 +170,27 @@ If `sessionPeerPrefix` is `true`, the peer name is prepended: `eri-hermes-agent`
 
 #### What each strategy produces
 
-- **`per-directory`** — basename of `$PWD`. Opening hermes in `~/code/myapp` and `~/code/other` gives two separate sessions. Same directory = same session across runs.
+- **`per-directory`** — basename of `$PWD`. Opening jarviscopilot in `~/code/myapp` and `~/code/other` gives two separate sessions. Same directory = same session across runs.
 - **`per-repo`** — git root directory name. All subdirectories within a repo share one session. Falls back to `per-directory` if not inside a git repo.
-- **`per-session`** — Hermes session ID (timestamp + hex). Every `hermes` invocation starts a fresh Honcho session. Falls back to `per-directory` if no session ID is available.
+- **`per-session`** — JarvisCopilot session ID (timestamp + hex). Every `jarviscopilot` invocation starts a fresh Honcho session. Falls back to `per-directory` if no session ID is available.
 - **`global`** — workspace name. One session for everything. Memory accumulates across all directories and runs.
 
 ### Multi-Profile Pattern
 
-Multiple Hermes profiles can share one workspace while maintaining separate AI identities. Config resolution is **host block > root > env var > default** — host blocks inherit from root, so shared settings only need to be declared once:
+Multiple JarvisCopilot profiles can share one workspace while maintaining separate AI identities. Config resolution is **host block > root > env var > default** — host blocks inherit from root, so shared settings only need to be declared once:
 
 ```json
 {
   "apiKey": "***",
-  "workspace": "hermes",
+  "workspace": "jarviscopilot",
   "peerName": "yourname",
   "hosts": {
-    "hermes": {
-      "aiPeer": "hermes",
+    "jarviscopilot": {
+      "aiPeer": "jarviscopilot",
       "recallMode": "hybrid",
       "sessionStrategy": "per-directory"
     },
-    "hermes.coder": {
+    "jarviscopilot.coder": {
       "aiPeer": "coder",
       "recallMode": "tools",
       "sessionStrategy": "per-repo"
@@ -199,9 +199,9 @@ Multiple Hermes profiles can share one workspace while maintaining separate AI i
 }
 ```
 
-Both profiles see the same user (`yourname`) in the same shared environment (`hermes`), but each AI peer builds its own observations, conclusions, and behavior patterns. The coder's memory stays code-oriented; the main agent's stays broad.
+Both profiles see the same user (`yourname`) in the same shared environment (`jarviscopilot`), but each AI peer builds its own observations, conclusions, and behavior patterns. The coder's memory stays code-oriented; the main agent's stays broad.
 
-Host key is derived from the active Hermes profile: `hermes` (default) or `hermes.<profile>` (e.g. `hermes -p coder` → host key `hermes.coder`).
+Host key is derived from the active JarvisCopilot profile: `jarviscopilot` (default) or `jarviscopilot.<profile>` (e.g. `jarviscopilot -p coder` → host key `jarviscopilot.coder`).
 
 ### Dialectic & Reasoning
 
@@ -272,31 +272,31 @@ Presets:
 
 | Command | Description |
 |---------|-------------|
-| `hermes honcho setup` | Full interactive setup wizard |
-| `hermes honcho status` | Show resolved config for active profile |
-| `hermes honcho enable` / `disable` | Toggle Honcho for active profile |
-| `hermes honcho mode <mode>` | Change recall or observation mode |
-| `hermes honcho peer --user <name>` | Update user peer name |
-| `hermes honcho peer --ai <name>` | Update AI peer name |
-| `hermes honcho tokens --context <N>` | Set context token budget |
-| `hermes honcho tokens --dialectic <N>` | Set dialectic max chars |
-| `hermes honcho map <name>` | Map current directory to a session name |
-| `hermes honcho sync` | Create host blocks for all Hermes profiles |
+| `jarviscopilot honcho setup` | Full interactive setup wizard |
+| `jarviscopilot honcho status` | Show resolved config for active profile |
+| `jarviscopilot honcho enable` / `disable` | Toggle Honcho for active profile |
+| `jarviscopilot honcho mode <mode>` | Change recall or observation mode |
+| `jarviscopilot honcho peer --user <name>` | Update user peer name |
+| `jarviscopilot honcho peer --ai <name>` | Update AI peer name |
+| `jarviscopilot honcho tokens --context <N>` | Set context token budget |
+| `jarviscopilot honcho tokens --dialectic <N>` | Set dialectic max chars |
+| `jarviscopilot honcho map <name>` | Map current directory to a session name |
+| `jarviscopilot honcho sync` | Create host blocks for all JarvisCopilot profiles |
 
 ## Example Config
 
 ```json
 {
   "apiKey": "***",
-  "workspace": "hermes",
+  "workspace": "jarviscopilot",
   "peerName": "username",
   "contextCadence": 2,
   "dialecticCadence": 3,
   "dialecticDepth": 2,
   "hosts": {
-    "hermes": {
+    "jarviscopilot": {
       "enabled": true,
-      "aiPeer": "hermes",
+      "aiPeer": "jarviscopilot",
       "recallMode": "hybrid",
       "observation": {
         "user": { "observeMe": true, "observeOthers": true },
@@ -309,7 +309,7 @@ Presets:
       "dialecticMaxChars": 600,
       "saveMessages": true
     },
-    "hermes.coder": {
+    "jarviscopilot.coder": {
       "enabled": true,
       "aiPeer": "coder",
       "sessionStrategy": "per-repo",

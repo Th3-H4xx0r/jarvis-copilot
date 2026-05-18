@@ -1,7 +1,7 @@
 # Agent-assisted onboarding checklist
 
 This checklist is for an AI assistant helping a human install, reinstall, or
-debug Hermes WebUI onboarding. It does not replace the human first-run wizard.
+debug JarvisCopilot WebUI onboarding. It does not replace the human first-run wizard.
 Use it before running bootstrap commands, inspecting logs, or recommending a
 cleanup path.
 
@@ -15,7 +15,7 @@ The human operator owns:
 - choosing the install path
 - choosing the provider and model
 - entering API keys, OAuth codes, and passwords
-- approving any cleanup of a real Hermes home
+- approving any cleanup of a real JarvisCopilot home
 - approving any external exposure outside localhost
 
 The assistant owns:
@@ -28,7 +28,7 @@ The assistant owns:
 
 ## Hard safety rules
 
-- Do not delete, move, or overwrite the real `~/.hermes` directory unless the
+- Do not delete, move, or overwrite the real `~/.jarviscopilot` directory unless the
   human explicitly asks for that exact action.
 - Do not print API keys, OAuth tokens, cookies, full `.env` files, full
   `auth.json` files, or password hashes.
@@ -57,18 +57,18 @@ test -f .env && grep -n 'HERMES_HOME\|HERMES_WEBUI_STATE_DIR\|HERMES_WEBUI_PORT\
 ```
 
 If `.env` exists, do not print the full file. Inspect only the specific
-non-secret keys needed to understand the active Hermes home, WebUI state
+non-secret keys needed to understand the active JarvisCopilot home, WebUI state
 directory, port, or host.
 
 ## Isolated local trial
 
-Use an isolated Hermes home and WebUI state directory for a reinstall or support
+Use an isolated JarvisCopilot home and WebUI state directory for a reinstall or support
 trial. This keeps the test away from the operator's real memory, sessions,
 profiles, credentials, and cron state.
 
 ```bash
 mkdir -p ~/hermes-onboarding-test
-HERMES_HOME=~/hermes-onboarding-test/.hermes \
+HERMES_HOME=~/hermes-onboarding-test/.jarviscopilot \
 HERMES_WEBUI_STATE_DIR=~/hermes-onboarding-test/webui \
 HERMES_WEBUI_PORT=8789 \
 python3 bootstrap.py
@@ -91,7 +91,7 @@ For daemon-style installs, `ctl.sh` writes the daemon log to the active
 `HERMES_HOME` by default:
 
 ```text
-~/.hermes/webui.log
+~/.jarviscopilot/webui.log
 ```
 
 When using the isolated trial environment, prefer the bootstrap command above
@@ -146,7 +146,7 @@ A local onboarding trial passes when:
 - WebUI files are written under the intended `HERMES_WEBUI_STATE_DIR`.
 
 If the human chooses a provider that must be completed in the CLI, passing can
-mean the wizard correctly points them to `hermes model` or `hermes auth` rather
+mean the wizard correctly points them to `jarviscopilot model` or `jarviscopilot auth` rather
 than trying to collect unsupported credentials in the browser.
 
 ## Failure triage
@@ -160,7 +160,7 @@ If the server does not start:
 
 If onboarding reports `agent_unavailable`:
 
-- confirm the bootstrap found or installed Hermes Agent
+- confirm the bootstrap found or installed JarvisCopilot
 - check whether the running Python can import `run_agent.AIAgent`
 - use `docs/troubleshooting.md`, especially the `AIAgent not available` flow
 

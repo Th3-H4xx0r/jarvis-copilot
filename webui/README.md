@@ -1,8 +1,8 @@
-# Hermes Web UI
+# JarvisCopilot Web UI
 
-[Hermes Agent](https://hermes-agent.nousresearch.com/) is a sophisticated autonomous agent that lives on your server, accessed via a terminal or messaging apps, that remembers what it learns and gets more capable the longer it runs.
+[JarvisCopilot](https://hermes-agent.nousresearch.com/) is a sophisticated autonomous agent that lives on your server, accessed via a terminal or messaging apps, that remembers what it learns and gets more capable the longer it runs.
 
-Hermes WebUI is a lightweight, dark-themed web app interface in your browser for [Hermes Agent](https://hermes-agent.nousresearch.com/).
+JarvisCopilot WebUI is a lightweight, dark-themed web app interface in your browser for [JarvisCopilot](https://hermes-agent.nousresearch.com/).
 Full parity with the CLI experience - everything you can do from a terminal,
 you can do from this UI. No build step, no framework, no bundler. Just Python
 and vanilla JS.
@@ -11,9 +11,9 @@ Layout: three-panel. Left sidebar for sessions and navigation, center for chat,
 right for workspace file browsing. Model, profile, and workspace controls live in
 the **composer footer** — always visible while composing. A circular context ring
 shows token usage at a glance. All settings and session tools are in the
-**Hermes Control Center** (launcher at the sidebar bottom).
+**JarvisCopilot Control Center** (launcher at the sidebar bottom).
 
-<img width="2448" height="1748" alt="Hermes Web UI — three-panel layout" src="https://github.com/user-attachments/assets/6bf8af4c-209d-441e-8b92-6515d7a0c369" />
+<img width="2448" height="1748" alt="JarvisCopilot Web UI — three-panel layout" src="https://github.com/user-attachments/assets/6bf8af4c-209d-441e-8b92-6515d7a0c369" />
 
 <table>
   <tr>
@@ -41,27 +41,27 @@ shows token usage at a glance. All settings and session tools are in the
   </tr>
 </table>
 
-This gives you nearly **1:1 parity with Hermes CLI from a convenient web UI** which you can access securely through an SSH tunnel from your Hermes setup. Single command to start this up, and a single command to SSH tunnel for access on your computer. Every single part of the web UI uses your existing Hermes agent and existing models, without requiring any additional setup.
+This gives you nearly **1:1 parity with JarvisCopilot CLI from a convenient web UI** which you can access securely through an SSH tunnel from your JarvisCopilot setup. Single command to start this up, and a single command to SSH tunnel for access on your computer. Every single part of the web UI uses your existing JarvisCopilot agent and existing models, without requiring any additional setup.
 
 ---
 
-## Why Hermes
+## Why JarvisCopilot
 
 Most AI tools reset every session. They don't know who you are, what you worked on, or what
 conventions your project follows. You re-explain yourself every time.
 
-Hermes retains context across sessions, runs scheduled jobs while you're offline, and gets
-smarter about your environment the longer it runs. It uses your existing Hermes agent setup,
+JarvisCopilot retains context across sessions, runs scheduled jobs while you're offline, and gets
+smarter about your environment the longer it runs. It uses your existing JarvisCopilot agent setup,
 your existing models, and requires no additional configuration to start.
 
 What makes it different from other agentic tools:
 
 - **Persistent memory** — user profile, agent notes, and a skills system that saves reusable
-  procedures; Hermes learns your environment and does not have to relearn it
+  procedures; JarvisCopilot learns your environment and does not have to relearn it
 - **Self-hosted scheduling** — cron jobs that fire while you're offline and deliver results to
   Telegram, Discord, Slack, Signal, email, and more
 - **10+ messaging platforms** — the same agent available in the terminal is reachable from your phone
-- **Self-improving skills** — Hermes writes and saves its own skills automatically from experience;
+- **Self-improving skills** — JarvisCopilot writes and saves its own skills automatically from experience;
   no marketplace to browse, no plugins to install
 - **Provider-agnostic** — OpenAI, Anthropic, Google, DeepSeek, OpenRouter, and more
 - **Orchestrates other agents** — can spawn Claude Code or Codex for heavy coding tasks and bring
@@ -70,7 +70,7 @@ What makes it different from other agentic tools:
 
 **vs. the field** *(landscape is actively shifting — see [HERMES.md](HERMES.md) for the full breakdown)*:
 
-| | OpenClaw | Claude Code | Codex CLI | OpenCode | Hermes |
+| | OpenClaw | Claude Code | Codex CLI | OpenCode | JarvisCopilot |
 |---|---|---|---|---|---|
 | Persistent memory (auto) | Yes | Partial† | Partial | Partial | Yes |
 | Scheduled jobs (self-hosted) | Yes | No‡ | No | No | Yes |
@@ -85,10 +85,10 @@ What makes it different from other agentic tools:
 ‡ Claude Code has cloud-managed scheduling (Anthropic infrastructure) and session-scoped `/loop`; no self-hosted cron
 
 **The closest competitor is OpenClaw** — both are always-on, self-hosted, open-source agents
-with memory, cron, and messaging. The key differences: Hermes writes and saves its own skills
+with memory, cron, and messaging. The key differences: JarvisCopilot writes and saves its own skills
 automatically as a core behavior (OpenClaw's skill system centers on a community marketplace);
-Hermes is more stable across updates (OpenClaw has documented release regressions and ClawHub
-has had security incidents involving malicious skills); and Hermes runs natively in the Python
+JarvisCopilot is more stable across updates (OpenClaw has documented release regressions and ClawHub
+has had security incidents involving malicious skills); and JarvisCopilot runs natively in the Python
 ecosystem. See [HERMES.md](HERMES.md) for the full side-by-side.
 
 ---
@@ -112,18 +112,18 @@ Or keep using the shell launcher:
 For self-hosted VM or homelab installs, `ctl.sh` wraps the common daemon lifecycle commands without requiring `fuser` or `pkill`:
 
 ```bash
-./ctl.sh start              # background daemon, PID at ~/.hermes/webui.pid
+./ctl.sh start              # background daemon, PID at ~/.jarviscopilot/webui.pid
 ./ctl.sh status             # PID, uptime, bound host/port, log path, /health
-./ctl.sh logs --lines 100   # tail ~/.hermes/webui.log
+./ctl.sh logs --lines 100   # tail ~/.jarviscopilot/webui.log
 ./ctl.sh restart
 ./ctl.sh stop
 ```
 
-`ctl.sh start` runs the bootstrap in foreground/no-browser mode behind the daemon wrapper, writes logs to `~/.hermes/webui.log`, and respects `.env` plus inline overrides such as `HERMES_WEBUI_HOST=0.0.0.0 ./ctl.sh start`.
+`ctl.sh start` runs the bootstrap in foreground/no-browser mode behind the daemon wrapper, writes logs to `~/.jarviscopilot/webui.log`, and respects `.env` plus inline overrides such as `HERMES_WEBUI_HOST=0.0.0.0 ./ctl.sh start`.
 
 The bootstrap will:
 
-1. Detect Hermes Agent and, if missing, attempt the official installer (`curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash`).
+1. Detect JarvisCopilot and, if missing, attempt the official installer (`curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash`).
 2. Find or create a Python environment with the WebUI dependencies.
 3. Start the web server and wait for `/health`.
 4. Open the browser unless you pass `--no-browser`.
@@ -133,7 +133,7 @@ The bootstrap will:
 > For Windows / WSL auto-start at login, see [`docs/wsl-autostart.md`](docs/wsl-autostart.md).
 > A community-maintained native Windows guide is tracked in [#1952](https://github.com/nesquena/hermes-webui/issues/1952).
 
-If provider setup is still incomplete after install, the onboarding wizard will point you to finish it with `hermes model` instead of trying to replicate the full CLI setup in-browser.
+If provider setup is still incomplete after install, the onboarding wizard will point you to finish it with `jarviscopilot model` instead of trying to replicate the full CLI setup in-browser.
 For a step-by-step walkthrough of the wizard, provider choices, local model server Base URLs, and safe re-runs, see [`docs/onboarding.md`](docs/onboarding.md).
 If an AI assistant is helping with install, reinstall, bootstrap, provider setup, or first-run support, have it read [`docs/onboarding-agent-checklist.md`](docs/onboarding-agent-checklist.md) before running commands or inspecting logs.
 
@@ -158,7 +158,7 @@ docker compose up -d
 # Open http://localhost:8787
 ```
 
-The container auto-detects your UID/GID from the mounted `~/.hermes` volume so files written by the agent stay readable by you on the host.
+The container auto-detects your UID/GID from the mounted `~/.jarviscopilot` volume so files written by the agent stay readable by you on the host.
 
 To enable password protection (required if you expose the port outside `127.0.0.1`):
 
@@ -173,8 +173,8 @@ docker compose up -d --force-recreate
 docker pull ghcr.io/nesquena/hermes-webui:latest
 docker run -d \
   -e WANTED_UID=$(id -u) -e WANTED_GID=$(id -g) \
-  -v ~/.hermes:/home/hermeswebui/.hermes \
-  -e HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.hermes/webui \
+  -v ~/.jarviscopilot:/home/hermeswebui/.jarviscopilot \
+  -e HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.jarviscopilot/webui \
   -v ~/workspace:/workspace \
   -p 127.0.0.1:8787:8787 \
   ghcr.io/nesquena/hermes-webui:latest
@@ -186,8 +186,8 @@ docker run -d \
 docker build -t hermes-webui .
 docker run -d \
   -e WANTED_UID=$(id -u) -e WANTED_GID=$(id -g) \
-  -v ~/.hermes:/home/hermeswebui/.hermes \
-  -e HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.hermes/webui \
+  -v ~/.jarviscopilot:/home/hermeswebui/.jarviscopilot \
+  -e HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.jarviscopilot/webui \
   -v ~/workspace:/workspace \
   -p 127.0.0.1:8787:8787 \
   hermes-webui
@@ -218,7 +218,7 @@ Both compose files use **named Docker volumes** by default, which solves the UID
 | Workspace appears empty | UID mismatch on `/workspace` mount | Set `UID=$(id -u)` in `.env` |
 | `git: command not found` in chat | Two-container architectural limit (#681) | Use single-container or extend Dockerfile |
 | WebUI can't find agent source | `hermes-agent-src` volume misconfigured | Use the named volumes from compose files as-is |
-| Podman shared `.hermes` fails | Podman 3.4 `keep-id` limitation | Use Podman 4+ or single-container |
+| Podman shared `.jarviscopilot` fails | Podman 3.4 `keep-id` limitation | Use Podman 4+ or single-container |
 
 For the deep dive on each of these, see [`docs/docker.md`](docs/docker.md).
 
@@ -232,9 +232,9 @@ For the deep dive on each of these, see [`docs/docker.md`](docs/docker.md).
 
 | Thing | How it finds it |
 |---|---|
-| Hermes agent dir | `HERMES_WEBUI_AGENT_DIR` env, then `~/.hermes/hermes-agent`, then sibling `../hermes-agent` |
+| JarvisCopilot agent dir | `HERMES_WEBUI_AGENT_DIR` env, then `~/.jarviscopilot/hermes-agent`, then sibling `../hermes-agent` |
 | Python executable | Agent venv first, then `.venv` in this repo, then system `python3` |
-| State directory | `HERMES_WEBUI_STATE_DIR` env, then `~/.hermes/webui` |
+| State directory | `HERMES_WEBUI_STATE_DIR` env, then `~/.jarviscopilot/webui` |
 | Default workspace | `HERMES_WEBUI_DEFAULT_WORKSPACE` env, then `~/workspace`, then state dir |
 | Port | `HERMES_WEBUI_PORT` env or first argument, default `8787` |
 
@@ -266,22 +266,22 @@ Full list of environment variables:
 | `HERMES_WEBUI_PYTHON` | auto-discovered | Python executable |
 | `HERMES_WEBUI_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` for all IPv4, `::` for all IPv6, `::1` for IPv6 loopback) |
 | `HERMES_WEBUI_PORT` | `8787` | Port |
-| `HERMES_WEBUI_STATE_DIR` | `~/.hermes/webui` | Where sessions and state are stored |
+| `HERMES_WEBUI_STATE_DIR` | `~/.jarviscopilot/webui` | Where sessions and state are stored |
 | `HERMES_WEBUI_DEFAULT_WORKSPACE` | `~/workspace` | Default workspace |
-| `HERMES_WEBUI_DEFAULT_MODEL` | *(provider default)* | Optional model override; leave unset to use the active Hermes provider default |
+| `HERMES_WEBUI_DEFAULT_MODEL` | *(provider default)* | Optional model override; leave unset to use the active JarvisCopilot provider default |
 | `HERMES_WEBUI_PASSWORD` | *(unset)* | Set to enable password authentication |
 | `HERMES_WEBUI_EXTENSION_DIR` | *(unset)* | Optional local directory served at `/extensions/`; must point to an existing directory before extension injection is enabled |
 | `HERMES_WEBUI_EXTENSION_SCRIPT_URLS` | *(unset)* | Optional comma-separated same-origin script URLs to inject; see [WebUI Extensions](docs/EXTENSIONS.md) |
 | `HERMES_WEBUI_EXTENSION_STYLESHEET_URLS` | *(unset)* | Optional comma-separated same-origin stylesheet URLs to inject; see [WebUI Extensions](docs/EXTENSIONS.md) |
-| `HERMES_HOME` | `~/.hermes` | Base directory for Hermes state (affects all paths) |
-| `HERMES_CONFIG_PATH` | `~/.hermes/config.yaml` | Path to Hermes config file |
+| `HERMES_HOME` | `~/.jarviscopilot` | Base directory for JarvisCopilot state (affects all paths) |
+| `HERMES_CONFIG_PATH` | `~/.jarviscopilot/config.yaml` | Path to JarvisCopilot config file |
 
 ---
 
 ## Accessing from a remote machine
 
 The server binds to `127.0.0.1` by default (loopback only). If you are running
-Hermes on a VPS or remote server, use an SSH tunnel from your local machine:
+JarvisCopilot on a VPS or remote server, use an SSH tunnel from your local machine:
 
 ```bash
 ssh -N -L <local-port>:127.0.0.1:<remote-port> <user>@<server-host>
@@ -306,7 +306,7 @@ are running over SSH.
 WireGuard. Install it on your server and your phone, and they join the same
 private network -- no port forwarding, no SSH tunnels, no public exposure.
 
-The Hermes Web UI is fully responsive with a mobile-optimized layout
+The JarvisCopilot Web UI is fully responsive with a mobile-optimized layout
 (hamburger sidebar, sidebar top tabs in the drawer, touch-friendly controls),
 so it works well as a daily-driver agent interface from your phone.
 
@@ -339,11 +339,11 @@ for an app-like experience.
 If you prefer to launch the server directly:
 
 ```bash
-cd /path/to/hermes-agent          # or wherever sys.path can find Hermes modules
+cd /path/to/hermes-agent          # or wherever sys.path can find JarvisCopilot modules
 HERMES_WEBUI_PORT=8787 venv/bin/python /path/to/hermes-webui/server.py
 ```
 
-Note: use the agent venv Python (or any Python environment that has the Hermes agent dependencies installed). System Python will be missing `openai`, `httpx`, and other required packages.
+Note: use the agent venv Python (or any Python environment that has the JarvisCopilot agent dependencies installed). System Python will be missing `openai`, `httpx`, and other required packages.
 
 Health check:
 
@@ -355,7 +355,7 @@ curl http://127.0.0.1:8787/health
 
 ## Running tests
 
-Tests discover the repo and the Hermes agent dynamically -- no hardcoded paths.
+Tests discover the repo and the JarvisCopilot agent dynamically -- no hardcoded paths.
 
 ```bash
 cd hermes-webui
@@ -378,7 +378,7 @@ Production data and real cron jobs are never touched. Current snapshot:
 
 ### Chat and agent
 - Streaming responses via SSE (tokens appear as they are generated)
-- Multi-provider model support -- any Hermes API provider (OpenAI, Anthropic, Google, DeepSeek, Nous Portal, OpenRouter, MiniMax, Xiaomi MiMo, Z.AI); dynamic model dropdown populated from configured keys
+- Multi-provider model support -- any JarvisCopilot API provider (OpenAI, Anthropic, Google, DeepSeek, Nous Portal, OpenRouter, MiniMax, Xiaomi MiMo, Z.AI); dynamic model dropdown populated from configured keys
 - Send a message while one is processing -- it queues automatically
 - Edit any past user message inline and regenerate from that point
 - Retry the last assistant response with one click
@@ -389,7 +389,7 @@ Production data and real cron jobs are never touched. Current snapshot:
 - Thinking/reasoning display -- collapsible gold-themed cards for Claude extended thinking and o3 reasoning blocks
 - Approval card for dangerous shell commands (allow once / session / always / deny)
 - SSE auto-reconnect on network blips (SSH tunnel resilience)
-- File attachments persist across page reloads and are stored outside the active workspace by default (`~/.hermes/webui/attachments/<session_id>/`, or `HERMES_WEBUI_ATTACHMENT_DIR/<session_id>/` when configured)
+- File attachments persist across page reloads and are stored outside the active workspace by default (`~/.jarviscopilot/webui/attachments/<session_id>/`, or `HERMES_WEBUI_ATTACHMENT_DIR/<session_id>/` when configured)
 - Message timestamps (HH:MM next to each message, full date on hover)
 - Code block copy button with "Copied!" feedback
 - Syntax highlighting via Prism.js (Python, JS, bash, JSON, SQL, and more)
@@ -455,7 +455,7 @@ Production data and real cron jobs are never touched. Current snapshot:
 - Custom themes: define a `:root[data-theme="name"]` CSS block and it works — see [THEMES.md](THEMES.md)
 
 ### Settings and configuration
-- **Hermes Control Center** (sidebar launcher button) -- Conversation tab (export/import/clear), Preferences tab (model, send key, theme, language, all toggles), System tab (version, password)
+- **JarvisCopilot Control Center** (sidebar launcher button) -- Conversation tab (export/import/clear), Preferences tab (model, send key, theme, language, all toggles), System tab (version, password)
 - Send key: Enter (default) or Ctrl/Cmd+Enter
 - Show/hide CLI sessions toggle (enabled by default)
 - Token usage display toggle (off by default, also via `/usage` command)
@@ -524,14 +524,14 @@ docker-compose.yml      Compose with named volume and optional auth
 .github/workflows/      CI: multi-arch Docker build + GitHub Release on tag
 ```
 
-State lives outside the repo at `~/.hermes/webui/` by default
+State lives outside the repo at `~/.jarviscopilot/webui/` by default
 (sessions, workspaces, settings, projects, last_workspace). Override with `HERMES_WEBUI_STATE_DIR`.
 
 ---
 
 ## Docs
 
-- `HERMES.md` -- why Hermes, mental model, and detailed comparison to Claude Code / Codex / OpenCode / Cursor
+- `HERMES.md` -- why JarvisCopilot, mental model, and detailed comparison to Claude Code / Codex / OpenCode / Cursor
 - `ROADMAP.md` -- feature roadmap and sprint history
 - `ARCHITECTURE.md` -- system design, all API endpoints, implementation notes
 - `TESTING.md` -- manual browser test plan and automated coverage reference
@@ -549,7 +549,7 @@ State lives outside the repo at `~/.hermes/webui/` by default
 
 ## Contributors
 
-Hermes WebUI is built with help from the open-source community. Every PR — whether merged directly, absorbed into a batch release, or salvaged from a larger proposal — shapes the project, and we're grateful to everyone who has taken the time to contribute.
+JarvisCopilot WebUI is built with help from the open-source community. Every PR — whether merged directly, absorbed into a batch release, or salvaged from a larger proposal — shapes the project, and we're grateful to everyone who has taken the time to contribute.
 
 **137 contributors have shipped code that landed in a release tag** as of v0.51.58. The full credit roll lives in [`CONTRIBUTORS.md`](CONTRIBUTORS.md). The highlights:
 
@@ -576,13 +576,13 @@ See [`CONTRIBUTORS.md`](CONTRIBUTORS.md) for the full ranked list of all 137 con
 Across the longest tenure of any external contributor: the session title guard (#301), breadcrumb workspace navigation (#302), embedded workspace terminal (#1099), worktree-backed session creation (#2053), onboarding documentation (#2052), composer footer container queries, streaming-session sidebar exemption (#1327), session sidecar repair, cron output preservation (#1295), profile default workspace persistence, manual `/compress` async start/status endpoints (#2128), worktree status surface (#2109) + guarded remove (#2156) for the lifecycle umbrella #2057, session post-render dedup (#2166), native-WebUI fast path (#2170), tail-window response trim (#2171), stale-stream guard extension (#2158), CSP report collector (#2160), and a long tail of polish across mobile/responsive, the session sidebar, and the workspace state machine.
 
 **[@Michaelyklam](https://github.com/Michaelyklam)** — Most prolific contributor of recent releases (92 PRs, `v0.50.240` → `v0.51.57`)
-Production Docker hardening (#1921, drops sudo-capable staging user), profile-scoped skills endpoints (#1903), gateway PID resolution under profile-scoped HERMES_HOME (#1901), profile-aware AIAgent cache (#1898/#1904), backslash LaTeX delimiters (#1848), Codex quota error surfacing (#1770), shell-route HTML 503 (#1836), stale Kanban client recovery (#1828), context auto-compression toast lifetime (#1988), `/goal` command (#1866), Kanban detail-view scrolling (#1916), CLI session tool metadata preservation (#1778), Traditional Chinese kanban locale backfill (#1979), v0.51.51 mobile Insights bucketing/layout (#2120/#2121), Hermes run adapter RFC (#2105 for #1925), fork-from-here absolute index (#2198 for #2184), opencode-go custom-provider overlap routing (#2204 for #1894).
+Production Docker hardening (#1921, drops sudo-capable staging user), profile-scoped skills endpoints (#1903), gateway PID resolution under profile-scoped HERMES_HOME (#1901), profile-aware AIAgent cache (#1898/#1904), backslash LaTeX delimiters (#1848), Codex quota error surfacing (#1770), shell-route HTML 503 (#1836), stale Kanban client recovery (#1828), context auto-compression toast lifetime (#1988), `/goal` command (#1866), Kanban detail-view scrolling (#1916), CLI session tool metadata preservation (#1778), Traditional Chinese kanban locale backfill (#1979), v0.51.51 mobile Insights bucketing/layout (#2120/#2121), JarvisCopilot run adapter RFC (#2105 for #1925), fork-from-here absolute index (#2198 for #2184), opencode-go custom-provider overlap routing (#2204 for #1894).
 
 **[@bergeouss](https://github.com/bergeouss)** — Provider management UI + Docker hardening (62 PRs, `v0.48.0` → `v0.51.46`)
 Provider management UI for adding/editing custom providers from Settings, OAuth provider status detection (#1552), two-container Docker setup, profile isolation hardening (per-profile `.env` secrets), the bulk of what users see when they touch Settings → Providers, Reveal-in-Finder context menu (#1551), gateway status card (#1552), auto-assign session to active project filter (#1550), "What's new?" link in update banner (#1549), OpenRouter free-tier live fetch (#1548), credential pool 401 self-heal (#1553), inline provider chip + group model count in model picker (#1644).
 
 **[@ai-ag2026](https://github.com/ai-ag2026)** — Session recovery + audit infrastructure (55 PRs, `v0.50.279` → `v0.51.47`)
-Autonomous-AI contributor (Hermes Agent-driven) focused on durability: `state.db`-backed sidecar reconciliation (#2041), orphan `.json.bak` recovery on startup (#2035), read-only session recovery audit endpoints (#2036, #2040), active run lifecycle in `/health` (#2039), crash-safe turn-journal RFC at `docs/rfcs/turn-journal.md` (#2042), append-only turn-journal helper (#2059), lifecycle events layer (#2062), `Content-Security-Policy-Report-Only` header (#2084), per-cron toast toggle (#2100), fork-session compression lineage isolation (#2014).
+Autonomous-AI contributor (JarvisCopilot-driven) focused on durability: `state.db`-backed sidecar reconciliation (#2041), orphan `.json.bak` recovery on startup (#2035), read-only session recovery audit endpoints (#2036, #2040), active run lifecycle in `/health` (#2039), crash-safe turn-journal RFC at `docs/rfcs/turn-journal.md` (#2042), append-only turn-journal helper (#2059), lifecycle events layer (#2062), `Content-Security-Policy-Report-Only` header (#2084), per-cron toast toggle (#2100), fork-session compression lineage isolation (#2014).
 
 **[@dso2ng](https://github.com/dso2ng)** — Session lineage + diagnostics (23 PRs, `v0.50.227` → `v0.51.51`)
 `/api/session/lineage-report/<sid>` endpoint for bounded session graph diagnostics (#2012), stale Mermaid render error cleanup (#1337), `session_source="fork"` continuation-chain isolation (#2063), lazy lineage-report fetch on sidebar badge expand (#2130), and a long tail of frontend reliability fixes around session loading.
@@ -594,7 +594,7 @@ Sidebar collapse via active-rail click (#2054, fuses #1884 + #1924), composer ch
 Original sprint of workspace fallback resolution, live reasoning cards (#366, #367, #394–#397), then a recent burst: manual "Refresh usage" button on the Provider quota card (#2150), cancelled-turn status classification (#2151), Firefox sidebar scroll stabilization (#2200), early provisional session titles (#2202), target-aware "What's new?" update-banner links (#2207), and MCP tools overflow fix in Settings (#2210).
 
 **[@aronprins](https://github.com/aronprins)** — `v0.50.0` UI overhaul (PR #242, plus 9 follow-ups)
-The biggest single contribution to the project: a complete UI redesign that moved model/profile/workspace controls into the composer footer, replaced the gear-icon settings panel with the Hermes Control Center (tabbed modal), removed the activity bar in favor of inline composer status, redesigned the session list with a `⋯` action dropdown, and added the workspace panel state machine. Plus chat transcript redesign (#587), sidebar declutter (#584), three-column layout refactor (#899), light/dark theme + accent skins (#627), and shared `confirm()`/`prompt()` dialog replacement (PR #251 extracted from #242).
+The biggest single contribution to the project: a complete UI redesign that moved model/profile/workspace controls into the composer footer, replaced the gear-icon settings panel with the JarvisCopilot Control Center (tabbed modal), removed the activity bar in favor of inline composer status, redesigned the session list with a `⋯` action dropdown, and added the workspace panel state machine. Plus chat transcript redesign (#587), sidebar declutter (#584), three-column layout refactor (#899), light/dark theme + accent skins (#627), and shared `confirm()`/`prompt()` dialog replacement (PR #251 extracted from #242).
 
 **[@iRonin](https://github.com/iRonin)** — Security hardening sprint (PRs #196–#204)
 Six consecutive, focused security PRs: session memory leak fix (expired token pruning), CSP + Permissions-Policy headers, 30-second slow-client connection timeout, optional HTTPS/TLS support via environment variables, upstream branch tracking fix for self-update, and CLI session support in the file-browser API. The kind of focused, high-quality security work that makes a self-hosted tool trustworthy.

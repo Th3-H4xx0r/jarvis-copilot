@@ -1,8 +1,8 @@
 # Jarvis Copilot
 
-A voice-first AI assistant fork of [Hermes Agent](https://github.com/NousResearch/hermes-agent) with a browser-based web UI ported from [nesquena/hermes-webui](https://github.com/nesquena/hermes-webui), tool-enabled voice chat with an ack → tool → confirm cadence, a JARVIS personality with a matching Piper neural voice, Fish Audio TTS support, and a self-signed-TLS launcher so the voice tab works over your LAN out of the box.
+A voice-first AI assistant fork of [JarvisCopilot](https://github.com/NousResearch/hermes-agent) with a browser-based web UI ported from [nesquena/hermes-webui](https://github.com/nesquena/hermes-webui), tool-enabled voice chat with an ack → tool → confirm cadence, a JARVIS personality with a matching Piper neural voice, Fish Audio TTS support, and a self-signed-TLS launcher so the voice tab works over your LAN out of the box.
 
-Everything Hermes Agent does — skills, cron jobs, memory, sessions, the full tool ecosystem, the messaging gateway — still works. This fork adds a voice-tab UI on top.
+Everything JarvisCopilot does — skills, cron jobs, memory, sessions, the full tool ecosystem, the messaging gateway — still works. This fork adds a voice-tab UI on top.
 
 ---
 
@@ -23,11 +23,11 @@ irm https://raw.githubusercontent.com/Th3-H4xx0r/jarvis-copilot/main/scripts/ins
 The installer:
 
 1. Clones this fork into `~/JarvisCopilot` (configurable via `$JARVISCOPILOT_DIR`)
-2. Creates `.venv/` and installs Hermes core + voice extras (`faster-whisper`, `edge-tts`, `piper-tts`) + webui dependencies
-3. Generates a self-signed TLS cert at `~/.hermes/webui-tls/` so HTTPS works without buying a real cert
+2. Creates `.venv/` and installs JarvisCopilot core + voice extras (`faster-whisper`, `edge-tts`, `piper-tts`) + webui dependencies
+3. Generates a self-signed TLS cert at `~/.jarviscopilot/webui-tls/` so HTTPS works without buying a real cert
 4. Prints next steps: Codex auth + first launch
 
-**Re-runs are idempotent.** Running it again `git pull --ff-only`s the code and refreshes `pip` only — it never touches your `~/.hermes/` config, skills, cron jobs, sessions, or credentials.
+**Re-runs are idempotent.** Running it again `git pull --ff-only`s the code and refreshes `pip` only — it never touches your `~/.jarviscopilot/` config, skills, cron jobs, sessions, or credentials.
 
 ---
 
@@ -49,12 +49,12 @@ Then open **https://localhost:8787** on the host, or **https://&lt;your-LAN-ip&g
 
 ---
 
-## What's added on top of Hermes
+## What's added on top of JarvisCopilot
 
 | Surface | Added by Jarvis Copilot |
 | --- | --- |
 | **Web UI** | Vendored from [nesquena/hermes-webui](https://github.com/nesquena/hermes-webui) — three-panel chat, workspace browser, sessions, kanban, skills, memory. Now with a Voice tab. |
-| **Voice tab** | Push-to-talk + Realtime WebSocket modes. Web Audio mic capture, browser-side interim transcript via Web Speech API, server-side STT via Hermes's `faster-whisper`. Streams responses as they arrive (text speaks while the next tool runs). |
+| **Voice tab** | Push-to-talk + Realtime WebSocket modes. Web Audio mic capture, browser-side interim transcript via Web Speech API, server-side STT via JarvisCopilot's `faster-whisper`. Streams responses as they arrive (text speaks while the next tool runs). |
 | **Particle-sphere orb** | Pure Canvas2D port of JarvisClaw's `VoiceWaveform` — rotating chrome rings, additive blending, amplitude-driven spike rim, state-driven color (idle blue, listening cool, thinking pulsing purple, speaking warm orange). |
 | **Voice → chat agent** | Voice transcripts route through the user's active chat session so the agent's full tool kit (terminal, browser, file, web, etc.) is available. Auto-approve via `tools.approval.enable_session_yolo()` — speaking is consent. |
 | **Ack → tool → confirm** | SOUL.md prompt nudges the model to narrate before each tool ("Opening Chrome…") and confirm after ("Chrome is open."). Each text segment is TTS'd inline and played as it lands. |
@@ -68,18 +68,18 @@ Then open **https://localhost:8787** on the host, or **https://&lt;your-LAN-ip&g
 
 ## Configuration
 
-All settings live under `~/.hermes/` and are unchanged from upstream Hermes:
+All settings live under `~/.jarviscopilot/` and are unchanged from upstream JarvisCopilot:
 
-- `~/.hermes/config.yaml` — model provider, personalities, TTS engine + voice, cron settings
-- `~/.hermes/SOUL.md` — assistant identity / system prompt
-- `~/.hermes/skills/` — your agent-created skills
-- `~/.hermes/auth.json` — pooled credentials (OAuth tokens, API keys)
+- `~/.jarviscopilot/config.yaml` — model provider, personalities, TTS engine + voice, cron settings
+- `~/.jarviscopilot/SOUL.md` — assistant identity / system prompt
+- `~/.jarviscopilot/skills/` — your agent-created skills
+- `~/.jarviscopilot/auth.json` — pooled credentials (OAuth tokens, API keys)
 
 The installer **never overwrites these** — re-run it as often as you like.
 
 ### Cron job formatting
 
-By default Hermes wraps cron job replies in a header/footer (job name, ID, stop instructions). To get just the content:
+By default JarvisCopilot wraps cron job replies in a header/footer (job name, ID, stop instructions). To get just the content:
 
 ```yaml
 cron:
@@ -88,7 +88,7 @@ cron:
 
 ### Voice provider config
 
-Set in `~/.hermes/config.yaml` (or via Settings → Voice Providers in the UI):
+Set in `~/.jarviscopilot/config.yaml` (or via Settings → Voice Providers in the UI):
 
 ```yaml
 tts:
@@ -98,7 +98,7 @@ tts:
     voice_id: <paste-from-fish.audio/m/...>
     model: s2-pro             # optional override
   piper:
-    voice: ~/.hermes/cache/piper-voices/jarvis-high.onnx
+    voice: ~/.jarviscopilot/cache/piper-voices/jarvis-high.onnx
     length_scale: 1.04
     noise_scale: 0.45
     noise_w_scale: 0.55
@@ -106,22 +106,22 @@ tts:
 
 ---
 
-## What's `jarviscopilot` vs `hermes`?
+## What's `jarviscopilot` vs `jarviscopilot`?
 
-Both commands exist and do the same thing — `jarviscopilot` is the primary name for this fork; `hermes` is kept as an alias for backward compatibility with the upstream docs and any external scripts that hardcode it.
+Both commands exist and do the same thing — `jarviscopilot` is the primary name for this fork; `jarviscopilot` is kept as an alias for backward compatibility with the upstream docs and any external scripts that hardcode it.
 
 ```bash
-jarviscopilot setup         # equivalent to: hermes setup
-jarviscopilot auth list     # equivalent to: hermes auth list
+jarviscopilot setup         # equivalent to: jarviscopilot setup
+jarviscopilot auth list     # equivalent to: jarviscopilot auth list
 ```
 
-State directory is still `~/.hermes/` — renaming the on-disk path would break every existing install and skill.
+State directory is still `~/.jarviscopilot/` — renaming the on-disk path would break every existing install and skill.
 
 ---
 
 ## Credits
 
-- [Hermes Agent](https://github.com/NousResearch/hermes-agent) by [Nous Research](https://nousresearch.com) — the agent core, tool system, memory, cron scheduler, gateway, every part of the brains
+- [JarvisCopilot](https://github.com/NousResearch/hermes-agent) by [Nous Research](https://nousresearch.com) — the agent core, tool system, memory, cron scheduler, gateway, every part of the brains
 - [hermes-webui](https://github.com/nesquena/hermes-webui) by [nesquena](https://github.com/nesquena) — the three-panel web UI vendored in `webui/`
 - [JarvisClaw](https://github.com/jarvisclaw/jarvisclaw) — design inspiration for the voice tab, JARVIS persona, Piper voice config, and Fish Audio integration
 
@@ -129,4 +129,4 @@ State directory is still `~/.hermes/` — renaming the on-disk path would break 
 
 ## License
 
-MIT — same as upstream Hermes Agent. See [LICENSE](LICENSE).
+MIT — same as upstream JarvisCopilot. See [LICENSE](LICENSE).

@@ -1,6 +1,6 @@
 # WebUI Extensions
 
-Hermes WebUI supports a small, opt-in extension surface for self-hosted installs.
+JarvisCopilot WebUI supports a small, opt-in extension surface for self-hosted installs.
 It lets an administrator serve local static assets and inject same-origin CSS or
 JavaScript into the app shell without editing the WebUI source tree.
 
@@ -14,7 +14,7 @@ JavaScript into the app shell without editing the WebUI source tree.
 
 This is intentionally not a plugin marketplace or dependency system. It is a
 safe escape hatch for local dashboards, internal tooling, and workflow-specific
-panels that should not live in core Hermes WebUI.
+panels that should not live in core JarvisCopilot WebUI.
 
 ## What extensions can do
 
@@ -30,7 +30,7 @@ Extensions cannot, by themselves:
 - bypass WebUI authentication
 - serve files outside the configured extension directory
 - load third-party scripts/styles through the built-in injection config
-- change Hermes Agent permissions, models, memory, or tools unless they call
+- change JarvisCopilot permissions, models, memory, or tools unless they call
   existing authenticated APIs that already allow those changes
 
 ## Configuration
@@ -176,8 +176,8 @@ If host CSS overrides `[hidden]`, add an extension-scoped rule such as:
 Create a local extension directory:
 
 ```bash
-mkdir -p ~/.hermes/webui-extension
-cat > ~/.hermes/webui-extension/app.css <<'CSS'
+mkdir -p ~/.jarviscopilot/webui-extension
+cat > ~/.jarviscopilot/webui-extension/app.css <<'CSS'
 .my-extension-badge {
   position: fixed;
   right: 12px;
@@ -190,7 +190,7 @@ cat > ~/.hermes/webui-extension/app.css <<'CSS'
   z-index: 9999;
 }
 CSS
-cat > ~/.hermes/webui-extension/app.js <<'JS'
+cat > ~/.jarviscopilot/webui-extension/app.js <<'JS'
 (() => {
   const badge = document.createElement('div');
   badge.className = 'my-extension-badge';
@@ -203,7 +203,7 @@ JS
 Start WebUI with the extension enabled:
 
 ```bash
-HERMES_WEBUI_EXTENSION_DIR=~/.hermes/webui-extension \
+HERMES_WEBUI_EXTENSION_DIR=~/.jarviscopilot/webui-extension \
 HERMES_WEBUI_EXTENSION_STYLESHEET_URLS=/extensions/app.css \
 HERMES_WEBUI_EXTENSION_SCRIPT_URLS=/extensions/app.js \
 ./start.sh

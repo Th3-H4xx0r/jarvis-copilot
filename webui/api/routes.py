@@ -378,7 +378,8 @@ def _skill_view_from_file(skill_dir: Path | None, skill_md: Path) -> dict:
         return {"success": False, "error": "Skill is not available on this platform."}
 
     metadata = frontmatter.get("metadata")
-    hermes_meta = metadata.get("hermes", {}) if isinstance(metadata, dict) else {}
+    # Prefer jarviscopilot namespace; fall back to legacy `hermes` for compat.
+    hermes_meta = (metadata.get("jarviscopilot") or metadata.get("hermes") or {}) if isinstance(metadata, dict) else {}
     tags = _parse_tags(hermes_meta.get("tags") or frontmatter.get("tags", ""))
     related_skills = _parse_tags(
         hermes_meta.get("related_skills") or frontmatter.get("related_skills", "")

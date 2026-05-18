@@ -1,4 +1,4 @@
-# Agent instructions for Hermes WebUI
+# Agent instructions for JarvisCopilot WebUI
 
 This file is the shared entry point for AI assistants working in this
 repository. Keep it project-specific and safe to publish. Do not put personal
@@ -31,7 +31,7 @@ Follow that checklist's safety rules:
 
 - use isolated `HERMES_HOME` and `HERMES_WEBUI_STATE_DIR` for trials unless the
   human explicitly asks to use real state
-- do not delete or overwrite a real `~/.hermes` directory without explicit
+- do not delete or overwrite a real `~/.jarviscopilot` directory without explicit
   approval
 - do not print API keys, OAuth tokens, cookies, full `.env` files, full
   `auth.json` files, or password hashes
@@ -51,7 +51,7 @@ Follow that checklist's safety rules:
 
 ## Local state and secrets
 
-Hermes WebUI can read and write real agent state, sessions, workspaces,
+JarvisCopilot WebUI can read and write real agent state, sessions, workspaces,
 credentials, and cron data. Treat local validation as potentially destructive
 unless you have confirmed the active state directories.
 

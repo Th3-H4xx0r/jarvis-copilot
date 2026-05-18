@@ -1,6 +1,6 @@
 # Windows / WSL auto-start
 
-Hermes WebUI runs well under WSL2, but native Windows login does not automatically start Linux user processes. This guide covers two supported options:
+JarvisCopilot WebUI runs well under WSL2, but native Windows login does not automatically start Linux user processes. This guide covers two supported options:
 
 1. **WSL session startup** — simple and low-risk. WebUI starts the next time you open a WSL shell.
 2. **Windows Task Scheduler** — true Windows logon startup. Windows invokes `wsl.exe`, which runs the WSL launch script.
@@ -20,12 +20,12 @@ The WSL launcher supports these environment variables:
 | Variable | Default | Purpose |
 |---|---|---|
 | `HERMES_WEBUI_REPO` | repo containing the script | WebUI checkout to start |
-| `HERMES_WEBUI_LOG_DIR` | `$HOME/.hermes/webui/logs` | Autostart and WebUI logs |
+| `HERMES_WEBUI_LOG_DIR` | `$HOME/.jarviscopilot/webui/logs` | Autostart and WebUI logs |
 | `HERMES_WEBUI_HOST` | `127.0.0.1` | Host passed through to `start.sh` / `bootstrap.py` |
 | `HERMES_WEBUI_PORT` | `8787` | WebUI port and health-check port |
 | `HERMES_WEBUI_HEALTH_URL` | `http://127.0.0.1:$HERMES_WEBUI_PORT/health` | URL used to decide whether WebUI is already running |
 | `HERMES_WEBUI_PID_FILE` | `$HERMES_WEBUI_LOG_DIR/hermes-webui.pid` | pid file used for duplicate prevention |
-| `HERMES_WEBUI_REQUIRE_AGENT_PROCESS` | `0` | Optional: set to `1` only if your local setup requires a separate Hermes process before WebUI starts |
+| `HERMES_WEBUI_REQUIRE_AGENT_PROCESS` | `0` | Optional: set to `1` only if your local setup requires a separate JarvisCopilot process before WebUI starts |
 
 Make the script executable once inside WSL:
 
@@ -44,8 +44,8 @@ curl -fsS http://127.0.0.1:8787/health
 Logs are written to:
 
 ```text
-$HOME/.hermes/webui/logs/webui_autostart.log
-$HOME/.hermes/webui/logs/hermes_webui.log
+$HOME/.jarviscopilot/webui/logs/webui_autostart.log
+$HOME/.jarviscopilot/webui/logs/hermes_webui.log
 ```
 
 ## Option 1: WSL session startup
@@ -110,8 +110,8 @@ Unregister-ScheduledTask -TaskName HermesWebUIAutoStart -Confirm:$false
 Check the WSL logs first:
 
 ```bash
-tail -n 80 "$HOME/.hermes/webui/logs/webui_autostart.log"
-tail -n 80 "$HOME/.hermes/webui/logs/hermes_webui.log"
+tail -n 80 "$HOME/.jarviscopilot/webui/logs/webui_autostart.log"
+tail -n 80 "$HOME/.jarviscopilot/webui/logs/hermes_webui.log"
 ```
 
 Common causes:

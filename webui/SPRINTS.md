@@ -1,4 +1,4 @@
-# Hermes Web UI — Sprint Planning
+# JarvisCopilot Web UI — Sprint Planning
 
 > Forward-looking sprint plan and active queue.
 >
@@ -100,7 +100,7 @@ These are intentionally not on the roadmap. Listing them here to save planning c
 
 - **Multi-user collaboration** — single-user assumption throughout the codebase. Refactoring would be a from-scratch architecture change.
 - **Sharing / public conversation URLs** — requires hosted backend with access control + CDN. Out of scope for self-hosted.
-- **Plugin marketplace** — Hermes skills already cover this surface.
+- **Plugin marketplace** — JarvisCopilot skills already cover this surface.
 - **Anthropic / Claude proprietary features** — Projects AI memory, Claude artifacts sync. Not reproducible.
 - **Linux / Windows native app wrappers** — macOS done; demand on other platforms not yet established. Web UI works in any browser.
 - **App Store distribution** — sandboxing breaks the local-server model.

@@ -1,7 +1,7 @@
-# Hermes Web UI: Developer and Architecture Guide
+# JarvisCopilot Web UI: Developer and Architecture Guide
 
 > This document is the canonical reference for anyone (human or agent) working on the
-> Hermes Web UI. It covers the exact current state of the code, every design decision and
+> JarvisCopilot Web UI. It covers the exact current state of the code, every design decision and
 > quirk discovered during development, and a phased architecture improvement roadmap that
 > runs in parallel with the feature roadmap in ROADMAP.md.
 >
@@ -10,14 +10,14 @@
 > Current shipped build: `v0.51.54` (May 13, 2026).
 > Automated coverage: 5303 tests via `pytest tests/ --collect-only -q`. CI runs on Python 3.11, 3.12, and 3.13 against every PR.
 >
-> Notable architecture state as of v0.51.54: the bootstrap and first-run onboarding flow own setup discovery; the default WebUI state directory is `~/.hermes/webui`; `ctl.sh` provides a daemon wrapper for homelab installs; chat streaming is still WebUI-owned SSE with stream-ownership guards, cancellation, async manual compression, and turn-journal audit plumbing; provider/model discovery is profile-aware with live-model cache invalidation and custom-provider scoping.
+> Notable architecture state as of v0.51.54: the bootstrap and first-run onboarding flow own setup discovery; the default WebUI state directory is `~/.jarviscopilot/webui`; `ctl.sh` provides a daemon wrapper for homelab installs; chat streaming is still WebUI-owned SSE with stream-ownership guards, cancellation, async manual compression, and turn-journal audit plumbing; provider/model discovery is profile-aware with live-model cache invalidation and custom-provider scoping.
 
 ---
 
 ## 1. Overview and Purpose
 
-The Hermes Web UI is a lightweight web application that gives you a browser-based
-interface to the Hermes agent that is functionally equivalent to the CLI. It is modeled on
+The JarvisCopilot Web UI is a lightweight web application that gives you a browser-based
+interface to the JarvisCopilot agent that is functionally equivalent to the CLI. It is modeled on
 the Claude-style interface: a sidebar for session management, a central chat area,
 and a demand-driven right panel used for workspace browsing and preview surfaces.
 The right panel is closed by default on desktop and opens only when it is actively
@@ -34,7 +34,7 @@ business logic modules (api/). The frontend is seven vanilla JS modules loaded f
 This makes the code easy to modify from a terminal or by an agent.
 
 Hermes-level chrome is intentionally consolidated: the sidebar has no dedicated brand header.
-Instead, the footer exposes a single "Hermes WebUI" launch button that opens one tabbed
+Instead, the footer exposes a single "JarvisCopilot WebUI" launch button that opens one tabbed
 control-center modal for global preferences, conversation import/export, and clear-conversation
 actions. The topbar remains focused on conversation context and the workspace/files toggle.
 
@@ -90,7 +90,7 @@ actions. The topbar remains focused on conversation context and the workspace/fi
 
 State directory (runtime data, separate from source):
 
-    ~/.hermes/webui/
+    ~/.jarviscopilot/webui/
     sessions/          One JSON file per session: {session_id}.json
     workspaces.json    Registered workspaces list
     last_workspace.txt Last-used workspace path
@@ -99,18 +99,18 @@ State directory (runtime data, separate from source):
 
 Log file:
 
-    ~/.hermes/webui/bootstrap-8787.log   start.sh/bootstrap background server log
-    ~/.hermes/webui.log                  ctl.sh daemon log
+    ~/.jarviscopilot/webui/bootstrap-8787.log   start.sh/bootstrap background server log
+    ~/.jarviscopilot/webui.log                  ctl.sh daemon log
 
 ---
 
 ## 3. Runtime Environment
 
 - Python interpreter: <agent-dir>/venv/bin/python
-- The venv has all Hermes agent dependencies (run_agent, tools/*, cron/*)
+- The venv has all JarvisCopilot agent dependencies (run_agent, tools/*, cron/*)
 - Server binds to 127.0.0.1:8787 (localhost only, not public internet)
 - Access from Mac: SSH tunnel: ssh -N -L 8787:127.0.0.1:8787 <user>@<your-server>
-- The server imports Hermes modules via sys.path.insert(0, parent_dir)
+- The server imports JarvisCopilot modules via sys.path.insert(0, parent_dir)
 
 Environment variables controlling behavior:
 
@@ -118,16 +118,16 @@ Environment variables controlling behavior:
     HERMES_WEBUI_PORT              Port (default: 8787)
     HERMES_WEBUI_DEFAULT_WORKSPACE Default workspace path for new sessions
     HERMES_WEBUI_STATE_DIR         Where sessions/ folder lives
-    HERMES_CONFIG_PATH             Path to ~/.hermes/config.yaml
+    HERMES_CONFIG_PATH             Path to ~/.jarviscopilot/config.yaml
     HERMES_WEBUI_DEFAULT_MODEL     Optional model override; unset means provider default
     HERMES_WEBUI_PASSWORD          Optional: enable password auth (off by default)
     HERMES_WEBUI_SKIP_ONBOARDING   Optional: bypass the first-run onboarding wizard
-    HERMES_HOME                    Base directory for Hermes state (~/.hermes by default)
+    HERMES_HOME                    Base directory for JarvisCopilot state (~/.jarviscopilot by default)
 
 Test isolation environment variables (set by conftest.py):
 
     HERMES_WEBUI_TEST_PORT=...                         Optional pinned test port
-    HERMES_WEBUI_TEST_STATE_DIR=~/.hermes/webui-test-* Optional pinned test state
+    HERMES_WEBUI_TEST_STATE_DIR=~/.jarviscopilot/webui-test-* Optional pinned test state
     HERMES_WEBUI_DEFAULT_WORKSPACE=.../test-workspace  Isolated test workspace
 
 Tests NEVER talk to the production server (port 8787).
@@ -293,7 +293,7 @@ fires (within the same SSE stream), without waiting for the next poll cycle.
 
 ### 4.5 Approval System Integration
 
-The approval system uses the existing Hermes gateway module at tools/approval.py.
+The approval system uses the existing JarvisCopilot gateway module at tools/approval.py.
 All state lives in module-level variables in that file:
 
     _pending = {}        dict: session_key -> pending_entry_dict
@@ -384,7 +384,7 @@ inherit `currentColor` for consistent theming.
 
 Three-panel layout (in static/index.html):
 
-    <aside class="sidebar">    Left panel: session list, nav tabs, sidebar-footer Hermes WebUI trigger
+    <aside class="sidebar">    Left panel: session list, nav tabs, sidebar-footer JarvisCopilot WebUI trigger
     <main class="main">        Center: topbar, messages area, approval card, composer
     <aside class="rightpanel"> Right panel: workspace file tree and file preview
 
@@ -567,7 +567,7 @@ Step-by-step trace of what happens when you type a message and press Send:
 6.  Build msgText from text + file note
 7.  Build userMsg {role:'user', content: displayText, attachments?: filenames}
 8.  Push userMsg to S.messages, call renderMessages(), appendThinking()
-9.  setBusy(true), setStatus('Hermes is thinking...')
+9.  setBusy(true), setStatus('JarvisCopilot is thinking...')
 10. INFLIGHT[activeSid] = {messages: [...S.messages], uploaded}
 11. startApprovalPolling(activeSid)
 12. POST /api/chat/start {session_id, message, model, workspace}
@@ -590,7 +590,7 @@ Step-by-step trace of what happens when you type a message and press Send:
 ## 7. Dependency Map
 
 server.py imports from api/ modules (config, helpers, models, workspace, upload, streaming).
-The api/ modules in turn import Hermes internals:
+The api/ modules in turn import JarvisCopilot internals:
 
     api/streaming.py imports:
       run_agent.AIAgent              Main agent class. Wraps LLM + tool execution.
@@ -630,7 +630,7 @@ Return value:
 
 ## 8. Configuration Loading
 
-On startup, server.py reads ~/.hermes/config.yaml:
+On startup, server.py reads ~/.jarviscopilot/config.yaml:
 
     cfg = yaml.safe_load(CONFIG_PATH.read_text())
     CLI_TOOLSETS = cfg.get('platform_toolsets', {}).get('cli', [...default...])
@@ -784,7 +784,7 @@ Replacing with marked.js + DOMPurify is a future improvement (not blocking).
 
 ### Phase G: Observability -- MOSTLY COMPLETE
 
-1. Structured JSON logging: COMPLETE (Sprint 1). Per-request JSON is printed to the active launcher log (`~/.hermes/webui/bootstrap-8787.log` for `start.sh`, `~/.hermes/webui.log` for `ctl.sh`).
+1. Structured JSON logging: COMPLETE (Sprint 1). Per-request JSON is printed to the active launcher log (`~/.jarviscopilot/webui/bootstrap-8787.log` for `start.sh`, `~/.jarviscopilot/webui.log` for `ctl.sh`).
 2. Enhanced /health: COMPLETE (Sprint 7). Returns `active_streams`, `uptime_seconds`.
 3. GET /api/debug/stats: NOT YET IMPLEMENTED. Low priority.
 
@@ -854,7 +854,7 @@ Endpoint requiring a valid session:
     except KeyError:
         return j(self, {'error': 'Session not found'}, status=404)
 
-Endpoint that calls Hermes Python modules:
+Endpoint that calls JarvisCopilot Python modules:
 
     # Example: calling cron.jobs
     import sys
@@ -894,8 +894,8 @@ The api() helper:
     curl -s http://127.0.0.1:8787/health | python3 -m json.tool
 
     # Tail the server log live
-    tail -f ~/.hermes/webui/bootstrap-8787.log
-    tail -f ~/.hermes/webui.log  # when launched through ctl.sh
+    tail -f ~/.jarviscopilot/webui/bootstrap-8787.log
+    tail -f ~/.jarviscopilot/webui.log  # when launched through ctl.sh
 
     # List all sessions (metadata only)
     curl -s http://127.0.0.1:8787/api/sessions | python3 -m json.tool
@@ -912,8 +912,8 @@ The api() helper:
     ps aux | grep "server.py"
 
     # Inspect session files on disk
-    ls -lt ~/.hermes/webui/sessions/
-    cat ~/.hermes/webui/sessions/SESSION_ID.json | python3 -m json.tool
+    ls -lt ~/.jarviscopilot/webui/sessions/
+    cat ~/.jarviscopilot/webui/sessions/SESSION_ID.json | python3 -m json.tool
 
     # Count messages in a session
     python3 -c "import json; d=json.load(open('sessions/SID.json')); print(len(d['messages']))"
@@ -926,9 +926,9 @@ The api() helper:
     curl -s http://127.0.0.1:8787/health  # streams not exposed yet, add in Phase G
 
     # Find all sessions with messages (not Untitled empty)
-    ls ~/.hermes/webui/sessions/ | xargs -I{} python3 -c "
+    ls ~/.jarviscopilot/webui/sessions/ | xargs -I{} python3 -c "
     import json, sys
-    d = json.load(open('~/.hermes/webui/sessions/{}'))
+    d = json.load(open('~/.jarviscopilot/webui/sessions/{}'))
     if d['messages']: print('{}', d['title'][:50])
     " 2>/dev/null
 
@@ -1195,7 +1195,7 @@ Recommended execution order:
 
 ## 17. Working Conventions for Agent Contributors
 
-This section is specifically for agents (Hermes instances, subagents, Codex, etc.) that
+This section is specifically for agents (JarvisCopilot instances, subagents, Codex, etc.) that
 will be working on this codebase. Read this before touching any file.
 
 ### Before Making Any Change
@@ -1453,7 +1453,7 @@ fetches GET /api/skills/content and renders in the right panel using `showPrevie
 #### Memory Panel
 
 `loadMemory()` fetches GET /api/memory (reads MEMORY.md + USER.md from
-~/.hermes/memories/), renders both as markdown via renderMd() with timestamps.
+~/.jarviscopilot/memories/), renders both as markdown via renderMd() with timestamps.
 
 #### New API Endpoints (Section 18 update)
 
@@ -1567,8 +1567,8 @@ Index files starting with '_' are skipped during full scan to avoid recursion.
 
 #### New Workspace Infrastructure
 
-WORKSPACES_FILE = ~/.hermes/webui-mvp/workspaces.json
-LAST_WORKSPACE_FILE = ~/.hermes/webui-mvp/last_workspace.txt
+WORKSPACES_FILE = ~/.jarviscopilot/webui-mvp/workspaces.json
+LAST_WORKSPACE_FILE = ~/.jarviscopilot/webui-mvp/last_workspace.txt
 load_workspaces() / save_workspaces() / get_last_workspace() / set_last_workspace() helpers.
 new_session() now calls get_last_workspace() as default instead of DEFAULT_WORKSPACE.
 set_last_workspace() called in /api/session/update and /api/chat/start.

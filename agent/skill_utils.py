@@ -290,14 +290,16 @@ def extract_skill_conditions(frontmatter: Dict[str, Any]) -> Dict[str, List]:
     # Handle cases where metadata is not a dict (e.g., a string from malformed YAML)
     if not isinstance(metadata, dict):
         metadata = {}
-    hermes = metadata.get("hermes") or {}
-    if not isinstance(hermes, dict):
-        hermes = {}
+    # Prefer the JarvisCopilot namespace; fall back to legacy `hermes` so
+    # third-party skills that haven't been rebranded still work.
+    ns = metadata.get("jarviscopilot") or metadata.get("hermes") or {}
+    if not isinstance(ns, dict):
+        ns = {}
     return {
-        "fallback_for_toolsets": hermes.get("fallback_for_toolsets", []),
-        "requires_toolsets": hermes.get("requires_toolsets", []),
-        "fallback_for_tools": hermes.get("fallback_for_tools", []),
-        "requires_tools": hermes.get("requires_tools", []),
+        "fallback_for_toolsets": ns.get("fallback_for_toolsets", []),
+        "requires_toolsets": ns.get("requires_toolsets", []),
+        "fallback_for_tools": ns.get("fallback_for_tools", []),
+        "requires_tools": ns.get("requires_tools", []),
     }
 
 
@@ -323,10 +325,10 @@ def extract_skill_config_vars(frontmatter: Dict[str, Any]) -> List[Dict[str, Any
     metadata = frontmatter.get("metadata")
     if not isinstance(metadata, dict):
         return []
-    hermes = metadata.get("hermes")
-    if not isinstance(hermes, dict):
+    ns = metadata.get("jarviscopilot") or metadata.get("hermes")
+    if not isinstance(ns, dict):
         return []
-    raw = hermes.get("config")
+    raw = ns.get("config")
     if not raw:
         return []
     if isinstance(raw, dict):

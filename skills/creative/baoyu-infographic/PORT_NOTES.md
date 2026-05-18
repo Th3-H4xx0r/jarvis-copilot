@@ -8,15 +8,15 @@ Only `SKILL.md` was modified. All 45 reference files are verbatim copies.
 
 ### SKILL.md adaptations
 
-| Change | Upstream | Hermes |
+| Change | Upstream | JarvisCopilot |
 |--------|----------|--------|
-| Metadata namespace | `openclaw` | `hermes` |
+| Metadata namespace | `openclaw` | `jarviscopilot` |
 | Trigger | `/baoyu-infographic` slash command | Natural language skill matching |
-| User config | EXTEND.md file (project/user/XDG paths) | Removed — not part of Hermes infra |
+| User config | EXTEND.md file (project/user/XDG paths) | Removed — not part of JarvisCopilot infra |
 | User prompts | `AskUserQuestion` (batched) | `clarify` tool (one at a time) |
 | Image generation | baoyu-imagine (Bun/TypeScript) | `image_generate` tool |
 | Platform support | Linux/macOS/Windows/WSL/PowerShell | Linux/macOS only |
-| File operations | Bash commands | Hermes file tools (write_file, read_file) |
+| File operations | Bash commands | JarvisCopilot file tools (write_file, read_file) |
 
 ### What was preserved
 

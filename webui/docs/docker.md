@@ -1,4 +1,4 @@
-# Hermes WebUI — Docker setup guide
+# JarvisCopilot WebUI — Docker setup guide
 
 This is the comprehensive Docker reference. For a 5-minute quickstart, see the [README Docker section](../README.md#docker).
 
@@ -16,13 +16,13 @@ If something stops working, **start with the single-container setup** — it's t
 ## Production image security model
 
 The production Docker image is hardened for the normal single-tenant container threat model:
-Hermes WebUI assumes one operator controls the container, mounted Hermes home, and workspace.
+JarvisCopilot WebUI assumes one operator controls the container, mounted JarvisCopilot home, and workspace.
 The image does **not** install `sudo`, does not add runtime users to a sudo group, and does not
 grant `NOPASSWD` escalation. If an agent/tool process gains a shell as `hermeswebui`, it should
 not be able to become root with a passwordless sudo command.
 
 The entrypoint still starts as `root` for a narrow init phase because Docker bind mounts often need
-UID/GID alignment and ownership preparation before the app can read `~/.hermes`, `/workspace`,
+UID/GID alignment and ownership preparation before the app can read `~/.jarviscopilot`, `/workspace`,
 `/app`, and `/uv_cache`. After that setup, `docker_init.bash` re-execs itself as the unprivileged
 `hermeswebui` user and starts the server there. Init scratch files under `/tmp/hermeswebui_init`
 are owner-only (`0700` directory, `0600` files), not world-writable.
@@ -42,7 +42,7 @@ docker compose up -d
 open http://localhost:8787
 ```
 
-That's it. Your existing `~/.hermes` directory is mounted, your `~/workspace` is browsable, and the WebUI auto-detects your UID/GID from the mounted volume.
+That's it. Your existing `~/.jarviscopilot` directory is mounted, your `~/workspace` is browsable, and the WebUI auto-detects your UID/GID from the mounted volume.
 
 ## What goes wrong (and how to fix it)
 
@@ -50,7 +50,7 @@ That's it. Your existing `~/.hermes` directory is mounted, your `~/workspace` is
 
 **Symptom**: Container starts but immediately crashes, logs show:
 ```
-PermissionError: [Errno 13] Permission denied: '/home/hermeswebui/.hermes/...'
+PermissionError: [Errno 13] Permission denied: '/home/hermeswebui/.jarviscopilot/...'
 ```
 
 **Cause**: The container's user (UID 1000 by default) can't read your bind-mounted directory because your host files are owned by a different UID.
@@ -101,15 +101,15 @@ Both are documented in `api/startup.py::fix_credential_permissions()`.
 **Symptom**: WebUI logs at startup:
 ```
 !! WARNING: hermes-agent source not found.
-!!   Looked in: /home/hermeswebui/.hermes/hermes-agent
+!!   Looked in: /home/hermeswebui/.jarviscopilot/hermes-agent
 !!              /opt/hermes
 ```
 
 **Cause**: The agent's source (`/opt/hermes` inside the agent container) needs to be exposed to the WebUI container via a shared volume. The two-container compose file does this via `hermes-agent-src` named volume, but if you're using bind mounts incorrectly the path won't resolve.
 
-**Fix**: Use the named volumes that ship with `docker-compose.two-container.yml` — don't replace them with bind mounts unless you know what you're doing. The agent container writes its source to `/opt/hermes`, and the WebUI mounts that volume at `/home/hermeswebui/.hermes/hermes-agent`.
+**Fix**: Use the named volumes that ship with `docker-compose.two-container.yml` — don't replace them with bind mounts unless you know what you're doing. The agent container writes its source to `/opt/hermes`, and the WebUI mounts that volume at `/home/hermeswebui/.jarviscopilot/hermes-agent`.
 
-If you must use a bind mount: pick a host path, then mount it to `/opt/hermes` in the agent container AND `/home/hermeswebui/.hermes/hermes-agent` in the WebUI container.
+If you must use a bind mount: pick a host path, then mount it to `/opt/hermes` in the agent container AND `/home/hermeswebui/.jarviscopilot/hermes-agent` in the WebUI container.
 
 ### 5. "Tools (git, node, etc.) missing in two-container setup" (#681)
 
@@ -124,16 +124,16 @@ If you must use a bind mount: pick a host path, then mount it to `/opt/hermes` i
 
 ### 6. "config.yaml not loaded"
 
-**Symptom**: You have a `config.yaml` in your host `~/.hermes/`, but the WebUI shows "no model configured" or doesn't pick up your custom providers.
+**Symptom**: You have a `config.yaml` in your host `~/.jarviscopilot/`, but the WebUI shows "no model configured" or doesn't pick up your custom providers.
 
 **Cause**: Either the file isn't readable (UID/GID issue, see #1) or it's not in the expected path inside the container.
 
 **Fix**:
-- Verify: `docker exec hermes-webui ls -la /home/hermeswebui/.hermes/config.yaml`
+- Verify: `docker exec hermes-webui ls -la /home/hermeswebui/.jarviscopilot/config.yaml`
 - If it doesn't exist: your host bind mount is pointing at the wrong directory.
 - If it exists but is unreadable: see #1 for the UID/GID fix.
 
-### 7. "On Podman: can't share .hermes between containers"
+### 7. "On Podman: can't share .jarviscopilot between containers"
 
 **Symptom**: Two-container setup works on Docker but fails on Podman with permission errors no matter what UID/GID you set.
 
@@ -147,7 +147,7 @@ The two- and three-container setups use **named Docker volumes** (not bind mount
 
 ```
                  ┌─────────────────────────────────┐
-                 │      hermes-home (volume)       │
+                 │      jarviscopilot-home (volume)       │
                  │  (config, sessions, state, ...)  │
                  └─────────────────────────────────┘
                           ↑              ↑
@@ -166,7 +166,7 @@ The two- and three-container setups use **named Docker volumes** (not bind mount
       └─────────────────────────┘
 ```
 
-The WebUI container doesn't ship with the agent's Python deps — at startup it runs `uv pip install /home/hermeswebui/.hermes/hermes-agent` to install them from the shared volume. The WebUI mount is read-only; the agent container is the only writer.
+The WebUI container doesn't ship with the agent's Python deps — at startup it runs `uv pip install /home/hermeswebui/.jarviscopilot/hermes-agent` to install them from the shared volume. The WebUI mount is read-only; the agent container is the only writer.
 
 ## Upgrading the agent container
 
@@ -190,7 +190,7 @@ docker compose -f docker-compose.three-container.yml pull
 docker compose -f docker-compose.three-container.yml up -d
 ```
 
-Replace `<project>` with your Compose project name (the parent directory by default; check with `docker volume ls`). The `hermes-home` volume (config, sessions, state) is left untouched — only `hermes-agent-src` (the agent's installed Python source) is recreated.
+Replace `<project>` with your Compose project name (the parent directory by default; check with `docker volume ls`). The `jarviscopilot-home` volume (config, sessions, state) is left untouched — only `hermes-agent-src` (the agent's installed Python source) is recreated.
 
 > The single-container setup (`docker-compose.yml`) does not use `hermes-agent-src` and is not affected by this upgrade pattern — pulling a newer WebUI image and `docker compose up -d --force-recreate` is sufficient.
 
@@ -199,13 +199,13 @@ Replace `<project>` with your Compose project name (the parent directory by defa
 The two- and three-container setups give you **process, network, and resource isolation** between the gateway and the chat UI:
 
 - Each service has its own PID namespace and lifecycle — the agent process can crash without taking down the chat UI and vice versa.
-- The gateway API (port 8642) is bound by the agent service only; the WebUI cannot bind it. Other containers reach the gateway via the `hermes-net` Docker network.
+- The gateway API (port 8642) is bound by the agent service only; the WebUI cannot bind it. Other containers reach the gateway via the `jarviscopilot-net` Docker network.
 - Resource limits (`deploy.resources.limits` in `docker-compose.three-container.yml`) apply per service, so you can cap the agent independently of the dashboard.
 - Restart policies, log streams, and container health checks are scoped per service.
 
 What multi-container does **not** isolate:
 
-- **Filesystem boundary.** Both services share `hermes-home` (config, sessions, state), and the WebUI mounts the agent's installed source from `hermes-agent-src`. The WebUI mount is read-only (since v0.51.84), but the agent service still has write access, and both services share the home volume.
+- **Filesystem boundary.** Both services share `jarviscopilot-home` (config, sessions, state), and the WebUI mounts the agent's installed source from `hermes-agent-src`. The WebUI mount is read-only (since v0.51.84), but the agent service still has write access, and both services share the home volume.
 - **UID/GID boundary.** Both services default to `${UID:-1000}` so files written by one are readable by the other. If you align them to different UIDs you'll get permission errors on the shared volume.
 - **Trust boundary on the agent source.** The WebUI installs Python dependencies from the shared `hermes-agent-src` volume at startup. The read-only mount means a compromised WebUI cannot rewrite the agent source, but it does run code from that volume.
 
@@ -213,16 +213,16 @@ If you need **filesystem isolation** between the chat UI and the agent (e.g. you
 
 ## Bind-mount migration (advanced)
 
-If you really need to bind-mount an existing host `~/.hermes` (e.g. you're keeping config in dotfiles, sharing with a non-Docker `hermes` install, etc.):
+If you really need to bind-mount an existing host `~/.jarviscopilot` (e.g. you're keeping config in dotfiles, sharing with a non-Docker `jarviscopilot` install, etc.):
 
 ```yaml
 volumes:
-  hermes-home:
+  jarviscopilot-home:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: /home/youruser/.hermes
+      device: /home/youruser/.jarviscopilot
   hermes-agent-src:
     driver: local
     driver_opts:
@@ -233,7 +233,7 @@ volumes:
 
 **Critical requirements**:
 
-1. The host directory MUST be readable by your container UID. Run `id -u` on the host and ensure `~/.hermes` is owned by that UID (or readable via group bits).
+1. The host directory MUST be readable by your container UID. Run `id -u` on the host and ensure `~/.jarviscopilot` is owned by that UID (or readable via group bits).
 2. ALL containers sharing the volume must run as the SAME UID/GID. Set `UID=$(id -u)` and `GID=$(id -g)` in `.env`.
 3. If your host `.env` is mode 0640, set `HERMES_SKIP_CHMOD=1` or `HERMES_HOME_MODE=0640` so the startup hook doesn't try to enforce 0600.
 
@@ -261,4 +261,4 @@ If you hit a new failure mode not covered here, please [open an issue](https://g
 1. Which compose file you used
 2. The error from `docker logs hermes-webui`
 3. `docker exec hermes-webui id` output
-4. `docker exec hermes-webui ls -la /home/hermeswebui/.hermes` output
+4. `docker exec hermes-webui ls -la /home/hermeswebui/.jarviscopilot` output

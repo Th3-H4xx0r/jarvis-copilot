@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Concrete diagnostic flows for the most common failure modes when running Hermes WebUI. Each entry has the symptom, the diagnostic commands you should run *before* opening an issue, and the fix that has worked for past reporters.
+Concrete diagnostic flows for the most common failure modes when running JarvisCopilot WebUI. Each entry has the symptom, the diagnostic commands you should run *before* opening an issue, and the fix that has worked for past reporters.
 
 If your symptom isn't listed and the diagnostics don't narrow it down, file a bug at https://github.com/nesquena/hermes-webui/issues — include the **full output** of every command in the relevant section.
 

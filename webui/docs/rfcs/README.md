@@ -38,7 +38,7 @@ First-time contributor RFCs should be discussed in an issue before opening a PR.
 
 ## Current RFCs
 
-- [`hermes-run-adapter-contract.md`](hermes-run-adapter-contract.md) — #1925
+- [`jarviscopilot-run-adapter-contract.md`](jarviscopilot-run-adapter-contract.md) — #1925
   event/control contract, runtime-state ownership matrix, acceptance catalog,
   and reversible migration gates for moving WebUI execution behind an explicit
   adapter boundary.

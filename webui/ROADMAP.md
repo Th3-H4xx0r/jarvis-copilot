@@ -1,6 +1,6 @@
-# Hermes Web UI — Roadmap
+# JarvisCopilot Web UI — Roadmap
 
-> Web companion to the Hermes Agent CLI. Same workflows, browser-native.
+> Web companion to the JarvisCopilot CLI. Same workflows, browser-native.
 >
 > Last updated: v0.51.31 (May 9, 2026) — 5028 tests collected — Release H 12-PR contributor batch (image-mode fix + race fixes + composer drafts + locale parity + custom-provider dedup + TTL config + heartbeat polish)
 > Test source: `pytest tests/ --collect-only -q`
@@ -12,7 +12,7 @@
 
 | Surface | Status |
 |---|---|
-| **Hermes CLI parity** | ✅ Complete — every CLI workflow has a web equivalent |
+| **JarvisCopilot CLI parity** | ✅ Complete — every CLI workflow has a web equivalent |
 | **Streaming + tool transparency** | ✅ Live tool cards, reasoning cards, approval prompts, cancel |
 | **Multi-provider model support** | ✅ Any provider configured in `config.yaml` shows in the picker |
 | **Sessions + projects + search** | ✅ CRUD, content search, projects, tags, archive, fork, import |
@@ -207,7 +207,7 @@ Remaining gaps and forward work live in [Forward Work](#forward-work) below.
 - [x] Empty composer hides send button (icon-circle with pop-in animation)
 - [x] Pluggable Lucide SVG icons (no emoji rendering inconsistencies)
 - [x] Composer-centric controls (v0.50.0 UI overhaul)
-- [x] Hermes Control Center modal (centralized actions)
+- [x] JarvisCopilot Control Center modal (centralized actions)
 - [x] Workspace panel state machine (defaults closed, opens for browsing / preview)
 - [x] PWA manifest + service worker (offline shell)
 - [x] Favicon (SVG + PNG + ICO)
@@ -267,7 +267,7 @@ Remaining gaps and forward work live in [Forward Work](#forward-work) below.
 | Auto-assign session to filtered project | #1468 | When user is filtering by project X, new session should default to project X |
 | Update banner "What's new?" link | #1512 | Surface release highlights from the update banner |
 | Sunset legacy `LMSTUDIO_API_KEY` env var | #1502 | Tracking issue — alias stays for one minor cycle, then removed |
-| Hermes Agent dashboard cross-link | #1459 | Detect a running Hermes Agent and surface link in nav |
+| JarvisCopilot dashboard cross-link | #1459 | Detect a running JarvisCopilot and surface link in nav |
 | Gateway status card in Settings | #1457 | Current gateway-status dots only on profile picker |
 | Insights — daily token chart + per-model breakdown | #1456 | Existing usage badge is per-message; need rollup view |
 | Logs tab — view agent / errors / gateway logs | #1455 | Currently requires terminal access to log files |
@@ -284,9 +284,9 @@ Remaining gaps and forward work live in [Forward Work](#forward-work) below.
 ### Backlog (deferred, listed for visibility)
 
 - **Insights / monitoring suite** — agent heartbeat + alerts (#716), quota / rate-limit display (#706), data tabs (#722), monitor dashboard concepts (#766, #721)
-- **Native MCP server expose** — Hermes WebUI as an MCP server for direct agent integration (#733)
+- **Native MCP server expose** — JarvisCopilot WebUI as an MCP server for direct agent integration (#733)
 - **Teams / agents management panel** — editable names, roles, assignments (#719)
-- **Web UI profile model alignment with Hermes runtime** — design parity (#749)
+- **Web UI profile model alignment with JarvisCopilot runtime** — design parity (#749)
 - **DOM windowing / message virtualization** — for sessions with hundreds of messages (#734)
 - **Searchable global tool list** (#697)
 - **Add agent / replace model modals** (#698)
@@ -297,7 +297,7 @@ Remaining gaps and forward work live in [Forward Work](#forward-work) below.
 - Full SwiftUI rewrite of the frontend — the WKWebView shell already gets 95% of native benefit
 - App Store distribution — sandboxing breaks the local server model
 - Real-time multi-user collaboration — single-user assumption throughout
-- Plugin marketplace — Hermes skills cover this surface
+- Plugin marketplace — JarvisCopilot skills cover this surface
 - Anthropic / Claude proprietary features — Projects AI memory, Claude artifacts sync (not reproducible)
 
 ---

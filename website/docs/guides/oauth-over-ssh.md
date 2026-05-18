@@ -1,14 +1,14 @@
 ---
 sidebar_position: 17
 title: "OAuth over SSH / Remote Hosts"
-description: "How to complete browser-based OAuth (xAI, Spotify) when Hermes runs on a remote machine, container, or behind a jump box"
+description: "How to complete browser-based OAuth (xAI, Spotify) when JarvisCopilot runs on a remote machine, container, or behind a jump box"
 ---
 
 # OAuth over SSH / Remote Hosts
 
-Some Hermes providers — currently **xAI Grok OAuth** and **Spotify** — use a *loopback redirect* OAuth flow. The auth server (xAI, Spotify) redirects your browser to `http://127.0.0.1:<port>/callback` so a tiny HTTP listener started by the `hermes auth ...` command can grab the authorization code.
+Some JarvisCopilot providers — currently **xAI Grok OAuth** and **Spotify** — use a *loopback redirect* OAuth flow. The auth server (xAI, Spotify) redirects your browser to `http://127.0.0.1:<port>/callback` so a tiny HTTP listener started by the `jarviscopilot auth ...` command can grab the authorization code.
 
-This works perfectly when Hermes and your browser are on the same machine. It breaks the moment they aren't: your laptop's browser tries to reach `127.0.0.1` on **your laptop**, but the listener is bound to `127.0.0.1` on **the remote server**.
+This works perfectly when JarvisCopilot and your browser are on the same machine. It breaks the moment they aren't: your laptop's browser tries to reach `127.0.0.1` on **your laptop**, but the listener is bound to `127.0.0.1` on **the remote server**.
 
 The fix is a one-line SSH local-forward.
 
@@ -19,20 +19,20 @@ The fix is a one-line SSH local-forward.
 ssh -N -L 56121:127.0.0.1:56121 user@remote-host
 
 # In your existing SSH session on the remote machine:
-hermes auth add xai-oauth --no-browser
-# → Hermes prints an authorize URL. Open it in a browser on your laptop.
+jarviscopilot auth add xai-oauth --no-browser
+# → JarvisCopilot prints an authorize URL. Open it in a browser on your laptop.
 # → Your browser redirects to 127.0.0.1:56121/callback, the tunnel forwards
 #   the request to the remote listener, login completes.
 ```
 
-Port `56121` is what xAI OAuth uses. For Spotify, replace it with `43827`. Hermes prints the exact port it bound to on the `Waiting for callback on ...` line — copy it from there.
+Port `56121` is what xAI OAuth uses. For Spotify, replace it with `43827`. JarvisCopilot prints the exact port it bound to on the `Waiting for callback on ...` line — copy it from there.
 
 ## Which Providers Need This
 
 | Provider | Loopback port | Tunnel needed? |
 |----------|---------------|----------------|
-| `xai-oauth` (Grok SuperGrok) | `56121` | Yes, when Hermes is remote |
-| Spotify | `43827` | Yes, when Hermes is remote |
+| `xai-oauth` (Grok SuperGrok) | `56121` | Yes, when JarvisCopilot is remote |
+| Spotify | `43827` | Yes, when JarvisCopilot is remote |
 | `anthropic` (Claude Pro/Max) | n/a | No — paste-the-code flow |
 | `openai-codex` (ChatGPT Plus/Pro) | n/a | No — device code flow |
 | `minimax`, `nous-portal` | n/a | No — device code flow |
@@ -61,22 +61,22 @@ ssh -N -L 43827:127.0.0.1:43827 user@remote-host
 
 ```bash
 ssh user@remote-host
-hermes auth add xai-oauth --no-browser
+jarviscopilot auth add xai-oauth --no-browser
 # or for Spotify:
-# hermes auth add spotify --no-browser
+# jarviscopilot auth add spotify --no-browser
 ```
 
-Hermes detects the SSH session, skips the browser auto-open, and prints an authorize URL plus a `Waiting for callback on http://127.0.0.1:<port>/callback` line.
+JarvisCopilot detects the SSH session, skips the browser auto-open, and prints an authorize URL plus a `Waiting for callback on http://127.0.0.1:<port>/callback` line.
 
 ### 3. Open the URL in your local browser
 
-Copy the authorize URL from the remote terminal and paste it into the browser on your laptop. Approve the consent screen. The auth server redirects to `http://127.0.0.1:<port>/callback`. Your browser hits the tunnel, the request is forwarded to the remote listener, and Hermes prints `Login successful!`.
+Copy the authorize URL from the remote terminal and paste it into the browser on your laptop. Approve the consent screen. The auth server redirects to `http://127.0.0.1:<port>/callback`. Your browser hits the tunnel, the request is forwarded to the remote listener, and JarvisCopilot prints `Login successful!`.
 
 You can tear down the tunnel (Ctrl+C in the first terminal) once you see the success line.
 
 ## Step-by-step: through a jump box
 
-If you reach Hermes through a bastion / jump host, use SSH's built-in `-J` (ProxyJump):
+If you reach JarvisCopilot through a bastion / jump host, use SSH's built-in `-J` (ProxyJump):
 
 ```bash
 ssh -N -L 56121:127.0.0.1:56121 -J jump-user@jump-host user@final-host
@@ -95,7 +95,7 @@ ssh -N \
 
 ## Mosh, tmux, ssh ControlMaster
 
-The tunnel is a property of the underlying SSH connection. If you're running Hermes inside `tmux` over a mosh session, the mosh roaming doesn't carry the `-L` forwarding. Open a *separate* plain SSH session **only** for the `-L` tunnel — that's the connection that has to stay alive during the auth flow. Your interactive mosh/tmux session can keep running Hermes normally.
+The tunnel is a property of the underlying SSH connection. If you're running JarvisCopilot inside `tmux` over a mosh session, the mosh roaming doesn't carry the `-L` forwarding. Open a *separate* plain SSH session **only** for the `-L` tunnel — that's the connection that has to stay alive during the auth flow. Your interactive mosh/tmux session can keep running JarvisCopilot normally.
 
 If you use `ssh -o ControlMaster=auto`, port forwards on a multiplexed connection share the master's lifetime. Restart the master if the tunnel doesn't come up:
 
@@ -108,7 +108,7 @@ ssh -N -L 56121:127.0.0.1:56121 user@remote-host
 
 ### `bind [127.0.0.1]:56121: Address already in use`
 
-Something on your laptop is already using that port. Either the previous tunnel didn't shut down cleanly, or a local Hermes is also listening on it. Find and kill the offender:
+Something on your laptop is already using that port. Either the previous tunnel didn't shut down cleanly, or a local JarvisCopilot is also listening on it. Find and kill the offender:
 
 ```bash
 # macOS / Linux
@@ -120,15 +120,15 @@ Then retry the `ssh -L` command.
 
 ### "Could not establish connection. We couldn't reach your app." (xAI)
 
-xAI's authorize page shows this when its redirect to `127.0.0.1:<port>/callback` doesn't reach a listener. Either the tunnel isn't running, the port is wrong, or you're using the port Hermes printed in a previous run (the port can be auto-bumped if the preferred one is busy — always read the latest `Waiting for callback on ...` line).
+xAI's authorize page shows this when its redirect to `127.0.0.1:<port>/callback` doesn't reach a listener. Either the tunnel isn't running, the port is wrong, or you're using the port JarvisCopilot printed in a previous run (the port can be auto-bumped if the preferred one is busy — always read the latest `Waiting for callback on ...` line).
 
 ### `xAI authorization timed out waiting for the local callback`
 
-Same root cause as above — the redirect never made it back. Check the tunnel is still alive (`ssh -N` doesn't show output, so look at the terminal you started it from), restart it if needed, and re-run `hermes auth add xai-oauth --no-browser`.
+Same root cause as above — the redirect never made it back. Check the tunnel is still alive (`ssh -N` doesn't show output, so look at the terminal you started it from), restart it if needed, and re-run `jarviscopilot auth add xai-oauth --no-browser`.
 
-### Tokens land in the wrong `~/.hermes`
+### Tokens land in the wrong `~/.jarviscopilot`
 
-The tokens are written under the Linux user that ran `hermes auth add ...`. If your gateway / systemd service runs as a different user (e.g. `root` or a dedicated `hermes` user), authenticate as **that** user so the tokens land in their `~/.hermes/auth.json`. `sudo -u hermes -i` or equivalent.
+The tokens are written under the Linux user that ran `jarviscopilot auth add ...`. If your gateway / systemd service runs as a different user (e.g. `root` or a dedicated `jarviscopilot` user), authenticate as **that** user so the tokens land in their `~/.jarviscopilot/auth.json`. `sudo -u jarviscopilot -i` or equivalent.
 
 ## See Also
 

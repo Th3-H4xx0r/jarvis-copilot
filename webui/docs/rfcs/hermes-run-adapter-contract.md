@@ -1,4 +1,4 @@
-# Hermes Run Adapter Contract and Migration Gates
+# JarvisCopilot Run Adapter Contract and Migration Gates
 
 - **Status:** Proposed
 - **Author:** @Michaelyklam
@@ -42,7 +42,7 @@ truth. Consequences include:
 - reconnect depends on process-local state rather than a durable run/event view,
 - cancellation and stale writeback bugs recur around ownership boundaries,
 - approvals and clarify prompts are tied to live callbacks,
-- future Hermes runtime APIs cannot be adopted cleanly because WebUI lacks a
+- future JarvisCopilot runtime APIs cannot be adopted cleanly because WebUI lacks a
   single adapter boundary.
 
 The immediate goal is not to build a sidecar. The immediate goal is to define the
@@ -78,7 +78,7 @@ without moving execution ownership yet.
 - Make the browser-facing event/control contract explicit.
 - Classify every current runtime-owned state primitive as `runner process`,
   `journal`, `adapter API surface`, or `WebUI presentation cache`.
-- Identify future backend mapping: existing Hermes runtime API, missing Hermes
+- Identify future backend mapping: existing JarvisCopilot runtime API, missing JarvisCopilot
   API, or temporary WebUI compatibility shim.
 - Define acceptance tests that must survive any migration.
 - Define reversible implementation slices, starting with an append-only
@@ -92,14 +92,14 @@ without moving execution ownership yet.
 - Do not recreate `STREAMS`, cached `AIAgent` objects, callback queues, or
   cancellation flags under new names.
 - Do not reduce WebUI product scope or move normal workbench UX out of WebUI.
-- Do not depend on Hermes Agent shipping a WebUI-specific runtime connector before
+- Do not depend on JarvisCopilot shipping a WebUI-specific runtime connector before
   WebUI can improve its own boundary.
 
 ## Artifact 1: Browser Event and Control Contract
 
 This is the compatibility contract the browser depends on, regardless of whether
 the backend is today's in-process streaming path, an in-process journaled path, a
-future WebUI-managed runner, or a future Hermes `/v1/runs` backend.
+future WebUI-managed runner, or a future JarvisCopilot `/v1/runs` backend.
 
 The current inventory should be derived from `static/messages.js` consumers and
 SSE/event production in `api/streaming.py`. Future edits to those files should
@@ -171,7 +171,7 @@ Every active or terminal run must expose:
 | observe | attach to live events and replay from cursor | adapter API surface backed by runtime/journal |
 | status | poll lifecycle state when SSE/WebSocket is unavailable | adapter API surface backed by runtime/journal |
 | cancel | request graceful cancellation; terminal event follows | runner/runtime control plane |
-| queue / continue | append follow-up work according to Hermes semantics | runner/runtime control plane |
+| queue / continue | append follow-up work according to JarvisCopilot semantics | runner/runtime control plane |
 | approval | resolve pending approval by id with supported choices | runner/runtime control plane |
 | clarify | answer pending clarify request by id | runner/runtime control plane |
 | goal | set/status/pause/resume/clear goal where capability exists | runtime command/capability plane |
@@ -193,9 +193,9 @@ Classifications:
 
 | Current primitive | Current legacy source of truth | Target classification | Future backend mapping | Slice 1 handling | Notes / gap |
 |---|---|---|---|---|---|
-| `STREAMS` / `STREAMS_LOCK` | `api.state_sync` process memory | adapter API surface + presentation fan-out | WebUI runner or future Hermes run observation API | keep live path; mirror events into journal | Must stop being authoritative for active run existence. |
+| `STREAMS` / `STREAMS_LOCK` | `api.state_sync` process memory | adapter API surface + presentation fan-out | WebUI runner or future JarvisCopilot run observation API | keep live path; mirror events into journal | Must stop being authoritative for active run existence. |
 | `CANCEL_FLAGS` | `api.state_sync` process memory | runner process | cancel/interrupt endpoint or runner control | no control-flow change | Final cancel state must return as a replayable event. |
-| cached `AIAgent` objects / `AGENT_INSTANCES` | `api/config.py` process memory | runner process | runner-owned Hermes integration | unchanged | Moving this is deferred until after journal proof. |
+| cached `AIAgent` objects / `AGENT_INSTANCES` | `api/config.py` process memory | runner process | runner-owned JarvisCopilot integration | unchanged | Moving this is deferred until after journal proof. |
 | background thread lifecycle | `_run_agent_streaming` in `api/streaming.py` | runner process | runner-owned execution lifecycle | unchanged | Slice 1 must not rewrite thread/control flow. |
 | token / partial text buffers | streaming callbacks and browser SSE state | journal + presentation cache | replayable runtime events | append emitted events | Browser can cache rendered state, but replay must rebuild it. |
 | reasoning buffers | streaming callbacks and UI rendering state | journal + presentation cache | replayable reasoning events | append emitted events | Thinking cards must survive reconnect. |
@@ -206,7 +206,7 @@ Classifications:
 | session-to-active-run mapping | session JSON + active stream ids + memory | journal + adapter API surface | runtime run registry/session mapping | journal run metadata | Reopen session must discover active/completed run. |
 | title generation state | WebUI callbacks/session saves | journal + presentation cache | runtime/session title event | append title events | WebUI may display title updates after event receipt. |
 | usage accounting state | WebUI callbacks/session saves | journal + presentation cache | runtime usage event/source of truth | append usage events | Avoid divergent WebUI-only accounting. |
-| command capability metadata | WebUI command registry + Hermes command assumptions | adapter API surface | runtime command/capability metadata | unchanged | Unknown command support should not be guessed by WebUI. |
+| command capability metadata | WebUI command registry + JarvisCopilot command assumptions | adapter API surface | runtime command/capability metadata | unchanged | Unknown command support should not be guessed by WebUI. |
 | voice mode state | browser/UI + streaming path | presentation cache + adapter API surface | runtime input/control capability | unchanged | Acceptance tests must pin voice behavior before migration. |
 | project/workspace context | WebUI session/workspace state + env mutation | adapter API surface + runner process | runtime run context | unchanged | Must preserve workspace-aware chat and project context. |
 
@@ -233,8 +233,8 @@ diagnostic or manual validation plan.
 | Slash commands | `/compress`, `/branch`, `/retry`, and other supported commands keep current semantics | command behavior should not be reimplemented ad hoc | command capability slice |
 | Model switch mid-session | provider/model changes route through the correct runtime context | prevents provider/source-of-truth drift | adapter control slice |
 | Workspace context | run receives the session workspace and attachments context | preserves workbench value | adapter control slice |
-| Multi-profile isolation | profile-specific runs write/read the correct Hermes home and memory | protects #2134-family isolation concerns | runner/profile slice |
-| Queue/continue | follow-up input during live/resumable work obeys Hermes semantics | prevents parallel continuation model | control migration slice |
+| Multi-profile isolation | profile-specific runs write/read the correct JarvisCopilot home and memory | protects #2134-family isolation concerns | runner/profile slice |
+| Queue/continue | follow-up input during live/resumable work obeys JarvisCopilot semantics | prevents parallel continuation model | control migration slice |
 | Goal continuation | goal status/control survives the adapter boundary | goal logic is lifecycle-sensitive | goal capability slice |
 | Voice mode | voice-originated input uses the same run/event/control contract | prevents alternate input path drift | adapter parity slice |
 | Projects context | project metadata remains visible and correct across run replay | preserves session/workbench organization | adapter parity slice |
@@ -484,7 +484,7 @@ Scope:
 - move long-lived execution out of the main WebUI request process,
 - runner owns active execution state,
 - main WebUI server observes/replays through the adapter/journal,
-- future Hermes CLI/Python/local API or `/v1/runs` backends can be evaluated
+- future JarvisCopilot CLI/Python/local API or `/v1/runs` backends can be evaluated
   behind the adapter.
 
 Revert path: disable runner backend and fall back to journaled legacy backend.
@@ -537,5 +537,5 @@ globals, the architecture is moving in the right direction.
 - What is the minimum set of synthetic event fixtures needed to compare legacy
   rendering with replay rendering?
 - Which controls need route-level feature flags before migration?
-- If Hermes Agent later ships a durable `/v1/runs` API, which adapter fields map
+- If JarvisCopilot later ships a durable `/v1/runs` API, which adapter fields map
   directly and which remain WebUI presentation concerns?

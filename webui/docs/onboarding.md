@@ -1,6 +1,6 @@
 # First-run onboarding guide
 
-This guide explains what happens the first time Hermes WebUI starts, which
+This guide explains what happens the first time JarvisCopilot WebUI starts, which
 setup path to choose, and how to recover when the wizard cannot finish.
 
 If an AI assistant is helping with install, reinstall, bootstrap, provider
@@ -15,8 +15,8 @@ below.
 
 ## Before you start
 
-Hermes WebUI is only the browser interface. The actual agent runtime, memory,
-skills, config, cron jobs, and provider credentials belong to Hermes Agent.
+JarvisCopilot WebUI is only the browser interface. The actual agent runtime, memory,
+skills, config, cron jobs, and provider credentials belong to JarvisCopilot.
 
 The bootstrap supports Linux, macOS, and WSL2. Native Windows is not supported
 by the bootstrap yet. A community native Windows setup is being tracked in
@@ -44,15 +44,15 @@ It avoids most UID/GID, source-volume, and tool-location surprises. See
 
 ## Re-running onboarding safely
 
-Do not delete `~/.hermes` just to see the wizard again. That directory can hold
-your real Hermes config, credentials, memory, skills, profiles, sessions, and
+Do not delete `~/.jarviscopilot` just to see the wizard again. That directory can hold
+your real JarvisCopilot config, credentials, memory, skills, profiles, sessions, and
 cron state.
 
-For a clean local trial, use an isolated Hermes home and WebUI state directory:
+For a clean local trial, use an isolated JarvisCopilot home and WebUI state directory:
 
 ```bash
 mkdir -p ~/hermes-onboarding-test
-HERMES_HOME=~/hermes-onboarding-test/.hermes \
+HERMES_HOME=~/hermes-onboarding-test/.jarviscopilot \
 HERMES_WEBUI_STATE_DIR=~/hermes-onboarding-test/webui \
 HERMES_WEBUI_PORT=8789 \
 python3 bootstrap.py
@@ -75,7 +75,7 @@ For managed hosting or fully preconfigured images, set
 
 The first screen reports the runtime state WebUI can see:
 
-- Hermes Agent importability: whether WebUI can import and run `AIAgent`.
+- JarvisCopilot importability: whether WebUI can import and run `AIAgent`.
 - Provider status: whether `config.yaml` and credential state are enough for a
   chat request.
 - Password status: whether WebUI password protection is enabled.
@@ -83,7 +83,7 @@ The first screen reports the runtime state WebUI can see:
 
 If the agent check fails, use [Troubleshooting](troubleshooting.md), especially
 the `AIAgent not available` section. If provider setup is incomplete, continue
-through the wizard or run `hermes model` in the same machine environment that
+through the wizard or run `jarviscopilot model` in the same machine environment that
 will run WebUI.
 
 ## Choosing a provider
@@ -96,7 +96,7 @@ The setup step groups providers by how much information they usually need.
 | Open / self-hosted | Ollama, LM Studio, custom OpenAI-compatible | Base URL, model, optional API key. |
 | Specialized | Gemini, DeepSeek, Xiaomi MiMo, Z.AI / GLM, NVIDIA NIM, Mistral, xAI | Provider API key and default model. |
 
-For API-key providers, the wizard writes the key to the active Hermes `.env`
+For API-key providers, the wizard writes the key to the active JarvisCopilot `.env`
 file and writes the default model/provider to `config.yaml`.
 
 For local providers, the API key field can be blank when the server is keyless.
@@ -106,8 +106,8 @@ before continuing.
 
 Advanced provider flows such as Nous Portal and GitHub Copilot are still
 terminal-first. OpenAI Codex and Anthropic Claude Code OAuth can be started in
-the onboarding flow when your Hermes config selects the corresponding provider.
-If the wizard points you back to `hermes model`, use that CLI flow first, then
+the onboarding flow when your JarvisCopilot config selects the corresponding provider.
+If the wizard points you back to `jarviscopilot model`, use that CLI flow first, then
 refresh WebUI.
 
 ## Base URL rules for local model servers
@@ -135,7 +135,7 @@ unexpected response shape.
 
 ## Workspace step
 
-The workspace is the filesystem location Hermes should use for new sessions.
+The workspace is the filesystem location JarvisCopilot should use for new sessions.
 It can be a source checkout, a project directory, or a general workspace folder.
 
 In Docker, the default browsable path is `/workspace`, which maps to the host
@@ -154,16 +154,16 @@ server-side. You can change it later from Settings.
 
 The wizard uses the same files and APIs as the normal app:
 
-- Active Hermes `config.yaml`: provider, default model, and Base URL when
+- Active JarvisCopilot `config.yaml`: provider, default model, and Base URL when
   relevant.
-- Active Hermes `.env`: provider API keys when you entered one.
+- Active JarvisCopilot `.env`: provider API keys when you entered one.
 - WebUI `settings.json`: onboarding completion, workspace, password state, and
   other WebUI preferences.
 
 State normally lives outside the repository. By default:
 
-- Hermes Agent state: `~/.hermes`
-- WebUI state: `~/.hermes/webui`
+- JarvisCopilot state: `~/.jarviscopilot`
+- WebUI state: `~/.jarviscopilot/webui`
 
 Override these with `HERMES_HOME` and `HERMES_WEBUI_STATE_DIR` when you need an
 isolated test install.

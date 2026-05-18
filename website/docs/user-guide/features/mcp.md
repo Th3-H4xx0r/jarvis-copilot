@@ -1,33 +1,33 @@
 ---
 sidebar_position: 4
 title: "MCP (Model Context Protocol)"
-description: "Connect Hermes Agent to external tool servers via MCP — and control exactly which MCP tools Hermes loads"
+description: "Connect JarvisCopilot to external tool servers via MCP — and control exactly which MCP tools JarvisCopilot loads"
 ---
 
 # MCP (Model Context Protocol)
 
-MCP lets Hermes Agent connect to external tool servers so the agent can use tools that live outside Hermes itself — GitHub, databases, file systems, browser stacks, internal APIs, and more.
+MCP lets JarvisCopilot connect to external tool servers so the agent can use tools that live outside JarvisCopilot itself — GitHub, databases, file systems, browser stacks, internal APIs, and more.
 
-If you have ever wanted Hermes to use a tool that already exists somewhere else, MCP is usually the cleanest way to do it.
+If you have ever wanted JarvisCopilot to use a tool that already exists somewhere else, MCP is usually the cleanest way to do it.
 
 ## What MCP gives you
 
-- Access to external tool ecosystems without writing a native Hermes tool first
+- Access to external tool ecosystems without writing a native JarvisCopilot tool first
 - Local stdio servers and remote HTTP MCP servers in the same config
 - Automatic tool discovery and registration at startup
 - Utility wrappers for MCP resources and prompts when supported by the server
-- Per-server filtering so you can expose only the MCP tools you actually want Hermes to see
+- Per-server filtering so you can expose only the MCP tools you actually want JarvisCopilot to see
 
 ## Quick start
 
 1. Install MCP support (already included if you used the standard install script):
 
 ```bash
-cd ~/.hermes/hermes-agent
+cd ~/.jarviscopilot/hermes-agent
 uv pip install -e ".[mcp]"
 ```
 
-2. Add an MCP server to `~/.hermes/config.yaml`:
+2. Add an MCP server to `~/.jarviscopilot/config.yaml`:
 
 ```yaml
 mcp_servers:
@@ -36,13 +36,13 @@ mcp_servers:
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
 ```
 
-3. Start Hermes:
+3. Start JarvisCopilot:
 
 ```bash
-hermes chat
+jarviscopilot chat
 ```
 
-4. Ask Hermes to use the MCP-backed capability.
+4. Ask JarvisCopilot to use the MCP-backed capability.
 
 For example:
 
@@ -50,7 +50,7 @@ For example:
 List the files in /home/user/projects and summarize the repo structure.
 ```
 
-Hermes will discover the MCP server's tools and use them like any other tool.
+JarvisCopilot will discover the MCP server's tools and use them like any other tool.
 
 ## Two kinds of MCP servers
 
@@ -74,7 +74,7 @@ Use stdio servers when:
 
 ### HTTP servers
 
-HTTP MCP servers are remote endpoints Hermes connects to directly.
+HTTP MCP servers are remote endpoints JarvisCopilot connects to directly.
 
 ```yaml
 mcp_servers:
@@ -87,11 +87,11 @@ mcp_servers:
 Use HTTP servers when:
 - the MCP server is hosted elsewhere
 - your organization exposes internal MCP endpoints
-- you do not want Hermes spawning a local subprocess for that integration
+- you do not want JarvisCopilot spawning a local subprocess for that integration
 
 ## Basic configuration reference
 
-Hermes reads MCP config from `~/.hermes/config.yaml` under `mcp_servers`.
+JarvisCopilot reads MCP config from `~/.jarviscopilot/config.yaml` under `mcp_servers`.
 
 ### Common keys
 
@@ -104,7 +104,7 @@ Hermes reads MCP config from `~/.hermes/config.yaml` under `mcp_servers`.
 | `headers` | mapping | HTTP headers for remote servers |
 | `timeout` | number | Tool call timeout |
 | `connect_timeout` | number | Initial connection timeout |
-| `enabled` | bool | If `false`, Hermes skips the server entirely |
+| `enabled` | bool | If `false`, JarvisCopilot skips the server entirely |
 | `supports_parallel_tool_calls` | bool | If `true`, tools from this server may run concurrently |
 | `tools` | mapping | Per-server tool filtering and utility policy |
 
@@ -127,9 +127,9 @@ mcp_servers:
       Authorization: "Bearer ***"
 ```
 
-## How Hermes registers MCP tools
+## How JarvisCopilot registers MCP tools
 
-Hermes prefixes MCP tools so they do not collide with built-in names:
+JarvisCopilot prefixes MCP tools so they do not collide with built-in names:
 
 ```text
 mcp_<server_name>_<tool_name>
@@ -143,11 +143,11 @@ Examples:
 | `github` | `create-issue` | `mcp_github_create_issue` |
 | `my-api` | `query.data` | `mcp_my_api_query_data` |
 
-In practice, you usually do not need to call the prefixed name manually — Hermes sees the tool and chooses it during normal reasoning.
+In practice, you usually do not need to call the prefixed name manually — JarvisCopilot sees the tool and chooses it during normal reasoning.
 
 ## MCP utility tools
 
-When supported, Hermes also registers utility tools around MCP resources and prompts:
+When supported, JarvisCopilot also registers utility tools around MCP resources and prompts:
 
 - `list_resources`
 - `read_resource`
@@ -162,14 +162,14 @@ These are registered per server with the same prefix pattern, for example:
 ### Important
 
 These utility tools are now capability-aware:
-- Hermes only registers resource utilities if the MCP session actually supports resource operations
-- Hermes only registers prompt utilities if the MCP session actually supports prompt operations
+- JarvisCopilot only registers resource utilities if the MCP session actually supports resource operations
+- JarvisCopilot only registers prompt utilities if the MCP session actually supports prompt operations
 
 So a server that exposes callable tools but no resources/prompts will not get those extra wrappers.
 
 ## Per-server filtering
 
-You can control which tools each MCP server contributes to Hermes, allowing fine-grained management of your tool namespace.
+You can control which tools each MCP server contributes to JarvisCopilot, allowing fine-grained management of your tool namespace.
 
 ### Disable a server entirely
 
@@ -180,7 +180,7 @@ mcp_servers:
     enabled: false
 ```
 
-If `enabled: false`, Hermes skips the server completely and does not even attempt a connection.
+If `enabled: false`, JarvisCopilot skips the server completely and does not even attempt a connection.
 
 ### Whitelist server tools
 
@@ -266,7 +266,7 @@ mcp_servers:
 
 ## What happens if everything is filtered out?
 
-If your config filters out all callable tools and disables or omits all supported utilities, Hermes does not create an empty runtime MCP toolset for that server.
+If your config filters out all callable tools and disables or omits all supported utilities, JarvisCopilot does not create an empty runtime MCP toolset for that server.
 
 That keeps the tool list clean.
 
@@ -274,11 +274,11 @@ That keeps the tool list clean.
 
 ### Discovery time
 
-Hermes discovers MCP servers at startup and registers their tools into the normal tool registry.
+JarvisCopilot discovers MCP servers at startup and registers their tools into the normal tool registry.
 
 ### Dynamic Tool Discovery
 
-MCP servers can notify Hermes when their available tools change at runtime by sending a `notifications/tools/list_changed` notification. When Hermes receives this notification, it automatically re-fetches the server's tool list and updates the registry — no manual `/reload-mcp` required.
+MCP servers can notify JarvisCopilot when their available tools change at runtime by sending a `notifications/tools/list_changed` notification. When JarvisCopilot receives this notification, it automatically re-fetches the server's tool list and updates the registry — no manual `/reload-mcp` required.
 
 This is useful for MCP servers whose capabilities change dynamically (e.g. a server that adds tools when a new database schema is loaded, or removes tools when a service goes offline).
 
@@ -308,7 +308,7 @@ That makes MCP servers easier to reason about at the toolset level.
 
 ### Stdio env filtering
 
-For stdio servers, Hermes does not blindly pass your full shell environment.
+For stdio servers, JarvisCopilot does not blindly pass your full shell environment.
 
 Only explicitly configured `env` plus a safe baseline are passed through. This reduces accidental secret leakage.
 
@@ -383,13 +383,13 @@ Check:
 
 ```bash
 # Verify MCP deps are installed (already included in standard install)
-cd ~/.hermes/hermes-agent && uv pip install -e ".[mcp]"
+cd ~/.jarviscopilot/hermes-agent && uv pip install -e ".[mcp]"
 
 node --version
 npx --version
 ```
 
-Then verify your config and restart Hermes.
+Then verify your config and restart JarvisCopilot.
 
 ### Tools not appearing
 
@@ -404,7 +404,7 @@ If you are intentionally filtering, this is expected.
 
 ### Why didn't resource or prompt utilities appear?
 
-Because Hermes now only registers those wrappers when both are true:
+Because JarvisCopilot now only registers those wrappers when both are true:
 1. your config allows them
 2. the server session actually supports the capability
 
@@ -421,7 +421,7 @@ mcp_servers:
     supports_parallel_tool_calls: true
 ```
 
-When `supports_parallel_tool_calls` is `true`, Hermes may execute multiple tools from that server at the same time within a single tool-call batch, just like it does for built-in read-only tools (web_search, read_file, etc.).
+When `supports_parallel_tool_calls` is `true`, JarvisCopilot may execute multiple tools from that server at the same time within a single tool-call batch, just like it does for built-in read-only tools (web_search, read_file, etc.).
 
 :::caution
 Only enable parallel calls for MCP servers whose tools are safe to run at the same time. If tools read and write shared state, files, databases, or external resources, review the read/write race conditions before enabling this setting.
@@ -429,7 +429,7 @@ Only enable parallel calls for MCP servers whose tools are safe to run at the sa
 
 ## MCP Sampling Support
 
-MCP servers can request LLM inference from Hermes via the `sampling/createMessage` protocol. This allows an MCP server to ask Hermes to generate text on its behalf — useful for servers that need LLM capabilities but don't have their own model access.
+MCP servers can request LLM inference from JarvisCopilot via the `sampling/createMessage` protocol. This allows an MCP server to ask JarvisCopilot to generate text on its behalf — useful for servers that need LLM capabilities but don't have their own model access.
 
 Sampling is **enabled by default** for all MCP servers (when the MCP SDK supports it). Configure it per-server under the `sampling` key:
 
@@ -460,46 +460,46 @@ mcp_servers:
       enabled: false
 ```
 
-## Running Hermes as an MCP server
+## Running JarvisCopilot as an MCP server
 
-In addition to connecting **to** MCP servers, Hermes can also **be** an MCP server. This lets other MCP-capable agents (Claude Code, Cursor, Codex, or any MCP client) use Hermes's messaging capabilities — list conversations, read message history, and send messages across all your connected platforms.
+In addition to connecting **to** MCP servers, JarvisCopilot can also **be** an MCP server. This lets other MCP-capable agents (Claude Code, Cursor, Codex, or any MCP client) use JarvisCopilot's messaging capabilities — list conversations, read message history, and send messages across all your connected platforms.
 
 ### When to use this
 
-- You want Claude Code, Cursor, or another coding agent to send and read Telegram/Discord/Slack messages through Hermes
-- You want a single MCP server that bridges to all of Hermes's connected messaging platforms at once
-- You already have a running Hermes gateway with connected platforms
+- You want Claude Code, Cursor, or another coding agent to send and read Telegram/Discord/Slack messages through JarvisCopilot
+- You want a single MCP server that bridges to all of JarvisCopilot's connected messaging platforms at once
+- You already have a running JarvisCopilot gateway with connected platforms
 
 ### Quick start
 
 ```bash
-hermes mcp serve
+jarviscopilot mcp serve
 ```
 
 This starts a stdio MCP server. The MCP client (not you) manages the process lifecycle.
 
 ### MCP client configuration
 
-Add Hermes to your MCP client config. For example, in Claude Code's `~/.claude/claude_desktop_config.json`:
+Add JarvisCopilot to your MCP client config. For example, in Claude Code's `~/.claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "hermes": {
-      "command": "hermes",
+    "jarviscopilot": {
+      "command": "jarviscopilot",
       "args": ["mcp", "serve"]
     }
   }
 }
 ```
 
-Or if you installed Hermes in a specific location:
+Or if you installed JarvisCopilot in a specific location:
 
 ```json
 {
   "mcpServers": {
-    "hermes": {
-      "command": "/home/user/.hermes/hermes-agent/venv/bin/hermes",
+    "jarviscopilot": {
+      "command": "/home/user/.jarviscopilot/hermes-agent/venv/bin/hermes",
       "args": ["mcp", "serve"]
     }
   }
@@ -525,7 +525,7 @@ The MCP server exposes 10 tools, matching OpenClaw's channel bridge surface plus
 
 ### Event system
 
-The MCP server includes a live event bridge that polls Hermes's session database for new messages. This gives MCP clients near-real-time awareness of incoming conversations:
+The MCP server includes a live event bridge that polls JarvisCopilot's session database for new messages. This gives MCP clients near-real-time awareness of incoming conversations:
 
 ```
 # Poll for new events (non-blocking)
@@ -542,13 +542,13 @@ The event queue is in-memory and starts when the bridge connects. Older messages
 ### Options
 
 ```bash
-hermes mcp serve              # Normal mode
-hermes mcp serve --verbose    # Debug logging on stderr
+jarviscopilot mcp serve              # Normal mode
+jarviscopilot mcp serve --verbose    # Debug logging on stderr
 ```
 
 ### How it works
 
-The MCP server reads conversation data directly from Hermes's session store (`~/.hermes/sessions/sessions.json` and the SQLite database). A background thread polls the database for new messages and maintains an in-memory event queue. For sending messages, it uses the same `send_message` infrastructure as the Hermes agent itself.
+The MCP server reads conversation data directly from JarvisCopilot's session store (`~/.jarviscopilot/sessions/sessions.json` and the SQLite database). A background thread polls the database for new messages and maintains an in-memory event queue. For sending messages, it uses the same `send_message` infrastructure as the JarvisCopilot agent itself.
 
 The gateway does NOT need to be running for read operations (listing conversations, reading history, polling events). It DOES need to be running for send operations, since the platform adapters need active connections.
 
@@ -561,7 +561,7 @@ The gateway does NOT need to be running for read operations (listing conversatio
 
 ## Related docs
 
-- [Use MCP with Hermes](/docs/guides/use-mcp-with-hermes)
+- [Use MCP with JarvisCopilot](/docs/guides/use-mcp-with-hermes)
 - [CLI Commands](/docs/reference/cli-commands)
 - [Slash Commands](/docs/reference/slash-commands)
 - [FAQ](/docs/reference/faq)

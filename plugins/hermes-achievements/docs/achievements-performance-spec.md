@@ -1,7 +1,7 @@
-# Hermes Achievements Performance Spec (Post-Hackathon)
+# JarvisCopilot Achievements Performance Spec (Post-Hackathon)
 
 Status: Draft (no code changes yet)
-Owner: hermes-achievements plugin
+Owner: jarviscopilot-achievements plugin
 Scope: `dashboard/plugin_api.py` + `dashboard/dist/index.js` request behavior
 Decision: **Drop `/overview` and top-banner slots**; keep only Achievements tab data path.
 
@@ -96,12 +96,12 @@ Rules:
 - TTL: 60–180 seconds (configurable).
 - Single-flight dedupe for scan requests.
 - Persist plugin data under:
-  - `~/.hermes/plugins/hermes-achievements/scan_snapshot.json`
+  - `~/.jarviscopilot/plugins/hermes-achievements/scan_snapshot.json`
 
 ### Phase 2
 - Incremental scan checkpoints with per-session fingerprints.
 - Persist checkpoint data under:
-  - `~/.hermes/plugins/hermes-achievements/scan_checkpoint.json`
+  - `~/.jarviscopilot/plugins/hermes-achievements/scan_checkpoint.json`
 - Checkpoint stores, per session:
   - `session_id`
   - fingerprint (`updated_at`, message_count, or hash)
@@ -166,7 +166,7 @@ Expose minimal diagnostics in `/scan-status`.
 ## 12) Persistence Files (Explicit)
 
 Plugin state directory:
-- `~/.hermes/plugins/hermes-achievements/`
+- `~/.jarviscopilot/plugins/hermes-achievements/`
 
 Files:
 - `state.json` (existing): unlock tracking

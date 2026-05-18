@@ -6,7 +6,7 @@ author: JarvisCopilot
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  jarviscopilot:
     tags: [JarvisCopilot, Devices, Pairing, Auth, Security]
 ---
 
@@ -25,7 +25,7 @@ All operations go through a single Python helper script that talks to the runnin
 
 Every command runs through:
 ```bash
-SCRIPT="$(find ~/.hermes /root /home -path '*skills/jarviscopilot/devices/scripts/devices.py' 2>/dev/null | head -1)"
+SCRIPT="$(find ~/.jarviscopilot /root /home -path '*skills/jarviscopilot/devices/scripts/devices.py' 2>/dev/null | head -1)"
 [ -z "$SCRIPT" ] && SCRIPT="$(find / -path '*skills/jarviscopilot/devices/scripts/devices.py' 2>/dev/null | head -1)"
 python3 "$SCRIPT" <subcommand> [args...]
 ```
@@ -82,9 +82,9 @@ python3 "$SCRIPT" invoke "Pranav's iPhone" send_sms --json-args '{"to":"+1...","
 
 ## How pairing works under the hood
 
-The helper script does **not** make HTTP calls to the webui. It writes the pending code straight to `~/.hermes/webui/.pending_pair.json` (0600), then polls the same file for `claimed=true`. The webui reads from the same file when a browser POSTs `/api/auth/pair/claim`. This avoids needing any kind of host-secret to bootstrap auth.
+The helper script does **not** make HTTP calls to the webui. It writes the pending code straight to `~/.jarviscopilot/webui/.pending_pair.json` (0600), then polls the same file for `claimed=true`. The webui reads from the same file when a browser POSTs `/api/auth/pair/claim`. This avoids needing any kind of host-secret to bootstrap auth.
 
-All other commands (list, revoke, logout, skills, invoke) go through the webui's REST API at `http://localhost:8787` and rely on a local-only carve-out plus the `~/.hermes/webui/.signing_key` to authenticate as the host.
+All other commands (list, revoke, logout, skills, invoke) go through the webui's REST API at `http://localhost:8787` and rely on a local-only carve-out plus the `~/.jarviscopilot/webui/.signing_key` to authenticate as the host.
 
 ## Important rules
 
