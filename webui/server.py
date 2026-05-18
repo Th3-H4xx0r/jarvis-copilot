@@ -11,6 +11,15 @@ import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# Mirror HERMES_* ↔ JARVISCOPILOT_* env vars before any module reads them.
+# Imports the bootstrap from hermes_cli (which is on PYTHONPATH whenever
+# the webui is launched via scripts/launch-webui.sh).
+try:
+    from hermes_cli.env_compat import apply as _apply_env_compat
+    _apply_env_compat()
+except Exception:
+    pass
+
 # ── Test-mode network isolation ─────────────────────────────────────────────
 # When `HERMES_WEBUI_TEST_NETWORK_BLOCK=1` is set in the environment, refuse
 # outbound socket connections to anything that is not loopback / RFC1918 /

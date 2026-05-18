@@ -14,6 +14,22 @@ Provides subcommands for:
 import os
 import sys
 
+# Mirror HERMES_* ↔ JARVISCOPILOT_* env vars before anything else imports
+# them. Idempotent; safe to run at module-import time.
+try:
+    from hermes_cli.env_compat import apply as _apply_env_compat
+    _apply_env_compat()
+except Exception:
+    pass
+
+# One-shot rename ~/.hermes/ → ~/.jarviscopilot/ with a back-compat link
+# at the old path. No-op if already migrated or no legacy dir exists.
+try:
+    from hermes_cli.data_migration import apply as _apply_data_migration
+    _apply_data_migration(quiet=True)
+except Exception:
+    pass
+
 __version__ = "0.14.0"
 __release_date__ = "2026.5.16"
 
