@@ -5511,6 +5511,13 @@ def cmd_status(args):
     show_status(args)
 
 
+def cmd_restart(args):
+    """Restart the JarvisCopilot WebUI and/or gateway services."""
+    from hermes_cli.restart_cmd import cmd_restart as _impl
+
+    return _impl(args)
+
+
 def cmd_cron(args):
     """Cron job management."""
     from hermes_cli.cron import cron_command
@@ -9734,7 +9741,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "kanban", "login", "logout", "logs", "lsp", "mcp", "memory",
         "model", "pairing", "plugins", "postinstall", "profile", "proxy",
-        "send", "sessions", "setup",
+        "restart", "send", "sessions", "setup",
         "skills", "slack", "status", "tools", "uninstall", "update",
         "version", "webhook", "whatsapp", "chat",
         # Help-ish invocations — plugin commands not being listed in
@@ -10411,6 +10418,26 @@ def main():
         "--deep", action="store_true", help="Run deep checks (may take longer)"
     )
     status_parser.set_defaults(func=cmd_status)
+
+    # =========================================================================
+    # restart command — restart webui + gateway services
+    # =========================================================================
+    restart_parser = subparsers.add_parser(
+        "restart",
+        help="Restart the JarvisCopilot WebUI and/or gateway services",
+        description=(
+            "Restart the JarvisCopilot WebUI and/or gateway. Uses systemd "
+            "when available; otherwise falls back to process management."
+        ),
+    )
+    restart_parser.add_argument(
+        "restart_target",
+        nargs="?",
+        choices=["all", "webui", "gateway"],
+        default="all",
+        help="Which service to restart (default: all)",
+    )
+    restart_parser.set_defaults(func=cmd_restart)
 
     # =========================================================================
     # cron command
