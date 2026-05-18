@@ -132,6 +132,14 @@ if (-not $SkipPiper) {
 # Touch the install marker so the launch script skips re-install on next launch.
 Set-Content -Path (Join-Path $VenvDir '.webui-installed') -Value (Get-Date).ToString('o')
 
+# ---- Merge shipped personalities into ~/.hermes/config.yaml ---------------
+# Idempotent -- adds entries (e.g. jarvis-mcu) only when missing, never
+# overwrites the user's existing personalities or other config keys. Writes a
+# timestamped backup before any change.
+Info "Merging shipped personalities into ~/.hermes/config.yaml ..."
+& $VenvPy (Join-Path $Dir 'installer/merge-personalities.py')
+if ($LASTEXITCODE -ne 0) { Warn "personality merge failed (non-fatal)" }
+
 # ---- TLS cert (idempotent — only generates if missing/expired) -------------
 Info "Ensuring self-signed TLS cert for the webui ..."
 $certScript = @'

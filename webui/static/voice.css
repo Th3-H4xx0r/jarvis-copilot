@@ -2,20 +2,18 @@
 /* Voice tab — sidebar panel + main view + orb visualizer        */
 /* ============================================================ */
 
-/* The main-view system in style.css toggles a `showing-<name>` class on
-   <main>. We use that to flip #mainVoice on/off without touching the
-   existing chat/main-view rules. The composer (chat input bar) lives as
-   a sibling of #mainChat, not a child — so we have to hide it explicitly
-   in voice mode, otherwise the "Message Jarvis..." input keeps showing
-   above the orb.  Same for the reconnect/update banners and the agent-
-   health alert, which would also bleed in. */
-main.main.showing-voice #mainChat { display: none; }
-main.main.showing-voice #composerWrap { display: none; }
-main.main.showing-voice .update-banner,
-main.main.showing-voice .reconnect-banner,
-main.main.showing-voice .agent-health-alert { display: none; }
+/* Voice tab takes over the entire main content area. Everything else that
+   lives as a child of <main.main> — chat view, composer, banners, approval
+   cards, streaming response overlays, agent-health alerts, etc. — gets
+   force-hidden the moment showing-voice is on. The aggressive
+   `> *:not(#mainVoice)` selector is intentional: previous targeted rules
+   (`#mainChat`, `#composerWrap`, ...) kept missing edge-case overlays that
+   leaked text into the orb area (e.g. a streaming chat response that was
+   still rendering when the user switched tabs). !important defeats any
+   later inline-style or rule that tries to re-show them. */
 main.main #mainVoice { display: none; }
-main.main.showing-voice #mainVoice { display: flex; }
+main.main.showing-voice > *:not(#mainVoice) { display: none !important; }
+main.main.showing-voice #mainVoice { display: flex !important; }
 
 #mainVoice {
   flex-direction: column;

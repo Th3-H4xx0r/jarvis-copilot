@@ -135,6 +135,14 @@ fi
 mkdir -p "$VENV_DIR"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$VENV_DIR/.webui-installed"
 
+# --- Merge shipped personalities into ~/.hermes/config.yaml ----------------
+# Idempotent — adds entries (e.g. jarvis-mcu) only when missing, never
+# overwrites the user's existing personalities or other config keys.
+# Writes a timestamped backup before any change, so a botched merge is
+# recoverable from ~/.hermes/config.yaml.merge-bak.<timestamp>.
+info "Merging shipped personalities into ~/.hermes/config.yaml ..."
+"$VENV_PY" "$INSTALL_DIR/installer/merge-personalities.py" || warn "personality merge failed (non-fatal)"
+
 # --- TLS cert (idempotent — only generates if missing/expired) -------------
 info "Ensuring self-signed TLS cert for the webui ..."
 "$VENV_PY" - <<'PY' || warn "TLS cert generation failed; you can still run the webui in HTTP mode."
