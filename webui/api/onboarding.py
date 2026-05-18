@@ -1,4 +1,4 @@
-"""Hermes Web UI -- first-run onboarding helpers."""
+"""JarvisCopilot Web UI -- first-run onboarding helpers."""
 
 from __future__ import annotations
 

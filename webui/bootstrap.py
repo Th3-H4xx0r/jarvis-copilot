@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-shot bootstrap launcher for Hermes Web UI."""
+"""One-shot bootstrap launcher for JarvisCopilot Web UI."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def ensure_supported_platform() -> None:
 def _agent_dir_from_hermes_cli() -> Path | None:
     """Resolve the agent install root by inspecting the `hermes` CLI shebang.
 
-    The Hermes Agent installer drops a `hermes` console-script in the user's
+    The JarvisCopilot installer drops a `hermes` console-script in the user's
     PATH whose shebang points at the agent's bundled venv:
 
         #!/path/to/hermes-agent/venv/bin/python3
@@ -189,10 +189,10 @@ def _python_can_run_webui_and_agent(python_exe: str, agent_dir: Path | None = No
 
 
 def ensure_python_has_webui_deps(python_exe: str, agent_dir: Path | None = None) -> str:
-    """Return a Python executable that can run both WebUI and Hermes Agent.
+    """Return a Python executable that can run both WebUI and JarvisCopilot.
 
     The WebUI can be launched directly with its local .venv. That venv has the
-    WebUI dependencies (for example PyYAML), but may not have Hermes Agent on its
+    WebUI dependencies (for example PyYAML), but may not have JarvisCopilot on its
     import path. In that case the server starts healthy, then chat fails later
     with "AIAgent not available". Prefer the agent venv when it is usable, and
     validate the final interpreter before starting the server.
@@ -251,8 +251,8 @@ def ensure_python_has_webui_deps(python_exe: str, agent_dir: Path | None = None)
     if _python_can_run_webui_and_agent(str(venv_python), agent_dir):
         return str(venv_python)
     raise RuntimeError(
-        "Python environment cannot import both WebUI dependencies and Hermes Agent. "
-        "Set HERMES_WEBUI_PYTHON to the Hermes Agent venv Python or install the "
+        "Python environment cannot import both WebUI dependencies and JarvisCopilot. "
+        "Set HERMES_WEBUI_PYTHON to the JarvisCopilot venv Python or install the "
         "WebUI requirements into that environment."
     )
 
@@ -262,7 +262,7 @@ def hermes_command_exists() -> bool:
 
 
 def install_hermes_agent() -> None:
-    info(f"Hermes Agent not found. Attempting install via {INSTALLER_URL}")
+    info(f"JarvisCopilot not found. Attempting install via {INSTALLER_URL}")
     subprocess.run(
         ["/bin/bash", "-lc", f"curl -fsSL {INSTALLER_URL} | bash"], check=True
     )
@@ -291,7 +291,7 @@ def open_browser(url: str) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Bootstrap Hermes Web UI onboarding.")
+    parser = argparse.ArgumentParser(description="Bootstrap JarvisCopilot Web UI onboarding.")
     parser.add_argument("port", nargs="?", type=int, default=DEFAULT_PORT)
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument(
@@ -389,7 +389,7 @@ def main() -> int:
     if not agent_dir and not hermes_command_exists():
         if args.skip_agent_install:
             raise RuntimeError(
-                "Hermes Agent was not found and auto-install was disabled."
+                "JarvisCopilot was not found and auto-install was disabled."
             )
         install_hermes_agent()
         agent_dir = discover_agent_dir()
@@ -417,7 +417,7 @@ def main() -> int:
     foreground_reason = "--foreground" if args.foreground else _detect_supervisor()
     if foreground_reason:
         info(
-            f"Starting Hermes Web UI on http://{args.host}:{args.port} "
+            f"Starting JarvisCopilot Web UI on http://{args.host}:{args.port} "
             f"(foreground mode: {foreground_reason})"
         )
         try:
@@ -446,7 +446,7 @@ def main() -> int:
     # /health, then return. Suitable for an interactive `bash start.sh` run.
     log_path = state_dir / f"bootstrap-{args.port}.log"
 
-    info(f"Starting Hermes Web UI on http://{args.host}:{args.port}")
+    info(f"Starting JarvisCopilot Web UI on http://{args.host}:{args.port}")
     with log_path.open("ab") as log_file:
         proc = subprocess.Popen(
             [python_exe, server_path],

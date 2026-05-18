@@ -132,7 +132,7 @@ def test_handoff_summary_card_rendering_uses_persisted_messages():
 
 
 def test_handoff_summary_does_not_call_removed_agent_get_response():
-    """Current Hermes Agent exposes run_conversation/private transports, not get_response."""
+    """Current JarvisCopilot exposes run_conversation/private transports, not get_response."""
     handoff_start = ROUTES.index("def _handle_handoff_summary")
     next_handler = ROUTES.index("\ndef _handle_skill_save", handoff_start)
     handoff_body = ROUTES[handoff_start:next_handler]

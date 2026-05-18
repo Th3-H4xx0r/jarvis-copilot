@@ -1,5 +1,5 @@
 """
-Hermes Web UI -- Workspace and file system helpers.
+JarvisCopilot Web UI -- Workspace and file system helpers.
 
 Workspace lists and last-used workspace are stored per-profile so each
 profile has its own workspace configuration.  State files live at

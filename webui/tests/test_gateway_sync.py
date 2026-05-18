@@ -792,7 +792,7 @@ def test_gateway_session_has_correct_metadata():
 
 
 def test_agent_session_source_normalization_contract():
-    """Raw Hermes Agent sources map to stable WebUI source categories."""
+    """Raw JarvisCopilot sources map to stable WebUI source categories."""
     from api.agent_sessions import normalize_agent_session_source
 
     cases = {
@@ -1379,7 +1379,7 @@ def test_archiving_raw_messaging_session_imports_without_erasing_agent_memory(cl
 
 
 def test_delete_imported_messaging_session_preserves_agent_memory(cleanup_test_sessions):
-    """WebUI delete must not delete Hermes Agent memory for external channels."""
+    """WebUI delete must not delete JarvisCopilot memory for external channels."""
     conn = _ensure_state_db()
     sid = 'gw_delete_weixin_safe_001'
     cleanup_test_sessions.append(sid)

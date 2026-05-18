@@ -2,7 +2,7 @@
 
 The WebUI process is not always paired with a long-running Hermes gateway. Some
 setups use WebUI only, while self-hosted messaging deployments run a separate
-Hermes gateway daemon that records runtime metadata in the Hermes Agent home.
+Hermes gateway daemon that records runtime metadata in the JarvisCopilot home.
 This module turns those existing safe runtime signals into a small UI-facing
 heartbeat without shelling out or adding psutil as a hard dependency.
 

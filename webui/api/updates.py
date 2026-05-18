@@ -1,5 +1,5 @@
 """
-Hermes Web UI -- Self-update checker.
+JarvisCopilot Web UI -- Self-update checker.
 
 Checks if the webui and hermes-agent git repos are behind their latest
 release tags. Results are cached server-side (30-min TTL) so git fetch runs
@@ -143,7 +143,7 @@ def _detect_webui_version() -> str:
 
 
 def _detect_agent_version() -> str:
-    """Detect the running Hermes Agent version for UI display."""
+    """Detect the running JarvisCopilot version for UI display."""
     if _AGENT_DIR is None:
         return 'not detected'
 

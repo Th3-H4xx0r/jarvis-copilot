@@ -1,5 +1,5 @@
 """
-Hermes CLI - Unified command-line interface for Hermes Agent.
+JarvisCopilot CLI - Unified command-line interface for JarvisCopilot.
 
 Provides subcommands for:
 - hermes chat          - Interactive chat (same as ./hermes)

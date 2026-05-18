@@ -1,5 +1,5 @@
 """
-Hermes Web UI -- Shared configuration, constants, and global state.
+JarvisCopilot Web UI -- Shared configuration, constants, and global state.
 Imported by all other api/* modules and by server.py.
 
 Discovery order for all paths:
@@ -467,7 +467,7 @@ def print_startup_config() -> None:
 
     lines = [
         "",
-        "  Hermes Web UI -- startup config",
+        "  JarvisCopilot Web UI -- startup config",
         "  --------------------------------",
         f"  repo root   : {REPO_ROOT}",
         f"  agent dir   : {_AGENT_DIR if _AGENT_DIR else 'NOT FOUND'}  {ok if _AGENT_DIR else err}",
@@ -600,7 +600,7 @@ _DEFAULT_TOOLSETS = [
 
 _LEGACY_CLI_TOOLSET_ALIASES = {
     # Older Hermes configs used "hermes" as the CLI composite toolset. Modern
-    # Hermes Agent exposes that split as these two registered composites; keep
+    # JarvisCopilot exposes that split as these two registered composites; keep
     # WebUI sessions usable when pointed at an older shared config.yaml.
     "hermes": ("hermes-cli", "hermes-api-server"),
 }
@@ -2537,13 +2537,13 @@ def _get_label_for_model(model_id: str, existing_groups: list) -> str:
 
 
 def _read_live_provider_model_ids(provider_id: str) -> list[str]:
-    """Return live model IDs from Hermes CLI for a provider, or [] on failure.
+    """Return live model IDs from JarvisCopilot CLI for a provider, or [] on failure.
 
     WebUI's static ``_PROVIDER_MODELS`` table is only a fallback.  The agent CLI
     owns the provider registry and catalog-discovery logic, so ordinary picker
     groups should ask ``hermes_cli.models.provider_model_ids()`` first (#1240).
     Provider aliases are tried as a secondary lookup because WebUI keeps a few
-    display-facing IDs (for example ``google`` / ``x-ai``) that Hermes CLI may
+    display-facing IDs (for example ``google`` / ``x-ai``) that JarvisCopilot CLI may
     normalize internally.
     """
     pid = str(provider_id or "").strip()
@@ -2581,7 +2581,7 @@ def _read_live_provider_model_ids(provider_id: str) -> list[str]:
 
 
 def _models_from_live_provider_ids(provider_id: str, live_ids: list[str]) -> list[dict]:
-    """Convert Hermes CLI model ids into WebUI picker model entries."""
+    """Convert JarvisCopilot CLI model ids into WebUI picker model entries."""
     formatter = _format_ollama_label if provider_id in ("ollama", "ollama-cloud") else None
     models: list[dict] = []
     seen: set[str] = set()
@@ -3674,7 +3674,7 @@ def get_available_models() -> dict:
 
                     # User-configured model allowlists are explicit local
                     # source-of-truth and should still beat auto-discovery.
-                    # Otherwise, ask Hermes CLI first so WebUI tracks the same
+                    # Otherwise, ask JarvisCopilot CLI first so WebUI tracks the same
                     # live catalog as the agent/CLI picker; WebUI's static
                     # _PROVIDER_MODELS table is now a fallback only (#1240).
                     if isinstance(provider_cfg, dict) and "models" in provider_cfg:

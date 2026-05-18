@@ -1,7 +1,7 @@
 """Hermes Kanban bridge for the WebUI.
 
 This module exposes a full CRUD API under ``/api/kanban/*`` while keeping
-Hermes Agent's ``hermes_cli.kanban_db`` as the only source of truth.
+JarvisCopilot's ``hermes_cli.kanban_db`` as the only source of truth.
 
 Supported operations:
 - Task CRUD (create, read, patch, bulk update, archive)

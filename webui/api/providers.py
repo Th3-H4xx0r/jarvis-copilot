@@ -1,4 +1,4 @@
-"""Hermes Web UI -- provider management endpoints.
+"""JarvisCopilot Web UI -- provider management endpoints.
 
 Provides CRUD operations for configuring provider API keys post-onboarding.
 Closes #586 (allow provider key update) and part of #604 (model picker
@@ -276,7 +276,7 @@ def _codex_usage_headers(access_token):
     headers = {
         "Authorization": "Bearer " + access_token,
         "Accept": "application/json",
-        "User-Agent": "codex_cli_rs/0.0.0 (Hermes WebUI)",
+        "User-Agent": "codex_cli_rs/0.0.0 (JarvisCopilot WebUI)",
         "originator": "codex_cli_rs",
     }
     auth_claim = _jwt_claims(access_token).get("https://api.openai.com/auth")
@@ -685,7 +685,7 @@ _PROVIDER_ENV_VAR_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 # Providers that use OAuth or token flows — their credentials are managed
-# through the Hermes CLI, not via API keys.  The WebUI cannot set these.
+# through the JarvisCopilot CLI, not via API keys.  The WebUI cannot set these.
 _OAUTH_PROVIDERS = frozenset({
     "copilot",
     "copilot-acp",
@@ -1349,7 +1349,7 @@ def get_provider_quota(provider_id: str | None = None, *, refresh: bool = False)
     """Return sanitized quota/rate-limit status for the active provider.
 
     OpenRouter keeps its documented key endpoint. OAuth-backed account usage
-    providers reuse Hermes Agent's /usage account-limits abstraction so WebUI
+    providers reuse JarvisCopilot's /usage account-limits abstraction so WebUI
     stays aligned with CLI/Gateway provider semantics.
     """
     provider = (provider_id or _active_provider_id() or "").strip().lower()

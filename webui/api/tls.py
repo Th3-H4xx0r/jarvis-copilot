@@ -105,7 +105,7 @@ def _generate_cert(cert_path: Path, key_path: Path, ips: List[str]) -> None:
     key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COMMON_NAME, "hermes-webui-self-signed"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Hermes WebUI (local)"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "JarvisCopilot WebUI (local)"),
     ])
     now = datetime.datetime.now(datetime.timezone.utc)
     cert = (

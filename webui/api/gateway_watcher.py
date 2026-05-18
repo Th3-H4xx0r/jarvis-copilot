@@ -1,5 +1,5 @@
 """
-Hermes Web UI -- Gateway session watcher.
+JarvisCopilot Web UI -- Gateway session watcher.
 
 Background daemon thread that polls state.db every 5 seconds for changes
 to gateway sessions (telegram, discord, slack, etc.). When changes are

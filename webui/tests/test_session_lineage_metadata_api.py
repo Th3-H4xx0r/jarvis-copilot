@@ -74,8 +74,8 @@ def test_all_sessions_exposes_state_db_lineage_metadata_for_webui_json_sessions(
     conn = _ensure_state_db(_isolate)
     t0 = time.time() - 100
     try:
-        _save_webui_session("lineage_api_root", title="Hermes WebUI", updated_at=t0)
-        _save_webui_session("lineage_api_tip", title="Hermes WebUI #2", updated_at=t0 + 10)
+        _save_webui_session("lineage_api_root", title="JarvisCopilot WebUI", updated_at=t0)
+        _save_webui_session("lineage_api_tip", title="JarvisCopilot WebUI #2", updated_at=t0 + 10)
         _insert_state_row(
             conn,
             "lineage_api_root",
@@ -215,8 +215,8 @@ def test_cli_close_parent_preserves_cross_surface_continuation_lineage(_isolate)
     conn = _ensure_state_db(_isolate)
     t0 = time.time() - 100
     try:
-        _save_webui_session("lineage_api_cli_parent", title="Hermes WebUI #8", updated_at=t0)
-        _save_webui_session("lineage_api_webui_child", title="Hermes WebUI #8", updated_at=t0 + 10)
+        _save_webui_session("lineage_api_cli_parent", title="JarvisCopilot WebUI #8", updated_at=t0)
+        _save_webui_session("lineage_api_webui_child", title="JarvisCopilot WebUI #8", updated_at=t0 + 10)
         _insert_state_row(
             conn,
             "lineage_api_cli_parent",
@@ -276,19 +276,19 @@ def test_generic_webui_title_gets_read_only_state_db_display_title(_isolate):
     conn = _ensure_state_db(_isolate)
     t0 = time.time() - 100
     try:
-        _save_webui_session("lineage_api_stale_title", title="Hermes WebUI #8", updated_at=t0)
+        _save_webui_session("lineage_api_stale_title", title="JarvisCopilot WebUI #8", updated_at=t0)
         _insert_state_row(
             conn,
             "lineage_api_stale_title",
-            title="Hermes WebUI #177",
+            title="JarvisCopilot WebUI #177",
             started_at=t0,
         )
 
         row = {row["session_id"]: row for row in all_sessions()}["lineage_api_stale_title"]
 
-        assert row["title"] == "Hermes WebUI #8"
-        assert row["display_title"] == "Hermes WebUI #177"
-        assert row["_state_db_title"] == "Hermes WebUI #177"
+        assert row["title"] == "JarvisCopilot WebUI #8"
+        assert row["display_title"] == "JarvisCopilot WebUI #177"
+        assert row["_state_db_title"] == "JarvisCopilot WebUI #177"
     finally:
         conn.close()
 
@@ -302,7 +302,7 @@ def test_state_db_display_title_does_not_override_custom_json_title(_isolate):
         _insert_state_row(
             conn,
             "lineage_api_custom_title",
-            title="Hermes WebUI #177",
+            title="JarvisCopilot WebUI #177",
             started_at=t0,
         )
 

@@ -1,4 +1,4 @@
-# Copyright 2025 the Hermes WebUI contributors
+# Copyright 2025 the JarvisCopilot WebUI contributors
 # SPDX-License-Identifier: MIT
 
 # noqa: N801

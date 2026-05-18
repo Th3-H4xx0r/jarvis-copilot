@@ -776,7 +776,7 @@ def test_account_usage_pool_payload_round_trips_to_provider_quota_status():
 
 
 def test_anthropic_oauth_usage_unavailable_reason_is_reported(monkeypatch, tmp_path):
-    """Hermes Agent can report why account limits are not available."""
+    """JarvisCopilot can report why account limits are not available."""
     monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
     old_cfg, old_mtime = _with_config(model={"provider": "anthropic"})
 

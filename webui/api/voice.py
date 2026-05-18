@@ -44,7 +44,7 @@ from api.helpers import j
 
 
 # ---------------------------------------------------------------------------
-# Hermes core integration — voice.py lives at webui/api/voice.py; Hermes core
+# JarvisCopilot core integration — voice.py lives at webui/api/voice.py; JarvisCopilot core
 # lives one directory above webui/. We add it to sys.path lazily so importing
 # this module doesn't pay the cost on every webui import.
 # ---------------------------------------------------------------------------
@@ -593,7 +593,7 @@ def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 16000,
 def _generate_reply(transcript: str) -> str:
     """One-shot LLM call routed through Hermes's auxiliary_client.
 
-    Hermes core (agent.auxiliary_client.call_llm) knows how to talk to every
+    JarvisCopilot core (agent.auxiliary_client.call_llm) knows how to talk to every
     provider Hermes supports — including OpenAI Codex (which uses the
     Responses API + OAuth tokens stored in ~/.hermes/auth.json's credential
     pool, NOT a static api_key in config.yaml). Delegating to it means the
@@ -1188,7 +1188,7 @@ def _voice_personality_tts(handler, body) -> bool:
 # Fish is a hosted neural TTS engine that takes a reference_id (the "voice
 # ID" the user pastes from fish.audio/m/<id>/) and emits WAV/PCM audio. We
 # implement it as a special-case in this file rather than wiring through
-# Hermes core because Hermes's tts_tool has no Fish provider (the
+# JarvisCopilot core because Hermes's tts_tool has no Fish provider (the
 # "command provider" escape hatch wouldn't give us the streaming + voice-
 # id ergonomics this UI needs).
 #

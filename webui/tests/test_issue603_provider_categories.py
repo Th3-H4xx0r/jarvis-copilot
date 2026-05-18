@@ -90,7 +90,7 @@ class TestProviderCatalog:
             assert meta["default_base_url"], f"Provider {pid} missing default_base_url"
 
     def test_google_uses_gemini_key(self):
-        """Google Gemini must use 'gemini' as provider ID (matches Hermes CLI)."""
+        """Google Gemini must use 'gemini' as provider ID (matches JarvisCopilot CLI)."""
         assert "gemini" in _SUPPORTED_PROVIDER_SETUPS
         assert "google" not in _SUPPORTED_PROVIDER_SETUPS
 

@@ -1,5 +1,5 @@
 """
-Hermes Web UI -- File upload: multipart parser and upload handler.
+JarvisCopilot Web UI -- File upload: multipart parser and upload handler.
 """
 import mimetypes
 import os

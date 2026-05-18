@@ -1,5 +1,5 @@
 """
-Hermes Web UI -- Route handlers for GET and POST endpoints.
+JarvisCopilot Web UI -- Route handlers for GET and POST endpoints.
 Extracted from server.py (Sprint 11) so server.py is a thin shell.
 """
 
@@ -1835,7 +1835,7 @@ def _should_hide_stale_messaging_session(
 ) -> bool:
     """Hide stale Gateway-owned internal rows after an external chat moved on.
 
-    Hermes Gateway keeps the external conversation identity in sessions.json.
+    JarvisCopilot Gateway keeps the external conversation identity in sessions.json.
     Compression/session-reset can leave old Agent state.db rows behind; those
     rows are implementation segments, not distinct conversations users chose.
     Only apply this aggressive hiding when Gateway is currently advertising an
@@ -2830,7 +2830,7 @@ def _build_llm_wiki_status() -> dict:
             "path_configured": path_configured,
             "path_source": path_source,
             "toggle_available": False,
-            "toggle_reason": "Hermes Agent exposes WIKI_PATH/wiki.path for location, but no stable on/off config flag is currently available.",
+            "toggle_reason": "JarvisCopilot exposes WIKI_PATH/wiki.path for location, but no stable on/off config flag is currently available.",
             "docs_url": _LLM_WIKI_DOCS_URL,
         }
         if not wiki_path.exists():
@@ -3240,7 +3240,7 @@ _PLUGIN_VISIBILITY_HOOK_SET = set(_PLUGIN_VISIBILITY_HOOKS)
 
 
 def _get_plugin_manager_for_visibility():
-    """Return Hermes Agent's plugin manager for read-only WebUI visibility."""
+    """Return JarvisCopilot's plugin manager for read-only WebUI visibility."""
     from hermes_cli.plugins import get_plugin_manager
 
     return get_plugin_manager()
@@ -3262,7 +3262,7 @@ def _clean_plugin_visibility_text(value, *, limit=240) -> str:
 def _plugin_visibility_payload(manager=None) -> dict:
     """Build a sanitized plugin/hook visibility payload for Settings.
 
-    The Hermes Agent manager stores manifests and callback objects internally.
+    The JarvisCopilot manager stores manifests and callback objects internally.
     This endpoint intentionally exposes only safe, user-facing metadata and the
     four lifecycle hook names called out by the Settings visibility MVP. It
     never includes plugin source paths, callback names, callback reprs, or raw
@@ -5841,7 +5841,7 @@ def handle_post(handler, parsed) -> bool:
                     # Update summaries are a short text-compression/summarization task.
                     # Reuse the documented auxiliary.compression slot instead of
                     # inventing a WebUI-only auxiliary task name that users cannot
-                    # discover in the Hermes Agent setup/config UI.
+                    # discover in the JarvisCopilot setup/config UI.
                     aux_client, aux_model = get_text_auxiliary_client(
                         "compression",
                         main_runtime=main_runtime,
@@ -8327,7 +8327,7 @@ def _handle_chat_sync(handler, body):
                 provider=_provider,
                 base_url=_base_url,
                 api_key=_api_key,
-                # Identify browser-originated sessions as WebUI so Hermes Agent
+                # Identify browser-originated sessions as WebUI so JarvisCopilot
                 # does not inject CLI-specific terminal/output guidance.
                 platform="webui",
                 quiet_mode=True,
@@ -9293,7 +9293,7 @@ def _handle_session_compress(handler, body):
             provider=resolved_provider,
             base_url=resolved_base_url,
             api_key=resolved_api_key,
-            # Identify browser-originated sessions as WebUI so Hermes Agent
+            # Identify browser-originated sessions as WebUI so JarvisCopilot
             # does not inject CLI-specific terminal/output guidance.
             platform="webui",
             quiet_mode=True,
@@ -9804,7 +9804,7 @@ def _handle_handoff_summary(handler, body):
         return channel_label
 
     def _agent_text_completion(agent, system_prompt, user_text, max_tokens=700):
-        """Use the current Hermes Agent transport without mutating conversation history."""
+        """Use the current JarvisCopilot transport without mutating conversation history."""
         api_messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_text},
@@ -10428,7 +10428,7 @@ def _mcp_runtime_status_by_name() -> dict[str, dict]:
     """Return already-known MCP runtime status without starting servers.
 
     ``tools.mcp_tool.get_mcp_status()`` only reads the existing MCP registry and
-    configuration; it does not probe or spawn MCP subprocesses. If Hermes Agent
+    configuration; it does not probe or spawn MCP subprocesses. If JarvisCopilot
     is unavailable, fall back to an empty map so the API remains safe.
     """
     try:

@@ -1,5 +1,5 @@
 """
-Hermes Web UI -- Optional password authentication.
+JarvisCopilot Web UI -- Optional password authentication.
 Off by default. Enable by setting HERMES_WEBUI_PASSWORD env var
 or configuring a password in the Settings panel.
 """

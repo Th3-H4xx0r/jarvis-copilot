@@ -173,9 +173,9 @@ class TestStripMention:
         assert result == "help me"
 
     def test_does_not_strip_bare_localpart_word(self):
-        # Regression: plain words like "Hermes Agent" should not be mutated.
-        result = self.adapter._strip_mention("Hermes Agent")
-        assert result == "Hermes Agent"
+        # Regression: plain words like "JarvisCopilot" should not be mutated.
+        result = self.adapter._strip_mention("JarvisCopilot")
+        assert result == "JarvisCopilot"
 
     def test_strip_returns_empty_for_mention_only(self):
         result = self.adapter._strip_mention("@hermes:example.org")

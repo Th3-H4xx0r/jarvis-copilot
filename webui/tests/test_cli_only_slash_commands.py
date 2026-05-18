@@ -1,4 +1,4 @@
-"""Regression tests for WebUI handling of Hermes CLI-only slash commands."""
+"""Regression tests for WebUI handling of JarvisCopilot CLI-only slash commands."""
 
 import json
 from pathlib import Path
@@ -61,7 +61,7 @@ def test_frontend_matches_agent_command_aliases():
 
 def test_cli_only_response_mentions_webui_and_cli_scope():
     assert "function cliOnlyCommandResponse" in COMMANDS_JS
-    assert "Hermes CLI-only command" in COMMANDS_JS
+    assert "JarvisCopilot CLI-only command" in COMMANDS_JS
     assert "cannot run inside the WebUI" in COMMANDS_JS
 
 
@@ -151,7 +151,7 @@ def test_cli_only_response_helper_uses_canonical_command_name():
         """
     )
 
-    assert "`/browser` is a Hermes CLI-only command" in result["response"]
+    assert "`/browser` is a JarvisCopilot CLI-only command" in result["response"]
     assert "Attach browser tools" in result["response"]
     assert "configured server-side" in result["response"]
 

@@ -634,7 +634,7 @@ def recover_all_sessions_on_startup(
 
 
 def _main() -> int:
-    parser = argparse.ArgumentParser(description="Audit Hermes WebUI session recovery state")
+    parser = argparse.ArgumentParser(description="Audit JarvisCopilot WebUI session recovery state")
     parser.add_argument("--audit", action="store_true", help="run a read-only recovery audit")
     parser.add_argument("--session-dir", type=Path, required=True, help="path to WebUI sessions directory")
     parser.add_argument("--state-db", type=Path, default=None, help="optional Hermes state.db path")

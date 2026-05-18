@@ -1,4 +1,4 @@
-"""Hermes Web UI -- Session model and in-memory session store."""
+"""JarvisCopilot Web UI -- Session model and in-memory session store."""
 import collections
 import copy
 import datetime
@@ -1417,9 +1417,9 @@ def _active_state_db_path() -> Path:
 
 def _sidebar_title_is_generic_webui(title: str | None) -> bool:
     text = ' '.join(str(title or '').split())
-    if text == 'Hermes WebUI':
+    if text == 'JarvisCopilot WebUI':
         return True
-    prefix = 'Hermes WebUI #'
+    prefix = 'JarvisCopilot WebUI #'
     return text.startswith(prefix) and text[len(prefix):].isdigit()
 
 

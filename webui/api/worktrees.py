@@ -1,4 +1,4 @@
-"""Helpers for WebUI-managed Hermes Agent git worktrees."""
+"""Helpers for WebUI-managed JarvisCopilot git worktrees."""
 
 from __future__ import annotations
 
@@ -327,18 +327,18 @@ def find_git_repo_root(workspace: str | Path) -> Path:
 
 def _setup_agent_worktree(repo_root: str) -> dict:
     try:
-        import api.config  # noqa: F401  # ensure Hermes Agent dir is on sys.path
+        import api.config  # noqa: F401  # ensure JarvisCopilot dir is on sys.path
         from cli import _setup_worktree
     except Exception as exc:
-        raise RuntimeError("Hermes Agent worktree helper is unavailable") from exc
+        raise RuntimeError("JarvisCopilot worktree helper is unavailable") from exc
     output = StringIO()
     with redirect_stdout(output), redirect_stderr(output):
         info = _setup_worktree(repo_root)
     emitted = output.getvalue().strip()
     if emitted:
-        logger.debug("Hermes Agent worktree helper output: %s", emitted)
+        logger.debug("JarvisCopilot worktree helper output: %s", emitted)
     if not info:
-        raise RuntimeError("Hermes Agent failed to create a git worktree")
+        raise RuntimeError("JarvisCopilot failed to create a git worktree")
     return info
 
 
@@ -348,7 +348,7 @@ def create_worktree_for_workspace(workspace: str | Path) -> dict:
     path = info.get("path")
     branch = info.get("branch")
     if not path or not branch:
-        raise RuntimeError("Hermes Agent returned incomplete worktree metadata")
+        raise RuntimeError("JarvisCopilot returned incomplete worktree metadata")
     return {
         "path": str(Path(path).expanduser().resolve()),
         "branch": str(branch),

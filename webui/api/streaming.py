@@ -1,5 +1,5 @@
 """
-Hermes Web UI -- SSE streaming engine and agent thread runner.
+JarvisCopilot Web UI -- SSE streaming engine and agent thread runner.
 Includes Sprint 10 cancel support via CANCEL_FLAGS.
 """
 import base64
@@ -2257,7 +2257,7 @@ def _stream_writeback_is_current(session, stream_id):
 def _merge_display_messages_after_agent_result(previous_display, previous_context, result_messages, msg_text):
     """Keep UI transcript durable while allowing model context to compact.
 
-    If Hermes Agent returns a normal append-only history, append that delta to
+    If JarvisCopilot returns a normal append-only history, append that delta to
     the UI transcript. If the model/context history was compacted and no longer
     has the prior context as a prefix, keep the previous UI transcript and append
     only compaction marker messages plus the current user turn onward.
@@ -3591,7 +3591,7 @@ def _run_agent_streaming(
                 provider=resolved_provider,
                 base_url=resolved_base_url,
                 api_key=resolved_api_key,
-                # Identify browser-originated sessions as WebUI so Hermes Agent
+                # Identify browser-originated sessions as WebUI so JarvisCopilot
                 # does not inject CLI-specific terminal/output guidance.
                 platform='webui',
                 quiet_mode=True,

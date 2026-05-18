@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hermes WebUI MCP Server — exposes project and session management
+JarvisCopilot WebUI MCP Server — exposes project and session management
 as MCP tools for any MCP-compatible agent.
 
 Option A rewrite (2026-05-08): imports api.models and api.profiles
@@ -10,7 +10,7 @@ locking, profile scoping, index consistency, and validation.
     pip install mcp       # one-time setup
     python3 mcp_server.py # start via stdio
 
-MCP config for Hermes Agent (add to config.yaml):
+MCP config for JarvisCopilot (add to config.yaml):
     mcp_servers:
       hermes-webui:
         command: /path/to/venv/bin/python3
@@ -21,7 +21,7 @@ MCP config for Hermes Agent (add to config.yaml):
 Profile override (optional):
         args: [/path/to/hermes-webui/mcp_server.py, --profile, myprofile]
 
-AI-authoring disclosure: this file was rewritten by MILO (Hermes Agent)
+AI-authoring disclosure: this file was rewritten by MILO (JarvisCopilot)
 under human direction, per maintainer guidelines for #1616.
 """
 

@@ -1,7 +1,7 @@
-"""Regression tests for #1240 — WebUI model catalog should delegate to Hermes CLI.
+"""Regression tests for #1240 — WebUI model catalog should delegate to JarvisCopilot CLI.
 
 The WebUI picker should not freeze ordinary providers to its static
-``_PROVIDER_MODELS`` snapshot when Hermes CLI can return a fresher provider
+``_PROVIDER_MODELS`` snapshot when JarvisCopilot CLI can return a fresher provider
 catalog. Static lists remain a fallback only.
 """
 
@@ -108,7 +108,7 @@ def test_generic_provider_uses_hermes_cli_catalog_before_static_snapshot(monkeyp
 
     ``claude-sonnet-5.0`` is intentionally absent from WebUI's static Anthropic
     list. Before this fix the group came entirely from ``_PROVIDER_MODELS`` and
-    this model was invisible even though Hermes CLI knew about it.
+    this model was invisible even though JarvisCopilot CLI knew about it.
     """
     _scrub_provider_env(monkeypatch)
     calls = _install_fake_hermes_cli(
@@ -152,7 +152,7 @@ def test_generic_provider_prefixes_live_ids_when_not_active_provider(monkeypatch
         provider_id="anthropic",
         live_ids=["claude-sonnet-5.0"],
     )
-    # Anthropic is authenticated via Hermes CLI, but OpenAI is the active
+    # Anthropic is authenticated via JarvisCopilot CLI, but OpenAI is the active
     # default. The Anthropic row still has to be pickable/routable.
     _configure(monkeypatch, tmp_path, provider="openai", default="gpt-5.5")
 

@@ -1,5 +1,5 @@
 """
-Hermes Web UI -- Filesystem checkpoint (rollback) API.
+JarvisCopilot Web UI -- Filesystem checkpoint (rollback) API.
 
 Provides endpoints to list, diff, and restore filesystem checkpoints
 created by the Hermes agent's CheckpointManager.  Checkpoints live at
