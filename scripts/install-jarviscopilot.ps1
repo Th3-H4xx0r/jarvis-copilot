@@ -110,18 +110,22 @@ if (-not (Test-Path $VenvPy)) {
 # `pip install -e .[all,voice,edge-tts]` is idempotent — pip checks each
 # dist's installed version against the requirement and skips if satisfied.
 # User state under ~/.hermes/ is never touched by pip.
-Info "Installing Hermes core (this may take a few minutes on first run) ..."
-& $VenvPy -m pip install --upgrade pip 2>&1 | Out-Null
-& $VenvPy -m pip install -e ($Dir + '[all,voice,edge-tts]')
+# Quiet flags: -q hides "Requirement already satisfied" lines; the progress
+# bar still shows on actual downloads. --no-input prevents interactive prompts.
+$PipQuiet = @('-q', '--progress-bar', 'off', '--no-input')
+
+Info "Installing core + voice extras (this can take a few minutes on first run) ..."
+& $VenvPy -m pip install --upgrade pip @PipQuiet 2>&1 | Out-Null
+& $VenvPy -m pip install -e ($Dir + '[all,voice,edge-tts]') @PipQuiet
 if ($LASTEXITCODE -ne 0) { Die "pip install failed" }
 
 Info "Installing webui dependencies ..."
-& $VenvPy -m pip install -r (Join-Path $Dir 'webui/requirements.txt')
+& $VenvPy -m pip install -r (Join-Path $Dir 'webui/requirements.txt') @PipQuiet
 if ($LASTEXITCODE -ne 0) { Die "webui requirements install failed" }
 
 if (-not $SkipPiper) {
     Info "Installing piper-tts (for JARVIS voice) ..."
-    & $VenvPy -m pip install piper-tts
+    & $VenvPy -m pip install piper-tts @PipQuiet
     if ($LASTEXITCODE -ne 0) { Warn "piper-tts install failed -- JARVIS personality will need a manual 'pip install piper-tts' later." }
 }
 
@@ -147,30 +151,105 @@ if ($LASTEXITCODE -ne 0) {
     Warn "TLS cert generation failed; you can still run the webui in HTTP mode."
 }
 
-# ---- Next steps -------------------------------------------------------------
+# ---- CLI on PATH ------------------------------------------------------------
+# WindowsApps is on every user's PATH by default (it's where MS Store
+# installs shims). Dropping a .cmd shim there makes `jarviscopilot` work
+# from any shell without env edits or restart.
 $LaunchPath = Join-Path $Dir 'scripts/launch-webui.ps1'
 $HermesPath = Join-Path $VenvDir 'Scripts/hermes.exe'
+$JcPath     = Join-Path $VenvDir 'Scripts/jarviscopilot.exe'
+$ShimDir    = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+if (-not (Test-Path $ShimDir)) {
+    $ShimDir = Join-Path $env:USERPROFILE 'bin'
+    New-Item -ItemType Directory -Force -Path $ShimDir | Out-Null
+}
+foreach ($pair in @(@($JcPath, 'jarviscopilot.cmd'), @($HermesPath, 'hermes.cmd'))) {
+    $target = $pair[0]; $shimName = $pair[1]
+    $shim = Join-Path $ShimDir $shimName
+    if (Test-Path $target) {
+        Set-Content -Path $shim -Value "@echo off`r`n`"$target`" %*" -Encoding ASCII
+    }
+}
+Info "CLI shims placed in $ShimDir (jarviscopilot.cmd, hermes.cmd)"
+
+# ---- System tray shortcuts + auto-launch -----------------------------------
+# Create two shortcuts:
+#   * Start Menu  — discoverable, can be pinned to taskbar
+#   * Startup folder — boots the tray app on login (auto-starts the WebUI)
+# Both point at the same tray script. Idempotent: re-running rewrites them
+# to match the current install location.
+$TrayPath  = Join-Path $Dir 'scripts/tray-jarviscopilot.ps1'
+$StartMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\JarvisCopilot.lnk'
+$StartupLnk = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\JarvisCopilot.lnk'
+
+function New-TrayShortcut($Path) {
+    $shell = New-Object -ComObject WScript.Shell
+    $sc = $shell.CreateShortcut($Path)
+    $sc.TargetPath = 'powershell.exe'
+    $sc.Arguments  = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$TrayPath`" -RepoDir `"$Dir`""
+    $sc.WorkingDirectory = $Dir
+    $sc.Description = 'JarvisCopilot system tray'
+    $sc.IconLocation = "$env:SystemRoot\System32\shell32.dll,167"  # gold globe-y icon
+    $sc.Save()
+}
+try {
+    New-TrayShortcut $StartMenu
+    New-TrayShortcut $StartupLnk
+    Info "Shortcuts placed at:"
+    Info "  $StartMenu"
+    Info "  $StartupLnk  (auto-starts on next login)"
+} catch {
+    Warn "Could not create Start Menu / Startup shortcut: $_"
+}
+
+# Launch the tray right now so the user sees it immediately. Tray auto-spawns
+# the WebUI on init, so port 8787 should bind within a few seconds.
+$LanIp = $null
+try {
+    $LanIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.IPAddress -ne '127.0.0.1' -and
+            $_.IPAddress -notlike '169.254.*' -and
+            $_.PrefixOrigin -in @('Dhcp', 'Manual')
+        } |
+        Select-Object -First 1).IPAddress
+} catch {}
+if (-not $LanIp) { $LanIp = '<your-host-ip>' }
+
+Info "Launching the tray app (it will start the WebUI for you) ..."
+$null = Start-Process -WindowStyle Hidden -FilePath 'powershell.exe' `
+    -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', $TrayPath, '-RepoDir', $Dir)
+
+Start-Sleep -Seconds 8
+
+$portOpen = $false
+try {
+    $portOpen = (Test-NetConnection -ComputerName 'localhost' -Port 8787 -InformationLevel Quiet -WarningAction SilentlyContinue)
+} catch {}
 
 Ok "JarvisCopilot installed at $Dir"
 Write-Host ""
 Write-Host "Your existing data in ~/.hermes/ (config, skills, cron jobs, sessions,"
 Write-Host "credentials, memory) was NOT touched by this install."
 Write-Host ""
-Write-Host "Next steps:"
+if ($portOpen) {
+    Write-Host "WebUI is live:" -ForegroundColor Green
+    Write-Host "  Local: https://localhost:8787"
+    Write-Host "  LAN:   https://${LanIp}:8787"
+    Write-Host ""
+    Write-Host "A tray icon is now in your system tray (look for 'JC' on a gold disc)."
+    Write-Host "Right-click it for Start / Stop / Restart / Open / Exit."
+} else {
+    Warn "WebUI didn't bind port 8787 within 8 seconds."
+    Write-Host "Open the tray app to see logs:  & '$TrayPath'"
+}
 Write-Host ""
-Write-Host "  1) Authenticate with ChatGPT Codex (one-time, browser device-code flow):"
-Write-Host "     & '$HermesPath' auth add openai-codex --type oauth --no-browser"
+Write-Host "First-time auth (if you haven't already):" -ForegroundColor Cyan
+Write-Host "  jarviscopilot auth add openai-codex --type oauth --no-browser"
+Write-Host "  jarviscopilot model openai-codex"
 Write-Host ""
-Write-Host "  2) Pick the active model (one-time):"
-Write-Host "     & '$HermesPath' model openai-codex"
-Write-Host "       (or use any other provider; see hermes model --help)"
-Write-Host ""
-Write-Host "  3) Launch the webui (binds 0.0.0.0:8787 with HTTPS):"
-Write-Host "     & '$LaunchPath'"
-Write-Host ""
-Write-Host "  4) Open https://localhost:8787 in your browser. Brave/Chrome will warn"
-Write-Host "     about the self-signed cert -- tap Advanced -> Proceed once and the"
-Write-Host "     mic/voice features will work."
+Write-Host "Browser will warn about the self-signed cert -- tap Advanced -> Proceed."
+Write-Host "Tray will auto-start on your next Windows login."
 Write-Host ""
 Write-Host "Re-run this installer anytime to update code. Your config and data"
 Write-Host "stay put."

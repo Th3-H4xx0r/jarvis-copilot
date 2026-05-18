@@ -83,7 +83,7 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
         local_sha="$(git rev-parse HEAD)"
         remote_sha="$(git rev-parse "origin/$BRANCH")"
         if [[ "$local_sha" == "$remote_sha" ]]; then
-            info "Already at $remote_sha — no code changes."
+            info "Already at $remote_sha -- no code changes."
         else
             info "Local: $local_sha"
             info "Remote: $remote_sha"
@@ -92,10 +92,15 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
     )
 else
     info "Cloning $REPO_URL (branch $BRANCH) -> $INSTALL_DIR"
-    git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$INSTALL_DIR" || die "git clone failed"
+    git clone --branch "$BRANCH" --single-branch --quiet "$REPO_URL" "$INSTALL_DIR" || die "git clone failed"
 fi
 
 cd "$INSTALL_DIR"
+
+# Defensive: ensure shell scripts have the executable bit. Git stores the
+# exec bit, but some filesystems (vfat, exfat, certain network shares) drop
+# it on checkout. Also covers users who tar-extracted instead of cloning.
+chmod +x scripts/*.sh 2>/dev/null || true
 
 # --- venv -------------------------------------------------------------------
 VENV_DIR="$INSTALL_DIR/.venv"
@@ -109,16 +114,21 @@ fi
 # `pip install -e .[all,voice,edge-tts]` is idempotent — pip checks each
 # dist's installed version against the requirement and skips if satisfied.
 # Existing user state in ~/.hermes/ is never touched by pip.
-info "Installing Hermes core (this may take a few minutes on first run) ..."
-"$VENV_PY" -m pip install --upgrade pip >/dev/null
-"$VENV_PY" -m pip install -e ".[all,voice,edge-tts]" || die "pip install failed"
+# Quiet flags: -q hides "Requirement already satisfied" spam; the progress
+# bar still appears on actual downloads. --no-input refuses to prompt for
+# anything so the script stays unattended.
+PIP_QUIET=(-q --progress-bar off --no-input)
+
+info "Installing core + voice extras (this can take a few minutes on first run) ..."
+"$VENV_PY" -m pip install --upgrade pip "${PIP_QUIET[@]}" || die "pip upgrade failed"
+"$VENV_PY" -m pip install -e ".[all,voice,edge-tts]" "${PIP_QUIET[@]}" || die "pip install failed"
 
 info "Installing webui dependencies ..."
-"$VENV_PY" -m pip install -r webui/requirements.txt || die "webui requirements install failed"
+"$VENV_PY" -m pip install -r webui/requirements.txt "${PIP_QUIET[@]}" || die "webui requirements install failed"
 
 if [[ "$SKIP_PIPER" != "true" ]]; then
     info "Installing piper-tts (for JARVIS voice) ..."
-    "$VENV_PY" -m pip install piper-tts || warn "piper-tts install failed — JARVIS personality will need a manual 'pip install piper-tts' later."
+    "$VENV_PY" -m pip install piper-tts "${PIP_QUIET[@]}" || warn "piper-tts install failed -- JARVIS personality will need a manual 'pip install piper-tts' later."
 fi
 
 # Touch the install marker so the launch script skips re-install on next launch.
@@ -140,30 +150,126 @@ except Exception as e:
     raise SystemExit(f"cert generation failed: {e}")
 PY
 
-# --- Next steps -------------------------------------------------------------
-LAUNCH="$INSTALL_DIR/scripts/launch-webui.sh"
-HERMES="$VENV_DIR/bin/hermes"
+# --- PATH symlinks (so `jarviscopilot` and `hermes` work from any shell) ---
+# Linux convention: drop a symlink into /usr/local/bin (already on every
+# distro's default PATH). If we can't write there (non-root + no sudo NOPASSWD),
+# fall back to ~/.local/bin and tell the user how to add it to their PATH.
+LINK_DIR=""
+if [[ -w /usr/local/bin ]]; then
+    LINK_DIR=/usr/local/bin
+elif sudo -n true 2>/dev/null && sudo -n test -w /usr/local/bin 2>/dev/null; then
+    LINK_DIR=/usr/local/bin
+else
+    LINK_DIR="$HOME/.local/bin"
+    mkdir -p "$LINK_DIR"
+fi
+_link() {
+    local src="$1" dest="$2"
+    if [[ "$LINK_DIR" == "/usr/local/bin" && ! -w /usr/local/bin ]]; then
+        sudo -n ln -sf "$src" "$dest" 2>/dev/null || ln -sf "$src" "$dest"
+    else
+        ln -sf "$src" "$dest"
+    fi
+}
+_link "$VENV_DIR/bin/jarviscopilot" "$LINK_DIR/jarviscopilot"
+_link "$VENV_DIR/bin/hermes"        "$LINK_DIR/hermes"
+info "CLI commands linked at $LINK_DIR/{jarviscopilot,hermes}"
+if [[ "$LINK_DIR" != "/usr/local/bin" ]]; then
+    case ":$PATH:" in
+        *":$LINK_DIR:"*) ;;
+        *)
+            warn "$LINK_DIR is not on your PATH. Add it with:"
+            warn "  echo 'export PATH=\"$LINK_DIR:\$PATH\"' >> ~/.bashrc && source ~/.bashrc"
+            ;;
+    esac
+fi
 
+# --- systemd unit (auto-start, survives reboot) ----------------------------
+# Only on Linux with systemd available. Idempotent — we always rewrite the
+# unit file (matches whatever this script knows about the install path) and
+# enable+restart so future updates pick up code changes after `git pull`.
+SERVICE_INSTALLED=false
+if command -v systemctl >/dev/null 2>&1 && [[ -d /etc/systemd/system ]]; then
+    info "Installing jarviscopilot-webui.service (systemd) ..."
+    SUDO=""
+    if [[ "$EUID" -ne 0 ]]; then
+        if sudo -n true 2>/dev/null; then SUDO="sudo -n"
+        else warn "Skipping systemd setup -- need passwordless sudo. Run the launcher manually with: $INSTALL_DIR/scripts/launch-webui.sh"; fi
+    fi
+    if [[ "$EUID" -eq 0 || -n "$SUDO" ]]; then
+        UNIT="/etc/systemd/system/jarviscopilot-webui.service"
+        $SUDO tee "$UNIT" >/dev/null <<UNITEOF
+[Unit]
+Description=JarvisCopilot WebUI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$(id -un)
+Group=$(id -gn)
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$INSTALL_DIR/scripts/launch-webui.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+        $SUDO systemctl daemon-reload
+        $SUDO systemctl enable jarviscopilot-webui.service >/dev/null 2>&1
+        $SUDO systemctl restart jarviscopilot-webui.service
+        SERVICE_INSTALLED=true
+        ok "Service enabled and started. View logs with: journalctl -u jarviscopilot-webui -f"
+    fi
+fi
+
+# --- Detect the LAN URL to print --------------------------------------------
+LAN_IP=""
+if command -v hostname >/dev/null 2>&1; then
+    LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+fi
+if [[ -z "$LAN_IP" ]]; then
+    LAN_IP="$("$VENV_PY" - <<'PY' 2>/dev/null
+import socket
+try:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    print(s.getsockname()[0]); s.close()
+except Exception:
+    pass
+PY
+)"
+fi
+[[ -z "$LAN_IP" ]] && LAN_IP="<your-host-ip>"
+
+# --- Final status -----------------------------------------------------------
 ok "JarvisCopilot installed at $INSTALL_DIR"
 echo
 echo "Your existing data in ~/.hermes/ (config, skills, cron jobs, sessions,"
 echo "credentials, memory) was NOT touched by this install."
 echo
-echo "Next steps:"
+if [[ "$SERVICE_INSTALLED" == "true" ]]; then
+    sleep 3   # give the service a moment to bind the port
+    if ss -tln 2>/dev/null | grep -q ":8787"; then
+        echo "${GREEN}WebUI is live:${NC}"
+        echo "  Local: https://localhost:8787"
+        echo "  LAN:   https://$LAN_IP:8787"
+        echo
+        echo "Logs: journalctl -u jarviscopilot-webui -f"
+    else
+        warn "Service started but port 8787 isn't bound yet. Check: journalctl -u jarviscopilot-webui -n 50"
+    fi
+else
+    echo "Start the WebUI manually:"
+    echo "  $INSTALL_DIR/scripts/launch-webui.sh"
+fi
 echo
-echo "  1) Authenticate with ChatGPT Codex (one-time, browser device-code flow):"
-echo "     $HERMES auth add openai-codex --type oauth --no-browser"
+echo "${CYAN}First-time auth (if you haven't already):${NC}"
+echo "  jarviscopilot auth add openai-codex --type oauth --no-browser"
+echo "  jarviscopilot model openai-codex"
 echo
-echo "  2) Pick the active model (one-time):"
-echo "     $HERMES model openai-codex"
-echo "       — or use any other provider; see '$HERMES model --help'"
-echo
-echo "  3) Launch the webui (binds 0.0.0.0:8787 with HTTPS):"
-echo "     $LAUNCH"
-echo
-echo "  4) Open https://localhost:8787 in your browser. Brave/Chrome will warn"
-echo "     about the self-signed cert — tap Advanced -> Proceed once and the"
-echo "     mic/voice features will work."
-echo
-echo "Re-run this installer anytime to update code. Your config and data"
-echo "stay put."
+echo "Browser will warn about the self-signed cert -- tap Advanced -> Proceed."
+echo "Re-run this installer anytime to update code. Config and data stay put."
