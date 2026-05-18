@@ -203,13 +203,12 @@ all = [
 ]
 
 [project.scripts]
-# Primary CLI name for this fork — JarvisCopilot. The legacy `jarviscopilot` name is
-# kept as an alias so the existing install scripts, docs, and user muscle
-# memory keep working. Both point at the same entry function; either invocation
-# launches identical behavior.
+# Primary CLI for this fork. The aggressive rebrand collapsed the legacy
+# `hermes` / `hermes-agent` aliases here; the user chose the full-rename
+# option so they don't come back. The standalone agent runner moves
+# from `hermes-agent` -> `jarviscopilot-agent` to keep its own slot.
 jarviscopilot = "jarviscopilot_cli.main:main"
-jarviscopilot = "jarviscopilot_cli.main:main"
-jarviscopilot = "run_agent:main"
+jarviscopilot-agent = "run_agent:main"
 jarviscopilot-acp = "acp_adapter.entry:main"
 
 [tool.setuptools]
