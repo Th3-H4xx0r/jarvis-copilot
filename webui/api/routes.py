@@ -3390,6 +3390,11 @@ def handle_get(handler, parsed) -> bool:
         if result is False:
             return _kanban_unknown_endpoint(handler, parsed, "GET")
         return True
+    if parsed.path.startswith("/api/voice/"):
+        from api.voice import handle_voice_get
+        if handle_voice_get(handler, parsed):
+            return True
+        # Fall through to default 404
     if parsed.path == "/api/wiki/status":
         return _handle_llm_wiki_status(handler, parsed)
     if parsed.path == "/api/logs":
@@ -4357,6 +4362,11 @@ def handle_post(handler, parsed) -> bool:
         if result is False:
             return _kanban_unknown_endpoint(handler, parsed, "POST")
         return True
+    if parsed.path.startswith("/api/voice/"):
+        from api.voice import handle_voice_post
+        if handle_voice_post(handler, parsed, body):
+            return True
+        # Unknown voice POST endpoint — fall through to default 404
     if parsed.path == "/api/dashboard/config":
         from api import dashboard_probe
 

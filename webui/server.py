@@ -152,21 +152,58 @@ class QuietHTTPServer(ThreadingHTTPServer):
     
     def handle_error(self, request, client_address):
         """Override to suppress logging for common client disconnect errors."""
+        import ssl as _ssl
         exc_type, exc_value, _ = sys.exc_info()
-        
+
         # Silently ignore common connection errors caused by client disconnects
         if exc_type in (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, TimeoutError):
             return
-        
+
+        # TLS-side client-disconnect errors. SSLEOFError fires when the peer
+        # closes the TLS connection mid-record (page refresh, fetch abort,
+        # browser tab close during a slow response). SSLZeroReturnError is
+        # the orderly close-notify variant. Both are equivalent to a
+        # ConnectionReset on a plain socket — not server bugs.
+        if exc_type in (getattr(_ssl, "SSLEOFError", ()), getattr(_ssl, "SSLZeroReturnError", ())):
+            return
+        if isinstance(exc_value, _ssl.SSLError):
+            return
+
         # Also handle socket errors that indicate client disconnect
         if issubclass(exc_type, OSError):
             # errno 54 is Connection reset by peer on macOS/BSD
             # errno 104 is Connection reset by peer on Linux
             if getattr(exc_value, 'errno', None) in (32, 54, 104, 110):  # EPIPE, ECONNRESET, ETIMEDOUT
                 return
-        
+
         # For other errors, use default logging
         super().handle_error(request, client_address)
+
+
+def _is_client_disconnect(exc: BaseException) -> bool:
+    """Return True for exceptions that represent the peer closing the
+    connection — never a server bug, never worth a traceback in the log.
+
+    Covers:
+      - ConnectionResetError / BrokenPipeError / ConnectionAbortedError /
+        TimeoutError — plain-socket disconnects
+      - ssl.SSLEOFError, ssl.SSLZeroReturnError, generic ssl.SSLError —
+        TLS-side disconnects (browser refresh / fetch abort / tab close
+        while the server was mid-write). Common with the self-signed cert
+        because cancelled fetch() requests fire here as SSLEOFError instead
+        of ConnectionResetError.
+      - OSError with EPIPE / ECONNRESET / ETIMEDOUT errno
+    """
+    import ssl as _ssl
+    if isinstance(exc, (ConnectionResetError, BrokenPipeError,
+                        ConnectionAbortedError, TimeoutError)):
+        return True
+    if isinstance(exc, _ssl.SSLError):
+        return True
+    if isinstance(exc, OSError):
+        if getattr(exc, "errno", None) in (32, 54, 104, 110):
+            return True
+    return False
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -248,12 +285,28 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             if not check_auth(self, parsed): return
+            # WebSocket upgrade dispatch — must run BEFORE handle_get because the
+            # handler takes over the raw socket for the lifetime of the connection.
+            upgrade = (self.headers.get("Upgrade") or "").strip().lower()
+            if upgrade == "websocket":
+                from api.voice import handle_websocket
+                if handle_websocket(self, parsed):
+                    return
             result = handle_get(self, parsed)
             if result is False:
                 return j(self, {'error': 'not found'}, status=404)
         except Exception as e:
+            if _is_client_disconnect(e):
+                return
             print(f'[webui] ERROR {self.command} {self.path}\n' + traceback.format_exc(), flush=True)
-            return j(self, {'error': 'Internal server error'}, status=500)
+            try:
+                return j(self, {'error': 'Internal server error'}, status=500)
+            except Exception as write_exc:
+                # The socket may already be dead — writing the 500 doubles the
+                # noise. Swallow if so; otherwise let the default handler log.
+                if _is_client_disconnect(write_exc):
+                    return
+                raise
         finally:
             clear_request_profile()
 
@@ -263,6 +316,7 @@ class Handler(BaseHTTPRequestHandler):
         cookie_profile = get_profile_cookie(self)
         if cookie_profile:
             set_request_profile(cookie_profile)
+        # Local alias avoids hoisting the global into every successful path.
         try:
             parsed = urlparse(self.path)
             # Stage-346 Opus SHOULD-FIX defense-in-depth: scope the CSP-report
@@ -278,8 +332,15 @@ class Handler(BaseHTTPRequestHandler):
             if result is False:
                 return j(self, {'error': 'not found'}, status=404)
         except Exception as e:
+            if _is_client_disconnect(e):
+                return
             print(f'[webui] ERROR {self.command} {self.path}\n' + traceback.format_exc(), flush=True)
-            return j(self, {'error': 'Internal server error'}, status=500)
+            try:
+                return j(self, {'error': 'Internal server error'}, status=500)
+            except Exception as write_exc:
+                if _is_client_disconnect(write_exc):
+                    return
+                raise
         finally:
             clear_request_profile()
 

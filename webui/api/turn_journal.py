@@ -94,14 +94,21 @@ def append_turn_journal_event(
             fh.write(line)
             fh.flush()
             os.fsync(fh.fileno())
-    try:
-        dir_fd = os.open(path.parent, os.O_DIRECTORY)
+    # Directory fsync — POSIX-only durability hint. Windows lacks O_DIRECTORY
+    # and can't open a directory as a file descriptor at all, so skip it
+    # there. (The file fsync above is still in effect; we just don't get the
+    # extra directory-metadata flush. NTFS is journaled, so this is mostly
+    # belt-and-suspenders even on POSIX.)
+    _O_DIRECTORY = getattr(os, "O_DIRECTORY", None)
+    if _O_DIRECTORY is not None:
         try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
-    except OSError:
-        pass
+            dir_fd = os.open(path.parent, _O_DIRECTORY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            pass
     return payload
 
 

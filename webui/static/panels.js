@@ -36,7 +36,7 @@ let _logsSeverityFilter = 'all';
 
 // Map of panel names → i18n keys for the app titlebar label.
 const APP_TITLEBAR_KEYS = {
-  chat: 'tab_chat', tasks: 'tab_tasks', skills: 'tab_skills',
+  chat: 'tab_chat', voice: 'tab_voice', tasks: 'tab_tasks', skills: 'tab_skills',
   memory: 'tab_memory', workspaces: 'tab_workspaces',
   profiles: 'tab_profiles', todos: 'tab_todos', insights: 'tab_insights', logs: 'tab_logs', settings: 'tab_settings',
 };
@@ -224,7 +224,7 @@ async function switchPanel(name, opts = {}) {
   // showing-<name> class on <main>; no class means chat (the default).
   const mainEl = document.querySelector('main.main');
   if (mainEl) {
-    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs'].forEach(p => {
+    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','voice'].forEach(p => {
       mainEl.classList.toggle('showing-' + p, nextPanel === p);
     });
   }
@@ -238,6 +238,8 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'todos') loadTodos();
   if (nextPanel === 'insights') await loadInsights();
   if (nextPanel === 'logs') await loadLogs();
+  if (nextPanel === 'voice' && typeof initVoicePanel === 'function') initVoicePanel();
+  if (prevPanel === 'voice' && nextPanel !== 'voice' && typeof onVoicePanelLeave === 'function') onVoicePanelLeave();
   _syncLogsAutoRefresh();
   if (typeof _syncSystemHealthMonitorVisibility === 'function') _syncSystemHealthMonitorVisibility();
   if (nextPanel === 'settings') {
@@ -5367,7 +5369,307 @@ function _retryPreferencesAutosave(){
   _autosavePreferencesSettings(payload);
 }
 
+async function loadPersonalityPicker(){
+  // Populate the Personality select on the Conversation settings pane and
+  // wire change → POST /api/personality/set. The "Default" option (empty
+  // value) clears the personality so chat/voice use the bare SOUL.md
+  // identity with no persona overlay.
+  const sel = $('personalityPicker');
+  if (!sel) return;
+  const statusEl = $('personalityStatus');
+  sel.innerHTML = '';
+  // Always include Default as the first option.
+  const def = document.createElement('option');
+  def.value = ''; def.textContent = 'Default (Hermes)';
+  sel.appendChild(def);
+  let personalities = [];
+  try {
+    const data = await api('/api/personalities');
+    personalities = (data && data.personalities) || [];
+  } catch (e) {
+    personalities = [];
+  }
+  for (const p of personalities) {
+    if (!p || !p.name) continue;
+    const opt = document.createElement('option');
+    opt.value = p.name;
+    opt.textContent = p.description ? `${p.name} — ${p.description}` : p.name;
+    sel.appendChild(opt);
+  }
+  // Pre-select the session's current personality if any.
+  const cur = (S && S.session && (S.session.personality || S.session.persona)) || '';
+  sel.value = cur;
+  // Wire change once. Using a guarded sentinel so re-entries don't stack.
+  if (!sel.dataset.boundChange) {
+    sel.dataset.boundChange = '1';
+    sel.addEventListener('change', async () => {
+      if (!S || !S.session || !S.session.session_id) {
+        if (statusEl) statusEl.textContent = 'Open a chat session first.';
+        return;
+      }
+      const name = sel.value || '';
+      if (statusEl) statusEl.textContent = 'Saving…';
+      try {
+        await api('/api/personality/set', {
+          method: 'POST',
+          body: JSON.stringify({ session_id: S.session.session_id, name }),
+        });
+        if (S.session) S.session.personality = name;
+        if (statusEl) statusEl.textContent = name
+          ? `Saved "${name}" — applying voice settings…`
+          : 'Reverted to default — applying voice settings…';
+        // Also flip the TTS engine to match the personality. For jarvis-mcu
+        // this downloads the Piper Jarvis voice from HuggingFace on first
+        // pick (~80 MB, may take 30-60s) and writes it into config.yaml's
+        // tts.piper.voice. Empty name reverts TTS to Edge (the default).
+        try {
+          const tts = await api('/api/voice/personality-tts', {
+            method: 'POST',
+            body: JSON.stringify({ name }),
+          });
+          if (statusEl) {
+            const provider = (tts && tts.provider) || 'unknown';
+            statusEl.textContent = name
+              ? `Now using "${name}" (TTS: ${provider}). Send a new message to hear it.`
+              : `Reverted to default (TTS: ${provider}).`;
+          }
+          // Refresh the Voice tab's voice-picker dropdown — the active
+          // provider changed, so the old Edge voices need to be replaced
+          // with whatever the new provider exposes (e.g. JARVIS for piper).
+          if (typeof refreshVoicePickerVoices === 'function') {
+            try { await refreshVoicePickerVoices(); } catch (e) {}
+          }
+        } catch (e) {
+          if (statusEl) statusEl.textContent = `Personality saved, but TTS update failed: ${e && e.message || e}`;
+        }
+      } catch (e) {
+        if (statusEl) statusEl.textContent = 'Failed to save: ' + (e && e.message || e);
+      }
+    });
+  }
+}
+
+async function loadVoiceProvidersSettings(){
+  // Render the Voice Providers list in the Conversation settings pane.
+  // Each entry: enable toggle, API-key field (if applicable), voice-id
+  // field (if engine uses custom voice IDs, e.g. Fish Audio). Saves go
+  // through /api/voice/provider-config which selective-patches config.yaml.
+  const host = $('voiceProvidersList');
+  const statusEl = $('voiceProvidersStatus');
+  if (!host) return;
+  host.innerHTML = '';
+  let data = null;
+  try {
+    const res = await fetch('api/voice/engines');
+    if (!res.ok) throw new Error('engines fetch failed: ' + res.status);
+    data = await res.json();
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Failed to load engines: ' + (e && e.message || e);
+    return;
+  }
+  const engines = (data && data.engines) || [];
+  // Engines NOT in the enabled list are missing from /api/voice/engines —
+  // but we still want to render them with the toggle off so the user can
+  // re-enable. We synthesize disabled entries from the same catalog the
+  // server uses (just listing the disabled set client-side via the active
+  // engine flag — the server already filters its own list).
+  // For now, just render whatever the server returned. Disabled engines
+  // can be re-enabled via the "Enable all" link below.
+  for (const e of engines) {
+    host.appendChild(_renderVoiceProviderRow(e));
+  }
+  if (!engines.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'font-size:12px;color:var(--fg-dim,#9aa3b2);opacity:0.7';
+    empty.textContent = 'No engines enabled. Use the CLI to set webui.voice.enabled_engines.';
+    host.appendChild(empty);
+  }
+  if (statusEl) statusEl.textContent = '';
+}
+
+function _renderVoiceProviderRow(engine){
+  const row = document.createElement('div');
+  row.style.cssText = 'border:1px solid var(--border,rgba(255,255,255,.08));border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px';
+  const head = document.createElement('div');
+  head.style.cssText = 'display:flex;align-items:center;gap:8px';
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:13px;font-weight:500;color:var(--fg,#e8eef6)';
+  title.textContent = engine.name || engine.id;
+  const badge = document.createElement('span');
+  badge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;letter-spacing:0.05em;text-transform:uppercase';
+  if (engine.active) {
+    badge.textContent = 'Active';
+    badge.style.background = 'rgba(140,200,140,.18)';
+    badge.style.color = '#9be09b';
+  } else if (engine.configured) {
+    badge.textContent = 'Ready';
+    badge.style.background = 'rgba(140,180,255,.12)';
+    badge.style.color = '#9bb8ff';
+  } else {
+    badge.textContent = 'Needs setup';
+    badge.style.background = 'rgba(255,180,80,.12)';
+    badge.style.color = '#ffc88a';
+  }
+  head.appendChild(title);
+  head.appendChild(badge);
+  // Use-this-engine link
+  const useLink = document.createElement('button');
+  useLink.type = 'button';
+  useLink.textContent = 'Use this';
+  useLink.style.cssText = 'margin-left:auto;font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--border,rgba(255,255,255,.15));background:transparent;color:var(--fg-dim,#9aa3b2);cursor:pointer';
+  useLink.disabled = !!engine.active;
+  if (engine.active) useLink.style.opacity = '0.4';
+  useLink.addEventListener('click', async () => {
+    try {
+      await api('/api/voice/engine', { method: 'POST', body: JSON.stringify({ name: engine.id }) });
+      await loadVoiceProvidersSettings();
+      if (typeof refreshVoicePickerVoices === 'function') refreshVoicePickerVoices().catch(()=>{});
+    } catch (e) {
+      const sEl = $('voiceProvidersStatus');
+      if (sEl) sEl.textContent = 'Failed: ' + (e && e.message || e);
+    }
+  });
+  head.appendChild(useLink);
+  row.appendChild(head);
+
+  // Per-row save() — inline status under the field that just changed.
+  // CRITICAL: do NOT call loadVoiceProvidersSettings() from here. Rebuilding
+  // the entire list on every field save destroys focus, scroll position,
+  // and any in-flight input the user has elsewhere on the page.
+  const _showSaveStatus = (el, text, color) => {
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = color;
+    if (el._fadeT) clearTimeout(el._fadeT);
+    el._fadeT = setTimeout(() => { el.textContent = ''; }, 2500);
+  };
+
+  // API key field
+  if (engine.requires_key) {
+    const lbl = document.createElement('label');
+    lbl.style.cssText = 'font-size:11px;color:var(--fg-dim,#9aa3b2);margin-top:4px';
+    lbl.textContent = 'API Key';
+    row.appendChild(lbl);
+    const input = document.createElement('input');
+    input.type = 'password';
+    input.placeholder = engine.has_api_key
+      ? `Set (${engine.api_key_masked || '••••'}) — leave blank to keep`
+      : 'Paste API key';
+    input.autocomplete = 'off';
+    input.style.cssText = 'background:rgba(0,0,0,.25);border:1px solid var(--border,rgba(255,255,255,.1));border-radius:6px;color:var(--fg,#e8eef6);padding:6px 8px;font-size:12px;font-family:inherit';
+    const fieldStatus = document.createElement('div');
+    fieldStatus.style.cssText = 'font-size:10px;min-height:12px;color:var(--fg-dim,#9aa3b2)';
+    input.addEventListener('change', async () => {
+      const v = input.value;
+      if (v === '') return; // Empty means "keep existing" per the placeholder hint
+      try {
+        await api('/api/voice/provider-config', {
+          method: 'POST',
+          body: JSON.stringify({ engine: engine.id, api_key: v }),
+        });
+        input.value = '';
+        // Reflect the new state on this row without rebuilding the DOM —
+        // update the placeholder hint and the status badge inline.
+        engine.has_api_key = true;
+        engine.api_key_masked = '••••';
+        input.placeholder = 'Set (••••) — leave blank to keep';
+        engine.configured = engine.voice_kind === 'custom' ? !!(engine.voice_id || '').trim() : true;
+        _updateBadge(badge, engine);
+        _showSaveStatus(fieldStatus, 'Saved.', '#9be09b');
+      } catch (e) {
+        _showSaveStatus(fieldStatus, 'Save failed: ' + (e && e.message || e), '#ff8080');
+      }
+    });
+    row.appendChild(input);
+    row.appendChild(fieldStatus);
+  }
+
+  // Custom voice ID field (Fish Audio etc.)
+  if (engine.voice_kind === 'custom') {
+    const lbl = document.createElement('label');
+    lbl.style.cssText = 'font-size:11px;color:var(--fg-dim,#9aa3b2);margin-top:4px';
+    lbl.textContent = 'Voice ID';
+    row.appendChild(lbl);
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = engine.voice_id_hint || 'Custom voice ID';
+    input.value = engine.voice_id || '';
+    input.autocomplete = 'off';
+    input.style.cssText = 'background:rgba(0,0,0,.25);border:1px solid var(--border,rgba(255,255,255,.1));border-radius:6px;color:var(--fg,#e8eef6);padding:6px 8px;font-size:12px;font-family:inherit;font-variant-numeric:tabular-nums';
+    const fieldStatus = document.createElement('div');
+    fieldStatus.style.cssText = 'font-size:10px;min-height:12px;color:var(--fg-dim,#9aa3b2)';
+    input.addEventListener('change', async () => {
+      try {
+        await api('/api/voice/provider-config', {
+          method: 'POST',
+          body: JSON.stringify({ engine: engine.id, voice_id: input.value }),
+        });
+        engine.voice_id = input.value;
+        engine.configured = engine.requires_key
+          ? (engine.has_api_key && !!engine.voice_id.trim())
+          : !!engine.voice_id.trim();
+        _updateBadge(badge, engine);
+        _showSaveStatus(fieldStatus, 'Saved.', '#9be09b');
+      } catch (e) {
+        _showSaveStatus(fieldStatus, 'Save failed: ' + (e && e.message || e), '#ff8080');
+      }
+    });
+    row.appendChild(input);
+    row.appendChild(fieldStatus);
+    // Optional model override for Fish Audio
+    if (engine.id === 'fish-audio') {
+      const modelLbl = document.createElement('label');
+      modelLbl.style.cssText = 'font-size:11px;color:var(--fg-dim,#9aa3b2);margin-top:4px';
+      modelLbl.textContent = 'Model (default s2-pro)';
+      row.appendChild(modelLbl);
+      const modelInput = document.createElement('input');
+      modelInput.type = 'text';
+      modelInput.placeholder = 's2-pro';
+      modelInput.value = engine.model || '';
+      modelInput.autocomplete = 'off';
+      modelInput.style.cssText = 'background:rgba(0,0,0,.25);border:1px solid var(--border,rgba(255,255,255,.1));border-radius:6px;color:var(--fg,#e8eef6);padding:6px 8px;font-size:12px;font-family:inherit';
+      const modelStatus = document.createElement('div');
+      modelStatus.style.cssText = 'font-size:10px;min-height:12px;color:var(--fg-dim,#9aa3b2)';
+      modelInput.addEventListener('change', async () => {
+        try {
+          await api('/api/voice/provider-config', {
+            method: 'POST',
+            body: JSON.stringify({ engine: engine.id, model: modelInput.value }),
+          });
+          engine.model = modelInput.value;
+          _showSaveStatus(modelStatus, 'Saved.', '#9be09b');
+        } catch (e) {
+          _showSaveStatus(modelStatus, 'Save failed: ' + (e && e.message || e), '#ff8080');
+        }
+      });
+      row.appendChild(modelInput);
+      row.appendChild(modelStatus);
+    }
+  }
+
+  return row;
+}
+
+function _updateBadge(badge, engine) {
+  if (!badge) return;
+  if (engine.active) {
+    badge.textContent = 'Active';
+    badge.style.background = 'rgba(140,200,140,.18)';
+    badge.style.color = '#9be09b';
+  } else if (engine.configured) {
+    badge.textContent = 'Ready';
+    badge.style.background = 'rgba(140,180,255,.12)';
+    badge.style.color = '#9bb8ff';
+  } else {
+    badge.textContent = 'Needs setup';
+    badge.style.background = 'rgba(255,180,80,.12)';
+    badge.style.color = '#ffc88a';
+  }
+}
+
 async function loadSettingsPanel(){
+  loadPersonalityPicker();
+  loadVoiceProvidersSettings();
   try{
     const settings=await api('/api/settings');
     // Populate the version badges from the server — keeps them in sync with git

@@ -202,6 +202,11 @@ all = [
 ]
 
 [project.scripts]
+# Primary CLI name for this fork — JarvisCopilot. The legacy `hermes` name is
+# kept as an alias so the existing install scripts, docs, and user muscle
+# memory keep working. Both point at the same entry function; either invocation
+# launches identical behavior.
+jarviscopilot = "hermes_cli.main:main"
 hermes = "hermes_cli.main:main"
 hermes-agent = "run_agent:main"
 hermes-acp = "acp_adapter.entry:main"
