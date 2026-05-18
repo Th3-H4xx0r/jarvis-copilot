@@ -93,6 +93,56 @@ else {
 
 Set-Location $Dir
 
+# ---- Stop any running JarvisCopilot / Hermes instances ---------------------
+# Idempotent best-effort shutdown so pip install can replace files the
+# venv's python.exe / pyd modules would otherwise have locked, and so the
+# tray relaunch later isn't competing with a previous tray.
+Info "Stopping any running JarvisCopilot / Hermes instances ..."
+
+# Anything bound to 8787 = the webui process. Stop it.
+try {
+    Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            try { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } catch {}
+        }
+} catch {}
+
+# Python gateway loop (`python -m hermes_cli.main gateway run ...`).
+try {
+    Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'pythonw.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -match 'hermes_cli\.main\s+gateway\s+run' } |
+        ForEach-Object {
+            try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
+        }
+} catch {}
+
+# Any other JarvisCopilot python (webui via launch script, ad-hoc runs).
+try {
+    Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'pythonw.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.CommandLine -and (
+                $_.CommandLine -match 'webui\\server\.py' -or
+                $_.CommandLine -match 'webui/server\.py' -or
+                $_.CommandLine -match 'JarvisCopilot\\\.venv' -or
+                $_.CommandLine -match 'JarvisCopilot/\.venv'
+            )
+        } |
+        ForEach-Object {
+            try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
+        }
+} catch {}
+
+# Tray icon (so we can rewrite shortcuts and respawn a fresh one).
+try {
+    Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'pwsh.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -match 'tray-jarviscopilot\.ps1' } |
+        ForEach-Object {
+            try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
+        }
+} catch {}
+
+Start-Sleep -Seconds 2
+
 # ---- venv ------------------------------------------------------------------
 $VenvDir = Join-Path $Dir '.venv'
 $VenvPy  = Join-Path $VenvDir 'Scripts/python.exe'

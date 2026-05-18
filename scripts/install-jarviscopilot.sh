@@ -102,6 +102,54 @@ cd "$INSTALL_DIR"
 # it on checkout. Also covers users who tar-extracted instead of cloning.
 chmod +x scripts/*.sh 2>/dev/null || true
 
+# --- Stop any running JarvisCopilot / Hermes instances ---------------------
+# Idempotent best-effort shutdown so the rest of the installer (pip install,
+# systemd unit rewrite, tray re-launch) doesn't fight a process holding the
+# venv's interpreter or port 8787.
+info "Stopping any running JarvisCopilot / Hermes instances ..."
+
+SUDO_STOP=""
+if [[ "$EUID" -ne 0 ]] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    SUDO_STOP="sudo -n"
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+    for unit in jarviscopilot-webui.service hermes-webui.service \
+                jarviscopilot-gateway.service hermes-gateway.service; do
+        if [[ -n "$SUDO_STOP" ]]; then
+            $SUDO_STOP systemctl stop "$unit" >/dev/null 2>&1 || true
+        else
+            systemctl stop "$unit" >/dev/null 2>&1 || true
+        fi
+    done
+fi
+
+# Collect PIDs of anything still alive: port 8787 listener + gateway loop.
+STOP_PIDS=""
+if command -v ss >/dev/null 2>&1; then
+    STOP_PIDS+=" $(ss -tlnpH 'sport = :8787' 2>/dev/null \
+        | grep -oE 'pid=[0-9]+' | grep -oE '[0-9]+' || true)"
+elif command -v lsof >/dev/null 2>&1; then
+    STOP_PIDS+=" $(lsof -iTCP:8787 -sTCP:LISTEN -Pn -t 2>/dev/null || true)"
+fi
+if command -v pgrep >/dev/null 2>&1; then
+    STOP_PIDS+=" $(pgrep -f 'hermes_cli\.main +gateway +run' 2>/dev/null || true)"
+fi
+STOP_PIDS="$(printf '%s\n' $STOP_PIDS | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ' || true)"
+
+if [[ -n "${STOP_PIDS// /}" ]]; then
+    info "Sending SIGTERM to existing PID(s): $STOP_PIDS"
+    for pid in $STOP_PIDS; do
+        kill "$pid" 2>/dev/null || ($SUDO_STOP kill "$pid" 2>/dev/null || true)
+    done
+    sleep 2
+    for pid in $STOP_PIDS; do
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || ($SUDO_STOP kill -9 "$pid" 2>/dev/null || true)
+        fi
+    done
+fi
+
 # --- venv -------------------------------------------------------------------
 VENV_DIR="$INSTALL_DIR/.venv"
 VENV_PY="$VENV_DIR/bin/python"
