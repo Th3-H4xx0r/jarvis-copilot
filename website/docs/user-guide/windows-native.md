@@ -8,7 +8,7 @@ sidebar_position: 3
 # Windows (Native) Guide — Early Beta
 
 :::warning Early BETA
-Native Windows support is **early beta**. It installs, runs, and passes our Windows-footgun lint, but it hasn't been road-tested at the scale our Linux/macOS/WSL2 paths have. Expect rough edges — especially around subprocess handling, path quirks, and non-ASCII console output. Please [file issues](https://github.com/NousResearch/hermes-agent/issues) with repro steps when you hit something. If you want a battle-tested setup today, use the [Linux/macOS installer under WSL2](./windows-wsl-quickstart.md) instead.
+Native Windows support is **early beta**. It installs, runs, and passes our Windows-footgun lint, but it hasn't been road-tested at the scale our Linux/macOS/WSL2 paths have. Expect rough edges — especially around subprocess handling, path quirks, and non-ASCII console output. Please [file issues](https://github.com/NousResearch/jarviscopilot/issues) with repro steps when you hit something. If you want a battle-tested setup today, use the [Linux/macOS installer under WSL2](./windows-wsl-quickstart.md) instead.
 :::
 
 JarvisCopilot runs natively on Windows 10 and Windows 11 — no WSL, no Cygwin, no Docker. This page is the deep dive: what works natively, what's WSL-only, what the installer actually does, and the Windows-specific knobs you might need to touch.
@@ -24,7 +24,7 @@ If you prefer a real POSIX environment (for the dashboard's embedded terminal, `
 Open **PowerShell** (or Windows Terminal) and run:
 
 ```powershell
-irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.ps1 | iex
 ```
 
 No admin rights required. The installer goes to `%LOCALAPPDATA%\jarviscopilot\` and adds `jarviscopilot` to your **User PATH** — open a new terminal after it finishes.
@@ -32,7 +32,7 @@ No admin rights required. The installer goes to `%LOCALAPPDATA%\jarviscopilot\` 
 **Installer options** (requires the scriptblock form to pass parameters):
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1))) -NoVenv -SkipSetup -Branch main
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.ps1))) -NoVenv -SkipSetup -Branch main
 ```
 
 | Parameter | Default | Purpose |
@@ -41,7 +41,7 @@ No admin rights required. The installer goes to `%LOCALAPPDATA%\jarviscopilot\` 
 | `-NoVenv` | off | Skip venv creation (advanced — you manage Python yourself) |
 | `-SkipSetup` | off | Skip the post-install `jarviscopilot setup` wizard |
 | `-HermesHome` | `%LOCALAPPDATA%\jarviscopilot` | Override data directory |
-| `-InstallDir` | `%LOCALAPPDATA%\jarviscopilot\hermes-agent` | Override code location |
+| `-InstallDir` | `%LOCALAPPDATA%\jarviscopilot\jarviscopilot` | Override code location |
 
 ## What the installer actually does
 
@@ -51,7 +51,7 @@ Top-to-bottom, in order:
 2. **Installs Python 3.11** via `uv`. No existing Python needed.
 3. **Installs Node.js 22** (winget if available, else a portable Node tarball unpacked under `%LOCALAPPDATA%\jarviscopilot\node`). Used for the browser tool and the WhatsApp bridge.
 4. **Installs portable Git** — if `git` is already on PATH the installer uses it; otherwise it downloads a trimmed, self-contained **PortableGit** (~45 MB, from the official `git-for-windows` release) to `%LOCALAPPDATA%\jarviscopilot\git`. No admin, no Windows installer registry, no interference with anything else on the box.
-5. **Clones the repo** to `%LOCALAPPDATA%\jarviscopilot\hermes-agent` and creates a virtualenv inside it.
+5. **Clones the repo** to `%LOCALAPPDATA%\jarviscopilot\jarviscopilot` and creates a virtualenv inside it.
 6. **Tiered `uv pip install`** — tries `.[all]` first, falls back to progressively smaller sets (`[messaging,dashboard,ext]` → `[messaging]` → `.`) if a `git+https` dep flakes on rate-limited GitHub. Prevents "single flake drops you to a bare install" failure mode.
 7. **Auto-installs messaging SDKs** keyed off `.env` — if `TELEGRAM_BOT_TOKEN` / `DISCORD_BOT_TOKEN` / `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` / `WHATSAPP_ENABLED` are present, runs `python -m ensurepip --upgrade` and targeted `pip install` calls so each platform's SDK is actually importable.
 8. **Sets `HERMES_GIT_BASH_PATH`** to the resolved `bash.exe` so JarvisCopilot finds it deterministically in fresh shells.
@@ -178,7 +178,7 @@ Services require admin rights to install and tie the gateway's lifecycle to mach
 
 | Path | Contents |
 |---|---|
-| `%LOCALAPPDATA%\jarviscopilot\hermes-agent\` | Git checkout + venv. Safe to `Remove-Item -Recurse` and reinstall. |
+| `%LOCALAPPDATA%\jarviscopilot\jarviscopilot\` | Git checkout + venv. Safe to `Remove-Item -Recurse` and reinstall. |
 | `%LOCALAPPDATA%\jarviscopilot\git\` | PortableGit (only if the installer provisioned it). |
 | `%LOCALAPPDATA%\jarviscopilot\node\` | Portable Node.js (only if the installer provisioned it). |
 | `%LOCALAPPDATA%\jarviscopilot\bin\` | `jarviscopilot.cmd` shim, added to User PATH. |
@@ -238,7 +238,7 @@ From PowerShell:
 jarviscopilot uninstall
 ```
 
-That's the clean path — removes the schtasks entry, Startup folder shortcut, `jarviscopilot.cmd` shim, deletes `%LOCALAPPDATA%\jarviscopilot\hermes-agent\`, and trims the User PATH. It leaves `%USERPROFILE%\.jarviscopilot\` alone (your config, auth, skills, sessions, logs) in case you're reinstalling.
+That's the clean path — removes the schtasks entry, Startup folder shortcut, `jarviscopilot.cmd` shim, deletes `%LOCALAPPDATA%\jarviscopilot\jarviscopilot\`, and trims the User PATH. It leaves `%USERPROFILE%\.jarviscopilot\` alone (your config, auth, skills, sessions, logs) in case you're reinstalling.
 
 To nuke everything:
 

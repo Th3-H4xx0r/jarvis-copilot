@@ -238,7 +238,7 @@ You can override the default in `~/.codex/config.toml` outside JarvisCopilot' ma
 default_permissions = ":read-only"
 ```
 
-(JarvisCopilot will preserve your override on re-migration as long as it lives outside the `# managed by hermes-agent` markers.)
+(JarvisCopilot will preserve your override on re-migration as long as it lives outside the `# managed by jarviscopilot` markers.)
 
 ## Auxiliary tasks and ChatGPT subscription token cost
 
@@ -271,13 +271,13 @@ The self-improvement review fork inherits the main runtime via `_current_main_ru
 JarvisCopilot wraps everything it manages between two marker comments:
 
 ```toml
-# managed by hermes-agent — `jarviscopilot codex-runtime migrate` regenerates this section
+# managed by jarviscopilot — `jarviscopilot codex-runtime migrate` regenerates this section
 default_permissions = ":workspace"
 [mcp_servers.filesystem]
 ...
 [plugins."github@openai-curated"]
 ...
-# end hermes-agent managed section
+# end jarviscopilot managed section
 ```
 
 Anything **outside** that block is yours. Re-running migration (via `/codex-runtime codex_app_server` or whenever you toggle the runtime on) replaces the managed block in place but preserves user content above and below it verbatim. This means you can:
@@ -391,7 +391,7 @@ Known limitations:
 - **No inline patch preview in approval prompts when codex doesn't track the changeset.** Codex's `fileChange` approval params don't always carry the changeset. JarvisCopilot caches the data from the corresponding `item/started` notification when possible, but if approval arrives before the item has streamed, the prompt falls back to whatever `reason` codex provides.
 - **Sub-second cancellation isn't guaranteed.** Mid-stream interrupts (Ctrl+C while codex is responding) are sent via `turn/interrupt`, but if codex has already flushed the final message, you get the response anyway.
 
-If you find a bug, [open an issue](https://github.com/NousResearch/hermes-agent/issues) with the output of `jarviscopilot logs --since 5m`. Mention `codex-runtime` in the title so it's easy to triage.
+If you find a bug, [open an issue](https://github.com/NousResearch/jarviscopilot/issues) with the output of `jarviscopilot logs --since 5m`. Mention `codex-runtime` in the title so it's easy to triage.
 
 ## Architecture
 
@@ -438,4 +438,4 @@ If you find a bug, [open an issue](https://github.com/NousResearch/hermes-agent/
         └──────────────────────────────────────────────────────────┘
 ```
 
-For implementation details, see [PR #24182](https://github.com/NousResearch/hermes-agent/pull/24182) and the [Codex app-server protocol README](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
+For implementation details, see [PR #24182](https://github.com/NousResearch/jarviscopilot/pull/24182) and the [Codex app-server protocol README](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).

@@ -50,7 +50,7 @@ from api.helpers import j
 # ---------------------------------------------------------------------------
 
 def _hermes_root() -> Path:
-    # webui/api/voice.py → webui/ → JarvisCopilot/ (Hermes root)
+    # webui/api/voice.py → webui/ → JarvisCopilot/ (JarvisCopilot root)
     return Path(__file__).resolve().parent.parent.parent
 
 
@@ -142,9 +142,9 @@ def _voice_status(handler) -> bool:
 # require live API calls; this is enough to populate the picker for the common
 # providers. Users can override the voice via tts.<provider>.voice in config.
 _BUILTIN_VOICES = {
-    # The active provider in ~/.hermes/config.yaml is read via
+    # The active provider in ~/.jarviscopilot/config.yaml is read via
     # tools.tts_tool._get_provider — its canonical key for Edge TTS is "edge"
-    # (not "edge-tts"). Other Hermes built-ins keep their short keys.
+    # (not "edge-tts"). Other JarvisCopilot built-ins keep their short keys.
     "edge": [
         {"id": "en-US-AriaNeural",     "name": "Aria (en-US, female)"},
         {"id": "en-US-GuyNeural",      "name": "Guy (en-US, male)"},
@@ -175,7 +175,7 @@ _BUILTIN_VOICES = {
         {"id": "Fenrir",    "name": "Fenrir"},
     ],
     # Local neural TTS via piper-tts. Voice IDs here are short friendly names
-    # that map to absolute ONNX paths under ~/.hermes/cache/piper-voices/
+    # that map to absolute ONNX paths under ~/.jarviscopilot/cache/piper-voices/
     # (handled in _voice_voices when surfacing the current selection).
     "piper": [
         {"id": "jarvis-high", "name": "JARVIS (en-GB, neural)"},
@@ -225,7 +225,7 @@ def _voice_synthesize(handler, body) -> bool:
     text = ((body or {}).get("text") or "").strip()
     if not text:
         return j(handler, {"error": "text is required"}, status=400)
-    # Fish Audio short-circuit — cloud REST, not a Hermes built-in.
+    # Fish Audio short-circuit — cloud REST, not a JarvisCopilot built-in.
     cfg = _read_hermes_config()
     tts_section = cfg.get("tts") if isinstance(cfg, dict) else None
     provider = ""
@@ -591,14 +591,14 @@ def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 16000,
 
 
 def _generate_reply(transcript: str) -> str:
-    """One-shot LLM call routed through Hermes's auxiliary_client.
+    """One-shot LLM call routed through JarvisCopilot's auxiliary_client.
 
     JarvisCopilot core (agent.auxiliary_client.call_llm) knows how to talk to every
-    provider Hermes supports — including OpenAI Codex (which uses the
-    Responses API + OAuth tokens stored in ~/.hermes/auth.json's credential
+    provider JarvisCopilot supports — including OpenAI Codex (which uses the
+    Responses API + OAuth tokens stored in ~/.jarviscopilot/auth.json's credential
     pool, NOT a static api_key in config.yaml). Delegating to it means the
     voice tab automatically picks up whichever provider the user has
-    configured via `hermes model` / `hermes auth add` without re-implementing
+    configured via `jarviscopilot model` / `jarviscopilot auth add` without re-implementing
     the Codex/Responses/Cloudflare-header plumbing here.
 
     Falls back to an "I heard: ..." acknowledgement only when the LLM call
@@ -640,7 +640,7 @@ def _generate_reply(transcript: str) -> str:
 def _hermes_config() -> dict:
     try:
         import yaml
-        cfg_path = Path.home() / ".hermes" / "config.yaml"
+        cfg_path = Path.home() / ".jarviscopilot" / "config.yaml"
         if not cfg_path.exists():
             return {}
         with open(cfg_path, "r", encoding="utf-8") as f:
@@ -652,8 +652,8 @@ def _hermes_config() -> dict:
 def _tts_to_base64(text: str) -> str:
     if not text:
         return ""
-    # Fish Audio is a cloud REST API, not a Hermes built-in. Special-case
-    # before the Hermes path so it doesn't disappear when Hermes can't
+    # Fish Audio is a cloud REST API, not a JarvisCopilot built-in. Special-case
+    # before the JarvisCopilot path so it doesn't disappear when JarvisCopilot can't
     # resolve "fish-audio" as a provider.
     cfg = _read_hermes_config()
     provider = ""
@@ -697,7 +697,7 @@ def _make_tempfile_path(prefix: str, suffix: str) -> str:
     """Reserve a unique temp filepath without leaving an empty file behind.
 
     `tempfile.NamedTemporaryFile(delete=False)` creates the file (0 bytes),
-    which then collides with Hermes's Piper renamer on Windows:
+    which then collides with JarvisCopilot's Piper renamer on Windows:
         OSError [WinError 183]: Cannot create a file when that file already
         exists: '<tmp>.wav' -> '<tmp>.mp3'
     os.rename on Windows refuses to overwrite. mkstemp + immediate unlink
@@ -1031,7 +1031,7 @@ def _mp3_to_pcm24k(mp3_bytes: bytes):
 # ---------------------------------------------------------------------------
 #
 # When the user selects the "jarvis-mcu" personality in webui settings, the
-# voice tab (and any other TTS surface that reads ~/.hermes/config.yaml)
+# voice tab (and any other TTS surface that reads ~/.jarviscopilot/config.yaml)
 # switches to Piper's British "jarvis" voice from jgkawell/jarvis on
 # HuggingFace. The tuning constants below are lifted from JarvisClaw's
 # tts-sidecar (services/tts-sidecar/server.py) so the audio character
@@ -1041,22 +1041,22 @@ _JARVIS_PIPER_HF_REPO = "jgkawell/jarvis"
 _JARVIS_PIPER_QUALITY = "high"  # "high" (~114 MB) or "medium" (~63 MB)
 _JARVIS_PIPER_LENGTH_SCALE = 1.04
 _JARVIS_PIPER_NOISE_SCALE = 0.45
-# Hermes's Piper integration calls the parameter `noise_w_scale`; piper-tts'
-# native API calls it `noise_w`. Hermes converts in _generate_piper_tts.
+# JarvisCopilot's Piper integration calls the parameter `noise_w_scale`; piper-tts'
+# native API calls it `noise_w`. JarvisCopilot converts in _generate_piper_tts.
 _JARVIS_PIPER_NOISE_W_SCALE = 0.55
 
 
 def _piper_voices_dir() -> Path:
-    """Where Hermes caches Piper voice files. Mirrors
+    """Where JarvisCopilot caches Piper voice files. Mirrors
     tools.tts_tool._get_piper_voices_dir() so a single cache works for both
     code paths."""
-    d = Path.home() / ".hermes" / "cache" / "piper-voices"
+    d = Path.home() / ".jarviscopilot" / "cache" / "piper-voices"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def _ensure_piper_jarvis_voice() -> Path:
-    """Download the JARVIS Piper voice (`jgkawell/jarvis`) into the Hermes
+    """Download the JARVIS Piper voice (`jgkawell/jarvis`) into the JarvisCopilot
     Piper cache on first call. Returns the absolute path to the .onnx file.
 
     Idempotent — if both .onnx and .onnx.json are present and non-empty,
@@ -1112,10 +1112,10 @@ def _ensure_piper_jarvis_voice() -> Path:
 
 
 def _read_hermes_config() -> dict:
-    """Read ~/.hermes/config.yaml — returns {} on failure."""
+    """Read ~/.jarviscopilot/config.yaml — returns {} on failure."""
     try:
         import yaml  # type: ignore
-        cfg_path = Path.home() / ".hermes" / "config.yaml"
+        cfg_path = Path.home() / ".jarviscopilot" / "config.yaml"
         if not cfg_path.exists():
             return {}
         with cfg_path.open("r", encoding="utf-8") as f:
@@ -1125,11 +1125,11 @@ def _read_hermes_config() -> dict:
 
 
 def _write_hermes_config(cfg: dict) -> None:
-    """Write ~/.hermes/config.yaml atomically. Preserves key order via
+    """Write ~/.jarviscopilot/config.yaml atomically. Preserves key order via
     yaml.safe_dump(sort_keys=False) so the user's manual layout doesn't
     get reshuffled on every save."""
     import yaml  # type: ignore
-    cfg_path = Path.home() / ".hermes" / "config.yaml"
+    cfg_path = Path.home() / ".jarviscopilot" / "config.yaml"
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
     with tmp_path.open("w", encoding="utf-8") as f:
@@ -1141,7 +1141,7 @@ def _voice_personality_tts(handler, body) -> bool:
     """POST { name: str | "" } → ensures the Piper JARVIS model is
     downloaded (when name == "jarvis-mcu") and updates config.yaml's tts
     section so subsequent TTS calls (voice tab + CLI + gateway) use the
-    matching voice. An empty name reverts TTS to Hermes's default (edge).
+    matching voice. An empty name reverts TTS to JarvisCopilot's default (edge).
 
     Returns: { provider: str, voice: str|null, downloaded: bool }
     """
@@ -1166,7 +1166,7 @@ def _voice_personality_tts(handler, body) -> bool:
             piper_cfg["noise_w_scale"] = _JARVIS_PIPER_NOISE_W_SCALE
             tts["piper"] = piper_cfg
         else:
-            # Revert to Hermes's default TTS engine (Edge TTS — free, neural,
+            # Revert to JarvisCopilot's default TTS engine (Edge TTS — free, neural,
             # ships in [edge-tts] extra which the launch script installs).
             tts["provider"] = "edge"
         cfg["tts"] = tts
@@ -1188,7 +1188,7 @@ def _voice_personality_tts(handler, body) -> bool:
 # Fish is a hosted neural TTS engine that takes a reference_id (the "voice
 # ID" the user pastes from fish.audio/m/<id>/) and emits WAV/PCM audio. We
 # implement it as a special-case in this file rather than wiring through
-# JarvisCopilot core because Hermes's tts_tool has no Fish provider (the
+# JarvisCopilot core because JarvisCopilot's tts_tool has no Fish provider (the
 # "command provider" escape hatch wouldn't give us the streaming + voice-
 # id ergonomics this UI needs).
 #

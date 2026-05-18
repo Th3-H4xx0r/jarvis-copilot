@@ -9,18 +9,18 @@ INIT_SCRIPT = (REPO / "docker_init.bash").read_text(encoding="utf-8")
 
 
 def test_home_chown_skips_hermes_agent_subtree():
-    """The chown walk must skip the entire hermes-agent mount, not just
+    """The chown walk must skip the entire jarviscopilot mount, not just
     .git/objects. The original #2237 issue was macOS bind mounts exposing
     read-only `.git/objects` packs; the post-v0.51.83 multi-container compose
-    setup additionally mounts the whole hermes-agent source tree :ro on the
+    setup additionally mounts the whole jarviscopilot source tree :ro on the
     WebUI side (#2470).  Either failure mode breaks the chown walk under
     `set -e`; pruning the parent path covers both."""
     assert "chown_home_hermeswebui()" in INIT_SCRIPT
-    # The prune target should be the whole hermes-agent subtree, not just
+    # The prune target should be the whole jarviscopilot subtree, not just
     # the inner `.git/objects` directory. The old narrower prune was
     # insufficient once the entire mount became :ro.
-    assert "-path \"/home/hermeswebui/.hermes/hermes-agent\" -prune" in INIT_SCRIPT, (
-        "chown walk must prune the entire hermes-agent path (not just "
+    assert "-path \"/home/hermeswebui/.jarviscopilot/jarviscopilot\" -prune" in INIT_SCRIPT, (
+        "chown walk must prune the entire jarviscopilot path (not just "
         ".git/objects) so a :ro multi-container mount doesn't EROFS-fail "
         "the chown."
     )
@@ -36,7 +36,7 @@ def test_home_chown_helper_documents_readonly_mount_compat():
     fn_block = INIT_SCRIPT[chown_fn_start:chown_fn_end]
 
     assert "read-only" in fn_block.lower() or "ro" in fn_block.lower(), (
-        "chown_home_hermeswebui must document why the entire hermes-agent "
+        "chown_home_hermeswebui must document why the entire jarviscopilot "
         "path is pruned (the :ro mount made the previous narrower prune "
         "insufficient)."
     )

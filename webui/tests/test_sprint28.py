@@ -100,7 +100,7 @@ def test_personalities_returns_empty_when_none_configured():
     # so agent.personalities is empty by default
     d, status = get("/api/personalities")
     assert status == 200
-    # May or may not have personalities depending on the real ~/.hermes/config.yaml
+    # May or may not have personalities depending on the real ~/.jarviscopilot/config.yaml
     # being loaded. Just verify the structure is correct.
     assert isinstance(d.get("personalities"), list)
 

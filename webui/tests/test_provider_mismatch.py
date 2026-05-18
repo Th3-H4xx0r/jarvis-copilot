@@ -77,13 +77,13 @@ class TestStreamingAuthErrorDetection:
         )
 
     def test_auth_error_hint_mentions_hermes_model(self):
-        """The auth_mismatch hint must mention 'hermes model' command."""
+        """The auth_mismatch hint must mention 'jarviscopilot model' command."""
         src = _read("api/streaming.py")
         # Find the auth_mismatch apperror block
         idx = src.find("auth_mismatch")
         block = src[idx:idx + 500]
-        assert "hermes model" in block, (
-            "auth_mismatch hint must mention 'hermes model' command "
+        assert "jarviscopilot model" in block, (
+            "auth_mismatch hint must mention 'jarviscopilot model' command "
             "so users know how to fix provider mismatch"
         )
 
@@ -881,7 +881,7 @@ def test_issue1734_chat_start_persists_repaired_codex_provider(monkeypatch):
 
     class DummySession:
         session_id = "issue1734_session"
-        workspace = "/tmp/hermes-webui-test"
+        workspace = "/tmp/jarviscopilot-webui-test"
         model = "openai/gpt-5.4-mini"
         model_provider = None
         active_stream_id = None
@@ -1155,7 +1155,7 @@ class TestChatStartEffectiveModelRecovery:
             "send() must read effective_model from /api/chat/start so the UI can "
             "recover from stale persisted session models"
         )
-        assert "localStorage.setItem('hermes-webui-model', startData.effective_model)" in src, (
+        assert "localStorage.setItem('jarviscopilot-webui-model', startData.effective_model)" in src, (
             "effective_model correction must update the saved model preference"
         )
         assert "startData.effective_model_provider" in src, (
@@ -1178,7 +1178,7 @@ class TestFrontendModelProviderState:
 
     def test_ui_has_json_model_state_storage(self):
         src = _read("static/ui.js")
-        assert "hermes-webui-model-state" in src
+        assert "jarviscopilot-webui-model-state" in src
         assert "function _writePersistedModelState" in src
         assert "_providerQualifiedModelValueForSelect(sel, modelId)" in src
         assert "return _modelStateForSelect(sel,modelId).model" in src

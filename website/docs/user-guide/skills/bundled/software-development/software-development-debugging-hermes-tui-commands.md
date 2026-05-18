@@ -20,7 +20,7 @@ Debug JarvisCopilot TUI slash commands: Python, gateway, Ink UI.
 | Author | JarvisCopilot |
 | License | MIT |
 | Platforms | linux, macos, windows |
-| Tags | `debugging`, `hermes-agent`, `tui`, `slash-commands`, `typescript`, `python` |
+| Tags | `debugging`, `jarviscopilot`, `tui`, `slash-commands`, `typescript`, `python` |
 | Related skills | [`python-debugpy`](/docs/user-guide/skills/bundled/software-development/software-development-python-debugpy), [`node-inspect-debugger`](/docs/user-guide/skills/bundled/software-development/software-development-node-inspect-debugger), [`systematic-debugging`](/docs/user-guide/skills/bundled/software-development/software-development-systematic-debugging) |
 
 ## Reference: full SKILL.md
@@ -154,7 +154,7 @@ After fixing:
 
 1. Rebuild the TUI:
    ```bash
-   cd /home/bb/hermes-agent && npm --prefix ui-tui run build
+   cd /home/bb/jarviscopilot && npm --prefix ui-tui run build
    ```
 
 2. Run the TUI and test the command:

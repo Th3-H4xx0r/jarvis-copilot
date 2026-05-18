@@ -1,4 +1,4 @@
-"""Regression coverage for #716 Hermes agent/gateway heartbeat monitor."""
+"""Regression coverage for #716 JarvisCopilot agent/gateway heartbeat monitor."""
 
 from __future__ import annotations
 
@@ -66,9 +66,9 @@ def _runtime_status(**overrides):
         },
         # Sensitive/raw process fields that must never reach the browser.
         "pid": 12345,
-        "argv": ["hermes", "gateway", "--token", "secret-token"],
-        "command": "hermes gateway --token secret-token",
-        "executable": "/home/user/.hermes/hermes-agent/venv/bin/python",
+        "argv": ["jarviscopilot", "gateway", "--token", "secret-token"],
+        "command": "jarviscopilot gateway --token secret-token",
+        "executable": "/home/user/.jarviscopilot/jarviscopilot/venv/bin/python",
         "env": {"API_KEY": "secret"},
     }
     payload.update(overrides)
@@ -88,7 +88,7 @@ def test_agent_health_uses_root_gateway_state_when_hermes_home_is_profile(monkey
     monkeypatch.setenv("HERMES_HOME", str(profile_home))
     monkeypatch.setitem(
         sys.modules,
-        "hermes_constants",
+        "jarviscopilot_constants",
         types.SimpleNamespace(get_default_hermes_root=lambda: root_home),
     )
     monkeypatch.setattr(agent_health, "_gateway_status_module", lambda: fake_gateway_status)

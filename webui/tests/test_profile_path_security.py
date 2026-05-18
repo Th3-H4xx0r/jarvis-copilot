@@ -41,7 +41,7 @@ def _reload_profiles_module(base_home: Path):
 def test_switch_profile_rejects_path_traversal():
     with tempfile.TemporaryDirectory() as td:
         temp_root = Path(td)
-        base = temp_root / ".hermes"
+        base = temp_root / ".jarviscopilot"
         (base / "profiles").mkdir(parents=True)
         (temp_root / "escape-target").mkdir()
 
@@ -54,7 +54,7 @@ def test_switch_profile_rejects_path_traversal():
 def test_delete_profile_rejects_path_traversal():
     with tempfile.TemporaryDirectory() as td:
         temp_root = Path(td)
-        base = temp_root / ".hermes"
+        base = temp_root / ".jarviscopilot"
         (base / "profiles").mkdir(parents=True)
         (temp_root / "escape-target").mkdir()
 
@@ -67,7 +67,7 @@ def test_delete_profile_rejects_path_traversal():
 def test_switch_profile_allows_valid_profile_name():
     with tempfile.TemporaryDirectory() as td:
         temp_root = Path(td)
-        base = temp_root / ".hermes"
+        base = temp_root / ".jarviscopilot"
         profile_dir = base / "profiles" / "demo"
         profile_dir.mkdir(parents=True)
 

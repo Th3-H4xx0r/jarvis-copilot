@@ -260,7 +260,7 @@ class TestApplyBaseURL:
         assert saved_cfg["model"]["base_url"] == "https://api.openai.com/v1"
 
     def test_base_url_stripped_for_anthropic(self, tmp_path, monkeypatch):
-        """Anthropic should NOT have base_url in config (Hermes knows the URL)."""
+        """Anthropic should NOT have base_url in config (JarvisCopilot knows the URL)."""
         config_path = str(tmp_path / "config.yaml")
 
         monkeypatch.setattr("api.onboarding._get_config_path", lambda: config_path)

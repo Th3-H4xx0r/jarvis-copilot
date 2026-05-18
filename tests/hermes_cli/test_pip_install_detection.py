@@ -37,7 +37,7 @@ def test_recommended_update_command_pip():
     cmd = recommended_update_command_for_method("pip")
     assert "pip install" in cmd or "uv pip install" in cmd
     assert "--upgrade" in cmd
-    assert "hermes-agent" in cmd
+    assert "jarviscopilot" in cmd
 
 
 def test_stamp_file_takes_precedence(tmp_path):
@@ -52,7 +52,7 @@ def test_stamp_file_takes_precedence(tmp_path):
 def test_docker_detected_via_dockerenv(tmp_path):
     with patch("jarviscopilot_cli.config.get_managed_system", return_value=None), \
          patch("jarviscopilot_cli.config.get_hermes_home", return_value=tmp_path), \
-         patch("hermes_constants.is_container", return_value=True):
+         patch("jarviscopilot_constants.is_container", return_value=True):
         from jarviscopilot_cli.config import detect_install_method
         assert detect_install_method(project_root=tmp_path) == "docker"
 

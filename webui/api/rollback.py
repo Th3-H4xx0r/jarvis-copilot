@@ -2,7 +2,7 @@
 JarvisCopilot Web UI -- Filesystem checkpoint (rollback) API.
 
 Provides endpoints to list, diff, and restore filesystem checkpoints
-created by the Hermes agent's CheckpointManager.  Checkpoints live at
+created by the JarvisCopilot agent's CheckpointManager.  Checkpoints live at
 ``{hermes_home}/checkpoints/<hash>/`` as shadow git repositories.
 """
 
@@ -40,12 +40,12 @@ def _validate_checkpoint_id(checkpoint: str) -> str:
 
 
 def _hermes_home() -> Path:
-    """Return the active Hermes home directory."""
+    """Return the active JarvisCopilot home directory."""
     try:
         from api.profiles import get_active_hermes_home
         return Path(get_active_hermes_home())
     except Exception:
-        return Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
+        return Path(os.environ.get("HERMES_HOME", "~/.jarviscopilot")).expanduser()
 
 
 def _workspace_hash(workspace: str) -> str:

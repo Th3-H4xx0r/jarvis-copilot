@@ -12,7 +12,7 @@ import yaml
 
 
 def _write_auth_store(tmp_path, payload: dict) -> None:
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     (hermes_home / "auth.json").write_text(json.dumps(payload, indent=2))
 
@@ -38,7 +38,7 @@ def _clear_provider_env(monkeypatch):
 
 
 def test_auth_add_api_key_persists_manual_entry(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     _write_auth_store(tmp_path, {"version": 1, "providers": {}})
@@ -53,7 +53,7 @@ def test_auth_add_api_key_persists_manual_entry(tmp_path, monkeypatch):
 
     auth_add_command(_Args())
 
-    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    payload = json.loads((tmp_path / "jarviscopilot" / "auth.json").read_text())
     entries = payload["credential_pool"]["openrouter"]
     entry = next(item for item in entries if item["source"] == "manual")
     assert entry["label"] == "personal"
@@ -63,7 +63,7 @@ def test_auth_add_api_key_persists_manual_entry(tmp_path, monkeypatch):
 
 
 def test_auth_add_anthropic_oauth_persists_pool_entry(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
@@ -88,7 +88,7 @@ def test_auth_add_anthropic_oauth_persists_pool_entry(tmp_path, monkeypatch):
 
     auth_add_command(_Args())
 
-    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    payload = json.loads((tmp_path / "jarviscopilot" / "auth.json").read_text())
     entries = payload["credential_pool"]["anthropic"]
     entry = next(item for item in entries if item["source"] == "manual:hermes_pkce")
     assert entry["label"] == "claude@example.com"
@@ -98,7 +98,7 @@ def test_auth_add_anthropic_oauth_persists_pool_entry(tmp_path, monkeypatch):
 
 
 def test_auth_add_nous_oauth_persists_pool_entry(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     _write_auth_store(tmp_path, {"version": 1, "providers": {}})
     token = _jwt_with_email("nous@example.com")
     monkeypatch.setattr(
@@ -142,7 +142,7 @@ def test_auth_add_nous_oauth_persists_pool_entry(tmp_path, monkeypatch):
 
     auth_add_command(_Args())
 
-    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    payload = json.loads((tmp_path / "jarviscopilot" / "auth.json").read_text())
 
     # Pool has exactly one canonical `device_code` entry — not a duplicate
     # pair of `manual:device_code` + `device_code` (the latter would be
@@ -158,10 +158,10 @@ def test_auth_add_nous_oauth_persists_pool_entry(tmp_path, monkeypatch):
     assert entry["agent_key"] == "ak-test"
     assert entry["portal_base_url"] == "https://portal.example.com"
 
-    # `hermes auth add nous` must also populate providers.nous so the
+    # `jarviscopilot auth add nous` must also populate providers.nous so the
     # 401-recovery path (resolve_nous_runtime_credentials) can mint a fresh
     # agent_key when the 24h TTL expires. If this mirror is missing, recovery
-    # raises "Hermes is not logged into Nous Portal" and the agent dies.
+    # raises "JarvisCopilot is not logged into Nous Portal" and the agent dies.
     singleton = payload["providers"]["nous"]
     assert singleton["access_token"] == token
     assert singleton["refresh_token"] == "refresh-token"
@@ -171,7 +171,7 @@ def test_auth_add_nous_oauth_persists_pool_entry(tmp_path, monkeypatch):
 
 
 def test_auth_add_minimax_oauth_starts_login_and_persists_pool_entry(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     _write_auth_store(tmp_path, {"version": 1, "providers": {}})
     token = _jwt_with_email("minimax@example.com")
     monkeypatch.setattr(
@@ -205,7 +205,7 @@ def test_auth_add_minimax_oauth_starts_login_and_persists_pool_entry(tmp_path, m
 
     auth_add_command(_Args())
 
-    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    payload = json.loads((tmp_path / "jarviscopilot" / "auth.json").read_text())
     entries = payload["credential_pool"]["minimax-oauth"]
     entry = next(item for item in entries if item["source"] == "manual:minimax_oauth")
     assert entry["label"] == "minimax@example.com"
@@ -215,11 +215,11 @@ def test_auth_add_minimax_oauth_starts_login_and_persists_pool_entry(tmp_path, m
 
 
 def test_auth_add_nous_oauth_honors_custom_label(tmp_path, monkeypatch):
-    """`hermes auth add nous --type oauth --label <name>` must preserve the
+    """`jarviscopilot auth add nous --type oauth --label <name>` must preserve the
     custom label end-to-end — it was silently dropped in the first cut of the
     persist_nous_credentials helper because `--label` wasn't threaded through.
     """
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     _write_auth_store(tmp_path, {"version": 1, "providers": {}})
     token = _jwt_with_email("nous@example.com")
     monkeypatch.setattr(
@@ -263,7 +263,7 @@ def test_auth_add_nous_oauth_honors_custom_label(tmp_path, monkeypatch):
 
     auth_add_command(_Args())
 
-    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    payload = json.loads((tmp_path / "jarviscopilot" / "auth.json").read_text())
 
     # Custom label reaches the pool entry …
     pool_entry = payload["credential_pool"]["nous"][0]
@@ -276,7 +276,7 @@ def test_auth_add_nous_oauth_honors_custom_label(tmp_path, monkeypatch):
 
 
 def test_auth_add_codex_oauth_persists_pool_entry(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     _write_auth_store(tmp_path, {"version": 1, "providers": {}})
     token = _jwt_with_email("codex@example.com")
     monkeypatch.setattr(
@@ -301,7 +301,7 @@ def test_auth_add_codex_oauth_persists_pool_entry(tmp_path, monkeypatch):
 
     auth_add_command(_Args())
 
-    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    payload = json.loads((tmp_path / "jarviscopilot" / "auth.json").read_text())
     entries = payload["credential_pool"]["openai-codex"]
     entry = next(item for item in entries if item["source"] == "manual:device_code")
     assert entry["label"] == "codex@example.com"
@@ -311,7 +311,7 @@ def test_auth_add_codex_oauth_persists_pool_entry(tmp_path, monkeypatch):
 
 
 def test_auth_remove_reindexes_priorities(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     # Prevent pool auto-seeding from host env vars and file-backed sources
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
@@ -355,7 +355,7 @@ def test_auth_remove_reindexes_priorities(tmp_path, monkeypatch):
 
     auth_remove_command(_Args())
 
-    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    payload = json.loads((tmp_path / "jarviscopilot" / "auth.json").read_text())
     entries = payload["credential_pool"]["anthropic"]
     assert len(entries) == 1
     assert entries[0]["label"] == "secondary"
@@ -363,7 +363,7 @@ def test_auth_remove_reindexes_priorities(tmp_path, monkeypatch):
 
 
 def test_auth_remove_accepts_label_target(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     monkeypatch.setattr(
         "agent.credential_pool._seed_from_singletons",
         lambda provider, entries: (False, set()),
@@ -403,14 +403,14 @@ def test_auth_remove_accepts_label_target(tmp_path, monkeypatch):
 
     auth_remove_command(_Args())
 
-    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    payload = json.loads((tmp_path / "jarviscopilot" / "auth.json").read_text())
     entries = payload["credential_pool"]["openai-codex"]
     assert len(entries) == 1
     assert entries[0]["label"] == "work-account"
 
 
 def test_auth_remove_prefers_exact_numeric_label_over_index(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     monkeypatch.setattr(
         "agent.credential_pool._seed_from_singletons",
         lambda provider, entries: (False, set()),
@@ -458,13 +458,13 @@ def test_auth_remove_prefers_exact_numeric_label_over_index(tmp_path, monkeypatc
 
     auth_remove_command(_Args())
 
-    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    payload = json.loads((tmp_path / "jarviscopilot" / "auth.json").read_text())
     labels = [entry["label"] for entry in payload["credential_pool"]["openai-codex"]]
     assert labels == ["first", "third"]
 
 
 def test_auth_reset_clears_provider_statuses(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     _write_auth_store(
         tmp_path,
         {
@@ -497,7 +497,7 @@ def test_auth_reset_clears_provider_statuses(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Reset status" in out
 
-    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    payload = json.loads((tmp_path / "jarviscopilot" / "auth.json").read_text())
     entry = payload["credential_pool"]["anthropic"][0]
     assert entry["last_status"] is None
     assert entry["last_status_at"] is None
@@ -505,7 +505,7 @@ def test_auth_reset_clears_provider_statuses(tmp_path, monkeypatch, capsys):
 
 
 def test_clear_provider_auth_removes_provider_pool_entries(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     _write_auth_store(
         tmp_path,
         {
@@ -543,7 +543,7 @@ def test_clear_provider_auth_removes_provider_pool_entries(tmp_path, monkeypatch
 
     assert clear_provider_auth("anthropic") is True
 
-    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    payload = json.loads((tmp_path / "jarviscopilot" / "auth.json").read_text())
     assert payload["active_provider"] is None
     assert "anthropic" not in payload.get("providers", {})
     assert "anthropic" not in payload.get("credential_pool", {})
@@ -551,13 +551,13 @@ def test_clear_provider_auth_removes_provider_pool_entries(tmp_path, monkeypatch
 
 
 def test_logout_resets_codex_config_when_auth_state_already_cleared(tmp_path, monkeypatch, capsys):
-    """`hermes logout --provider openai-codex` must still clear model.provider.
+    """`jarviscopilot logout --provider openai-codex` must still clear model.provider.
 
     Users can end up with auth.json already cleared but config.yaml still set to
     openai-codex.  Previously logout reported no auth state and left the agent
     pinned to the Codex provider.
     """
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     _write_auth_store(tmp_path, {"version": 1, "providers": {}, "credential_pool": {}})
     (hermes_home / "config.yaml").write_text(
@@ -580,8 +580,8 @@ def test_logout_resets_codex_config_when_auth_state_already_cleared(tmp_path, mo
 
 
 def test_logout_defaults_to_configured_codex_when_no_active_provider(tmp_path, monkeypatch, capsys):
-    """Bare `hermes logout` should target configured Codex if auth has no active provider."""
-    hermes_home = tmp_path / "hermes"
+    """Bare `jarviscopilot logout` should target configured Codex if auth has no active provider."""
+    hermes_home = tmp_path / "jarviscopilot"
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     _write_auth_store(tmp_path, {"version": 1, "providers": {}, "credential_pool": {}})
     (hermes_home / "config.yaml").write_text(
@@ -604,7 +604,7 @@ def test_logout_defaults_to_configured_codex_when_no_active_provider(tmp_path, m
 
 def test_logout_clears_stale_active_codex_without_provider_credentials(tmp_path, monkeypatch, capsys):
     """Logout must clear active_provider even when provider credential payloads are gone."""
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     _write_auth_store(
         tmp_path,
@@ -637,7 +637,7 @@ def test_logout_clears_stale_active_codex_without_provider_credentials(tmp_path,
 
 def test_reset_config_provider_uses_atomic_yaml_write(tmp_path, monkeypatch):
     """Logout config reset should delegate the YAML write atomically."""
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     config_path = hermes_home / "config.yaml"
@@ -813,7 +813,7 @@ def test_auth_list_prefers_explicit_reset_time(monkeypatch, capsys):
 def test_auth_remove_env_seeded_clears_env_var(tmp_path, monkeypatch):
     """Removing an env-seeded credential should also clear the env var from .env
     so the entry doesn't get re-seeded on the next load_pool() call."""
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -863,7 +863,7 @@ def test_auth_remove_env_seeded_clears_env_var(tmp_path, monkeypatch):
 
 def test_auth_remove_env_seeded_does_not_resurrect(tmp_path, monkeypatch):
     """After removing an env-seeded credential, load_pool should NOT re-create it."""
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -907,7 +907,7 @@ def test_auth_remove_env_seeded_does_not_resurrect(tmp_path, monkeypatch):
 
 def test_auth_remove_manual_entry_does_not_touch_env(tmp_path, monkeypatch):
     """Removing a manually-added credential should NOT touch .env."""
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
@@ -948,7 +948,7 @@ def test_auth_remove_manual_entry_does_not_touch_env(tmp_path, monkeypatch):
 
 def test_auth_remove_claude_code_suppresses_reseed(tmp_path, monkeypatch):
     """Removing a claude_code credential must prevent it from being re-seeded."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
@@ -956,7 +956,7 @@ def test_auth_remove_claude_code_suppresses_reseed(tmp_path, monkeypatch):
         "agent.credential_pool._seed_from_singletons",
         lambda provider, entries: (False, {"claude_code"}),
     )
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
 
     auth_store = {
@@ -986,7 +986,7 @@ def test_auth_remove_claude_code_suppresses_reseed(tmp_path, monkeypatch):
 
 def test_unsuppress_credential_source_clears_marker(tmp_path, monkeypatch):
     """unsuppress_credential_source() removes a previously-set marker."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     _write_auth_store(tmp_path, {"version": 1})
 
     from jarviscopilot_cli.auth import suppress_credential_source, unsuppress_credential_source, is_source_suppressed
@@ -998,14 +998,14 @@ def test_unsuppress_credential_source_clears_marker(tmp_path, monkeypatch):
     assert cleared is True
     assert is_source_suppressed("openai-codex", "device_code") is False
 
-    payload = json.loads((tmp_path / "hermes" / "auth.json").read_text())
+    payload = json.loads((tmp_path / "jarviscopilot" / "auth.json").read_text())
     # Empty suppressed_sources dict should be cleaned up entirely
     assert "suppressed_sources" not in payload
 
 
 def test_unsuppress_credential_source_returns_false_when_absent(tmp_path, monkeypatch):
     """unsuppress_credential_source() returns False if no marker exists."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     _write_auth_store(tmp_path, {"version": 1})
 
     from jarviscopilot_cli.auth import unsuppress_credential_source
@@ -1016,7 +1016,7 @@ def test_unsuppress_credential_source_returns_false_when_absent(tmp_path, monkey
 
 def test_unsuppress_credential_source_preserves_other_markers(tmp_path, monkeypatch):
     """Clearing one marker must not affect unrelated markers."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     _write_auth_store(tmp_path, {"version": 1})
 
     from jarviscopilot_cli.auth import (
@@ -1034,12 +1034,12 @@ def test_unsuppress_credential_source_preserves_other_markers(tmp_path, monkeypa
 
 def test_auth_remove_codex_device_code_suppresses_reseed(tmp_path, monkeypatch):
     """Removing an auto-seeded openai-codex credential must mark the source as suppressed."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     monkeypatch.setattr(
         "agent.credential_pool._seed_from_singletons",
         lambda provider, entries: (False, {"device_code"}),
     )
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
 
     auth_store = {
@@ -1081,12 +1081,12 @@ def test_auth_remove_codex_device_code_suppresses_reseed(tmp_path, monkeypatch):
 
 def test_auth_remove_codex_manual_source_suppresses_reseed(tmp_path, monkeypatch):
     """Removing a manually-added (`manual:device_code`) openai-codex credential must also suppress."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     monkeypatch.setattr(
         "agent.credential_pool._seed_from_singletons",
         lambda provider, entries: (False, set()),
     )
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
 
     auth_store = {
@@ -1127,16 +1127,16 @@ def test_auth_remove_codex_manual_source_suppresses_reseed(tmp_path, monkeypatch
 
 
 def test_auth_add_codex_clears_suppression_marker(tmp_path, monkeypatch):
-    """Re-linking codex via `hermes auth add openai-codex` must clear any suppression marker."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    """Re-linking codex via `jarviscopilot auth add openai-codex` must clear any suppression marker."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
     monkeypatch.setattr(
         "agent.credential_pool._seed_from_singletons",
         lambda provider, entries: (False, set()),
     )
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
 
-    # Pre-existing suppression (simulating a prior `hermes auth remove`)
+    # Pre-existing suppression (simulating a prior `jarviscopilot auth remove`)
     (hermes_home / "auth.json").write_text(json.dumps({
         "version": 1,
         "providers": {},
@@ -1176,8 +1176,8 @@ def test_auth_add_codex_clears_suppression_marker(tmp_path, monkeypatch):
 
 def test_seed_from_singletons_respects_codex_suppression(tmp_path, monkeypatch):
     """_seed_from_singletons() for openai-codex must skip auto-import when suppressed."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
-    hermes_home = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "jarviscopilot"))
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
 
     # Suppression marker in place
@@ -1213,12 +1213,12 @@ def test_seed_from_singletons_respects_codex_suppression(tmp_path, monkeypatch):
 
 
 def test_auth_remove_env_seeded_suppresses_shell_exported_var(tmp_path, monkeypatch, capsys):
-    """`hermes auth remove xai 1` must stick even when the env var is exported
-    by the shell (not written into ~/.hermes/.env).  Before PR for #13371 the
+    """`jarviscopilot auth remove xai 1` must stick even when the env var is exported
+    by the shell (not written into ~/.jarviscopilot/.env).  Before PR for #13371 the
     removal silently restored on next load_pool() because _seed_from_env()
     re-read os.environ.  Now env:<VAR> is suppressed in auth.json.
     """
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -1265,11 +1265,11 @@ def test_auth_remove_env_seeded_suppresses_shell_exported_var(tmp_path, monkeypa
 
 
 def test_auth_remove_env_seeded_dotenv_only_no_shell_hint(tmp_path, monkeypatch, capsys):
-    """When the env var lives only in ~/.hermes/.env (not the shell), the
+    """When the env var lives only in ~/.jarviscopilot/.env (not the shell), the
     shell-hint should NOT be printed — avoid scaring the user about a
     non-existent shell export.
     """
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -1307,11 +1307,11 @@ def test_auth_remove_env_seeded_dotenv_only_no_shell_hint(tmp_path, monkeypatch,
 
 
 def test_auth_add_clears_env_suppression_for_provider(tmp_path, monkeypatch):
-    """Re-adding a credential via `hermes auth add <provider>` clears any
+    """Re-adding a credential via `jarviscopilot auth add <provider>` clears any
     env:<VAR> suppression marker — strong signal the user wants auth back.
     Matches the Codex device_code re-link behaviour.
     """
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     monkeypatch.delenv("XAI_API_KEY", raising=False)
@@ -1339,10 +1339,10 @@ def test_auth_add_clears_env_suppression_for_provider(tmp_path, monkeypatch):
 
 def test_seed_from_env_respects_env_suppression(tmp_path, monkeypatch):
     """_seed_from_env() must skip env:<VAR> sources that the user suppressed
-    via `hermes auth remove`.  This is the gate that prevents shell-exported
+    via `jarviscopilot auth remove`.  This is the gate that prevents shell-exported
     keys from resurrecting removed credentials.
     """
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     monkeypatch.setenv("XAI_API_KEY", "sk-xai-shell-export")
@@ -1366,7 +1366,7 @@ def test_seed_from_env_respects_openrouter_suppression(tmp_path, monkeypatch):
     """OpenRouter is the special-case branch in _seed_from_env; verify it
     honours suppression too.
     """
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-shell-export")
@@ -1387,7 +1387,7 @@ def test_seed_from_env_respects_openrouter_suppression(tmp_path, monkeypatch):
 
 
 # =============================================================================
-# Unified credential-source stickiness — every source Hermes reads from has a
+# Unified credential-source stickiness — every source JarvisCopilot reads from has a
 # registered RemovalStep in agent.credential_sources, and every seeding path
 # gates on is_source_suppressed.  Below: one test per source proving remove
 # sticks across a fresh load_pool() call.
@@ -1396,7 +1396,7 @@ def test_seed_from_env_respects_openrouter_suppression(tmp_path, monkeypatch):
 
 def test_seed_from_singletons_respects_nous_suppression(tmp_path, monkeypatch):
     """nous device_code must not re-seed from auth.json when suppressed."""
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -1416,7 +1416,7 @@ def test_seed_from_singletons_respects_nous_suppression(tmp_path, monkeypatch):
 
 def test_seed_from_singletons_respects_copilot_suppression(tmp_path, monkeypatch):
     """copilot gh_cli must not re-seed when suppressed."""
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -1440,7 +1440,7 @@ def test_seed_from_singletons_respects_copilot_suppression(tmp_path, monkeypatch
 
 def test_seed_from_singletons_respects_qwen_suppression(tmp_path, monkeypatch):
     """qwen-oauth qwen-cli must not re-seed from ~/.qwen/oauth_creds.json when suppressed."""
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -1464,8 +1464,8 @@ def test_seed_from_singletons_respects_qwen_suppression(tmp_path, monkeypatch):
 
 
 def test_seed_from_singletons_respects_hermes_pkce_suppression(tmp_path, monkeypatch):
-    """anthropic hermes_pkce must not re-seed from ~/.hermes/.anthropic_oauth.json when suppressed."""
-    hermes_home = tmp_path / "hermes"
+    """anthropic hermes_pkce must not re-seed from ~/.jarviscopilot/.anthropic_oauth.json when suppressed."""
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -1494,7 +1494,7 @@ def test_seed_from_singletons_respects_hermes_pkce_suppression(tmp_path, monkeyp
 
 def test_seed_custom_pool_respects_config_suppression(tmp_path, monkeypatch):
     """Custom provider config:<name> source must not re-seed when suppressed."""
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -1546,7 +1546,7 @@ def test_credential_sources_registry_has_expected_steps():
         "gh auth token / COPILOT_GITHUB_TOKEN / GH_TOKEN",
         "Any env-seeded credential (XAI_API_KEY, DEEPSEEK_API_KEY, etc.)",
         "~/.claude/.credentials.json",
-        "~/.hermes/.anthropic_oauth.json",
+        "~/.jarviscopilot/.anthropic_oauth.json",
         "auth.json providers.nous",
         "auth.json providers.openai-codex + ~/.codex/auth.json",
         "auth.json providers.minimax-oauth",
@@ -1586,7 +1586,7 @@ def test_auth_remove_copilot_suppresses_all_variants(tmp_path, monkeypatch):
     """Removing any copilot source must suppress gh_cli + all env:* variants
     so the duplicate-seed paths don't resurrect the credential.
     """
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -1620,11 +1620,11 @@ def test_auth_remove_copilot_suppresses_all_variants(tmp_path, monkeypatch):
 
 
 def test_auth_add_clears_all_suppressions_including_non_env(tmp_path, monkeypatch):
-    """Re-adding a credential via `hermes auth add <provider>` clears ALL
+    """Re-adding a credential via `jarviscopilot auth add <provider>` clears ALL
     suppression markers for the provider, not just env:*.  This matches
     the single "re-engage" semantic — the user wants auth back, period.
     """
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -1654,11 +1654,11 @@ def test_auth_add_clears_all_suppressions_including_non_env(tmp_path, monkeypatc
 
 
 def test_auth_remove_codex_manual_device_code_suppresses_canonical(tmp_path, monkeypatch):
-    """Removing a manual:device_code entry (from `hermes auth add openai-codex`)
+    """Removing a manual:device_code entry (from `jarviscopilot auth add openai-codex`)
     must suppress the canonical ``device_code`` key, not ``manual:device_code``.
     The re-seed gate in _seed_from_singletons checks ``device_code``.
     """
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 

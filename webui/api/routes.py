@@ -103,7 +103,7 @@ def _all_profiles_query_flag(parsed_url) -> bool:
 
 
 def _active_skills_dir() -> Path:
-    """Return the skills directory for the request's active Hermes profile.
+    """Return the skills directory for the request's active JarvisCopilot profile.
 
     WebUI profile switches are cookie/thread-local scoped, so the agent
     module-level ``tools.skills_tool.SKILLS_DIR`` can still point at the server
@@ -121,7 +121,7 @@ def _active_skills_dir() -> Path:
 
             return Path(SKILLS_DIR)
         except Exception:
-            return Path(os.getenv("HERMES_HOME", str(Path.home() / ".hermes"))).expanduser() / "skills"
+            return Path(os.getenv("HERMES_HOME", str(Path.home() / ".jarviscopilot"))).expanduser() / "skills"
 
 
 def _skill_path_within(base_dir: Path, candidate: Path) -> bool:
@@ -378,8 +378,8 @@ def _skill_view_from_file(skill_dir: Path | None, skill_md: Path) -> dict:
         return {"success": False, "error": "Skill is not available on this platform."}
 
     metadata = frontmatter.get("metadata")
-    # Prefer jarviscopilot namespace; fall back to legacy `hermes` for compat.
-    hermes_meta = (metadata.get("jarviscopilot") or metadata.get("hermes") or {}) if isinstance(metadata, dict) else {}
+    # Prefer jarviscopilot namespace; fall back to legacy `jarviscopilot` for compat.
+    hermes_meta = (metadata.get("jarviscopilot") or metadata.get("jarviscopilot") or {}) if isinstance(metadata, dict) else {}
     tags = _parse_tags(hermes_meta.get("tags") or frontmatter.get("tags", ""))
     related_skills = _parse_tags(
         hermes_meta.get("related_skills") or frontmatter.get("related_skills", "")
@@ -466,7 +466,7 @@ def _gateway_session_metadata_path():
         from api.profiles import get_active_hermes_home
         hermes_home = Path(get_active_hermes_home()).expanduser().resolve()
     except Exception:
-        hermes_home = Path(os.getenv("HERMES_HOME", str(Path.home() / ".hermes"))).expanduser().resolve()
+        hermes_home = Path(os.getenv("HERMES_HOME", str(Path.home() / ".jarviscopilot"))).expanduser().resolve()
     return hermes_home / "sessions" / "sessions.json"
 
 
@@ -814,7 +814,7 @@ def _run_cron_tracked(job, profile_home=None, execution_profile_home=None):
                 mark_job_run(job_id, _success, _error, delivery_error=delivery_error)
             except TypeError:
                 # Older/fake cron.jobs modules used by focused WebUI tests may
-                # not expose the newer delivery_error parameter. Real Hermes
+                # not expose the newer delivery_error parameter. Real JarvisCopilot
                 # scheduler builds do, so this is only a compatibility shim for
                 # legacy test doubles and deployments.
                 mark_job_run(job_id, _success, _error)
@@ -1708,7 +1708,7 @@ def _resolve_context_length_for_session_model(
                 custom_providers=_cfg_custom_providers_load,
             ) or 0
         except TypeError:
-            # Older hermes-agent builds: legacy 2-arg form.
+            # Older jarviscopilot builds: legacy 2-arg form.
             return _get_cl(model_for_lookup, "") or 0
     except Exception:
         return 0
@@ -2617,7 +2617,7 @@ def _normalize_logs_tail(raw_tail) -> int:
 
 
 def _handle_logs(handler, parsed) -> bool:
-    """Return a bounded tail window for an active-profile Hermes log file."""
+    """Return a bounded tail window for an active-profile JarvisCopilot log file."""
     query = parse_qs(parsed.query)
     file_key = (query.get("file", ["agent"])[0] or "agent").strip().lower()
     filename = _LOG_FILE_WHITELIST.get(file_key)
@@ -2630,7 +2630,7 @@ def _handle_logs(handler, parsed) -> bool:
 
         hermes_home = Path(get_active_hermes_home()).expanduser()
     except Exception:
-        hermes_home = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes")).expanduser()
+        hermes_home = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".jarviscopilot")).expanduser()
 
     log_dir = hermes_home / "logs"
     log_path = log_dir / filename
@@ -2673,7 +2673,7 @@ def _handle_logs(handler, parsed) -> bool:
 
 # ── Insights endpoint ──────────────────────────────────────────────────────────
 
-_LLM_WIKI_DOCS_URL = "https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/research/research-llm-wiki"
+_LLM_WIKI_DOCS_URL = "https://jarviscopilot.nousresearch.com/docs/user-guide/skills/bundled/research/research-llm-wiki"
 _LLM_WIKI_PAGE_DIRS = ("entities", "concepts", "comparisons", "queries")
 
 
@@ -2682,7 +2682,7 @@ def _llm_wiki_active_hermes_home() -> Path:
         from api.profiles import get_active_hermes_home
         return Path(get_active_hermes_home()).expanduser()
     except Exception:
-        return Path(os.getenv("HERMES_HOME", str(Path.home() / ".hermes"))).expanduser()
+        return Path(os.getenv("HERMES_HOME", str(Path.home() / ".jarviscopilot"))).expanduser()
 
 
 def _llm_wiki_env_file_path(hermes_home: Path) -> str | None:
@@ -3125,7 +3125,7 @@ def _deep_health_checks(stream_check: dict | None = None) -> tuple[dict, bool]:
 
     Plain /health intentionally stays tiny. /health?deep=1 is for supervisors
     and watchdogs that need to know whether the process can still touch the
-    shared stream map, sidebar/session path, project state, and Hermes state.db
+    shared stream map, sidebar/session path, project state, and JarvisCopilot state.db
     without hitting the RST-before-write failure mode from #1458.
 
     `stream_check` is the result from a prior `_streams_lock_health()` call;
@@ -3329,11 +3329,11 @@ _SHELL_ERROR_HTML = """<!doctype html>
 <head>
   <meta charset=\"utf-8\">
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
-  <title>Hermes is restarting</title>
+  <title>JarvisCopilot is restarting</title>
 </head>
 <body style=\"margin:0;padding:2rem;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#111827;color:#e5e7eb;\">
   <main style=\"max-width:40rem;margin:10vh auto;line-height:1.5;\">
-    <h1 style=\"font-size:1.5rem;margin:0 0 0.75rem;\">Hermes is restarting…</h1>
+    <h1 style=\"font-size:1.5rem;margin:0 0 0.75rem;\">JarvisCopilot is restarting…</h1>
     <p style=\"margin:0;color:#cbd5e1;\">The WebUI shell could not load cleanly. Refresh in a moment if this page does not update automatically.</p>
   </main>
 </body>
@@ -3415,7 +3415,7 @@ def handle_get(handler, parsed) -> bool:
 
     if parsed.path == "/login":
         _settings = load_settings()
-        _bn = _html.escape(_settings.get("bot_name") or "Hermes")
+        _bn = _html.escape(_settings.get("bot_name") or "JarvisCopilot")
         _lang = _settings.get("language", "en")
         _login_strings = _LOGIN_LOCALE[
             _resolve_login_locale_key(_lang)
@@ -4109,7 +4109,7 @@ def handle_get(handler, parsed) -> bool:
 
     if parsed.path == "/api/personalities":
         # Read personalities from config.yaml agent.personalities section
-        # (matches hermes-agent CLI behavior, not filesystem SOUL.md approach)
+        # (matches jarviscopilot CLI behavior, not filesystem SOUL.md approach)
         from api.config import reload_config as _reload_cfg
 
         _reload_cfg()  # pick up config.yaml changes without server restart
@@ -4167,8 +4167,8 @@ def handle_get(handler, parsed) -> bool:
                         "current_sha": "abc1234",
                         "latest_sha": "def5678",
                         "branch": "master",
-                        "repo_url": "https://github.com/nesquena/hermes-webui",
-                        "compare_url": "https://github.com/nesquena/hermes-webui/compare/abc1234...def5678",
+                        "repo_url": "https://github.com/nesquena/jarviscopilot-webui",
+                        "compare_url": "https://github.com/nesquena/jarviscopilot-webui/compare/abc1234...def5678",
                     },
                     "agent": {
                         "name": "agent",
@@ -4176,8 +4176,8 @@ def handle_get(handler, parsed) -> bool:
                         "current_sha": "aaa0001",
                         "latest_sha": "bbb0002",
                         "branch": "master",
-                        "repo_url": "https://github.com/NousResearch/hermes-agent",
-                        "compare_url": "https://github.com/NousResearch/hermes-agent/compare/aaa0001...bbb0002",
+                        "repo_url": "https://github.com/NousResearch/jarviscopilot",
+                        "compare_url": "https://github.com/NousResearch/jarviscopilot/compare/aaa0001...bbb0002",
                     },
                     "checked_at": 0,
                 },
@@ -4750,7 +4750,7 @@ def handle_post(handler, parsed) -> bool:
         except KeyError:
             return bad(handler, "Session not found", 404)
         # Resolve personality from config.yaml agent.personalities section
-        # (matches hermes-agent CLI behavior)
+        # (matches jarviscopilot CLI behavior)
         prompt = ""
         if name:
             from api.config import reload_config as _reload_cfg2
@@ -4766,7 +4766,7 @@ def handle_post(handler, parsed) -> bool:
                     handler, f'Personality "{name}" not found in config.yaml', 404
                 )
             value = raw_personalities[name]
-            # Resolve prompt using the same logic as hermes-agent cli.py
+            # Resolve prompt using the same logic as jarviscopilot cli.py
             if isinstance(value, dict):
                 parts = [value.get("system_prompt", "") or value.get("prompt", "")]
                 if value.get("tone"):
@@ -5399,7 +5399,7 @@ def handle_post(handler, parsed) -> bool:
         )
 
         if "bot_name" in body:
-            body["bot_name"] = (str(body["bot_name"]) or "").strip() or "Hermes"
+            body["bot_name"] = (str(body["bot_name"]) or "").strip() or "JarvisCopilot"
 
         auth_enabled_before = is_auth_enabled()
         current_cookie = parse_cookie(handler)
@@ -6689,7 +6689,7 @@ def _handle_media(handler, parsed):
     """Serve a local file by absolute path for inline display in the chat.
 
     Security:
-    - Path must resolve to an allowed root (hermes home, /tmp, common dirs)
+    - Path must resolve to an allowed root (jarviscopilot home, /tmp, common dirs)
     - Auth-gated when auth is enabled
     - Only image MIME types are served inline; all others force download
     - SVG always served as attachment (XSS risk)
@@ -6700,7 +6700,7 @@ def _handle_media(handler, parsed):
     import os as _os
     from api.auth import is_auth_enabled, parse_cookie, verify_session
     _HOME = Path(_os.path.expanduser("~"))
-    _HERMES_HOME = Path(_os.getenv("HERMES_HOME", str(_HOME / ".hermes"))).expanduser()
+    _HERMES_HOME = Path(_os.getenv("HERMES_HOME", str(_HOME / ".jarviscopilot"))).expanduser()
 
     # Auth check
     if is_auth_enabled():
@@ -6723,13 +6723,13 @@ def _handle_media(handler, parsed):
     except Exception:
         return bad(handler, "Invalid path", 400)
 
-    # Allowed roots: hermes home, /tmp, and active workspace.
+    # Allowed roots: jarviscopilot home, /tmp, and active workspace.
     # Intentionally NOT the entire home dir — that would expose ~/.ssh,
     # ~/.aws, browser profiles, etc. to any authenticated user.
     allowed_roots = [
         _HERMES_HOME.resolve(),
         Path("/tmp").resolve(),
-        (_HOME / ".hermes").resolve(),
+        (_HOME / ".jarviscopilot").resolve(),
     ]
     # Also allow the active workspace directory (where screenshots land)
     try:
@@ -7126,7 +7126,7 @@ def _handle_live_models(handler, parsed):
             import sys as _sys
             import os as _os
             _agent_dir = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
-                                       "..", "..", ".hermes", "hermes-agent")
+                                       "..", "..", ".jarviscopilot", "jarviscopilot")
             _agent_dir = _os.path.normpath(_agent_dir)
             if _agent_dir not in _sys.path:
                 _sys.path.insert(0, _agent_dir)
@@ -7593,7 +7593,7 @@ def _handle_memory_read(handler):
 
         mem_dir = get_active_hermes_home() / "memories"
     except ImportError:
-        mem_dir = Path.home() / ".hermes" / "memories"
+        mem_dir = Path.home() / ".jarviscopilot" / "memories"
     mem_file = mem_dir / "MEMORY.md"
     user_file = mem_dir / "USER.md"
     memory = (
@@ -8231,7 +8231,7 @@ def _normalize_chat_attachments(raw_attachments):
 
     Older clients send a list of filenames. Newer clients send upload result
     objects containing name/path/mime/size so image attachments can be supplied
-    to Hermes as native multimodal inputs for the current turn.
+    to JarvisCopilot as native multimodal inputs for the current turn.
     """
     normalized = []
     if not isinstance(raw_attachments, list):
@@ -8295,7 +8295,7 @@ def _handle_chat_sync(handler, body):
             _model, _provider, _base_url = resolve_model_provider(
                 model_with_provider_context(s.model, getattr(s, "model_provider", None))
             )
-            # Resolve API key via Hermes runtime provider (matches gateway behaviour)
+            # Resolve API key via JarvisCopilot runtime provider (matches gateway behaviour)
             _api_key = None
             try:
                 from api.oauth import resolve_runtime_provider_with_anthropic_env_lock
@@ -9545,7 +9545,7 @@ def _persist_handoff_summary_to_state_db(sid: str, message: dict) -> bool:
 
         hermes_home = Path(get_active_hermes_home()).expanduser().resolve()
     except Exception:
-        hermes_home = Path(os.getenv("HERMES_HOME", str(Path.home() / ".hermes"))).expanduser().resolve()
+        hermes_home = Path(os.getenv("HERMES_HOME", str(Path.home() / ".jarviscopilot"))).expanduser().resolve()
 
     db_path = hermes_home / "state.db"
     if not db_path.exists():
@@ -10093,7 +10093,7 @@ def _handle_memory_write(handler, body):
 
         mem_dir = get_active_hermes_home() / "memories"
     except ImportError:
-        mem_dir = Path.home() / ".hermes" / "memories"
+        mem_dir = Path.home() / ".jarviscopilot" / "memories"
     mem_dir.mkdir(parents=True, exist_ok=True)
     section = body["section"]
     if section == "memory":
@@ -10408,7 +10408,7 @@ def _mask_secrets(obj):
 
 
 def _parse_mcp_enabled(value) -> bool:
-    """Parse Hermes MCP ``enabled`` values without raising on bad config."""
+    """Parse JarvisCopilot MCP ``enabled`` values without raising on bad config."""
     if value is None:
         return True
     if isinstance(value, bool):

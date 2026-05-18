@@ -15,7 +15,7 @@ JarvisCopilot supports Amazon Bedrock as a native provider using the **Converse 
   - `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` environment variables
   - `AWS_PROFILE` for SSO or named profiles
   - `aws configure` for local development
-- **boto3** — install with `pip install hermes-agent[bedrock]`
+- **boto3** — install with `pip install jarviscopilot[bedrock]`
 - **IAM permissions** — at minimum:
   - `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` (for inference)
   - `bedrock:ListFoundationModels` and `bedrock:ListInferenceProfiles` (for model discovery)
@@ -28,7 +28,7 @@ On AWS compute, attach an IAM role with `AmazonBedrockFullAccess` and you're don
 
 ```bash
 # Install with Bedrock support
-pip install hermes-agent[bedrock]
+pip install jarviscopilot[bedrock]
 
 # Select Bedrock as your provider
 jarviscopilot model
@@ -167,4 +167,4 @@ You've hit the Bedrock per-model rate limit. JarvisCopilot automatically retries
 
 For a fully automated deployment on EC2 with CloudFormation:
 
-**[sample-hermes-agent-on-aws-with-bedrock](https://github.com/JiaDe-Wu/sample-hermes-agent-on-aws-with-bedrock)** — creates VPC, IAM role, EC2 instance, and configures Bedrock automatically. Deploy in any region with one click.
+**[sample-jarviscopilot-on-aws-with-bedrock](https://github.com/JiaDe-Wu/sample-jarviscopilot-on-aws-with-bedrock)** — creates VPC, IAM role, EC2 instance, and configures Bedrock automatically. Deploy in any region with one click.

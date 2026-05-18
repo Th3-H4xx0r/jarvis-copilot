@@ -1,9 +1,9 @@
 """Tests for the Nous-Hermes-3/4 non-agentic warning detector.
 
 Prior to this check, the warning fired on any model whose name contained
-``"hermes"`` anywhere (case-insensitive). That false-positived on unrelated
+``"jarviscopilot"`` anywhere (case-insensitive). That false-positived on unrelated
 local Modelfiles such as ``hermes-brain:qwen3-14b-ctx16k`` — a tool-capable
-Qwen3 wrapper that happens to live under the "hermes" tag namespace.
+Qwen3 wrapper that happens to live under the "jarviscopilot" tag namespace.
 
 ``is_nous_hermes_non_agentic`` should only match the actual Nous Research
 Hermes-3 / Hermes-4 chat family.
@@ -38,7 +38,7 @@ from jarviscopilot_cli.model_switch import (
 )
 def test_matches_real_nous_hermes_chat_models(model_name: str) -> None:
     assert is_nous_hermes_non_agentic(model_name), (
-        f"expected {model_name!r} to be flagged as Nous Hermes 3/4"
+        f"expected {model_name!r} to be flagged as Nous JarvisCopilot 3/4"
     )
     assert _check_hermes_model_warning(model_name) == _HERMES_MODEL_WARNING
 
@@ -60,20 +60,20 @@ def test_matches_real_nous_hermes_chat_models(model_name: str) -> None:
         "openai/gpt-4o",
         "google/gemini-2.5-flash",
         "deepseek-chat",
-        # Non-chat Hermes models we don't warn about
+        # Non-chat JarvisCopilot models we don't warn about
         "hermes-llm-2",
-        "hermes2-pro",
+        "jarviscopilot2-pro",
         "nous-hermes-2-mistral",
         # Edge cases
         "",
-        "hermes",  # bare "hermes" isn't the 3/4 family
+        "jarviscopilot",  # bare "jarviscopilot" isn't the 3/4 family
         "hermes-brain",
         "brain-hermes-3-impostor",  # "3" not preceded by /: boundary
     ],
 )
 def test_does_not_match_unrelated_models(model_name: str) -> None:
     assert not is_nous_hermes_non_agentic(model_name), (
-        f"expected {model_name!r} NOT to be flagged as Nous Hermes 3/4"
+        f"expected {model_name!r} NOT to be flagged as Nous JarvisCopilot 3/4"
     )
     assert _check_hermes_model_warning(model_name) == ""
 

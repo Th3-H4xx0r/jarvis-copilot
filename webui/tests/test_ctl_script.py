@@ -32,7 +32,7 @@ def run_ctl(
     merged.update(
         {
             "HOME": str(home),
-            "HERMES_HOME": str(home / ".hermes"),
+            "HERMES_HOME": str(home / ".jarviscopilot"),
             "PATH": os.environ.get("PATH", ""),
         }
     )
@@ -114,7 +114,7 @@ def test_start_writes_pid_under_hermes_home_runs_foreground_no_browser_and_logs(
     )
 
     assert result.returncode == 0, result.stderr + result.stdout
-    hermes_home = tmp_path / ".hermes"
+    hermes_home = tmp_path / ".jarviscopilot"
     pid_file = hermes_home / "webui.pid"
     log_file = hermes_home / "webui.log"
     pid = wait_for_pid_file(pid_file)
@@ -163,7 +163,7 @@ def test_start_loads_dotenv_but_inline_overrides_win(tmp_path):
         repo_root=repo_root,
     )
     assert result.returncode == 0, result.stderr + result.stdout
-    pid = wait_for_pid_file(tmp_path / ".hermes" / "webui.pid")
+    pid = wait_for_pid_file(tmp_path / ".jarviscopilot" / "webui.pid")
     try:
         fake_output = wait_for_file_text(fake_log)
         assert "fake-python args:" in fake_output
@@ -175,7 +175,7 @@ def test_start_loads_dotenv_but_inline_overrides_win(tmp_path):
 
 
 def test_stale_pid_file_is_removed_without_killing_unrelated_process(tmp_path):
-    hermes_home = tmp_path / ".hermes"
+    hermes_home = tmp_path / ".jarviscopilot"
     hermes_home.mkdir()
     pid_file = hermes_home / "webui.pid"
     sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
@@ -195,7 +195,7 @@ def test_stale_pid_file_is_removed_without_killing_unrelated_process(tmp_path):
 
 
 def test_logs_supports_non_following_line_count(tmp_path):
-    hermes_home = tmp_path / ".hermes"
+    hermes_home = tmp_path / ".jarviscopilot"
     hermes_home.mkdir()
     log_file = hermes_home / "webui.log"
     log_file.write_text("one\ntwo\nthree\n", encoding="utf-8")

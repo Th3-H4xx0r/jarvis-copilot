@@ -65,7 +65,7 @@ class TestGetProvidersOauthBlock:
         return providers.get("openai-codex")
 
     def test_config_yaml_token_shows_configured_when_auth_logged_in(self):
-        """When hermes auth says logged_in=True, has_key=True regardless of _provider_has_key."""
+        """When jarviscopilot auth says logged_in=True, has_key=True regardless of _provider_has_key."""
         auth = _make_fake_auth(logged_in=True)
         p = self._call_get_providers_for_codex(auth, has_key_in_config=False)
         assert p is not None
@@ -92,7 +92,7 @@ class TestGetProvidersOauthBlock:
         )
 
     def test_not_configured_when_no_key_and_not_logged_in(self):
-        """When neither config.yaml token nor hermes auth, provider is not configured."""
+        """When neither config.yaml token nor jarviscopilot auth, provider is not configured."""
         auth = _make_fake_auth(logged_in=False)
         p = self._call_get_providers_for_codex(auth, has_key_in_config=False)
         assert p is not None
@@ -100,7 +100,7 @@ class TestGetProvidersOauthBlock:
 
     def test_auth_error_preserved_when_not_logged_in_and_no_config_key(self):
         """auth_error from get_auth_status() is returned in the provider dict."""
-        err_msg = "Refresh token consumed by Codex CLI. Run hermes auth."
+        err_msg = "Refresh token consumed by Codex CLI. Run jarviscopilot auth."
         auth = _make_fake_auth(logged_in=False, error=err_msg)
         p = self._call_get_providers_for_codex(auth, has_key_in_config=False)
         assert p is not None

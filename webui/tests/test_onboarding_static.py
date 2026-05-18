@@ -52,7 +52,7 @@ def test_onboarding_uses_i18n_helpers():
 def test_bootstrap_script_contains_official_installer_and_windows_guard():
     src = read("bootstrap.py")
     assert (
-        "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
+        "https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.sh"
         in src
     )
     assert "Native Windows is not supported" in src

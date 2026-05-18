@@ -23,7 +23,7 @@ If you have ever wanted JarvisCopilot to use a tool that already exists somewher
 1. Install MCP support (already included if you used the standard install script):
 
 ```bash
-cd ~/.jarviscopilot/hermes-agent
+cd ~/.jarviscopilot/jarviscopilot
 uv pip install -e ".[mcp]"
 ```
 
@@ -383,7 +383,7 @@ Check:
 
 ```bash
 # Verify MCP deps are installed (already included in standard install)
-cd ~/.jarviscopilot/hermes-agent && uv pip install -e ".[mcp]"
+cd ~/.jarviscopilot/jarviscopilot && uv pip install -e ".[mcp]"
 
 node --version
 npx --version
@@ -499,7 +499,7 @@ Or if you installed JarvisCopilot in a specific location:
 {
   "mcpServers": {
     "jarviscopilot": {
-      "command": "/home/user/.jarviscopilot/hermes-agent/venv/bin/hermes",
+      "command": "/home/user/.jarviscopilot/jarviscopilot/venv/bin/hermes",
       "args": ["mcp", "serve"]
     }
   }

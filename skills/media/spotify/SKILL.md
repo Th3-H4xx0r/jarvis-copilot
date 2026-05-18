@@ -15,7 +15,7 @@ metadata:
 
 # Spotify
 
-Control the user's Spotify account via the JarvisCopilot Spotify toolset (7 tools). Setup guide: https://hermes-agent.nousresearch.com/docs/user-guide/features/spotify
+Control the user's Spotify account via the JarvisCopilot Spotify toolset (7 tools). Setup guide: https://jarviscopilot.nousresearch.com/docs/user-guide/features/spotify
 
 ## When to use this skill
 

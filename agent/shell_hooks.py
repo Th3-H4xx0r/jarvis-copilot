@@ -17,7 +17,7 @@ Design notes
   with ``shell=False`` — no shell injection footguns.  Users that need
   pipes/redirection wrap their logic in a script.
 * First-use consent is gated by the allowlist under
-  ``~/.hermes/shell-hooks-allowlist.json``.  Non-TTY callers must pass
+  ``~/.jarviscopilot/shell-hooks-allowlist.json``.  Non-TTY callers must pass
   ``accept_hooks=True`` (resolved from ``--accept-hooks``,
   ``HERMES_ACCEPT_HOOKS``, or ``hooks_auto_accept: true`` in config)
   for registration to succeed without a prompt.
@@ -75,7 +75,7 @@ try:
 except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 from utils import atomic_replace
 
 logger = logging.getLogger(__name__)
@@ -223,7 +223,7 @@ def register_from_config(
 
 def iter_configured_hooks(cfg: Optional[Dict[str, Any]]) -> List[ShellHookSpec]:
     """Return the parsed ``ShellHookSpec`` entries from config without
-    registering anything.  Used by ``hermes hooks list`` and ``doctor``."""
+    registering anything.  Used by ``jarviscopilot hooks list`` and ``doctor``."""
     if not isinstance(cfg, dict):
         return []
     return _parse_hooks_block(cfg.get("hooks"))
@@ -494,10 +494,10 @@ def _block_message(primary: Any, secondary: Any) -> str:
 
 
 def _parse_response(event: str, stdout: str) -> Optional[Dict[str, Any]]:
-    """Translate stdout JSON into a Hermes wire-shape dict.
+    """Translate stdout JSON into a JarvisCopilot wire-shape dict.
 
     For ``pre_tool_call`` the Claude-Code-style ``{"decision": "block",
-    "reason": "..."}`` payload is translated into the canonical Hermes
+    "reason": "..."}`` payload is translated into the canonical JarvisCopilot
     ``{"action": "block", "message": "..."}`` shape expected by
     :func:`jarviscopilot_cli.plugins.get_pre_tool_call_block_message`.  This is
     the single most important correctness invariant in this module —
@@ -653,7 +653,7 @@ def _prompt_and_record(
         return False
 
     print(
-        f"\n⚠ Hermes is about to register a shell hook that will run a\n"
+        f"\n⚠ JarvisCopilot is about to register a shell hook that will run a\n"
         f"  command on your behalf.\n\n"
         f"    Event:   {event}\n"
         f"    Command: {command}\n\n"
@@ -771,7 +771,7 @@ def _resolve_effective_accept(
 
 
 # ---------------------------------------------------------------------------
-# Introspection (used by `hermes hooks` CLI)
+# Introspection (used by `jarviscopilot hooks` CLI)
 # ---------------------------------------------------------------------------
 
 def allowlist_entry_for(event: str, command: str) -> Optional[Dict[str, Any]]:
@@ -828,12 +828,12 @@ def run_once(
     spec: ShellHookSpec, kwargs: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Fire a single shell-hook invocation with a synthetic payload.
-    Used by ``hermes hooks test`` and ``hermes hooks doctor``.
+    Used by ``jarviscopilot hooks test`` and ``jarviscopilot hooks doctor``.
 
     ``kwargs`` is the same dict that :func:`jarviscopilot_cli.plugins.invoke_hook`
     would pass at runtime.  It is routed through :func:`_serialize_payload`
     so the synthetic stdin exactly matches what a real hook firing would
-    produce — otherwise scripts tested via ``hermes hooks test`` could
+    produce — otherwise scripts tested via ``jarviscopilot hooks test`` could
     diverge silently from production behaviour.
 
     Returns the :func:`_spawn` diagnostic dict plus a ``parsed`` field

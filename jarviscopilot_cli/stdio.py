@@ -2,7 +2,7 @@
 
 On Windows, Python's ``sys.stdout``/``sys.stderr`` default to the console's
 active code page (often ``cp1252``, sometimes ``cp437``, occasionally ``cp932``
-on Japanese locales, etc.).  Hermes's banners, tool output feed, and slash
+on Japanese locales, etc.).  JarvisCopilot's banners, tool output feed, and slash
 command listings all contain Unicode: box-drawing characters (``─┌┐└┘├┤``),
 mathematical and geometric symbols (``◆ ◇ ◎ ▣ ⚔ ⚖ →``), and user-supplied
 text in any language.  Printing those to a cp1252 console raises
@@ -47,7 +47,7 @@ def _flip_console_code_page_to_utf8() -> None:
     """Set the attached console's input and output code pages to UTF-8.
 
     Uses ``SetConsoleCP`` / ``SetConsoleOutputCP`` via ``ctypes``.  Failure
-    is silent — if there's no attached console (e.g. Hermes is running
+    is silent — if there's no attached console (e.g. JarvisCopilot is running
     behind a redirected stdout, under a service, or inside a PTY-less CI
     runner) these calls simply return 0 and we move on.
 
@@ -131,7 +131,7 @@ def configure_windows_stdio() -> bool:
     # subprocess calls (bash, rg, grep, etc.) resolve even in sessions
     # that started before the User PATH broadcast reached them.  When
     # install.ps1 adds these to User PATH via SetEnvironmentVariable,
-    # already-running shells don't see the change — which means hermes
+    # already-running shells don't see the change — which means jarviscopilot
     # launched from the install session won't find rg / bash / grep
     # even though they're "installed".  Prepending the known paths here
     # closes that gap.  No-op when the paths don't exist (e.g. system-Git
@@ -149,7 +149,7 @@ def configure_windows_stdio() -> bool:
     # degraded output over a stack trace.
     _reconfigure_stream(sys.stdout)
     _reconfigure_stream(sys.stderr)
-    # stdin is re-configured for completeness; Hermes's interactive
+    # stdin is re-configured for completeness; JarvisCopilot's interactive
     # input path uses prompt_toolkit which manages its own encoding,
     # but batch/pipe input benefits from UTF-8 decoding on stdin too.
     _reconfigure_stream(sys.stdin)
@@ -167,8 +167,8 @@ def _default_windows_editor() -> str:
        blocking editor (``subprocess.call(["notepad", file])`` blocks until
        the user closes the window).  This is the "always-works" default.
 
-    The prompt_toolkit buffer's ``open_in_editor`` and Hermes's
-    ``hermes config edit`` both honour ``$EDITOR``.  Users who prefer a
+    The prompt_toolkit buffer's ``open_in_editor`` and JarvisCopilot's
+    ``jarviscopilot config edit`` both honour ``$EDITOR``.  Users who prefer a
     different editor can override:
 
     - VSCode: ``$env:EDITOR = "code --wait"``  (``--wait`` is critical;
@@ -176,8 +176,8 @@ def _default_windows_editor() -> str:
     - Notepad++: ``$env:EDITOR = "'C:\\Program Files\\Notepad++\\notepad++.exe' -multiInst -nosession"``
     - Neovim: ``$env:EDITOR = "nvim"``  (if installed)
 
-    Set this before launching Hermes (User env var in Windows Settings, or
-    export in a PowerShell profile) and Hermes picks it up automatically.
+    Set this before launching JarvisCopilot (User env var in Windows Settings, or
+    export in a PowerShell profile) and JarvisCopilot picks it up automatically.
     """
     import shutil
 
@@ -197,12 +197,12 @@ def _augment_path_with_known_tools() -> None:
 
     Fixes the "User PATH was just updated but my process can't see it" gap on
     Windows.  When install.ps1 runs, it adds entries like
-    ``%LOCALAPPDATA%\\hermes\\git\\bin`` to the User PATH via
+    ``%LOCALAPPDATA%\\jarviscopilot\\git\\bin`` to the User PATH via
     ``SetEnvironmentVariable(..., "User")``.  That write propagates to newly
     *spawned* processes only — already-running shells (including the one the
-    user invokes ``hermes`` from right after install) retain their old PATH.
+    user invokes ``jarviscopilot`` from right after install) retain their old PATH.
 
-    Any subprocess Hermes spawns — bash, ``rg``, ``grep``, ``npm`` — inherits
+    Any subprocess JarvisCopilot spawns — bash, ``rg``, ``grep``, ``npm`` — inherits
     that stale PATH and reports commands as missing even though they're on
     disk.  Symptom: ``search_files`` reports "rg/find not available" when
     the user clearly just installed ripgrep.
@@ -227,13 +227,13 @@ def _augment_path_with_known_tools() -> None:
     # should match so this prefill fully mirrors what a fresh shell would
     # see on next launch.
     candidate_dirs = [
-        os.path.join(local_appdata, "hermes", "git", "cmd"),
-        os.path.join(local_appdata, "hermes", "git", "bin"),
-        os.path.join(local_appdata, "hermes", "git", "usr", "bin"),
-        # Hermes venv Scripts directory — host of the hermes.exe shim itself,
+        os.path.join(local_appdata, "jarviscopilot", "git", "cmd"),
+        os.path.join(local_appdata, "jarviscopilot", "git", "bin"),
+        os.path.join(local_appdata, "jarviscopilot", "git", "usr", "bin"),
+        # JarvisCopilot venv Scripts directory — host of the jarviscopilot.exe shim itself,
         # also where any pip-installed console scripts land.  Usually already
-        # on PATH when the user invokes hermes, but harmless to include.
-        os.path.join(local_appdata, "hermes", "hermes-agent", "venv", "Scripts"),
+        # on PATH when the user invokes jarviscopilot, but harmless to include.
+        os.path.join(local_appdata, "jarviscopilot", "jarviscopilot", "venv", "Scripts"),
         # WinGet packages directory — where ``winget install`` drops CLI
         # shims by default (ripgrep lands here as rg.exe).  Covers the case
         # of a system-Git install + ripgrep-via-winget that isn't yet on

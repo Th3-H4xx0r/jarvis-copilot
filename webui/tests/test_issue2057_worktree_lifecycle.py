@@ -41,7 +41,7 @@ def _worktree_session(tmp_path, session_id):
         title="Worktree session",
         workspace=str(worktree),
         worktree_path=str(worktree),
-        worktree_branch=f"hermes/{session_id}",
+        worktree_branch=f"jarviscopilot/{session_id}",
         worktree_repo_root=str(repo),
     )
     s.save()
@@ -62,7 +62,7 @@ def test_delete_worktree_session_reports_retained_worktree_without_cleanup(tmp_p
     assert captured["payload"]["ok"] is True
     assert captured["payload"]["worktree_retained"] is True
     assert captured["payload"]["worktree_path"] == str(worktree.resolve())
-    assert captured["payload"]["worktree_branch"] == "hermes/wtdelete1"
+    assert captured["payload"]["worktree_branch"] == "jarviscopilot/wtdelete1"
     assert not (session_dir / "wtdelete1.json").exists()
     assert worktree.exists(), "session delete must not remove the git worktree directory"
 

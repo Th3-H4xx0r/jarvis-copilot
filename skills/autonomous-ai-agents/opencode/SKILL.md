@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 metadata:
   jarviscopilot:
     tags: [Coding-Agent, OpenCode, Autonomous, Refactoring, Code-Review]
-    related_skills: [claude-code, codex, hermes-agent]
+    related_skills: [claude-code, codex, jarviscopilot]
 ---
 
 # OpenCode CLI

@@ -246,7 +246,7 @@ E2EE requires the `mautrix` library with encryption extras and the `libolm` C li
 pip install 'mautrix[encryption]'
 
 # Or install with jarviscopilot extras
-pip install 'hermes-agent[matrix]'
+pip install 'jarviscopilot[matrix]'
 ```
 
 You also need `libolm` installed on your system:
@@ -359,7 +359,7 @@ To find a Room ID: in Element, go to the room → **Settings** → **Advanced** 
 
 ### Bot joins rooms but silently drops every message (clock skew)
 
-**Cause**: The host's system clock is set ahead of real time. The Matrix adapter applies a 5-second startup-grace filter (`event_ts < startup_ts - 5`) to ignore events replayed from initial sync. When the wall clock is ahead, every incoming event looks "older than startup" and is dropped before reaching the message handler — the bot appears connected but never replies. See [#12614](https://github.com/NousResearch/hermes-agent/issues/12614).
+**Cause**: The host's system clock is set ahead of real time. The Matrix adapter applies a 5-second startup-grace filter (`event_ts < startup_ts - 5`) to ignore events replayed from initial sync. When the wall clock is ahead, every incoming event looks "older than startup" and is dropped before reaching the message handler — the bot appears connected but never replies. See [#12614](https://github.com/NousResearch/jarviscopilot/issues/12614).
 
 **Symptom**: Gateway log shows `Matrix: dropped N live events as 'too old' more than 30s after startup`.
 
@@ -400,7 +400,7 @@ pip install 'mautrix[encryption]'
 Or with JarvisCopilot extras:
 
 ```bash
-pip install 'hermes-agent[matrix]'
+pip install 'jarviscopilot[matrix]'
 ```
 
 ### Encryption errors / "could not decrypt event"
@@ -499,7 +499,7 @@ history, so other clients trust it immediately.
 
 ## Proxy Mode (E2EE on macOS)
 
-Matrix E2EE requires `libolm`, which doesn't compile on macOS ARM64 (Apple Silicon). The `hermes-agent[matrix]` extra is gated to Linux only. If you're on macOS, proxy mode lets you run E2EE in a Docker container on a Linux VM while the actual agent runs natively on macOS with full access to your local files, memory, and skills.
+Matrix E2EE requires `libolm`, which doesn't compile on macOS ARM64 (Apple Silicon). The `jarviscopilot[matrix]` extra is gated to Linux only. If you're on macOS, proxy mode lets you run E2EE in a Docker container on a Linux VM while the actual agent runs natively on macOS with full access to your local files, memory, and skills.
 
 ### How It Works
 
@@ -580,7 +580,7 @@ services:
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y libolm-dev && rm -rf /var/lib/apt/lists/*
-RUN pip install 'hermes-agent[matrix]'
+RUN pip install 'jarviscopilot[matrix]'
 
 CMD ["jarviscopilot", "gateway"]
 ```

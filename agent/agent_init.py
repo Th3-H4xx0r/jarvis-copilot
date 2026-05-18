@@ -51,7 +51,7 @@ from agent.tool_guardrails import (
 )
 from jarviscopilot_cli.config import cfg_get
 from jarviscopilot_cli.timeouts import get_provider_request_timeout
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 from model_tools import check_toolset_requirements, get_tool_definitions
 from utils import base_url_host_matches
 
@@ -182,7 +182,7 @@ def init_agent(
         skip_context_files (bool): If True, skip auto-injection of SOUL.md, AGENTS.md, and .cursorrules
             into the system prompt. Use this for batch processing and data generation to avoid
             polluting trajectories with user-specific persona or project instructions.
-        load_soul_identity (bool): If True, still use ~/.hermes/SOUL.md as the primary
+        load_soul_identity (bool): If True, still use ~/.jarviscopilot/SOUL.md as the primary
             identity even when skip_context_files=True. Project context files from the cwd
             remain skipped.
     """
@@ -448,9 +448,9 @@ def init_agent(
     agent._or_cache_hits: int = 0
 
     # Centralized logging — agent.log (INFO+) and errors.log (WARNING+)
-    # both live under ~/.hermes/logs/.  Idempotent, so gateway mode
+    # both live under ~/.jarviscopilot/logs/.  Idempotent, so gateway mode
     # (which creates a new AIAgent per message) won't duplicate handlers.
-    from hermes_logging import setup_logging, setup_verbose_logging
+    from jarviscopilot_logging import setup_logging, setup_verbose_logging
     setup_logging(hermes_home=_ra()._hermes_home)
 
     if agent.verbose_logging:
@@ -462,11 +462,11 @@ def init_agent(
         # root logger's file handlers (agent.log, errors.log) from
         # ever seeing the records, because Python checks
         # logger.isEnabledFor() before handler propagation. We rely
-        # on the fact that hermes_logging.setup_logging() does not
+        # on the fact that jarviscopilot_logging.setup_logging() does not
         # install a console StreamHandler in quiet mode — so INFO
         # records flow to the file handlers but never reach a
         # console. Any future noise reduction belongs at the
-        # handler level inside hermes_logging.py, not here.
+        # handler level inside jarviscopilot_logging.py, not here.
         pass
     
     # Internal stream callback (set during streaming TTS).
@@ -735,13 +735,13 @@ def init_agent(
                         raise RuntimeError(
                             f"Provider '{_explicit}' is set in config.yaml but no API key "
                             f"was found. Set the {_env_hint} environment "
-                            f"variable, or switch to a different provider with `hermes model`."
+                            f"variable, or switch to a different provider with `jarviscopilot model`."
                         )
                 if not getattr(agent, "_fallback_activated", False):
                     # No provider configured — reject with a clear message.
                     raise RuntimeError(
-                        "No LLM provider configured. Run `hermes model` to "
-                        "select a provider, or run `hermes setup` for first-time "
+                        "No LLM provider configured. Run `jarviscopilot model` to "
+                        "select a provider, or run `jarviscopilot setup` for first-time "
                         "configuration."
                     )
         
@@ -887,7 +887,7 @@ def init_agent(
     except Exception:
         pass  # CLI/test mode — ContextVar not needed
 
-    # Session logs go into ~/.hermes/sessions/ alongside gateway sessions
+    # Session logs go into ~/.jarviscopilot/sessions/ alongside gateway sessions
     hermes_home = get_hermes_home()
     agent.logs_dir = hermes_home / "sessions"
     agent.logs_dir.mkdir(parents=True, exist_ok=True)
@@ -1020,7 +1020,7 @@ def init_agent(
                         from jarviscopilot_cli.profiles import get_active_profile_name
                         _profile = get_active_profile_name()
                         _init_kwargs["agent_identity"] = _profile
-                        _init_kwargs["agent_workspace"] = "hermes"
+                        _init_kwargs["agent_workspace"] = "jarviscopilot"
                     except Exception:
                         pass
                     agent._memory_manager.initialize_all(**_init_kwargs)

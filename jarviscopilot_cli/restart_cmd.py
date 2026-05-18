@@ -23,8 +23,8 @@ from typing import Optional
 
 
 _WEBUI_PORT = 8787
-_WEBUI_UNITS = ("jarviscopilot-webui.service", "hermes-webui.service")
-_GATEWAY_UNITS = ("jarviscopilot-gateway.service", "hermes-gateway.service")
+_WEBUI_UNITS = ("jarviscopilot-webui.service", "jarviscopilot-webui.service")
+_GATEWAY_UNITS = ("jarviscopilot-gateway.service", "jarviscopilot-gateway.service")
 
 
 def _info(msg: str) -> None:
@@ -151,7 +151,7 @@ def _kill_pids(pids: set, *, signum: int = 15) -> int:
 
 
 def _gateway_pids() -> set:
-    """Find PIDs running a Hermes gateway. The gateway typically runs as
+    """Find PIDs running a JarvisCopilot gateway. The gateway typically runs as
     `python -m jarviscopilot_cli.main gateway run [--replace]`; we match on the
     command-line so multiple python processes don't confuse us."""
     pids: set = set()
@@ -207,11 +207,11 @@ def _restart_gateway() -> bool:
     if unit:
         _ok(f"Gateway: systemctl restart {unit}")
         return True
-    # No systemd unit — Hermes's gateway has a built-in --replace flag that
+    # No systemd unit — JarvisCopilot's gateway has a built-in --replace flag that
     # kills any existing gateway and starts a fresh one. We spawn it
     # detached so this command returns immediately while the new gateway
     # keeps running. sys.executable is the venv Python (the user invoked
-    # us via the venv's `jarviscopilot` shim), so it has all Hermes deps.
+    # us via the venv's `jarviscopilot` shim), so it has all JarvisCopilot deps.
     _info("Gateway: no systemd unit, spawning `gateway run --replace` ...")
     try:
         # Detach: new session + close FDs so the parent shell exit can't

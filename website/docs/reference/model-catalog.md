@@ -6,14 +6,14 @@ description: Remotely-hosted manifest driving curated model picker lists for Ope
 
 # Model Catalog
 
-JarvisCopilot fetches curated model lists for **OpenRouter** and **Nous Portal** from a JSON manifest hosted alongside the docs site. This lets maintainers update picker lists without shipping a new `hermes-agent` release.
+JarvisCopilot fetches curated model lists for **OpenRouter** and **Nous Portal** from a JSON manifest hosted alongside the docs site. This lets maintainers update picker lists without shipping a new `jarviscopilot` release.
 
 When the manifest is unreachable (offline, network blocked, hosting failure), JarvisCopilot silently falls back to the in-repo snapshot that ships with the CLI. The manifest never breaks the picker — worst case you see whatever list was bundled with your installed version.
 
 ## Live manifest URL
 
 ```
-https://hermes-agent.nousresearch.com/docs/api/model-catalog.json
+https://jarviscopilot.nousresearch.com/docs/api/model-catalog.json
 ```
 
 Published on every merge to `main` via the existing `deploy-site.yml` GitHub Pages pipeline. The source of truth lives in the repo at `website/static/api/model-catalog.json`.
@@ -68,7 +68,7 @@ Cache location: `~/.jarviscopilot/cache/model_catalog.json`.
 ```yaml
 model_catalog:
   enabled: true
-  url: https://hermes-agent.nousresearch.com/docs/api/model-catalog.json
+  url: https://jarviscopilot.nousresearch.com/docs/api/model-catalog.json
   ttl_hours: 24
   providers: {}
 ```

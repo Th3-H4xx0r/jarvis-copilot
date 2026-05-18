@@ -358,7 +358,7 @@ def _available_models_with_full_cfg(provider, default, base_url):
     """Helper: set model.provider, model.default, model.base_url at once.
 
     Clears model-override env vars (HERMES_MODEL, OPENAI_MODEL, LLM_MODEL)
-    during the call so the real hermes profile environment doesn't leak into
+    during the call so the real jarviscopilot profile environment doesn't leak into
     the test and override the fixture's default model.
     """
     import os

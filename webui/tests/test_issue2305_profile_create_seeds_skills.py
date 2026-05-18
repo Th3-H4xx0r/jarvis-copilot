@@ -2,7 +2,7 @@
 # Regression coverage for issue #2305 — seed bundled skills on profile creation.
 #
 # IMPORTANT: All filesystem operations use temporary directories only.
-# Do NOT touch real ~/.hermes, real credentials, or real profile directories.
+# Do NOT touch real ~/.jarviscopilot, real credentials, or real profile directories.
 #
 # Test strategy:
 #   - Mock _DEFAULT_HERMES_HOME to a tmp_path so _resolve_base_hermes_home()
@@ -50,8 +50,8 @@ def _make_profile_dir(base: Path, name: str) -> Path:
 @pytest.fixture
 def fake_hermes_home(tmp_path, monkeypatch):
     # Point _DEFAULT_HERMES_HOME at an isolated temp directory so that
-    # profile-path resolution does not touch the real ~/.hermes.
-    fake_home = tmp_path / '.hermes'
+    # profile-path resolution does not touch the real ~/.jarviscopilot.
+    fake_home = tmp_path / '.jarviscopilot'
     fake_home.mkdir(parents=True)
     monkeypatch.setenv('HERMES_BASE_HOME', str(fake_home))
     monkeypatch.setattr(profiles_mod, '_DEFAULT_HERMES_HOME', fake_home)
@@ -118,7 +118,7 @@ class TestNoCloneSeedsSkills:
         assert len(calls) == 1, f'Expected 1 seed call, got {len(calls)}: {calls}'
         # quiet=True is required.
         assert calls[0]['quiet'] is True
-        # Path must be the resolved profile directory under the fake hermes home.
+        # Path must be the resolved profile directory under the fake jarviscopilot home.
         expected_path = _isolated_profiles_root(fake_hermes_home) / 'testprofile'
         assert calls[0]['profile_path'] == expected_path, (
             f'Expected seed path {expected_path}, got {calls[0]}'

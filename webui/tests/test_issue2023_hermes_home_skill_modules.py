@@ -1,7 +1,7 @@
 """Regression coverage for issue #2023.
 
 Process-wide profile switches must keep both skill tool modules pointed at the
-active profile home.  The modules live in hermes-agent and may not be importable
+active profile home.  The modules live in jarviscopilot and may not be importable
 in this test environment, so the test injects lightweight stand-ins into
 ``sys.modules``.
 """

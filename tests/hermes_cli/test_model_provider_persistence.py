@@ -1,4 +1,4 @@
-"""Tests that provider selection via `hermes model` always persists correctly.
+"""Tests that provider selection via `jarviscopilot model` always persists correctly.
 
 Regression tests for the bug where _save_model_choice could save config.model
 as a plain string, causing subsequent provider writes (which check
@@ -15,7 +15,7 @@ import pytest
 @pytest.fixture
 def config_home(tmp_path, monkeypatch):
     """Isolated HERMES_HOME with a minimal string-format config."""
-    home = tmp_path / "hermes"
+    home = tmp_path / "jarviscopilot"
     home.mkdir()
     config_yaml = home / "config.yaml"
     # Start with model as a plain string — the format that triggered the bug
@@ -341,7 +341,7 @@ class TestBaseUrlValidation:
         # User types a shell command instead of a URL at the base URL prompt
         with patch("jarviscopilot_cli.auth._prompt_model_selection", return_value="glm-5"), \
              patch("jarviscopilot_cli.auth.deactivate_provider"), \
-             patch("builtins.input", return_value="nano ~/.hermes/.env"):
+             patch("builtins.input", return_value="nano ~/.jarviscopilot/.env"):
             _model_flow_api_key_provider(load_config(), "zai", "old-model")
 
         # The garbage value should NOT have been saved

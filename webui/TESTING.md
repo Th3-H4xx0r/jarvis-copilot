@@ -30,7 +30,7 @@ Work through sections in order. Each section builds on the previous.
 ## Section 1: Initial Load and Empty State
 
 ### T1.1: Fresh Load Shows Empty State
-SETUP: Clear localStorage (DevTools > Application > Local Storage > delete hermes-webui-session) or open in incognito.
+SETUP: Clear localStorage (DevTools > Application > Local Storage > delete jarviscopilot-webui-session) or open in incognito.
 STEPS:
   1. Navigate to http://localhost:8787
 EXPECT:
@@ -1799,7 +1799,7 @@ Each has automated API-level tests in `tests/test_sprint{N}.py`.
 - Create profile → appears in list and dropdown.
 - Delete profile → confirmation modal. Auto-switches to default if deleting active.
 - Attempt switch while agent busy → blocked with toast message.
-- With hermes-agent not installed → only default profile shown, graceful fallback.
+- With jarviscopilot not installed → only default profile shown, graceful fallback.
 
 ---
 

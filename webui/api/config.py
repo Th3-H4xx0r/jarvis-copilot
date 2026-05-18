@@ -41,7 +41,7 @@ TLS_ENABLED = TLS_CERT is not None and TLS_KEY is not None
 
 # ── State directory (env-overridable, never inside repo) ──────────────────────
 STATE_DIR = (
-    Path(os.getenv("HERMES_WEBUI_STATE_DIR", str(HOME / ".hermes" / "webui")))
+    Path(os.getenv("HERMES_WEBUI_STATE_DIR", str(HOME / ".jarviscopilot" / "webui")))
     .expanduser()
     .resolve()
 )
@@ -86,18 +86,18 @@ def _env_mb_bytes(name: str, default_mb: int) -> int:
     return value_mb * 1024 * 1024
 
 
-# ── Hermes agent directory discovery ─────────────────────────────────────────
+# ── JarvisCopilot agent directory discovery ─────────────────────────────────────────
 def _discover_agent_dir() -> Path:
     """
-    Locate the hermes-agent checkout using a multi-strategy search.
+    Locate the jarviscopilot checkout using a multi-strategy search.
 
     Priority:
       1. HERMES_WEBUI_AGENT_DIR env var  -- explicit override always wins
-      2. HERMES_HOME / hermes-agent      -- e.g. ~/.hermes/hermes-agent
-      3. Sibling of this repo            -- ../hermes-agent
-      4. Parent of this repo             -- ../../hermes-agent (nested layout)
-      5. Common install paths            -- ~/.hermes/hermes-agent (again as fallback)
-      6. HOME / hermes-agent             -- ~/hermes-agent (simple flat layout)
+      2. HERMES_HOME / jarviscopilot      -- e.g. ~/.jarviscopilot/jarviscopilot
+      3. Sibling of this repo            -- ../jarviscopilot
+      4. Parent of this repo             -- ../../jarviscopilot (nested layout)
+      5. Common install paths            -- ~/.jarviscopilot/jarviscopilot (again as fallback)
+      6. HOME / jarviscopilot             -- ~/jarviscopilot (simple flat layout)
     """
     candidates = []
 
@@ -107,30 +107,30 @@ def _discover_agent_dir() -> Path:
             Path(os.getenv("HERMES_WEBUI_AGENT_DIR")).expanduser().resolve()
         )
 
-    # 2. HERMES_HOME / hermes-agent
-    hermes_home = os.getenv("HERMES_HOME", str(HOME / ".hermes"))
-    candidates.append(Path(hermes_home).expanduser() / "hermes-agent")
+    # 2. HERMES_HOME / jarviscopilot
+    hermes_home = os.getenv("HERMES_HOME", str(HOME / ".jarviscopilot"))
+    candidates.append(Path(hermes_home).expanduser() / "jarviscopilot")
 
-    # 3. Sibling: <repo-root>/../hermes-agent
-    candidates.append(REPO_ROOT.parent / "hermes-agent")
+    # 3. Sibling: <repo-root>/../jarviscopilot
+    candidates.append(REPO_ROOT.parent / "jarviscopilot")
 
-    # 4. Parent is the agent repo itself (repo cloned inside hermes-agent/)
+    # 4. Parent is the agent repo itself (repo cloned inside jarviscopilot/)
     if (REPO_ROOT.parent / "run_agent.py").exists():
         candidates.append(REPO_ROOT.parent)
 
-    # 5. ~/.hermes/hermes-agent (explicit common path)
-    candidates.append(HOME / ".hermes" / "hermes-agent")
+    # 5. ~/.jarviscopilot/jarviscopilot (explicit common path)
+    candidates.append(HOME / ".jarviscopilot" / "jarviscopilot")
 
-    # 6. ~/hermes-agent
-    candidates.append(HOME / "hermes-agent")
+    # 6. ~/jarviscopilot
+    candidates.append(HOME / "jarviscopilot")
 
-    # 7. XDG_DATA_HOME / hermes-agent  (e.g. ~/.local/share/hermes-agent)
+    # 7. XDG_DATA_HOME / jarviscopilot  (e.g. ~/.local/share/jarviscopilot)
     xdg_data = Path(os.getenv("XDG_DATA_HOME", str(HOME / ".local" / "share")))
-    candidates.append(xdg_data.expanduser() / "hermes-agent")
+    candidates.append(xdg_data.expanduser() / "jarviscopilot")
 
-    # 8. System-wide install paths (e.g. /opt/hermes-agent, /usr/local/hermes-agent)
+    # 8. System-wide install paths (e.g. /opt/jarviscopilot, /usr/local/jarviscopilot)
     for sys_prefix in ("/opt", "/usr/local", "/usr/local/share"):
-        candidates.append(Path(sys_prefix) / "hermes-agent")
+        candidates.append(Path(sys_prefix) / "jarviscopilot")
 
     for path in candidates:
         if path.exists() and (path / "run_agent.py").exists():
@@ -141,7 +141,7 @@ def _discover_agent_dir() -> Path:
 
 def _discover_python(agent_dir: Path) -> str:
     """
-    Locate a Python executable that has the Hermes agent dependencies installed.
+    Locate a Python executable that has the JarvisCopilot agent dependencies installed.
 
     Priority:
       1. HERMES_WEBUI_PYTHON env var
@@ -190,19 +190,19 @@ def _discover_python(agent_dir: Path) -> str:
 _AGENT_DIR = _discover_agent_dir()
 PYTHON_EXE = _discover_python(_AGENT_DIR)
 
-# ── Inject agent dir into sys.path so Hermes modules are importable ──────────
+# ── Inject agent dir into sys.path so JarvisCopilot modules are importable ──────────
 
 # When users (or CI builds) run `pip install --target .` or
-# `pip install -t .` inside the hermes-agent checkout, third-party
+# `pip install -t .` inside the jarviscopilot checkout, third-party
 # package directories (openai/, pydantic/, requests/, etc.) end up
-# alongside real Hermes source files.  Putting _AGENT_DIR at the
+# alongside real JarvisCopilot source files.  Putting _AGENT_DIR at the
 # FRONT of sys.path means Python resolves `import pydantic` from that
 # local directory — which breaks whenever the host platform differs
 # from the container (e.g. macOS .so files inside a Linux image).
 #
 # Fix: insert _AGENT_DIR at the END of sys.path.  Python searches
 # entries in order, so site-packages resolves pip packages correctly,
-# and Hermes-specific modules (run_agent, hermes/, etc.) still
+# and Hermes-specific modules (run_agent, jarviscopilot/, etc.) still
 # resolve because they do not exist in site-packages.
 
 if _AGENT_DIR is not None:
@@ -267,7 +267,7 @@ def _get_config_path() -> Path:
 
         return get_active_hermes_home() / "config.yaml"
     except ImportError:
-        return HOME / ".hermes" / "config.yaml"
+        return HOME / ".jarviscopilot" / "config.yaml"
 
 
 _WEBUI_SESSION_SAVE_MODES = {"deferred", "eager"}
@@ -373,7 +373,7 @@ def _save_yaml_config_file(config_path: Path, config_data: dict) -> None:
     try:
         import yaml as _yaml
     except ImportError as exc:
-        raise RuntimeError("PyYAML is required to write Hermes config.yaml") from exc
+        raise RuntimeError("PyYAML is required to write JarvisCopilot config.yaml") from exc
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
@@ -482,22 +482,22 @@ def print_startup_config() -> None:
 
     if not _HERMES_FOUND:
         print(
-            f"{err}  Could not find the Hermes agent directory.\n"
+            f"{err}  Could not find the JarvisCopilot agent directory.\n"
             "      The server will start but agent features will not work.\n"
             "\n"
             "      To fix, set one of:\n"
-            "        export HERMES_WEBUI_AGENT_DIR=/path/to/hermes-agent\n"
-            "        export HERMES_HOME=/path/to/.hermes\n"
+            "        export HERMES_WEBUI_AGENT_DIR=/path/to/jarviscopilot\n"
+            "        export HERMES_HOME=/path/to/.jarviscopilot\n"
             "\n"
-            "      Or clone hermes-agent as a sibling of this repo:\n"
-            "        git clone <hermes-agent-repo> ../hermes-agent\n",
+            "      Or clone jarviscopilot as a sibling of this repo:\n"
+            "        git clone <jarviscopilot-repo> ../jarviscopilot\n",
             flush=True,
         )
 
 
 def verify_hermes_imports() -> tuple:
     """
-    Attempt to import the key Hermes modules.
+    Attempt to import the key JarvisCopilot modules.
     Returns (ok: bool, missing: list[str], errors: dict[str, str]).
     """
     required = ["run_agent"]
@@ -599,10 +599,10 @@ _DEFAULT_TOOLSETS = [
 ]
 
 _LEGACY_CLI_TOOLSET_ALIASES = {
-    # Older Hermes configs used "hermes" as the CLI composite toolset. Modern
+    # Older JarvisCopilot configs used "jarviscopilot" as the CLI composite toolset. Modern
     # JarvisCopilot exposes that split as these two registered composites; keep
     # WebUI sessions usable when pointed at an older shared config.yaml.
-    "hermes": ("hermes-cli", "hermes-api-server"),
+    "jarviscopilot": ("hermes-cli", "hermes-api-server"),
 }
 
 
@@ -685,7 +685,7 @@ _FALLBACK_MODELS = [
     {"provider": "OpenRouter", "id": "arcee-ai/trinity-large-preview:free",         "label": "Trinity Large Preview (free)"},
 ]
 
-# Provider display names for known Hermes provider IDs
+# Provider display names for known JarvisCopilot provider IDs
 _PROVIDER_DISPLAY = {
     "nous": "Nous Portal",
     "openrouter": "OpenRouter",
@@ -725,7 +725,7 @@ _PROVIDER_DISPLAY = {
 # is importable we also merge its ``_PROVIDER_ALIASES`` on top so any
 # new aliases added to the agent automatically apply.  Keeping the local
 # copy means the fix works even in environments where the agent tree is
-# not on ``sys.path`` (CI, installs without hermes-agent cloned
+# not on ``sys.path`` (CI, installs without jarviscopilot cloned
 # alongside the WebUI).
 _PROVIDER_ALIASES = {
     "glm": "zai",
@@ -1936,7 +1936,7 @@ def model_with_provider_context(model_id: str, model_provider: str | None = None
 
 
 def get_effective_default_model(config_data: dict | None = None) -> str:
-    """Resolve the effective Hermes default model from config, then env overrides."""
+    """Resolve the effective JarvisCopilot default model from config, then env overrides."""
     active_cfg = config_data if config_data is not None else cfg
     default_model = DEFAULT_MODEL
 
@@ -1957,7 +1957,7 @@ def get_effective_default_model(config_data: dict | None = None) -> str:
 
 
 # ── Reasoning config (CLI parity for /reasoning) ─────────────────────────────
-# Mirrors hermes_constants.parse_reasoning_effort so WebUI can validate without
+# Mirrors jarviscopilot_constants.parse_reasoning_effort so WebUI can validate without
 # importing from the agent tree (which may not be installed).  Any drift here
 # will show up in the shared test suite since both sides accept the same set.
 VALID_REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
@@ -2050,7 +2050,7 @@ def set_reasoning_effort(effort: str) -> dict:
 
 
 def set_hermes_default_model(model_id: str) -> dict:
-    """Persist the Hermes default model in config.yaml and reload runtime config."""
+    """Persist the JarvisCopilot default model in config.yaml and reload runtime config."""
     selected_model = str(model_id or "").strip()
     if not selected_model:
         raise ValueError("model is required")
@@ -2070,9 +2070,9 @@ def set_hermes_default_model(model_id: str) -> dict:
             selected_model
         )
         # Persist the resolved bare/slash form, NOT the `@provider:` prefix. The
-        # prefix is a WebUI-internal routing hint that the hermes-agent CLI does
+        # prefix is a WebUI-internal routing hint that the jarviscopilot CLI does
         # not understand — if we wrote `@nous:anthropic/claude-opus-4.6` to
-        # config.yaml, a user who ran `hermes` in the terminal right after
+        # config.yaml, a user who ran `jarviscopilot` in the terminal right after
         # saving via WebUI would have the agent send that literal string to the
         # Nous API, which would reject it (Nous expects `anthropic/claude-opus-4.6`,
         # not the prefixed form). The Settings picker handles the resulting
@@ -2179,13 +2179,13 @@ _models_cache_path = STATE_DIR / "models_cache.json"
 
 
 def _get_auth_store_path() -> Path:
-    """Return the auth.json path for the active Hermes profile."""
+    """Return the auth.json path for the active JarvisCopilot profile."""
     try:
         from api.profiles import get_active_hermes_home as _gah
 
         return _gah() / "auth.json"
     except ImportError:
-        return HOME / ".hermes" / "auth.json"
+        return HOME / ".jarviscopilot" / "auth.json"
 
 
 def _models_cache_file_fingerprint(path: Path) -> dict:
@@ -2642,7 +2642,7 @@ def get_available_models() -> dict:
 
     Discovery order:
       1. Read config.yaml 'model' section for active provider info
-      2. Check for known API keys in env or ~/.hermes/.env
+      2. Check for known API keys in env or ~/.jarviscopilot/.env
       3. Fetch models from custom endpoint if base_url is configured
       4. Fall back to hardcoded model list (OpenRouter-style)
 
@@ -2909,7 +2909,7 @@ def get_available_models() -> dict:
             except Exception:
                 logger.debug("Failed to check Nous Portal auth status")
         except Exception:
-            logger.debug("Failed to detect auth providers from hermes")
+            logger.debug("Failed to detect auth providers from jarviscopilot")
 
         if not _hermes_auth_used:
             try:
@@ -2917,7 +2917,7 @@ def get_available_models() -> dict:
 
                 hermes_env_path = _gah2() / ".env"
             except ImportError:
-                hermes_env_path = HOME / ".hermes" / ".env"
+                hermes_env_path = HOME / ".jarviscopilot" / ".env"
             env_keys = {}
             if hermes_env_path.exists():
                 try:
@@ -2927,7 +2927,7 @@ def get_available_models() -> dict:
                             k, v = line.split("=", 1)
                             env_keys[k.strip()] = v.strip().strip('"').strip("'")
                 except Exception:
-                    logger.debug("Failed to parse hermes env file")
+                    logger.debug("Failed to parse jarviscopilot env file")
             all_env = {**env_keys}
             for k in (
                 "ANTHROPIC_API_KEY",
@@ -2984,7 +2984,7 @@ def get_available_models() -> dict:
                 detected_providers.add("opencode-zen")
             if all_env.get("OPENCODE_GO_API_KEY"):
                 detected_providers.add("opencode-go")
-            # LM Studio: detect via LM_API_KEY + LM_BASE_URL in ~/.hermes/.env
+            # LM Studio: detect via LM_API_KEY + LM_BASE_URL in ~/.jarviscopilot/.env
             if all_env.get("LM_API_KEY") and all_env.get("LM_BASE_URL"):
                 detected_providers.add("lmstudio")
 
@@ -4086,7 +4086,7 @@ _SETTINGS_DEFAULTS = {
     "session_endless_scroll": False,  # auto-load older transcript pages while scrolling upward
     "language": "en",  # UI locale code; must match a key in static/i18n.js LOCALES
     "bot_name": os.getenv(
-        "HERMES_WEBUI_BOT_NAME", "Hermes"
+        "HERMES_WEBUI_BOT_NAME", "JarvisCopilot"
     ),  # display name for the assistant
     "sound_enabled": False,  # play notification sound when assistant finishes
     "rtl": False,  # right-to-left chat layout (chat messages + composer only)

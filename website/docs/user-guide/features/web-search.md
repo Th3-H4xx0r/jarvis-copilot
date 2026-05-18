@@ -325,7 +325,7 @@ Or check via the CLI:
 
 ```bash
 # Activate the venv and run the web tools module directly
-source ~/.jarviscopilot/hermes-agent/.venv/bin/activate
+source ~/.jarviscopilot/jarviscopilot/.venv/bin/activate
 python -m tools.web_tools
 ```
 

@@ -1,4 +1,4 @@
-"""Tests for hermes_constants module."""
+"""Tests for jarviscopilot_constants module."""
 
 import os
 from pathlib import Path
@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-import hermes_constants
-from hermes_constants import (
+import jarviscopilot_constants
+from jarviscopilot_constants import (
     VALID_REASONING_EFFORTS,
     get_default_hermes_root,
     is_container,
@@ -19,23 +19,23 @@ class TestGetDefaultHermesRoot:
     """Tests for get_default_hermes_root() — Docker/custom deployment awareness."""
 
     def test_no_hermes_home_returns_native(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is not set, returns ~/.hermes."""
+        """When HERMES_HOME is not set, returns ~/.jarviscopilot."""
         monkeypatch.delenv("HERMES_HOME", raising=False)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
-        assert get_default_hermes_root() == tmp_path / ".hermes"
+        assert get_default_hermes_root() == tmp_path / ".jarviscopilot"
 
     def test_hermes_home_is_native(self, tmp_path, monkeypatch):
-        """When HERMES_HOME = ~/.hermes, returns ~/.hermes."""
-        native = tmp_path / ".hermes"
+        """When HERMES_HOME = ~/.jarviscopilot, returns ~/.jarviscopilot."""
+        native = tmp_path / ".jarviscopilot"
         native.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(native))
         assert get_default_hermes_root() == native
 
     def test_hermes_home_is_profile(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is a profile under ~/.hermes, returns ~/.hermes."""
-        native = tmp_path / ".hermes"
+        """When HERMES_HOME is a profile under ~/.jarviscopilot, returns ~/.jarviscopilot."""
+        native = tmp_path / ".jarviscopilot"
         profile = native / "profiles" / "coder"
         profile.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -43,7 +43,7 @@ class TestGetDefaultHermesRoot:
         assert get_default_hermes_root() == native
 
     def test_hermes_home_is_docker(self, tmp_path, monkeypatch):
-        """When HERMES_HOME points outside ~/.hermes (Docker), returns HERMES_HOME."""
+        """When HERMES_HOME points outside ~/.jarviscopilot (Docker), returns HERMES_HOME."""
         docker_home = tmp_path / "opt" / "data"
         docker_home.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -51,7 +51,7 @@ class TestGetDefaultHermesRoot:
         assert get_default_hermes_root() == docker_home
 
     def test_hermes_home_is_custom_path(self, tmp_path, monkeypatch):
-        """Any HERMES_HOME outside ~/.hermes is treated as the root."""
+        """Any HERMES_HOME outside ~/.jarviscopilot is treated as the root."""
         custom = tmp_path / "my-hermes-data"
         custom.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -74,7 +74,7 @@ class TestIsContainer:
 
     def _reset_cache(self, monkeypatch):
         """Reset the cached detection result before each test."""
-        monkeypatch.setattr(hermes_constants, "_container_detected", None)
+        monkeypatch.setattr(jarviscopilot_constants, "_container_detected", None)
 
     def test_detects_dockerenv(self, monkeypatch, tmp_path):
         """/.dockerenv triggers container detection."""
@@ -112,7 +112,7 @@ class TestIsContainer:
 
     def test_caches_result(self, monkeypatch):
         """Second call uses cached value without re-probing."""
-        monkeypatch.setattr(hermes_constants, "_container_detected", True)
+        monkeypatch.setattr(jarviscopilot_constants, "_container_detected", True)
         assert is_container() is True
         # Even if we make os.path.exists return False, cached value wins
         monkeypatch.setattr(os.path, "exists", lambda p: False)

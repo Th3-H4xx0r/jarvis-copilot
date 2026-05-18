@@ -24,13 +24,13 @@ PyPI releases track **tagged versions** (major and minor releases), not every co
 
 ```bash
 jarviscopilot update --check    # see if a newer release is on PyPI
-jarviscopilot update            # runs pip install --upgrade hermes-agent
+jarviscopilot update            # runs pip install --upgrade jarviscopilot
 ```
 
 Or manually:
 
 ```bash
-pip install --upgrade hermes-agent    # or: uv pip install --upgrade hermes-agent
+pip install --upgrade jarviscopilot    # or: uv pip install --upgrade jarviscopilot
 ```
 
 :::tip
@@ -120,7 +120,7 @@ You no longer need to wrap `jarviscopilot update` in `screen` or `tmux` to survi
 jarviscopilot version
 ```
 
-Compare against the latest release at the [GitHub releases page](https://github.com/NousResearch/hermes-agent/releases).
+Compare against the latest release at the [GitHub releases page](https://github.com/NousResearch/jarviscopilot/releases).
 
 ### Updating from Messaging Platforms
 
@@ -137,7 +137,7 @@ This pulls the latest code, updates dependencies, and restarts running gateways.
 If you installed manually (not via the quick installer):
 
 ```bash
-cd /path/to/hermes-agent
+cd /path/to/jarviscopilot
 export VIRTUAL_ENV="$(pwd)/venv"
 
 # Pull latest code
@@ -156,7 +156,7 @@ jarviscopilot config migrate   # Interactively add any missing options
 If an update introduces a problem, you can roll back to a previous version:
 
 ```bash
-cd /path/to/hermes-agent
+cd /path/to/jarviscopilot
 
 # List recent versions
 git log --oneline -10
@@ -188,10 +188,10 @@ If you installed via Nix flake, updates are managed through the Nix package mana
 
 ```bash
 # Update the flake input
-nix flake update hermes-agent
+nix flake update jarviscopilot
 
 # Or rebuild with the latest
-nix profile upgrade hermes-agent
+nix profile upgrade jarviscopilot
 ```
 
 Nix installations are immutable — rollback is handled by Nix's generation system:
@@ -217,7 +217,7 @@ The uninstaller gives you the option to keep your configuration files (`~/.jarvi
 ### pip installs
 
 ```bash
-pip uninstall hermes-agent
+pip uninstall jarviscopilot
 rm -rf ~/.jarviscopilot            # Optional — keep if you plan to reinstall
 ```
 
@@ -225,7 +225,7 @@ rm -rf ~/.jarviscopilot            # Optional — keep if you plan to reinstall
 
 ```bash
 rm -f ~/.local/bin/hermes
-rm -rf /path/to/hermes-agent
+rm -rf /path/to/jarviscopilot
 rm -rf ~/.jarviscopilot            # Optional — keep if you plan to reinstall
 ```
 
@@ -233,7 +233,7 @@ rm -rf ~/.jarviscopilot            # Optional — keep if you plan to reinstall
 If you installed the gateway as a system service, stop and disable it first:
 ```bash
 jarviscopilot gateway stop
-# Linux: systemctl --user disable hermes-gateway
+# Linux: systemctl --user disable jarviscopilot-gateway
 # macOS: launchctl remove ai.jarviscopilot.gateway
 ```
 :::

@@ -220,7 +220,7 @@ def test_main_top_level_tui_accepts_toolsets(monkeypatch, main_mod):
 
     import jarviscopilot_cli.config as config_mod
 
-    monkeypatch.setattr(sys, "argv", ["hermes", "--tui", "--toolsets", "web,terminal"])
+    monkeypatch.setattr(sys, "argv", ["jarviscopilot", "--tui", "--toolsets", "web,terminal"])
     monkeypatch.setitem(
         sys.modules,
         "jarviscopilot_cli.plugins",
@@ -257,7 +257,7 @@ def test_main_top_level_oneshot_accepts_toolsets(monkeypatch, main_mod):
     import jarviscopilot_cli.config as config_mod
 
     monkeypatch.setattr(
-        sys, "argv", ["hermes", "-z", "hello", "--toolsets", "web,terminal"]
+        sys, "argv", ["jarviscopilot", "-z", "hello", "--toolsets", "web,terminal"]
     )
     monkeypatch.setitem(
         sys.modules,
@@ -391,7 +391,7 @@ def test_oneshot_rejects_disabled_mcp_toolset(monkeypatch, capsys):
     valid, error = _validate_explicit_toolsets("mcp-off")
 
     assert valid is None
-    assert error == "hermes -z: --toolsets did not contain any valid toolsets.\n"
+    assert error == "jarviscopilot -z: --toolsets did not contain any valid toolsets.\n"
     err = capsys.readouterr().err
     assert "ignoring disabled MCP servers" in err
     assert "mcp-off" in err
@@ -420,7 +420,7 @@ def test_oneshot_distinguishes_disabled_mcp_from_unknown(monkeypatch, capsys):
 
 
 def test_oneshot_wires_session_db_for_recall(monkeypatch):
-    """hermes -z bypasses HermesCLI, but recall still needs SessionDB."""
+    """jarviscopilot -z bypasses HermesCLI, but recall still needs SessionDB."""
     from jarviscopilot_cli.oneshot import _run_agent
 
     captured = {}
@@ -448,7 +448,7 @@ def test_oneshot_wires_session_db_for_recall(monkeypatch):
         return module
 
     monkeypatch.setitem(sys.modules, "run_agent", mod("run_agent", AIAgent=FakeAgent))
-    monkeypatch.setitem(sys.modules, "hermes_state", mod("hermes_state", SessionDB=FakeSessionDB))
+    monkeypatch.setitem(sys.modules, "jarviscopilot_state", mod("jarviscopilot_state", SessionDB=FakeSessionDB))
     monkeypatch.setitem(
         sys.modules,
         "jarviscopilot_cli.config",
@@ -573,15 +573,15 @@ def test_print_tui_exit_summary_includes_resume_and_token_totals(monkeypatch, ca
             return None
 
     monkeypatch.setitem(
-        sys.modules, "hermes_state", types.SimpleNamespace(SessionDB=lambda: _FakeDB())
+        sys.modules, "jarviscopilot_state", types.SimpleNamespace(SessionDB=lambda: _FakeDB())
     )
 
     main_mod._print_tui_exit_summary("20260409_000001_abc123")
     out = capsys.readouterr().out
 
     assert "Resume this session with:" in out
-    assert "hermes --tui --resume 20260409_000001_abc123" in out
-    assert 'hermes --tui -c "demo title"' in out
+    assert "jarviscopilot --tui --resume 20260409_000001_abc123" in out
+    assert 'jarviscopilot --tui -c "demo title"' in out
     assert "Tokens:         21 (in 10, out 6, cache 4, reasoning 1)" in out
 
 
@@ -613,12 +613,12 @@ def test_print_tui_exit_summary_prefers_actual_active_session_file(
     active = tmp_path / "active.json"
     active.write_text('{"session_id":"actual_session"}', encoding="utf-8")
     monkeypatch.setitem(
-        sys.modules, "hermes_state", types.SimpleNamespace(SessionDB=lambda: _FakeDB())
+        sys.modules, "jarviscopilot_state", types.SimpleNamespace(SessionDB=lambda: _FakeDB())
     )
 
     main_mod._print_tui_exit_summary("startup_resume", str(active))
     out = capsys.readouterr().out
 
     assert seen == ["actual_session"]
-    assert "hermes --tui --resume actual_session" in out
+    assert "jarviscopilot --tui --resume actual_session" in out
     assert "startup_resume" not in out

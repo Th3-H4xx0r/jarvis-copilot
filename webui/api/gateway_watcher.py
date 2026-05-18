@@ -6,7 +6,7 @@ to gateway sessions (telegram, discord, slack, etc.). When changes are
 detected, it pushes notifications to all subscribed SSE clients.
 
 This enables real-time session list updates in the sidebar without
-requiring any changes to hermes-agent.
+requiring any changes to jarviscopilot.
 """
 import hashlib
 import json
@@ -42,7 +42,7 @@ def _get_state_db_path() -> Path:
         from api.profiles import get_active_hermes_home
         hermes_home = Path(get_active_hermes_home()).expanduser().resolve()
     except Exception:
-        hermes_home = Path(os.getenv('HERMES_HOME', str(HOME / '.hermes'))).expanduser().resolve()
+        hermes_home = Path(os.getenv('HERMES_HOME', str(HOME / '.jarviscopilot'))).expanduser().resolve()
     return hermes_home / 'state.db'
 
 

@@ -1282,10 +1282,10 @@ class LineAdapter(BasePlatformAdapter):
             return web.Response(status=404, text="not found")
 
         try:
-            from hermes_constants import get_hermes_home
+            from jarviscopilot_constants import get_hermes_home
             hermes_home = Path(get_hermes_home()).resolve()
         except Exception:
-            hermes_home = Path.home().joinpath(".hermes").resolve()
+            hermes_home = Path.home().joinpath(".jarviscopilot").resolve()
 
         allowed_roots = {
             Path(tempfile.gettempdir()).resolve(),
@@ -1488,14 +1488,14 @@ def validate_config(config) -> bool:
 
 
 def is_connected(config) -> bool:
-    """Surface in ``hermes status`` even before the adapter is instantiated."""
+    """Surface in ``jarviscopilot status`` even before the adapter is instantiated."""
     return validate_config(config)
 
 
 def _env_enablement() -> Optional[Dict[str, Any]]:
     """Auto-seed PlatformConfig.extra from env-only setups.
 
-    Lets ``hermes status`` reflect a LINE configuration that lives entirely
+    Lets ``jarviscopilot status`` reflect a LINE configuration that lives entirely
     in ``.env`` without a ``platforms.line`` block in ``config.yaml``.
     Mirrors the IRC plugin's pattern.
     """
@@ -1562,10 +1562,10 @@ async def _standalone_send(
 
 
 def interactive_setup() -> None:
-    """Minimal stdin wizard for ``hermes setup line``.
+    """Minimal stdin wizard for ``jarviscopilot setup line``.
 
     Mirrors the irc/teams style: prompts for the two required vars, plus
-    one optional public URL. Writes to ``~/.hermes/.env`` via ``jarviscopilot_cli.config``.
+    one optional public URL. Writes to ``~/.jarviscopilot/.env`` via ``jarviscopilot_cli.config``.
     """
     print()
     print("LINE Messaging API setup")
@@ -1577,7 +1577,7 @@ def interactive_setup() -> None:
     try:
         from jarviscopilot_cli.config import get_env_var, set_env_var
     except ImportError:
-        print("jarviscopilot_cli.config not available; set LINE_* vars manually in ~/.hermes/.env")
+        print("jarviscopilot_cli.config not available; set LINE_* vars manually in ~/.jarviscopilot/.env")
         return
 
     def _prompt(var: str, prompt: str, *, secret: bool = False) -> None:
@@ -1604,7 +1604,7 @@ def interactive_setup() -> None:
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system at startup."""
+    """Plugin entry point — called by the JarvisCopilot plugin system at startup."""
     ctx.register_platform(
         name="line",
         label="LINE",

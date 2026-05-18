@@ -1,4 +1,4 @@
-"""Tests for jarviscopilot_cli.plugins_cmd — the ``hermes plugins`` CLI subcommand."""
+"""Tests for jarviscopilot_cli.plugins_cmd — the ``jarviscopilot plugins`` CLI subcommand."""
 
 from __future__ import annotations
 
@@ -400,7 +400,7 @@ class TestCmdList:
 
 
 class TestDiscoverAllPlugins:
-    """Exercise the recursive scan that powers ``hermes plugins list``.
+    """Exercise the recursive scan that powers ``jarviscopilot plugins list``.
 
     Mirrors the layouts the runtime loader handles
     (:meth:`PluginManager._scan_directory_level`): flat plugins at the root,
@@ -498,7 +498,7 @@ class TestDiscoverAllPlugins:
 
     def test_user_memory_subdir_is_still_scanned(self, tmp_path, monkeypatch):
         """The memory/context_engine skip only applies to *bundled* — a user
-        plugin at ``~/.hermes/plugins/memory/<x>/`` should still be discovered
+        plugin at ``~/.jarviscopilot/plugins/memory/<x>/`` should still be discovered
         so the user can see what they installed."""
         bundled, user, discover = self._entries_by_key(tmp_path, monkeypatch)
         self._write_plugin(user, ["memory", "my-custom-store"])

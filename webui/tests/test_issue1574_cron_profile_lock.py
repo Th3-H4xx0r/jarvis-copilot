@@ -63,13 +63,13 @@ def _activate_spawn_fake_agent(fake_agent_root: Path):
     parts = [
         p
         for p in existing.split(os.pathsep)
-        if p and ("hermes-agent" not in p or p == fake_path)
+        if p and ("jarviscopilot" not in p or p == fake_path)
     ]
     os.environ["PYTHONPATH"] = os.pathsep.join([fake_path, *[p for p in parts if p != fake_path]])
     sys.path[:] = [
         p
         for p in sys.path
-        if not p or "hermes-agent" not in p or p == fake_path
+        if not p or "jarviscopilot" not in p or p == fake_path
     ]
     if fake_path not in sys.path:
         sys.path.insert(0, fake_path)
@@ -85,14 +85,14 @@ def _activate_spawn_fake_agent(fake_agent_root: Path):
 
 
 def _real_hermes_agent_editable_install_present() -> bool:
-    """Detect a developer-machine editable install of hermes-agent.
+    """Detect a developer-machine editable install of jarviscopilot.
 
     The two tests that spawn a real subprocess + import the fake `cron.scheduler`
     from ``HERMES_WEBUI_AGENT_DIR`` only work when the spawn child does NOT have
     a competing real `cron.scheduler` reachable via the venv's editable finder.
     On CI runners (and most production installs) there's no editable install,
     so the fake at ``fake_agent_root`` is the only `cron.scheduler` Python can
-    resolve; on a maintainer's dev machine an editable install of hermes-agent
+    resolve; on a maintainer's dev machine an editable install of jarviscopilot
     is registered through a `.pth` file in site-packages, and the spawn child
     will resolve the real `cron.scheduler` first — which then fails because the
     real `run_job` requires a configured inference provider.
@@ -249,7 +249,7 @@ def test_manual_cron_subprocess_drains_large_result_before_join(tmp_path):
     if _real_hermes_agent_editable_install_present():
         import pytest as _pytest
         _pytest.skip(
-            "skipped on dev machines with an editable hermes-agent install — "
+            "skipped on dev machines with an editable jarviscopilot install — "
             "the spawn child resolves the real cron.scheduler first instead of "
             "the fake one written under HERMES_WEBUI_AGENT_DIR. Runs cleanly on CI."
         )
@@ -353,7 +353,7 @@ def test_cron_job_subprocess_executes_under_selected_profile_home(tmp_path, monk
     if _real_hermes_agent_editable_install_present():
         import pytest as _pytest
         _pytest.skip(
-            "skipped on dev machines with an editable hermes-agent install — "
+            "skipped on dev machines with an editable jarviscopilot install — "
             "the spawn child resolves the real cron.scheduler first instead of "
             "the fake one written under HERMES_WEBUI_AGENT_DIR. Runs cleanly on CI."
         )

@@ -2,7 +2,7 @@
 
 Pins three invariants:
 
-1. The `hermes-agent-src` named volume is mounted READ-ONLY on the WebUI
+1. The `jarviscopilot-src` named volume is mounted READ-ONLY on the WebUI
    service in both multi-container compose files. The WebUI only reads it to
    install agent Python deps at startup; this is defence-in-depth against a
    compromised WebUI writing into the agent's source tree (Concern raised by
@@ -14,7 +14,7 @@ Pins three invariants:
    Docker Desktop on Windows.
 
 3. `docs/docker.md` documents the agent-image upgrade procedure (`docker volume
-   rm hermes-agent-src`) — the root cause of #1416.
+   rm jarviscopilot-src`) — the root cause of #1416.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 
-# ── 1: hermes-agent-src must be read-only on the WebUI mount ────────────────
+# ── 1: jarviscopilot-src must be read-only on the WebUI mount ────────────────
 
 
 def test_two_container_webui_mounts_agent_src_readonly():
@@ -33,9 +33,9 @@ def test_two_container_webui_mounts_agent_src_readonly():
     cannot rewrite the agent source it then imports."""
     src = (REPO / "docker-compose.two-container.yml").read_text(encoding="utf-8")
     assert (
-        "hermes-agent-src:/home/hermeswebui/.hermes/hermes-agent:ro" in src
+        "jarviscopilot-src:/home/hermeswebui/.jarviscopilot/jarviscopilot:ro" in src
     ), (
-        "two-container: the WebUI must mount hermes-agent-src with :ro. "
+        "two-container: the WebUI must mount jarviscopilot-src with :ro. "
         "Without :ro, a compromised WebUI process can rewrite the agent's "
         "Python source tree."
     )
@@ -44,9 +44,9 @@ def test_two_container_webui_mounts_agent_src_readonly():
 def test_three_container_webui_mounts_agent_src_readonly():
     src = (REPO / "docker-compose.three-container.yml").read_text(encoding="utf-8")
     assert (
-        "hermes-agent-src:/home/hermeswebui/.hermes/hermes-agent:ro" in src
+        "jarviscopilot-src:/home/hermeswebui/.jarviscopilot/jarviscopilot:ro" in src
     ), (
-        "three-container: the WebUI must mount hermes-agent-src with :ro."
+        "three-container: the WebUI must mount jarviscopilot-src with :ro."
     )
 
 
@@ -55,16 +55,16 @@ def test_agent_service_keeps_writable_agent_src_mount():
     It must stay read-write — only the WebUI side is read-only."""
     for fn in ("docker-compose.two-container.yml", "docker-compose.three-container.yml"):
         src = (REPO / fn).read_text(encoding="utf-8")
-        # The agent's mount is `hermes-agent-src:/opt/hermes` (no :ro suffix).
+        # The agent's mount is `jarviscopilot-src:/opt/hermes` (no :ro suffix).
         # Look for the line that has /opt/hermes without :ro.
         agent_lines = [
             line for line in src.splitlines()
-            if "hermes-agent-src:/opt/hermes" in line
+            if "jarviscopilot-src:/opt/hermes" in line
         ]
-        assert agent_lines, f"{fn}: agent must mount hermes-agent-src at /opt/hermes"
+        assert agent_lines, f"{fn}: agent must mount jarviscopilot-src at /opt/hermes"
         for line in agent_lines:
             assert not line.rstrip().endswith(":ro"), (
-                f"{fn}: agent's hermes-agent-src mount must be writable "
+                f"{fn}: agent's jarviscopilot-src mount must be writable "
                 f"(it populates /opt/hermes on first run): {line!r}"
             )
 
@@ -105,7 +105,7 @@ def test_single_container_workspace_already_uses_home_env_var():
 
 
 def test_docker_md_documents_agent_image_upgrade():
-    """The `hermes-agent-src` named volume caches the agent source on first
+    """The `jarviscopilot-src` named volume caches the agent source on first
     `up` and is reused verbatim on every subsequent `up`, even after a fresh
     `docker pull` of the agent image. This is the root cause of #1416. The
     docs must give users the explicit `docker volume rm` recipe so they don't
@@ -117,7 +117,7 @@ def test_docker_md_documents_agent_image_upgrade():
     assert "docker volume rm" in docs, (
         "docs/docker.md must show the `docker volume rm` step in the upgrade recipe."
     )
-    assert "hermes-agent-src" in docs
+    assert "jarviscopilot-src" in docs
     # Cross-reference to the original issue so users searching for the
     # symptom land in the right place
     assert "#1416" in docs

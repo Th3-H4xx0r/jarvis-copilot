@@ -1,7 +1,7 @@
-"""One-shot data-dir migration: ~/.hermes/ → ~/.jarviscopilot/.
+"""One-shot data-dir migration: ~/.jarviscopilot/ → ~/.jarviscopilot/.
 
 Strategy: rename the data dir to the new name, then create a link at
-the old path so existing code that still reads ``Path.home() / ".hermes"``
+the old path so existing code that still reads ``Path.home() / ".jarviscopilot"``
 transparently lands on the new dir. New code reads from
 ``Path.home() / ".jarviscopilot"`` directly.
 
@@ -10,7 +10,7 @@ On Windows: directory junction (mklink /J). Does not need admin.
 
 If migration can't be done (e.g. permissions, the new dir already
 exists with content, etc.), the function logs and exits without
-raising — original ``~/.hermes/`` is left untouched so the user's data
+raising — original ``~/.jarviscopilot/`` is left untouched so the user's data
 is never at risk.
 
 Idempotent. Safe to call at every entry point.
@@ -78,7 +78,7 @@ def migrate() -> dict:
       - detail: human-readable explanation
     """
     home = _home()
-    old = home / ".hermes"
+    old = home / ".jarviscopilot"
     new = home / ".jarviscopilot"
 
     # Already migrated: new dir exists, old is a link to it (or absent).
@@ -95,7 +95,7 @@ def migrate() -> dict:
 
     # Nothing to migrate.
     if not old.exists():
-        return {"status": "noop", "detail": "no legacy ~/.hermes/ to migrate"}
+        return {"status": "noop", "detail": "no legacy ~/.jarviscopilot/ to migrate"}
 
     # Old exists, new doesn't. Do the rename + link.
     if not new.parent.exists():
@@ -112,9 +112,9 @@ def migrate() -> dict:
             "detail": f"rename {old} -> {new} failed: {exc}",
         }
 
-    # Back-compat link so legacy ~/.hermes/ readers keep working.
+    # Back-compat link so legacy ~/.jarviscopilot/ readers keep working.
     if not _make_directory_link(new, old):
-        # The rename succeeded but the link didn't. Code reading ~/.hermes/
+        # The rename succeeded but the link didn't. Code reading ~/.jarviscopilot/
         # will now fail to find data. We refuse to leave the user in this
         # half-migrated state — swap back.
         try:
@@ -129,14 +129,14 @@ def migrate() -> dict:
         return {
             "status": "failed",
             "detail": (
-                "rename succeeded but ~/.hermes/ → ~/.jarviscopilot/ link "
+                "rename succeeded but ~/.jarviscopilot/ → ~/.jarviscopilot/ link "
                 "could not be created (rolled back to original location)"
             ),
         }
 
     return {
         "status": "migrated",
-        "detail": f"~/.hermes/ moved to ~/.jarviscopilot/, ~/.hermes/ is now a link",
+        "detail": f"~/.jarviscopilot/ moved to ~/.jarviscopilot/, ~/.jarviscopilot/ is now a link",
     }
 
 

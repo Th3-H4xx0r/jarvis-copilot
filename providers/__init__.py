@@ -2,7 +2,7 @@
 
 Provider profiles can live in two places:
 
-1. Bundled plugins: ``plugins/model-providers/<name>/`` (shipped with hermes-agent)
+1. Bundled plugins: ``plugins/model-providers/<name>/`` (shipped with jarviscopilot)
 2. User plugins: ``$HERMES_HOME/plugins/model-providers/<name>/``
 
 Each plugin directory contains:
@@ -91,7 +91,7 @@ def list_providers() -> list[ProviderProfile]:
 def _user_plugins_dir() -> Path | None:
     """Return ``$HERMES_HOME/plugins/model-providers/`` if it exists."""
     try:
-        from hermes_constants import get_hermes_home
+        from jarviscopilot_constants import get_hermes_home
 
         d = get_hermes_home() / "plugins" / "model-providers"
         return d if d.is_dir() else None
@@ -153,7 +153,7 @@ def _discover_providers() -> None:
         return
     _discovered = True
 
-    # 1. Bundled plugins — shipped with hermes-agent.
+    # 1. Bundled plugins — shipped with jarviscopilot.
     if _BUNDLED_PLUGINS_DIR.is_dir():
         for child in sorted(_BUNDLED_PLUGINS_DIR.iterdir()):
             if not child.is_dir() or child.name.startswith(("_", ".")):

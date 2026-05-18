@@ -30,7 +30,7 @@ import re
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 from typing import Dict, Any, List, Optional
 
 from utils import atomic_replace
@@ -79,7 +79,7 @@ _MEMORY_THREAT_PATTERNS = [
     # Persistence via shell rc
     (r'authorized_keys', "ssh_backdoor"),
     (r'\$HOME/\.ssh|\~/\.ssh', "ssh_access"),
-    (r'\$HOME/\.hermes/\.env|\~/\.hermes/\.env', "hermes_env"),
+    (r'\$HOME/\.jarviscopilot/\.env|\~/\.jarviscopilot/\.env', "hermes_env"),
 ]
 
 # Subset of invisible chars for injection detection

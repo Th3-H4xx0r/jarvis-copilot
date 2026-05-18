@@ -70,13 +70,13 @@ def test_569_fallback_preserved():
 def test_668_uid_autodetect_checks_hermes_home():
     """docker_init.bash must probe hermes-home dirs for UID in two-container setups.
 
-    When hermes-agent and hermes-webui run in separate containers sharing a
-    named volume, /workspace may not exist but ~/.hermes will be owned by the
+    When jarviscopilot and jarviscopilot-webui run in separate containers sharing a
+    named volume, /workspace may not exist but ~/.jarviscopilot will be owned by the
     agent's UID. The init script must probe it so the webui user is remapped
     to match (#668).
     """
-    assert "/home/hermeswebui/.hermes" in INIT_SH, (
-        "docker_init.bash must probe /home/hermeswebui/.hermes for UID detection "
+    assert "/home/hermeswebui/.jarviscopilot" in INIT_SH, (
+        "docker_init.bash must probe /home/hermeswebui/.jarviscopilot for UID detection "
         "to support two-container setups where /workspace may not exist (#668)"
     )
 
@@ -89,7 +89,7 @@ def test_668_gid_autodetect_checks_hermes_home():
         "GID auto-detect comment must be updated to mention shared volumes (#668)"
     )
     gid_block = INIT_SH[gid_detect_start:gid_detect_start + 600]
-    assert "/home/hermeswebui/.hermes" in gid_block or "HERMES_HOME" in gid_block, (
+    assert "/home/hermeswebui/.jarviscopilot" in gid_block or "HERMES_HOME" in gid_block, (
         "GID auto-detect block must probe hermes-home dirs (#668)"
     )
 
@@ -107,9 +107,9 @@ def test_668_uid_probe_loop_uses_break():
 
 def test_668_hermes_home_probe_before_workspace():
     """Hermes-home probe must appear before /workspace probe in docker_init.bash (#668)."""
-    hermes_home_pos = INIT_SH.find("/home/hermeswebui/.hermes")
+    hermes_home_pos = INIT_SH.find("/home/hermeswebui/.jarviscopilot")
     workspace_pos = INIT_SH.find('if [ -d "/workspace" ]')
-    assert hermes_home_pos != -1, "/home/hermeswebui/.hermes probe not found"
+    assert hermes_home_pos != -1, "/home/hermeswebui/.jarviscopilot probe not found"
     assert workspace_pos != -1, "/workspace probe not found"
     assert hermes_home_pos < workspace_pos, (
         "Hermes-home probe must come before /workspace probe — "

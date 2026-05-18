@@ -245,7 +245,7 @@ class TestSpawnEnvIsolation:
     def test_kanban_worker_adds_only_kanban_writable_root(self, monkeypatch):
         """Codex-runtime Kanban workers need to write board state outside
         their scratch/worktree workspace, but should not fall back to
-        danger-full-access. Hermes passes a narrow app-server config override
+        danger-full-access. JarvisCopilot passes a narrow app-server config override
         for the Kanban root only.
         """
         import subprocess
@@ -277,11 +277,11 @@ class TestSpawnEnvIsolation:
 
         monkeypatch.setattr(subprocess, "Popen", FakePopen)
         monkeypatch.setenv("HOME", "/users/alice")
-        monkeypatch.setenv("HERMES_HOME", "/users/alice/.hermes/profiles/backend-worker")
+        monkeypatch.setenv("HERMES_HOME", "/users/alice/.jarviscopilot/profiles/backend-worker")
         monkeypatch.setenv("HERMES_KANBAN_TASK", "t_smoke")
         monkeypatch.setenv(
             "HERMES_KANBAN_DB",
-            "/users/alice/.hermes/kanban/boards/smoke/kanban.db",
+            "/users/alice/.jarviscopilot/kanban/boards/smoke/kanban.db",
         )
 
         client = cas.CodexAppServerClient(codex_bin="codex")
@@ -291,7 +291,7 @@ class TestSpawnEnvIsolation:
         assert cmd[:2] == ["codex", "app-server"]
         assert 'sandbox_mode="workspace-write"' in cmd
         assert (
-            'sandbox_workspace_write.writable_roots=["/users/alice/.hermes/kanban/boards/smoke"]'
+            'sandbox_workspace_write.writable_roots=["/users/alice/.jarviscopilot/kanban/boards/smoke"]'
             in cmd
         )
         assert "sandbox_workspace_write.network_access=false" in cmd

@@ -1,8 +1,8 @@
-"""Persistent session goals — the Ralph loop for Hermes.
+"""Persistent session goals — the Ralph loop for JarvisCopilot.
 
 A goal is a free-form user objective that stays active across turns. After
 each turn completes, a small judge call asks an auxiliary model "is this
-goal satisfied by the assistant's last response?". If not, Hermes feeds a
+goal satisfied by the assistant's last response?". If not, JarvisCopilot feeds a
 continuation prompt back into the same session and keeps working until the
 goal is done, turn budget is exhausted, the user pauses/clears it, or the
 user sends a new message (which takes priority and pauses the goal loop).
@@ -216,8 +216,8 @@ def _get_session_db() -> Optional[Any]:
     non-standard launchers can still use the GoalManager.
     """
     try:
-        from hermes_constants import get_hermes_home
-        from hermes_state import SessionDB
+        from jarviscopilot_constants import get_hermes_home
+        from jarviscopilot_state import SessionDB
 
         home = str(get_hermes_home())
     except Exception as exc:  # pragma: no cover
@@ -699,7 +699,7 @@ class GoalManager:
                 "message": (
                     f"⏸ Goal paused — the judge model ({state.consecutive_parse_failures} turns) "
                     "isn't returning the required JSON verdict. Route the judge to a stricter "
-                    "model in ~/.hermes/config.yaml:\n"
+                    "model in ~/.jarviscopilot/config.yaml:\n"
                     "  auxiliary:\n"
                     "    goal_judge:\n"
                     "      provider: openrouter\n"

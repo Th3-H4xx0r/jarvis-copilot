@@ -63,11 +63,11 @@ fi
 # Auto-detect from mounted volumes if still unset (#569, #668).
 # On macOS, host UIDs start at 501. Using the wrong UID means the container
 # user cannot read the bind-mounted files, making the workspace appear empty.
-# In two-container setups (hermes-agent + hermes-webui), the shared hermes-home
+# In two-container setups (jarviscopilot + jarviscopilot-webui), the shared hermes-home
 # volume may be owned by the agent container's UID — detect from there first.
 if [ -z "${WANTED_UID+x}" ] || [ "${WANTED_UID}" = "1024" ]; then
   # Priority 1: hermes-home shared volume — covers two-container Zeabur/Compose setups (#668)
-  for _probe_dir in "/home/hermeswebui/.hermes" "$HERMES_HOME" "/opt/data"; do
+  for _probe_dir in "/home/hermeswebui/.jarviscopilot" "$HERMES_HOME" "/opt/data"; do
     if [ -d "$_probe_dir" ]; then
       _detected_uid=$(stat -c '%u' "$_probe_dir" 2>/dev/null || echo "")
       if [ -n "$_detected_uid" ] && [ "$_detected_uid" != "0" ]; then
@@ -99,7 +99,7 @@ fi
 # Auto-detect GID from mounted volumes to match (#569, #668)
 if [ -z "${WANTED_GID+x}" ] || [ "${WANTED_GID}" = "1024" ]; then
   # Priority 1: hermes-home shared volume
-  for _probe_dir in "/home/hermeswebui/.hermes" "$HERMES_HOME" "/opt/data"; do
+  for _probe_dir in "/home/hermeswebui/.jarviscopilot" "$HERMES_HOME" "/opt/data"; do
     if [ -d "$_probe_dir" ]; then
       _detected_gid=$(stat -c '%g' "$_probe_dir" 2>/dev/null || echo "")
       if [ -n "$_detected_gid" ] && [ "$_detected_gid" != "0" ]; then
@@ -182,20 +182,20 @@ load_env() {
 }
 
 chown_home_hermeswebui() {
-  # macOS Docker bind mounts can expose hermes-agent git object packs as
+  # macOS Docker bind mounts can expose jarviscopilot git object packs as
   # read-only host files. The runtime only needs to read those existing objects;
   # requiring chown on them makes startup fail before WebUI can run (#2237).
   #
   # Multi-container compose (#2470) additionally mounts the entire
-  # hermes-agent-src volume read-only on the WebUI side because the WebUI only
+  # jarviscopilot-src volume read-only on the WebUI side because the WebUI only
   # reads it for `uv pip install`. On a :ro mount, chown returns EROFS for any
   # file inside the subtree, which would propagate to `set -e` and kill startup
   # before the WebUI can run. Either way, the WebUI never writes to the agent
-  # source — prune the entire hermes-agent path from the chown walk so a
+  # source — prune the entire jarviscopilot path from the chown walk so a
   # read-only or partially-read-only mount doesn't break the rest of the home
   # ownership alignment.
   find /home/hermeswebui \
-    -path "/home/hermeswebui/.hermes/hermes-agent" -prune \
+    -path "/home/hermeswebui/.jarviscopilot/jarviscopilot" -prune \
     -o -exec chown -h "${WANTED_UID}:${WANTED_GID}" {} +
 }
 
@@ -299,9 +299,9 @@ rm -f $it || error_exit "Failed to delete test file in /app"
 
 ######## Environment variables (consume AFTER the load_env)
 
-echo ""; echo "== Checking required environment variables for hermes-webui"
+echo ""; echo "== Checking required environment variables for jarviscopilot-webui"
 
-echo ""; echo "-- HERMES_WEBUI_STATE_DIR: Where to store sessions, workspaces, and other state (default: ~/.hermes/webui)"
+echo ""; echo "-- HERMES_WEBUI_STATE_DIR: Where to store sessions, workspaces, and other state (default: ~/.jarviscopilot/webui)"
 if [ -z "${HERMES_WEBUI_STATE_DIR+x}" ]; then error_exit "HERMES_WEBUI_STATE_DIR not set"; fi; 
 echo "-- HERMES_WEBUI_STATE_DIR: $HERMES_WEBUI_STATE_DIR"
 if [ ! -d "$HERMES_WEBUI_STATE_DIR" ]; then mkdir -p $HERMES_WEBUI_STATE_DIR || error_exit "Failed to create state directory at $HERMES_WEBUI_STATE_DIR"; fi
@@ -327,7 +327,7 @@ else
 fi
 
 echo ""; echo "==================="
-echo ""; echo "== Installing uv and creating a new virtual environment for hermes-webui"
+echo ""; echo "== Installing uv and creating a new virtual environment for jarviscopilot-webui"
 
 export PATH="/home/hermeswebui/.local/bin/:$PATH"
 if command -v uv &>/dev/null; then
@@ -353,7 +353,7 @@ export VIRTUAL_ENV=/app/venv
 test -d /app/venv
 test -f /app/venv/bin/activate
 
-echo "";echo "== Activating hermes webui's virtual environment"
+echo "";echo "== Activating jarviscopilot webui's virtual environment"
 source /app/venv/bin/activate || error_exit "Failed to activate hermeswebui virtual environment"
 test -x /app/venv/bin/python3
 
@@ -373,14 +373,14 @@ ensure_hindsight_client_docker_dependency() {
 if [ -f /app/venv/.deps_installed ]; then
   echo ""; echo "== Dependencies already installed — skipping (fast restart)"
 else
-  echo ""; echo "== Installing hermes-webui dependencies"
+  echo ""; echo "== Installing jarviscopilot-webui dependencies"
   uv pip install -r requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org
   uv pip install -U pip setuptools --trusted-host pypi.org --trusted-host files.pythonhosted.org
   test -x /app/venv/bin/pip
 
-  echo ""; echo "== Adding hermes-agent's pyproject.toml base dependencies to the virtual environment"
+  echo ""; echo "== Adding jarviscopilot's pyproject.toml base dependencies to the virtual environment"
   _agent_paths=(
-    "/home/hermeswebui/.hermes/hermes-agent"
+    "/home/hermeswebui/.jarviscopilot/jarviscopilot"
     "/opt/hermes"
   )
   _agent_src=""
@@ -391,18 +391,18 @@ else
     fi
   done
   if [ -n "$_agent_src" ]; then
-    uv pip install "$_agent_src[all]" --trusted-host pypi.org --trusted-host files.pythonhosted.org || error_exit "Failed to install hermes-agent's requirements"
+    uv pip install "$_agent_src[all]" --trusted-host pypi.org --trusted-host files.pythonhosted.org || error_exit "Failed to install jarviscopilot's requirements"
   else
     echo ""
-    echo "!! WARNING: hermes-agent source not found."
+    echo "!! WARNING: jarviscopilot source not found."
     echo "!!   Looked in: ${_agent_paths[0]}"
     echo "!!              ${_agent_paths[1]}"
     echo "!! The WebUI will start with reduced functionality (no model auto-detection,"
     echo "!! no personality routing, no CLI session imports)."
     echo "!! To fix: mount the agent source volume into the container:"
-    echo "!!   -v /path/to/hermes-agent:/home/hermeswebui/.hermes/hermes-agent"
+    echo "!!   -v /path/to/jarviscopilot:/home/hermeswebui/.jarviscopilot/jarviscopilot"
     echo "!! Or see the two-container compose example:"
-    echo "!!   https://github.com/nesquena/hermes-webui/blob/master/docker-compose.two-container.yml"
+    echo "!!   https://github.com/nesquena/jarviscopilot-webui/blob/master/docker-compose.two-container.yml"
     echo ""
   fi
   touch /app/venv/.deps_installed
@@ -410,8 +410,8 @@ fi
 
 ensure_hindsight_client_docker_dependency
 
-echo ""; echo "== Running hermes-webui"
-cd /app; python server.py || error_exit "hermes-webui failed or exited with an error"
+echo ""; echo "== Running jarviscopilot-webui"
+cd /app; python server.py || error_exit "jarviscopilot-webui failed or exited with an error"
 
 # we should never be here because the server should be running indefinitely, but if we are, we exit safely
 ok_exit "Clean exit"

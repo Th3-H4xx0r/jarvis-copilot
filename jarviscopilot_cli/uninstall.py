@@ -3,7 +3,7 @@ JarvisCopilot Uninstaller.
 
 Provides options for:
 - Full uninstall: Remove everything including configs and data
-- Keep data: Remove code but keep ~/.hermes/ (configs, sessions, logs)
+- Keep data: Remove code but keep ~/.jarviscopilot/ (configs, sessions, logs)
 """
 
 import os
@@ -11,7 +11,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 
 from jarviscopilot_cli.colors import Colors, color
 
@@ -50,7 +50,7 @@ def find_shell_configs() -> list:
 
 
 def remove_path_from_shell_configs():
-    """Remove Hermes PATH entries from shell configuration files."""
+    """Remove JarvisCopilot PATH entries from shell configuration files."""
     configs = find_shell_configs()
     removed_from = []
     
@@ -59,22 +59,22 @@ def remove_path_from_shell_configs():
             content = config_path.read_text()
             original_content = content
             
-            # Remove lines containing hermes-agent or hermes PATH entries
+            # Remove lines containing jarviscopilot or jarviscopilot PATH entries
             new_lines = []
             skip_next = False
             
             for line in content.split('\n'):
                 # Skip the "# JarvisCopilot" comment and following line
-                if '# JarvisCopilot' in line or '# hermes-agent' in line:
+                if '# JarvisCopilot' in line or '# jarviscopilot' in line:
                     skip_next = True
                     continue
-                if skip_next and ('hermes' in line.lower() and 'PATH' in line):
+                if skip_next and ('jarviscopilot' in line.lower() and 'PATH' in line):
                     skip_next = False
                     continue
                 skip_next = False
                 
-                # Remove any PATH line containing hermes
-                if 'hermes' in line.lower() and ('PATH=' in line or 'path=' in line.lower()):
+                # Remove any PATH line containing jarviscopilot
+                if 'jarviscopilot' in line.lower() and ('PATH=' in line or 'path=' in line.lower()):
                     continue
                     
                 new_lines.append(line)
@@ -96,9 +96,9 @@ def remove_path_from_shell_configs():
 
 
 def remove_wrapper_script():
-    """Remove the hermes wrapper script if it exists."""
+    """Remove the jarviscopilot wrapper script if it exists."""
     wrapper_paths = [
-        Path.home() / ".local" / "bin" / "hermes",
+        Path.home() / ".local" / "bin" / "jarviscopilot",
         Path("/usr/local/bin/hermes"),
     ]
     
@@ -108,7 +108,7 @@ def remove_wrapper_script():
             try:
                 # Check if it's our wrapper (contains jarviscopilot_cli reference)
                 content = wrapper.read_text()
-                if 'jarviscopilot_cli' in content or 'hermes-agent' in content:
+                if 'jarviscopilot_cli' in content or 'jarviscopilot' in content:
                     wrapper.unlink()
                     removed.append(wrapper)
             except Exception as e:
@@ -125,7 +125,7 @@ def uninstall_gateway_service():
     - Linux: user + system systemd services (with proper DBUS env setup)
     - macOS: launchd plists
     - Windows: Scheduled Task + Startup-folder fallback, via ``gateway_windows``
-    - All platforms: standalone ``hermes gateway run`` processes
+    - All platforms: standalone ``jarviscopilot gateway run`` processes
     - Termux/Android: skips systemd (no systemd on Android), still kills standalone processes
     """
     import platform
@@ -240,15 +240,15 @@ def uninstall_gateway_service():
 #      don't live in ~/.bashrc — they're in the Windows registry at
 #      HKCU\Environment.
 #   2. Prepends to User-scope ``PATH`` (same registry location) entries
-#      like ``%LOCALAPPDATA%\hermes\git\cmd``, ``%LOCALAPPDATA%\hermes\git\bin``,
-#      ``%LOCALAPPDATA%\hermes\git\usr\bin``, ``%LOCALAPPDATA%\hermes\node``.
+#      like ``%LOCALAPPDATA%\jarviscopilot\git\cmd``, ``%LOCALAPPDATA%\jarviscopilot\git\bin``,
+#      ``%LOCALAPPDATA%\jarviscopilot\git\usr\bin``, ``%LOCALAPPDATA%\jarviscopilot\node``.
 #      Again not in any rc file — only accessible via the registry or the
 #      .NET [Environment] API.
-#   3. Downloads PortableGit to ``%LOCALAPPDATA%\hermes\git\`` and Node to
-#      ``%LOCALAPPDATA%\hermes\node\`` as user-scoped, isolated copies.
+#   3. Downloads PortableGit to ``%LOCALAPPDATA%\jarviscopilot\git\`` and Node to
+#      ``%LOCALAPPDATA%\jarviscopilot\node\`` as user-scoped, isolated copies.
 #      These are ~200MB combined and serve no purpose after uninstall.
-#   4. On the ``hermes dashboard`` + gateway paths, drops files into
-#      ``%LOCALAPPDATA%\hermes\gateway-service\`` and sometimes
+#   4. On the ``jarviscopilot dashboard`` + gateway paths, drops files into
+#      ``%LOCALAPPDATA%\jarviscopilot\gateway-service\`` and sometimes
 #      ``%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\`` — the
 #      latter is handled by ``gateway_windows.uninstall()`` already.
 #
@@ -264,10 +264,10 @@ def _hermes_path_markers(hermes_home: Path) -> list[str]:
     """Path-entry substrings that identify Hermes-owned User-PATH entries."""
     root = str(hermes_home).rstrip("\\/")
     # Match on prefix so sub-entries (git\cmd, git\bin, git\usr\bin, node, etc.)
-    # all get swept.  Also match the bare hermes-agent install dir.
-    markers = [root + "\\hermes-agent", root + "\\git", root + "\\node", root + "\\venv"]
+    # all get swept.  Also match the bare jarviscopilot install dir.
+    markers = [root + "\\jarviscopilot", root + "\\git", root + "\\node", root + "\\venv"]
     # Also match if HERMES_HOME was customised to somewhere else — find-and-nuke
-    # any entry whose path component contains "hermes".  We don't want to catch
+    # any entry whose path component contains "jarviscopilot".  We don't want to catch
     # unrelated entries like "chermes-foo" or "ephermeral", so we look for
     # backslash-hermes as a word-ish boundary.
     return markers
@@ -340,7 +340,7 @@ def remove_hermes_env_vars_windows() -> list[str]:
 
 def remove_portable_tooling_windows(hermes_home: Path) -> list[Path]:
     """Delete PortableGit and Node installs the Windows installer created under
-    ``%LOCALAPPDATA%\\hermes\\``.  Only called on full uninstall; they're
+    ``%LOCALAPPDATA%\\jarviscopilot\\``.  Only called on full uninstall; they're
     isolated from any system Git / Node so they cannot break other tools."""
     removed: list[Path] = []
     for sub in ("git", "node", "gateway-service"):
@@ -362,7 +362,7 @@ def _is_windows() -> bool:
 def _is_default_hermes_home(hermes_home: Path) -> bool:
     """Return True when ``hermes_home`` points at the default (non-profile) root."""
     try:
-        from hermes_constants import get_default_hermes_root
+        from jarviscopilot_constants import get_default_hermes_root
         return hermes_home.resolve() == get_default_hermes_root().resolve()
     except Exception:
         return False
@@ -387,7 +387,7 @@ def _uninstall_profile(profile) -> None:
     """Fully uninstall a single named profile: stop its gateway service,
     remove its alias wrapper, and wipe its HERMES_HOME directory.
 
-    We shell out to ``hermes -p <name> gateway stop|uninstall`` because
+    We shell out to ``jarviscopilot -p <name> gateway stop|uninstall`` because
     service names, unit paths, and plist paths are all derived from the
     current HERMES_HOME and can't be easily switched in-process.
     """
@@ -398,7 +398,7 @@ def _uninstall_profile(profile) -> None:
     log_info(f"Uninstalling profile '{name}'...")
 
     # 1. Stop and remove this profile's gateway service.
-    #    Use `python -m jarviscopilot_cli.main` so we don't depend on a `hermes`
+    #    Use `python -m jarviscopilot_cli.main` so we don't depend on a `jarviscopilot`
     #    wrapper that may be half-removed mid-uninstall.
     hermes_invocation = [_sys.executable, "-m", "jarviscopilot_cli.main", "--profile", name]
     for subcmd in ("stop", "uninstall"):
@@ -438,8 +438,8 @@ def run_uninstall(args):
     Run the uninstall process.
     
     Options:
-    - Full uninstall: removes code + ~/.hermes/ (configs, data, logs)
-    - Keep data: removes code but keeps ~/.hermes/ for future reinstall
+    - Full uninstall: removes code + ~/.jarviscopilot/ (configs, data, logs)
+    - Keep data: removes code but keeps ~/.jarviscopilot/ for future reinstall
     """
     project_root = get_project_root()
     hermes_home = get_hermes_home()
@@ -522,7 +522,7 @@ def run_uninstall(args):
     # Final confirmation
     print()
     if full_uninstall:
-        print(color("⚠️  WARNING: This will permanently delete ALL Hermes data!", Colors.RED, Colors.BOLD))
+        print(color("⚠️  WARNING: This will permanently delete ALL JarvisCopilot data!", Colors.RED, Colors.BOLD))
         print(color("   Including: configs, API keys, sessions, scheduled jobs, logs", Colors.RED))
         if remove_profiles:
             print(color(
@@ -531,7 +531,7 @@ def run_uninstall(args):
                 Colors.RED
             ))
     else:
-        print("This will remove the Hermes code but keep your configuration and data.")
+        print("This will remove the JarvisCopilot code but keep your configuration and data.")
     
     print()
     try:
@@ -570,7 +570,7 @@ def run_uninstall(args):
         log_info("Removing PATH entries from Windows User environment...")
         # Expand %LOCALAPPDATA% etc. in hermes_home so the marker matching is
         # against fully resolved paths — installer writes literal strings
-        # like C:\Users\<u>\AppData\Local\hermes\git\cmd, not %LOCALAPPDATA%.
+        # like C:\Users\<u>\AppData\Local\jarviscopilot\git\cmd, not %LOCALAPPDATA%.
         removed_path_entries = remove_path_from_windows_registry(Path(os.path.expandvars(str(hermes_home))))
         if removed_path_entries:
             for entry in removed_path_entries:
@@ -587,7 +587,7 @@ def run_uninstall(args):
             log_info("No Hermes-set User env vars to remove")
     
     # 3. Remove wrapper script
-    log_info("Removing hermes command...")
+    log_info("Removing jarviscopilot command...")
     removed_wrappers = remove_wrapper_script()
     if removed_wrappers:
         for wrapper in removed_wrappers:
@@ -602,7 +602,7 @@ def run_uninstall(args):
     # We need to be careful here
     try:
         if project_root.exists():
-            # If the install is inside ~/.hermes/, just remove the hermes-agent subdir
+            # If the install is inside ~/.jarviscopilot/, just remove the jarviscopilot subdir
             if hermes_home in project_root.parents or project_root.parent == hermes_home:
                 shutil.rmtree(project_root)
                 log_success(f"Removed {project_root}")
@@ -629,7 +629,7 @@ def run_uninstall(args):
         else:
             log_info("No Windows installer artifacts to remove")
     
-    # 5. Optionally remove ~/.hermes/ data directory (and named profiles)
+    # 5. Optionally remove ~/.jarviscopilot/ data directory (and named profiles)
     if full_uninstall:
         # 5a. Stop and remove each named profile's gateway service and
         #     alias wrapper. The profile HERMES_HOME dirs live under
@@ -664,9 +664,9 @@ def run_uninstall(args):
         print()
         print("To reinstall later with your existing settings:")
         if _is_windows():
-            print(color("  irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1 | iex", Colors.DIM))
+            print(color("  irm https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.ps1 | iex", Colors.DIM))
         else:
-            print(color("  curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash", Colors.DIM))
+            print(color("  curl -fsSL https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.sh | bash", Colors.DIM))
         print()
 
     if _is_windows():

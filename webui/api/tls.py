@@ -9,8 +9,8 @@ TLS — even a self-signed cert — moves the origin into a "secure context"
 and the mic permission flow works normally.
 
 Storage layout:
-    ~/.hermes/webui-tls/cert.pem
-    ~/.hermes/webui-tls/key.pem
+    ~/.jarviscopilot/webui-tls/cert.pem
+    ~/.jarviscopilot/webui-tls/key.pem
 
 The cert is regenerated when missing or expired. Subject Alternative
 Names include `localhost`, `127.0.0.1`, `::1`, every IPv4 address bound
@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 
-_DEFAULT_TLS_DIR = Path.home() / ".hermes" / "webui-tls"
+_DEFAULT_TLS_DIR = Path.home() / ".jarviscopilot" / "webui-tls"
 _CERT_VALID_DAYS = 825   # max Apple/iOS will accept for a cert chain
 _CERT_FILE = "cert.pem"
 _KEY_FILE = "key.pem"
@@ -104,7 +104,7 @@ def _generate_cert(cert_path: Path, key_path: Path, ips: List[str]) -> None:
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
     subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, "hermes-webui-self-signed"),
+        x509.NameAttribute(NameOID.COMMON_NAME, "jarviscopilot-webui-self-signed"),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "JarvisCopilot WebUI (local)"),
     ])
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -159,7 +159,7 @@ def _generate_cert(cert_path: Path, key_path: Path, ips: List[str]) -> None:
         os.chmod(key_tmp, 0o600)
     except Exception:
         # Windows chmod is a no-op for granular perms; the file inherits
-        # the ACL of its parent dir. The ~/.hermes tree is already user-only
+        # the ACL of its parent dir. The ~/.jarviscopilot tree is already user-only
         # on Hermes-managed setups.
         pass
     cert_tmp.replace(cert_path)
@@ -193,7 +193,7 @@ def ensure_self_signed_cert(
 
     If both files exist and the cert is still valid, this is a no-op
     (~1 ms). Otherwise generates a fresh 4096-bit RSA cert in `cert_dir`
-    (default ~/.hermes/webui-tls/).
+    (default ~/.jarviscopilot/webui-tls/).
     """
     dirp = Path(cert_dir) if cert_dir else _DEFAULT_TLS_DIR
     cert_path = dirp / _CERT_FILE

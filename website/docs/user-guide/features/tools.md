@@ -126,7 +126,7 @@ jarviscopilot config set terminal.backend modal
 ### Vercel Sandbox
 
 ```bash
-pip install 'hermes-agent[vercel]'
+pip install 'jarviscopilot[vercel]'
 jarviscopilot config set terminal.backend vercel_sandbox
 jarviscopilot config set terminal.vercel_runtime node24
 ```

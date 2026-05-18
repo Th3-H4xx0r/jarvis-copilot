@@ -48,7 +48,7 @@ This installs the `agent-client-protocol` dependency and enables:
 For Zed registry installs, Zed launches JarvisCopilot through the official ACP Registry entry. That entry uses a `uvx` distribution that runs:
 
 ```bash
-uvx --from 'hermes-agent[acp]==<version>' jarviscopilot-acp
+uvx --from 'jarviscopilot[acp]==<version>' jarviscopilot-acp
 ```
 
 Make sure `uv` is available on `PATH` before using the registry install path.
@@ -136,14 +136,14 @@ Zed v0.221.x and newer installs external agents through the official ACP Registr
 Prerequisites:
 
 - Configure JarvisCopilot provider credentials first with `jarviscopilot model`, or set them in `~/.jarviscopilot/.env` / `~/.jarviscopilot/config.yaml`.
-- Install `uv` so the registry launcher can run `uvx --from 'hermes-agent[acp]==<version>' jarviscopilot-acp`.
+- Install `uv` so the registry launcher can run `uvx --from 'jarviscopilot[acp]==<version>' jarviscopilot-acp`.
 
 For local development before the registry entry is available, use a custom agent server in Zed settings:
 
 ```json
 {
   "agent_servers": {
-    "hermes-agent": {
+    "jarviscopilot": {
       "type": "custom",
       "command": "jarviscopilot",
       "args": ["acp"]
@@ -157,7 +157,7 @@ For local development before the registry entry is available, use a custom agent
 Use an ACP-compatible plugin and point it at:
 
 ```text
-/path/to/hermes-agent/acp_registry
+/path/to/jarviscopilot/acp_registry
 ```
 
 ## Registry manifest
@@ -169,12 +169,12 @@ acp_registry/agent.json
 acp_registry/icon.svg
 ```
 
-The upstream registry PR copies those files into the top-level `hermes-agent/` directory in `agentclientprotocol/registry`.
+The upstream registry PR copies those files into the top-level `jarviscopilot/` directory in `agentclientprotocol/registry`.
 
-The registry entry uses a `uvx` distribution that points directly at the `hermes-agent` PyPI release:
+The registry entry uses a `uvx` distribution that points directly at the `jarviscopilot` PyPI release:
 
 ```text
-uvx --from 'hermes-agent[acp]==<version>' jarviscopilot-acp
+uvx --from 'jarviscopilot[acp]==<version>' jarviscopilot-acp
 ```
 
 The registry CI verifies that the pinned version exists on PyPI, so the manifest's `version` and uvx `package` pin must always match `pyproject.toml`. `scripts/release.py` keeps them in lockstep automatically.

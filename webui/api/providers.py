@@ -88,7 +88,7 @@ _MAX_CONCURRENT_ACCOUNT_USAGE_PROBES = 2
 # to call the provider API indefinitely.  Non-Linux platforms (macOS, Windows)
 # rely on OS-level process-tree cleanup instead; this variable is then unused.
 # prctl(PR_SET_DEATHSIG, SIGTERM) is available via ctypes without any C
-# extension — the same technique used throughout the Hermes codebase.
+# extension — the same technique used throughout the JarvisCopilot codebase.
 _ACCOUNT_USAGE_PARENT_DEATHSIG_BOOTSTRAP = (
     # fmt: off
     # Lines are written as string literals so this block passes
@@ -698,12 +698,12 @@ _OAUTH_PROVIDERS = frozenset({
 
 
 def _get_hermes_home() -> Path:
-    """Return the active Hermes home directory."""
+    """Return the active JarvisCopilot home directory."""
     try:
         from api.profiles import get_active_hermes_home
         return get_active_hermes_home()
     except ImportError:
-        return Path.home() / ".hermes"
+        return Path.home() / ".jarviscopilot"
 
 
 def _load_env_file(env_path: Path) -> dict[str, str]:
@@ -879,7 +879,7 @@ def _write_env_file(env_path: Path, updates: dict[str, str | None]) -> None:
             content += "\n"
         # Atomic write via tempfile + os.replace so cross-process readers
         # (Telegram bot, CLI) never see a half-truncated file.  The shared
-        # ``~/.hermes/.env`` is also written by ``jarviscopilot_cli.config.save_env_value``
+        # ``~/.jarviscopilot/.env`` is also written by ``jarviscopilot_cli.config.save_env_value``
         # using the same atomic pattern; matching it here closes the
         # cross-process leg of #1164 (within-process is covered by _ENV_LOCK).
         _mode = _stat.S_IRUSR | _stat.S_IWUSR  # 0o600
@@ -910,7 +910,7 @@ def _provider_has_key(provider_id: str) -> bool:
     """Check whether a provider has a configured API key.
 
     Checks (in order):
-    1. ``~/.hermes/.env`` for the known env var
+    1. ``~/.jarviscopilot/.env`` for the known env var
     2. ``os.environ`` for the known env var
     3. ``config.yaml → model.api_key`` (only if provider is the active one)
     4. ``config.yaml → providers.<id>.api_key``
@@ -1457,7 +1457,7 @@ _COST_SNAPSHOT_LOCK = threading.Lock()
 def _cost_snapshots_dir() -> Path:
     """Return the directory for cost-snapshot JSON files.
 
-    Uses the Hermes home directory (profile-aware) so snapshots are
+    Uses the JarvisCopilot home directory (profile-aware) so snapshots are
     isolated per profile, matching the existing STATE_DIR convention.
     """
     return _get_hermes_home() / _COST_SNAPSHOTS_DIR_NAME
@@ -1586,7 +1586,7 @@ def _append_cost_snapshot(provider: str, usage: int | float | None, limit: int |
     # locks two concurrent requests can both read the same old snapshot list and
     # race to replace it with stale data.  The threading lock covers current
     # single-process deployments; the file lock covers future multi-worker
-    # deployments that share one Hermes home/state directory.
+    # deployments that share one JarvisCopilot home/state directory.
     with _COST_SNAPSHOT_LOCK:
         with _cost_snapshot_file_lock(provider):
             snapshots = _read_cost_snapshots(provider)
@@ -1768,7 +1768,7 @@ def get_providers() -> dict[str, Any]:
             # Check if actually authenticated via jarviscopilot_cli.
             # IMPORTANT: do not unconditionally overwrite has_key from _provider_has_key().
             # A token in config.yaml is a valid credential even when get_auth_status()
-            # returns logged_in=False (e.g. token not in the hermes credential pool,
+            # returns logged_in=False (e.g. token not in the jarviscopilot credential pool,
             # or refresh token consumed by native Codex CLI / VS Code extension).
             try:
                 from jarviscopilot_cli.auth import get_auth_status as _gas
@@ -1994,7 +1994,7 @@ def get_providers() -> dict[str, Any]:
 def set_provider_key(provider_id: str, api_key: str | None) -> dict[str, Any]:
     """Set or update the API key for a provider.
 
-    Writes the key to ``~/.hermes/.env`` using the standard env var name.
+    Writes the key to ``~/.jarviscopilot/.env`` using the standard env var name.
     If ``api_key`` is None or empty, the key is removed.
 
     Returns a status dict with the operation result.
@@ -2008,7 +2008,7 @@ def set_provider_key(provider_id: str, api_key: str | None) -> dict[str, Any]:
         return {
             "ok": False,
             "error": f"'{_PROVIDER_DISPLAY.get(provider_id, provider_id)}' uses OAuth authentication. "
-                     f"Use `hermes model` in the terminal to configure it.",
+                     f"Use `jarviscopilot model` in the terminal to configure it.",
         }
 
     env_var = _PROVIDER_ENV_VAR.get(provider_id)
@@ -2052,7 +2052,7 @@ def set_provider_key(provider_id: str, api_key: str | None) -> dict[str, Any]:
 def remove_provider_key(provider_id: str) -> dict[str, Any]:
     """Remove the API key for a provider.
 
-    Removes the key from ``~/.hermes/.env`` (via ``set_provider_key``)
+    Removes the key from ``~/.jarviscopilot/.env`` (via ``set_provider_key``)
     and also cleans up ``config.yaml`` if the key is stored there
     (``providers.<id>.api_key`` or top-level ``model.api_key`` when this
     provider is the active one).

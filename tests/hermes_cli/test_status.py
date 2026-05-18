@@ -41,7 +41,7 @@ def test_show_status_termux_gateway_section_skips_systemctl(monkeypatch, capsys,
 
     output = capsys.readouterr().out
     assert "Manager:      Termux / manual process" in output
-    assert "Start with:   hermes gateway" in output
+    assert "Start with:   jarviscopilot gateway" in output
     assert "systemd (user)" not in output
 
 
@@ -77,7 +77,7 @@ def test_show_status_reports_nous_auth_error(monkeypatch, capsys, tmp_path):
     status_mod.show_status(SimpleNamespace(all=False, deep=False))
 
     output = capsys.readouterr().out
-    assert "Nous Portal   ✗ not logged in (run: hermes auth add nous --type oauth)" in output
+    assert "Nous Portal   ✗ not logged in (run: jarviscopilot auth add nous --type oauth)" in output
     assert "Error:      Refresh session has been revoked" in output
     assert "Access exp:" in output
     assert "Key exp:" in output
@@ -139,7 +139,7 @@ def _base_xai_mocks(monkeypatch, tmp_path):
 
 
 class TestShowStatusXaiOAuth:
-    """xAI OAuth row in hermes status."""
+    """xAI OAuth row in jarviscopilot status."""
 
     # ------------------------------------------------------------------
     # Logged-in branch
@@ -164,13 +164,13 @@ class TestShowStatusXaiOAuth:
         import jarviscopilot_cli.auth as auth_mod
         status_mod = _base_xai_mocks(monkeypatch, tmp_path)
         monkeypatch.setattr(auth_mod, "get_xai_oauth_auth_status",
-                            lambda: {"logged_in": True, "auth_store": "/home/u/.hermes/auth.json"},
+                            lambda: {"logged_in": True, "auth_store": "/home/u/.jarviscopilot/auth.json"},
                             raising=False)
 
         status_mod.show_status(SimpleNamespace(all=False, deep=False))
         out = capsys.readouterr().out
 
-        assert "Auth file:  /home/u/.hermes/auth.json" in out
+        assert "Auth file:  /home/u/.jarviscopilot/auth.json" in out
 
     def test_logged_in_shows_last_refresh(self, monkeypatch, capsys, tmp_path):
         import jarviscopilot_cli.auth as auth_mod
@@ -248,7 +248,7 @@ class TestShowStatusXaiOAuth:
         status_mod.show_status(SimpleNamespace(all=False, deep=False))
         out = capsys.readouterr().out
 
-        assert "not logged in (run: hermes auth add xai-oauth)" in out
+        assert "not logged in (run: jarviscopilot auth add xai-oauth)" in out
 
     def test_not_logged_in_shows_error(self, monkeypatch, capsys, tmp_path):
         import jarviscopilot_cli.auth as auth_mod
@@ -331,4 +331,4 @@ class TestShowStatusXaiOAuth:
         out = capsys.readouterr().out
 
         assert "xAI OAuth" in out
-        assert "not logged in (run: hermes auth add xai-oauth)" in out
+        assert "not logged in (run: jarviscopilot auth add xai-oauth)" in out

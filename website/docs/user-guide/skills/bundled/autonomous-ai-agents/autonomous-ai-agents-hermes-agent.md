@@ -15,7 +15,7 @@ Configure, extend, or contribute to JarvisCopilot.
 | | |
 |---|---|
 | Source | Bundled (installed by default) |
-| Path | `skills/autonomous-ai-agents/hermes-agent` |
+| Path | `skills/autonomous-ai-agents/jarviscopilot` |
 | Version | `2.1.0` |
 | Author | JarvisCopilot + Teknium |
 | License | MIT |
@@ -46,13 +46,13 @@ People use JarvisCopilot for software development, research, system administrati
 
 **This skill helps you work with JarvisCopilot effectively** — setting it up, configuring features, spawning additional agent instances, troubleshooting issues, finding the right commands and settings, and understanding how the system works when you need to extend or contribute to it.
 
-**Docs:** https://hermes-agent.nousresearch.com/docs/
+**Docs:** https://jarviscopilot.nousresearch.com/docs/
 
 ## Quick Start
 
 ```bash
 # Install
-curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.sh | bash
 
 # Interactive chat (default)
 jarviscopilot
@@ -168,7 +168,7 @@ jarviscopilot gateway setup        Configure platforms
 
 Supported platforms: Telegram, Discord, Slack, WhatsApp, Signal, Email, SMS, Matrix, Mattermost, Home Assistant, DingTalk, Feishu, WeCom, BlueBubbles (iMessage), Weixin (WeChat), API Server, Webhooks. Open WebUI connects via the API Server adapter.
 
-Platform docs: https://hermes-agent.nousresearch.com/docs/user-guide/messaging/
+Platform docs: https://jarviscopilot.nousresearch.com/docs/user-guide/messaging/
 
 ### Sessions
 
@@ -247,7 +247,7 @@ jarviscopilot uninstall            Uninstall JarvisCopilot
 
 Type these during an interactive chat session. New commands land fairly
 often; if something below looks stale, run `/help` in-session for the
-authoritative list or see the [live slash commands reference](https://hermes-agent.nousresearch.com/docs/reference/slash-commands).
+authoritative list or see the [live slash commands reference](https://jarviscopilot.nousresearch.com/docs/reference/slash-commands).
 The registry of record is `hermes_cli/commands.py` — every consumer
 (autocomplete, Telegram menu, Slack mapping, `/help`) derives from it.
 
@@ -356,7 +356,7 @@ $HERMES_HOME/skills/        Installed skills
 ~/.jarviscopilot/sessions/         Session transcripts
 ~/.jarviscopilot/logs/             Gateway and error logs
 ~/.jarviscopilot/auth.json         OAuth tokens and credential pools
-~/.jarviscopilot/hermes-agent/     Source code (if git-installed)
+~/.jarviscopilot/jarviscopilot/     Source code (if git-installed)
 ```
 
 Profiles use `~/.jarviscopilot/profiles/<name>/` with the same layout.
@@ -379,7 +379,7 @@ Edit with `jarviscopilot config edit` or `jarviscopilot config set section.key v
 | `delegation` | `model`, `provider`, `base_url`, `api_key`, `max_iterations` (50), `reasoning_effort` |
 | `checkpoints` | `enabled`, `max_snapshots` (50) |
 
-Full config reference: https://hermes-agent.nousresearch.com/docs/user-guide/configuration
+Full config reference: https://jarviscopilot.nousresearch.com/docs/user-guide/configuration
 
 ### Providers
 
@@ -410,7 +410,7 @@ Full config reference: https://hermes-agent.nousresearch.com/docs/user-guide/con
 | Custom endpoint | Config | `model.base_url` + `model.api_key` in config.yaml |
 | GitHub Copilot ACP | External | `COPILOT_CLI_PATH` or Copilot CLI |
 
-Full provider docs: https://hermes-agent.nousresearch.com/docs/integrations/providers
+Full provider docs: https://jarviscopilot.nousresearch.com/docs/integrations/providers
 
 ### Toolsets
 
@@ -670,7 +670,7 @@ the `cronjob` tool, the `jarviscopilot cron` CLI (`list`, `add`, `edit`,
   header/footer instead of being mirrored into the target gateway
   session (keeps role alternation intact).
 
-User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/cron
+User docs: https://jarviscopilot.nousresearch.com/docs/user-guide/features/cron
 
 ### Curator (skill lifecycle)
 
@@ -691,7 +691,7 @@ so nothing is lost.
 
 Config: `curator.*` (`enabled`, `interval_hours`, `min_idle_hours`,
 `stale_after_days`, `archive_after_days`, `backup.*`).
-User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/curator
+User docs: https://jarviscopilot.nousresearch.com/docs/user-guide/features/curator
 
 ### Kanban (multi-agent work queue)
 
@@ -714,7 +714,7 @@ schema footprint is zero outside worker processes.
   `HERMES_KANBAN_BOARD` pinned in env); tenant is a soft namespace
   within a board for workspace-path + memory-key isolation.
 
-User docs: https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban
+User docs: https://jarviscopilot.nousresearch.com/docs/user-guide/features/kanban
 
 ---
 
@@ -845,7 +845,7 @@ grep -i "failed to send\|error" ~/.jarviscopilot/logs/gateway.log | tail -20
 Common gateway problems:
 - **Gateway dies on SSH logout**: Enable linger: `sudo loginctl enable-linger $USER`
 - **Gateway dies on WSL2 close**: WSL2 requires `systemd=true` in `/etc/wsl.conf` for systemd services to work. Without it, gateway falls back to `nohup` (dies when session closes).
-- **Gateway crash loop**: Reset the failed state: `systemctl --user reset-failed hermes-gateway`
+- **Gateway crash loop**: Reset the failed state: `systemctl --user reset-failed jarviscopilot-gateway`
 
 ### Platform-specific issues
 - **Discord bot silent**: Must enable **Message Content Intent** in Bot → Privileged Gateway Intents.
@@ -865,38 +865,38 @@ jarviscopilot config set auxiliary.vision.model <model_name>
 
 | Looking for... | Location |
 |----------------|----------|
-| Config options | `jarviscopilot config edit` or [Configuration docs](https://hermes-agent.nousresearch.com/docs/user-guide/configuration) |
-| Available tools | `jarviscopilot tools list` or [Tools reference](https://hermes-agent.nousresearch.com/docs/reference/tools-reference) |
-| Slash commands | `/help` in session or [Slash commands reference](https://hermes-agent.nousresearch.com/docs/reference/slash-commands) |
-| Skills catalog | `jarviscopilot skills browse` or [Skills catalog](https://hermes-agent.nousresearch.com/docs/reference/skills-catalog) |
-| Provider setup | `jarviscopilot model` or [Providers guide](https://hermes-agent.nousresearch.com/docs/integrations/providers) |
-| Platform setup | `jarviscopilot gateway setup` or [Messaging docs](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/) |
-| MCP servers | `jarviscopilot mcp list` or [MCP guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp) |
-| Profiles | `jarviscopilot profile list` or [Profiles docs](https://hermes-agent.nousresearch.com/docs/user-guide/profiles) |
-| Cron jobs | `jarviscopilot cron list` or [Cron docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/cron) |
-| Memory | `jarviscopilot memory status` or [Memory docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory) |
-| Env variables | `jarviscopilot config env-path` or [Env vars reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables) |
-| CLI commands | `jarviscopilot --help` or [CLI reference](https://hermes-agent.nousresearch.com/docs/reference/cli-commands) |
+| Config options | `jarviscopilot config edit` or [Configuration docs](https://jarviscopilot.nousresearch.com/docs/user-guide/configuration) |
+| Available tools | `jarviscopilot tools list` or [Tools reference](https://jarviscopilot.nousresearch.com/docs/reference/tools-reference) |
+| Slash commands | `/help` in session or [Slash commands reference](https://jarviscopilot.nousresearch.com/docs/reference/slash-commands) |
+| Skills catalog | `jarviscopilot skills browse` or [Skills catalog](https://jarviscopilot.nousresearch.com/docs/reference/skills-catalog) |
+| Provider setup | `jarviscopilot model` or [Providers guide](https://jarviscopilot.nousresearch.com/docs/integrations/providers) |
+| Platform setup | `jarviscopilot gateway setup` or [Messaging docs](https://jarviscopilot.nousresearch.com/docs/user-guide/messaging/) |
+| MCP servers | `jarviscopilot mcp list` or [MCP guide](https://jarviscopilot.nousresearch.com/docs/user-guide/features/mcp) |
+| Profiles | `jarviscopilot profile list` or [Profiles docs](https://jarviscopilot.nousresearch.com/docs/user-guide/profiles) |
+| Cron jobs | `jarviscopilot cron list` or [Cron docs](https://jarviscopilot.nousresearch.com/docs/user-guide/features/cron) |
+| Memory | `jarviscopilot memory status` or [Memory docs](https://jarviscopilot.nousresearch.com/docs/user-guide/features/memory) |
+| Env variables | `jarviscopilot config env-path` or [Env vars reference](https://jarviscopilot.nousresearch.com/docs/reference/environment-variables) |
+| CLI commands | `jarviscopilot --help` or [CLI reference](https://jarviscopilot.nousresearch.com/docs/reference/cli-commands) |
 | Gateway logs | `~/.jarviscopilot/logs/gateway.log` |
 | Session files | `~/.jarviscopilot/sessions/` or `jarviscopilot sessions browse` |
-| Source code | `~/.jarviscopilot/hermes-agent/` |
+| Source code | `~/.jarviscopilot/jarviscopilot/` |
 
 ---
 
 ## Contributor Quick Reference
 
-For occasional contributors and PR authors. Full developer docs: https://hermes-agent.nousresearch.com/docs/developer-guide/
+For occasional contributors and PR authors. Full developer docs: https://jarviscopilot.nousresearch.com/docs/developer-guide/
 
 ### Project Layout
 
 <!-- ascii-guard-ignore -->
 ```
-hermes-agent/
+jarviscopilot/
 ├── run_agent.py          # AIAgent — core conversation loop
 ├── model_tools.py        # Tool discovery and dispatch
 ├── toolsets.py           # Toolset definitions
 ├── cli.py                # Interactive CLI (HermesCLI)
-├── hermes_state.py       # SQLite session store
+├── jarviscopilot_state.py       # SQLite session store
 ├── agent/                # Prompt builder, context compression, memory, model routing, credential pooling, skill dispatch
 ├── hermes_cli/           # CLI subcommands, config, setup, commands
 │   ├── commands.py       # Slash command registry (CommandDef)
@@ -1027,6 +1027,6 @@ Types: `fix:`, `feat:`, `refactor:`, `docs:`, `chore:`
 
 - **Never break prompt caching** — don't change context, tools, or system prompt mid-conversation
 - **Message role alternation** — never two assistant or two user messages in a row
-- Use `get_hermes_home()` from `hermes_constants` for all paths (profile-safe)
+- Use `get_hermes_home()` from `jarviscopilot_constants` for all paths (profile-safe)
 - Config values go in `config.yaml`, secrets go in `.env`
 - New tools need a `check_fn` so they only appear when requirements are met

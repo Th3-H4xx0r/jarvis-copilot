@@ -63,7 +63,7 @@ class TestModuleSurface:
             )
 
     def test_kanban_worker_tools_exposed(self):
-        """Kanban workers run as `hermes chat -q` subprocesses; if they
+        """Kanban workers run as `jarviscopilot chat -q` subprocesses; if they
         come up on the codex_app_server runtime, the worker can do the
         actual work via codex's shell but needs the kanban tools through
         the MCP callback to report back to the kernel. Without these

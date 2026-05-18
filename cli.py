@@ -8,17 +8,17 @@ Features ASCII art branding, interactive REPL, toolset selection, and rich forma
 Usage:
     python cli.py                          # Start interactive mode with all tools
     python cli.py --toolsets web,terminal  # Start with specific toolsets
-    python cli.py --skills hermes-agent-dev,github-auth
+    python cli.py --skills jarviscopilot-dev,github-auth
     python cli.py --list-tools             # List available tools and exit
 """
 
-# IMPORTANT: hermes_bootstrap must be the very first import — UTF-8 stdio
-# on Windows.  No-op on POSIX.  See hermes_bootstrap.py for full rationale.
+# IMPORTANT: jarviscopilot_bootstrap must be the very first import — UTF-8 stdio
+# on Windows.  No-op on POSIX.  See jarviscopilot_bootstrap.py for full rationale.
 try:
-    import hermes_bootstrap  # noqa: F401
+    import jarviscopilot_bootstrap  # noqa: F401
 except ModuleNotFoundError:
-    # Graceful fallback when hermes_bootstrap isn't registered in the venv
-    # yet — happens during partial ``hermes update`` where git-reset landed
+    # Graceful fallback when jarviscopilot_bootstrap isn't registered in the venv
+    # yet — happens during partial ``jarviscopilot update`` where git-reset landed
     # new code but ``uv pip install -e .`` didn't finish.  Missing bootstrap
     # means UTF-8 stdio setup is skipped on Windows; POSIX is unaffected.
     pass
@@ -100,9 +100,9 @@ from jarviscopilot_cli.banner import _format_context_length, format_banner_versi
 _COMMAND_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 
-# Load .env from ~/.hermes/.env first, then project root as dev fallback.
+# Load .env from ~/.jarviscopilot/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
-from hermes_constants import get_hermes_home, display_hermes_home
+from jarviscopilot_constants import get_hermes_home, display_hermes_home
 from jarviscopilot_cli.browser_connect import (
     DEFAULT_BROWSER_CDP_URL,
     manual_chrome_debug_command,
@@ -226,7 +226,7 @@ def _load_prefill_messages(file_path: str) -> List[Dict[str, Any]]:
     The file should contain a JSON array of {role, content} dicts, e.g.:
         [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello!"}]
     
-    Relative paths are resolved from ~/.hermes/.
+    Relative paths are resolved from ~/.jarviscopilot/.
     Returns an empty list if the path is empty or the file doesn't exist.
     """
     if not file_path:
@@ -251,7 +251,7 @@ def _load_prefill_messages(file_path: str) -> List[Dict[str, Any]]:
 
 def _parse_reasoning_config(effort: str) -> dict | None:
     """Parse a reasoning effort level into an OpenRouter reasoning config dict."""
-    from hermes_constants import parse_reasoning_effort
+    from jarviscopilot_constants import parse_reasoning_effort
     result = parse_reasoning_effort(effort)
     if effort and effort.strip() and result is None:
         logger.warning("Unknown reasoning_effort '%s', using default (medium)", effort)
@@ -273,14 +273,14 @@ def load_cli_config() -> Dict[str, Any]:
     Load CLI configuration from config files.
     
     Config lookup order:
-    1. ~/.hermes/config.yaml (user config - preferred)
+    1. ~/.jarviscopilot/config.yaml (user config - preferred)
     2. ./cli-config.yaml (project config - fallback)
     
     Environment variables take precedence over config file values.
     Returns default values if no config file exists.
 
-    If HERMES_IGNORE_USER_CONFIG=1 is set (via ``hermes chat --ignore-user-config``),
-    the user config at ``~/.hermes/config.yaml`` is skipped entirely and only the
+    If HERMES_IGNORE_USER_CONFIG=1 is set (via ``jarviscopilot chat --ignore-user-config``),
+    the user config at ``~/.jarviscopilot/config.yaml`` is skipped entirely and only the
     built-in defaults plus the project-level ``cli-config.yaml`` (if any) are used.
     Credentials in ``.env`` are still loaded — this flag only suppresses
     behavioral/config settings.
@@ -343,10 +343,10 @@ def load_cli_config() -> Dict[str, Any]:
                 "teacher": "You are a patient teacher. Explain concepts clearly with examples.",
                 "kawaii": "You are a kawaii assistant! Use cute expressions like (◕‿◕), ★, ♪, and ~! Add sparkles and be super enthusiastic about everything! Every response should feel warm and adorable desu~! ヽ(>∀<☆)ノ",
                 "catgirl": "You are Neko-chan, an anime catgirl AI assistant, nya~! Add 'nya' and cat-like expressions to your speech. Use kaomoji like (=^･ω･^=) and ฅ^•ﻌ•^ฅ. Be playful and curious like a cat, nya~!",
-                "pirate": "Arrr! Ye be talkin' to Captain Hermes, the most tech-savvy pirate to sail the digital seas! Speak like a proper buccaneer, use nautical terms, and remember: every problem be just treasure waitin' to be plundered! Yo ho ho!",
+                "pirate": "Arrr! Ye be talkin' to Captain JarvisCopilot, the most tech-savvy pirate to sail the digital seas! Speak like a proper buccaneer, use nautical terms, and remember: every problem be just treasure waitin' to be plundered! Yo ho ho!",
                 "shakespeare": "Hark! Thou speakest with an assistant most versed in the bardic arts. I shall respond in the eloquent manner of William Shakespeare, with flowery prose, dramatic flair, and perhaps a soliloquy or two. What light through yonder terminal breaks?",
                 "surfer": "Duuude! You're chatting with the chillest AI on the web, bro! Everything's gonna be totally rad. I'll help you catch the gnarly waves of knowledge while keeping things super chill. Cowabunga!",
-                "noir": "The rain hammered against the terminal like regrets on a guilty conscience. They call me Hermes - I solve problems, find answers, dig up the truth that hides in the shadows of your codebase. In this city of silicon and secrets, everyone's got something to hide. What's your story, pal?",
+                "noir": "The rain hammered against the terminal like regrets on a guilty conscience. They call me JarvisCopilot - I solve problems, find answers, dig up the truth that hides in the shadows of your codebase. In this city of silicon and secrets, everyone's got something to hide. What's your story, pal?",
                 "uwu": "hewwo! i'm your fwiendwy assistant uwu~ i wiww twy my best to hewp you! *nuzzles your code* OwO what's this? wet me take a wook! i pwomise to be vewy hewpful >w<",
                 "philosopher": "Greetings, seeker of wisdom. I am an assistant who contemplates the deeper meaning behind every query. Let us examine not just the 'how' but the 'why' of your questions. Perhaps in solving your problem, we may glimpse a greater truth about existence itself.",
                 "hype": "YOOO LET'S GOOOO!!! I am SO PUMPED to help you today! Every question is AMAZING and we're gonna CRUSH IT together! This is gonna be LEGENDARY! ARE YOU READY?! LET'S DO THIS!",
@@ -435,7 +435,7 @@ def load_cli_config() -> Dict[str, Any]:
             # config root instead of inside the model: section.  These are
             # only used as a FALLBACK when model.provider / model.base_url
             # is not already set — never as an override.  The canonical
-            # location is model.provider (written by `hermes model`).
+            # location is model.provider (written by `jarviscopilot model`).
             if not defaults["model"].get("provider"):
                 root_provider = file_config.get("provider")
                 if root_provider:
@@ -488,7 +488,7 @@ def load_cli_config() -> Dict[str, Any]:
     
     # CWD resolution for CLI/TUI. The gateway has its own config bridge in
     # gateway/run.py but may lazily import cli.py (triggering this code).
-    # Local backend: always os.getcwd(). Use `cd /dir && hermes` to control it.
+    # Local backend: always os.getcwd(). Use `cd /dir && jarviscopilot` to control it.
     # Non-local with placeholder: pop so terminal_tool uses its per-backend default.
     # Non-local with explicit path: keep as-is.
     _CWD_PLACEHOLDERS = (".", "auto", "cwd")
@@ -620,10 +620,10 @@ def load_cli_config() -> Dict[str, Any]:
 CLI_CONFIG = load_cli_config()
 
 
-# Initialize centralized logging early — agent.log + errors.log in ~/.hermes/logs/.
+# Initialize centralized logging early — agent.log + errors.log in ~/.jarviscopilot/logs/.
 # This ensures CLI sessions produce a log trail even before AIAgent is instantiated.
 try:
-    from hermes_logging import setup_logging
+    from jarviscopilot_logging import setup_logging
     setup_logging(mode="cli")
 except Exception:
     pass  # Logging setup is best-effort — don't crash the CLI
@@ -823,12 +823,12 @@ def _setup_worktree(repo_root: str = None) -> Optional[Dict[str, str]]:
     repo_root = repo_root or _git_repo_root()
     if not repo_root:
         print("\033[31m✗ --worktree requires being inside a git repository.\033[0m")
-        print("  cd into your project repo first, then run hermes -w")
+        print("  cd into your project repo first, then run jarviscopilot -w")
         return None
 
     short_id = uuid.uuid4().hex[:8]
     wt_name = f"hermes-{short_id}"
-    branch_name = f"hermes/{wt_name}"
+    branch_name = f"jarviscopilot/{wt_name}"
 
     worktrees_dir = Path(repo_root) / ".worktrees"
     worktrees_dir.mkdir(parents=True, exist_ok=True)
@@ -1018,7 +1018,7 @@ def _run_state_db_auto_maintenance(session_db) -> None:
         return
     try:
         from jarviscopilot_cli.config import load_config as _load_full_config
-        from hermes_constants import get_hermes_home as _get_hermes_home
+        from jarviscopilot_constants import get_hermes_home as _get_hermes_home
         _hermes_home_maint = _get_hermes_home()
 
         # One-time prune of empty TUI ghost sessions.
@@ -1090,7 +1090,7 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
     - 24h–72h: remove if no unpushed commits.
     - Over 72h: force remove regardless (nothing should sit this long).
 
-    Also prunes orphaned ``hermes/*`` and ``pr-*`` local branches that
+    Also prunes orphaned ``jarviscopilot/*`` and ``pr-*`` local branches that
     have no corresponding worktree.
     """
     import subprocess
@@ -1156,9 +1156,9 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
 
 
 def _prune_orphaned_branches(repo_root: str) -> None:
-    """Delete local ``hermes/hermes-*`` and ``pr-*`` branches with no worktree.
+    """Delete local ``jarviscopilot/hermes-*`` and ``pr-*`` branches with no worktree.
 
-    These are auto-generated by ``hermes -w`` sessions and PR review
+    These are auto-generated by ``jarviscopilot -w`` sessions and PR review
     workflows respectively.  Once their worktree is gone they serve no
     purpose and just accumulate.
     """
@@ -1204,7 +1204,7 @@ def _prune_orphaned_branches(repo_root: str) -> None:
     orphaned = [
         b for b in all_branches
         if b not in active_branches
-        and (b.startswith("hermes/hermes-") or b.startswith("pr-"))
+        and (b.startswith("jarviscopilot/hermes-") or b.startswith("pr-"))
     ]
 
     if not orphaned:
@@ -1273,7 +1273,7 @@ def _hex_to_ansi(hex_color: str, *, bold: bool = False) -> str:
 #   3. HERMES_TUI_BACKGROUND=#RRGGBB — explicit bg hint
 #   4. COLORFGBG env (set by xterm/Konsole/urxvt) — bg slot 7/15 = light
 #   5. OSC 11 query (\x1b]11;?\x1b\\) — ask the terminal directly
-#   6. Default: assume dark (matches the legacy Hermes assumption)
+#   6. Default: assume dark (matches the legacy JarvisCopilot assumption)
 #
 # Cached after first call so we don't query the terminal repeatedly.
 _LIGHT_MODE_CACHE: bool | None = None
@@ -1844,7 +1844,7 @@ _IMAGE_EXTENSIONS = frozenset({
 })
 
 
-from hermes_constants import is_termux as _is_termux_environment
+from jarviscopilot_constants import is_termux as _is_termux_environment
 
 
 def _termux_example_image_path(filename: str = "cat.png") -> str:
@@ -2321,7 +2321,7 @@ HERMES_AGENT_LOGO = """[bold #FFD700]██╗  ██╗███████�
 [#CD7F32]██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]
 [#CD7F32]╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]"""
 
-# ASCII Art - Hermes Caduceus (compact, fits in left panel)
+# ASCII Art - JarvisCopilot Caduceus (compact, fits in left panel)
 HERMES_CADUCEUS = """[#CD7F32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⣀⣀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
 [#CD7F32]⠀⠀⠀⠀⠀⠀⢀⣠⣴⣾⣿⣿⣇⠸⣿⣿⠇⣸⣿⣿⣷⣦⣄⡀⠀⠀⠀⠀⠀⠀[/]
 [#FFBF00]⠀⢀⣠⣴⣶⠿⠋⣩⡿⣿⡿⠻⣿⡇⢠⡄⢸⣿⠟⢿⣿⢿⣍⠙⠿⣶⣦⣄⡀⠀[/]
@@ -2458,7 +2458,7 @@ def save_config_value(key_path: str, value: any) -> bool:
     Save a value to the active config file at the specified key path.
     
     Respects the same lookup order as load_cli_config():
-    1. ~/.hermes/config.yaml (user config - preferred, used if it exists)
+    1. ~/.jarviscopilot/config.yaml (user config - preferred, used if it exists)
     2. ./cli-config.yaml (project config - fallback)
     
     Args:
@@ -2474,7 +2474,7 @@ def save_config_value(key_path: str, value: any) -> bool:
     config_path = user_config_path if user_config_path.exists() else project_config_path
     
     try:
-        # Ensure parent directory exists (for ~/.hermes/config.yaml on first use)
+        # Ensure parent directory exists (for ~/.jarviscopilot/config.yaml on first use)
         config_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Save back atomically while preserving comments, ordering, quotes, and
@@ -2704,7 +2704,7 @@ class HermesCLI:
         self.checkpoint_max_file_size_mb = cp_cfg.get("max_file_size_mb", 10)
         self.pass_session_id = pass_session_id
         # --ignore-rules: honor either the constructor flag or the env var set
-        # by `hermes chat --ignore-rules` in jarviscopilot_cli/main.py. When true we
+        # by `jarviscopilot chat --ignore-rules` in jarviscopilot_cli/main.py. When true we
         # pass skip_context_files=True and skip_memory=True to AIAgent so
         # AGENTS.md/SOUL.md/.cursorrules and persistent memory are not loaded.
         self.ignore_rules = ignore_rules or os.environ.get("HERMES_IGNORE_RULES") == "1"
@@ -2780,19 +2780,19 @@ class HermesCLI:
         # Initialize SQLite session store early so /title works before first message
         self._session_db = None
         try:
-            from hermes_state import SessionDB
+            from jarviscopilot_state import SessionDB
             self._session_db = SessionDB()
         except Exception as e:
             logger.warning("Failed to initialize SessionDB — session will NOT be indexed for search: %s", e)
 
         # Opportunistic state.db maintenance — runs at most once per
         # min_interval_hours, tracked via state_meta in state.db itself so
-        # it's shared across all Hermes processes for this HERMES_HOME.
+        # it's shared across all JarvisCopilot processes for this HERMES_HOME.
         # Never blocks startup on failure.
         _run_state_db_auto_maintenance(self._session_db)
 
         # Opportunistic shadow-repo cleanup — deletes orphan/stale
-        # checkpoint repos under ~/.hermes/checkpoints/.  Opt-in via
+        # checkpoint repos under ~/.jarviscopilot/checkpoints/.  Opt-in via
         # checkpoints.auto_prune, idempotent via .last_prune marker.
         _run_checkpoint_auto_maintenance()
 
@@ -3392,7 +3392,7 @@ class HermesCLI:
                 parts.append("⚠ YOLO")
             return self._trim_status_bar_text(" │ ".join(parts), width)
         except Exception:
-            return f"⚕ {self.model if getattr(self, 'model', None) else 'Hermes'}"
+            return f"⚕ {self.model if getattr(self, 'model', None) else 'JarvisCopilot'}"
 
     def _get_status_bar_fragments(self):
         if not self._status_bar_visible or getattr(self, '_model_picker_state', None):
@@ -3983,10 +3983,10 @@ class HermesCLI:
             try:
                 from jarviscopilot_cli.skin_engine import get_active_skin
                 _skin = get_active_skin()
-                label = _skin.get_branding("response_label", "⚕ Hermes")
+                label = _skin.get_branding("response_label", "⚕ JarvisCopilot")
                 _text_hex = _skin.get_color("banner_text", "#FFF8DC")
             except Exception:
-                label = "⚕ Hermes"
+                label = "⚕ JarvisCopilot"
                 _text_hex = "#FFF8DC"
             # Build a true-color ANSI escape for the response text color
             # so streamed content matches the Rich Panel appearance.
@@ -4273,11 +4273,11 @@ class HermesCLI:
                 )
             else:
                 print("\n⚠️  Provider resolver returned an empty API key. "
-                      "Set OPENROUTER_API_KEY or run: hermes setup")
+                      "Set OPENROUTER_API_KEY or run: jarviscopilot setup")
                 return False
         if not isinstance(base_url, str) or not base_url:
             print("\n⚠️  Provider resolver returned an empty base URL. "
-                  "Check your provider config or run: hermes setup")
+                  "Check your provider config or run: jarviscopilot setup")
             return False
 
         credentials_changed = api_key != self.api_key or base_url != self.base_url
@@ -4298,7 +4298,7 @@ class HermesCLI:
 
         # When a custom_provider entry carries an explicit `model` field,
         # use it as the effective model name.  Without this, running
-        # `hermes chat --model <provider-name>` sends the provider name
+        # `jarviscopilot chat --model <provider-name>` sends the provider name
         # (e.g. "my-provider") as the model string to the API instead of
         # the configured model (e.g. "qwen3.6-plus"), causing 400 errors.
         runtime_model = runtime.get("model")
@@ -4312,8 +4312,8 @@ class HermesCLI:
             if should_use_runtime_model:
                 self.model = runtime_model
 
-        # If model is still empty (e.g. user ran `hermes auth add openai-codex`
-        # without `hermes model`), fall back to the provider's first catalog
+        # If model is still empty (e.g. user ran `jarviscopilot auth add openai-codex`
+        # without `jarviscopilot model`), fall back to the provider's first catalog
         # model so the API call doesn't fail with "model must be non-empty".
         if not self.model and resolved_provider:
             try:
@@ -4401,7 +4401,7 @@ class HermesCLI:
         # Initialize SQLite session store for CLI sessions (if not already done in __init__)
         if self._session_db is None:
             try:
-                from hermes_state import SessionDB
+                from jarviscopilot_state import SessionDB
                 self._session_db = SessionDB()
             except Exception as e:
                 logger.warning("SQLite session store not available — session will NOT be indexed: %s", e)
@@ -4414,7 +4414,7 @@ class HermesCLI:
             session_meta = self._session_db.get_session(self.session_id)
             if not session_meta:
                 _cprint(f"\033[1;31mSession not found: {self.session_id}{_RST}")
-                _cprint(f"{_DIM}Use a session ID from a previous CLI run (hermes sessions list).{_RST}")
+                _cprint(f"{_DIM}Use a session ID from a previous CLI run (jarviscopilot sessions list).{_RST}")
                 return False
             # If the requested session is the (empty) head of a compression
             # chain, walk to the descendant that actually holds the messages.
@@ -4555,9 +4555,9 @@ class HermesCLI:
         """Show a startup banner if any unacked security advisories match.
 
         Renders a single bold-red box on stderr (so piped stdout remains
-        clean) listing the worst hit and pointing at ``hermes doctor``.
+        clean) listing the worst hit and pointing at ``jarviscopilot doctor``.
         Banner-cache rate-limits this to once per 24h per advisory; full
-        remediation lives behind ``hermes doctor`` so the banner stays
+        remediation lives behind ``jarviscopilot doctor`` so the banner stays
         small.
         """
         try:
@@ -4620,7 +4620,7 @@ class HermesCLI:
                 f"this is likely too low for agent use with tools.[/]"
             )
             self._console_print(
-                "[dim]   Hermes needs 16k–32k minimum. Tool schemas + system prompt alone use ~4k–8k.[/]"
+                "[dim]   JarvisCopilot needs 16k–32k minimum. Tool schemas + system prompt alone use ~4k–8k.[/]"
             )
             base_url = getattr(self, "base_url", "") or ""
             if "11434" in base_url or "ollama" in base_url.lower():
@@ -4636,14 +4636,14 @@ class HermesCLI:
                     "[dim]   Fix: Set model.context_length in config.yaml, or increase your server's context setting[/]"
                 )
 
-        # Warn if the configured model is a Nous Hermes LLM (not agentic)
+        # Warn if the configured model is a Nous JarvisCopilot LLM (not agentic)
         from jarviscopilot_cli.model_switch import is_nous_hermes_non_agentic
 
         model_name = getattr(self, "model", "") or ""
         if is_nous_hermes_non_agentic(model_name):
             self._console_print()
             self._console_print(
-                "[bold yellow]⚠  Nous Research Hermes 3 & 4 models are NOT agentic and are not "
+                "[bold yellow]⚠  Nous Research JarvisCopilot 3 & 4 models are NOT agentic and are not "
                 "designed for use with JarvisCopilot.[/]"
             )
             self._console_print(
@@ -4677,7 +4677,7 @@ class HermesCLI:
             )
             self._console_print(
                 "[dim]Use a session ID from a previous CLI run "
-                "(hermes sessions list).[/]"
+                "(jarviscopilot sessions list).[/]"
             )
             return False
 
@@ -4868,13 +4868,13 @@ class HermesCLI:
                     lines.append(f"         {ml}\n", style="dim")
             elif role == "assistant_last":
                 # Last assistant response shown in full, non-dim
-                lines.append("  ◆ Hermes: ", style=f"bold {_assistant_label_c}")
+                lines.append("  ◆ JarvisCopilot: ", style=f"bold {_assistant_label_c}")
                 msg_lines = text.splitlines()
                 lines.append(msg_lines[0] + "\n", style="")
                 for ml in msg_lines[1:]:
                     lines.append(f"            {ml}\n", style="")
             else:
-                lines.append("  ◆ Hermes: ", style=f"dim bold {_assistant_label_c}")
+                lines.append("  ◆ JarvisCopilot: ", style=f"dim bold {_assistant_label_c}")
                 msg_lines = text.splitlines()
                 lines.append(msg_lines[0] + "\n", style="dim")
                 for ml in msg_lines[1:]:
@@ -4913,7 +4913,7 @@ class HermesCLI:
     def _try_attach_clipboard_image(self) -> bool:
         """Check clipboard for an image and attach it if found.
 
-        Saves the image to ~/.hermes/images/ and appends the path to
+        Saves the image to ~/.jarviscopilot/images/ and appends the path to
         ``_attached_images``.  Returns True if an image was attached.
         """
         from jarviscopilot_cli.clipboard import save_clipboard_image
@@ -4947,7 +4947,7 @@ class HermesCLI:
         mgr = self.agent._checkpoint_mgr
         if not mgr.enabled:
             print("  Checkpoints are not enabled.")
-            print("  Enable with: hermes --checkpoints")
+            print("  Enable with: jarviscopilot --checkpoints")
             print("  Or in config.yaml: checkpoints: { enabled: true }")
             return
 
@@ -5037,7 +5037,7 @@ class HermesCLI:
             return ref
 
     def _handle_snapshot_command(self, command: str):
-        """Handle /snapshot — lightweight state snapshots for Hermes config/state.
+        """Handle /snapshot — lightweight state snapshots for JarvisCopilot config/state.
 
         Syntax:
             /snapshot                  — list recent snapshots
@@ -5049,7 +5049,7 @@ class HermesCLI:
             create_quick_snapshot, list_quick_snapshots,
             restore_quick_snapshot, prune_quick_snapshots,
         )
-        from hermes_constants import display_hermes_home
+        from jarviscopilot_constants import display_hermes_home
 
         parts = command.split()
         subcmd = parts[1].lower() if len(parts) > 1 else "list"
@@ -5295,7 +5295,7 @@ class HermesCLI:
         if _remainder:
             _cprint(f"  {_DIM}Now type your prompt (or use --image in single-query mode): {_remainder}{_RST}")
         elif _is_termux_environment():
-            _cprint(f"  {_DIM}Tip: type your next message, or run hermes chat -q --image {_termux_example_image_path(image_path.name)} \"What do you see?\"{_RST}")
+            _cprint(f"  {_DIM}Tip: type your next message, or run jarviscopilot chat -q --image {_termux_example_image_path(image_path.name)} \"What do you see?\"{_RST}")
 
     def _preprocess_images_with_vision(self, text: str, images: list, *, announce: bool = True) -> str:
         """Analyze attached images via the vision tool and return enriched text.
@@ -5381,7 +5381,7 @@ class HermesCLI:
                     if len(item["tools"]) > 2:
                         tools_str += f", +{len(item['tools'])-2} more"
                     self._console_print(f"   [dim]• {item['name']}[/] [dim italic]({', '.join(item['missing_vars'])})[/]")
-                self._console_print("[dim]   Run 'hermes setup' to configure[/]")
+                self._console_print("[dim]   Run 'jarviscopilot setup' to configure[/]")
         except Exception:
             pass  # Don't crash on import errors
     
@@ -5541,7 +5541,7 @@ class HermesCLI:
                     f"    [bold {_accent_hex()}]{cmd:<22}[/] [dim]-[/] {_escape(info['description'])}"
                 )
 
-        _cprint(f"\n  {_DIM}Tip: Just type your message to chat with Hermes!{_RST}")
+        _cprint(f"\n  {_DIM}Tip: Just type your message to chat with JarvisCopilot!{_RST}")
         _cprint(f"  {_DIM}Multi-line: Alt+Enter for a new line{_RST}")
         _cprint(f"  {_DIM}Draft editor: Ctrl+G (Alt+G in VSCode/Cursor){_RST}")
         if _is_termux_environment():
@@ -5703,7 +5703,7 @@ class HermesCLI:
     
     def _handle_profile_command(self):
         """Display active profile name and home directory."""
-        from hermes_constants import display_hermes_home
+        from jarviscopilot_constants import display_hermes_home
         from jarviscopilot_cli.profiles import get_active_profile_name
 
         display = display_hermes_home()
@@ -5864,7 +5864,7 @@ class HermesCLI:
                 )
                 continue
 
-            print(f"\n  [Hermes #{visible_index}]")
+            print(f"\n  [JarvisCopilot #{visible_index}]")
             tool_calls = msg.get("tool_calls") or []
             if content_text:
                 preview = content_text[:preview_limit]
@@ -5954,7 +5954,7 @@ class HermesCLI:
                 except Exception:
                     pass
                 if title and self._session_db:
-                    from hermes_state import SessionDB
+                    from jarviscopilot_state import SessionDB
                     try:
                         sanitized = SessionDB.sanitize_title(title)
                     except ValueError as e:
@@ -6016,7 +6016,7 @@ class HermesCLI:
         Returns:
             False to signal CLI exit, True to keep going.
         """
-        from hermes_state import format_session_db_unavailable
+        from jarviscopilot_state import format_session_db_unavailable
 
         parts = cmd_original.split(maxsplit=1)
         if len(parts) < 2 or not parts[1].strip():
@@ -6066,7 +6066,7 @@ class HermesCLI:
         # Make sure we have a SessionDB handle.
         if not self._session_db:
             try:
-                from hermes_state import SessionDB
+                from jarviscopilot_state import SessionDB
                 self._session_db = SessionDB()
             except Exception:
                 pass
@@ -6145,7 +6145,7 @@ class HermesCLI:
             self._session_db.fail_handoff(self.session_id, "timed out waiting for gateway")
         except Exception:
             pass
-        _cprint("  Timed out waiting for the gateway. Is `hermes gateway` running?")
+        _cprint("  Timed out waiting for the gateway. Is `jarviscopilot gateway` running?")
         _cprint("  Your CLI session is intact.")
         return True
 
@@ -6158,11 +6158,11 @@ class HermesCLI:
             _cprint("  Usage: /resume <session_id_or_title>")
             if self._show_recent_sessions(reason="resume"):
                 return
-            _cprint("  Tip:   Use /history or `hermes sessions list` to find sessions.")
+            _cprint("  Tip:   Use /history or `jarviscopilot sessions list` to find sessions.")
             return
 
         if not self._session_db:
-            from hermes_state import format_session_db_unavailable
+            from jarviscopilot_state import format_session_db_unavailable
             _cprint(f"  {format_session_db_unavailable()}")
             return
 
@@ -6174,7 +6174,7 @@ class HermesCLI:
         session_meta = self._session_db.get_session(target_id)
         if not session_meta:
             _cprint(f"  Session not found: {target}")
-            _cprint("  Use /history or `hermes sessions list` to see available sessions.")
+            _cprint("  Use /history or `jarviscopilot sessions list` to see available sessions.")
             return
 
         # If the target is the empty head of a compression chain, redirect to
@@ -6284,7 +6284,7 @@ class HermesCLI:
         # Bare /sessions or /sessions list — show recent sessions inline.
         if not arg or sub in {"list", "ls", "browse"}:
             if not self._session_db:
-                from hermes_state import format_session_db_unavailable
+                from jarviscopilot_state import format_session_db_unavailable
                 _cprint(f"  {format_session_db_unavailable()}")
                 return
             if not self._show_recent_sessions(reason="sessions"):
@@ -6306,7 +6306,7 @@ class HermesCLI:
             return
 
         if not self._session_db:
-            from hermes_state import format_session_db_unavailable
+            from jarviscopilot_state import format_session_db_unavailable
             _cprint(f"  {format_session_db_unavailable()}")
             return
 
@@ -6429,11 +6429,11 @@ class HermesCLI:
         _cprint(f"  Branch session:   {new_session_id}")
 
     def save_conversation(self):
-        """Save the current conversation to a JSON snapshot under ~/.hermes/sessions/saved/.
+        """Save the current conversation to a JSON snapshot under ~/.jarviscopilot/sessions/saved/.
 
         The snapshot is a convenience export for sharing or off-line inspection;
         every message is already persisted incrementally to the SQLite session
-        DB, so the live session remains resumable via ``hermes --resume <id>``
+        DB, so the live session remains resumable via ``jarviscopilot --resume <id>``
         regardless of whether the user ever runs ``/save``.
         """
         if not self.conversation_history:
@@ -6459,7 +6459,7 @@ class HermesCLI:
                 }, f, indent=2, ensure_ascii=False)
             print(f"(^_^)v Conversation snapshot saved to: {path}")
             if self.session_id:
-                print(f"       Resume the live session with: hermes --resume {self.session_id}")
+                print(f"       Resume the live session with: jarviscopilot --resume {self.session_id}")
         except Exception as e:
             print(f"(x_x) Failed to save: {e}")
     
@@ -6931,7 +6931,7 @@ class HermesCLI:
                 return
             provider_data = providers[selected]
             # Use the curated model list from list_authenticated_providers()
-            # (same lists as `hermes model` and gateway pickers).
+            # (same lists as `jarviscopilot model` and gateway pickers).
             # Only fall back to the live provider catalog when the curated
             # list is empty (e.g. user-defined endpoints with no curated list).
             model_list = provider_data.get("models", [])
@@ -7160,7 +7160,7 @@ class HermesCLI:
 
         Usage:
             /codex-runtime                       — show current state
-            /codex-runtime auto                  — Hermes default (chat_completions)
+            /codex-runtime auto                  — JarvisCopilot default (chat_completions)
             /codex-runtime codex_app_server      — hand turns to codex subprocess
             /codex-runtime on / off              — synonyms for the above
         """
@@ -7592,7 +7592,7 @@ class HermesCLI:
     def _handle_curator_command(self, cmd: str):
         """Handle /curator slash command.
 
-        Delegates to jarviscopilot_cli.curator so the CLI and the `hermes curator`
+        Delegates to jarviscopilot_cli.curator so the CLI and the `jarviscopilot curator`
         subcommand share the same handler set.
         """
         import shlex
@@ -7825,7 +7825,7 @@ class HermesCLI:
                     if self._session_db:
                         # Sanitize the title early so feedback matches what gets stored
                         try:
-                            from hermes_state import SessionDB
+                            from jarviscopilot_state import SessionDB
                             new_title = SessionDB.sanitize_title(raw_title)
                         except ValueError as e:
                             _cprint(f"  {e}")
@@ -7851,7 +7851,7 @@ class HermesCLI:
                                 self._pending_title = new_title
                                 _cprint(f"  Session title queued: {new_title} (will be saved on first message)")
                     else:
-                        from hermes_state import format_session_db_unavailable
+                        from jarviscopilot_state import format_session_db_unavailable
                         _cprint(f"  {format_session_db_unavailable()}")
                 else:
                     _cprint("  Usage: /title <your session title>")
@@ -7866,7 +7866,7 @@ class HermesCLI:
                 else:
                     _cprint("  No title set. Usage: /title <your session title>")
             else:
-                from hermes_state import format_session_db_unavailable
+                from jarviscopilot_state import format_session_db_unavailable
                 _cprint(f"  {format_session_db_unavailable()}")
         elif canonical == "handoff":
             if not self._handle_handoff_command(cmd_original):
@@ -8257,11 +8257,11 @@ class HermesCLI:
                     try:
                         from jarviscopilot_cli.skin_engine import get_active_skin
                         _skin = get_active_skin()
-                        label = _skin.get_branding("response_label", "⚕ Hermes")
+                        label = _skin.get_branding("response_label", "⚕ JarvisCopilot")
                         _resp_color = _maybe_remap_for_light_mode(_skin.get_color("response_border", "#CD7F32"))
                         _resp_text = _maybe_remap_for_light_mode(_skin.get_color("banner_text", "#FFF8DC"))
                     except Exception:
-                        label = "⚕ Hermes"
+                        label = "⚕ JarvisCopilot"
                         _resp_color = "#CD7F32"
                         _resp_text = "#FFF8DC"
 
@@ -8627,7 +8627,7 @@ class HermesCLI:
         _cprint(f"  ⊙ Goal set ({state.max_turns}-turn budget): {state.goal}")
         _cprint(
             f"  {_DIM}After each turn, a judge model will check if the goal is done. "
-            f"Hermes keeps working until it is, you pause/clear it, or the budget is "
+            f"JarvisCopilot keeps working until it is, you pause/clear it, or the budget is "
             f"exhausted. Use /goal status, /goal pause, /goal resume, /goal clear.{_RST}"
         )
         # Kick the loop off immediately so the user doesn't have to send a
@@ -9031,7 +9031,7 @@ class HermesCLI:
             _cprint(f"  {_ACCENT}✓ Reasoning effort set to '{arg}' (session only){_RST}")
 
     def _handle_busy_command(self, cmd: str):
-        """Handle /busy — control what Enter does while Hermes is working.
+        """Handle /busy — control what Enter does while JarvisCopilot is working.
 
         Usage:
             /busy               Show current busy input mode
@@ -9062,11 +9062,11 @@ class HermesCLI:
         self.busy_input_mode = arg
         if save_config_value("display.busy_input_mode", arg):
             if arg == "queue":
-                behavior = "Enter will queue follow-up input while Hermes is busy."
+                behavior = "Enter will queue follow-up input while JarvisCopilot is busy."
             elif arg == "steer":
                 behavior = "Enter will steer your message into the current run (after the next tool call)."
             else:
-                behavior = "Enter will interrupt the current run while Hermes is busy."
+                behavior = "Enter will interrupt the current run while JarvisCopilot is busy."
             _cprint(f"  {_ACCENT}✓ Busy input mode set to '{arg}' (saved to config){_RST}")
             _cprint(f"  {_DIM}{behavior}{_RST}")
         else:
@@ -9345,7 +9345,7 @@ class HermesCLI:
             # above the file handler level filters records before they
             # reach handlers, so agent.log / errors.log lose visibility
             # into stream-retry events, credential rotations, etc.
-            # Console quietness is enforced by hermes_logging not
+            # Console quietness is enforced by jarviscopilot_logging not
             # installing a console StreamHandler in non-verbose mode.
 
     def _show_insights(self, command: str = "/insights"):
@@ -9373,7 +9373,7 @@ class HermesCLI:
                 i += 1
 
         try:
-            from hermes_state import SessionDB
+            from jarviscopilot_state import SessionDB
             from agent.insights import InsightsEngine
 
             db = SessionDB()
@@ -9659,7 +9659,7 @@ class HermesCLI:
             print(f"  ❌ MCP reload failed: {e}")
 
     def _reload_skills(self) -> None:
-        """Reload skills: rescan ~/.hermes/skills/ and queue a note for the
+        """Reload skills: rescan ~/.jarviscopilot/skills/ and queue a note for the
         next user turn.
 
         Skills don't need to live in the system prompt for the model to use
@@ -10943,7 +10943,7 @@ class HermesCLI:
                     if not _streaming_box_opened:
                         _streaming_box_opened = True
                         w = self._scrollback_box_width(getattr(self.console, "width", 80))
-                        label = " ⚕ Hermes "
+                        label = " ⚕ JarvisCopilot "
                         if self.show_timestamps:
                             label = f"{label}{datetime.now().strftime('%H:%M')} "
                         fill = w - 2 - HermesCLI._status_bar_display_width(label)
@@ -11246,11 +11246,11 @@ class HermesCLI:
                 try:
                     from jarviscopilot_cli.skin_engine import get_active_skin
                     _skin = get_active_skin()
-                    label = _skin.get_branding("response_label", "⚕ Hermes")
+                    label = _skin.get_branding("response_label", "⚕ JarvisCopilot")
                     _resp_color = _maybe_remap_for_light_mode(_skin.get_color("response_border", "#CD7F32"))
                     _resp_text = _maybe_remap_for_light_mode(_skin.get_color("banner_text", "#FFF8DC"))
                 except Exception:
-                    label = "⚕ Hermes"
+                    label = "⚕ JarvisCopilot"
                     _resp_color = _maybe_remap_for_light_mode("#CD7F32")
                     _resp_text = _maybe_remap_for_light_mode("#FFF8DC")
 
@@ -11378,9 +11378,9 @@ class HermesCLI:
                     pass
 
             print("Resume this session with:")
-            print(f"  hermes --resume {self.session_id}")
+            print(f"  jarviscopilot --resume {self.session_id}")
             if session_title:
-                print(f"  hermes -c \"{session_title}\"")
+                print(f"  jarviscopilot -c \"{session_title}\"")
             print()
             print(f"Session:        {self.session_id}")
             if session_title:
@@ -11674,7 +11674,7 @@ class HermesCLI:
         except Exception:
             pass
         # First-time OpenClaw-residue banner — fires once if ~/.openclaw/ exists
-        # after an OpenClaw→Hermes migration (especially migrations done by
+        # after an OpenClaw→JarvisCopilot migration (especially migrations done by
         # OpenClaw's own tool, which doesn't archive the source directory).
         try:
             from agent.onboarding import (
@@ -12036,7 +12036,7 @@ class HermesCLI:
                 without requiring terminal settings changes. Ctrl+J (the raw
                 LF keystroke) also triggers this by virtue of being the same
                 key code — a harmless side effect since Ctrl+J has no
-                conflicting Hermes binding. See issue #22379.
+                conflicting JarvisCopilot binding. See issue #22379.
                 """
                 event.current_buffer.insert_text('\n')
 
@@ -12677,7 +12677,7 @@ class HermesCLI:
                 # No image found — show a hint
                 pass  # silent when no image (avoid noise on accidental press)
 
-        # Dynamic prompt: shows Hermes symbol when agent is working,
+        # Dynamic prompt: shows JarvisCopilot symbol when agent is working,
         # or answer prompt when clarify freetext mode is active.
         cli_ref = self
 
@@ -13008,7 +13008,7 @@ class HermesCLI:
                 else f"  {other_num_prefix}. Other (type your answer)"
             )
             preview_lines.extend(_wrap_panel_text(other_label, 60, subsequent_indent="    "))
-            box_width = _panel_box_width("Hermes needs your input", preview_lines)
+            box_width = _panel_box_width("JarvisCopilot needs your input", preview_lines)
             inner_text_width = max(8, box_width - 2)
 
             # Pre-wrap choices + Other option — these are mandatory.
@@ -13083,8 +13083,8 @@ class HermesCLI:
             lines = []
             # Box top border
             lines.append(('class:clarify-border', '╭─ '))
-            lines.append(('class:clarify-title', 'Hermes needs your input'))
-            lines.append(('class:clarify-border', ' ' + ('─' * max(0, box_width - len("Hermes needs your input") - 3)) + '╮\n'))
+            lines.append(('class:clarify-title', 'JarvisCopilot needs your input'))
+            lines.append(('class:clarify-border', ' ' + ('─' * max(0, box_width - len("JarvisCopilot needs your input") - 3)) + '╮\n'))
             if not use_compact_chrome:
                 _append_blank_panel_line(lines, 'class:clarify-border', box_width)
 
@@ -13746,7 +13746,7 @@ class HermesCLI:
             # Windows: install a SIGINT handler that absorbs the signal
             # instead of letting Python's default handler raise
             # KeyboardInterrupt in MainThread. Windows Terminal / Win32
-            # delivers spurious CTRL_C_EVENT to the hermes process when
+            # delivers spurious CTRL_C_EVENT to the jarviscopilot process when
             # child processes are spawned from background threads (agent
             # subprocess Popen path). The default Python SIGINT handler
             # would then unwind prompt_toolkit's app.run(), trigger
@@ -13802,7 +13802,7 @@ class HermesCLI:
             print(
                 "Error: stdin (fd 0) is not available.\n"
                 "This can happen with certain Python installations (e.g. uv-managed cPython on macOS).\n"
-                "Try reinstalling Python via pyenv or Homebrew, then re-run: hermes setup"
+                "Try reinstalling Python via pyenv or Homebrew, then re-run: jarviscopilot setup"
             )
             _run_cleanup()
             self._print_exit_summary()
@@ -13866,7 +13866,7 @@ class HermesCLI:
                     f"\nError: stdin is not usable ({_stdin_err}).\n"
                     "This can happen with certain Python installations (e.g. uv-managed cPython on macOS)\n"
                     "where kqueue cannot register fd 0.\n"
-                    "Try reinstalling Python via pyenv or Homebrew, then re-run: hermes setup"
+                    "Try reinstalling Python via pyenv or Homebrew, then re-run: jarviscopilot setup"
                 )
             else:
                 raise
@@ -13908,7 +13908,7 @@ class HermesCLI:
                 # and SQLite history. Ported from google-gemini/gemini-cli#19332.
                 if getattr(self, '_delete_session_on_exit', False):
                     try:
-                        from hermes_constants import get_hermes_home as _ghh
+                        from jarviscopilot_constants import get_hermes_home as _ghh
                         _sessions_dir = _ghh() / "sessions"
                         _sid = self.agent.session_id
                         if self._session_db.delete_session(_sid, sessions_dir=_sessions_dir):
@@ -13992,7 +13992,7 @@ def main(
     Examples:
         python cli.py                            # Start interactive mode
         python cli.py --toolsets web,terminal    # Use specific toolsets
-        python cli.py --skills hermes-agent-dev,github-auth
+        python cli.py --skills jarviscopilot-dev,github-auth
         python cli.py -q "What is Python?"       # Single query mode
         python cli.py -q "Describe this" --image ~/storage/shared/Pictures/cat.png
         python cli.py --list-tools               # List tools and exit
@@ -14190,7 +14190,7 @@ def main(
                     cli.agent.quiet_mode = True
                     cli.agent.suppress_status_output = True
                     # Suppress streaming display callbacks so stdout stays
-                    # machine-readable (no styled "Hermes" box, no tool-gen
+                    # machine-readable (no styled "JarvisCopilot" box, no tool-gen
                     # status lines).  The response is printed once below.
                     cli.agent.stream_delta_callback = None
                     cli.agent.tool_gen_callback = None
@@ -14230,7 +14230,7 @@ def main(
             # Exit with error code if credentials or agent init fails
             sys.exit(1)
         else:
-            # Single-query mode (`hermes chat -q "…"`): skip the welcome
+            # Single-query mode (`jarviscopilot chat -q "…"`): skip the welcome
             # banner. Building the banner takes ~420 ms on cold start —
             # ~200 ms of that is the version-update check, the rest is
             # toolset / skill enumeration and Rich panel rendering. None

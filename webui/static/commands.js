@@ -238,9 +238,9 @@ function cliOnlyCommandResponse(cmdName, meta){
   const detail=desc?`\n\n${desc}`:'';
   let extra='';
   if(name==='browser'){
-    extra='\n\nBrowser tools in WebUI must be configured server-side with the agent/browser environment. Once configured, ask the model to use browser tools directly; `/browser` itself only works in `hermes chat`.';
+    extra='\n\nBrowser tools in WebUI must be configured server-side with the agent/browser environment. Once configured, ask the model to use browser tools directly; `/browser` itself only works in `jarviscopilot chat`.';
   }
-  return `\`/${name}\` is a Hermes CLI-only command and cannot run inside the WebUI.${detail}${extra}`;
+  return `\`/${name}\` is a JarvisCopilot CLI-only command and cannot run inside the WebUI.${detail}${extra}`;
 }
 
 async function executeAgentPluginCommand(text,_meta){
@@ -424,7 +424,7 @@ async function _applyManualCompressionResult(data, focusTopic, visibleCount, com
       S.messages=data.session.messages||[];
       S.toolCalls=data.session.tool_calls||[];
       clearLiveToolCards();
-      try{localStorage.setItem('hermes-webui-session',S.session.session_id);}catch(_){}
+      try{localStorage.setItem('jarviscopilot-webui-session',S.session.session_id);}catch(_){}
       if(typeof _setActiveSessionUrl==='function') _setActiveSessionUrl(S.session.session_id);
       syncTopbar();
       renderMessages();
@@ -851,7 +851,7 @@ async function cmdInterrupt(args){
  * next iteration — same pathway as the CLI's /steer command.
  *
  * Falls back to interrupt mode when the agent isn't running, isn't cached,
- * or doesn't support steer (older hermes-agent versions).
+ * or doesn't support steer (older jarviscopilot versions).
  */
 async function cmdSteer(args){
   const msg=(args||'').trim();

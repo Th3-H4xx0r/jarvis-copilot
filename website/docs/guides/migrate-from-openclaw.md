@@ -223,7 +223,7 @@ The migration resolves all three formats. For env templates and SecretRef object
 
 4. **Verify API keys** — run `jarviscopilot status` to check provider authentication.
 
-5. **Test messaging** — if you migrated platform tokens, restart the gateway: `systemctl --user restart hermes-gateway`
+5. **Test messaging** — if you migrated platform tokens, restart the gateway: `systemctl --user restart jarviscopilot-gateway`
 
 6. **Check session policies** — verify `jarviscopilot config get session_reset` matches your expectations.
 

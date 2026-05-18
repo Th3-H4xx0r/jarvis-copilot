@@ -101,7 +101,7 @@ function _setWorkspacePanelMode(mode){
   // Persist open/closed across refreshes (browse/preview → open; closed → closed)
   // Do NOT overwrite the user's "keep open" preference — only track runtime state
   // so that toggleWorkspacePanel(false) from the toolbar doesn't clear the setting.
-  try{localStorage.setItem('hermes-webui-workspace-panel', open ? 'open' : 'closed');}catch(_){}
+  try{localStorage.setItem('jarviscopilot-webui-workspace-panel', open ? 'open' : 'closed');}catch(_){}
   layout.classList.toggle('workspace-panel-collapsed',!open);
   if(_isCompactWorkspaceViewport()){
     panel.classList.toggle('mobile-open',open);
@@ -235,7 +235,7 @@ function closeMobileSidebar(){
 // Mobile is unaffected: the sidebar is an overlay there, and every collapse
 // code path is gated on `_isDesktopWidth()` (min-width:641px).
 // State is persisted via localStorage and survives reloads + bfcache.
-const _SIDEBAR_COLLAPSED_KEY='hermes-webui-sidebar-collapsed';
+const _SIDEBAR_COLLAPSED_KEY='jarviscopilot-webui-sidebar-collapsed';
 
 function _isDesktopWidth(){
   try{return window.matchMedia('(min-width:641px)').matches;}catch(_){return true;}
@@ -934,7 +934,7 @@ $('modelSelect').onchange=async()=>{
     : {model:selectedModel,model_provider:null};
   if(typeof closeModelDropdown==='function') closeModelDropdown();
   if(typeof _writePersistedModelState==='function') _writePersistedModelState(modelState.model,modelState.model_provider);
-  else try{localStorage.setItem('hermes-webui-model',modelState.model)}catch{}
+  else try{localStorage.setItem('jarviscopilot-webui-model',modelState.model)}catch{}
   // Clarify scope: composer model changes are session-local, not the global default.
   if(typeof showToast==='function'){
     showToast(t('model_scope_toast')||'Applies to this conversation from your next message.', 3000);
@@ -950,7 +950,7 @@ $('modelSelect').onchange=async()=>{
   if(typeof syncModelChip==='function') syncModelChip();
   syncTopbar();
   _applySessionContextMetadataUpdate(data);
-  // Warn if selected model belongs to a different provider than what Hermes is configured for
+  // Warn if selected model belongs to a different provider than what JarvisCopilot is configured for
   if(typeof _checkProviderMismatch==='function'){
     const warn=_checkProviderMismatch(selectedModel);
     if(warn&&typeof showToast==='function') showToast(warn,4000);
@@ -1382,12 +1382,12 @@ function _buildSkinPicker(activeSkin){
 function applyBotName(){
   // Prefer profile name over global bot_name for personalised placeholder.
   // If activeProfile is set and not 'default', use it (capitalised).
-  // Falls back to window._botName (global bot_name setting) or 'Hermes'.
+  // Falls back to window._botName (global bot_name setting) or 'JarvisCopilot'.
   let name;
   if(S.activeProfile && S.activeProfile!=='default'){
     name=S.activeProfile.charAt(0).toUpperCase()+S.activeProfile.slice(1);
   }else{
-    name=window._botName||'Hermes';
+    name=window._botName||'JarvisCopilot';
   }
   document.title=name;
   const sidebarH1=document.querySelector('.sidebar-header h1');
@@ -1423,7 +1423,7 @@ function applyBotName(){
     window._sidebarDensity=(s.sidebar_density==='detailed'?'detailed':'compact');
     window._busyInputMode=(s.busy_input_mode||'queue');
     window._sessionEndlessScrollEnabled=!!s.session_endless_scroll;
-    window._botName=s.bot_name||'Hermes';
+    window._botName=s.bot_name||'JarvisCopilot';
     if(s.default_model) window._defaultModel=s.default_model;
     window._sessionJumpButtonsEnabled=!!s.session_jump_buttons;
     // Reconcile appearance: prefer localStorage (what the user last saw) over
@@ -1487,7 +1487,7 @@ function applyBotName(){
     window._sidebarDensity='compact';
     window._busyInputMode='queue';
     window._sessionEndlessScrollEnabled=false;
-    window._botName='Hermes';
+    window._botName='JarvisCopilot';
     _bootSettings={check_for_updates:false};
     if(typeof setLocale==='function'){
       const _lang=typeof resolvePreferredLocale==='function'
@@ -1517,7 +1517,7 @@ function applyBotName(){
   const _modelDropdownReady=populateModelDropdown().then(()=>{
     const savedState=(typeof _readPersistedModelState==='function')
       ? _readPersistedModelState()
-      : (localStorage.getItem('hermes-webui-model')?{model:localStorage.getItem('hermes-webui-model'),model_provider:null}:null);
+      : (localStorage.getItem('jarviscopilot-webui-model')?{model:localStorage.getItem('jarviscopilot-webui-model'),model_provider:null}:null);
     const savedModel=savedState&&savedState.model;
     if(savedModel && $('modelSelect')){
       const applied=(typeof _applyModelToDropdown==='function')
@@ -1527,7 +1527,7 @@ function applyBotName(){
       // If the value didn't take (model not in list), clear the bad pref
       if(!applied&&$('modelSelect').value!==savedModel){
         if(typeof _clearPersistedModelState==='function') _clearPersistedModelState();
-        else localStorage.removeItem('hermes-webui-model');
+        else localStorage.removeItem('jarviscopilot-webui-model');
       }
       else if(typeof syncModelChip==='function') syncModelChip();
     }
@@ -1552,7 +1552,7 @@ function applyBotName(){
   if(typeof fetchReasoningChip==='function') fetchReasoningChip();
   if(typeof refreshProviderQuotaIndicator==='function') refreshProviderQuotaIndicator();
   const urlSession=(typeof _sessionIdFromLocation==='function')?_sessionIdFromLocation():null;
-  const savedLocal=localStorage.getItem('hermes-webui-session');
+  const savedLocal=localStorage.getItem('jarviscopilot-webui-session');
   const saved=urlSession||savedLocal;
   if(saved){
     try{
@@ -1581,8 +1581,8 @@ function applyBotName(){
         S._bootReady=true;
         // Restore panel pref before syncing so the workspace panel stays visible
         // even though there is no active session (#workspace-persist).
-        const _ephPanelPref=localStorage.getItem('hermes-webui-workspace-panel-pref')==='open'
-          || localStorage.getItem('hermes-webui-workspace-panel')==='open';
+        const _ephPanelPref=localStorage.getItem('jarviscopilot-webui-workspace-panel-pref')==='open'
+          || localStorage.getItem('jarviscopilot-webui-workspace-panel')==='open';
         if(_ephPanelPref&&!_isCompactWorkspaceViewport()) _workspacePanelMode='browse';
         syncTopbar();syncWorkspacePanelState();
         $('emptyState').style.display='';
@@ -1592,22 +1592,22 @@ function applyBotName(){
       // Restore the panel from localStorage when the session has a workspace.
       // Preference key takes priority over runtime state so that closing
       // the panel via toolbar X doesn't suppress the "keep open" setting.
-      const panelPref=localStorage.getItem('hermes-webui-workspace-panel-pref')==='open'
-        || localStorage.getItem('hermes-webui-workspace-panel')==='open';
+      const panelPref=localStorage.getItem('jarviscopilot-webui-workspace-panel-pref')==='open'
+        || localStorage.getItem('jarviscopilot-webui-workspace-panel')==='open';
       if(S.session&&S.session.workspace&&panelPref&&!_isCompactWorkspaceViewport()){
         _workspacePanelMode='browse';
       }
       S._bootReady=true;
       syncTopbar();syncWorkspacePanelState();await renderSessionList();if(typeof startGatewaySSE==='function')startGatewaySSE();await checkInflightOnBoot(saved);return;}
-    catch(e){localStorage.removeItem('hermes-webui-session');}
+    catch(e){localStorage.removeItem('jarviscopilot-webui-session');}
   }
   // no saved session - show empty state, wait for user to hit +
   S._bootReady=true;
   syncTopbar();
   // Restore panel pref so the workspace panel stays visible on a fresh load if the
   // user had it open during their last session (#workspace-persist).
-  const _freshPanelPref=localStorage.getItem('hermes-webui-workspace-panel-pref')==='open'
-    || localStorage.getItem('hermes-webui-workspace-panel')==='open';
+  const _freshPanelPref=localStorage.getItem('jarviscopilot-webui-workspace-panel-pref')==='open'
+    || localStorage.getItem('jarviscopilot-webui-workspace-panel')==='open';
   if(_freshPanelPref&&!_isCompactWorkspaceViewport()) _workspacePanelMode='browse';
   syncWorkspacePanelState();
   $('emptyState').style.display='';
@@ -1615,7 +1615,7 @@ function applyBotName(){
   // Start real-time gateway session sync if setting is enabled
   if(typeof startGatewaySSE==='function') startGatewaySSE();
 })().catch(e=>{
-  console.error('[hermes] boot failed', e);
+  console.error('[jarviscopilot] boot failed', e);
   try{S._bootReady=true;}catch(_){}
   try{syncTopbar();}catch(_){}
   try{syncWorkspacePanelState();}catch(_){}
@@ -1665,7 +1665,7 @@ window.addEventListener('pageshow', async (event) => {
   // frozen DOM but another tab may have toggled the sidebar in the meantime.
   if (typeof _isSidebarCollapsed === 'function' && typeof toggleSidebar === 'function') {
     try {
-      const _want = localStorage.getItem('hermes-webui-sidebar-collapsed') === '1';
+      const _want = localStorage.getItem('jarviscopilot-webui-sidebar-collapsed') === '1';
       const _have = _isSidebarCollapsed();
       if (_want !== _have) toggleSidebar(_want);
       if (typeof _syncSidebarAria === 'function') _syncSidebarAria();

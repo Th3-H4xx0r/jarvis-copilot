@@ -35,25 +35,25 @@ No clone needed. Nix fetches, builds, and runs everything:
 
 ```bash
 # Run directly (builds on first use, cached after)
-nix run github:NousResearch/hermes-agent -- setup
-nix run github:NousResearch/hermes-agent -- chat
+nix run github:NousResearch/jarviscopilot -- setup
+nix run github:NousResearch/jarviscopilot -- chat
 
 # Or install persistently
-nix profile install github:NousResearch/hermes-agent
+nix profile install github:NousResearch/jarviscopilot
 jarviscopilot setup
 jarviscopilot chat
 ```
 
-After `nix profile install`, `jarviscopilot`, `hermes-agent`, and `jarviscopilot-acp` are on your PATH. From here, the workflow is identical to the [standard installation](./installation.md) — `jarviscopilot setup` walks you through provider selection, `jarviscopilot gateway install` sets up a launchd (macOS) or systemd user service, and config lives in `~/.jarviscopilot/`.
+After `nix profile install`, `jarviscopilot`, `jarviscopilot`, and `jarviscopilot-acp` are on your PATH. From here, the workflow is identical to the [standard installation](./installation.md) — `jarviscopilot setup` walks you through provider selection, `jarviscopilot gateway install` sets up a launchd (macOS) or systemd user service, and config lives in `~/.jarviscopilot/`.
 
 <details>
 <summary><strong>Building from a local clone</strong></summary>
 
 ```bash
-git clone https://github.com/NousResearch/hermes-agent.git
-cd hermes-agent
+git clone https://github.com/NousResearch/jarviscopilot.git
+cd jarviscopilot
 nix build
-./result/bin/hermes setup
+./result/bin/jarviscopilot setup
 ```
 
 </details>
@@ -75,14 +75,14 @@ This module requires NixOS. For non-NixOS systems (macOS, other Linux distros), 
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    hermes-agent.url = "github:NousResearch/hermes-agent";
+    jarviscopilot.url = "github:NousResearch/jarviscopilot";
   };
 
-  outputs = { nixpkgs, hermes-agent, ... }: {
+  outputs = { nixpkgs, jarviscopilot, ... }: {
     nixosConfigurations.your-host = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
-        hermes-agent.nixosModules.default
+        jarviscopilot.nixosModules.default
         ./configuration.nix
       ];
     };
@@ -95,7 +95,7 @@ This module requires NixOS. For non-NixOS systems (macOS, other Linux distros), 
 ```nix
 # configuration.nix
 { config, ... }: {
-  services.hermes-agent = {
+  services.jarviscopilot = {
     enable = true;
     settings.model.default = "anthropic/claude-sonnet-4";
     environmentFiles = [ config.sops.secrets."jarviscopilot-env".path ];
@@ -114,7 +114,7 @@ echo "OPENROUTER_API_KEY=sk-or-your-key" | sudo install -m 0600 -o jarviscopilot
 ```
 
 ```nix
-services.hermes-agent.environmentFiles = [ "/var/lib/hermes/env" ];
+services.jarviscopilot.environmentFiles = [ "/var/lib/hermes/env" ];
 ```
 :::
 
@@ -135,7 +135,7 @@ When `container.enable = true` and `addToSystemPackages = true`, **every** `jarv
 Set `container.hostUsers` to create a `~/.jarviscopilot` symlink to the service state directory, so the host CLI and the container share sessions, config, and memories:
 
 ```nix
-services.hermes-agent = {
+services.jarviscopilot = {
   container.enable = true;
   container.hostUsers = [ "your-username" ];
   addToSystemPackages = true;
@@ -165,10 +165,10 @@ After `nixos-rebuild switch`, check that the service is running:
 
 ```bash
 # Check service status
-systemctl status hermes-agent
+systemctl status jarviscopilot
 
 # Watch logs (Ctrl+C to stop)
-journalctl -u hermes-agent -f
+journalctl -u jarviscopilot -f
 
 # If addToSystemPackages is true, test the CLI
 jarviscopilot version
@@ -191,7 +191,7 @@ To enable container mode, add one line:
 
 ```nix
 {
-  services.hermes-agent = {
+  services.jarviscopilot = {
     enable = true;
     container.enable = true;
     # ... rest of config is identical
@@ -213,14 +213,14 @@ The `settings` option accepts an arbitrary attrset that is rendered as `config.y
 
 ```nix
 # base.nix
-services.hermes-agent.settings = {
+services.jarviscopilot.settings = {
   model.default = "anthropic/claude-sonnet-4";
   toolsets = [ "all" ];
   terminal = { backend = "local"; timeout = 180; };
 };
 
 # personality.nix
-services.hermes-agent.settings = {
+services.jarviscopilot.settings = {
   display = { compact = false; personality = "kawaii"; };
   memory = { memory_enabled = true; user_profile_enabled = true; };
 };
@@ -241,7 +241,7 @@ Run `nix build .#configKeys && cat result` to see every leaf config key extracte
 
 ```nix
 { config, ... }: {
-  services.hermes-agent = {
+  services.jarviscopilot = {
     enable = true;
     container.enable = true;
 
@@ -303,7 +303,7 @@ Run `nix build .#configKeys && cat result` to see every leaf config key extracte
 If you'd rather manage `config.yaml` entirely outside Nix, use `configFile`:
 
 ```nix
-services.hermes-agent.configFile = /etc/hermes/config.yaml;
+services.jarviscopilot.configFile = /etc/hermes/config.yaml;
 ```
 
 This bypasses `settings` entirely — no merge, no generation. The file is copied as-is to `$HERMES_HOME/config.yaml` on each activation.
@@ -317,7 +317,7 @@ Quick reference for the most common things Nix users want to customize:
 | Change the LLM model | `settings.model.default` | `"anthropic/claude-sonnet-4"` |
 | Use a different provider endpoint | `settings.model.base_url` | `"https://openrouter.ai/api/v1"` |
 | Add API keys | `environmentFiles` | `[ config.sops.secrets."jarviscopilot-env".path ]` |
-| Give the agent a personality | `${services.hermes-agent.stateDir}/.jarviscopilot/SOUL.md` | manage the file directly |
+| Give the agent a personality | `${services.jarviscopilot.stateDir}/.jarviscopilot/SOUL.md` | manage the file directly |
 | Add MCP tool servers | `mcpServers.<name>` | See [MCP Servers](#mcp-servers) |
 | Mount host directories into container | `container.extraVolumes` | `[ "/data:/data:rw" ]` |
 | Pass GPU access to container | `container.extraOptions` | `[ "--gpus" "all" ]` |
@@ -325,7 +325,7 @@ Quick reference for the most common things Nix users want to customize:
 | Share state between host CLI and container | `container.hostUsers` | `[ "sidbin" ]` |
 | Make extra tools available to the agent | `extraPackages` | `[ pkgs.pandoc pkgs.imagemagick ]` |
 | Use a custom base image | `container.image` | `"ubuntu:24.04"` |
-| Override the jarviscopilot package | `package` | `inputs.hermes-agent.packages.${system}.default.override { ... }` |
+| Override the jarviscopilot package | `package` | `inputs.jarviscopilot.packages.${system}.default.override { ... }` |
 | Change state directory | `stateDir` | `"/opt/hermes"` |
 | Set the agent's working directory | `workingDirectory` | `"/home/user/projects"` |
 
@@ -337,7 +337,7 @@ Quick reference for the most common things Nix users want to customize:
 Values in Nix expressions end up in `/nix/store`, which is world-readable. Always use `environmentFiles` with a secrets manager.
 :::
 
-Both `environment` (non-secret vars) and `environmentFiles` (secret files) are merged into `$HERMES_HOME/.env` at activation time (`nixos-rebuild switch`). JarvisCopilot reads this file on every startup, so changes take effect with a `systemctl restart hermes-agent` — no container recreation needed.
+Both `environment` (non-secret vars) and `environmentFiles` (secret files) are merged into `$HERMES_HOME/.env` at activation time (`nixos-rebuild switch`). JarvisCopilot reads this file on every startup, so changes take effect with a `systemctl restart jarviscopilot` — no container recreation needed.
 
 ### sops-nix
 
@@ -349,7 +349,7 @@ Both `environment` (non-secret vars) and `environmentFiles` (secret files) are m
     secrets."jarviscopilot-env" = { format = "yaml"; };
   };
 
-  services.hermes-agent.environmentFiles = [
+  services.jarviscopilot.environmentFiles = [
     config.sops.secrets."jarviscopilot-env".path
   ];
 }
@@ -371,7 +371,7 @@ jarviscopilot-env: |
 {
   age.secrets.jarviscopilot-env.file = ./secrets/hermes-env.age;
 
-  services.hermes-agent.environmentFiles = [
+  services.jarviscopilot.environmentFiles = [
     config.age.secrets.jarviscopilot-env.path
   ];
 }
@@ -383,7 +383,7 @@ For platforms requiring OAuth (e.g., Discord), use `authFile` to seed credential
 
 ```nix
 {
-  services.hermes-agent = {
+  services.jarviscopilot = {
     authFile = config.sops.secrets."jarviscopilot/auth.json".path;
     # authFileForceOverwrite = true;  # overwrite on every activation
   };
@@ -401,11 +401,11 @@ The `documents` option installs files into the agent's working directory (the `w
 - **`USER.md`** — context about the user the agent is interacting with.
 - Any other files you place here are visible to the agent as workspace files.
 
-The agent identity file is separate: JarvisCopilot loads its primary `SOUL.md` from `$HERMES_HOME/SOUL.md`, which in the NixOS module is `${services.hermes-agent.stateDir}/.jarviscopilot/SOUL.md`. Putting `SOUL.md` in `documents` only creates a workspace file and will not replace the main persona file.
+The agent identity file is separate: JarvisCopilot loads its primary `SOUL.md` from `$HERMES_HOME/SOUL.md`, which in the NixOS module is `${services.jarviscopilot.stateDir}/.jarviscopilot/SOUL.md`. Putting `SOUL.md` in `documents` only creates a workspace file and will not replace the main persona file.
 
 ```nix
 {
-  services.hermes-agent.documents = {
+  services.jarviscopilot.documents = {
     "USER.md" = ./documents/USER.md;  # path reference, copied from Nix store
   };
 }
@@ -423,7 +423,7 @@ The `mcpServers` option declaratively configures [MCP (Model Context Protocol)](
 
 ```nix
 {
-  services.hermes-agent.mcpServers = {
+  services.jarviscopilot.mcpServers = {
     filesystem = {
       command = "npx";
       args = [ "-y" "@modelcontextprotocol/server-filesystem" "/data/workspace" ];
@@ -445,7 +445,7 @@ Environment variables in `env` values are resolved from `$HERMES_HOME/.env` at r
 
 ```nix
 {
-  services.hermes-agent.mcpServers.remote-api = {
+  services.jarviscopilot.mcpServers.remote-api = {
     url = "https://mcp.example.com/v1/mcp";
     headers.Authorization = "Bearer \${MCP_REMOTE_API_KEY}";
     timeout = 180;
@@ -459,7 +459,7 @@ Set `auth = "oauth"` for servers using OAuth 2.1. JarvisCopilot implements the f
 
 ```nix
 {
-  services.hermes-agent.mcpServers.my-oauth-server = {
+  services.jarviscopilot.mcpServers.my-oauth-server = {
     url = "https://mcp.example.com/mcp";
     auth = "oauth";
   };
@@ -477,7 +477,7 @@ The first OAuth authorization requires a browser-based consent flow. In a headle
 
 ```bash
 # Container mode
-docker exec -it hermes-agent \
+docker exec -it jarviscopilot \
   jarviscopilot mcp add my-oauth-server --url https://mcp.example.com/mcp --auth oauth
 
 # Native mode
@@ -504,7 +504,7 @@ Some MCP servers can request LLM completions from the agent:
 
 ```nix
 {
-  services.hermes-agent.mcpServers.analysis = {
+  services.jarviscopilot.mcpServers.analysis = {
     command = "npx";
     args = [ "-y" "analysis-server" ];
     sampling = {
@@ -535,7 +535,7 @@ When jarviscopilot runs via the NixOS module, the following CLI commands are **b
 This prevents drift between what Nix declares and what's on disk. Detection uses two signals:
 
 1. **`HERMES_MANAGED=true`** environment variable — set by the systemd service, visible to the gateway process
-2. **`.managed` marker file** in `HERMES_HOME` — set by the activation script, visible to interactive shells (e.g., `docker exec -it hermes-agent jarviscopilot config set ...` is also blocked)
+2. **`.managed` marker file** in `HERMES_HOME` — set by the activation script, visible to interactive shells (e.g., `docker exec -it jarviscopilot jarviscopilot config set ...` is also blocked)
 
 To change configuration, edit your Nix config and run `sudo nixos-rebuild switch`.
 
@@ -552,7 +552,7 @@ When container mode is enabled, jarviscopilot runs inside a persistent Ubuntu co
 ```
 Host                                    Container
 ────                                    ─────────
-/nix/store/...-hermes-agent-0.1.0  ──►  /nix/store/... (ro)
+/nix/store/...-jarviscopilot-0.1.0  ──►  /nix/store/... (ro)
 ~/.jarviscopilot -> /var/lib/hermes/.jarviscopilot       (symlink bridge, per hostUsers)
 /var/lib/hermes/                    ──►  /data/          (rw)
   ├── current-package -> /nix/store/...    (symlink, updated each rebuild)
@@ -573,13 +573,13 @@ Host                                    Container
 Container writable layer (apt/pip/npm):   /usr, /usr/local, /tmp
 ```
 
-The Nix-built binary works inside the Ubuntu container because `/nix/store` is bind-mounted — it brings its own interpreter and all dependencies, so there's no reliance on the container's system libraries. The container entrypoint resolves through a `current-package` symlink: `/data/current-package/bin/hermes gateway run --replace`. On `nixos-rebuild switch`, only the symlink is updated — the container keeps running.
+The Nix-built binary works inside the Ubuntu container because `/nix/store` is bind-mounted — it brings its own interpreter and all dependencies, so there's no reliance on the container's system libraries. The container entrypoint resolves through a `current-package` symlink: `/data/current-package/bin/jarviscopilot gateway run --replace`. On `nixos-rebuild switch`, only the symlink is updated — the container keeps running.
 
 ### What Persists Across What
 
 | Event | Container recreated? | `/data` (state) | `/home/hermes` | Writable layer (`apt`/`pip`/`npm`) |
 |---|---|---|---|---|
-| `systemctl restart hermes-agent` | No | Persists | Persists | Persists |
+| `systemctl restart jarviscopilot` | No | Persists | Persists | Persists |
 | `nixos-rebuild switch` (code change) | No (symlink updated) | Persists | Persists | Persists |
 | Host reboot | No | Persists | Persists | Persists |
 | `nix-collect-garbage` | No (GC root) | Persists | Persists | Persists |
@@ -610,7 +610,7 @@ The NixOS module supports declarative plugin installation — no imperative `jar
 For plugins that are just a source tree with `plugin.yaml` + `__init__.py` (e.g., [jarviscopilot-lcm](https://github.com/stephenschoettler/hermes-lcm)):
 
 ```nix
-services.hermes-agent.extraPlugins = [
+services.jarviscopilot.extraPlugins = [
   (pkgs.fetchFromGitHub {
     owner = "stephenschoettler";
     repo = "jarviscopilot-lcm";
@@ -627,7 +627,7 @@ Plugins are symlinked into `$HERMES_HOME/plugins/` at activation time. JarvisCop
 For pip-packaged plugins that register via `[project.entry-points."hermes_agent.plugins"]` (e.g., [rtk-hermes](https://github.com/ogallotti/rtk-hermes)):
 
 ```nix
-services.hermes-agent.extraPythonPackages = [
+services.jarviscopilot.extraPythonPackages = [
   (pkgs.python312Packages.buildPythonPackage {
     pname = "rtk-hermes";
     version = "1.0.0";
@@ -647,10 +647,10 @@ The package's `site-packages` is added to PYTHONPATH in the jarviscopilot wrappe
 
 ### Optional Dependency Groups (`extraDependencyGroups`)
 
-For optional extras already declared in hermes-agent's `pyproject.toml` (e.g., memory providers like `hindsight` or `honcho`), use `extraDependencyGroups` to include them in the sealed venv at build time:
+For optional extras already declared in jarviscopilot's `pyproject.toml` (e.g., memory providers like `hindsight` or `honcho`), use `extraDependencyGroups` to include them in the sealed venv at build time:
 
 ```nix
-services.hermes-agent = {
+services.jarviscopilot = {
   extraDependencyGroups = [ "hindsight" ];
   settings.memory.provider = "hindsight";
 };
@@ -672,7 +672,7 @@ This is resolved by uv alongside core dependencies in a single pass — no PYTHO
 A directory plugin with third-party Python dependencies needs both options:
 
 ```nix
-services.hermes-agent = {
+services.jarviscopilot = {
   extraPlugins = [ my-plugin-src ];          # plugin source
   extraPythonPackages = [ pkgs.python312Packages.redis ];  # its Python dep
   extraPackages = [ pkgs.redis ];            # system binary it needs
@@ -685,12 +685,12 @@ External flakes can override the package directly:
 
 ```nix
 {
-  inputs.hermes-agent.url = "github:NousResearch/hermes-agent";
-  outputs = { hermes-agent, nixpkgs, ... }: {
-    nixpkgs.overlays = [ hermes-agent.overlays.default ];
+  inputs.jarviscopilot.url = "github:NousResearch/jarviscopilot";
+  outputs = { jarviscopilot, nixpkgs, ... }: {
+    nixpkgs.overlays = [ jarviscopilot.overlays.default ];
     # Then:
-    #   pkgs.hermes-agent.override { extraPythonPackages = [...]; }
-    #   pkgs.hermes-agent.override { extraDependencyGroups = [ "hindsight" ]; }
+    #   pkgs.jarviscopilot.override { extraPythonPackages = [...]; }
+    #   pkgs.jarviscopilot.override { extraDependencyGroups = [ "hindsight" ]; }
   };
 }
 ```
@@ -700,7 +700,7 @@ External flakes can override the package directly:
 Plugins still need to be enabled in `config.yaml`. Add them via the declarative settings:
 
 ```nix
-services.hermes-agent.settings.plugins.enabled = [
+services.jarviscopilot.settings.plugins.enabled = [
   "jarviscopilot-lcm"
   "rtk-rewrite"
 ];
@@ -719,7 +719,7 @@ A build-time collision check prevents plugin packages from shadowing core jarvis
 The flake provides a development shell with Python 3.12, uv, Node.js, and all runtime tools:
 
 ```bash
-cd hermes-agent
+cd jarviscopilot
 nix develop
 
 # Shell provides:
@@ -736,7 +736,7 @@ jarviscopilot chat
 The included `.envrc` activates the dev shell automatically:
 
 ```bash
-cd hermes-agent
+cd jarviscopilot
 direnv allow    # one-time
 # Subsequent entries are near-instant (stamp file skips dep install)
 ```
@@ -763,7 +763,7 @@ nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves use
 
 | Check | What it tests |
 |---|---|
-| `package-contents` | `jarviscopilot` and `hermes-agent` binaries exist and `jarviscopilot version` runs |
+| `package-contents` | `jarviscopilot` and `jarviscopilot` binaries exist and `jarviscopilot version` runs |
 | `entry-points-sync` | Every `[project.scripts]` entry in `pyproject.toml` has a wrapped binary in the Nix package |
 | `cli-commands` | `jarviscopilot --help` exposes `gateway` and `config` subcommands |
 | `managed-guard` | `HERMES_MANAGED=true jarviscopilot config set ...` prints the NixOS error |
@@ -780,8 +780,8 @@ nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves use
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `enable` | `bool` | `false` | Enable the hermes-agent service |
-| `package` | `package` | `hermes-agent` | The hermes-agent package to use |
+| `enable` | `bool` | `false` | Enable the jarviscopilot service |
+| `package` | `package` | `jarviscopilot` | The jarviscopilot package to use |
 | `user` | `str` | `"jarviscopilot"` | System user |
 | `group` | `str` | `"jarviscopilot"` | System group |
 | `createUser` | `bool` | `true` | Auto-create user/group |
@@ -895,7 +895,7 @@ Same layout, mounted into the container:
 
 ```bash
 # Update the flake input (run from the directory containing flake.nix)
-cd /etc/nixos && nix flake update hermes-agent
+cd /etc/nixos && nix flake update jarviscopilot
 
 # Rebuild
 sudo nixos-rebuild switch
@@ -915,21 +915,21 @@ All `docker` commands below work the same with `podman`. Substitute accordingly 
 
 ```bash
 # Both modes use the same systemd unit
-journalctl -u hermes-agent -f
+journalctl -u jarviscopilot -f
 
 # Container mode: also available directly
-docker logs -f hermes-agent
+docker logs -f jarviscopilot
 ```
 
 ### Container Inspection
 
 ```bash
-systemctl status hermes-agent
-docker ps -a --filter name=hermes-agent
-docker inspect hermes-agent --format='{{.State.Status}}'
-docker exec -it hermes-agent bash
-docker exec hermes-agent readlink /data/current-package
-docker exec hermes-agent cat /data/.container-identity
+systemctl status jarviscopilot
+docker ps -a --filter name=jarviscopilot
+docker inspect jarviscopilot --format='{{.State.Status}}'
+docker exec -it jarviscopilot bash
+docker exec jarviscopilot readlink /data/current-package
+docker exec jarviscopilot cat /data/.container-identity
 ```
 
 ### Force Container Recreation
@@ -937,10 +937,10 @@ docker exec hermes-agent cat /data/.container-identity
 If you need to reset the writable layer (fresh Ubuntu):
 
 ```bash
-sudo systemctl stop hermes-agent
-docker rm -f hermes-agent
+sudo systemctl stop jarviscopilot
+docker rm -f jarviscopilot
 sudo rm /var/lib/hermes/.container-identity
-sudo systemctl start hermes-agent
+sudo systemctl start jarviscopilot
 ```
 
 ### Verify Secrets Are Loaded
@@ -952,13 +952,13 @@ If the agent starts but can't authenticate with the LLM provider, check that the
 sudo -u jarviscopilot cat /var/lib/hermes/.jarviscopilot/.env
 
 # Container mode
-docker exec hermes-agent cat /data/.jarviscopilot/.env
+docker exec jarviscopilot cat /data/.jarviscopilot/.env
 ```
 
 ### GC Root Verification
 
 ```bash
-nix-store --query --roots $(docker exec hermes-agent readlink /data/current-package)
+nix-store --query --roots $(docker exec jarviscopilot readlink /data/current-package)
 ```
 
 ### Common Issues
@@ -967,9 +967,9 @@ nix-store --query --roots $(docker exec hermes-agent readlink /data/current-pack
 |---|---|---|
 | `Cannot save configuration: managed by NixOS` | CLI guards active | Edit `configuration.nix` and `nixos-rebuild switch` |
 | Container recreated unexpectedly | `extraVolumes`, `extraOptions`, or `image` changed | Expected — writable layer resets. Reinstall packages or use a custom image |
-| `jarviscopilot version` shows old version | Container not restarted | `systemctl restart hermes-agent` |
+| `jarviscopilot version` shows old version | Container not restarted | `systemctl restart jarviscopilot` |
 | Permission denied on `/var/lib/hermes` | State dir is `0750 jarviscopilot:jarviscopilot` | Use `docker exec` or `sudo -u jarviscopilot` |
 | `nix-collect-garbage` removed jarviscopilot | GC root missing | Restart the service (preStart recreates the GC root) |
-| `no container with name or ID "hermes-agent"` (Podman) | Podman rootful container not visible to regular user | Add passwordless sudo for podman (see [Container Mode](#container-mode) section) |
+| `no container with name or ID "jarviscopilot"` (Podman) | Podman rootful container not visible to regular user | Add passwordless sudo for podman (see [Container Mode](#container-mode) section) |
 | `unable to find user jarviscopilot` | Container still starting (entrypoint hasn't created user yet) | Wait a few seconds and retry — the CLI retries automatically |
-| Tool added via `extraPackages` not found in terminal | Requires `nixos-rebuild switch` to update the per-user profile | Rebuild and restart: `nixos-rebuild switch && systemctl restart hermes-agent` |
+| Tool added via `extraPackages` not found in terminal | Requires `nixos-rebuild switch` to update the per-user profile | Rebuild and restart: `nixos-rebuild switch && systemctl restart jarviscopilot` |

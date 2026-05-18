@@ -527,7 +527,7 @@ This is the only hook whose return value matters. When a `pre_llm_call` callback
 
 ```python
 # Dict with context key
-return {"context": "Recalled memories:\n- User prefers dark mode\n- Last project: hermes-agent"}
+return {"context": "Recalled memories:\n- User prefers dark mode\n- Last project: jarviscopilot"}
 
 # Plain string (equivalent to the dict form above)
 return "Recalled memories:\n- User prefers dark mode"
@@ -1051,7 +1051,7 @@ NixOS users can install your plugin declaratively if you provide a `pyproject.to
 **Entry-point plugins** (recommended for distribution):
 ```nix
 # User's configuration.nix
-services.hermes-agent.extraPythonPackages = [
+services.jarviscopilot.extraPythonPackages = [
   (pkgs.python312Packages.buildPythonPackage {
     pname = "my-plugin";
     version = "1.0.0";
@@ -1069,7 +1069,7 @@ services.hermes-agent.extraPythonPackages = [
 
 **Directory plugins** (no `pyproject.toml` needed):
 ```nix
-services.hermes-agent.extraPlugins = [
+services.jarviscopilot.extraPlugins = [
   (pkgs.fetchFromGitHub {
     owner = "you";
     repo = "jarviscopilot-my-plugin";

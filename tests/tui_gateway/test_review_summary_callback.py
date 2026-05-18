@@ -22,12 +22,12 @@ def server():
     with patch.dict(
         "sys.modules",
         {
-            "hermes_constants": MagicMock(
+            "jarviscopilot_constants": MagicMock(
                 get_hermes_home=MagicMock(return_value="/tmp/hermes_test_review_summary")
             ),
             "jarviscopilot_cli.env_loader": MagicMock(),
             "jarviscopilot_cli.banner": MagicMock(),
-            "hermes_state": MagicMock(),
+            "jarviscopilot_state": MagicMock(),
         },
     ):
         import importlib

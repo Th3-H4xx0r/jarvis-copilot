@@ -2,7 +2,7 @@
 
 Scans two directories for memory provider plugins:
 
-1. Bundled providers: ``plugins/memory/<name>/`` (shipped with hermes-agent)
+1. Bundled providers: ``plugins/memory/<name>/`` (shipped with jarviscopilot)
 2. User-installed providers: ``$HERMES_HOME/plugins/<name>/``
 
 Each subdirectory must contain ``__init__.py`` with a class implementing
@@ -41,7 +41,7 @@ _MEMORY_PLUGINS_DIR = Path(__file__).parent
 def _get_user_plugins_dir() -> Optional[Path]:
     """Return ``$HERMES_HOME/plugins/`` or None if unavailable."""
     try:
-        from hermes_constants import get_hermes_home
+        from jarviscopilot_constants import get_hermes_home
         d = get_hermes_home() / "plugins"
         return d if d.is_dir() else None
     except Exception:

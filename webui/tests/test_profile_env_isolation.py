@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def test_profile_switch_clears_previous_profile_env_vars(monkeypatch, tmp_path):
-    base = tmp_path / ".hermes"
+    base = tmp_path / ".jarviscopilot"
     (base / "profiles" / "p1").mkdir(parents=True)
     (base / "profiles" / "p2").mkdir(parents=True)
     (base / "profiles" / "p1" / ".env").write_text(
@@ -35,7 +35,7 @@ def test_profile_switch_clears_previous_profile_env_vars(monkeypatch, tmp_path):
 
 
 def test_profile_switch_replaces_overlapping_keys(monkeypatch, tmp_path):
-    base = tmp_path / ".hermes"
+    base = tmp_path / ".jarviscopilot"
     (base / "profiles" / "p1").mkdir(parents=True)
     (base / "profiles" / "p2").mkdir(parents=True)
     (base / "profiles" / "p1" / ".env").write_text(

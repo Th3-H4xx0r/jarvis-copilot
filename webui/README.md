@@ -1,8 +1,8 @@
 # JarvisCopilot Web UI
 
-[JarvisCopilot](https://hermes-agent.nousresearch.com/) is a sophisticated autonomous agent that lives on your server, accessed via a terminal or messaging apps, that remembers what it learns and gets more capable the longer it runs.
+[JarvisCopilot](https://jarviscopilot.nousresearch.com/) is a sophisticated autonomous agent that lives on your server, accessed via a terminal or messaging apps, that remembers what it learns and gets more capable the longer it runs.
 
-JarvisCopilot WebUI is a lightweight, dark-themed web app interface in your browser for [JarvisCopilot](https://hermes-agent.nousresearch.com/).
+JarvisCopilot WebUI is a lightweight, dark-themed web app interface in your browser for [JarvisCopilot](https://jarviscopilot.nousresearch.com/).
 Full parity with the CLI experience - everything you can do from a terminal,
 you can do from this UI. No build step, no framework, no bundler. Just Python
 and vanilla JS.
@@ -98,8 +98,8 @@ ecosystem. See [HERMES.md](HERMES.md) for the full side-by-side.
 Run the repo bootstrap:
 
 ```bash
-git clone https://github.com/nesquena/hermes-webui.git hermes-webui
-cd hermes-webui
+git clone https://github.com/nesquena/jarviscopilot-webui.git jarviscopilot-webui
+cd jarviscopilot-webui
 python3 bootstrap.py
 ```
 
@@ -123,7 +123,7 @@ For self-hosted VM or homelab installs, `ctl.sh` wraps the common daemon lifecyc
 
 The bootstrap will:
 
-1. Detect JarvisCopilot and, if missing, attempt the official installer (`curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash`).
+1. Detect JarvisCopilot and, if missing, attempt the official installer (`curl -fsSL https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.sh | bash`).
 2. Find or create a Python environment with the WebUI dependencies.
 3. Start the web server and wait for `/health`.
 4. Open the browser unless you pass `--no-browser`.
@@ -131,7 +131,7 @@ The bootstrap will:
 
 > Native Windows is not supported for this bootstrap yet. Use Linux, macOS, or WSL2.
 > For Windows / WSL auto-start at login, see [`docs/wsl-autostart.md`](docs/wsl-autostart.md).
-> A community-maintained native Windows guide is tracked in [#1952](https://github.com/nesquena/hermes-webui/issues/1952).
+> A community-maintained native Windows guide is tracked in [#1952](https://github.com/nesquena/jarviscopilot-webui/issues/1952).
 
 If provider setup is still incomplete after install, the onboarding wizard will point you to finish it with `jarviscopilot model` instead of trying to replicate the full CLI setup in-browser.
 For a step-by-step walkthrough of the wizard, provider choices, local model server Base URLs, and safe re-runs, see [`docs/onboarding.md`](docs/onboarding.md).
@@ -150,8 +150,8 @@ For a comprehensive setup guide covering all 3 compose files, common failure mod
 The simplest setup: one WebUI container that runs the agent in-process.
 
 ```bash
-git clone https://github.com/nesquena/hermes-webui
-cd hermes-webui
+git clone https://github.com/nesquena/jarviscopilot-webui
+cd jarviscopilot-webui
 cp .env.docker.example .env
 # Edit .env if your host UID isn't 1000 (e.g. macOS where UIDs start at 501)
 docker compose up -d
@@ -170,27 +170,27 @@ docker compose up -d --force-recreate
 ### Manual `docker run` (no compose)
 
 ```bash
-docker pull ghcr.io/nesquena/hermes-webui:latest
+docker pull ghcr.io/nesquena/jarviscopilot-webui:latest
 docker run -d \
   -e WANTED_UID=$(id -u) -e WANTED_GID=$(id -g) \
   -v ~/.jarviscopilot:/home/hermeswebui/.jarviscopilot \
   -e HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.jarviscopilot/webui \
   -v ~/workspace:/workspace \
   -p 127.0.0.1:8787:8787 \
-  ghcr.io/nesquena/hermes-webui:latest
+  ghcr.io/nesquena/jarviscopilot-webui:latest
 ```
 
 ### Build locally
 
 ```bash
-docker build -t hermes-webui .
+docker build -t jarviscopilot-webui .
 docker run -d \
   -e WANTED_UID=$(id -u) -e WANTED_GID=$(id -g) \
   -v ~/.jarviscopilot:/home/hermeswebui/.jarviscopilot \
   -e HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.jarviscopilot/webui \
   -v ~/workspace:/workspace \
   -p 127.0.0.1:8787:8787 \
-  hermes-webui
+  jarviscopilot-webui
 ```
 
 ### Multi-container setups
@@ -217,7 +217,7 @@ Both compose files use **named Docker volumes** by default, which solves the UID
 | `.env: permission denied` (#1389) | `fix_credential_permissions()` enforced 0600 | Set `HERMES_SKIP_CHMOD=1` in `.env` |
 | Workspace appears empty | UID mismatch on `/workspace` mount | Set `UID=$(id -u)` in `.env` |
 | `git: command not found` in chat | Two-container architectural limit (#681) | Use single-container or extend Dockerfile |
-| WebUI can't find agent source | `hermes-agent-src` volume misconfigured | Use the named volumes from compose files as-is |
+| WebUI can't find agent source | `jarviscopilot-src` volume misconfigured | Use the named volumes from compose files as-is |
 | Podman shared `.jarviscopilot` fails | Podman 3.4 `keep-id` limitation | Use Podman 4+ or single-container |
 
 For the deep dive on each of these, see [`docs/docker.md`](docs/docker.md).
@@ -232,7 +232,7 @@ For the deep dive on each of these, see [`docs/docker.md`](docs/docker.md).
 
 | Thing | How it finds it |
 |---|---|
-| JarvisCopilot agent dir | `HERMES_WEBUI_AGENT_DIR` env, then `~/.jarviscopilot/hermes-agent`, then sibling `../hermes-agent` |
+| JarvisCopilot agent dir | `HERMES_WEBUI_AGENT_DIR` env, then `~/.jarviscopilot/jarviscopilot`, then sibling `../jarviscopilot` |
 | Python executable | Agent venv first, then `.venv` in this repo, then system `python3` |
 | State directory | `HERMES_WEBUI_STATE_DIR` env, then `~/.jarviscopilot/webui` |
 | Default workspace | `HERMES_WEBUI_DEFAULT_WORKSPACE` env, then `~/workspace`, then state dir |
@@ -245,7 +245,7 @@ If discovery finds everything, nothing else is required.
 ## Overrides (only needed if auto-detection misses)
 
 ```bash
-export HERMES_WEBUI_AGENT_DIR=/path/to/hermes-agent
+export HERMES_WEBUI_AGENT_DIR=/path/to/jarviscopilot
 export HERMES_WEBUI_PYTHON=/path/to/python
 export HERMES_WEBUI_PORT=9000
 export HERMES_WEBUI_AUTO_INSTALL=1  # enable auto-install of agent deps (disabled by default)
@@ -262,7 +262,7 @@ Full list of environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `HERMES_WEBUI_AGENT_DIR` | auto-discovered | Path to the hermes-agent checkout |
+| `HERMES_WEBUI_AGENT_DIR` | auto-discovered | Path to the jarviscopilot checkout |
 | `HERMES_WEBUI_PYTHON` | auto-discovered | Python executable |
 | `HERMES_WEBUI_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` for all IPv4, `::` for all IPv6, `::1` for IPv6 loopback) |
 | `HERMES_WEBUI_PORT` | `8787` | Port |
@@ -339,8 +339,8 @@ for an app-like experience.
 If you prefer to launch the server directly:
 
 ```bash
-cd /path/to/hermes-agent          # or wherever sys.path can find JarvisCopilot modules
-HERMES_WEBUI_PORT=8787 venv/bin/python /path/to/hermes-webui/server.py
+cd /path/to/jarviscopilot          # or wherever sys.path can find JarvisCopilot modules
+HERMES_WEBUI_PORT=8787 venv/bin/python /path/to/jarviscopilot-webui/server.py
 ```
 
 Note: use the agent venv Python (or any Python environment that has the JarvisCopilot agent dependencies installed). System Python will be missing `openai`, `httpx`, and other required packages.
@@ -358,14 +358,14 @@ curl http://127.0.0.1:8787/health
 Tests discover the repo and the JarvisCopilot agent dynamically -- no hardcoded paths.
 
 ```bash
-cd hermes-webui
+cd jarviscopilot-webui
 pytest tests/ -v --timeout=60
 ```
 
 Or using the agent venv explicitly:
 
 ```bash
-/path/to/hermes-agent/venv/bin/python -m pytest tests/ -v
+/path/to/jarviscopilot/venv/bin/python -m pytest tests/ -v
 ```
 
 Tests run against an isolated server with a separate state directory.
@@ -408,7 +408,7 @@ Production data and real cron jobs are never touched. Current snapshot:
 - Download as Markdown transcript, full JSON export, or import from JSON
 - Sessions persist across page reloads and SSH tunnel reconnects
 - Browser tab title reflects the active session name
-- CLI session bridge -- CLI sessions from hermes-agent's SQLite store appear in the sidebar with a gold "cli" badge; click to import with full history and reply normally
+- CLI session bridge -- CLI sessions from jarviscopilot's SQLite store appear in the sidebar with a gold "cli" badge; click to import with full history and reply normally
 - Token/cost display -- input tokens, output tokens, estimated cost shown per conversation (toggle in Settings or `/usage` command)
 
 ### Workspace file browser
@@ -671,5 +671,5 @@ Configurable assistant display name, thinking/reasoning block display, and a log
 ## Repo
 
 ```
-git@github.com:nesquena/hermes-webui.git
+git@github.com:nesquena/jarviscopilot-webui.git
 ```

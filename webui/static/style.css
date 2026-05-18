@@ -1,5 +1,5 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  /* ── Light mode (default) — warm gold-tinted palette from Hermes brand ── */
+  /* ── Light mode (default) — warm gold-tinted palette from JarvisCopilot brand ── */
   :root {
     --bg:#FEFCF7;--sidebar:#FAF7F0;--border:#E0D8C8;--border2:rgba(0,0,0,0.15);
     --text:#1A1610;--muted:#5C5344;--accent:#B8860B;--blue:#0288A8;--gold:#8B6508;--code-bg:#F5F0E5;
@@ -81,7 +81,7 @@
   :root[data-font-size="small"] { font-size: 12px; }
   :root[data-font-size="large"] { font-size: 16px; }
   :root[data-font-size="xlarge"] { font-size: 18px; }
-  /* ── Dark mode — navy-black + gold accent matching Hermes terminal ── */
+  /* ── Dark mode — navy-black + gold accent matching JarvisCopilot terminal ── */
   :root.dark {
     --bg:#0D0D1A;--sidebar:#141425;--border:#2A2A45;--border2:rgba(255,255,255,0.14);
     --text:#FFF8DC;--muted:#C0C0C0;--accent:#FFD700;--blue:#4DD0E1;--gold:#FFBF00;--code-bg:#1A1A2E;
@@ -157,7 +157,7 @@
   :root.dark[data-skin="sienna"] .new-chat-btn{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;box-shadow:0 1px 2px rgba(20,19,17,0.08);}
   :root[data-skin="sienna"]:not(.dark) .new-chat-btn:hover,
   :root.dark[data-skin="sienna"] .new-chat-btn:hover{background:var(--accent-hover);border-color:var(--accent-hover);color:#fff;}
-  /* Tool / thinking cards: mute the blue-ish Hermes highlights to neutral */
+  /* Tool / thinking cards: mute the blue-ish JarvisCopilot highlights to neutral */
   :root[data-skin="sienna"] .tool-card{background:rgba(20,19,17,0.025);border-color:var(--border);border-radius:10px;}
   :root[data-skin="sienna"] .tool-card:hover{border-color:var(--border2);}
   :root[data-skin="sienna"] .tool-card-running{background:var(--accent-bg);border-color:var(--accent-bg-strong);}
@@ -3171,7 +3171,7 @@ main.main.showing-logs > #mainLogs{display:flex;}
 @media (max-width: 600px) { .msg-row[data-role="user"] { max-width: 90%; } }
 /* Hide the entire "empty tool-anchor" assistant row (content='' with
    tool_calls). renderMessages keeps it in the DOM so tool cards can anchor
-   to it, but visually it adds a ghost "Hermes" header above the tool cards.
+   to it, but visually it adds a ghost "JarvisCopilot" header above the tool cards.
    With the row hidden the transition from live → settled on 'done' is
    seamless. */
 .msg-row[data-role="assistant"]:has(.msg-body:empty) { padding: 0; margin: 0; }

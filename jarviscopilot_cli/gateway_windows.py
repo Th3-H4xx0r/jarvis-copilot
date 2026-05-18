@@ -155,9 +155,9 @@ def _sanitize_filename(value: str) -> str:
 def get_task_script_path() -> Path:
     """The generated ``gateway.cmd`` wrapper that the schtasks entry invokes.
 
-    Lives under ``%LOCALAPPDATA%\\hermes\\gateway-service\\<task_name>.cmd``
+    Lives under ``%LOCALAPPDATA%\\jarviscopilot\\gateway-service\\<task_name>.cmd``
     (or ``<HERMES_HOME>/gateway-service/<task_name>.cmd`` so per-profile
-    Hermes installs stay self-contained).
+    JarvisCopilot installs stay self-contained).
     """
     _assert_windows()
     from jarviscopilot_cli.config import get_hermes_home
@@ -218,7 +218,7 @@ def _build_gateway_cmd_script(
     lines.append('set "PYTHONIOENCODING=utf-8"')
     lines.append('set "HERMES_GATEWAY_DETACHED=1"')
     # VIRTUAL_ENV lets the gateway's own python detection find the venv
-    # if someone imports hermes_constants-based logic during startup.
+    # if someone imports jarviscopilot_constants-based logic during startup.
     venv_dir = str(Path(python_path).resolve().parent.parent)
     lines.append(f'set "VIRTUAL_ENV={venv_dir}"')
 
@@ -533,7 +533,7 @@ def _print_next_steps() -> None:
     hermes_home = Path(get_hermes_home()).resolve()
     print()
     print("Next steps:")
-    print("  hermes gateway status                      # Check status")
+    print("  jarviscopilot gateway status                      # Check status")
     print(f"  type {hermes_home}\\logs\\gateway.log       # View logs")
 
 
@@ -640,7 +640,7 @@ def status(deep: bool = False) -> None:
     if not task_installed and not startup_installed and not pids:
         print()
         print("To install:")
-        print("  hermes gateway install")
+        print("  jarviscopilot gateway install")
 
 
 def start() -> None:

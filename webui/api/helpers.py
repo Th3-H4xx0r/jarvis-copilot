@@ -111,10 +111,10 @@ MAX_BODY_BYTES = 20 * 1024 * 1024  # 20MB limit for non-upload POST bodies
 # ── Credential redaction ──────────────────────────────────────────────────────
 
 def _build_redact_fn():
-    """Return a redactor backed by hermes-agent plus local fallback patterns."""
+    """Return a redactor backed by jarviscopilot plus local fallback patterns."""
     # Fallback mirrors the agent's known credential prefixes so WebUI API
-    # responses remain a hard redaction boundary even without hermes-agent.
-    # Keep this active even when hermes-agent is importable so API responses do
+    # responses remain a hard redaction boundary even without jarviscopilot.
+    # Keep this active even when jarviscopilot is importable so API responses do
     # not regress if the agent redactor misses a token shape.
     _CRED_RE = _re.compile(
         r"(?<![A-Za-z0-9_-])("
@@ -194,7 +194,7 @@ def _build_redact_fn():
         try:
             agent_redacted = redact_sensitive_text(text, force=True)
         except TypeError:
-            # Older hermes-agent builds that predate the force kwarg.
+            # Older jarviscopilot builds that predate the force kwarg.
             agent_redacted = redact_sensitive_text(text)
         return _fallback_redact(agent_redacted)
 

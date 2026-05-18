@@ -1,6 +1,6 @@
 """Shared curses-based UI components for JarvisCopilot CLI.
 
-Used by `hermes tools` and `hermes skills` for interactive checklists.
+Used by `jarviscopilot tools` and `jarviscopilot skills` for interactive checklists.
 Provides a curses multi-select with keyboard navigation, plus a
 text-based numbered fallback for terminals without curses support.
 """

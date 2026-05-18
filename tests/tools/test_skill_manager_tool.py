@@ -30,7 +30,7 @@ from tools.skill_manager_tool import (
 @contextmanager
 def _skill_dir(tmp_path):
     """Patch both SKILLS_DIR and get_all_skills_dirs so _find_skill searches
-    only the temp directory — not the real ~/.hermes/skills/."""
+    only the temp directory — not the real ~/.jarviscopilot/skills/."""
     with patch("tools.skill_manager_tool.SKILLS_DIR", tmp_path), \
          patch("agent.skill_utils.get_all_skills_dirs", return_value=[tmp_path]):
         yield
@@ -720,7 +720,7 @@ class TestExternalSkillMutations:
 
     Regression for issues #4759 and #4381: the read-only gate used to refuse
     with 'Skill X is in an external directory and cannot be modified', which
-    caused agents to create duplicate copies in ~/.hermes/skills/ as a
+    caused agents to create duplicate copies in ~/.jarviscopilot/skills/ as a
     workaround.
     """
 
@@ -840,7 +840,7 @@ class TestExternalSkillMutations:
 # ---------------------------------------------------------------------------
 # Pinned-skill guard — skill_manage refuses only `delete` on pinned skills.
 # Patches and edits go through so pinned skills can still evolve as pitfalls
-# come up. The user unpins via `hermes curator unpin <name>` to delete.
+# come up. The user unpins via `jarviscopilot curator unpin <name>` to delete.
 # ---------------------------------------------------------------------------
 
 class TestPinnedGuard:
@@ -895,7 +895,7 @@ class TestPinnedGuard:
         assert result["success"] is False
         assert "pinned" in result["error"].lower()
         assert "cannot be deleted" in result["error"]
-        assert "hermes curator unpin my-skill" in result["error"]
+        assert "jarviscopilot curator unpin my-skill" in result["error"]
         # Skill still exists
         assert (tmp_path / "my-skill" / "SKILL.md").exists()
 

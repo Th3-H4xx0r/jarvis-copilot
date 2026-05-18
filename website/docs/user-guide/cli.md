@@ -32,7 +32,7 @@ jarviscopilot chat --provider openrouter  # Force OpenRouter
 jarviscopilot chat --toolsets "web,terminal,skills"
 
 # Start with one or more skills preloaded
-jarviscopilot -s hermes-agent-dev,github-auth
+jarviscopilot -s jarviscopilot-dev,github-auth
 jarviscopilot chat -s github-pr-workflow -q "open a draft PR"
 
 # Resume previous sessions
@@ -143,7 +143,7 @@ You can define custom commands that run shell commands instantly without invokin
 quick_commands:
   status:
     type: exec
-    command: systemctl status hermes-agent
+    command: systemctl status jarviscopilot
   gpu:
     type: exec
     command: nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader
@@ -159,7 +159,7 @@ Then type `/status`, `/gpu`, or `/restart` in any chat. See the [Configuration g
 If you already know which skills you want active for the session, pass them at launch time:
 
 ```bash
-jarviscopilot -s hermes-agent-dev,github-auth
+jarviscopilot -s jarviscopilot-dev,github-auth
 jarviscopilot chat -s github-pr-workflow -s github-auth
 ```
 

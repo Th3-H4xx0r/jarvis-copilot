@@ -63,7 +63,7 @@ def _isolate_onboarding_writes(monkeypatch, tmp_path):
 
     Pattern from webui-onboarding-provider-readiness skill — without this,
     tests that call ``apply_onboarding_setup`` directly write to the real
-    ``~/.hermes`` and clobber the developer's actual config.
+    ``~/.jarviscopilot`` and clobber the developer's actual config.
     """
     from api import onboarding as ob
     monkeypatch.setattr(ob, "_get_active_hermes_home", lambda: tmp_path)
@@ -371,7 +371,7 @@ class TestKeylessChatReady:
             )
             # chat_ready additionally requires _HERMES_FOUND + imports_ok which
             # depend on the test environment; provider_ready is the bit this
-            # PR's fix actually controls.  But if hermes is importable, it
+            # PR's fix actually controls.  But if jarviscopilot is importable, it
             # should also be chat_ready.
             if system.get("imports_ok"):
                 assert system.get("chat_ready") is True

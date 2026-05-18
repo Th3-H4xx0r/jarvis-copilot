@@ -22,7 +22,7 @@ def _get_settings_file() -> pathlib.Path:
     """Resolve SETTINGS_FILE at call time (env var set by conftest after module import)."""
     state_dir = pathlib.Path(
         os.environ.get("HERMES_WEBUI_TEST_STATE_DIR",
-                       str(pathlib.Path.home() / ".hermes" / "webui-mvp-test"))
+                       str(pathlib.Path.home() / ".jarviscopilot" / "webui-mvp-test"))
     )
     return state_dir / "settings.json"
 

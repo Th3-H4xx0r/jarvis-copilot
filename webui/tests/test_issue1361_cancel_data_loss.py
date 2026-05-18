@@ -516,7 +516,7 @@ def test_cancel_copy_falls_back_to_hermes_for_blank_bot_name(monkeypatch):
     monkeypatch.setattr(streaming, 'load_settings', lambda: {'bot_name': '   '})
 
     assert streaming._cancelled_turn_hint() == (
-        'The run was cancelled by the user before Hermes finished. '
+        'The run was cancelled by the user before JarvisCopilot finished. '
         'No provider failure occurred.'
     )
 
@@ -531,7 +531,7 @@ class TestCancelStreamIdempotentWithWorkerFinalizer:
             session_id=sid,
             messages=[
                 {'role': 'user', 'content': 'Help me debug this', 'timestamp': 100},
-                {'role': 'assistant', 'content': '**Task cancelled:** Task cancelled.\n\n*The run was cancelled by the user before Hermes finished. No provider failure occurred.*', '_error': True, 'timestamp': 101},
+                {'role': 'assistant', 'content': '**Task cancelled:** Task cancelled.\n\n*The run was cancelled by the user before JarvisCopilot finished. No provider failure occurred.*', '_error': True, 'timestamp': 101},
             ],
         )
         _setup_cancel_state(sid, stream_id)

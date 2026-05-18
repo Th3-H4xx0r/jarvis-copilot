@@ -4,7 +4,7 @@ When a CLI session originates from cron and has no title in state.db, the
 WebUI sidebar should display the human-friendly job name from cron/jobs.json
 instead of a generic "Cron Session" label.
 
-Session ID format produced by hermes-agent: cron_<job_id>_<YYYYMMDD>_<HHMMSS>
+Session ID format produced by jarviscopilot: cron_<job_id>_<YYYYMMDD>_<HHMMSS>
 """
 import json
 import sqlite3
@@ -64,7 +64,7 @@ def _write_jobs_json(hermes_home, jobs):
 def fake_hermes_home(tmp_path, monkeypatch):
     """Point get_cli_sessions() at a temporary HERMES_HOME and disable
     profile lookups so the test runs hermetically."""
-    home = tmp_path / "hermes"
+    home = tmp_path / "jarviscopilot"
     home.mkdir()
 
     # Both profile helpers are imported lazily inside get_cli_sessions(),

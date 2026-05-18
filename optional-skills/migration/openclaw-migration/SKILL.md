@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 metadata:
   jarviscopilot:
     tags: [Migration, OpenClaw, JarvisCopilot, Memory, Persona, Import]
-    related_skills: [hermes-agent]
+    related_skills: [jarviscopilot]
 ---
 
 # OpenClaw -> JarvisCopilot Migration

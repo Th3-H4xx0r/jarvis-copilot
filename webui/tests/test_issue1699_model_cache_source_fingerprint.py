@@ -1,7 +1,7 @@
 """Regression tests for #1699: /api/models cache must track external auth/config changes.
 
 The bug: WebUI caches /api/models for 24h in memory and on disk. When a user
-runs `hermes setup` in a terminal and the Hermes auth store switches the active
+runs `jarviscopilot setup` in a terminal and the JarvisCopilot auth store switches the active
 provider outside WebUI, the browser can keep seeing the previous provider's
 PRIMARY badge until the cache is manually cleared or expires.
 """
@@ -67,7 +67,7 @@ def _configure_isolated_sources(tmp_path, monkeypatch, provider_id: str) -> None
     monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: hermes_home)
     monkeypatch.setattr(config, "_models_cache_path", cache_path)
 
-    # Keep the test hermetic without requiring hermes-agent to be installed in
+    # Keep the test hermetic without requiring jarviscopilot to be installed in
     # CI: inject the tiny jarviscopilot_cli surface get_available_models() imports.
     fake_pkg = types.ModuleType("jarviscopilot_cli")
     fake_pkg.__path__ = []
@@ -119,7 +119,7 @@ def test_disk_models_cache_invalidates_when_auth_store_active_provider_changes(
     config._save_models_cache_to_disk(stale_openrouter)
     assert config._models_cache_path.exists()
 
-    # External terminal `hermes setup` changes auth.json, not WebUI's in-process cache.
+    # External terminal `jarviscopilot setup` changes auth.json, not WebUI's in-process cache.
     hermes_home = config._models_cache_path.parent.parent / "hermes-home"
     _write_auth_store(hermes_home, "opencode-go")
     _reset_memory_cache()

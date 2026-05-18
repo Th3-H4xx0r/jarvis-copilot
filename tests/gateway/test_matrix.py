@@ -328,14 +328,14 @@ class TestMatrixConfigLoading:
     def test_matrix_user_id_stored_in_extra(self, monkeypatch):
         monkeypatch.setenv("MATRIX_ACCESS_TOKEN", "syt_abc123")
         monkeypatch.setenv("MATRIX_HOMESERVER", "https://matrix.example.org")
-        monkeypatch.setenv("MATRIX_USER_ID", "@hermes:example.org")
+        monkeypatch.setenv("MATRIX_USER_ID", "@jarviscopilot:example.org")
 
         from gateway.config import GatewayConfig, _apply_env_overrides
         config = GatewayConfig()
         _apply_env_overrides(config)
 
         mc = config.platforms[Platform.MATRIX]
-        assert mc.extra.get("user_id") == "@hermes:example.org"
+        assert mc.extra.get("user_id") == "@jarviscopilot:example.org"
 
 
 # ---------------------------------------------------------------------------
@@ -2190,7 +2190,7 @@ class TestMatrixSystemBridgeFilter:
         ) is False
 
     def test_bot_account_is_not_bridge(self):
-        # The Hermes bot itself (no leading underscore) must not be
+        # The JarvisCopilot bot itself (no leading underscore) must not be
         # classified as a bridge — that filter is a pairing guard, not
         # a self-filter.
         assert self.adapter._is_system_or_bridge_sender(

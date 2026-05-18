@@ -15,7 +15,7 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
 def _claude_fixture_rows() -> list[dict]:
     return [
         {"summary": "Claude Code import QA"},
-        {"timestamp": "2026-04-18T12:00:01Z", "message": {"role": "user", "content": [{"type": "text", "text": "Can Hermes show this Claude Code history read-only?"}]}},
+        {"timestamp": "2026-04-18T12:00:01Z", "message": {"role": "user", "content": [{"type": "text", "text": "Can JarvisCopilot show this Claude Code history read-only?"}]}},
         {"timestamp": "2026-04-18T12:00:02Z", "message": {"role": "assistant", "content": "Yes — it appears with a Claude Code source badge."}},
         "not a dict",
         {"not_json_message": True},
@@ -57,7 +57,7 @@ def test_get_claude_code_sessions_reads_fixture_jsonl_without_real_home(tmp_path
 
     messages = models.get_claude_code_session_messages(session["session_id"], projects_dir=projects_dir)
     assert messages == [
-        {"role": "user", "content": "Can Hermes show this Claude Code history read-only?", "timestamp": 1776513601.0},
+        {"role": "user", "content": "Can JarvisCopilot show this Claude Code history read-only?", "timestamp": 1776513601.0},
         {"role": "assistant", "content": "Yes — it appears with a Claude Code source badge.", "timestamp": 1776513602.0},
     ]
 
@@ -90,7 +90,7 @@ def test_get_cli_sessions_reuses_short_ttl_cache(monkeypatch, tmp_path):
     import api.models as models
     import api.profiles as profiles
 
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir()
     monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: str(hermes_home))
     monkeypatch.setattr(profiles, "get_active_profile_name", lambda: "default")
@@ -128,7 +128,7 @@ def test_get_cli_sessions_cache_invalidates_when_sqlite_wal_changes(monkeypatch,
     import api.models as models
     import api.profiles as profiles
 
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "jarviscopilot"
     hermes_home.mkdir()
     db_path = hermes_home / "state.db"
     db_path.write_text("initial", encoding="utf-8")

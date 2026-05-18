@@ -35,7 +35,7 @@ def _install_fake_jarviscopilot_cli(monkeypatch, *, with_load_pool: bool = False
 
     # Always remove the real agent.credential_pool so get_available_models() takes
     # the ImportError fallback path and reads from the monkeypatched auth store,
-    # not the live ~/.hermes/auth.json via the real venv module.
+    # not the live ~/.jarviscopilot/auth.json via the real venv module.
     monkeypatch.delitem(sys.modules, "agent.credential_pool", raising=False)
     monkeypatch.delitem(sys.modules, "agent", raising=False)
 
@@ -70,7 +70,7 @@ def _install_fake_jarviscopilot_cli(monkeypatch, *, with_load_pool: bool = False
 
 
 def _call_get_available_models(monkeypatch, tmp_path, auth_payload, *, with_load_pool: bool = False):
-    """Call get_available_models() with auth.json pinned to a temp Hermes home."""
+    """Call get_available_models() with auth.json pinned to a temp JarvisCopilot home."""
     _install_fake_jarviscopilot_cli(
         monkeypatch,
         with_load_pool=with_load_pool,

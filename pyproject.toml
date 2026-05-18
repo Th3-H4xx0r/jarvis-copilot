@@ -25,7 +25,7 @@ dependencies = [
   # `uv lock` so the transitive resolution stays consistent. Don't
   # introduce ranges back without a written justification.
   #
-  # Scope rule: only packages used by EVERY hermes session belong here.
+  # Scope rule: only packages used by EVERY jarviscopilot session belong here.
   # Anything that's provider-specific (`anthropic`, `firecrawl-py`,
   # `exa-py`, `fal-client`, `edge-tts`, `parallel-web`) belongs in an
   # extra and gets lazy-installed via `tools/lazy_deps.py` when the
@@ -67,7 +67,7 @@ dependencies = [
 # OpenRouter or other aggregators).
 anthropic = ["anthropic==0.86.0"]
 # Web search backends — each only loaded when the user picks it as their
-# search provider (configured via `hermes tools` or config.yaml).
+# search provider (configured via `jarviscopilot tools` or config.yaml).
 exa = ["exa-py==2.10.2"]
 firecrawl = ["firecrawl-py==4.17.0"]
 parallel-web = ["parallel-web==0.4.2"]
@@ -103,7 +103,7 @@ mcp = ["mcp==1.26.0"]
 homeassistant = ["aiohttp==3.13.3"]
 sms = ["aiohttp==3.13.3"]
 # Computer use — macOS background desktop control via cua-driver (MCP stdio).
-# The cua-driver binary itself is installed via `hermes tools` post-setup
+# The cua-driver binary itself is installed via `jarviscopilot tools` post-setup
 # (curl install script); this extra just pins the MCP client used to talk
 # to it, which is already provided by the `mcp` extra.
 computer-use = ["mcp==1.26.0"]
@@ -165,7 +165,7 @@ youtube = [
   # at first invocation with ModuleNotFoundError (issue #22243).
   "youtube-transcript-api==1.2.4",
 ]
-# `hermes dashboard` (localhost SPA + API).  Not in core to keep the default install lean.
+# `jarviscopilot dashboard` (localhost SPA + API).  Not in core to keep the default install lean.
 web = ["fastapi==0.133.1", "uvicorn[standard]==0.41.0"]
 all = [
   # Policy (2026-05-12): `[all]` includes only extras that genuinely
@@ -203,17 +203,17 @@ all = [
 ]
 
 [project.scripts]
-# Primary CLI name for this fork — JarvisCopilot. The legacy `hermes` name is
+# Primary CLI name for this fork — JarvisCopilot. The legacy `jarviscopilot` name is
 # kept as an alias so the existing install scripts, docs, and user muscle
 # memory keep working. Both point at the same entry function; either invocation
 # launches identical behavior.
 jarviscopilot = "jarviscopilot_cli.main:main"
-hermes = "jarviscopilot_cli.main:main"
-hermes-agent = "run_agent:main"
-hermes-acp = "acp_adapter.entry:main"
+jarviscopilot = "jarviscopilot_cli.main:main"
+jarviscopilot = "run_agent:main"
+jarviscopilot-acp = "acp_adapter.entry:main"
 
 [tool.setuptools]
-py-modules = ["run_agent", "model_tools", "toolsets", "batch_runner", "trajectory_compressor", "toolset_distributions", "cli", "hermes_bootstrap", "hermes_constants", "hermes_state", "hermes_time", "hermes_logging", "utils"]
+py-modules = ["run_agent", "model_tools", "toolsets", "batch_runner", "trajectory_compressor", "toolset_distributions", "cli", "jarviscopilot_bootstrap", "jarviscopilot_constants", "jarviscopilot_state", "jarviscopilot_time", "jarviscopilot_logging", "utils"]
 
 [tool.setuptools.package-data]
 jarviscopilot_cli = ["web_dist/**/*", "tui_dist/**/*", "scripts/install.sh", "scripts/install.ps1"]

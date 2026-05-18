@@ -1,7 +1,7 @@
 """
-Email platform adapter for the Hermes gateway.
+Email platform adapter for the JarvisCopilot gateway.
 
-Allows users to interact with Hermes by sending emails.
+Allows users to interact with JarvisCopilot by sending emails.
 Uses IMAP to receive and SMTP to send messages.
 
 Environment variables:
@@ -80,7 +80,7 @@ def _send_imap_id(imap: "imaplib.IMAP4") -> None:
             _hermes_version = "0"
         imap.xatom(
             "ID",
-            f'("name" "hermes-agent" "version" "{_hermes_version}" '
+            f'("name" "jarviscopilot" "version" "{_hermes_version}" '
             '"vendor" "NousResearch" '
             '"support-email" "noreply@nousresearch.com")',
         )

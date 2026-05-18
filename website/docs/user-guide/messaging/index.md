@@ -369,7 +369,7 @@ jarviscopilot gateway install               # Install as user service
 jarviscopilot gateway start                 # Start the service
 jarviscopilot gateway stop                  # Stop the service
 jarviscopilot gateway status                # Check status
-journalctl --user -u hermes-gateway -f  # View logs
+journalctl --user -u jarviscopilot-gateway -f  # View logs
 
 # Enable lingering (keeps running after logout)
 sudo loginctl enable-linger $USER
@@ -378,7 +378,7 @@ sudo loginctl enable-linger $USER
 sudo jarviscopilot gateway install --system
 sudo jarviscopilot gateway start --system
 sudo jarviscopilot gateway status --system
-journalctl -u hermes-gateway -f
+journalctl -u jarviscopilot-gateway -f
 ```
 
 Use the user service on laptops and dev boxes. Use the system service on VPS or headless hosts that should come back at boot without relying on systemd linger.
@@ -386,7 +386,7 @@ Use the user service on laptops and dev boxes. Use the system service on VPS or 
 Avoid keeping both the user and system gateway units installed at once unless you really mean to. JarvisCopilot will warn if it detects both because start/stop/status behavior gets ambiguous.
 
 :::info Multiple installations
-If you run multiple JarvisCopilot installations on the same machine (with different `HERMES_HOME` directories), each gets its own systemd service name. The default `~/.jarviscopilot` uses `hermes-gateway`; other installations use `hermes-gateway-<hash>`. The `jarviscopilot gateway` commands automatically target the correct service for your current `HERMES_HOME`.
+If you run multiple JarvisCopilot installations on the same machine (with different `HERMES_HOME` directories), each gets its own systemd service name. The default `~/.jarviscopilot` uses `jarviscopilot-gateway`; other installations use `jarviscopilot-gateway-<hash>`. The `jarviscopilot gateway` commands automatically target the correct service for your current `HERMES_HOME`.
 :::
 
 ### macOS (launchd)

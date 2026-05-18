@@ -155,7 +155,7 @@ jarviscopilot gateway stop
 jarviscopilot gateway status
 
 # View live logs
-journalctl --user -u hermes-gateway -f
+journalctl --user -u jarviscopilot-gateway -f
 
 # Keep running after SSH logout
 sudo loginctl enable-linger $USER
@@ -163,7 +163,7 @@ sudo loginctl enable-linger $USER
 # Linux servers — explicit system-service commands
 sudo jarviscopilot gateway start --system
 sudo jarviscopilot gateway status --system
-journalctl -u hermes-gateway -f
+journalctl -u jarviscopilot-gateway -f
 ```
 
 ```bash
@@ -397,7 +397,7 @@ This way, even if someone asks the bot to run something destructive, your host s
 jarviscopilot gateway status
 
 # Watch live logs (Linux)
-journalctl --user -u hermes-gateway -f
+journalctl --user -u jarviscopilot-gateway -f
 
 # Watch live logs (macOS)
 tail -f ~/.jarviscopilot/logs/gateway.log
@@ -416,7 +416,7 @@ jarviscopilot gateway stop && jarviscopilot gateway start
 
 | What | Location |
 |------|----------|
-| Gateway logs | `journalctl --user -u hermes-gateway` (Linux) or `~/.jarviscopilot/logs/gateway.log` (macOS) |
+| Gateway logs | `journalctl --user -u jarviscopilot-gateway` (Linux) or `~/.jarviscopilot/logs/gateway.log` (macOS) |
 | Cron job output | `~/.jarviscopilot/cron/output/{job_id}/{timestamp}.md` |
 | Cron job definitions | `~/.jarviscopilot/cron/jobs.json` |
 | Pairing data | `~/.jarviscopilot/pairing/` |

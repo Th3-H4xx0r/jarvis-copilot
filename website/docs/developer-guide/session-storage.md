@@ -4,7 +4,7 @@ JarvisCopilot uses a SQLite database (`~/.jarviscopilot/state.db`) to persist se
 metadata, full message history, and model configuration across CLI and gateway
 sessions. This replaces the earlier per-session JSONL file approach.
 
-Source file: `hermes_state.py`
+Source file: `jarviscopilot_state.py`
 
 
 ## Architecture Overview
@@ -180,7 +180,7 @@ _CHECKPOINT_EVERY_N_WRITES = 50
 ### Initialize
 
 ```python
-from hermes_state import SessionDB
+from jarviscopilot_state import SessionDB
 
 db = SessionDB()                           # Default: ~/.jarviscopilot/state.db
 db = SessionDB(db_path=Path("/tmp/test.db"))  # Custom path
@@ -388,7 +388,7 @@ db.delete_session("sess_abc123")
 
 Default path: `~/.jarviscopilot/state.db`
 
-This is derived from `hermes_constants.get_hermes_home()` which resolves to
+This is derived from `jarviscopilot_constants.get_hermes_home()` which resolves to
 `~/.jarviscopilot/` by default, or the value of `HERMES_HOME` environment variable.
 
 The database file, WAL file (`state.db-wal`), and shared-memory file

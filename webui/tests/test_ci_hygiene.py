@@ -25,5 +25,5 @@ def test_pytest_integration_marker_is_registered():
 def test_live_model_success_log_is_debug_not_default_console_log():
     ui = (ROOT / "static" / "ui.js").read_text(encoding="utf-8")
 
-    assert "console.debug('[hermes] Live models loaded" in ui
-    assert "console.log('[hermes] Live models loaded" not in ui
+    assert "console.debug('[jarviscopilot] Live models loaded" in ui
+    assert "console.log('[jarviscopilot] Live models loaded" not in ui

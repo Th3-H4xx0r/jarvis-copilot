@@ -43,7 +43,7 @@ class TestMem0FiltersV2:
         provider = Mem0MemoryProvider()
         provider.initialize("test-session")
         provider._user_id = "u123"
-        provider._agent_id = "hermes"
+        provider._agent_id = "jarviscopilot"
         monkeypatch.setattr(provider, "_get_client", lambda: client)
         return provider
 
@@ -90,7 +90,7 @@ class TestMem0FiltersV2:
         assert len(client.captured_add) == 1
         call = client.captured_add[0]
         assert call["user_id"] == "u123"
-        assert call["agent_id"] == "hermes"
+        assert call["agent_id"] == "jarviscopilot"
 
     def test_conclude_uses_write_filters(self, monkeypatch):
         client = FakeClientV2()
@@ -101,22 +101,22 @@ class TestMem0FiltersV2:
         assert len(client.captured_add) == 1
         call = client.captured_add[0]
         assert call["user_id"] == "u123"
-        assert call["agent_id"] == "hermes"
+        assert call["agent_id"] == "jarviscopilot"
         assert call["infer"] is False
 
     def test_read_filters_no_agent_id(self):
         """Read filters should use user_id only — cross-session recall across agents."""
         provider = Mem0MemoryProvider()
         provider._user_id = "u123"
-        provider._agent_id = "hermes"
+        provider._agent_id = "jarviscopilot"
         assert provider._read_filters() == {"user_id": "u123"}
 
     def test_write_filters_include_agent_id(self):
         """Write filters should include agent_id for attribution."""
         provider = Mem0MemoryProvider()
         provider._user_id = "u123"
-        provider._agent_id = "hermes"
-        assert provider._write_filters() == {"user_id": "u123", "agent_id": "hermes"}
+        provider._agent_id = "jarviscopilot"
+        assert provider._write_filters() == {"user_id": "u123", "agent_id": "jarviscopilot"}
 
 
 # ---------------------------------------------------------------------------
@@ -224,4 +224,4 @@ class TestMem0Defaults:
         provider = Mem0MemoryProvider()
         provider.initialize("test")
 
-        assert provider._agent_id == "hermes"
+        assert provider._agent_id == "jarviscopilot"

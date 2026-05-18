@@ -10,10 +10,10 @@ from typing import Optional
 def _hermes_home_path() -> Path:
     """Resolve the active HERMES_HOME (profile-aware) without circular imports."""
     try:
-        from hermes_constants import get_hermes_home  # local import to avoid cycles
+        from jarviscopilot_constants import get_hermes_home  # local import to avoid cycles
         return get_hermes_home()
     except Exception:
-        return Path(os.path.expanduser("~/.hermes"))
+        return Path(os.path.expanduser("~/.jarviscopilot"))
 
 
 def build_write_denied_paths(home: str) -> set[str]:
@@ -91,7 +91,7 @@ def is_write_denied(path: str) -> bool:
 
 
 def get_read_block_error(path: str) -> Optional[str]:
-    """Return an error message when a read targets internal Hermes cache files."""
+    """Return an error message when a read targets internal JarvisCopilot cache files."""
     resolved = Path(path).expanduser().resolve()
     hermes_home = _hermes_home_path().resolve()
     blocked_dirs = [
@@ -104,7 +104,7 @@ def get_read_block_error(path: str) -> Optional[str]:
         except ValueError:
             continue
         return (
-            f"Access denied: {path} is an internal Hermes cache file "
+            f"Access denied: {path} is an internal JarvisCopilot cache file "
             "and cannot be read directly to prevent prompt injection. "
             "Use the skills_list or skill_view tools instead."
         )

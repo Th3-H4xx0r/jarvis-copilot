@@ -222,7 +222,7 @@ Options:
 | `--all` | On `start` / `restart` / `stop`: act on **every profile's** gateway, not just the active `HERMES_HOME`. Useful if you run multiple profiles side-by-side and want to restart them all after `jarviscopilot update`. |
 
 :::tip WSL users
-Use `jarviscopilot gateway run` instead of `jarviscopilot gateway start` — WSL's systemd support is unreliable. Wrap it in tmux for persistence: `tmux new -s jarviscopilot 'jarviscopilot gateway run'`. See [WSL FAQ](/docs/reference/faq#wsl-gateway-keeps-disconnecting-or-hermes-gateway-start-fails) for details.
+Use `jarviscopilot gateway run` instead of `jarviscopilot gateway start` — WSL's systemd support is unreliable. Wrap it in tmux for persistence: `tmux new -s jarviscopilot 'jarviscopilot gateway run'`. See [WSL FAQ](/docs/reference/faq#wsl-gateway-keeps-disconnecting-or-jarviscopilot-gateway-start-fails) for details.
 :::
 
 ## `jarviscopilot lsp`
@@ -589,7 +589,7 @@ jarviscopilot debug share --local      # Print report to terminal (no upload)
 jarviscopilot backup [options]
 ```
 
-Create a zip archive of your JarvisCopilot configuration, skills, sessions, and data. The backup excludes the hermes-agent codebase itself.
+Create a zip archive of your JarvisCopilot configuration, skills, sessions, and data. The backup excludes the jarviscopilot codebase itself.
 
 | Option | Description |
 |--------|-------------|
@@ -603,7 +603,7 @@ The backup uses SQLite's `backup()` API for safe copying, so it works correctly 
 
 - `*.db-wal`, `*.db-shm`, `*.db-journal` — SQLite's WAL / shared-memory / journal sidecars. The `*.db` file already got a consistent snapshot via `sqlite3.backup()`; shipping the live sidecars alongside it would let a restore see a half-committed state.
 - `checkpoints/` — per-session trajectory caches. Hash-keyed and regenerated per session; wouldn't port cleanly to another install anyway.
-- The `hermes-agent` code itself (this is a user-data backup, not a repo snapshot).
+- The `jarviscopilot` code itself (this is a user-data backup, not a repo snapshot).
 
 ### Examples
 
@@ -1107,14 +1107,14 @@ jarviscopilot claw migrate --source /home/user/old-openclaw
 jarviscopilot dashboard [options]
 ```
 
-Launch the web dashboard — a browser-based UI for managing configuration, API keys, and monitoring sessions. Requires `pip install hermes-agent[web]` (FastAPI + Uvicorn). The embedded browser Chat tab requires `--tui` plus the `pty` extra. See [Web Dashboard](/docs/user-guide/features/web-dashboard) for full documentation.
+Launch the web dashboard — a browser-based UI for managing configuration, API keys, and monitoring sessions. Requires `pip install jarviscopilot[web]` (FastAPI + Uvicorn). The embedded browser Chat tab requires `--tui` plus the `pty` extra. See [Web Dashboard](/docs/user-guide/features/web-dashboard) for full documentation.
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--port` | `9119` | Port to run the web server on |
 | `--host` | `127.0.0.1` | Bind address |
 | `--no-open` | — | Don't auto-open the browser |
-| `--tui` | off | Enable the in-browser Chat tab by running `jarviscopilot --tui` behind a PTY/WebSocket bridge. Requires `pip install 'hermes-agent[web,pty]'` and a POSIX PTY environment such as Linux, macOS, or WSL2. |
+| `--tui` | off | Enable the in-browser Chat tab by running `jarviscopilot --tui` behind a PTY/WebSocket bridge. Requires `pip install 'jarviscopilot[web,pty]'` and a POSIX PTY environment such as Linux, macOS, or WSL2. |
 | `--insecure` | off | Allow binding to non-localhost hosts. Exposes dashboard credentials on the network; use only behind trusted network controls. |
 | `--stop` | — | Stop running `jarviscopilot dashboard` processes and exit. |
 | `--status` | — | List running `jarviscopilot dashboard` processes and exit. |
@@ -1194,9 +1194,9 @@ jarviscopilot completion fish > ~/.config/fish/completions/hermes.fish
 jarviscopilot update [--check] [--backup] [--restart-gateway]
 ```
 
-Pulls the latest `hermes-agent` code and reinstalls dependencies in your venv, then re-runs the post-install hooks (MCP servers, skills sync, completion install). Safe to run on a live install.
+Pulls the latest `jarviscopilot` code and reinstalls dependencies in your venv, then re-runs the post-install hooks (MCP servers, skills sync, completion install). Safe to run on a live install.
 
-**pip installs:** `jarviscopilot update` detects pip-based installations automatically — it queries PyPI for the latest release and runs `pip install --upgrade hermes-agent` instead of `git pull`. PyPI releases track tagged versions (major/minor releases), not every commit on `main`. Use `--check` to see if a newer PyPI release is available without installing.
+**pip installs:** `jarviscopilot update` detects pip-based installations automatically — it queries PyPI for the latest release and runs `pip install --upgrade jarviscopilot` instead of `git pull`. PyPI releases track tagged versions (major/minor releases), not every commit on `main`. Use `--check` to see if a newer PyPI release is available without installing.
 
 | Option | Description |
 |--------|-------------|
@@ -1207,7 +1207,7 @@ Pulls the latest `hermes-agent` code and reinstalls dependencies in your venv, t
 Additional behavior:
 
 - **Pairing data snapshot.** Even when `--backup` is off, `jarviscopilot update` takes a lightweight snapshot of `~/.jarviscopilot/pairing/` and the Feishu comment rules before `git pull`. You can roll it back with `jarviscopilot backup restore --state pre-update` if a pull rewrites a file you were editing.
-- **Legacy `jarviscopilot.service` warning.** If JarvisCopilot detects a pre-rename `jarviscopilot.service` systemd unit (instead of the current `hermes-gateway.service`), it prints a one-time migration hint so you can avoid flap-loop issues.
+- **Legacy `jarviscopilot.service` warning.** If JarvisCopilot detects a pre-rename `jarviscopilot.service` systemd unit (instead of the current `jarviscopilot-gateway.service`), it prints a one-time migration hint so you can avoid flap-loop issues.
 - **Exit codes.** `0` on success, `1` on pull/install/post-install errors, `2` on unexpected working-tree changes that block `git pull`.
 
 ## Maintenance commands

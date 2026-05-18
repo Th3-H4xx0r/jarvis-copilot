@@ -215,7 +215,7 @@ def test_redact_text_prefilter_routes_url_containing_strings_to_hard_redactor(te
 
     We test the *prefilter routing decision* here — `_might_contain_sensitive_text`
     must return True for any URL-shaped string — rather than asserting on the
-    specific output of the agent redactor (which varies between hermes-agent
+    specific output of the agent redactor (which varies between jarviscopilot
     versions and CI vs local installs).
     """
     import api.helpers as helpers

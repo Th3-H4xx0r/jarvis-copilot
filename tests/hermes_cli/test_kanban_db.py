@@ -15,7 +15,7 @@ from jarviscopilot_cli import kanban_db as kb
 @pytest.fixture
 def kanban_home(tmp_path, monkeypatch):
     """Isolated HERMES_HOME with an empty kanban DB."""
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".jarviscopilot"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -634,7 +634,7 @@ def test_has_spawnable_ready_false_when_only_terminal_lanes(kanban_home, monkeyp
 
 def test_has_spawnable_ready_true_when_real_profile_present(kanban_home, monkeypatch):
     """``has_spawnable_ready`` returns True as soon as ANY ready task
-    has an assignee that maps to a real Hermes profile — preserves the
+    has an assignee that maps to a real JarvisCopilot profile — preserves the
     real "stuck" signal when a daily/agent task is queued."""
     from jarviscopilot_cli import profiles
     monkeypatch.setattr(
@@ -814,7 +814,7 @@ def test_tenant_propagates_to_events(kanban_home):
 # Shared-board path resolution (issue #19348)
 #
 # The kanban board is a cross-profile coordination primitive: a worker
-# spawned with `hermes -p <profile>` must read/write the same kanban.db
+# spawned with `jarviscopilot -p <profile>` must read/write the same kanban.db
 # as the dispatcher that claimed the task. These tests exercise the
 # path-resolution layer directly and would have caught the regression
 # where `kanban_db_path()` resolved to the active profile's HERMES_HOME.
@@ -832,8 +832,8 @@ class TestSharedBoardPaths:
     def test_default_install_anchors_at_home_dot_hermes(
         self, tmp_path, monkeypatch
     ):
-        # Standard install: HERMES_HOME == ~/.hermes, no profile active.
-        default_home = tmp_path / ".hermes"
+        # Standard install: HERMES_HOME == ~/.jarviscopilot, no profile active.
+        default_home = tmp_path / ".jarviscopilot"
         default_home.mkdir()
         self._set_home(monkeypatch, tmp_path, default_home)
 
@@ -848,11 +848,11 @@ class TestSharedBoardPaths:
     def test_profile_worker_resolves_to_shared_root(
         self, tmp_path, monkeypatch
     ):
-        # Reproduces the bug: dispatcher uses ~/.hermes/kanban.db,
+        # Reproduces the bug: dispatcher uses ~/.jarviscopilot/kanban.db,
         # worker spawned with -p <profile> previously resolved to
-        # ~/.hermes/profiles/<profile>/kanban.db. After the fix both
-        # converge on ~/.hermes/kanban.db.
-        default_home = tmp_path / ".hermes"
+        # ~/.jarviscopilot/profiles/<profile>/kanban.db. After the fix both
+        # converge on ~/.jarviscopilot/kanban.db.
+        default_home = tmp_path / ".jarviscopilot"
         default_home.mkdir()
         profile_home = default_home / "profiles" / "nehemiahkanban"
         profile_home.mkdir(parents=True)
@@ -878,7 +878,7 @@ class TestSharedBoardPaths:
         # End-to-end convergence: resolve the path under each side's
         # HERMES_HOME and confirm equality. This is the property the
         # dispatcher/worker handoff actually depends on.
-        default_home = tmp_path / ".hermes"
+        default_home = tmp_path / ".jarviscopilot"
         default_home.mkdir()
         profile_home = default_home / "profiles" / "coder"
         profile_home.mkdir(parents=True)
@@ -889,7 +889,7 @@ class TestSharedBoardPaths:
         dispatcher_ws = kb.workspaces_root()
         dispatcher_log = kb.worker_log_path("t_handoff")
 
-        # Worker's perspective (profile activated by `hermes -p coder`).
+        # Worker's perspective (profile activated by `jarviscopilot -p coder`).
         monkeypatch.setenv("HERMES_HOME", str(profile_home))
         worker_db = kb.kanban_db_path()
         worker_ws = kb.workspaces_root()
@@ -902,11 +902,11 @@ class TestSharedBoardPaths:
     def test_docker_custom_hermes_home_uses_env_path_directly(
         self, tmp_path, monkeypatch
     ):
-        # Docker / custom deployment: HERMES_HOME points outside ~/.hermes.
+        # Docker / custom deployment: HERMES_HOME points outside ~/.jarviscopilot.
         # `get_default_hermes_root()` returns env_home directly when it
         # is not a `<root>/profiles/<name>` shape and not under
-        # `Path.home() / ".hermes"`.
-        custom_root = tmp_path / "opt" / "hermes"
+        # `Path.home() / ".jarviscopilot"`.
+        custom_root = tmp_path / "opt" / "jarviscopilot"
         custom_root.mkdir(parents=True)
         self._set_home(monkeypatch, tmp_path, custom_root)
 
@@ -919,7 +919,7 @@ class TestSharedBoardPaths:
         # Docker profile shape: HERMES_HOME=/opt/hermes/profiles/coder;
         # `get_default_hermes_root()` walks up to /opt/hermes because
         # the immediate parent dir is named "profiles".
-        custom_root = tmp_path / "opt" / "hermes"
+        custom_root = tmp_path / "opt" / "jarviscopilot"
         profile = custom_root / "profiles" / "coder"
         profile.mkdir(parents=True)
         self._set_home(monkeypatch, tmp_path, profile)
@@ -932,7 +932,7 @@ class TestSharedBoardPaths:
     ):
         # Explicit override: HERMES_KANBAN_HOME beats every other
         # resolution rule.
-        default_home = tmp_path / ".hermes"
+        default_home = tmp_path / ".jarviscopilot"
         profile_home = default_home / "profiles" / "any"
         profile_home.mkdir(parents=True)
         override = tmp_path / "shared-board"
@@ -948,7 +948,7 @@ class TestSharedBoardPaths:
 
     def test_empty_override_falls_through(self, tmp_path, monkeypatch):
         # Empty/whitespace override is treated as unset.
-        default_home = tmp_path / ".hermes"
+        default_home = tmp_path / ".jarviscopilot"
         default_home.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(default_home))
@@ -962,7 +962,7 @@ class TestSharedBoardPaths:
         # Belt-and-suspenders: round-trip a task across the two
         # HERMES_HOME perspectives via a real SQLite file. Without the
         # fix the worker would open a different file and see no rows.
-        default_home = tmp_path / ".hermes"
+        default_home = tmp_path / ".jarviscopilot"
         default_home.mkdir()
         profile_home = default_home / "profiles" / "nehemiahkanban"
         profile_home.mkdir(parents=True)
@@ -986,7 +986,7 @@ class TestSharedBoardPaths:
         # HERMES_KANBAN_DB pins the file path directly and beats both
         # HERMES_KANBAN_HOME and the `get_default_hermes_root()` path.
         # This is the env the dispatcher injects into workers.
-        default_home = tmp_path / ".hermes"
+        default_home = tmp_path / ".jarviscopilot"
         default_home.mkdir()
         umbrella = tmp_path / "umbrella"
         umbrella.mkdir()
@@ -1007,7 +1007,7 @@ class TestSharedBoardPaths:
         self, tmp_path, monkeypatch
     ):
         # HERMES_KANBAN_WORKSPACES_ROOT pins the workspaces root directly.
-        default_home = tmp_path / ".hermes"
+        default_home = tmp_path / ".jarviscopilot"
         default_home.mkdir()
         umbrella = tmp_path / "umbrella"
         umbrella.mkdir()
@@ -1028,7 +1028,7 @@ class TestSharedBoardPaths:
     ):
         # Empty/whitespace pins are treated as unset, same as
         # HERMES_KANBAN_HOME.
-        default_home = tmp_path / ".hermes"
+        default_home = tmp_path / ".jarviscopilot"
         default_home.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(default_home))
@@ -1045,7 +1045,7 @@ class TestSharedBoardPaths:
         # and HERMES_KANBAN_WORKSPACES_ROOT into the worker env so the
         # worker converges on the dispatcher's paths even when the
         # `-p <profile>` flag rewrites HERMES_HOME.
-        default_home = tmp_path / ".hermes"
+        default_home = tmp_path / ".jarviscopilot"
         default_home.mkdir()
         self._set_home(monkeypatch, tmp_path, default_home)
 
@@ -1165,7 +1165,7 @@ def test_latest_summaries_batch_omits_tasks_without_summary(kanban_home):
 
 
 # ---------------------------------------------------------------------------
-# NFS / network-filesystem fallback (see hermes_state.apply_wal_with_fallback)
+# NFS / network-filesystem fallback (see jarviscopilot_state.apply_wal_with_fallback)
 # ---------------------------------------------------------------------------
 
 def test_connect_falls_back_to_delete_on_locking_protocol(kanban_home, caplog):
@@ -1174,7 +1174,7 @@ def test_connect_falls_back_to_delete_on_locking_protocol(kanban_home, caplog):
     Without this fallback, the gateway's kanban dispatcher crashes every
     60s and the kanban migration (``consecutive_failures`` ADD COLUMN) is
     retried forever — which is what the real-world user report shows
-    (see hermes-agent issue #22032).
+    (see jarviscopilot issue #22032).
     """
     import sqlite3 as _sqlite3
     from unittest.mock import patch as _patch
@@ -1196,7 +1196,7 @@ def test_connect_falls_back_to_delete_on_locking_protocol(kanban_home, caplog):
         )
 
     with _patch("jarviscopilot_cli.kanban_db.sqlite3.connect", side_effect=wal_blocking_connect):
-        with caplog.at_level("WARNING", logger="hermes_state"):
+        with caplog.at_level("WARNING", logger="jarviscopilot_state"):
             conn = kb.connect()
 
     # One fallback warning, naming kanban.db
@@ -1223,7 +1223,7 @@ def test_unlink_tasks_triggers_recompute_ready(kanban_home):
     complete_task and unblock_task.
 
     Before the fix, child stayed 'todo' indefinitely after unlink; only the
-    next dispatcher tick or a manual 'hermes kanban recompute' would promote it.
+    next dispatcher tick or a manual 'jarviscopilot kanban recompute' would promote it.
     """
     with kb.connect() as conn:
         # A is done.
@@ -1335,10 +1335,10 @@ def test_migrate_add_optional_columns_tolerates_concurrent_migration(kanban_home
 # ---------------------------------------------------------------------------
 # Dispatcher spawn invocation — _resolve_hermes_argv()
 #
-# Workers spawned by the dispatcher must use a `hermes` invocation that does
+# Workers spawned by the dispatcher must use a `jarviscopilot` invocation that does
 # not depend on PATH being set up correctly. cron jobs, systemd User= services,
 # launchd jobs, and other detached processes routinely run with a stripped
-# $PATH that doesn't include the venv's bin/, so a bare `["hermes", ...]`
+# $PATH that doesn't include the venv's bin/, so a bare `["jarviscopilot", ...]`
 # spawn fails with FileNotFoundError and the task gets stuck. The resolver
 # prefers the PATH shim (familiar `ps` output) but falls back to the module
 # form so the spawn keeps working when PATH is missing the shim.
@@ -1346,7 +1346,7 @@ def test_migrate_add_optional_columns_tolerates_concurrent_migration(kanban_home
 
 
 def test_resolve_hermes_argv_prefers_path_shim(monkeypatch):
-    """When `hermes` is on PATH, use the shim — preserves familiar ps output."""
+    """When `jarviscopilot` is on PATH, use the shim — preserves familiar ps output."""
     import shutil
     import jarviscopilot_cli.kanban_db as kb
 
@@ -1358,9 +1358,9 @@ def test_resolve_hermes_argv_prefers_path_shim(monkeypatch):
 def test_resolve_hermes_argv_falls_back_to_module_form_when_no_path_shim(monkeypatch):
     """When the shim is not on PATH, fall back to `python -m jarviscopilot_cli.main`.
 
-    Pins the correct module name (NOT `hermes` — there is no top-level
-    `hermes` package). Regression for #23198: the original PR shipped
-    `python -m hermes` which fails with `No module named hermes` on every
+    Pins the correct module name (NOT `jarviscopilot` — there is no top-level
+    `jarviscopilot` package). Regression for #23198: the original PR shipped
+    `python -m jarviscopilot` which fails with `No module named jarviscopilot` on every
     invocation.
     """
     import shutil
@@ -1502,7 +1502,7 @@ def test_task_dict_survives_corrupt_created_at(tmp_path, monkeypatch):
     corrupt row doesn't turn the whole board response into an error.
     """
     # Set up an isolated kanban home so we can write a corrupt created_at.
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".jarviscopilot"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)

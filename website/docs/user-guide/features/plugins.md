@@ -123,7 +123,7 @@ Every `ctx.*` API below is available inside a plugin's `register(ctx)` function.
 | User | `~/.jarviscopilot/plugins/` | Personal plugins |
 | Project | `.jarviscopilot/plugins/` | Project-specific plugins (requires `HERMES_ENABLE_PROJECT_PLUGINS=true`) |
 | pip | `hermes_agent.plugins` entry_points | Distributed packages |
-| Nix | `services.hermes-agent.extraPlugins` / `extraPythonPackages` | NixOS declarative installs — see [Nix Setup](/docs/getting-started/nix-setup#plugins) |
+| Nix | `services.jarviscopilot.extraPlugins` / `extraPythonPackages` | NixOS declarative installs — see [Nix Setup](/docs/getting-started/nix-setup#plugins) |
 
 Later sources override earlier ones on name collision, so a user plugin with the same name as a bundled plugin replaces it.
 
@@ -250,7 +250,7 @@ Not everything is a Python plugin. Some extension surfaces intentionally use **c
 On NixOS, plugins can be installed declaratively via the module options — no `jarviscopilot plugins install` needed. See the **[Nix Setup guide](/docs/getting-started/nix-setup#plugins)** for full details.
 
 ```nix
-services.hermes-agent = {
+services.jarviscopilot = {
   # Directory plugin (source tree with plugin.yaml)
   extraPlugins = [ (pkgs.fetchFromGitHub { ... }) ];
   # Entry-point plugin (pip package)

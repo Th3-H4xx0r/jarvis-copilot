@@ -40,7 +40,7 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
   # both `source` and `.env`.
   # Sourced from PR #1686 (@binhpt310) — Cluster 1 (operational hardening),
   # extracted to a focused follow-up after the parent PR was deferred.
-  _hermes_env_filtered="$(mktemp "${TMPDIR:-/tmp}/hermes-webui-env.XXXXXX")"
+  _hermes_env_filtered="$(mktemp "${TMPDIR:-/tmp}/jarviscopilot-webui-env.XXXXXX")"
   grep -vE '^[[:space:]]*(export[[:space:]]+)?(UID|GID|EUID|EGID|PPID)=' "${REPO_ROOT}/.env" > "${_hermes_env_filtered}" || true
   set -a
   # shellcheck source=/dev/null

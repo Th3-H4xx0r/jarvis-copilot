@@ -14,7 +14,7 @@ def test_get_managed_system_homebrew(monkeypatch):
     monkeypatch.setenv("HERMES_MANAGED", "homebrew")
 
     assert get_managed_system() == "Homebrew"
-    assert recommended_update_command() == "brew upgrade hermes-agent"
+    assert recommended_update_command() == "brew upgrade jarviscopilot"
 
 
 def test_format_managed_message_homebrew(monkeypatch):
@@ -23,14 +23,14 @@ def test_format_managed_message_homebrew(monkeypatch):
     message = format_managed_message("update JarvisCopilot")
 
     assert "managed by Homebrew" in message
-    assert "brew upgrade hermes-agent" in message
+    assert "brew upgrade jarviscopilot" in message
 
 
 def test_recommended_update_command_defaults_to_hermes_update(monkeypatch):
     monkeypatch.delenv("HERMES_MANAGED", raising=False)
 
     with patch("jarviscopilot_cli.config.detect_install_method", return_value="git"):
-        assert recommended_update_command() == "hermes update"
+        assert recommended_update_command() == "jarviscopilot update"
 
 
 def test_cmd_update_blocks_managed_homebrew(monkeypatch, capsys):
@@ -42,7 +42,7 @@ def test_cmd_update_blocks_managed_homebrew(monkeypatch, capsys):
     assert not mock_run.called
     captured = capsys.readouterr()
     assert "managed by Homebrew" in captured.err
-    assert "brew upgrade hermes-agent" in captured.err
+    assert "brew upgrade jarviscopilot" in captured.err
 
 
 def test_optional_skill_source_honors_env_override(monkeypatch, tmp_path):

@@ -113,7 +113,7 @@ def _make_session(messages=None):
     s = Session(
         session_id=f"compress_test_{time.time_ns()}",
         title="Untitled",
-        workspace="/tmp/hermes-webui-test",
+        workspace="/tmp/jarviscopilot-webui-test",
         model="openai/gpt-5.4-mini",
         messages=messages,
     )
@@ -242,7 +242,7 @@ def test_session_compress_status_reports_worker_error_without_raw_paths(monkeypa
 
         def compress(self, messages, current_tokens=None, focus_topic=None):
             self.entered.set()
-            raise RuntimeError("provider log at /Users/alice/.hermes/secrets/token.txt failed")
+            raise RuntimeError("provider log at /Users/alice/.jarviscopilot/secrets/token.txt failed")
 
     class FailingAgent:
         def __init__(self, **kwargs):

@@ -506,7 +506,7 @@ def _read_dm_role_auth_guild() -> Optional[int]:
 
     Reads ``discord.dm_role_auth_guild`` from config.yaml. This is
     deliberately a config.yaml-only setting (not an env var): per repo
-    policy, ``~/.hermes/.env`` is for secrets only, and this is a
+    policy, ``~/.jarviscopilot/.env`` is for secrets only, and this is a
     behavioral setting. Guild IDs aren't secrets.
 
     Accepts ints or numeric strings in the config. Anything else
@@ -899,7 +899,7 @@ class DiscordAdapter(BasePlatformAdapter):
         logger.info("[%s] Disconnected", self.name)
 
     def _command_sync_state_path(self) -> _Path:
-        from hermes_constants import get_hermes_home
+        from jarviscopilot_constants import get_hermes_home
 
         directory = get_hermes_home() / _DISCORD_COMMAND_SYNC_STATE_SUBDIR
         try:
@@ -1148,7 +1148,7 @@ class DiscordAdapter(BasePlatformAdapter):
         return "safe"
 
     def _canonicalize_app_command_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Reduce command payloads to the semantic fields Hermes manages."""
+        """Reduce command payloads to the semantic fields JarvisCopilot manages."""
         contexts = payload.get("contexts")
         integration_types = payload.get("integration_types")
         return {
@@ -2916,7 +2916,7 @@ class DiscordAdapter(BasePlatformAdapter):
         async def slash_new(interaction: discord.Interaction):
             await self._run_simple_slash(interaction, "/reset", "New conversation started~")
 
-        @tree.command(name="reset", description="Reset your Hermes session")
+        @tree.command(name="reset", description="Reset your JarvisCopilot session")
         async def slash_reset(interaction: discord.Interaction):
             await self._run_simple_slash(interaction, "/reset", "Session reset~")
 
@@ -2943,7 +2943,7 @@ class DiscordAdapter(BasePlatformAdapter):
         async def slash_undo(interaction: discord.Interaction):
             await self._run_simple_slash(interaction, "/undo")
 
-        @tree.command(name="status", description="Show Hermes session status")
+        @tree.command(name="status", description="Show JarvisCopilot session status")
         async def slash_status(interaction: discord.Interaction):
             await self._run_simple_slash(interaction, "/status", "Status sent~")
 
@@ -2951,7 +2951,7 @@ class DiscordAdapter(BasePlatformAdapter):
         async def slash_sethome(interaction: discord.Interaction):
             await self._run_simple_slash(interaction, "/sethome")
 
-        @tree.command(name="stop", description="Stop the running Hermes agent")
+        @tree.command(name="stop", description="Stop the running JarvisCopilot agent")
         async def slash_stop(interaction: discord.Interaction):
             await self._run_simple_slash(interaction, "/stop", "Stop requested~")
 
@@ -2991,7 +2991,7 @@ class DiscordAdapter(BasePlatformAdapter):
         async def slash_reload_mcp(interaction: discord.Interaction):
             await self._run_simple_slash(interaction, "/reload-mcp")
 
-        @tree.command(name="reload-skills", description="Re-scan ~/.hermes/skills/ for new or removed skills")
+        @tree.command(name="reload-skills", description="Re-scan ~/.jarviscopilot/skills/ for new or removed skills")
         async def slash_reload_skills(interaction: discord.Interaction):
             await self._run_simple_slash(interaction, "/reload-skills")
 
@@ -3017,7 +3017,7 @@ class DiscordAdapter(BasePlatformAdapter):
         async def slash_update(interaction: discord.Interaction):
             await self._run_simple_slash(interaction, "/update", "Update initiated~")
 
-        @tree.command(name="restart", description="Gracefully restart the Hermes gateway")
+        @tree.command(name="restart", description="Gracefully restart the JarvisCopilot gateway")
         async def slash_restart(interaction: discord.Interaction):
             await self._run_simple_slash(interaction, "/restart", "Restart requested~")
 
@@ -3031,10 +3031,10 @@ class DiscordAdapter(BasePlatformAdapter):
         async def slash_deny(interaction: discord.Interaction, scope: str = ""):
             await self._run_simple_slash(interaction, f"/deny {scope}".strip())
 
-        @tree.command(name="thread", description="Create a new thread and start a Hermes session in it")
+        @tree.command(name="thread", description="Create a new thread and start a JarvisCopilot session in it")
         @discord.app_commands.describe(
             name="Thread name",
-            message="Optional first message to send to Hermes in the thread",
+            message="Optional first message to send to JarvisCopilot in the thread",
             auto_archive_duration="Auto-archive in minutes (60, 1440, 4320, 10080)",
         )
         async def slash_thread(
@@ -3333,7 +3333,7 @@ class DiscordAdapter(BasePlatformAdapter):
 
             cmd = discord.app_commands.Command(
                 name="skill",
-                description="Run a Hermes skill",
+                description="Run a JarvisCopilot skill",
                 callback=_skill_handler,
             )
             tree.add_command(cmd)
@@ -3491,7 +3491,7 @@ class DiscordAdapter(BasePlatformAdapter):
         if thread_id:
             self._threads.mark(thread_id)
 
-        # If a message was provided, kick off a new Hermes session in the thread
+        # If a message was provided, kick off a new JarvisCopilot session in the thread
         starter = (message or "").strip()
         if starter and thread_id:
             await self._dispatch_thread_session(interaction, thread_id, thread_name, starter)
@@ -3844,7 +3844,7 @@ class DiscordAdapter(BasePlatformAdapter):
             }
         except Exception as direct_error:
             try:
-                seed_content = starter_message or f"\U0001f9f5 Thread created by Hermes: **{name}**"
+                seed_content = starter_message or f"\U0001f9f5 Thread created by JarvisCopilot: **{name}**"
                 seed_msg = await parent_channel.send(seed_content)
                 thread = await seed_msg.create_thread(
                     name=name,
@@ -3882,7 +3882,7 @@ class DiscordAdapter(BasePlatformAdapter):
         content = re.sub(r"<@[!&]?\d+>", "", content)
         content = re.sub(r"<#\d+>", "", content)
         content = re.sub(r"\s+", " ", content).strip()
-        thread_name = content[:80] if content else "Hermes"
+        thread_name = content[:80] if content else "JarvisCopilot"
         if len(content) > 80:
             thread_name = thread_name[:77] + "..."
 
@@ -3893,7 +3893,7 @@ class DiscordAdapter(BasePlatformAdapter):
             display_name = getattr(getattr(message, "author", None), "display_name", None) or "unknown user"
             reason = f"Auto-threaded from mention by {display_name}"
             try:
-                seed_msg = await message.channel.send(f"\U0001f9f5 Thread created by Hermes: **{thread_name}**")
+                seed_msg = await message.channel.send(f"\U0001f9f5 Thread created by JarvisCopilot: **{thread_name}**")
                 thread = await seed_msg.create_thread(
                     name=thread_name,
                     auto_archive_duration=1440,
@@ -3950,7 +3950,7 @@ class DiscordAdapter(BasePlatformAdapter):
             return None
 
         thread_name = (name or "handoff").strip()[:80] or "handoff"
-        reason = "Hermes session handoff"
+        reason = "JarvisCopilot session handoff"
 
         # First try: create a thread directly on the channel.
         try:
@@ -3973,7 +3973,7 @@ class DiscordAdapter(BasePlatformAdapter):
             send = getattr(parent, "send", None)
             if send is None:
                 return None
-            seed_msg = await send(f"\U0001f9f5 Hermes handoff: **{thread_name}**")
+            seed_msg = await send(f"\U0001f9f5 JarvisCopilot handoff: **{thread_name}**")
             thread = await seed_msg.create_thread(
                 name=thread_name,
                 auto_archive_duration=1440,
@@ -4111,7 +4111,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 body = body[: max_desc - 3] + "..."
 
             embed = discord.Embed(
-                title="❓ Hermes needs your input",
+                title="❓ JarvisCopilot needs your input",
                 description=body,
                 color=discord.Color.orange(),
             )
@@ -4156,7 +4156,7 @@ class DiscordAdapter(BasePlatformAdapter):
     ) -> SendResult:
         """Send an interactive button-based update prompt (Yes / No).
 
-        Used by the gateway ``/update`` watcher when ``hermes update --gateway``
+        Used by the gateway ``/update`` watcher when ``jarviscopilot update --gateway``
         needs user input (stash restore, config migration).
         """
         if not self._client or not DISCORD_AVAILABLE:
@@ -5156,7 +5156,7 @@ if DISCORD_AVAILABLE:
                 child.disabled = True
 
     class UpdatePromptView(discord.ui.View):
-        """Interactive Yes/No buttons for ``hermes update`` prompts.
+        """Interactive Yes/No buttons for ``jarviscopilot update`` prompts.
 
         Clicking a button writes the answer to ``.update_response`` so the
         detached update process can pick it up.  Only authorized users can
@@ -5210,7 +5210,7 @@ if DISCORD_AVAILABLE:
 
             # Write response file
             try:
-                from hermes_constants import get_hermes_home
+                from jarviscopilot_constants import get_hermes_home
                 home = get_hermes_home()
                 response_path = home / ".update_response"
                 tmp = response_path.with_suffix(".tmp")

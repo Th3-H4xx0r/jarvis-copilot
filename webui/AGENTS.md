@@ -58,8 +58,8 @@ unless you have confirmed the active state directories.
 Prefer isolated trial state for experiments:
 
 ```bash
-HERMES_HOME=/tmp/hermes-webui-agent-home \
-HERMES_WEBUI_STATE_DIR=/tmp/hermes-webui-agent-state \
+HERMES_HOME=/tmp/jarviscopilot-webui-agent-home \
+HERMES_WEBUI_STATE_DIR=/tmp/jarviscopilot-webui-agent-state \
 HERMES_WEBUI_PORT=8789 \
 python3 bootstrap.py
 ```

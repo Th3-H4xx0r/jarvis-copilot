@@ -15,19 +15,19 @@ JarvisCopilot isn't just a CLI tool. You can import `AIAgent` directly and use i
 Install JarvisCopilot directly from the repository:
 
 ```bash
-pip install git+https://github.com/NousResearch/hermes-agent.git
+pip install git+https://github.com/NousResearch/jarviscopilot.git
 ```
 
 Or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv pip install git+https://github.com/NousResearch/hermes-agent.git
+uv pip install git+https://github.com/NousResearch/jarviscopilot.git
 ```
 
 You can also pin it in your `requirements.txt`:
 
 ```text
-hermes-agent @ git+https://github.com/NousResearch/hermes-agent.git
+jarviscopilot @ git+https://github.com/NousResearch/jarviscopilot.git
 ```
 
 :::tip

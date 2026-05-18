@@ -76,7 +76,7 @@ if __name__ == "__main__":
 Run it:
 
 ```bash
-cd ~/.jarviscopilot/hermes-agent
+cd ~/.jarviscopilot/jarviscopilot
 source .venv/bin/activate
 python my_cli.py
 ```

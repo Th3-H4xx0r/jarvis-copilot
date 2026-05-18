@@ -94,7 +94,7 @@ const document = {
   createElement(tag) { return {tagName: tag.toUpperCase(), className: '', textContent: '', appendChild(){}}; },
   createTextNode(text) { return {textContent: text}; },
 };
-const window = { _botName: 'Hermes', _defaultModel: null, _activeProvider: null };
+const window = { _botName: 'JarvisCopilot', _defaultModel: null, _activeProvider: null };
 function fetch(url, opts) { calls.fetches.push({url: String(url), body: opts && opts.body || ''}); return Promise.resolve({ok: true}); }
 
 for (const name of [

@@ -9,7 +9,7 @@ This is the comprehensive Docker reference. For a 5-minute quickstart, see the [
 | **Single-container** (recommended) | You just want chat working. WebUI runs the agent in-process. | `docker-compose.yml` |
 | **Two-container** | You want isolation between gateway (CLI/Telegram/cron) and chat UI. | `docker-compose.two-container.yml` |
 | **Three-container** | Two-container PLUS the dashboard for monitoring. | `docker-compose.three-container.yml` |
-| **All-in-one image** (community fork — third-party, not maintained by us) | Podman 3.4 / multi-arch / supervisord-style preference. | [sunnysktsang/hermes-suite](https://github.com/sunnysktsang/hermes-suite) — see [#1399](https://github.com/nesquena/hermes-webui/issues/1399) for the original discussion |
+| **All-in-one image** (community fork — third-party, not maintained by us) | Podman 3.4 / multi-arch / supervisord-style preference. | [sunnysktsang/hermes-suite](https://github.com/sunnysktsang/hermes-suite) — see [#1399](https://github.com/nesquena/jarviscopilot-webui/issues/1399) for the original discussion |
 
 If something stops working, **start with the single-container setup** — it's the simplest path and fixes most permission/UID/path-mismatch issues by construction.
 
@@ -34,8 +34,8 @@ those tools in a dev-only Dockerfile instead of reintroducing passwordless sudo 
 ## 5-minute quickstart (single container)
 
 ```bash
-git clone https://github.com/nesquena/hermes-webui
-cd hermes-webui
+git clone https://github.com/nesquena/jarviscopilot-webui
+cd jarviscopilot-webui
 cp .env.docker.example .env
 # Edit .env if needed (most users can skip this on Linux)
 docker compose up -d
@@ -100,16 +100,16 @@ Both are documented in `api/startup.py::fix_credential_permissions()`.
 
 **Symptom**: WebUI logs at startup:
 ```
-!! WARNING: hermes-agent source not found.
-!!   Looked in: /home/hermeswebui/.jarviscopilot/hermes-agent
+!! WARNING: jarviscopilot source not found.
+!!   Looked in: /home/hermeswebui/.jarviscopilot/jarviscopilot
 !!              /opt/hermes
 ```
 
-**Cause**: The agent's source (`/opt/hermes` inside the agent container) needs to be exposed to the WebUI container via a shared volume. The two-container compose file does this via `hermes-agent-src` named volume, but if you're using bind mounts incorrectly the path won't resolve.
+**Cause**: The agent's source (`/opt/hermes` inside the agent container) needs to be exposed to the WebUI container via a shared volume. The two-container compose file does this via `jarviscopilot-src` named volume, but if you're using bind mounts incorrectly the path won't resolve.
 
-**Fix**: Use the named volumes that ship with `docker-compose.two-container.yml` — don't replace them with bind mounts unless you know what you're doing. The agent container writes its source to `/opt/hermes`, and the WebUI mounts that volume at `/home/hermeswebui/.jarviscopilot/hermes-agent`.
+**Fix**: Use the named volumes that ship with `docker-compose.two-container.yml` — don't replace them with bind mounts unless you know what you're doing. The agent container writes its source to `/opt/hermes`, and the WebUI mounts that volume at `/home/hermeswebui/.jarviscopilot/jarviscopilot`.
 
-If you must use a bind mount: pick a host path, then mount it to `/opt/hermes` in the agent container AND `/home/hermeswebui/.jarviscopilot/hermes-agent` in the WebUI container.
+If you must use a bind mount: pick a host path, then mount it to `/opt/hermes` in the agent container AND `/home/hermeswebui/.jarviscopilot/jarviscopilot` in the WebUI container.
 
 ### 5. "Tools (git, node, etc.) missing in two-container setup" (#681)
 
@@ -129,7 +129,7 @@ If you must use a bind mount: pick a host path, then mount it to `/opt/hermes` i
 **Cause**: Either the file isn't readable (UID/GID issue, see #1) or it's not in the expected path inside the container.
 
 **Fix**:
-- Verify: `docker exec hermes-webui ls -la /home/hermeswebui/.jarviscopilot/config.yaml`
+- Verify: `docker exec jarviscopilot-webui ls -la /home/hermeswebui/.jarviscopilot/config.yaml`
 - If it doesn't exist: your host bind mount is pointing at the wrong directory.
 - If it exists but is unreadable: see #1 for the UID/GID fix.
 
@@ -154,25 +154,25 @@ The two- and three-container setups use **named Docker volumes** (not bind mount
                           │ rw           │ rw
                           │              │
       ┌──────────────┐    │              │    ┌──────────────┐
-      │ hermes-agent │────┘              └────│ hermes-webui │
+      │ jarviscopilot │────┘              └────│ jarviscopilot-webui │
       │  (port 8642) │                        │  (port 8787) │
       └──────────────┘                        └──────────────┘
               │                                       ↑
               │ rw                                    │ ro
               ↓                                       │
       ┌─────────────────────────┐                     │
-      │ hermes-agent-src (vol)  │─────────────────────┘
+      │ jarviscopilot-src (vol)  │─────────────────────┘
       │ (agent's Python source) │
       └─────────────────────────┘
 ```
 
-The WebUI container doesn't ship with the agent's Python deps — at startup it runs `uv pip install /home/hermeswebui/.jarviscopilot/hermes-agent` to install them from the shared volume. The WebUI mount is read-only; the agent container is the only writer.
+The WebUI container doesn't ship with the agent's Python deps — at startup it runs `uv pip install /home/hermeswebui/.jarviscopilot/jarviscopilot` to install them from the shared volume. The WebUI mount is read-only; the agent container is the only writer.
 
 ## Upgrading the agent container
 
-The `hermes-agent-src` named volume is initialised from the agent image's `/opt/hermes` on first `up`. Docker reuses the volume verbatim on every subsequent `up` — **even after `docker pull` of a newer agent image**. The cached volume content masks the new image's source tree, so a fresh `docker pull` of `nousresearch/hermes-agent:latest` does not by itself give you the new agent code, dependencies, or entrypoint.
+The `jarviscopilot-src` named volume is initialised from the agent image's `/opt/hermes` on first `up`. Docker reuses the volume verbatim on every subsequent `up` — **even after `docker pull` of a newer agent image**. The cached volume content masks the new image's source tree, so a fresh `docker pull` of `nousresearch/jarviscopilot:latest` does not by itself give you the new agent code, dependencies, or entrypoint.
 
-This is the root cause of [#1416](https://github.com/nesquena/hermes-webui/issues/1416): the symptom looked like a missing entrypoint, but the entrypoint was actually present in the new image and hidden behind the stale named volume.
+This is the root cause of [#1416](https://github.com/nesquena/jarviscopilot-webui/issues/1416): the symptom looked like a missing entrypoint, but the entrypoint was actually present in the new image and hidden behind the stale named volume.
 
 To upgrade the agent image cleanly, drop the source volume before recreating:
 
@@ -190,9 +190,9 @@ docker compose -f docker-compose.three-container.yml pull
 docker compose -f docker-compose.three-container.yml up -d
 ```
 
-Replace `<project>` with your Compose project name (the parent directory by default; check with `docker volume ls`). The `jarviscopilot-home` volume (config, sessions, state) is left untouched — only `hermes-agent-src` (the agent's installed Python source) is recreated.
+Replace `<project>` with your Compose project name (the parent directory by default; check with `docker volume ls`). The `jarviscopilot-home` volume (config, sessions, state) is left untouched — only `jarviscopilot-src` (the agent's installed Python source) is recreated.
 
-> The single-container setup (`docker-compose.yml`) does not use `hermes-agent-src` and is not affected by this upgrade pattern — pulling a newer WebUI image and `docker compose up -d --force-recreate` is sufficient.
+> The single-container setup (`docker-compose.yml`) does not use `jarviscopilot-src` and is not affected by this upgrade pattern — pulling a newer WebUI image and `docker compose up -d --force-recreate` is sufficient.
 
 ## What the multi-container setup isolates (and what it doesn't)
 
@@ -205,9 +205,9 @@ The two- and three-container setups give you **process, network, and resource is
 
 What multi-container does **not** isolate:
 
-- **Filesystem boundary.** Both services share `jarviscopilot-home` (config, sessions, state), and the WebUI mounts the agent's installed source from `hermes-agent-src`. The WebUI mount is read-only (since v0.51.84), but the agent service still has write access, and both services share the home volume.
+- **Filesystem boundary.** Both services share `jarviscopilot-home` (config, sessions, state), and the WebUI mounts the agent's installed source from `jarviscopilot-src`. The WebUI mount is read-only (since v0.51.84), but the agent service still has write access, and both services share the home volume.
 - **UID/GID boundary.** Both services default to `${UID:-1000}` so files written by one are readable by the other. If you align them to different UIDs you'll get permission errors on the shared volume.
-- **Trust boundary on the agent source.** The WebUI installs Python dependencies from the shared `hermes-agent-src` volume at startup. The read-only mount means a compromised WebUI cannot rewrite the agent source, but it does run code from that volume.
+- **Trust boundary on the agent source.** The WebUI installs Python dependencies from the shared `jarviscopilot-src` volume at startup. The read-only mount means a compromised WebUI cannot rewrite the agent source, but it does run code from that volume.
 
 If you need **filesystem isolation** between the chat UI and the agent (e.g. you don't trust the WebUI to read agent state), the multi-container setup is not enough — run the agent on a separate host and connect the WebUI to it via the gateway HTTP API. If you don't need any boundary, the single-container setup is simpler.
 
@@ -223,12 +223,12 @@ volumes:
       type: none
       o: bind
       device: /home/youruser/.jarviscopilot
-  hermes-agent-src:
+  jarviscopilot-src:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: /opt/hermes-agent-source
+      device: /opt/jarviscopilot-source
 ```
 
 **Critical requirements**:
@@ -248,7 +248,7 @@ volumes:
 
 ## Related issues
 
-- #1416 — agent-image upgrade requires removing `hermes-agent-src` named volume (see [Upgrading the agent container](#upgrading-the-agent-container))
+- #1416 — agent-image upgrade requires removing `jarviscopilot-src` named volume (see [Upgrading the agent container](#upgrading-the-agent-container))
 - #1389 — `HERMES_HOME_MODE` override (fixed in v0.50.254 — agent honors `HERMES_SKIP_CHMOD` and `HERMES_HOME_MODE`)
 - #1399 — UID alignment in compose files (fixed in v0.50.260 via PR #1428 + this guide)
 - #858 — two-container `/opt/hermes` path confusion
@@ -256,9 +256,9 @@ volumes:
 - #668 — auto-detect UID/GID from mounted volume
 - #569 — UID/GID detection priority order
 
-If you hit a new failure mode not covered here, please [open an issue](https://github.com/nesquena/hermes-webui/issues/new) with:
+If you hit a new failure mode not covered here, please [open an issue](https://github.com/nesquena/jarviscopilot-webui/issues/new) with:
 
 1. Which compose file you used
-2. The error from `docker logs hermes-webui`
-3. `docker exec hermes-webui id` output
-4. `docker exec hermes-webui ls -la /home/hermeswebui/.jarviscopilot` output
+2. The error from `docker logs jarviscopilot-webui`
+3. `docker exec jarviscopilot-webui id` output
+4. `docker exec jarviscopilot-webui ls -la /home/hermeswebui/.jarviscopilot` output

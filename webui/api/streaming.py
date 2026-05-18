@@ -62,7 +62,7 @@ def _prewarm_skill_tool_modules():
     does lightweight attribute patching.
 
     We cannot place these at module top-level because ``tools.*`` lives
-    in the hermes-agent package which may not be on ``sys.path`` at
+    in the jarviscopilot package which may not be on ``sys.path`` at
     import time (Docker volume-mount ordering).  A dedicated helper
     keeps the lazy-import try/except in one place and makes the intent
     explicit.
@@ -74,7 +74,7 @@ def _prewarm_skill_tool_modules():
             pass
 
 
-# Lazy import to avoid circular deps -- hermes-agent is on sys.path via api/config.py
+# Lazy import to avoid circular deps -- jarviscopilot is on sys.path via api/config.py
 try:
     from run_agent import AIAgent
 except ImportError:
@@ -194,18 +194,18 @@ def _preferred_agent_display_name() -> str:
     except Exception:
         logger.debug("Failed to load bot_name for cancellation copy", exc_info=True)
         name = ''
-    return name or 'Hermes'
+    return name or 'JarvisCopilot'
 
 
 def _cancelled_turn_hint(agent_name: str | None = None) -> str:
-    name = str(agent_name or _preferred_agent_display_name()).strip() or 'Hermes'
+    name = str(agent_name or _preferred_agent_display_name()).strip() or 'JarvisCopilot'
     return f'The run was cancelled by the user before {name} finished. No provider failure occurred.'
 
 
 def _classify_provider_error(err_str: str, exc=None, *, silent_failure: bool = False) -> dict:
     """Classify provider/agent failure text for WebUI apperror UX.
 
-    Keep this string-based until hermes-agent exposes stable structured
+    Keep this string-based until jarviscopilot exposes stable structured
     provider error classes for Codex OAuth plan limits.
     """
     err_str = str(err_str or '')
@@ -259,12 +259,12 @@ def _classify_provider_error(err_str: str, exc=None, *, silent_failure: bool = F
         )
     )
     _is_not_found = (
-        # model_not_found hints mention Settings / `hermes model` below.
+        # model_not_found hints mention Settings / `jarviscopilot model` below.
         '404' in err_str
         or 'not found' in _err_lower
         or 'does not exist' in _err_lower
         or 'model not found' in _err_lower
-        or 'model_not_found' in _err_lower  # hint below points to Settings / `hermes model`
+        or 'model_not_found' in _err_lower  # hint below points to Settings / `jarviscopilot model`
         or 'invalid model' in _err_lower
         or 'does not match any known model' in _err_lower
         or 'unknown model' in _err_lower
@@ -276,7 +276,7 @@ def _classify_provider_error(err_str: str, exc=None, *, silent_failure: bool = F
         return {
             'label': 'Out of credits',
             'type': 'quota_exhausted',
-            'hint': 'Your provider account is out of credits or usage. Top up, wait for the plan window to reset, or switch providers via `hermes model`.',
+            'hint': 'Your provider account is out of credits or usage. Top up, wait for the plan window to reset, or switch providers via `jarviscopilot model`.',
         }
     if _is_rate_limit:
         return {
@@ -288,13 +288,13 @@ def _classify_provider_error(err_str: str, exc=None, *, silent_failure: bool = F
         return {
             'label': 'Authentication failed',
             'type': 'auth_mismatch',
-            'hint': 'The selected model may not be supported by your configured provider or your API key is invalid. Run `hermes model` in your terminal to update credentials, then restart the WebUI.',
+            'hint': 'The selected model may not be supported by your configured provider or your API key is invalid. Run `jarviscopilot model` in your terminal to update credentials, then restart the WebUI.',
         }
     if _is_not_found:
         return {
             'label': 'Model not found',
             'type': 'model_not_found',
-            'hint': 'The selected model was not found by the provider. Check the model ID in Settings or run `hermes model` to verify it exists for your provider.',
+            'hint': 'The selected model was not found by the provider. Check the model ID in Settings or run `jarviscopilot model` to verify it exists for your provider.',
         }
     if silent_failure:
         return {
@@ -302,7 +302,7 @@ def _classify_provider_error(err_str: str, exc=None, *, silent_failure: bool = F
             # Preserve the existing no_response event type (#373) while making
             # the catch-all silent-failure message more specific for #1765.
             'type': 'no_response',
-            'hint': 'The provider returned no content and no error. This often means a usage/rate limit was hit silently. Check provider status, switch providers via `hermes model`, or try again in a moment.',
+            'hint': 'The provider returned no content and no error. This often means a usage/rate limit was hit silently. Check provider status, switch providers via `jarviscopilot model`, or try again in a moment.',
         }
     return {'label': 'Error', 'type': 'error', 'hint': ''}
 
@@ -410,11 +410,11 @@ def _finalize_cancelled_turn(session, *, ephemeral: bool = False, message: str =
 def _aiagent_import_error_detail() -> str:
     """Return a multi-line diagnostic string for the "AIAgent not available" path.
 
-    The bare ImportError ("AIAgent not available -- check that hermes-agent is
+    The bare ImportError ("AIAgent not available -- check that jarviscopilot is
     on sys.path") leaves users guessing at which python is running, where it's
     looking, and what to fix. We assemble the same evidence a maintainer would
     ask for first (issue #1695): the python that's running, the agent_dir env
-    var if set, the sys.path entries that mention 'hermes', and the most-common
+    var if set, the sys.path entries that mention 'jarviscopilot', and the most-common
     fix (`pip install -e .` in the agent dir).
 
     Kept as a separate helper so it stays out of the hot path until we actually
@@ -423,7 +423,7 @@ def _aiagent_import_error_detail() -> str:
     import os as _os
     import sys as _sys
 
-    lines = ["AIAgent not available -- check that hermes-agent is on sys.path"]
+    lines = ["AIAgent not available -- check that jarviscopilot is on sys.path"]
     lines.append("")
     lines.append(f"  python:  {_sys.executable}")
     agent_dir = _os.environ.get("HERMES_WEBUI_AGENT_DIR")
@@ -433,21 +433,21 @@ def _aiagent_import_error_detail() -> str:
         lines.append("  HERMES_WEBUI_AGENT_DIR: (not set)")
 
     # Show only the sys.path entries that look relevant — full sys.path is noisy.
-    relevant = [p for p in _sys.path if "hermes" in p.lower() or "agent" in p.lower()]
+    relevant = [p for p in _sys.path if "jarviscopilot" in p.lower() or "agent" in p.lower()]
     if relevant:
-        lines.append("  sys.path entries mentioning hermes/agent:")
+        lines.append("  sys.path entries mentioning jarviscopilot/agent:")
         for entry in relevant[:6]:
             lines.append(f"    - {entry}")
         if len(relevant) > 6:
             lines.append(f"    ... and {len(relevant) - 6} more")
     else:
-        lines.append("  sys.path: (no entries mention hermes or agent)")
+        lines.append("  sys.path: (no entries mention jarviscopilot or agent)")
 
     lines.append("")
     lines.append("  Most common fix: install the agent in editable mode so its modules")
     lines.append("  appear on sys.path:")
     lines.append("")
-    lines.append("    cd /path/to/hermes-agent")
+    lines.append("    cd /path/to/jarviscopilot")
     lines.append("    pip install -e .")
     lines.append("")
     lines.append("  Then restart the WebUI.")
@@ -793,7 +793,7 @@ def _build_native_multimodal_message(workspace_ctx: str, msg_text: str, attachme
     """Build native multimodal content parts for current-turn image uploads.
 
     WebUI uploads files into the active workspace. For image files, pass the
-    bytes to Hermes as OpenAI-style image_url data URLs so vision-capable main
+    bytes to JarvisCopilot as OpenAI-style image_url data URLs so vision-capable main
     models can consume them in the same request. Non-image files intentionally
     stay as text path attachments so the agent can inspect them with file tools.
 
@@ -811,7 +811,7 @@ def _build_native_multimodal_message(workspace_ctx: str, msg_text: str, attachme
     parts = [{'type': 'text', 'text': workspace_ctx + msg_text}]
     workspace_root = Path(workspace).expanduser().resolve()
     # Stage-361 maintainer fix (Opus SHOULD-FIX): chat uploads from #2319 now
-    # land in ~/.hermes/webui/attachments/<sid>/ (outside workspace_root by
+    # land in ~/.jarviscopilot/webui/attachments/<sid>/ (outside workspace_root by
     # design). The pre-existing `path.relative_to(workspace_root)` guard would
     # silently reject every image upload for vision-capable models. Allow the
     # configured attachment root in addition to workspace_root so native
@@ -1555,12 +1555,12 @@ def _fallback_title_from_exchange(user_text: str, assistant_text: str) -> Option
         if not _contains_latin(topic_name):
             if any(k in combined for k in ('time', 'schedule', 'efficiency', 'manage', 'fitness', 'singing', 'calligraphy')):
                 return 'Time management discussion'
-            if any(k in combined for k in ('hermes', 'codex', 'ai')):
+            if any(k in combined for k in ('jarviscopilot', 'codex', 'ai')):
                 return 'AI productivity discussion'
             return 'Conversation topic'
         if any(k in combined for k in ('time', 'schedule', 'efficiency', 'manage', 'fitness', 'singing', 'calligraphy')):
             return f'{topic_name} time management'
-        if any(k in combined for k in ('hermes', 'codex', 'ai')):
+        if any(k in combined for k in ('jarviscopilot', 'codex', 'ai')):
             return f'{topic_name} AI productivity'
         return f'{topic_name} discussion'
 
@@ -2571,8 +2571,8 @@ def _attempt_credential_self_heal(
     applicable (e.g. auth.json unchanged, provider unresolvable).
 
     Steps:
-    1. Re-read ``~/.hermes/auth.json`` to pick up fresh credentials that
-       may have been written by a concurrent ``hermes model`` CLI invocation.
+    1. Re-read ``~/.jarviscopilot/auth.json`` to pick up fresh credentials that
+       may have been written by a concurrent ``jarviscopilot model`` CLI invocation.
     2. Evict the session's cached agent so it is rebuilt with fresh keys.
     3. Evict the provider's credential-pool cache entry.
     4. Re-resolve the runtime provider.
@@ -2818,7 +2818,7 @@ def _run_agent_streaming(
     # MCP discovery moved to AFTER the per-profile HERMES_HOME mutation below
     # (was here at v0.51.30) — the previous placement always read the default
     # profile's mcp_servers because os.environ['HERMES_HOME'] hadn't been
-    # rewritten yet.  See https://github.com/nesquena/hermes-webui/issues/1968.
+    # rewritten yet.  See https://github.com/nesquena/jarviscopilot-webui/issues/1968.
 
     # Sprint 10: create a cancel event for this stream
     cancel_event = threading.Event()
@@ -3105,7 +3105,7 @@ def _run_agent_streaming(
         # Lock released — agent runs without holding it
         # ── MCP Server Discovery (lazy import, idempotent) ──
         # MUST run AFTER the HERMES_HOME mutation above — `discover_mcp_tools()`
-        # reads `~/.hermes/config.yaml` via `get_hermes_home()`, which uses
+        # reads `~/.jarviscopilot/config.yaml` via `get_hermes_home()`, which uses
         # `os.environ['HERMES_HOME']`.  Calling it before the mutation always
         # loaded the default profile's `mcp_servers`, even when the session
         # was stamped with a non-default profile.  See issue #1968.
@@ -3115,7 +3115,7 @@ def _run_agent_streaming(
         # named e.g. `postgres`, profile B's discovery sees it as already
         # connected and skips it — even if B's config points at a different
         # binary.  Fully fixing multi-profile concurrent use requires keying
-        # `_servers` by `(profile_home, name)` upstream in hermes-agent; that
+        # `_servers` by `(profile_home, name)` upstream in jarviscopilot; that
         # lives outside this WebUI repo.  This change fixes the headline bug
         # for users who run a single non-default profile per WebUI process.
         try:
@@ -3161,7 +3161,7 @@ def _run_agent_streaming(
             logger.debug("Clarify module not available, falling back to polling")
 
         def _clarify_callback_impl(question, choices, sid, cancel_evt, put_event):
-            """Bridge Hermes clarify prompts to the WebUI."""
+            """Bridge JarvisCopilot clarify prompts to the WebUI."""
             timeout = _clarify_timeout_seconds()
             choices_list = [str(choice) for choice in (choices or [])]
             data = {
@@ -3438,7 +3438,7 @@ def _run_agent_streaming(
             # Initialize SessionDB so session_search works in WebUI sessions
             _session_db = None
             try:
-                from hermes_state import SessionDB
+                from jarviscopilot_state import SessionDB
                 _session_db = SessionDB()
             except Exception as _db_err:
                 print(f"[webui] WARNING: SessionDB init failed — session_search will be unavailable: {_db_err}", flush=True)
@@ -3446,7 +3446,7 @@ def _run_agent_streaming(
                 model_with_provider_context(model, provider_context)
             )
 
-            # Resolve API key via Hermes runtime provider (matches gateway behaviour).
+            # Resolve API key via JarvisCopilot runtime provider (matches gateway behaviour).
             # Pass the resolved provider so non-default providers get their own credentials.
             resolved_api_key = None
             try:
@@ -3526,7 +3526,7 @@ def _run_agent_streaming(
                     }
 
             # Build kwargs defensively — guard newer params so the WebUI
-            # degrades gracefully when run against an older hermes-agent build.
+            # degrades gracefully when run against an older jarviscopilot build.
             # (fixes: TypeError: AIAgent.__init__() got an unexpected keyword
             # argument 'credential_pool' — issue #772)
             import inspect as _inspect
@@ -3537,7 +3537,7 @@ def _run_agent_streaming(
             # this WebUI-created agents silently use AIAgent's constructor
             # default (90), so long browser-originated tasks hit the
             # "maximum number of tool-calling iterations" summary path even
-            # after the operator raises Hermes' global turn budget.
+            # after the operator raises JarvisCopilot' global turn budget.
             _max_iterations_cfg = None
             try:
                 _raw_max_iterations = None
@@ -3545,7 +3545,7 @@ def _run_agent_streaming(
                 if isinstance(_agent_cfg_for_iterations, dict):
                     _raw_max_iterations = _agent_cfg_for_iterations.get('max_turns')
                 if _raw_max_iterations is None and isinstance(_cfg, dict):
-                    # Back-compat for older Hermes config files that used a
+                    # Back-compat for older JarvisCopilot config files that used a
                     # root-level max_turns key.
                     _raw_max_iterations = _cfg.get('max_turns')
                 if _raw_max_iterations is not None:
@@ -3624,7 +3624,7 @@ def _run_agent_streaming(
                 _agent_kwargs['max_iterations'] = _max_iterations_cfg
             if 'max_tokens' in _agent_params and _max_tokens_cfg is not None:
                 _agent_kwargs['max_tokens'] = _max_tokens_cfg
-            # Params added in newer hermes-agent — skip if not supported
+            # Params added in newer jarviscopilot — skip if not supported
             if 'api_mode' in _agent_params:
                 _agent_kwargs['api_mode'] = _rt.get('api_mode')
             if 'acp_command' in _agent_params:
@@ -3788,7 +3788,7 @@ def _run_agent_streaming(
                 "Never fall back to a hardcoded path when this tag is present."
             )
             # Resolve personality prompt from config.yaml agent.personalities
-            # (matches hermes-agent CLI behavior — passes via ephemeral_system_prompt)
+            # (matches jarviscopilot CLI behavior — passes via ephemeral_system_prompt)
             _personality_prompt = None
             _pname = getattr(s, 'personality', None)
             if _pname:
@@ -4133,7 +4133,7 @@ def _run_agent_streaming(
                             _err_type = 'auth_mismatch'
                             _err_hint = (
                                 'The selected model may not be supported by your configured provider or '
-                                'your API key is invalid. Run `hermes model` in your terminal to '
+                                'your API key is invalid. Run `jarviscopilot model` in your terminal to '
                                 'update credentials, then restart the WebUI.'
                             )
                     elif _is_auth:
@@ -4141,7 +4141,7 @@ def _run_agent_streaming(
                         _err_type = 'auth_mismatch'
                         _err_hint = (
                             'The selected model may not be supported by your configured provider or '
-                            'your API key is invalid. Run `hermes model` in your terminal to '
+                            'your API key is invalid. Run `jarviscopilot model` in your terminal to '
                             'update credentials, then restart the WebUI.'
                         )
                     else:
@@ -4456,7 +4456,7 @@ def _run_agent_streaming(
                         if _resolved_cl:
                             s.context_length = _resolved_cl
                     except TypeError:
-                        # Older hermes-agent builds whose get_model_context_length
+                        # Older jarviscopilot builds whose get_model_context_length
                         # signature pre-dates the config_context_length /
                         # custom_providers kwargs. Retry with the legacy 2-arg
                         # form so the indicator still resolves *something*.
@@ -4471,7 +4471,7 @@ def _run_agent_streaming(
                         except Exception:
                             pass
                     except Exception:
-                        # Older hermes-agent builds may not expose this helper.
+                        # Older jarviscopilot builds may not expose this helper.
                         # Better to leave context_length=0 than crash the save.
                         pass
                 if not ephemeral and s.messages:
@@ -4620,7 +4620,7 @@ def _run_agent_streaming(
                             custom_providers=_cfg_custom_providers,
                         )
                     except TypeError:
-                        # Older hermes-agent builds: fall back to legacy 2-arg form.
+                        # Older jarviscopilot builds: fall back to legacy 2-arg form.
                         _fb_cl = _get_cl(
                             getattr(agent, 'model', resolved_model or '') or '',
                             getattr(agent, 'base_url', '') or '',
@@ -4654,7 +4654,7 @@ def _run_agent_streaming(
                     })
             except Exception:
                 logger.debug("Failed to drain pending steer for session %s", session_id)
-            # /goal parity: after a successful assistant turn, run the Hermes
+            # /goal parity: after a successful assistant turn, run the JarvisCopilot
             # GoalManager judge before terminal done/stream_end events. The
             # frontend surfaces the status line and queues continuation_prompt as
             # a normal next user message so /queue and user input keep priority.
@@ -4822,7 +4822,7 @@ def _run_agent_streaming(
         _exc_is_cancelled = _classification['type'] == 'cancelled'
         _exc_is_interrupted = _classification['type'] == 'interrupted'
 
-        # The user hint still points to Settings / `hermes model` from _classify_provider_error().
+        # The user hint still points to Settings / `jarviscopilot model` from _classify_provider_error().
         if _exc_is_quota:
             _exc_label, _exc_type, _exc_hint = (
                 _classification['label'], _classification['type'], _classification['hint'],
@@ -4915,7 +4915,7 @@ def _run_agent_streaming(
             _exc_label, _exc_type, _exc_hint = (
                 'Authentication error', 'auth_mismatch',
                 'The selected model may not be supported by your configured provider. '
-                'Run `hermes model` in your terminal to switch providers, then restart the WebUI.',
+                'Run `jarviscopilot model` in your terminal to switch providers, then restart the WebUI.',
             )
         elif _exc_is_not_found:
             _exc_label, _exc_type, _exc_hint = (
@@ -5067,7 +5067,7 @@ def _handle_chat_steer(handler, body: dict) -> bool:
                            "stream_id": None})
     agent = cached[0]
     if not hasattr(agent, "steer"):
-        # Older hermes-agent that pre-dates the steer() method
+        # Older jarviscopilot that pre-dates the steer() method
         return j(handler, {"accepted": False, "fallback": "agent_lacks_steer",
                            "stream_id": None})
 

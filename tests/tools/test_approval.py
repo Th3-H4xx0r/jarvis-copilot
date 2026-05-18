@@ -362,7 +362,7 @@ class TestTeePattern:
         assert key is not None
 
     def test_tee_hermes_env(self):
-        dangerous, key, desc = detect_dangerous_command("echo x | tee ~/.hermes/.env")
+        dangerous, key, desc = detect_dangerous_command("echo x | tee ~/.jarviscopilot/.env")
         assert dangerous is True
         assert key is not None
 
@@ -611,7 +611,7 @@ class TestGatewayProtection:
     """Prevent agents from starting the gateway outside systemd management."""
 
     def test_gateway_run_with_disown_detected(self):
-        cmd = "kill 1605 && cd ~/.hermes/hermes-agent && source venv/bin/activate && python -m jarviscopilot_cli.main gateway run --replace &disown; echo done"
+        cmd = "kill 1605 && cd ~/.jarviscopilot/jarviscopilot && source venv/bin/activate && python -m jarviscopilot_cli.main gateway run --replace &disown; echo done"
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is True
         assert "systemctl" in desc
@@ -639,20 +639,20 @@ class TestGatewayProtection:
 
     def test_systemctl_restart_flagged(self):
         """systemctl restart kills running agents and should require approval."""
-        cmd = "systemctl --user restart hermes-gateway"
+        cmd = "systemctl --user restart jarviscopilot-gateway"
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is True
         assert "stop/restart" in desc
 
     def test_pkill_hermes_detected(self):
-        """pkill targeting hermes/gateway processes must be caught."""
+        """pkill targeting jarviscopilot/gateway processes must be caught."""
         cmd = 'pkill -f "cli.py --gateway"'
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is True
         assert "self-termination" in desc
 
     def test_killall_hermes_detected(self):
-        cmd = "killall hermes"
+        cmd = "killall jarviscopilot"
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is True
         assert "self-termination" in desc
@@ -788,20 +788,20 @@ class TestHeredocScriptExecution:
 
 
 class TestPgrepKillExpansion:
-    """kill -9 $(pgrep hermes) bypasses the pkill/killall name-matching
+    """kill -9 $(pgrep jarviscopilot) bypasses the pkill/killall name-matching
     pattern because the command substitution is opaque to regex.
 
     See security audit Test 7.
     """
 
     def test_kill_dollar_pgrep_detected(self):
-        cmd = 'kill -9 $(pgrep -f "hermes.*gateway")'
+        cmd = 'kill -9 $(pgrep -f "jarviscopilot.*gateway")'
         dangerous, _, desc = detect_dangerous_command(cmd)
         assert dangerous is True
         assert "pgrep" in desc.lower()
 
     def test_kill_backtick_pgrep_detected(self):
-        cmd = "kill -9 `pgrep hermes`"
+        cmd = "kill -9 `pgrep jarviscopilot`"
         dangerous, _, desc = detect_dangerous_command(cmd)
         assert dangerous is True
 
@@ -812,7 +812,7 @@ class TestPgrepKillExpansion:
 
     def test_pkill_hermes_still_detected(self):
         """Existing pkill pattern must not regress."""
-        cmd = "pkill -9 hermes"
+        cmd = "pkill -9 jarviscopilot"
         dangerous, _, _ = detect_dangerous_command(cmd)
         assert dangerous is True
 

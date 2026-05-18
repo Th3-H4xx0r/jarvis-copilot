@@ -125,7 +125,7 @@ MAX_MESSAGE_LENGTH = 4000
 
 # Store directory for E2EE keys and sync state.
 # Uses get_hermes_home() so each profile gets its own Matrix store.
-from hermes_constants import get_hermes_dir as _get_hermes_dir
+from jarviscopilot_constants import get_hermes_dir as _get_hermes_dir
 
 _STORE_DIR = _get_hermes_dir("platforms/matrix/store", "matrix/store")
 _CRYPTO_DB_PATH = _STORE_DIR / "crypto.db"
@@ -702,7 +702,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 await crypto_db.start()
                 self._crypto_db = crypto_db
 
-                _acct_id = self._user_id or "hermes"
+                _acct_id = self._user_id or "jarviscopilot"
                 _pickle_key = f"{_acct_id}:{self._device_id or 'default'}"
                 crypto_store = PgCryptoStore(
                     account_id=_acct_id,

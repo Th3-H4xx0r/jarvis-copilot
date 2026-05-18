@@ -2,13 +2,13 @@
 JarvisCopilot CLI - Unified command-line interface for JarvisCopilot.
 
 Provides subcommands for:
-- hermes chat          - Interactive chat (same as ./hermes)
-- hermes gateway       - Run gateway in foreground
-- hermes gateway start - Start gateway service
-- hermes gateway stop  - Stop gateway service
-- hermes setup         - Interactive setup wizard
-- hermes status        - Show status of all components
-- hermes cron          - Manage cron jobs
+- jarviscopilot chat          - Interactive chat (same as ./hermes)
+- jarviscopilot gateway       - Run gateway in foreground
+- jarviscopilot gateway start - Start gateway service
+- jarviscopilot gateway stop  - Stop gateway service
+- jarviscopilot setup         - Interactive setup wizard
+- jarviscopilot status        - Show status of all components
+- jarviscopilot cron          - Manage cron jobs
 """
 
 import os
@@ -22,7 +22,7 @@ try:
 except Exception:
     pass
 
-# One-shot rename ~/.hermes/ → ~/.jarviscopilot/ with a back-compat link
+# One-shot rename ~/.jarviscopilot/ → ~/.jarviscopilot/ with a back-compat link
 # at the old path. No-op if already migrated or no legacy dir exists.
 try:
     from jarviscopilot_cli.data_migration import apply as _apply_data_migration

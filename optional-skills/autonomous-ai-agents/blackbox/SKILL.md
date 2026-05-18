@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 metadata:
   jarviscopilot:
     tags: [Coding-Agent, Blackbox, Multi-Agent, Judge, Multi-Model]
-    related_skills: [claude-code, codex, hermes-agent]
+    related_skills: [claude-code, codex, jarviscopilot]
 ---
 
 # Blackbox CLI

@@ -1,6 +1,6 @@
-"""Tests for fix: onboarding wizard must not fire when Hermes is already configured.
+"""Tests for fix: onboarding wizard must not fire when JarvisCopilot is already configured.
 
-Issue #420 — existing Hermes users (config.yaml present + chat_ready) were
+Issue #420 — existing JarvisCopilot users (config.yaml present + chat_ready) were
 shown the first-run wizard because the only gate was settings.onboarding_completed.
 
 Covers:
@@ -85,7 +85,7 @@ class TestOnboardingGate:
         """Primary fix: existing valid config → wizard must NOT fire."""
         result = _make_status(config_exists=True, chat_ready=True)
         assert result["completed"] is True, (
-            "Wizard fired for existing Hermes user! "
+            "Wizard fired for existing JarvisCopilot user! "
             "config.yaml + chat_ready must auto-complete onboarding."
         )
 
@@ -204,7 +204,7 @@ class TestApplyOnboardingSetupGuard:
                 tmp_home_path = pathlib.Path(tmp_home)
                 # Without patching Path.exists, use a non-existent path so it won't block.
                 # Also redirect _get_active_hermes_home so .env writes go to the temp dir,
-                # never to the real ~/.hermes/.env.
+                # never to the real ~/.jarviscopilot/.env.
                 with mock.patch.object(mod, "_get_active_hermes_home", return_value=tmp_home_path):
                     result = mod.apply_onboarding_setup(
                         {
@@ -233,8 +233,8 @@ class TestApplyOnboardingSetupGuard:
         try:
             with tempfile.TemporaryDirectory() as tmp_home:
                 tmp_home_path = pathlib.Path(tmp_home)
-                # Redirect both config path and hermes home so writes stay in /tmp,
-                # never touching the real ~/.hermes/.env.
+                # Redirect both config path and jarviscopilot home so writes stay in /tmp,
+                # never touching the real ~/.jarviscopilot/.env.
                 with (
                     mock.patch.object(mod, "_get_config_path", return_value=fake_config_path),
                     mock.patch.object(mod, "_get_active_hermes_home", return_value=tmp_home_path),
@@ -282,7 +282,7 @@ def _server_hermes_home() -> pathlib.Path:
     env_path = data.get("system", {}).get("env_path", "")
     if env_path:
         return pathlib.Path(env_path).parent
-    return pathlib.Path(os.environ.get("HERMES_WEBUI_TEST_STATE_DIR", str(pathlib.Path.home() / ".hermes" / "webui-mvp-test")))
+    return pathlib.Path(os.environ.get("HERMES_WEBUI_TEST_STATE_DIR", str(pathlib.Path.home() / ".jarviscopilot" / "webui-mvp-test")))
 
 
 def _server_reachable() -> bool:

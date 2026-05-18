@@ -13,7 +13,7 @@ Covers:
   stale media attributes so OS light/dark preference cannot override the user theme.
 
 This bridge is the source of truth that native WKWebView wrappers
-(hermes-webui/hermes-swift-mac) read instead of pixel-sampling the page —
+(jarviscopilot-webui/hermes-swift-mac) read instead of pixel-sampling the page —
 overlay-resistant (modals/lightboxes don't poison it) and IPC-free.
 """
 from pathlib import Path

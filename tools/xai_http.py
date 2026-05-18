@@ -6,7 +6,7 @@ import os
 from typing import Dict
 
 def get_env_value(name: str, default=None):
-    """Read ``name`` from ``~/.hermes/.env`` first, then ``os.environ``.
+    """Read ``name`` from ``~/.jarviscopilot/.env`` first, then ``os.environ``.
 
     Wraps :func:`jarviscopilot_cli.config.get_env_value` so tests can patch
     ``tools.xai_http.get_env_value`` to inject dotenv-only secrets into the
@@ -37,7 +37,7 @@ def resolve_xai_http_credentials() -> Dict[str, str]:
 
     Prefers Hermes-managed xAI OAuth credentials when available, then falls back
     to ``XAI_API_KEY`` resolved via ``jarviscopilot_cli.config.get_env_value`` so keys
-    stored in ``~/.hermes/.env`` (the standard Hermes location) are honored —
+    stored in ``~/.jarviscopilot/.env`` (the standard JarvisCopilot location) are honored —
     not just ones already exported into ``os.environ``. This keeps direct xAI
     endpoints (images, TTS, STT, etc.) aligned with the main runtime auth model
     and preserves the regression contract from PR #17140 / #17163.

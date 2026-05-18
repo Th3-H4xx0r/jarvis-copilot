@@ -1823,7 +1823,7 @@ class TestAzureFoundryResolution:
 
     def test_azure_foundry_missing_api_key_raises(self, monkeypatch):
         monkeypatch.delenv("AZURE_FOUNDRY_API_KEY", raising=False)
-        # `get_env_value` reads from ~/.hermes/.env — mock it to return None
+        # `get_env_value` reads from ~/.jarviscopilot/.env — mock it to return None
         # so the resolver can't find a key there either.
         import jarviscopilot_cli.config as cfg_mod
         monkeypatch.setattr(cfg_mod, "get_env_value", lambda k: None)

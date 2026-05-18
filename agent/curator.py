@@ -31,7 +31,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set
 
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 from tools import skill_usage
 
 logger = logging.getLogger(__name__)
@@ -130,7 +130,7 @@ def is_paused() -> bool:
 # ---------------------------------------------------------------------------
 
 def _load_config() -> Dict[str, Any]:
-    """Read curator.* config from ~/.hermes/config.yaml. Tolerates missing file."""
+    """Read curator.* config from ~/.jarviscopilot/config.yaml. Tolerates missing file."""
     try:
         from jarviscopilot_cli.config import load_config
         cfg = load_config()
@@ -208,9 +208,9 @@ def should_run_now(now: Optional[datetime] = None) -> bool:
     install that predates the curator), we DO NOT run immediately. The
     curator is designed to run after at least ``interval_hours`` (7 days by
     default) of skill activity, not on the first background tick after
-    ``hermes update``. On first observation we seed ``last_run_at`` to "now"
+    ``jarviscopilot update``. On first observation we seed ``last_run_at`` to "now"
     and defer the first real pass by one full interval. Users who want to
-    run it sooner can always invoke ``hermes curator run`` (with or without
+    run it sooner can always invoke ``jarviscopilot curator run`` (with or without
     ``--dry-run``) explicitly — that path bypasses this gate.
 
     The idle check (min_idle_hours) is applied at the call site where we know
@@ -234,7 +234,7 @@ def should_run_now(now: Optional[datetime] = None) -> bool:
             state["last_run_at"] = now.isoformat()
             state["last_run_summary"] = (
                 "deferred first run — curator seeded, will run after one "
-                "interval; use `hermes curator run --dry-run` to preview now"
+                "interval; use `jarviscopilot curator run --dry-run` to preview now"
             )
             save_state(state)
         except Exception as e:  # pragma: no cover — best-effort persistence
@@ -311,7 +311,7 @@ CURATOR_DRY_RUN_BANNER = (
     "write_file, or remove_file.\n"
     "  • DO NOT call terminal to mv skill directories into .archive/.\n"
     "  • DO NOT call terminal to mv, cp, rm, or rewrite any file under "
-    "~/.hermes/skills/.\n"
+    "~/.jarviscopilot/skills/.\n"
     "  • skills_list and skill_view are FINE — read as much as you need.\n"
     "\n"
     "Your output IS the deliverable. Produce the exact same "
@@ -319,7 +319,7 @@ CURATOR_DRY_RUN_BANNER = (
     "produce on a live run — but describe the actions you WOULD take, "
     "not actions you took. A downstream reviewer will read the report "
     "and decide whether to approve a live run with "
-    "`hermes curator run` (no flag).\n"
+    "`jarviscopilot curator run` (no flag).\n"
     "\n"
     "If you accidentally take a mutating action, say so explicitly in "
     "the summary so the reviewer can revert it.\n"
@@ -328,7 +328,7 @@ CURATOR_DRY_RUN_BANNER = (
 
 
 CURATOR_REVIEW_PROMPT = (
-    "You are running as Hermes' background skill CURATOR. This is an "
+    "You are running as JarvisCopilot' background skill CURATOR. This is an "
     "UMBRELLA-BUILDING consolidation pass, not a passive audit and not a "
     "duplicate-finder.\n\n"
     "The goal of the skill collection is a LIBRARY OF CLASS-LEVEL "
@@ -345,7 +345,7 @@ CURATOR_REVIEW_PROMPT = (
     "1. DO NOT touch bundled or hub-installed skills. The candidate list "
     "below is already filtered to agent-created skills only.\n"
     "2. DO NOT delete any skill. Archiving (moving the skill's directory "
-    "into ~/.hermes/skills/.archive/) is the maximum destructive action. "
+    "into ~/.jarviscopilot/skills/.archive/) is the maximum destructive action. "
     "Archives are recoverable; deletion is not.\n"
     "3. DO NOT touch skills shown as pinned=yes. Skip them entirely.\n"
     "4. DO NOT use usage counters as a reason to skip consolidation. The "
@@ -389,7 +389,7 @@ CURATOR_REVIEW_PROMPT = (
     "      • `scripts/<name>.<ext>` for statically re-runnable actions "
     "(verification scripts, fixture generators, probes)\n"
     "      Then archive the old sibling. Use `terminal` with `mkdir -p "
-    "~/.hermes/skills/<umbrella>/references/ && mv ... <umbrella>/"
+    "~/.jarviscopilot/skills/<umbrella>/references/ && mv ... <umbrella>/"
     "references/<topic>.md` (or templates/ / scripts/).\n"
     "4. Also flag skills whose NAME is too narrow (contains a PR number, "
     "a feature codename, a specific error string, an 'audit' / "
@@ -452,10 +452,10 @@ CURATOR_REVIEW_PROMPT = (
 def _reports_root() -> Path:
     """Directory where curator run reports are written.
 
-    Lives under the profile-aware logs dir (``~/.hermes/logs/curator/``)
+    Lives under the profile-aware logs dir (``~/.jarviscopilot/logs/curator/``)
     alongside ``agent.log`` and ``gateway.log`` so it's found by anyone
     looking for operational telemetry, not mixed in with the user's
-    authored skill data in ``~/.hermes/skills/``.
+    authored skill data in ``~/.jarviscopilot/skills/``.
 
     ``ensure_hermes_home()`` pre-creates this dir on every CLI launch and
     the v22→v23 migration backfills it for existing profiles, but we
@@ -645,7 +645,7 @@ def _parse_structured_summary(
 
     body = match.group(1)
 
-    # Prefer PyYAML when available — every hermes install already has it
+    # Prefer PyYAML when available — every jarviscopilot install already has it
     # (config.yaml loader). Fall back to a hand parser for paranoia.
     try:
         import yaml  # type: ignore
@@ -898,8 +898,8 @@ def _build_rename_summary(
           • docx-extraction → document-tools
           • flaky-thing — pruned (stale)
           • old-utility → spreadsheet-ops
-        full report: hermes curator status
-        keep an umbrella stable: hermes curator pin document-tools
+        full report: jarviscopilot curator status
+        keep an umbrella stable: jarviscopilot curator pin document-tools
 
     Cap is 10 entries so a 50-skill consolidation doesn't blow up
     agent.log; the full list is always in REPORT.md. The pin hint only
@@ -952,7 +952,7 @@ def _build_rename_summary(
         shown += 1
     if total > SHOW:
         lines.append(f"  … and {total - SHOW} more")
-    lines.append("full report: hermes curator status")
+    lines.append("full report: jarviscopilot curator status")
     # Pin hint — only surface it when there's actually a destination skill
     # worth pinning. The umbrella skills that absorbed content are the natural
     # candidates: pinning one tells future curator runs to leave it alone.
@@ -962,7 +962,7 @@ def _build_rename_summary(
         if umbrellas:
             example = umbrellas[0]
             lines.append(
-                f"keep an umbrella stable: hermes curator pin {example}"
+                f"keep an umbrella stable: jarviscopilot curator pin {example}"
             )
     return "\n".join(lines)
 
@@ -1203,7 +1203,7 @@ def _render_report_markdown(p: Dict[str, Any]) -> str:
     lines.append("")
 
     # Consolidated list — content absorbed into an umbrella. The directory
-    # on disk still lives under ~/.hermes/skills/.archive/ (every removal is
+    # on disk still lives under ~/.jarviscopilot/skills/.archive/ (every removal is
     # recoverable by design), but the "live" content for these skills
     # continues to exist inside the destination umbrella.
     consolidated = p.get("consolidated") or []
@@ -1212,8 +1212,8 @@ def _render_report_markdown(p: Dict[str, Any]) -> str:
         lines.append(
             "_These skills were **absorbed into another skill** during this run — "
             "their content still lives, just under a different name. "
-            "The original directory was moved to `~/.hermes/skills/.archive/` for "
-            "safety and can be restored via `hermes curator restore <name>` if the "
+            "The original directory was moved to `~/.jarviscopilot/skills/.archive/` for "
+            "safety and can be restored via `jarviscopilot curator restore <name>` if the "
             "consolidation was wrong._\n"
         )
         SHOW = 50
@@ -1248,8 +1248,8 @@ def _render_report_markdown(p: Dict[str, Any]) -> str:
         lines.append(
             "_These skills were archived without being merged into an umbrella "
             "(e.g. stale, unused, or judged irrelevant). "
-            "Directories live under `~/.hermes/skills/.archive/`. "
-            "Restore any via `hermes curator restore <name>`._\n"
+            "Directories live under `~/.jarviscopilot/skills/.archive/`. "
+            "Restore any via `jarviscopilot curator restore <name>`._\n"
         )
         SHOW = 50
         for entry in pruned[:SHOW]:
@@ -1334,8 +1334,8 @@ def _render_report_markdown(p: Dict[str, Any]) -> str:
 
     # Recovery footer
     lines.append("## Recovery\n")
-    lines.append("- Restore an archived skill: `hermes curator restore <name>`")
-    lines.append("- All archives live under `~/.hermes/skills/.archive/` and are recoverable by `mv`")
+    lines.append("- Restore an archived skill: `jarviscopilot curator restore <name>`")
+    lines.append("- All archives live under `~/.jarviscopilot/skills/.archive/` and are recoverable by `mv`")
     lines.append("- See `run.json` in this directory for the full machine-readable record.")
     lines.append("")
 
@@ -1432,7 +1432,7 @@ def run_curator_review(
     # Persist state before the LLM pass so a crash mid-review still records
     # the run and doesn't immediately re-trigger. In dry-run we do NOT bump
     # last_run_at or run_count — a preview shouldn't push the next scheduled
-    # real pass out. We still record a summary so `hermes curator status`
+    # real pass out. We still record a summary so `jarviscopilot curator status`
     # shows that a preview ran.
     state = load_state()
     if not dry_run:
@@ -1512,7 +1512,7 @@ def run_curator_review(
 
         # Write the per-run report. Runs in a best-effort try so a
         # reporting bug never breaks the curator itself. Report path is
-        # recorded in state so `hermes curator status` can point at it.
+        # recorded in state so `jarviscopilot curator status` can point at it.
         try:
             after_report = skill_usage.agent_created_report()
         except Exception:
@@ -1604,7 +1604,7 @@ def _resolve_review_model(cfg: Dict[str, Any]) -> tuple[str, str]:
     """Pick (provider, model) for the curator review fork.
 
     Curator is a regular auxiliary task slot — ``auxiliary.curator.{provider,model}``
-    — so it participates in the canonical aux-model plumbing (``hermes model`` →
+    — so it participates in the canonical aux-model plumbing (``jarviscopilot model`` →
     auxiliary picker, the dashboard Models tab, ``auxiliary.curator.{timeout,
     base_url,api_key,extra_body}``). ``provider: "auto"`` with an empty model
     means "use the main chat model" — same default as every other aux task.
@@ -1656,7 +1656,7 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
     # providers and for pool-backed credentials.
     #
     # `_resolve_review_runtime()` honors `auxiliary.curator.{provider,model,...}`
-    # (canonical aux-task slot, wired through `hermes model` → auxiliary
+    # (canonical aux-task slot, wired through `jarviscopilot model` → auxiliary
     # picker and the dashboard Models tab), with a legacy fallback to
     # `curator.auxiliary.{provider,model,...}`. See docs/user-guide/features/curator.md.
     _api_key = None

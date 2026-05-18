@@ -1,12 +1,12 @@
 ---
 sidebar_position: 9
 title: "Optional Skills Catalog"
-description: "Official optional skills shipped with hermes-agent — install via jarviscopilot skills install official/<category>/<skill>"
+description: "Official optional skills shipped with jarviscopilot — install via jarviscopilot skills install official/<category>/<skill>"
 ---
 
 # Optional Skills Catalog
 
-Optional skills ship with hermes-agent under `optional-skills/` but are **not active by default**. Install them explicitly:
+Optional skills ship with jarviscopilot under `optional-skills/` but are **not active by default**. Install them explicitly:
 
 ```bash
 jarviscopilot skills install official/<category>/<skill>
@@ -77,7 +77,7 @@ jarviscopilot skills uninstall <skill-name>
 
 | Skill | Description |
 |-------|-------------|
-| [**agentmail**](/docs/user-guide/skills/optional/email/email-agentmail) | Give the agent its own dedicated email inbox via AgentMail. Send, receive, and manage email autonomously using agent-owned email addresses (e.g. hermes-agent@agentmail.to). |
+| [**agentmail**](/docs/user-guide/skills/optional/email/email-agentmail) | Give the agent its own dedicated email inbox via AgentMail. Send, receive, and manage email autonomously using agent-owned email addresses (e.g. jarviscopilot@agentmail.to). |
 
 ## finance
 

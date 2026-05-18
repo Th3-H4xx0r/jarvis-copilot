@@ -673,16 +673,16 @@ class Session:
         }
 
 def _get_profile_home(profile) -> Path:
-    """Resolve the hermes agent home directory for the given profile.
+    """Resolve the jarviscopilot agent home directory for the given profile.
 
     Prefers the profile-specific helper from api.profiles; falls back to the
-    HERMES_HOME environment variable or ~/.hermes, expanding ~ correctly.
+    HERMES_HOME environment variable or ~/.jarviscopilot, expanding ~ correctly.
     """
     try:
         from api.profiles import get_hermes_home_for_profile
         return Path(get_hermes_home_for_profile(profile))
     except ImportError:
-        return Path(os.environ.get('HERMES_HOME') or '~/.hermes').expanduser()
+        return Path(os.environ.get('HERMES_HOME') or '~/.jarviscopilot').expanduser()
 
 
 def _interrupted_recovery_marker(*, recovered_output: bool = False) -> dict:
@@ -1406,12 +1406,12 @@ def _strip_sidebar_internal_flags(sessions: list[dict]) -> None:
 
 
 def _active_state_db_path() -> Path:
-    """Return state.db for the active Hermes profile, degrading to HERMES_HOME."""
+    """Return state.db for the active JarvisCopilot profile, degrading to HERMES_HOME."""
     try:
         from api.profiles import get_active_hermes_home
         hermes_home = Path(get_active_hermes_home()).expanduser().resolve()
     except Exception:
-        hermes_home = Path(os.getenv('HERMES_HOME', str(HOME / '.hermes'))).expanduser().resolve()
+        hermes_home = Path(os.getenv('HERMES_HOME', str(HOME / '.jarviscopilot'))).expanduser().resolve()
     return hermes_home / 'state.db'
 
 
@@ -2040,8 +2040,8 @@ def _resolve_cli_sessions_context():
     # Use the active WebUI profile's HERMES_HOME to find state.db.
     # The active profile is determined by what the user has selected in the UI
     # (stored in the server's runtime config). This means:
-    #   - default profile  -> ~/.hermes/state.db
-    #   - named profile X  -> ~/.hermes/profiles/X/state.db
+    #   - default profile  -> ~/.jarviscopilot/state.db
+    #   - named profile X  -> ~/.jarviscopilot/profiles/X/state.db
     # We resolve the active profile's home directory rather than just using
     # HERMES_HOME (which is the server's launch profile, not necessarily the
     # active one after a profile switch).
@@ -2049,7 +2049,7 @@ def _resolve_cli_sessions_context():
         from api.profiles import get_active_hermes_home
         hermes_home = Path(get_active_hermes_home()).expanduser().resolve()
     except Exception:
-        hermes_home = Path(os.getenv('HERMES_HOME', str(HOME / '.hermes'))).expanduser().resolve()
+        hermes_home = Path(os.getenv('HERMES_HOME', str(HOME / '.jarviscopilot'))).expanduser().resolve()
 
     try:
         from api.profiles import get_active_profile_name
@@ -2366,7 +2366,7 @@ def count_conversation_rounds(sid: str, since: float | None = None) -> int:
         from api.profiles import get_active_hermes_home
         hermes_home = Path(get_active_hermes_home()).expanduser().resolve()
     except Exception:
-        hermes_home = Path(os.getenv('HERMES_HOME', str(HOME / '.hermes'))).expanduser().resolve()
+        hermes_home = Path(os.getenv('HERMES_HOME', str(HOME / '.jarviscopilot'))).expanduser().resolve()
     db_path = hermes_home / 'state.db'
     if not db_path.exists():
         return 0
@@ -2443,7 +2443,7 @@ def delete_cli_session(sid) -> bool:
         from api.profiles import get_active_hermes_home
         hermes_home = Path(get_active_hermes_home()).expanduser().resolve()
     except Exception:
-        hermes_home = Path(os.getenv('HERMES_HOME', str(HOME / '.hermes'))).expanduser().resolve()
+        hermes_home = Path(os.getenv('HERMES_HOME', str(HOME / '.jarviscopilot'))).expanduser().resolve()
     db_path = hermes_home / 'state.db'
     if not db_path.exists():
         return False

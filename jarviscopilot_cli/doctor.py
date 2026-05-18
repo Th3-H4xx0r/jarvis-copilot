@@ -1,5 +1,5 @@
 """
-Doctor command for hermes CLI.
+Doctor command for jarviscopilot CLI.
 
 Diagnoses issues with JarvisCopilot setup.
 """
@@ -13,20 +13,20 @@ from pathlib import Path
 
 from jarviscopilot_cli.config import get_project_root, get_hermes_home, get_env_path
 from jarviscopilot_cli.env_loader import load_hermes_dotenv
-from hermes_constants import display_hermes_home
+from jarviscopilot_constants import display_hermes_home
 
 PROJECT_ROOT = get_project_root()
 HERMES_HOME = get_hermes_home()
-_DHH = display_hermes_home()  # user-facing display path (e.g. ~/.hermes or ~/.hermes/profiles/coder)
+_DHH = display_hermes_home()  # user-facing display path (e.g. ~/.jarviscopilot or ~/.jarviscopilot/profiles/coder)
 
-# Load environment variables from ~/.hermes/.env so API key checks work
+# Load environment variables from ~/.jarviscopilot/.env so API key checks work
 _env_path = get_env_path()
 load_hermes_dotenv(hermes_home=_env_path.parent, project_env=PROJECT_ROOT / ".env")
 
 from jarviscopilot_cli.colors import Colors, color
 from jarviscopilot_cli.models import _HERMES_USER_AGENT
 from jarviscopilot_cli.vercel_auth import describe_vercel_auth
-from hermes_constants import OPENROUTER_MODELS_URL
+from jarviscopilot_constants import OPENROUTER_MODELS_URL
 from utils import base_url_host_matches
 
 
@@ -57,7 +57,7 @@ _PROVIDER_ENV_HINTS = (
 )
 
 
-from hermes_constants import is_termux as _is_termux
+from jarviscopilot_constants import is_termux as _is_termux
 
 
 def _python_install_cmd() -> str:
@@ -101,7 +101,7 @@ def _termux_install_all_fallback_notes() -> list[str]:
 
 
 def _has_provider_env_config(content: str) -> bool:
-    """Return True when ~/.hermes/.env contains provider auth/base URL settings."""
+    """Return True when ~/.jarviscopilot/.env contains provider auth/base URL settings."""
     return any(key in content for key in _PROVIDER_ENV_HINTS)
 
 
@@ -340,10 +340,10 @@ def run_doctor(args):
     ack_target = getattr(args, 'ack', None)
 
     # Doctor runs from the interactive CLI, so CLI-gated tool availability
-    # checks (like cronjob management) should see the same context as `hermes`.
+    # checks (like cronjob management) should see the same context as `jarviscopilot`.
     os.environ.setdefault("HERMES_INTERACTIVE", "1")
 
-    # Handle `hermes doctor --ack <id>` as a fast path. Persist the ack and
+    # Handle `jarviscopilot doctor --ack <id>` as a fast path. Persist the ack and
     # return without running the rest of the diagnostics — the user has
     # already seen the advisory and just wants to silence it.
     if ack_target:
@@ -368,7 +368,7 @@ def run_doctor(args):
         else:
             print(color(
                 f"  ✗ Failed to persist ack for {ack_target}. "
-                f"Check ~/.hermes/config.yaml is writable.",
+                f"Check ~/.jarviscopilot/config.yaml is writable.",
                 Colors.RED,
             ))
             sys.exit(1)
@@ -380,7 +380,7 @@ def run_doctor(args):
 
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.CYAN))
-    print(color("│                 🩺 Hermes Doctor                        │", Colors.CYAN))
+    print(color("│                 🩺 JarvisCopilot Doctor                        │", Colors.CYAN))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.CYAN))
 
     _section("Security Advisories")
@@ -412,7 +412,7 @@ def run_doctor(args):
                     f"Resolve security advisory {hit.advisory.id}: "
                     f"uninstall {hit.package}=={hit.installed_version} and "
                     f"rotate credentials, then run "
-                    f"`hermes doctor --ack {hit.advisory.id}`."
+                    f"`jarviscopilot doctor --ack {hit.advisory.id}`."
                 )
             # Acked-but-still-installed: show as informational so the user
             # knows the package is still on disk after the ack.
@@ -483,7 +483,7 @@ def run_doctor(args):
             check_warn(name, "(optional, not installed)")
     
     _section("Configuration Files")
-    # Check ~/.hermes/.env (primary location for user config)
+    # Check ~/.jarviscopilot/.env (primary location for user config)
     env_path = HERMES_HOME / '.env'
     if env_path.exists():
         check_ok(f"{_DHH}/.env file exists")
@@ -497,7 +497,7 @@ def run_doctor(args):
             check_ok("API key or custom endpoint configured")
         else:
             check_warn(f"No API key found in {_DHH}/.env")
-            issues.append("Run 'hermes setup' to configure API keys")
+            issues.append("Run 'jarviscopilot setup' to configure API keys")
     else:
         # Also check project root as fallback
         fallback_env = PROJECT_ROOT / '.env'
@@ -509,13 +509,13 @@ def run_doctor(args):
                 env_path.parent.mkdir(parents=True, exist_ok=True)
                 env_path.touch()
                 check_ok(f"Created empty {_DHH}/.env")
-                check_info("Run 'hermes setup' to configure API keys")
+                check_info("Run 'jarviscopilot setup' to configure API keys")
                 fixed_count += 1
             else:
-                check_info("Run 'hermes setup' to create one")
-                issues.append("Run 'hermes setup' to create .env")
+                check_info("Run 'jarviscopilot setup' to create one")
+                issues.append("Run 'jarviscopilot setup' to create .env")
     
-    # Check ~/.hermes/config.yaml (primary) or project cli-config.yaml (fallback)
+    # Check ~/.jarviscopilot/config.yaml (primary) or project cli-config.yaml (fallback)
     config_path = HERMES_HOME / 'config.yaml'
     if config_path.exists():
         check_ok(f"{_DHH}/config.yaml exists")
@@ -611,7 +611,7 @@ def run_doctor(args):
                         (
                             f"model.provider '{provider_raw}' is unknown. "
                             f"Valid providers: {known_list}. "
-                            f"Fix: run 'hermes config set model.provider <valid_provider>'"
+                            f"Fix: run 'jarviscopilot config set model.provider <valid_provider>'"
                         ),
                         issues,
                     )
@@ -674,11 +674,11 @@ def run_doctor(args):
                     if not configured:
                         _fail_and_issue(
                             f"model.provider '{runtime_provider}' is set but no API key is configured",
-                            "(check ~/.hermes/.env or run 'hermes setup')",
+                            "(check ~/.jarviscopilot/.env or run 'jarviscopilot setup')",
                             (
                                 f"No credentials found for provider '{runtime_provider}'. "
-                                f"Run 'hermes setup' or set the provider's API key in {_DHH}/.env, "
-                                f"or switch providers with 'hermes config set model.provider <name>'"
+                                f"Run 'jarviscopilot setup' or set the provider's API key in {_DHH}/.env, "
+                                f"or switch providers with 'jarviscopilot config set model.provider <name>'"
                             ),
                             issues,
                         )
@@ -724,9 +724,9 @@ def run_doctor(args):
                         fixed_count += 1
                     except Exception as mig_err:
                         check_warn(f"Auto-migration failed: {mig_err}")
-                        issues.append("Run 'hermes setup' to migrate config")
+                        issues.append("Run 'jarviscopilot setup' to migrate config")
                 else:
-                    issues.append("Run 'hermes doctor --fix' or 'hermes setup' to migrate config")
+                    issues.append("Run 'jarviscopilot doctor --fix' or 'jarviscopilot setup' to migrate config")
             else:
                 check_ok(f"Config version up to date (v{current_ver})")
         except Exception:
@@ -755,7 +755,7 @@ def run_doctor(args):
                     check_ok("Migrated stale root-level keys into model section")
                     fixed_count += 1
                 else:
-                    issues.append("Stale root-level provider/base_url in config.yaml — run 'hermes doctor --fix'")
+                    issues.append("Stale root-level provider/base_url in config.yaml — run 'jarviscopilot doctor --fix'")
         except Exception:
             pass
 
@@ -840,10 +840,10 @@ def run_doctor(args):
     if _safe_which("codex"):
         check_ok("codex CLI")
     else:
-        # Native OAuth uses Hermes' own device-code flow — the Codex CLI is
+        # Native OAuth uses JarvisCopilot' own device-code flow — the Codex CLI is
         # only needed if you want to import existing tokens from
         # ~/.codex/auth.json.  Downgrade to info so users running
-        # `hermes auth openai-codex` aren't told they're missing something.
+        # `jarviscopilot auth openai-codex` aren't told they're missing something.
         check_info(
             "codex CLI not installed "
             "(optional — only required to import tokens from an existing Codex CLI login)"
@@ -884,13 +884,13 @@ def run_doctor(args):
         else:
             check_info(f"{_DHH}/SOUL.md exists but is empty — edit it to customize personality")
     else:
-        check_warn(f"{_DHH}/SOUL.md not found", "(create it to give Hermes a custom personality)")
+        check_warn(f"{_DHH}/SOUL.md not found", "(create it to give JarvisCopilot a custom personality)")
         if should_fix:
             soul_path.parent.mkdir(parents=True, exist_ok=True)
             soul_path.write_text(
                 "# JarvisCopilot Persona\n\n"
-                "<!-- Edit this file to customize how Hermes communicates. -->\n\n"
-                "You are Hermes, a helpful AI assistant.\n",
+                "<!-- Edit this file to customize how JarvisCopilot communicates. -->\n\n"
+                "You are JarvisCopilot, a helpful AI assistant.\n",
                 encoding="utf-8",
             )
             check_ok(f"Created {_DHH}/SOUL.md with basic template")
@@ -953,7 +953,7 @@ def run_doctor(args):
                     check_ok(f"WAL checkpoint performed ({wal_size // 1024}K → {new_size // 1024}K)")
                     fixed_count += 1
                 else:
-                    issues.append("Large WAL file — run 'hermes doctor --fix' to checkpoint")
+                    issues.append("Large WAL file — run 'jarviscopilot doctor --fix' to checkpoint")
             elif wal_size > 10 * 1024 * 1024:  # 10 MB
                 check_info(f"WAL file is {wal_size // (1024*1024)} MB (normal for active sessions)")
         except Exception:
@@ -966,7 +966,7 @@ def run_doctor(args):
         # Determine the venv entry point location
         _venv_bin = None
         for _venv_name in ("venv", ".venv"):
-            _candidate = PROJECT_ROOT / _venv_name / "bin" / "hermes"
+            _candidate = PROJECT_ROOT / _venv_name / "bin" / "jarviscopilot"
             if _candidate.exists():
                 _venv_bin = _candidate
                 break
@@ -980,12 +980,12 @@ def run_doctor(args):
         else:
             _cmd_link_dir = Path.home() / ".local" / "bin"
             _cmd_link_display = "~/.local/bin"
-        _cmd_link = _cmd_link_dir / "hermes"
+        _cmd_link = _cmd_link_dir / "jarviscopilot"
 
         if _venv_bin is None:
             check_warn(
                 "Venv entry point not found",
-                "(hermes not in venv/bin/ or .venv/bin/ — reinstall with pip install -e '.[all]')"
+                "(jarviscopilot not in venv/bin/ or .venv/bin/ — reinstall with pip install -e '.[all]')"
             )
             manual_issues.append(
                 f"Reinstall entry point: cd {PROJECT_ROOT} && source venv/bin/activate && pip install -e '.[all]'"
@@ -1010,14 +1010,14 @@ def run_doctor(args):
                         check_ok(f"Fixed symlink: {_cmd_link_display}/hermes → {_venv_bin}")
                         fixed_count += 1
                     else:
-                        issues.append(f"Broken symlink at {_cmd_link_display}/hermes — run 'hermes doctor --fix'")
+                        issues.append(f"Broken symlink at {_cmd_link_display}/hermes — run 'jarviscopilot doctor --fix'")
             elif _cmd_link.exists():
                 # It's a regular file, not a symlink — possibly a wrapper script
                 check_ok(f"{_cmd_link_display}/hermes exists (non-symlink)")
             else:
                 check_fail(
                     f"{_cmd_link_display}/hermes not found",
-                    "(hermes command may not work outside the venv)"
+                    "(jarviscopilot command may not work outside the venv)"
                 )
                 if should_fix:
                     _cmd_link_dir.mkdir(parents=True, exist_ok=True)
@@ -1034,7 +1034,7 @@ def run_doctor(args):
                         )
                         manual_issues.append(f"Add {_cmd_link_display} to your PATH")
                 else:
-                    issues.append(f"Missing {_cmd_link_display}/hermes symlink — run 'hermes doctor --fix'")
+                    issues.append(f"Missing {_cmd_link_display}/hermes symlink — run 'jarviscopilot doctor --fix'")
 
     _section("External Tools")
     # Git
@@ -1167,8 +1167,8 @@ def run_doctor(args):
         else:
             _fail_and_issue(
                 "vercel SDK not installed",
-                "(pip install 'hermes-agent[vercel]')",
-                "Install the Vercel optional dependency: pip install 'hermes-agent[vercel]'",
+                "(pip install 'jarviscopilot[vercel]')",
+                "Install the Vercel optional dependency: pip install 'jarviscopilot[vercel]'",
                 issues,
             )
 
@@ -1228,7 +1228,7 @@ def run_doctor(args):
         if agent_browser_ok and not _is_termux():
             try:
                 # Lazy import: browser_tool is a ~150KB module we don't want
-                # to eagerly load in every `hermes doctor` invocation.
+                # to eagerly load in every `jarviscopilot doctor` invocation.
                 from tools.browser_tool import (
                     _chromium_installed,
                     _is_camofox_mode,
@@ -1382,7 +1382,7 @@ def run_doctor(args):
                     [(color("✗", Colors.RED), "OpenRouter API",
                       color("(out of credits — payment required)", Colors.DIM))],
                     ["OpenRouter account has insufficient credits. "
-                     "Fix: run 'hermes config set model.provider <provider>' "
+                     "Fix: run 'jarviscopilot config set model.provider <provider>' "
                      "to switch providers, or fund your OpenRouter account "
                      "at https://openrouter.ai/settings/credits"],
                 )
@@ -1521,7 +1521,7 @@ def run_doctor(args):
             # ``ACCESS_TOKEN_TYPE_UNSUPPORTED`` — that header is reserved for
             # OAuth 2 access tokens, not plain API keys. Plain keys use
             # ``x-goog-api-key`` (or ``?key=``). Without this, a perfectly valid
-            # GOOGLE_API_KEY/GEMINI_API_KEY always shows red in ``hermes doctor``.
+            # GOOGLE_API_KEY/GEMINI_API_KEY always shows red in ``jarviscopilot doctor``.
             if url and base_url_host_matches(url, "generativelanguage.googleapis.com"):
                 headers.pop("Authorization", None)
                 headers["x-goog-api-key"] = key
@@ -1726,7 +1726,7 @@ def run_doctor(args):
     # Set on the parent thread before submitting work so the env-var
     # mutation never races with another worker. has_aws_credentials() in
     # the bedrock probe already gates on real env-var creds, so IMDS is
-    # never the legitimate source for `hermes doctor`.
+    # never the legitimate source for `jarviscopilot doctor`.
     _imds_prev = os.environ.get("AWS_EC2_METADATA_DISABLED")
     os.environ["AWS_EC2_METADATA_DISABLED"] = "true"
     try:
@@ -1781,7 +1781,7 @@ def run_doctor(args):
         # Count disabled tools with API key requirements
         api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
         if api_disabled:
-            issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
+            issues.append("Run 'jarviscopilot setup' to configure missing API keys for full tool access")
     except Exception as e:
         check_warn("Could not check tool availability", f"({e})")
     
@@ -1803,7 +1803,7 @@ def run_doctor(args):
         if q_count > 0:
             check_warn(f"{q_count} skill(s) in quarantine", "(pending review)")
     else:
-        check_warn("Skills Hub directory not initialized", "(run: hermes skills list)")
+        check_warn("Skills Hub directory not initialized", "(run: jarviscopilot skills list)")
 
     from jarviscopilot_cli.config import get_env_value
 
@@ -1847,14 +1847,14 @@ def run_doctor(args):
             _honcho_cfg_path = resolve_config_path()
 
             if not _honcho_cfg_path.exists():
-                check_warn("Honcho config not found", "run: hermes memory setup")
+                check_warn("Honcho config not found", "run: jarviscopilot memory setup")
             elif not hcfg.enabled:
                 check_info(f"Honcho disabled (set enabled: true in {_honcho_cfg_path} to activate)")
             elif not (hcfg.api_key or hcfg.base_url):
                 _fail_and_issue(
                     "Honcho API key or base URL not set",
-                    "run: hermes memory setup",
-                    "No Honcho API key — run 'hermes memory setup'",
+                    "run: jarviscopilot memory setup",
+                    "No Honcho API key — run 'jarviscopilot memory setup'",
                     issues,
                 )
             else:
@@ -1888,7 +1888,7 @@ def run_doctor(args):
             else:
                 _fail_and_issue(
                     "Mem0 API key not set",
-                    "(set MEM0_API_KEY in .env or run hermes memory setup)",
+                    "(set MEM0_API_KEY in .env or run jarviscopilot memory setup)",
                     "Mem0 is set as memory provider but API key is missing",
                     issues,
                 )
@@ -1909,9 +1909,9 @@ def run_doctor(args):
             if _provider and _provider.is_available():
                 check_ok(f"{_active_memory_provider} provider active")
             elif _provider:
-                check_warn(f"{_active_memory_provider} configured but not available", "run: hermes memory status")
+                check_warn(f"{_active_memory_provider} configured but not available", "run: jarviscopilot memory status")
             else:
-                check_warn(f"{_active_memory_provider} plugin not found", "run: hermes memory setup")
+                check_warn(f"{_active_memory_provider} plugin not found", "run: jarviscopilot memory setup")
         except Exception as _e:
             check_warn(f"{_active_memory_provider} check failed", str(_e))
 
@@ -1947,8 +1947,8 @@ def run_doctor(args):
                         continue
                     try:
                         content = wrapper.read_text()
-                        if "hermes -p" in content:
-                            _m = _re.search(r"hermes -p (\S+)", content)
+                        if "jarviscopilot -p" in content:
+                            _m = _re.search(r"jarviscopilot -p (\S+)", content)
                             if _m and not profile_exists(_m.group(1)):
                                 check_warn(f"Orphan alias: {wrapper.name} → profile '{_m.group(1)}' no longer exists")
                     except Exception:
@@ -1980,7 +1980,7 @@ def run_doctor(args):
             print(f"  {i}. {issue}")
         print()
         if not should_fix:
-            print(color("  Tip: run 'hermes doctor --fix' to auto-fix what's possible.", Colors.DIM))
+            print(color("  Tip: run 'jarviscopilot doctor --fix' to auto-fix what's possible.", Colors.DIM))
     else:
         print(color("─" * 60, Colors.GREEN))
         print(color("  All checks passed! 🎉", Colors.GREEN, Colors.BOLD))

@@ -2,7 +2,7 @@
 
 Official skills maintained by Nous Research that are **not activated by default**.
 
-These skills ship with the hermes-agent repository but are not copied to
+These skills ship with the jarviscopilot repository but are not copied to
 `~/.jarviscopilot/skills/` during setup. They are discoverable via the Skills Hub:
 
 ```bash

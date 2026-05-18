@@ -7,7 +7,7 @@ license: MIT
 platforms: [linux, macos, windows]
 metadata:
   jarviscopilot:
-    tags: [debugging, hermes-agent, tui, slash-commands, typescript, python]
+    tags: [debugging, jarviscopilot, tui, slash-commands, typescript, python]
     related_skills: [python-debugpy, node-inspect-debugger, systematic-debugging]
 ---
 
@@ -134,7 +134,7 @@ After fixing:
 
 1. Rebuild the TUI:
    ```bash
-   cd /home/bb/hermes-agent && npm --prefix ui-tui run build
+   cd /home/bb/jarviscopilot && npm --prefix ui-tui run build
    ```
 
 2. Run the TUI and test the command:

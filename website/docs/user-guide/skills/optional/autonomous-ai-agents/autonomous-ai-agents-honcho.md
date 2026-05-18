@@ -21,7 +21,7 @@ Configure and use Honcho memory with JarvisCopilot -- cross-session user modelin
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `Honcho`, `Memory`, `Profiles`, `Observation`, `Dialectic`, `User-Modeling`, `Session-Summary` |
-| Related skills | [`hermes-agent`](/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-hermes-agent) |
+| Related skills | [`jarviscopilot`](/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-jarviscopilot) |
 
 ## Reference: full SKILL.md
 

@@ -52,7 +52,7 @@ class TestDiscovery:
         from jarviscopilot_cli import plugins as plugins_mod
 
         # Isolated HERMES_HOME so we don't read the developer's config.yaml.
-        home = tmp_path / ".hermes"
+        home = tmp_path / ".jarviscopilot"
         home.mkdir()
         monkeypatch.setenv("HERMES_HOME", str(home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -179,7 +179,7 @@ class TestHooksInert:
 # "placeholder", "test-key", or "your-langfuse-key", the SDK accepts the
 # credentials at construction time (it does no server-side validation
 # eagerly) but drops every trace at flush time, with no signal in the
-# Hermes logs.  The fix in `_get_langfuse()` validates the documented
+# JarvisCopilot logs.  The fix in `_get_langfuse()` validates the documented
 # `pk-lf-` / `sk-lf-` prefix Langfuse always issues, surfaces a one-shot
 # warning naming the offending env var(s), and short-circuits via the
 # same `_INIT_FAILED` path used for missing credentials so subsequent

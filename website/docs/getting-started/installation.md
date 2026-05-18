@@ -15,22 +15,22 @@ Get JarvisCopilot up and running in under two minutes with the one-line installe
 For a git-based install that tracks `main` and gives you the latest changes immediately:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.sh | bash
 ```
 
 ### Windows (native, PowerShell) — Early Beta
 
 :::warning Early BETA
-Native Windows support is **early beta**. It installs and works for the common paths, but hasn't been road-tested as broadly as our POSIX installers. Please [file issues](https://github.com/NousResearch/hermes-agent/issues) when you hit rough edges. For the most battle-tested setup on Windows today, use the Linux/macOS one-liner above inside **WSL2** instead.
+Native Windows support is **early beta**. It installs and works for the common paths, but hasn't been road-tested as broadly as our POSIX installers. Please [file issues](https://github.com/NousResearch/jarviscopilot/issues) when you hit rough edges. For the most battle-tested setup on Windows today, use the Linux/macOS one-liner above inside **WSL2** instead.
 :::
 
 Open PowerShell and run:
 
 ```powershell
-irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.ps1 | iex
 ```
 
-The installer handles **everything**: `uv`, Python 3.11, Node.js 22, `ripgrep`, `ffmpeg`, **and a portable Git Bash** (PortableGit — a self-contained Git-for-Windows distribution that ships `bash.exe` and the full POSIX toolchain JarvisCopilot uses for shell commands; on 32-bit Windows the installer falls back to MinGit, which lacks bash and disables terminal-tool / agent-browser features).  It clones the repo under `%LOCALAPPDATA%\jarviscopilot\hermes-agent`, creates a virtualenv, and adds `jarviscopilot` to your **User PATH**.  Restart your terminal (or open a new PowerShell window) after the install so PATH picks up.
+The installer handles **everything**: `uv`, Python 3.11, Node.js 22, `ripgrep`, `ffmpeg`, **and a portable Git Bash** (PortableGit — a self-contained Git-for-Windows distribution that ships `bash.exe` and the full POSIX toolchain JarvisCopilot uses for shell commands; on 32-bit Windows the installer falls back to MinGit, which lacks bash and disables terminal-tool / agent-browser features).  It clones the repo under `%LOCALAPPDATA%\jarviscopilot\jarviscopilot`, creates a virtualenv, and adds `jarviscopilot` to your **User PATH**.  Restart your terminal (or open a new PowerShell window) after the install so PATH picks up.
 
 **How Git is handled:**
 1. If `git` is already on your PATH, the installer uses your existing install.
@@ -47,7 +47,7 @@ If you prefer WSL2, the Linux installer above works inside it; both native and W
 JarvisCopilot now ships a Termux-aware installer path too:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.sh | bash
 ```
 
 The installer detects Termux automatically and switches to a tested Android flow:
@@ -83,8 +83,8 @@ Where the installer puts things depends on whether you're installing as a normal
 | Installer | Code lives at | `jarviscopilot` binary | Data directory |
 |---|---|---|---|
 | pip install | Python site-packages | `~/.local/bin/hermes` (console_scripts) | `~/.jarviscopilot/` |
-| Per-user (git installer) | `~/.jarviscopilot/hermes-agent/` | `~/.local/bin/hermes` (symlink) | `~/.jarviscopilot/` |
-| Root-mode (`sudo curl … \| sudo bash`) | `/usr/local/lib/hermes-agent/` | `/usr/local/bin/hermes` | `/root/.jarviscopilot/` (or `$HERMES_HOME`) |
+| Per-user (git installer) | `~/.jarviscopilot/jarviscopilot/` | `~/.local/bin/hermes` (symlink) | `~/.jarviscopilot/` |
+| Root-mode (`sudo curl … \| sudo bash`) | `/usr/local/lib/jarviscopilot/` | `/usr/local/bin/hermes` | `/root/.jarviscopilot/` (or `$HERMES_HOME`) |
 
 The root-mode **FHS layout** (`/usr/local/lib/…`, `/usr/local/bin/hermes`) matches where other system-wide developer tools land on Linux. It's useful for shared-machine deployments where one system install should serve every user. Per-user config (auth, skills, sessions) still lives under each user's `~/.jarviscopilot/` or explicit `HERMES_HOME`.
 
@@ -151,12 +151,12 @@ Running JarvisCopilot as a dedicated unprivileged user (e.g. a `jarviscopilot` s
 
 2. **As the unprivileged service user**, run the regular installer. It will detect the missing sudo, skip `--with-deps`, and install Chromium into the user's local Playwright cache:
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.sh | bash
    ```
 
    If you want to skip the Playwright step entirely — for example because you're running headless and don't need browser automation — pass `--skip-browser`:
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-browser
+   curl -fsSL https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.sh | bash -s -- --skip-browser
    ```
 
 3. **Make `jarviscopilot` available to the service user's shells.** The installer writes the launcher to `~/.local/bin/hermes`. System service accounts often have a minimal PATH that doesn't include `~/.local/bin`. Either add it to the user's environment, or symlink the launcher into a system location:
@@ -165,10 +165,10 @@ Running JarvisCopilot as a dedicated unprivileged user (e.g. a `jarviscopilot` s
    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 
    # Option B — symlink system-wide (run as an admin)
-   sudo ln -s /home/hermes/.jarviscopilot/hermes-agent/venv/bin/hermes /usr/local/bin/hermes
+   sudo ln -s /home/hermes/.jarviscopilot/jarviscopilot/venv/bin/hermes /usr/local/bin/hermes
    ```
 
-4. **Verify:** `jarviscopilot doctor` should now run cleanly. If you get `ModuleNotFoundError: No module named 'dotenv'`, you're invoking the repo source `jarviscopilot` file (`~/.jarviscopilot/hermes-agent/hermes`) with system Python instead of the venv launcher (`~/.jarviscopilot/hermes-agent/venv/bin/hermes`) — fix step 3.
+4. **Verify:** `jarviscopilot doctor` should now run cleanly. If you get `ModuleNotFoundError: No module named 'dotenv'`, you're invoking the repo source `jarviscopilot` file (`~/.jarviscopilot/jarviscopilot/hermes`) with system Python instead of the venv launcher (`~/.jarviscopilot/jarviscopilot/venv/bin/hermes`) — fix step 3.
 
 The same pattern works on Arch (the installer uses pacman with the same sudo-detection logic), Fedora/RHEL, and openSUSE — those distros don't support `--with-deps` at all, so an administrator always installs the system libraries separately. The relevant `dnf`/`zypper` commands are printed by the installer.
 

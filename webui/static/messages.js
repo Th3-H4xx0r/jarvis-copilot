@@ -323,7 +323,7 @@ async function send(){
     if(startData.effective_model && S.session){
       S.session.model=startData.effective_model;
       S.session.model_provider=startData.effective_model_provider||S.session.model_provider||null;
-      localStorage.setItem('hermes-webui-model', startData.effective_model);
+      localStorage.setItem('jarviscopilot-webui-model', startData.effective_model);
       if(typeof _writePersistedModelState==='function') _writePersistedModelState(startData.effective_model,S.session.model_provider||null);
       if($('modelSelect')) _applyModelToDropdown(startData.effective_model, $('modelSelect'),S.session.model_provider||null);
       if(typeof syncTopbar==='function') syncTopbar();
@@ -997,7 +997,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
     _streamFadeLastTickMs=now;
 
     // OpenWebUI fades the actual arriving tokens, so long/fast responses naturally
-    // appear to accelerate. Hermes has a playout buffer, so track incoming word
+    // appear to accelerate. JarvisCopilot has a playout buffer, so track incoming word
     // velocity and play out faster than it instead of using a metronomic cadence.
     // LLM telemetry is usually tokens/sec, but the UI reveals words. A fixed word
     // cadence can look stuck even when token throughput is high, so combine:
@@ -1496,7 +1496,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
           const _prevCacheWrite=(S.session&&S.session.cache_write_tokens)||0;
           S.session=d.session;S.messages=d.session.messages||[];if(typeof _messagesTruncated!=='undefined')_messagesTruncated=!!d.session._messages_truncated;
           if(S.session&&S.session.session_id){
-            try{localStorage.setItem('hermes-webui-session',S.session.session_id);}catch(_){}
+            try{localStorage.setItem('jarviscopilot-webui-session',S.session.session_id);}catch(_){}
             if(typeof _setActiveSessionUrl==='function') _setActiveSessionUrl(S.session.session_id);
           }
           const _markerOnlyAssistantError=_replaceMarkerOnlyAssistantWithStreamError(S.messages);
@@ -1854,7 +1854,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
           // Fallback to local cancel message if API fails
           if(S.session&&S.session.session_id===activeSid){
             clearLiveToolCards();if(!assistantText)removeThinking();
-            const cancelAgentName=((window._botName||'Hermes')+'').trim()||'Hermes';
+            const cancelAgentName=((window._botName||'JarvisCopilot')+'').trim()||'JarvisCopilot';
             S.messages.push({role:'assistant',content:`**Task cancelled:** Task cancelled.\n\n*The run was cancelled by the user before ${cancelAgentName} finished. No provider failure occurred.*`,provider_details:'Task cancelled.',provider_details_label:'Cancellation details',_error:true});renderMessages({preserveScroll:true});
             _markSessionViewed(activeSid, S.messages.length);
           }
@@ -1890,7 +1890,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
         clearLiveToolCards();if(!assistantText)removeThinking();
         S.session=session;S.messages=(session.messages||[]).filter(m=>m&&m.role);
         if(S.session&&S.session.session_id){
-          try{localStorage.setItem('hermes-webui-session',S.session.session_id);}catch(_){}
+          try{localStorage.setItem('jarviscopilot-webui-session',S.session.session_id);}catch(_){}
           if(typeof _setActiveSessionUrl==='function') _setActiveSessionUrl(S.session.session_id);
         }
         const _markerOnlyAssistantError=_replaceMarkerOnlyAssistantWithStreamError(S.messages);
@@ -1982,7 +1982,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
 }
 
 function transcript(){
-  const lines=[`# Hermes session ${S.session?.session_id||''}`,``,
+  const lines=[`# JarvisCopilot session ${S.session?.session_id||''}`,``,
     `Workspace: ${S.session?.workspace||''}`,`Model: ${S.session?.model||''}`,``];
   for(const m of S.messages){
     if(!m||m.role==='tool')continue;
@@ -2720,7 +2720,7 @@ function playNotificationSound(){
 function sendBrowserNotification(title,body){
   if(!window._notificationsEnabled||!document.hidden) return;
   if(!('Notification' in window)) return;
-  const botName=window._botName||'Hermes';
+  const botName=window._botName||'JarvisCopilot';
   if(Notification.permission==='granted'){
     new Notification(title||botName,{body:body});
   }else if(Notification.permission!=='denied'){

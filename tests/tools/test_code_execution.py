@@ -202,9 +202,9 @@ class TestExecuteCode(unittest.TestCase):
 
     def test_repo_root_modules_are_importable(self):
         """Sandboxed scripts can import modules that live at the repo root."""
-        result = self._run('import hermes_constants; print(hermes_constants.__file__)')
+        result = self._run('import jarviscopilot_constants; print(jarviscopilot_constants.__file__)')
         self.assertEqual(result["status"], "success")
-        self.assertIn("hermes_constants.py", result["output"])
+        self.assertIn("jarviscopilot_constants.py", result["output"])
 
     def test_single_tool_call(self):
         """Script calls terminal and prints the result."""
@@ -605,7 +605,7 @@ class TestBuildExecuteCodeSchema(unittest.TestCase):
     def test_real_scenario_all_sandbox_tools_disabled(self):
         """Reproduce the exact code path from model_tools.py:231-234.
 
-        Scenario: user runs `hermes tools code_execution` (only code_execution
+        Scenario: user runs `jarviscopilot tools code_execution` (only code_execution
         toolset enabled). tools_to_include = {"execute_code"}.
 
         model_tools.py does:
@@ -630,7 +630,7 @@ class TestBuildExecuteCodeSchema(unittest.TestCase):
                          "Bug: broken import syntax sent to the model")
 
     def test_real_scenario_only_vision_enabled(self):
-        """Another real path: user runs `hermes tools code_execution,vision`.
+        """Another real path: user runs `jarviscopilot tools code_execution,vision`.
 
         tools_to_include = {"execute_code", "vision_analyze"}
         SANDBOX_ALLOWED_TOOLS has neither, so intersection is empty.
@@ -748,7 +748,7 @@ class TestEnvVarFiltering(unittest.TestCase):
     def test_timezone_injected_when_set(self):
         env_backup = os.environ.copy()
         try:
-            os.environ["HERMES_TIMEZONE"] = "America/New_York"
+            os.environ["jarviscopilot_timeZONE"] = "America/New_York"
             child_env = self._get_child_env()
             self.assertEqual(child_env.get("TZ"), "America/New_York")
         finally:
@@ -758,7 +758,7 @@ class TestEnvVarFiltering(unittest.TestCase):
     def test_timezone_not_set_when_empty(self):
         env_backup = os.environ.copy()
         try:
-            os.environ.pop("HERMES_TIMEZONE", None)
+            os.environ.pop("jarviscopilot_timeZONE", None)
             child_env = self._get_child_env()
             if "TZ" in child_env:
                 self.assertNotEqual(child_env["TZ"], "")

@@ -3,7 +3,7 @@
 The bug: `discover_mcp_tools()` was called at the top of `_run_agent_streaming`
 before the `HERMES_HOME` env mutation that stamps the per-session profile.
 Result: `_load_mcp_config()` always read the default profile's
-`~/.hermes/config.yaml`, never the non-default profile's MCP servers.
+`~/.jarviscopilot/config.yaml`, never the non-default profile's MCP servers.
 
 The fix moves the call past the `_ENV_LOCK` env-mutation block so
 `discover_mcp_tools()` runs with the correct `HERMES_HOME` for the session's
@@ -45,7 +45,7 @@ def test_discover_mcp_tools_called_after_hermes_home_mutation():
 def test_discover_mcp_tools_called_after_env_lock_release():
     """`discover_mcp_tools()` should run AFTER the `_ENV_LOCK` block releases —
     discovery itself can take up to 120s (per `_run_on_mcp_loop` timeout in
-    hermes-agent), and holding the env lock across that would serialize all
+    jarviscopilot), and holding the env lock across that would serialize all
     concurrent sessions through MCP discovery.
 
     Lexical check: the discover call must come after the `# Lock released` marker

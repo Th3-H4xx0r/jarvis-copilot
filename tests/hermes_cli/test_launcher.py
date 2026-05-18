@@ -8,7 +8,7 @@ from pathlib import Path
 
 def test_launcher_delegates_to_argparse_entrypoint(monkeypatch):
     """`./hermes` should use `jarviscopilot_cli.main`, not the legacy Fire wrapper."""
-    launcher_path = Path(__file__).resolve().parents[2] / "hermes"
+    launcher_path = Path(__file__).resolve().parents[2] / "jarviscopilot"
     called = []
 
     fake_main_module = types.ModuleType("jarviscopilot_cli.main")

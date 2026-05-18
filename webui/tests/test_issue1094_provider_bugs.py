@@ -72,7 +72,7 @@ def _install_fake_jarviscopilot_cli(monkeypatch):
 
 
 def _setup_clean_config(monkeypatch, tmp_path):
-    """Common setup: clean config, fake CLI, tmp hermes home.
+    """Common setup: clean config, fake CLI, tmp jarviscopilot home.
 
     Also clears provider API key env vars so _provider_has_key()
     doesn't detect keys from the host environment.

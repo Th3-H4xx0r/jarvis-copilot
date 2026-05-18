@@ -1,8 +1,8 @@
-"""Tests for SIGHUP protection and stdout mirroring in ``hermes update``.
+"""Tests for SIGHUP protection and stdout mirroring in ``jarviscopilot update``.
 
 Covers ``_UpdateOutputStream``, ``_install_hangup_protection``, and
 ``_finalize_update_output`` in ``jarviscopilot_cli/main.py``.  These exist so
-that ``hermes update`` survives a terminal disconnect mid-install
+that ``jarviscopilot update`` survives a terminal disconnect mid-install
 (SSH drop, shell close) without leaving the venv half-installed.
 """
 
@@ -224,7 +224,7 @@ class TestInstallHangupProtection:
             assert log_path.exists()
             contents = log_path.read_text(encoding="utf-8")
             assert "checking mirror" in contents
-            assert "hermes update started" in contents
+            assert "jarviscopilot update started" in contents
         finally:
             _finalize_update_output(state)
             # Sanity-check restoration

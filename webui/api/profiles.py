@@ -5,7 +5,7 @@ Wraps jarviscopilot_cli.profiles to provide profile switching for the web UI.
 The web UI maintains a process-level "active profile" that determines which
 HERMES_HOME directory is used for config, skills, memory, cron, and API keys.
 Profile switches update os.environ['HERMES_HOME'] and monkey-patch module-level
-cached paths in hermes-agent modules (skills_tool, skill_manager_tool,
+cached paths in jarviscopilot modules (skills_tool, skill_manager_tool,
 cron/jobs) that snapshot HERMES_HOME at import time.
 """
 import json
@@ -106,31 +106,31 @@ def restore_skill_home_modules(snapshot: dict[str, dict[str, object]]) -> None:
 
 
 def _unwrap_profile_home_to_base(home: Path) -> Path:
-    """Return the base Hermes home when *home* is already a named profile dir."""
+    """Return the base JarvisCopilot home when *home* is already a named profile dir."""
     if home.parent.name == 'profiles':
         return home.parent.parent
     return home
 
 
 def _resolve_base_hermes_home() -> Path:
-    """Return the BASE ~/.hermes directory — the root that contains profiles/.
+    """Return the BASE ~/.jarviscopilot directory — the root that contains profiles/.
 
     This is intentionally distinct from HERMES_HOME, which tracks the *active
     profile's* home and changes on every profile switch.  The base dir must
-    always point to the top-level .hermes regardless of which profile is active.
+    always point to the top-level .jarviscopilot regardless of which profile is active.
 
     Resolution order:
       1. HERMES_BASE_HOME env var (set explicitly, highest priority)
       2. HERMES_HOME env var — but only if it does NOT look like a profile subdir
          (i.e. its parent is not named 'profiles').  This handles test isolation
          where HERMES_HOME is set to an isolated test state dir.
-      3. ~/.hermes (always-correct default)
+      3. ~/.jarviscopilot (always-correct default)
 
     The bug this prevents: if HERMES_HOME has already been mutated to
-    /home/user/.hermes/profiles/webui (by init_profile_state at startup),
+    /home/user/.jarviscopilot/profiles/webui (by init_profile_state at startup),
     reading it here would make _DEFAULT_HERMES_HOME point to that subdir,
     causing switch_profile('webui') to look for
-    /home/user/.hermes/profiles/webui/profiles/webui — which doesn't exist.
+    /home/user/.jarviscopilot/profiles/webui/profiles/webui — which doesn't exist.
 
     HERMES_BASE_HOME normally points at the base home already, but isolated
     single-profile WebUI deployments can provide /base/profiles/<name> there as
@@ -148,13 +148,13 @@ def _resolve_base_hermes_home() -> Path:
         # If HERMES_HOME points to a profiles/ subdir, walk up two levels to the base
         return _unwrap_profile_home_to_base(p)
 
-    return Path.home() / '.hermes'
+    return Path.home() / '.jarviscopilot'
 
 _DEFAULT_HERMES_HOME = _resolve_base_hermes_home()
 
 
 def _read_active_profile_file() -> str:
-    """Read the sticky active profile from ~/.hermes/active_profile."""
+    """Read the sticky active profile from ~/.jarviscopilot/active_profile."""
     ap_file = _DEFAULT_HERMES_HOME / 'active_profile'
     if ap_file.exists():
         try:
@@ -170,13 +170,13 @@ def _read_active_profile_file() -> str:
 
 # ── Root-profile resolution (#1612) ────────────────────────────────────────
 #
-# JarvisCopilot allows the root/default profile (~/.hermes itself) to have a
+# JarvisCopilot allows the root/default profile (~/.jarviscopilot itself) to have a
 # display name other than the legacy literal 'default'.  When that happens,
-# WebUI must NOT resolve the display name as ~/.hermes/profiles/<name> — that
+# WebUI must NOT resolve the display name as ~/.jarviscopilot/profiles/<name> — that
 # directory doesn't exist, and every site that does `if name == 'default':`
 # will fall through to the wrong filesystem path.
 #
-# `_is_root_profile(name)` answers "does this name resolve to ~/.hermes?" and
+# `_is_root_profile(name)` answers "does this name resolve to ~/.jarviscopilot?" and
 # is the canonical replacement for scattered `if name == 'default':` checks
 # in switch_profile, get_active_hermes_home, _validate_profile_name, etc.
 #
@@ -204,7 +204,7 @@ def _invalidate_root_profile_cache() -> None:
 
 
 def _is_root_profile(name: str) -> bool:
-    """True if *name* resolves to the JarvisCopilot root profile (~/.hermes).
+    """True if *name* resolves to the JarvisCopilot root profile (~/.jarviscopilot).
 
     Matches the legacy 'default' alias plus any name where list_profiles_api()
     reports is_default=True. Memoized; call _invalidate_root_profile_cache()
@@ -298,7 +298,7 @@ def clear_request_profile() -> None:
 
 
 def _resolve_profile_home_for_name(name: str) -> Path:
-    """Resolve a logical profile name to its Hermes home path.
+    """Resolve a logical profile name to its JarvisCopilot home path.
 
     Root/default aliases resolve to _DEFAULT_HERMES_HOME.  Valid named profiles
     resolve to _DEFAULT_HERMES_HOME/profiles/<name> even when the directory has
@@ -635,7 +635,7 @@ def get_profile_runtime_env(home: Path) -> dict[str, str]:
     WebUI profile switching is per-client/cookie scoped, so it intentionally
     does not call ``switch_profile(..., process_wide=True)`` for every browser.
     Agent/tool code still consumes terminal backend settings through
-    environment variables (matching ``hermes -p <profile>``), so streaming must
+    environment variables (matching ``jarviscopilot -p <profile>``), so streaming must
     apply the selected profile's terminal config and ``.env`` for the duration
     of that run.
     """
@@ -717,7 +717,7 @@ def profile_env_for_background_worker(
     thread_env["HERMES_HOME"] = str(profile_home_path)
     # Hybrid profile routing: keep the broad runtime env in WebUI's thread-local
     # channel for WebUI helpers, and also mirror it into process env for the
-    # worker body because several production Hermes readers still call
+    # worker body because several production JarvisCopilot readers still call
     # os.getenv() directly for provider credentials.  Keep the _ENV_LOCK scope
     # narrow: serialize only setup/restore, not the whole worker body.
     skill_home_snapshot = None
@@ -825,7 +825,7 @@ def _reload_dotenv(home: Path):
 def init_profile_state() -> None:
     """Initialize profile state at server startup.
 
-    Reads ~/.hermes/active_profile, sets HERMES_HOME env var, patches
+    Reads ~/.jarviscopilot/active_profile, sets HERMES_HOME env var, patches
     module-level cached paths.  Called once from config.py after imports.
     """
     global _active_profile
@@ -1035,7 +1035,7 @@ def _resolve_named_profile_home(name: str) -> Path:
     """Resolve a named profile to a directory under the profiles root.
 
     Validates *name* as a logical profile identifier first, then resolves the
-    final filesystem path and enforces containment under ~/.hermes/profiles.
+    final filesystem path and enforces containment under ~/.jarviscopilot/profiles.
     """
     _validate_profile_name(name)
     profiles_root = _profiles_root()

@@ -213,10 +213,10 @@ Add a named toolset for your platform:
 },
 ```
 
-And add it to the `hermes-gateway` composite:
+And add it to the `jarviscopilot-gateway` composite:
 
 ```python
-"hermes-gateway": {
+"jarviscopilot-gateway": {
     "includes": [..., "jarviscopilot-your-platform"]
 }
 ```

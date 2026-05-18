@@ -1,22 +1,22 @@
 """
-Profile management for multiple isolated Hermes instances.
+Profile management for multiple isolated JarvisCopilot instances.
 
 Each profile is a fully independent HERMES_HOME directory with its own
 config.yaml, .env, memory, sessions, skills, gateway, cron, and logs.
-Profiles live under ``~/.hermes/profiles/<name>/`` by default.
+Profiles live under ``~/.jarviscopilot/profiles/<name>/`` by default.
 
-The "default" profile is ``~/.hermes`` itself — backward compatible,
+The "default" profile is ``~/.jarviscopilot`` itself — backward compatible,
 zero migration needed.
 
 Usage::
 
-    hermes profile create coder          # fresh profile + bundled skills
-    hermes profile create coder --clone  # also copy config, .env, SOUL.md, skills
-    hermes profile create coder --clone-all  # full copy of source profile
+    jarviscopilot profile create coder          # fresh profile + bundled skills
+    jarviscopilot profile create coder --clone  # also copy config, .env, SOUL.md, skills
+    jarviscopilot profile create coder --clone-all  # full copy of source profile
     coder chat                           # use via wrapper alias
-    hermes -p coder chat                 # or via flag
-    hermes profile use coder             # set as sticky default
-    hermes profile delete coder          # remove profile + alias + service
+    jarviscopilot -p coder chat                 # or via flag
+    jarviscopilot profile use coder             # set as sticky default
+    jarviscopilot profile delete coder          # remove profile + alias + service
 """
 
 import json
@@ -45,7 +45,7 @@ _PROFILE_DIRS = [
     # Per-profile HOME for subprocesses: isolates system tool configs (git,
     # ssh, gh, npm …) so credentials don't bleed between profiles.  In Docker
     # this also ensures tool configs land inside the persistent volume.
-    # See hermes_constants.get_subprocess_home() and issue #4426.
+    # See jarviscopilot_constants.get_subprocess_home() and issue #4426.
     "home",
 ]
 
@@ -74,12 +74,12 @@ _CLONE_ALL_STRIP: list[str] = [
 ]
 
 # Infrastructure artifacts excluded from --clone-all when the source is the
-# default profile (``~/.hermes``).  Named profiles never contain these
+# default profile (``~/.jarviscopilot``).  Named profiles never contain these
 # directories at root, so the exclusion is gated to avoid silently dropping
 # user data from a named-profile source.
 #
 # Rationale per item:
-#   hermes-agent  — git repo checkout (~84 MB source + ~3 GB venv)
+#   jarviscopilot  — git repo checkout (~84 MB source + ~3 GB venv)
 #   .worktrees    — git worktrees
 #   profiles      — sibling named profiles (recursive copy never intended)
 #   bin           — installed binaries (tirith etc., ~10 MB) shared per-host
@@ -90,18 +90,18 @@ _CLONE_ALL_STRIP: list[str] = [
 # archive is a portable snapshot; clone-all keeps those because the cloned
 # profile is meant to keep working immediately).
 _CLONE_ALL_DEFAULT_EXCLUDE_ROOT: frozenset[str] = frozenset({
-    "hermes-agent",
+    "jarviscopilot",
     ".worktrees",
     "profiles",
     "bin",
     "node_modules",
 })
 
-# Marker file written by `hermes profile create --no-skills`.  When present in
-# a profile's root, callers of seed_profile_skills() (fresh-create, `hermes
+# Marker file written by `jarviscopilot profile create --no-skills`.  When present in
+# a profile's root, callers of seed_profile_skills() (fresh-create, `jarviscopilot
 # update`'s all-profile sync, the web dashboard) skip bundled-skill seeding
 # for that profile.  The user can still install skills manually via
-# `hermes skills install` or drop SKILL.md files into the profile's skills/.
+# `jarviscopilot skills install` or drop SKILL.md files into the profile's skills/.
 # Delete the marker file to opt back in.
 NO_BUNDLED_SKILLS_MARKER = ".no-bundled-skills"
 
@@ -119,8 +119,8 @@ def _clone_all_copytree_ignore(source_dir: Path):
 
     Two categories:
       1. Root-level entries in ``_CLONE_ALL_DEFAULT_EXCLUDE_ROOT`` — known
-         Hermes infrastructure directories that only the default profile
-         (``~/.hermes``) ever contains.  Gated on ``source_dir`` actually
+         JarvisCopilot infrastructure directories that only the default profile
+         (``~/.jarviscopilot``) ever contains.  Gated on ``source_dir`` actually
          being the default profile so a named-profile source never has its
          own data silently dropped.
       2. Universal exclusions at any depth — Python bytecode caches that
@@ -161,20 +161,20 @@ def _clone_all_copytree_ignore(source_dir: Path):
     return _ignore
 
 
-# Directories/files to exclude when exporting the default (~/.hermes) profile.
+# Directories/files to exclude when exporting the default (~/.jarviscopilot) profile.
 # The default profile contains infrastructure (repo checkout, worktrees, DBs,
 # caches, binaries) that named profiles don't have.  We exclude those so the
 # export is a portable, reasonable-size archive of actual profile data.
 _DEFAULT_EXPORT_EXCLUDE_ROOT = frozenset({
     # Infrastructure
-    "hermes-agent",         # repo checkout (multi-GB)
+    "jarviscopilot",         # repo checkout (multi-GB)
     ".worktrees",           # git worktrees
     "profiles",             # other profiles — never recursive-export
     "bin",                  # installed binaries (tirith, etc.)
     "node_modules",         # npm packages
     # Databases & runtime state
     "state.db", "state.db-shm", "state.db-wal",
-    "hermes_state.db",
+    "jarviscopilot_state.db",
     "response_store.db", "response_store.db-shm", "response_store.db-wal",
     "gateway.pid", "gateway_state.json", "processes.json",
     "auth.json",            # API keys, OAuth tokens, credential pools
@@ -191,10 +191,10 @@ _DEFAULT_EXPORT_EXCLUDE_ROOT = frozenset({
 
 # Names that cannot be used as profile aliases
 _RESERVED_NAMES = frozenset({
-    "hermes", "default", "test", "tmp", "root", "sudo",
+    "jarviscopilot", "default", "test", "tmp", "root", "sudo",
 })
 
-# Hermes subcommands that cannot be used as profile names/aliases
+# JarvisCopilot subcommands that cannot be used as profile names/aliases
 _HERMES_SUBCOMMANDS = frozenset({
     "chat", "model", "gateway", "setup", "whatsapp", "login", "logout",
     "status", "cron", "doctor", "dump", "config", "pairing", "skills", "tools",
@@ -210,12 +210,12 @@ _HERMES_SUBCOMMANDS = frozenset({
 def _get_profiles_root() -> Path:
     """Return the directory where named profiles are stored.
 
-    Anchored to the hermes root, NOT to the current HERMES_HOME
+    Anchored to the jarviscopilot root, NOT to the current HERMES_HOME
     (which may itself be a profile).  This ensures ``coder profile list``
     can see all profiles.
 
     In Docker/custom deployments where HERMES_HOME points outside
-    ``~/.hermes``, profiles live under ``HERMES_HOME/profiles/`` so
+    ``~/.jarviscopilot``, profiles live under ``HERMES_HOME/profiles/`` so
     they persist on the mounted volume.
     """
     return _get_default_hermes_home() / "profiles"
@@ -224,11 +224,11 @@ def _get_profiles_root() -> Path:
 def _get_default_hermes_home() -> Path:
     """Return the default (pre-profile) HERMES_HOME path.
 
-    In standard deployments this is ``~/.hermes``.
-    In Docker/custom deployments where HERMES_HOME is outside ``~/.hermes``
+    In standard deployments this is ``~/.jarviscopilot``.
+    In Docker/custom deployments where HERMES_HOME is outside ``~/.jarviscopilot``
     (e.g. ``/opt/data``), returns HERMES_HOME directly.
     """
-    from hermes_constants import get_default_hermes_root
+    from jarviscopilot_constants import get_default_hermes_root
     return get_default_hermes_root()
 
 
@@ -273,14 +273,14 @@ def validate_profile_name(name: str) -> None:
     honest about what the on-disk directory name must look like, while
     ingress-point normalization handles UX flexibility (see #18498).
 
-    Also rejects names in :data:`_RESERVED_NAMES` (``hermes``, ``test``,
+    Also rejects names in :data:`_RESERVED_NAMES` (``jarviscopilot``, ``test``,
     ``tmp``, ``root``, ``sudo``) that would create confusing on-disk
-    collisions (a ``hermes`` profile inside ``~/.hermes/``) or get refused
+    collisions (a ``jarviscopilot`` profile inside ``~/.jarviscopilot/``) or get refused
     at alias-creation time anyway. ``default`` is a special pass-through —
     it's a valid alias for the built-in root profile.
     """
     if name == "default":
-        return  # special alias for ~/.hermes
+        return  # special alias for ~/.jarviscopilot
     if not _PROFILE_ID_RE.match(name):
         raise ValueError(
             f"Invalid profile name {name!r}. Must match "
@@ -289,7 +289,7 @@ def validate_profile_name(name: str) -> None:
     if name in _RESERVED_NAMES:
         raise ValueError(
             f"Profile name {name!r} is reserved — it collides with either "
-            f"the Hermes installation itself or a common system binary.  "
+            f"the JarvisCopilot installation itself or a common system binary.  "
             f"Pick a different name."
         )
 
@@ -317,13 +317,13 @@ def profile_exists(name: str) -> bool:
 def check_alias_collision(name: str) -> Optional[str]:
     """Return a human-readable collision message, or None if the name is safe.
 
-    Checks: reserved names, hermes subcommands, existing binaries in PATH.
+    Checks: reserved names, jarviscopilot subcommands, existing binaries in PATH.
     """
     canon = normalize_profile_name(name)
     if canon in _RESERVED_NAMES:
         return f"'{canon}' is a reserved name"
     if canon in _HERMES_SUBCOMMANDS:
-        return f"'{canon}' conflicts with a hermes subcommand"
+        return f"'{canon}' conflicts with a jarviscopilot subcommand"
 
     # Check existing commands in PATH
     wrapper_dir = _get_wrapper_dir()
@@ -337,7 +337,7 @@ def check_alias_collision(name: str) -> Optional[str]:
             if existing_path == str(wrapper_dir / canon):
                 try:
                     content = (wrapper_dir / canon).read_text()
-                    if "hermes -p" in content:
+                    if "jarviscopilot -p" in content:
                         return None  # it's our wrapper, safe to overwrite
                 except Exception:
                     pass
@@ -369,7 +369,7 @@ def create_wrapper_script(name: str) -> Optional[Path]:
 
     wrapper_path = wrapper_dir / canon
     try:
-        wrapper_path.write_text(f'#!/bin/sh\nexec hermes -p {canon} "$@"\n')
+        wrapper_path.write_text(f'#!/bin/sh\nexec jarviscopilot -p {canon} "$@"\n')
         wrapper_path.chmod(wrapper_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
         return wrapper_path
     except OSError as e:
@@ -384,7 +384,7 @@ def remove_wrapper_script(name: str) -> bool:
         try:
             # Verify it's our wrapper before removing
             content = wrapper_path.read_text()
-            if "hermes -p" in content:
+            if "jarviscopilot -p" in content:
                 wrapper_path.unlink()
                 return True
         except Exception:
@@ -430,7 +430,7 @@ def _read_distribution_meta(profile_dir: Path) -> tuple:
     if present; ``(None, None, None)`` otherwise.
 
     Failures (missing file, bad YAML) are swallowed — a bad manifest should
-    never break ``hermes profile list`` for an unrelated profile.
+    never break ``jarviscopilot profile list`` for an unrelated profile.
     """
     mf_path = profile_dir / "distribution.yaml"
     if not mf_path.is_file():
@@ -495,7 +495,7 @@ def _count_skills(profile_dir: Path) -> int:
 # ---------------------------------------------------------------------------
 #
 # We keep this file deliberately tiny and separate from the profile's
-# ``config.yaml``. ``config.yaml`` is the user-facing Hermes config
+# ``config.yaml``. ``config.yaml`` is the user-facing JarvisCopilot config
 # (~5000 lines of defaults); ``profile.yaml`` is metadata ABOUT the
 # profile itself (its role, who described it). Mixing them makes both
 # harder to read.
@@ -514,7 +514,7 @@ def read_profile_meta(profile_dir: Path) -> dict:
     Returns ``{"description": "", "description_auto": False}`` when the
     file is missing or unreadable. Never raises — a corrupt
     profile.yaml on an unrelated profile must not break
-    ``hermes profile list``.
+    ``jarviscopilot profile list``.
     """
     path = _profile_yaml_path(profile_dir)
     if not path.is_file():
@@ -657,7 +657,7 @@ def create_profile(
         If True, skip wrapper script creation.
     no_skills:
         If True, create an empty profile with no bundled skills, and write
-        a marker file so ``hermes update`` skips re-seeding this profile's
+        a marker file so ``jarviscopilot update`` skips re-seeding this profile's
         skills. Mutually exclusive with ``clone_config``/``clone_all`` (those
         explicitly copy skills from the source).
 
@@ -676,7 +676,7 @@ def create_profile(
 
     if canon == "default":
         raise ValueError(
-            "Cannot create a profile named 'default' — it is the built-in profile (~/.hermes)."
+            "Cannot create a profile named 'default' — it is the built-in profile (~/.jarviscopilot)."
         )
 
     profile_dir = get_profile_dir(canon)
@@ -688,7 +688,7 @@ def create_profile(
     if clone_from is not None or clone_all or clone_config:
         if clone_from is None:
             # Default: clone from active profile
-            from hermes_constants import get_hermes_home
+            from jarviscopilot_constants import get_hermes_home
             source_dir = get_hermes_home()
         else:
             clone_from = normalize_profile_name(clone_from)
@@ -700,7 +700,7 @@ def create_profile(
             )
 
     if clone_all and source_dir:
-        # Full copy of source profile (exclude sibling ~/.hermes/profiles/)
+        # Full copy of source profile (exclude sibling ~/.jarviscopilot/profiles/)
         shutil.copytree(
             source_dir,
             profile_dir,
@@ -748,14 +748,14 @@ def create_profile(
         except Exception:
             pass  # best-effort — don't fail profile creation over this
 
-    # Write the opt-out marker so seed_profile_skills() and `hermes update`'s
+    # Write the opt-out marker so seed_profile_skills() and `jarviscopilot update`'s
     # all-profile sync loop both skip this profile for bundled-skill seeding.
     if no_skills:
         try:
             (profile_dir / NO_BUNDLED_SKILLS_MARKER).write_text(
                 "This profile opted out of bundled-skill seeding "
-                "(`hermes profile create --no-skills`).\n"
-                "Delete this file to re-enable sync on the next `hermes update`.\n",
+                "(`jarviscopilot profile create --no-skills`).\n"
+                "Delete this file to re-enable sync on the next `jarviscopilot update`.\n",
                 encoding="utf-8",
             )
         except OSError:
@@ -772,7 +772,7 @@ def create_profile(
                 description_auto=False,
             )
         except Exception:
-            pass  # non-fatal — user can describe later with `hermes profile describe`
+            pass  # non-fatal — user can describe later with `jarviscopilot profile describe`
 
     return profile_dir
 
@@ -783,7 +783,7 @@ def seed_profile_skills(profile_dir: Path, quiet: bool = False) -> Optional[dict
     Uses subprocess because sync_skills() caches HERMES_HOME at module level.
     Returns the sync result dict, or None on failure.
 
-    Profiles that opted out of bundled skills (via ``hermes profile create
+    Profiles that opted out of bundled skills (via ``jarviscopilot profile create
     --no-skills`` — which writes ``.no-bundled-skills`` to the profile root)
     are skipped and get an empty-result dict so callers can report
     "opted out" instead of "failed".
@@ -835,8 +835,8 @@ def delete_profile(name: str, yes: bool = False) -> Path:
 
     if canon == "default":
         raise ValueError(
-            "Cannot delete the default profile (~/.hermes).\n"
-            "To remove everything, use: hermes uninstall"
+            "Cannot delete the default profile (~/.jarviscopilot).\n"
+            "To remove everything, use: jarviscopilot uninstall"
         )
 
     profile_dir = get_profile_dir(canon)
@@ -1029,14 +1029,14 @@ def get_active_profile() -> str:
 def set_active_profile(name: str) -> None:
     """Set the sticky active profile.
 
-    Writes to ``~/.hermes/active_profile``. Use ``"default"`` to clear.
+    Writes to ``~/.jarviscopilot/active_profile``. Use ``"default"`` to clear.
     """
     canon = normalize_profile_name(name)
     validate_profile_name(canon)
     if canon != "default" and not profile_exists(canon):
         raise FileNotFoundError(
             f"Profile '{canon}' does not exist. "
-            f"Create it with: hermes profile create {canon}"
+            f"Create it with: jarviscopilot profile create {canon}"
         )
 
     path = _get_active_profile_path()
@@ -1054,11 +1054,11 @@ def set_active_profile(name: str) -> None:
 def get_active_profile_name() -> str:
     """Infer the current profile name from HERMES_HOME.
 
-    Returns ``"default"`` if HERMES_HOME is not set or points to ``~/.hermes``.
-    Returns the profile name if HERMES_HOME points into ``~/.hermes/profiles/<name>``.
+    Returns ``"default"`` if HERMES_HOME is not set or points to ``~/.jarviscopilot``.
+    Returns the profile name if HERMES_HOME points into ``~/.jarviscopilot/profiles/<name>``.
     Returns ``"custom"`` if HERMES_HOME is set to an unrecognized path.
     """
-    from hermes_constants import get_hermes_home
+    from jarviscopilot_constants import get_hermes_home
     hermes_home = get_hermes_home()
     resolved = hermes_home.resolve()
 
@@ -1124,8 +1124,8 @@ def export_profile(name: str, output_path: str) -> Path:
     base = str(output).removesuffix(".tar.gz").removesuffix(".tgz")
 
     if canon == "default":
-        # The default profile IS ~/.hermes itself — its parent is ~/ and its
-        # directory name is ".hermes", not "default".  We stage a clean copy
+        # The default profile IS ~/.jarviscopilot itself — its parent is ~/ and its
+        # directory name is ".jarviscopilot", not "default".  We stage a clean copy
         # under a temp dir so the archive contains ``default/...``.
         with tempfile.TemporaryDirectory() as tmpdir:
             staged = Path(tmpdir) / "default"
@@ -1245,7 +1245,7 @@ def import_profile(archive_path: str, name: Optional[str] = None) -> Path:
     if not inferred_name:
         raise ValueError(
             "Cannot determine profile name from archive. "
-            "Specify it explicitly: hermes profile import <archive> --name <name>"
+            "Specify it explicitly: jarviscopilot profile import <archive> --name <name>"
         )
     if archive_root is None:
         raise ValueError(
@@ -1253,14 +1253,14 @@ def import_profile(archive_path: str, name: Optional[str] = None) -> Path:
         )
 
     # Archives exported from the default profile have "default/" as top-level
-    # dir.  Importing as "default" would target ~/.hermes itself — disallow
+    # dir.  Importing as "default" would target ~/.jarviscopilot itself — disallow
     # that and guide the user toward a named profile.
     canon = normalize_profile_name(inferred_name)
     validate_profile_name(canon)
     if canon == "default":
         raise ValueError(
-            "Cannot import as 'default' — that is the built-in root profile (~/.hermes). "
-            "Specify a different name: hermes profile import <archive> --name <name>"
+            "Cannot import as 'default' — that is the built-in root profile (~/.jarviscopilot). "
+            "Specify a different name: jarviscopilot profile import <archive> --name <name>"
         )
 
     profile_dir = get_profile_dir(canon)
@@ -1296,8 +1296,8 @@ def import_profile(archive_path: str, name: Optional[str] = None) -> Path:
 
 def _migrate_honcho_profile_host(old_name: str, new_name: str, new_dir: Path) -> None:
     """Rename Honcho host blocks for a renamed profile without changing peers."""
-    old_host = f"hermes.{old_name}"
-    new_host = f"hermes.{new_name}"
+    old_host = f"jarviscopilot.{old_name}"
+    new_host = f"jarviscopilot.{new_name}"
 
     candidates = [
         new_dir / "honcho.json",
@@ -1409,7 +1409,7 @@ def rename_profile(old_name: str, new_name: str) -> Path:
 def resolve_profile_env(profile_name: str) -> str:
     """Resolve a profile name to a HERMES_HOME path string.
 
-    Called early in the CLI entry point, before any hermes modules
+    Called early in the CLI entry point, before any jarviscopilot modules
     are imported, to set the HERMES_HOME environment variable.
     """
     canon = normalize_profile_name(profile_name)
@@ -1419,7 +1419,7 @@ def resolve_profile_env(profile_name: str) -> str:
     if canon != "default" and not profile_dir.is_dir():
         raise FileNotFoundError(
             f"Profile '{canon}' does not exist. "
-            f"Create it with: hermes profile create {canon}"
+            f"Create it with: jarviscopilot profile create {canon}"
         )
 
     return str(profile_dir)

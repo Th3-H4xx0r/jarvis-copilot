@@ -1,4 +1,4 @@
-# Two-container Docker Compose: Hermes Agent + Hermes WebUI
+# Two-container Docker Compose: JarvisCopilot Agent + JarvisCopilot WebUI
 #
 # QUICK START:
 #   docker compose -f docker-compose.two-container.yml up -d
@@ -10,11 +10,11 @@
 #
 # WHEN TO USE THIS:
 #   - You want isolation between the agent gateway and the WebUI
-#   - You're already running hermes-agent in its own container
+#   - You're already running jarviscopilot in its own container
 #   - You don't need the dashboard (use docker-compose.three-container.yml for that)
 #
 # WHEN NOT TO USE THIS:
-#   - You hit "Permission denied" trying to share an existing ~/.hermes directory
+#   - You hit "Permission denied" trying to share an existing ~/.jarviscopilot directory
 #     → use docker-compose.yml (single-container) instead, OR
 #     → keep this file but switch to NAMED VOLUMES (the default) instead of bind mounts
 #   - You're on Podman 3.4 or older without keep-id namespace support
@@ -26,7 +26,7 @@
 # container setup where everything lives in one place.
 #
 # NOTE ON VOLUMES:
-#   This file uses named Docker volumes (hermes-home, hermes-agent-src) which
+#   This file uses named Docker volumes (hermes-home, jarviscopilot-src) which
 #   work out of the box on every Docker installation. If you prefer bind mounts
 #   to share an existing host directory:
 #
@@ -36,7 +36,7 @@
 #         driver_opts:
 #           type: none
 #           o: bind
-#           device: /home/youruser/.hermes
+#           device: /home/youruser/.jarviscopilot
 #
 #   When using bind mounts, BOTH containers must mount the same host path,
 #   AND your host directory must be readable by UID 1000 (the default). Run:
@@ -46,22 +46,22 @@
 #     echo "GID=$(id -g)" >> .env
 
 services:
-  hermes-agent:
-    image: nousresearch/hermes-agent:latest
-    container_name: hermes-agent
+  jarviscopilot:
+    image: nousresearch/jarviscopilot:latest
+    container_name: jarviscopilot
     command: gateway run
     ports:
       # Gateway API — exposed on localhost only.
-      # Other containers on hermes-net reach it via http://hermes-agent:8642.
+      # Other containers on hermes-net reach it via http://jarviscopilot:8642.
       # Remove 127.0.0.1: to expose on the host network (e.g. for remote clients).
       - "127.0.0.1:8642:8642"
     volumes:
       # Persist config, state, sessions, skills, memory across restarts
-      - hermes-home:/home/hermes/.hermes
+      - hermes-home:/home/hermes/.jarviscopilot
       # Expose agent source so the WebUI can install dependencies from it
-      - hermes-agent-src:/opt/hermes
+      - jarviscopilot-src:/opt/hermes
     environment:
-      - HERMES_HOME=/home/hermes/.hermes
+      - HERMES_HOME=/home/hermes/.jarviscopilot
       # Align UID/GID across containers sharing the hermes-home volume.
       # Defaults to 1000 to match WANTED_UID/WANTED_GID in the webui service.
       # The agent image's entrypoint already supports usermod remapping.
@@ -80,21 +80,21 @@ services:
     networks:
       - hermes-net
 
-  hermes-webui:
-    image: ghcr.io/nesquena/hermes-webui:latest
-    container_name: hermes-webui
+  jarviscopilot-webui:
+    image: ghcr.io/nesquena/jarviscopilot-webui:latest
+    container_name: jarviscopilot-webui
     depends_on:
-      - hermes-agent
+      - jarviscopilot
     ports:
       - "127.0.0.1:8787:8787"
     volumes:
-      # Same hermes home as the agent — shares config, sessions, state
-      - hermes-home:/home/hermeswebui/.hermes
+      # Same jarviscopilot home as the agent — shares config, sessions, state
+      - hermes-home:/home/hermeswebui/.jarviscopilot
       # Agent source mounted where docker_init.bash expects it.
       # Mounted read-only — the WebUI only reads this volume to install
       # the agent's Python dependencies at startup (`uv pip install`).
       # Read-only enforces that defence-in-depth at the kernel layer.
-      - hermes-agent-src:/home/hermeswebui/.hermes/hermes-agent:ro
+      - jarviscopilot-src:/home/hermeswebui/.jarviscopilot/jarviscopilot:ro
       # Workspace directory — browse and edit files from the WebUI.
       # Adapt the host path to your project directory.
       # Override with: HERMES_WORKSPACE=/your/path docker compose up
@@ -104,7 +104,7 @@ services:
     environment:
       - HERMES_WEBUI_HOST=0.0.0.0
       - HERMES_WEBUI_PORT=8787
-      - HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.hermes/webui
+      - HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.jarviscopilot/webui
       # Match your host user's UID/GID for correct file permissions.
       # In two-container setups the WebUI auto-detects UID/GID from the shared
       # hermes-home volume, but you can override explicitly if needed (#668):
@@ -132,7 +132,7 @@ networks:
 
 volumes:
   # IMPORTANT — upgrading the agent image:
-  #   The `hermes-agent-src` volume is initialised from the agent image's
+  #   The `jarviscopilot-src` volume is initialised from the agent image's
   #   `/opt/hermes` on first `up`, and Docker reuses the volume verbatim on
   #   later runs — even after `docker pull` of a newer agent image. After
   #   upgrading the agent image, run:
@@ -144,4 +144,4 @@ volumes:
   #
   #   The full procedure (and why) is documented in docs/docker.md.
   hermes-home:
-  hermes-agent-src:
+  jarviscopilot-src:

@@ -43,7 +43,7 @@ async function api(path,opts={}){
 // Persist/restore expanded directory state per workspace in localStorage
 function _wsExpandKey(){
   const ws=S.session&&S.session.workspace;
-  return ws?'hermes-webui-expanded:'+ws:null;
+  return ws?'jarviscopilot-webui-expanded:'+ws:null;
 }
 function _saveExpandedDirs(){
   const key=_wsExpandKey();if(!key)return;

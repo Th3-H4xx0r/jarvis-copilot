@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge JarvisCopilot personalities into ~/.hermes/config.yaml.
+"""Merge JarvisCopilot personalities into ~/.jarviscopilot/config.yaml.
 
 Reads every *.yaml under installer/personalities/ and adds entries to
 config.yaml's ``agent.personalities`` ONLY if a personality of that name
@@ -35,11 +35,11 @@ except Exception:
 
 
 def _hermes_home() -> Path:
-    """Resolve the Hermes state dir, honoring HERMES_HOME."""
+    """Resolve the JarvisCopilot state dir, honoring HERMES_HOME."""
     home = os.environ.get("HERMES_HOME")
     if home:
         return Path(home).expanduser()
-    return Path.home() / ".hermes"
+    return Path.home() / ".jarviscopilot"
 
 
 def _personalities_dir() -> Path:

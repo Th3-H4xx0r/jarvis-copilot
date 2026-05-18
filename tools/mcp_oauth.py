@@ -105,10 +105,10 @@ def _get_token_dir() -> Path:
     Layout: ``HERMES_HOME/mcp-tokens/``
     """
     try:
-        from hermes_constants import get_hermes_home
+        from jarviscopilot_constants import get_hermes_home
         base = Path(get_hermes_home())
     except ImportError:
-        base = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
+        base = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".jarviscopilot")))
     return base / "mcp-tokens"
 
 
@@ -234,7 +234,7 @@ class HermesTokenStorage:
         data = _read_json(self._tokens_path())
         if data is None:
             return None
-        # Hermes records an absolute wall-clock ``expires_at`` alongside the
+        # JarvisCopilot records an absolute wall-clock ``expires_at`` alongside the
         # SDK's serialized token (see ``set_tokens``). On read we rewrite
         # ``expires_in`` to the remaining seconds so the SDK's downstream
         # ``update_token_expiry`` computes the correct absolute time and
@@ -367,7 +367,7 @@ def _make_callback_handler() -> tuple[type, dict]:
 
             body = (
                 "<html><body><h2>Authorization Successful</h2>"
-                "<p>You can close this tab and return to Hermes.</p></body></html>"
+                "<p>You can close this tab and return to JarvisCopilot.</p></body></html>"
             ) if code else (
                 "<html><body><h2>Authorization Failed</h2>"
                 f"<p>Error: {error or 'unknown'}</p></body></html>"
@@ -414,7 +414,7 @@ async def _redirect_handler(authorization_url: str) -> None:
             f"\n"
             f"    ssh -N -L {_oauth_port}:127.0.0.1:{_oauth_port} <user>@<this-host>\n"
             f"\n"
-            f"  Then open the URL above. See: https://hermes-agent.nousresearch.com/docs/guides/oauth-over-ssh\n",
+            f"  Then open the URL above. See: https://jarviscopilot.nousresearch.com/docs/guides/oauth-over-ssh\n",
             file=sys.stderr,
         )
 

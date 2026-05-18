@@ -37,7 +37,7 @@ def git_worktree(tmp_path):
     repo.mkdir()
     _git(repo, "init")
     _git(repo, "config", "user.email", "test@example.com")
-    _git(repo, "config", "user.name", "Hermes Test")
+    _git(repo, "config", "user.name", "JarvisCopilot Test")
     _git(repo, "branch", "-M", "main")
     (repo / "README.md").write_text("hello\n", encoding="utf-8")
     _git(repo, "add", "README.md")
@@ -45,8 +45,8 @@ def git_worktree(tmp_path):
     _git(remote.parent, "init", "--bare", remote.name)
     _git(repo, "remote", "add", "origin", str(remote))
     _git(repo, "push", "-u", "origin", "main")
-    _git(repo, "worktree", "add", "-b", "hermes/status", str(worktree), "main")
-    _git(worktree, "push", "-u", "origin", "hermes/status")
+    _git(repo, "worktree", "add", "-b", "jarviscopilot/status", str(worktree), "main")
+    _git(worktree, "push", "-u", "origin", "jarviscopilot/status")
     return repo, worktree
 
 
@@ -55,7 +55,7 @@ def _session_for_worktree(repo, worktree, **kwargs):
         session_id=kwargs.pop("session_id", "wtstatus001"),
         workspace=str(worktree),
         worktree_path=str(worktree),
-        worktree_branch="hermes/status",
+        worktree_branch="jarviscopilot/status",
         worktree_repo_root=str(repo),
         worktree_created_at=123.0,
         **kwargs,

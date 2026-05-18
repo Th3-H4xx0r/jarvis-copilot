@@ -250,7 +250,7 @@ Remaining gaps and forward work live in [Forward Work](#forward-work) below.
 - [x] GHCR auto-publish on tag push
 - [x] Subpath mount support (reverse proxy at `/hermes/`)
 - [x] PWA installable from any browser
-- [x] Native macOS app — universal Intel + Apple Silicon, signed + notarized DMG, Sparkle 2 auto-update — see `hermes-webui/hermes-swift-mac` repo
+- [x] Native macOS app — universal Intel + Apple Silicon, signed + notarized DMG, Sparkle 2 auto-update — see `jarviscopilot-webui/hermes-swift-mac` repo
 
 ---
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Launch the Hermes WebUI bound to 0.0.0.0 so other machines on your network
-# can reach it. First run installs Hermes core + webui dependencies into a
+# Launch the JarvisCopilot WebUI bound to 0.0.0.0 so other machines on your network
+# can reach it. First run installs JarvisCopilot core + webui dependencies into a
 # local .venv at the repo root; later runs skip the install step.
 #
 # Usage:
@@ -42,16 +42,16 @@ fi
 # `pip install -e <path>[extras]` ALWAYS installs from the local path (the
 # leading `-e` and the path argument both force pip to skip PyPI for this
 # project — only its transitive deps come from PyPI). We additionally
-# verify that hermes-agent's resolved install location is this repo root
+# verify that jarviscopilot's resolved install location is this repo root
 # before launching the server, so a stale PyPI install in this venv (or a
 # typo'd path) can't silently take over.
 MARKER="${VENV_DIR}/.webui-installed"
 if [[ ! -f "${MARKER}" ]]; then
-    info "Installing Hermes core from LOCAL path: ${REPO_ROOT}"
-    info "  (pip flag: -e ${REPO_ROOT}[all,voice,edge-tts] -- editable, no PyPI lookup for hermes-agent)"
+    info "Installing JarvisCopilot core from LOCAL path: ${REPO_ROOT}"
+    info "  (pip flag: -e ${REPO_ROOT}[all,voice,edge-tts] -- editable, no PyPI lookup for jarviscopilot)"
     # [voice] = faster-whisper + sounddevice + numpy (STT)
-    # [edge-tts] = Microsoft Edge neural TTS (default Hermes TTS provider)
-    # Both are intentionally excluded from [all] by Hermes (lazy-install
+    # [edge-tts] = Microsoft Edge neural TTS (default JarvisCopilot TTS provider)
+    # Both are intentionally excluded from [all] by JarvisCopilot (lazy-install
     # design); the webui needs them up-front so the voice tab works on
     # first boot without a runtime dependency download.
     "${VENV_PYTHON}" -m pip install --upgrade pip >/dev/null
@@ -62,7 +62,7 @@ if [[ ! -f "${MARKER}" ]]; then
 
     # piper-tts powers the JARVIS personality's neural TTS voice. Pull it in
     # up-front so users picking JARVIS in Settings dont have to wait for a
-    # runtime pip install (Hermes has a lazy-install path but its slow).
+    # runtime pip install (JarvisCopilot has a lazy-install path but its slow).
     info "Installing piper-tts (for JARVIS voice) ..."
     "${VENV_PYTHON}" -m pip install piper-tts || warn "piper-tts install failed -- JARVIS voice will require a manual install"
 
@@ -72,12 +72,12 @@ else
     info "Skipping install (marker present). Delete ${MARKER} to force a refresh."
 fi
 
-# ---- VERIFY hermes-agent is the LOCAL editable install --------------
+# ---- VERIFY jarviscopilot is the LOCAL editable install --------------
 # Run on every launch — catches the case where the marker exists but the
-# venv has somehow ended up with a PyPI-installed hermes-agent instead.
-SHOW_OUTPUT="$("${VENV_PYTHON}" -m pip show hermes-agent 2>&1 || true)"
-if ! grep -q '^Name: hermes-agent' <<<"${SHOW_OUTPUT}"; then
-    die "hermes-agent is not installed in ${VENV_DIR}. Delete ${MARKER} and rerun."
+# venv has somehow ended up with a PyPI-installed jarviscopilot instead.
+SHOW_OUTPUT="$("${VENV_PYTHON}" -m pip show jarviscopilot 2>&1 || true)"
+if ! grep -q '^Name: jarviscopilot' <<<"${SHOW_OUTPUT}"; then
+    die "jarviscopilot is not installed in ${VENV_DIR}. Delete ${MARKER} and rerun."
 fi
 # Modern pip (>= 21.3) reports "Editable project location" for `-e` installs;
 # fall back to "Location:" for older pip versions, where the egg-link points
@@ -98,13 +98,13 @@ EXPECTED_CANON="$(canon "${REPO_ROOT}")"
 RESOLVED_CANON="$(canon "${RESOLVED}")"
 if [[ "${EXPECTED_CANON}" != "${RESOLVED_CANON}" ]]; then
     echo
-    echo "[launch-webui] FATAL: hermes-agent in the venv is NOT this monorepo." >&2
+    echo "[launch-webui] FATAL: jarviscopilot in the venv is NOT this monorepo." >&2
     echo "  Expected: ${EXPECTED_CANON}" >&2
     echo "  Found:    ${RESOLVED_CANON}" >&2
     echo "  Delete   ${VENV_DIR}   and rerun this script." >&2
     exit 1
 fi
-ok "Verified: hermes-agent resolves to LOCAL path ${RESOLVED}"
+ok "Verified: jarviscopilot resolves to LOCAL path ${RESOLVED}"
 
 # ---- TLS cert (self-signed; required so browsers allow getUserMedia) -
 # Browsers refuse mic / camera / clipboard / WebRTC on plain HTTP for any
@@ -112,7 +112,7 @@ ok "Verified: hermes-agent resolves to LOCAL path ${RESOLVED}"
 # covering all local IPv4 addresses so the voice tab works from a phone or
 # any device on the LAN. First boot tap "Advanced → Proceed" once; the
 # cert is stable across restarts.
-info "Ensuring TLS cert in ~/.hermes/webui-tls/ ..."
+info "Ensuring TLS cert in ~/.jarviscopilot/webui-tls/ ..."
 TLS_PAIR="$("${VENV_PYTHON}" -c "
 import sys
 sys.path.insert(0, '${WEBUI_DIR}')
@@ -155,7 +155,7 @@ export HERMES_WEBUI_PORT="${PORT}"
 # by exporting JARVISCOPILOT_PAIRING_REQUIRED=0 before launch.
 export JARVISCOPILOT_PAIRING_REQUIRED="${JARVISCOPILOT_PAIRING_REQUIRED:-1}"
 # Tell the webui's voice routes (api/voice.py) and bootstrap discovery
-# where to find Hermes core. The voice module's own _ensure_hermes_on_path()
+# where to find JarvisCopilot core. The voice module's own _ensure_hermes_on_path()
 # adds this too, but setting PYTHONPATH up front avoids import-order surprises.
 export PYTHONPATH="${REPO_ROOT}"
 export HERMES_WEBUI_AGENT_DIR="${REPO_ROOT}"
@@ -163,7 +163,7 @@ export HERMES_WEBUI_AGENT_DIR="${REPO_ROOT}"
 # ---- banner ---------------------------------------------------------
 echo
 echo "================================================================"
-ok " Hermes WebUI starting on 0.0.0.0:${PORT}  (TLS)"
+ok " JarvisCopilot WebUI starting on 0.0.0.0:${PORT}  (TLS)"
 ok " Local:   https://localhost:${PORT}"
 ok " LAN:     https://${LAN_IP}:${PORT}"
 echo "================================================================"

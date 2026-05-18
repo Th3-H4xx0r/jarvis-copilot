@@ -14,7 +14,7 @@ test_yuanbao_integration.py - Yuanbao 模块集成测试
 import sys
 import os
 
-# 确保 hermes-agent 根目录在 sys.path 中
+# 确保 jarviscopilot 根目录在 sys.path 中
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
@@ -115,7 +115,7 @@ class TestGatewayRunnerRegistration:
             "dotenv",
             "jarviscopilot_cli.env_loader",
             "jarviscopilot_cli.config",
-            "hermes_constants",
+            "jarviscopilot_constants",
         ]
         _orig = {}
         for mod in stubs:

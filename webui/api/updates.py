@@ -1,7 +1,7 @@
 """
 JarvisCopilot Web UI -- Self-update checker.
 
-Checks if the webui and hermes-agent git repos are behind their latest
+Checks if the webui and jarviscopilot git repos are behind their latest
 release tags. Results are cached server-side (30-min TTL) so git fetch runs
 at most twice per hour regardless of client count.
 
@@ -180,7 +180,7 @@ def _normalize_remote_url(remote_url):
 
     Git remotes may be HTTPS or SSH and may include a literal ``.git`` suffix.
     Strip only that literal suffix — never use ``str.rstrip('.git')`` because it
-    treats the argument as a character set and can truncate ``hermes-webui`` to
+    treats the argument as a character set and can truncate ``jarviscopilot-webui`` to
     ``hermes-webu``.
     """
     if not remote_url:
@@ -413,7 +413,7 @@ def _commit_subjects_for_update_with_limit(info: dict, *, limit: int = 24) -> tu
         return [], False
     target = info.get('name')
     if target not in ('webui', 'agent'):
-        target = 'webui' if info.get('repo_url', '').endswith('hermes-webui') else target
+        target = 'webui' if info.get('repo_url', '').endswith('jarviscopilot-webui') else target
     path = _repo_path_for_update_target(target)
     if path is None or not (Path(path) / '.git').exists():
         return [], False
@@ -511,7 +511,7 @@ def _categorized_summary_bullets_from_text(text: str) -> tuple[list[str], list[s
 def _fallback_update_bullets(details: list[dict]) -> list[str]:
     bullets = []
     for item in details:
-        label = item.get('label') or item.get('name') or 'Hermes'
+        label = item.get('label') or item.get('name') or 'JarvisCopilot'
         behind = item.get('behind') or 0
         commits = item.get('commits') or []
         if commits:
@@ -527,7 +527,7 @@ def _worth_knowing_bullets(details: list[dict]) -> list[str]:
     items = []
     truncated = [item for item in details if item.get('commits_truncated') and item.get('commits_limit')]
     for item in truncated[:2]:
-        label = item.get('label') or item.get('name') or 'Hermes'
+        label = item.get('label') or item.get('name') or 'JarvisCopilot'
         behind = item.get('behind') or 0
         limit = item.get('commits_limit') or len(item.get('commits') or [])
         items.append(
@@ -536,7 +536,7 @@ def _worth_knowing_bullets(details: list[dict]) -> list[str]:
     if items:
         return items
     targets = [
-        f"{item.get('label') or item.get('name') or 'Hermes'} ({item.get('behind') or 0} update{'s' if (item.get('behind') or 0) != 1 else ''})"
+        f"{item.get('label') or item.get('name') or 'JarvisCopilot'} ({item.get('behind') or 0} update{'s' if (item.get('behind') or 0) != 1 else ''})"
         for item in details
         if item.get('behind')
     ]
@@ -583,7 +583,7 @@ def _fallback_update_summary(updates: dict, details: list[dict]) -> str:
 
 def _update_summary_prompt(details: list[dict]) -> tuple[str, str]:
     system = (
-        "You write human-readable release summaries for Hermes users. "
+        "You write human-readable release summaries for JarvisCopilot users. "
         "Focus on what the user will notice in the product. Keep it simple, specific, and short. "
         "avoid technical jargon, implementation details, SHA names, branch names, and file paths unless necessary. "
         "Return only bullets. Do not include headings, markdown tables, intro paragraphs, or closing notes."

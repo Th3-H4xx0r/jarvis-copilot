@@ -352,7 +352,7 @@ class TestTeamsInteractiveSetup:
         from jarviscopilot_cli.cli_output (not jarviscopilot_cli.config) and persist
         credentials to .env without crashing.
         """
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "jarviscopilot"
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
         import jarviscopilot_cli.cli_output as cli_output_mod
@@ -690,7 +690,7 @@ class TestTeamsMessageHandling:
         adapter.handle_message = AsyncMock()
 
         activity = self._make_activity(
-            text="<at>Hermes</at> what is the weather?",
+            text="<at>JarvisCopilot</at> what is the weather?",
             from_id="user-id",
         )
         await adapter._on_message(self._make_ctx(activity))

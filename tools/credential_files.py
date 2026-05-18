@@ -49,13 +49,13 @@ _config_files: List[Dict[str, str]] | None = None
 
 
 def _resolve_hermes_home() -> Path:
-    from hermes_constants import get_hermes_home
+    from jarviscopilot_constants import get_hermes_home
     return get_hermes_home()
 
 
 def register_credential_file(
     relative_path: str,
-    container_base: str = "/root/.hermes",
+    container_base: str = "/root/.jarviscopilot",
 ) -> bool:
     """Register a credential file for mounting into remote sandboxes.
 
@@ -105,7 +105,7 @@ def register_credential_file(
 
 def register_credential_files(
     entries: list,
-    container_base: str = "/root/.hermes",
+    container_base: str = "/root/.jarviscopilot",
 ) -> List[str]:
     """Register multiple credential files from skill frontmatter entries.
 
@@ -161,7 +161,7 @@ def _load_config_files() -> List[Dict[str, str]]:
                         continue
                     resolved_path = host_path.resolve()
                     if resolved_path.is_file():
-                        container_path = f"/root/.hermes/{rel}"
+                        container_path = f"/root/.jarviscopilot/{rel}"
                         result.append({
                             "host_path": str(resolved_path),
                             "container_path": container_path,
@@ -200,7 +200,7 @@ def get_credential_file_mounts() -> List[Dict[str, str]]:
 
 
 def get_skills_directory_mount(
-    container_base: str = "/root/.hermes",
+    container_base: str = "/root/.jarviscopilot",
 ) -> list[Dict[str, str]]:
     """Return mount info for all skill directories (local + external).
 
@@ -291,7 +291,7 @@ def _safe_skills_path(skills_dir: Path) -> str:
 
 
 def iter_skills_files(
-    container_base: str = "/root/.hermes",
+    container_base: str = "/root/.jarviscopilot",
 ) -> List[Dict[str, str]]:
     """Yield individual (host_path, container_path) entries for skills files.
 
@@ -341,7 +341,7 @@ def iter_skills_files(
 # ---------------------------------------------------------------------------
 
 # The four cache subdirectories that should be mirrored into remote backends.
-# Each tuple is (new_subpath, old_name) matching hermes_constants.get_hermes_dir().
+# Each tuple is (new_subpath, old_name) matching jarviscopilot_constants.get_hermes_dir().
 _CACHE_DIRS: list[tuple[str, str]] = [
     ("cache/documents", "document_cache"),
     ("cache/images", "image_cache"),
@@ -351,7 +351,7 @@ _CACHE_DIRS: list[tuple[str, str]] = [
 
 
 def get_cache_directory_mounts(
-    container_base: str = "/root/.hermes",
+    container_base: str = "/root/.jarviscopilot",
 ) -> List[Dict[str, str]]:
     """Return mount entries for each cache directory that exists on disk.
 
@@ -359,7 +359,7 @@ def get_cache_directory_mounts(
     ``container_path`` keys.  The host path is resolved via
     ``get_hermes_dir()`` for backward compatibility with old directory layouts.
     """
-    from hermes_constants import get_hermes_dir
+    from jarviscopilot_constants import get_hermes_dir
 
     mounts: List[Dict[str, str]] = []
     for new_subpath, old_name in _CACHE_DIRS:
@@ -376,7 +376,7 @@ def get_cache_directory_mounts(
 
 def to_agent_visible_cache_path(
     host_path: str,
-    container_base: str = "/root/.hermes",
+    container_base: str = "/root/.jarviscopilot",
 ) -> str:
     """Translate a host cache path to its mounted path inside the sandbox.
 
@@ -403,14 +403,14 @@ def to_agent_visible_cache_path(
 
 
 def iter_cache_files(
-    container_base: str = "/root/.hermes",
+    container_base: str = "/root/.jarviscopilot",
 ) -> List[Dict[str, str]]:
     """Return individual (host_path, container_path) entries for cache files.
 
     Used by Modal to upload files individually and resync before each command.
     Skips symlinks.  The container paths use the new ``cache/<subdir>`` layout.
     """
-    from hermes_constants import get_hermes_dir
+    from jarviscopilot_constants import get_hermes_dir
 
     result: List[Dict[str, str]] = []
     for new_subpath, old_name in _CACHE_DIRS:

@@ -1,7 +1,7 @@
 """Tests for #1695 — diagnostic detail in the "AIAgent not available" ImportError.
 
-Patrick-81 reported a symlinked hermes-agent install that produced a bare
-"AIAgent not available -- check that hermes-agent is on sys.path" error with
+Patrick-81 reported a symlinked jarviscopilot install that produced a bare
+"AIAgent not available -- check that jarviscopilot is on sys.path" error with
 no information about which Python was running, where it was looking, or what
 to do next. The maintainer's response (which Patrick confirmed worked)
 amounted to: run three diagnostic commands, then `pip install -e .` in the
@@ -53,7 +53,7 @@ class TestAIAgentImportErrorDetail:
         helper = _import_helper()
         out = helper()
         first = out.splitlines()[0]
-        assert first == "AIAgent not available -- check that hermes-agent is on sys.path", (
+        assert first == "AIAgent not available -- check that jarviscopilot is on sys.path", (
             f"first line must be the original error message verbatim, got: {first!r}"
         )
 
@@ -108,27 +108,27 @@ class TestAIAgentImportErrorDetail:
         )
 
     def test_lists_sys_path_entries_when_relevant(self, monkeypatch):
-        """If sys.path contains entries mentioning hermes/agent, the diagnostic
+        """If sys.path contains entries mentioning jarviscopilot/agent, the diagnostic
         must list them (helps the user confirm the agent dir is or isn't
         actually present on the import path).
         """
         helper = _import_helper()
         # Force at least one relevant entry into sys.path for the test.
-        monkeypatch.syspath_prepend("/fake/hermes-agent")
+        monkeypatch.syspath_prepend("/fake/jarviscopilot")
         out = helper()
-        assert "/fake/hermes-agent" in out
+        assert "/fake/jarviscopilot" in out
 
     def test_handles_no_relevant_sys_path_entries(self, monkeypatch):
-        """If sys.path has NO hermes/agent-related entries, the diagnostic must
+        """If sys.path has NO jarviscopilot/agent-related entries, the diagnostic must
         say so explicitly — this is itself a strong diagnostic signal.
         """
         helper = _import_helper()
-        # Replace sys.path with entries that mention neither hermes nor agent.
+        # Replace sys.path with entries that mention neither jarviscopilot nor agent.
         # Use monkeypatch.setattr so the change reverts cleanly.
         clean_path = ["/usr/lib/python3.11", "/usr/local/lib/python3.11", "/tmp"]
         monkeypatch.setattr(sys, "path", clean_path)
         out = helper()
-        assert "no entries mention hermes or agent" in out, (
+        assert "no entries mention jarviscopilot or agent" in out, (
             "diagnostic must explicitly call out empty-path case (it's a strong signal)"
         )
 

@@ -1,1 +1,1 @@
-# Hermes plugins package
+# JarvisCopilot plugins package

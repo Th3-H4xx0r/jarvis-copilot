@@ -1,4 +1,4 @@
-"""Tests for the Hermes plugin system (jarviscopilot_cli.plugins)."""
+"""Tests for the JarvisCopilot plugin system (jarviscopilot_cli.plugins)."""
 
 import logging
 import os
@@ -90,7 +90,7 @@ class TestPluginDiscovery:
     """Tests for plugin discovery from directories and entry points."""
 
     def test_discover_user_plugins(self, tmp_path, monkeypatch):
-        """Plugins in ~/.hermes/plugins/ are discovered."""
+        """Plugins in ~/.jarviscopilot/plugins/ are discovered."""
         plugins_dir = tmp_path / "hermes_test" / "plugins"
         _make_plugin_dir(plugins_dir, "hello_plugin")
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
@@ -102,12 +102,12 @@ class TestPluginDiscovery:
         assert mgr._plugins["hello_plugin"].enabled
 
     def test_discover_project_plugins(self, tmp_path, monkeypatch):
-        """Plugins in ./.hermes/plugins/ are discovered."""
+        """Plugins in ./.jarviscopilot/plugins/ are discovered."""
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
         monkeypatch.setenv("HERMES_ENABLE_PROJECT_PLUGINS", "true")
-        plugins_dir = project_dir / ".hermes" / "plugins"
+        plugins_dir = project_dir / ".jarviscopilot" / "plugins"
         _make_plugin_dir(plugins_dir, "proj_plugin")
 
         mgr = PluginManager()
@@ -121,7 +121,7 @@ class TestPluginDiscovery:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        plugins_dir = project_dir / ".hermes" / "plugins"
+        plugins_dir = project_dir / ".jarviscopilot" / "plugins"
         _make_plugin_dir(plugins_dir, "proj_plugin")
 
         mgr = PluginManager()

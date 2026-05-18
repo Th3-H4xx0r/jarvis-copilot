@@ -151,7 +151,7 @@ Total size:      142.3 MB
 Projects:        12
 
   WORKDIR                                                       COMMITS    LAST TOUCH  STATE
-  /home/you/code/hermes-agent                                        20       2h ago  live
+  /home/you/code/jarviscopilot                                        20       2h ago  live
   /home/you/code/experiments/rl-runner                                8       1d ago  live
   /home/you/code/old-prototype                                        3       9d ago  orphan
   ...

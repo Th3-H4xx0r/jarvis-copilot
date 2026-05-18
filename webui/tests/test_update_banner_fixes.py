@@ -36,19 +36,19 @@ class TestUpdateChecker:
         import api.updates as upd
 
         assert upd._build_compare_url(
-            'https://github.com/nesquena/hermes-webui', 'abc1234', 'def5678'
-        ) == 'https://github.com/nesquena/hermes-webui/compare/abc1234...def5678'
+            'https://github.com/nesquena/jarviscopilot-webui', 'abc1234', 'def5678'
+        ) == 'https://github.com/nesquena/jarviscopilot-webui/compare/abc1234...def5678'
         assert upd._build_compare_url(None, 'abc1234', 'def5678') is None
-        assert upd._build_compare_url('https://github.com/nesquena/hermes-webui', None, 'def5678') is None
-        assert upd._build_compare_url('https://github.com/nesquena/hermes-webui', 'abc1234', None) is None
+        assert upd._build_compare_url('https://github.com/nesquena/jarviscopilot-webui', None, 'def5678') is None
+        assert upd._build_compare_url('https://github.com/nesquena/jarviscopilot-webui', 'abc1234', None) is None
 
     def test_build_compare_url_rejects_unsafe_remote_urls(self):
         import api.updates as upd
 
         assert upd._build_compare_url('javascript:alert(1)', 'abc1234', 'def5678') is None
-        assert upd._build_compare_url('file:///tmp/hermes-webui', 'abc1234', 'def5678') is None
-        assert upd._build_compare_url('https:github.com/nesquena/hermes-webui', 'abc1234', 'def5678') is None
-        assert upd._build_compare_url('https://github.com/nesquena/hermes-webui', 'abc1234', 'def5678')
+        assert upd._build_compare_url('file:///tmp/jarviscopilot-webui', 'abc1234', 'def5678') is None
+        assert upd._build_compare_url('https:github.com/nesquena/jarviscopilot-webui', 'abc1234', 'def5678') is None
+        assert upd._build_compare_url('https://github.com/nesquena/jarviscopilot-webui', 'abc1234', 'def5678')
 
     def test_check_repo_includes_compare_url_from_normalized_remote_and_merge_base(self, tmp_path, monkeypatch):
         import api.updates as upd
@@ -69,16 +69,16 @@ class TestUpdateChecker:
             if args[:3] == ['rev-parse', '--short', 'origin/master']:
                 return 'def5678', True
             if args[:2] == ['remote', 'get-url']:
-                return 'git@github.com:NousResearch/hermes-agent.git', True
+                return 'git@github.com:NousResearch/jarviscopilot.git', True
             return '', True
 
         monkeypatch.setattr(upd, '_run_git', fake_run)
         result = upd._check_repo(tmp_path, 'agent')
 
-        assert result['repo_url'] == 'https://github.com/NousResearch/hermes-agent'
+        assert result['repo_url'] == 'https://github.com/NousResearch/jarviscopilot'
         assert result['current_sha'] == 'abcdef1'
         assert result['latest_sha'] == 'def5678'
-        assert result['compare_url'] == 'https://github.com/NousResearch/hermes-agent/compare/abcdef1...def5678'
+        assert result['compare_url'] == 'https://github.com/NousResearch/jarviscopilot/compare/abcdef1...def5678'
 
     def test_check_repo_omits_compare_url_when_merge_base_missing(self, tmp_path, monkeypatch):
         import api.updates as upd
@@ -97,7 +97,7 @@ class TestUpdateChecker:
             if args[:3] == ['rev-parse', '--short', 'origin/master']:
                 return 'def5678', True
             if args[:2] == ['remote', 'get-url']:
-                return 'https://github.com/nesquena/hermes-webui.git', True
+                return 'https://github.com/nesquena/jarviscopilot-webui.git', True
             return '', True
 
         monkeypatch.setattr(upd, '_run_git', fake_run)
@@ -124,13 +124,13 @@ class TestUpdateChecker:
             if args[:2] == ['rev-parse', '--short']:
                 return 'abcdef1', True
             if args[:2] == ['remote', 'get-url']:
-                return 'https://github.com/nesquena/hermes-webui.git', True
+                return 'https://github.com/nesquena/jarviscopilot-webui.git', True
             return '', True
 
         monkeypatch.setattr(upd, '_run_git', fake_run)
         result = upd._check_repo(tmp_path, 'webui')
 
-        assert result['repo_url'] == 'https://github.com/nesquena/hermes-webui'
+        assert result['repo_url'] == 'https://github.com/nesquena/jarviscopilot-webui'
 
     def test_repo_url_converts_ssh_and_strips_only_dot_git_suffix(self, tmp_path, monkeypatch):
         import api.updates as upd
@@ -149,13 +149,13 @@ class TestUpdateChecker:
             if args[:2] == ['rev-parse', '--short']:
                 return 'abcdef1', True
             if args[:2] == ['remote', 'get-url']:
-                return 'git@github.com:NousResearch/hermes-agent.git', True
+                return 'git@github.com:NousResearch/jarviscopilot.git', True
             return '', True
 
         monkeypatch.setattr(upd, '_run_git', fake_run)
         result = upd._check_repo(tmp_path, 'agent')
 
-        assert result['repo_url'] == 'https://github.com/NousResearch/hermes-agent'
+        assert result['repo_url'] == 'https://github.com/NousResearch/jarviscopilot'
 
     def test_repo_url_strips_dot_git_before_trailing_slashes(self, tmp_path, monkeypatch):
         import api.updates as upd
@@ -174,13 +174,13 @@ class TestUpdateChecker:
             if args[:2] == ['rev-parse', '--short']:
                 return 'abcdef1', True
             if args[:2] == ['remote', 'get-url']:
-                return 'https://github.com/nesquena/hermes-webui.git/', True
+                return 'https://github.com/nesquena/jarviscopilot-webui.git/', True
             return '', True
 
         monkeypatch.setattr(upd, '_run_git', fake_run)
         result = upd._check_repo(tmp_path, 'webui')
 
-        assert result['repo_url'] == 'https://github.com/nesquena/hermes-webui'
+        assert result['repo_url'] == 'https://github.com/nesquena/jarviscopilot-webui'
 
     def test_release_check_ignores_post_release_branch_commits(self, tmp_path, monkeypatch):
         import api.updates as upd
@@ -195,7 +195,7 @@ class TestUpdateChecker:
             if args[:3] == ['describe', '--tags', '--abbrev=0']:
                 return 'v2026.5.7', True
             if args[:2] == ['remote', 'get-url']:
-                return 'https://github.com/NousResearch/hermes-agent.git', True
+                return 'https://github.com/NousResearch/jarviscopilot.git', True
             if args[:2] == ['rev-parse', '--abbrev-ref']:
                 return 'origin/main', True
             if args[:2] == ['rev-list', '--count']:
@@ -225,7 +225,7 @@ class TestUpdateChecker:
             if args[:3] == ['describe', '--tags', '--abbrev=0']:
                 return 'v0.51.34', True
             if args[:2] == ['remote', 'get-url']:
-                return 'https://github.com/nesquena/hermes-webui.git', True
+                return 'https://github.com/nesquena/jarviscopilot-webui.git', True
             return '', False
 
         monkeypatch.setattr(upd, '_run_git', fake_run)
@@ -907,10 +907,10 @@ class TestSequentialUpdateRestartCoordination:
 class TestUpdateCompareSource:
     def test_simulated_update_check_payload_includes_both_safe_compare_urls(self):
         src = read('api/routes.py')
-        assert '"repo_url": "https://github.com/nesquena/hermes-webui"' in src
-        assert '"compare_url": "https://github.com/nesquena/hermes-webui/compare/abc1234...def5678"' in src
-        assert '"repo_url": "https://github.com/NousResearch/hermes-agent"' in src
-        assert '"compare_url": "https://github.com/NousResearch/hermes-agent/compare/aaa0001...bbb0002"' in src
+        assert '"repo_url": "https://github.com/nesquena/jarviscopilot-webui"' in src
+        assert '"compare_url": "https://github.com/nesquena/jarviscopilot-webui/compare/abc1234...def5678"' in src
+        assert '"repo_url": "https://github.com/NousResearch/jarviscopilot"' in src
+        assert '"compare_url": "https://github.com/NousResearch/jarviscopilot/compare/aaa0001...bbb0002"' in src
 
     def test_update_banner_html_uses_multi_target_links_container(self):
         src = read('static/index.html')
@@ -1067,7 +1067,7 @@ class TestWhatsNewSummaryToggle:
         from api.updates import summarize_update_payload
 
         duplicate_menu_item = (
-            'The `hermes tools` menus should open noticeably faster, especially when checking available tools or auth state.'
+            'The `jarviscopilot tools` menus should open noticeably faster, especially when checking available tools or auth state.'
         )
         duplicate_quality_item = (
             'These updates are small quality-of-life improvements focused on smoother messaging and less waiting in the CLI.'

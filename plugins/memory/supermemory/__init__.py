@@ -22,7 +22,7 @@ from tools.registry import tool_error
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_CONTAINER_TAG = "hermes"
+_DEFAULT_CONTAINER_TAG = "jarviscopilot"
 _DEFAULT_MAX_RECALL_RESULTS = 10
 _DEFAULT_PROFILE_FREQUENCY = 50
 _DEFAULT_CAPTURE_MODE = "all"
@@ -462,7 +462,7 @@ class SupermemoryMemoryProvider(MemoryProvider):
             return False
 
     def get_config_schema(self):
-        # Only prompt for the API key during `hermes memory setup`.
+        # Only prompt for the API key during `jarviscopilot memory setup`.
         # All other options are documented for $HERMES_HOME/supermemory.json
         # or the SUPERMEMORY_CONTAINER_TAG env var.
         return [
@@ -478,7 +478,7 @@ class SupermemoryMemoryProvider(MemoryProvider):
         _save_supermemory_config(sanitized, hermes_home)
 
     def initialize(self, session_id: str, **kwargs) -> None:
-        from hermes_constants import get_hermes_home
+        from jarviscopilot_constants import get_hermes_home
         self._hermes_home = kwargs.get("hermes_home") or str(get_hermes_home())
         self._session_id = session_id
         self._turn_count = 0
@@ -578,7 +578,7 @@ class SupermemoryMemoryProvider(MemoryProvider):
             f"[role: user]\n{clean_user}\n[user:end]\n\n"
             f"[role: assistant]\n{clean_assistant}\n[assistant:end]"
         )
-        metadata = {"source": "hermes", "type": "conversation_turn"}
+        metadata = {"source": "jarviscopilot", "type": "conversation_turn"}
 
         def _run():
             try:

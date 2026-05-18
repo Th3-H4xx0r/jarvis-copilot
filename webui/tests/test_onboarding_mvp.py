@@ -1,7 +1,7 @@
 """Onboarding MVP tests — first-run wizard and provider config persistence.
 
 Tests that call /api/onboarding/setup require PyYAML in the test server's
-Python environment (the agent venv). They are skipped when hermes-agent is
+Python environment (the agent venv). They are skipped when jarviscopilot is
 not installed, since the server falls back to system Python which typically
 lacks pyyaml.
 """
@@ -43,7 +43,7 @@ def post(path, body=None):
 
 
 def _server_hermes_home() -> pathlib.Path:
-    """Get the hermes home path the test server is actually using.
+    """Get the jarviscopilot home path the test server is actually using.
 
     Using the server's own /api/onboarding/status response is more robust than
     reading TEST_STATE_DIR from conftest, which can get the wrong path when
@@ -55,7 +55,7 @@ def _server_hermes_home() -> pathlib.Path:
     if env_path:
         return pathlib.Path(env_path).parent
     # Fallback
-    hermes_home = pathlib.Path.home() / ".hermes"
+    hermes_home = pathlib.Path.home() / ".jarviscopilot"
     return hermes_home / "webui-mvp-test"
 
 

@@ -41,7 +41,7 @@ This page is the top-level map of JarvisCopilot internals. Use it to orient your
 ┌───────────────────┐              ┌──────────────────────┐
 │ Session Storage   │              │ Tool Backends         │
 │ (SQLite + FTS5)   │              │ Terminal (7 backends) │
-│ hermes_state.py   │              │ Browser (5 backends)  │
+│ jarviscopilot_state.py   │              │ Browser (5 backends)  │
 │ gateway/session.py│              │ Web (4 backends)      │
 └───────────────────┘              │ MCP (dynamic)         │
                                    │ File, Vision, etc.    │
@@ -51,13 +51,13 @@ This page is the top-level map of JarvisCopilot internals. Use it to orient your
 ## Directory Structure
 
 ```text
-hermes-agent/
+jarviscopilot/
 ├── run_agent.py              # AIAgent — core conversation loop (large file)
 ├── cli.py                    # HermesCLI — interactive terminal UI (large file)
 ├── model_tools.py            # Tool discovery, schema collection, dispatch
 ├── toolsets.py               # Tool groupings and platform presets
-├── hermes_state.py           # SQLite session/state database with FTS5
-├── hermes_constants.py       # HERMES_HOME, profile-aware paths
+├── jarviscopilot_state.py           # SQLite session/state database with FTS5
+├── jarviscopilot_constants.py       # HERMES_HOME, profile-aware paths
 ├── batch_runner.py           # Batch trajectory generation
 │
 ├── agent/                    # Agent internals

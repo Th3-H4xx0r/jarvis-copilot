@@ -13,7 +13,7 @@ import pytest
 
 def _make_hermes_home(base: Path, profile_name: str | None = None) -> Path:
     """Create a temp HERMES_HOME (with optional profile dir) and return it."""
-    hermes_home = base / ".hermes"
+    hermes_home = base / ".jarviscopilot"
     hermes_home.mkdir(parents=True, exist_ok=True)
     if profile_name:
         (hermes_home / "profiles" / profile_name).mkdir(parents=True, exist_ok=True)
@@ -31,7 +31,7 @@ class TestGetHermesHomeForProfile:
         """Patch _DEFAULT_HERMES_HOME to a temp directory for isolation."""
         from api.profiles import _DEFAULT_HERMES_HOME as real_default
 
-        fake_home = tmp_path / ".hermes"
+        fake_home = tmp_path / ".jarviscopilot"
         fake_home.mkdir(parents=True)
         with patch("api.profiles._DEFAULT_HERMES_HOME", fake_home):
             yield fake_home, real_default

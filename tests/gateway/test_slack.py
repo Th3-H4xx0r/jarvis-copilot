@@ -86,7 +86,7 @@ def adapter():
 
 @pytest.fixture(autouse=True)
 def _redirect_cache(tmp_path, monkeypatch):
-    """Point document cache to tmp_path so tests don't touch ~/.hermes."""
+    """Point document cache to tmp_path so tests don't touch ~/.jarviscopilot."""
     monkeypatch.setattr(
         "gateway.platforms.base.DOCUMENT_CACHE_DIR", tmp_path / "doc_cache"
     )
@@ -761,11 +761,11 @@ class TestBangPrefixCommands:
 
     @pytest.mark.asyncio
     async def test_bang_with_bot_suffix_resolves(self, adapter):
-        """``!stop@hermes`` matches the get_command() ``@suffix`` stripping."""
-        await adapter._handle_slack_message(self._make_event("!stop@hermes"))
+        """``!stop@jarviscopilot`` matches the get_command() ``@suffix`` stripping."""
+        await adapter._handle_slack_message(self._make_event("!stop@jarviscopilot"))
 
         msg_event = adapter.handle_message.call_args[0][0]
-        assert msg_event.text.startswith("/stop@hermes")
+        assert msg_event.text.startswith("/stop@jarviscopilot")
         assert msg_event.message_type == MessageType.COMMAND
 
     @pytest.mark.asyncio

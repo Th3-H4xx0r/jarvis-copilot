@@ -42,7 +42,7 @@ def _state_dir() -> Path:
     env = os.environ.get("HERMES_WEBUI_STATE_DIR")
     if env:
         return Path(env).expanduser().resolve()
-    return (Path.home() / ".hermes" / "webui").resolve()
+    return (Path.home() / ".jarviscopilot" / "webui").resolve()
 
 
 def _webui_origin() -> str:

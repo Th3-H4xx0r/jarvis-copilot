@@ -59,7 +59,7 @@ class TestYoloEndpointGet:
     """GET /api/session/yolo should return yolo_enabled state.
 
     Agent-dependent: the endpoint reads from ``tools.approval._session_yolo``
-    in the hermes-agent process. When the agent isn't installed, routes.py
+    in the jarviscopilot process. When the agent isn't installed, routes.py
     falls back to a no-op lambda that always returns ``False`` regardless of
     POST state — every assertion here would either silently false-pass or
     flake. Skip cleanly when modules aren't importable.
@@ -83,7 +83,7 @@ class TestYoloEndpointPost:
     """POST /api/session/yolo should toggle YOLO for a session.
 
     Agent-dependent: the endpoint writes to ``tools.approval._session_yolo``
-    in the hermes-agent process. Without the agent, routes.py falls back to
+    in the jarviscopilot process. Without the agent, routes.py falls back to
     a no-op lambda; the response shape ``{"yolo_enabled": <input>}`` echoes
     the request body, so naive POST-only tests false-pass. The
     ``test_yolo_post_persists_within_session`` test catches this by reading

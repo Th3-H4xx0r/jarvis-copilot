@@ -38,7 +38,7 @@ def test_profiles_match_distinct_named_profiles():
 
 def test_profiles_match_default_alias_treated_as_root(monkeypatch):
     """A row tagged 'default' matches when the active profile is the renamed
-    root (e.g. 'kinni') and vice versa — both resolve to the same ~/.hermes
+    root (e.g. 'kinni') and vice versa — both resolve to the same ~/.jarviscopilot
     home, so they're the same profile from a user perspective."""
     import api.profiles as p
     from api.routes import _profiles_match

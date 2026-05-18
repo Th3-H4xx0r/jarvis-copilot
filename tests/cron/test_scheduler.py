@@ -817,7 +817,7 @@ class TestRunJobSessionPersistence:
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch(
                  "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                  return_value={
@@ -864,7 +864,7 @@ class TestRunJobSessionPersistence:
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch(
                  "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                  return_value={
@@ -901,7 +901,7 @@ class TestRunJobSessionPersistence:
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch(
                  "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                  return_value={
@@ -929,7 +929,7 @@ class TestRunJobSessionPersistence:
             patch("cron.scheduler._hermes_home", tmp_path),
             patch("cron.scheduler._resolve_origin", return_value=None),
             patch("dotenv.load_dotenv"),
-            patch("hermes_state.SessionDB", return_value=fake_db),
+            patch("jarviscopilot_state.SessionDB", return_value=fake_db),
             patch(
                 "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                 return_value={
@@ -961,7 +961,7 @@ class TestRunJobSessionPersistence:
 
     def test_run_job_enabled_toolsets_resolves_from_platform_config_when_not_set(self, tmp_path):
         """When a job has no explicit enabled_toolsets, the scheduler now
-        resolves them from ``hermes tools`` platform config for ``cron``
+        resolves them from ``jarviscopilot tools`` platform config for ``cron``
         (PR #14xxx — blanket fix for Norbert's surprise ``moa`` run).
 
         The legacy "pass None → AIAgent loads full default" path is still
@@ -992,7 +992,7 @@ class TestRunJobSessionPersistence:
 
     def test_run_job_per_job_toolsets_win_over_platform_config(self, tmp_path):
         """Per-job enabled_toolsets (via cronjob tool) always take precedence
-        over the platform-level ``hermes tools`` config."""
+        over the platform-level ``jarviscopilot tools`` config."""
         job = {
             "id": "override-job",
             "name": "test",
@@ -1000,7 +1000,7 @@ class TestRunJobSessionPersistence:
             "enabled_toolsets": ["terminal"],
         }
         fake_db, patches = self._make_run_job_patches(tmp_path)
-        # Even if the user has ``hermes tools`` configured to enable web+file
+        # Even if the user has ``jarviscopilot tools`` configured to enable web+file
         # for cron, the per-job override wins.
         with patches[0], patches[1], patches[2], patches[3], patches[4], \
              patch("run_agent.AIAgent") as mock_agent_cls, \
@@ -1032,7 +1032,7 @@ class TestRunJobSessionPersistence:
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch(
                  "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                  return_value={
@@ -1108,7 +1108,7 @@ class TestRunJobSessionPersistence:
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch(
                  "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                  return_value={
@@ -1147,7 +1147,7 @@ class TestRunJobSessionPersistence:
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch(
                  "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                  return_value={
@@ -1236,7 +1236,7 @@ class TestRunJobSessionPersistence:
                 return {"final_response": "ok"}
 
         with patch("cron.scheduler._hermes_home", tmp_path), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch(
                  "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                  return_value={
@@ -1302,7 +1302,7 @@ class TestRunJobSessionPersistence:
                 return {"final_response": "ok"}
 
         with patch("cron.scheduler._hermes_home", tmp_path), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch(
                  "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                  return_value={
@@ -1417,7 +1417,7 @@ class TestRunJobConfigEnvVarExpansion:
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch("jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                    return_value=self._RUNTIME), \
              patch("run_agent.AIAgent") as mock_agent_cls:
@@ -1449,7 +1449,7 @@ class TestRunJobConfigEnvVarExpansion:
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch("jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                    return_value=self._RUNTIME), \
              patch("run_agent.AIAgent") as mock_agent_cls:
@@ -1478,7 +1478,7 @@ class TestRunJobConfigEnvVarExpansion:
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch("jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                    return_value=self._RUNTIME), \
              patch("run_agent.AIAgent") as mock_agent_cls:
@@ -1520,7 +1520,7 @@ class TestRunJobSkillBacked:
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch(
                  "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                  return_value={
@@ -1580,7 +1580,7 @@ class TestRunJobSkillBacked:
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("tools.credential_files._resolve_hermes_home", return_value=tmp_path), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch(
                  "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                  return_value={
@@ -1618,7 +1618,7 @@ class TestRunJobSkillBacked:
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch(
                  "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                  return_value={
@@ -1664,7 +1664,7 @@ class TestRunJobSkillBacked:
         with patch("cron.scheduler._hermes_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("jarviscopilot_state.SessionDB", return_value=fake_db), \
              patch(
                  "jarviscopilot_cli.runtime_provider.resolve_runtime_provider",
                  return_value={

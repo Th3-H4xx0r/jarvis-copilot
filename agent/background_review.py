@@ -12,7 +12,7 @@ credentials, cached system prompt) so it hits the same prefix cache and
 uses the same auth.  It runs with a tool whitelist limited to memory and
 skill management tools; everything else is denied at runtime.
 
-See the ``hermes-agent-dev`` skill (``references/self-improvement-loop.md``)
+See the ``jarviscopilot-dev`` skill (``references/self-improvement-loop.md``)
 for invariants and PR review criteria.
 """
 
@@ -354,12 +354,12 @@ def _run_review_in_thread(
             _parent_runtime = agent._current_main_runtime()
             _parent_api_mode = _parent_runtime.get("api_mode") or None
             # The review fork needs to call agent-loop tools (memory,
-            # skill_manage). Those tools require Hermes' own dispatch,
+            # skill_manage). Those tools require JarvisCopilot' own dispatch,
             # which the codex_app_server runtime bypasses entirely
             # (it runs the turn inside codex's subprocess). So when
             # the parent is on codex_app_server, downgrade the review
             # fork to codex_responses — same auth/credentials, but
-            # talks to the OpenAI Responses API directly so Hermes
+            # talks to the OpenAI Responses API directly so JarvisCopilot
             # owns the loop and the agent-loop tools dispatch.
             if _parent_api_mode == "codex_app_server":
                 _parent_api_mode = "codex_responses"

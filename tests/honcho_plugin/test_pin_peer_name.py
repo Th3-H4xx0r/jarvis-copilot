@@ -1,6 +1,6 @@
 """Tests for the ``pinPeerName`` config flag (#14984).
 
-By default, when Hermes runs under a gateway (Telegram, Discord, Slack, ...)
+By default, when JarvisCopilot runs under a gateway (Telegram, Discord, Slack, ...)
 it passes the platform-native user ID as ``runtime_user_peer_name`` into
 ``HonchoSessionManager``.  That ID wins over any configured ``peer_name``
 so multi-user bots scope memory per user.
@@ -59,7 +59,7 @@ class TestPinPeerNameConfigParsing:
             "apiKey": "k",
             "peerName": "Igor",
             "hosts": {
-                "hermes": {"pinPeerName": True},
+                "jarviscopilot": {"pinPeerName": True},
             },
         }))
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "isolated"))
@@ -75,7 +75,7 @@ class TestPinPeerNameConfigParsing:
             "peerName": "Igor",
             "pinPeerName": True,
             "hosts": {
-                "hermes": {"pinPeerName": False},
+                "jarviscopilot": {"pinPeerName": False},
             },
         }))
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "isolated"))
@@ -234,7 +234,7 @@ class TestPeerResolutionOrder:
 
 class TestCrossPlatformMemoryUnification:
     """The user-visible outcome of the #14984 fix: the same physical user
-    talking to Hermes via Telegram AND Discord should land on ONE peer
+    talking to JarvisCopilot via Telegram AND Discord should land on ONE peer
     (not two) when pinPeerName is opted in.
     """
 

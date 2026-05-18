@@ -153,7 +153,7 @@ fi
 ```bash
 # Crontab entry
 0 9 * * * /usr/local/bin/generate-metrics.sh \
-  | /home/me/.jarviscopilot/bin/hermes send \
+  | /home/me/.jarviscopilot/bin/jarviscopilot send \
       --to telegram --subject "Daily metrics $(date +%Y-%m-%d)"
 ```
 

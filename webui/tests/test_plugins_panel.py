@@ -65,7 +65,7 @@ class TestPluginsApi:
                     key="guard",
                     version="1.2.3",
                     description="Blocks unsafe tool calls",
-                    path="/home/michael/.hermes/plugins/guard",
+                    path="/home/michael/.jarviscopilot/plugins/guard",
                 ),
                 enabled=True,
                 hooks_registered=["pre_tool_call", "post_tool_call"],
@@ -147,7 +147,7 @@ class TestPluginsSettingsUi:
 
         assert 'id="pluginsList"' in html
         assert 'id="pluginsEmpty"' in html
-        assert "No Hermes plugins are currently visible" in html
+        assert "No JarvisCopilot plugins are currently visible" in html
 
     def test_plugins_panel_fetches_api_and_renders_hook_badges_safely(self):
         js = read("static/panels.js")

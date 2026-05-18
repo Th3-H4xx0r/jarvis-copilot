@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 from tools.environments.base import (
     BaseEnvironment,
     _load_json_store,
@@ -80,7 +80,7 @@ def _get_scratch_dir() -> Path:
 
     scratch = Path("/scratch")
     if scratch.exists() and os.access(scratch, os.W_OK):
-        user_scratch = scratch / os.getenv("USER", "hermes") / "hermes-agent"
+        user_scratch = scratch / os.getenv("USER", "jarviscopilot") / "jarviscopilot"
         user_scratch.mkdir(parents=True, exist_ok=True)
         logger.info("Using /scratch for sandboxes: %s", user_scratch)
         return user_scratch

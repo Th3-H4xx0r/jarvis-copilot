@@ -4,7 +4,7 @@ Cron job scheduler - executes due jobs.
 Provides tick() which checks for due jobs and runs them. The gateway
 calls this every 60 seconds from a background thread.
 
-Uses a file-based lock (~/.hermes/cron/.tick.lock) so only one tick
+Uses a file-based lock (~/.jarviscopilot/cron/.tick.lock) so only one tick
 runs at a time if multiple processes overlap.
 """
 
@@ -32,13 +32,13 @@ from pathlib import Path
 from typing import List, Optional
 
 # Add parent directory to path for imports BEFORE repo-level imports.
-# Without this, standalone invocations (e.g. after `hermes update` reloads
-# the module) fail with ModuleNotFoundError for hermes_time et al.
+# Without this, standalone invocations (e.g. after `jarviscopilot update` reloads
+# the module) fail with ModuleNotFoundError for jarviscopilot_time et al.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 from jarviscopilot_cli.config import load_config, _expand_env_vars
-from hermes_time import now as _hermes_now
+from jarviscopilot_time import now as _hermes_now
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def _resolve_cron_enabled_toolsets(job: dict, cfg: dict) -> list[str] | None:
     Precedence:
     1. Per-job ``enabled_toolsets`` (set via ``cronjob`` tool on create/update).
        Keeps the agent's job-scoped toolset override intact — #6130.
-    2. Per-platform ``hermes tools`` config for the ``cron`` platform.
+    2. Per-platform ``jarviscopilot tools`` config for the ``cron`` platform.
        Mirrors gateway behavior (``_get_platform_tools(cfg, platform_key)``)
        so users can gate cron toolsets globally without recreating every job.
     3. ``None`` on any lookup failure — AIAgent loads the full default set
@@ -135,7 +135,7 @@ _hermes_home: Path | None = None
 
 
 def _get_hermes_home() -> Path:
-    """Resolve Hermes home dynamically while preserving test monkeypatch hooks."""
+    """Resolve JarvisCopilot home dynamically while preserving test monkeypatch hooks."""
     return _hermes_home or get_hermes_home()
 
 
@@ -148,11 +148,11 @@ def _get_lock_paths() -> tuple[Path, Path]:
 
 @contextmanager
 def _job_profile_context(job_id: str, profile: Optional[str]):
-    """Temporarily run a job under a specific Hermes profile.
+    """Temporarily run a job under a specific JarvisCopilot profile.
 
     Cron jobs are stored and scheduled by the profile running the scheduler, but
     an individual job can opt into a different runtime profile. While active,
-    the scheduler's test/override hook and a context-local Hermes home override
+    the scheduler's test/override hook and a context-local JarvisCopilot home override
     both point at the resolved profile directory so _get_hermes_home(),
     .env/config loading, script resolution, AIAgent construction, and downstream
     get_hermes_home() callers agree on the same home.
@@ -172,7 +172,7 @@ def _job_profile_context(job_id: str, profile: Optional[str]):
     env_snapshot = os.environ.copy()
 
     from jarviscopilot_cli.profiles import normalize_profile_name, resolve_profile_env
-    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+    from jarviscopilot_constants import reset_hermes_home_override, set_hermes_home_override
 
     normalized_profile = normalize_profile_name(raw_profile)
     try:
@@ -191,7 +191,7 @@ def _job_profile_context(job_id: str, profile: Optional[str]):
         override_token = set_hermes_home_override(profile_home)
         _hermes_home = profile_home
         logger.info(
-            "Job '%s': using Hermes profile '%s' (%s)",
+            "Job '%s': using JarvisCopilot profile '%s' (%s)",
             job_id,
             normalized_profile,
             profile_home,
@@ -852,7 +852,7 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
     run_env = os.environ.copy()
     run_env["HERMES_HOME"] = str(_get_hermes_home())
     try:
-        from hermes_constants import get_subprocess_home
+        from jarviscopilot_constants import get_subprocess_home
 
         profile_home = get_subprocess_home()
         if profile_home:
@@ -1229,7 +1229,7 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
     # and discoverable via session_search (same pattern as gateway/run.py).
     _session_db = None
     try:
-        from hermes_state import SessionDB
+        from jarviscopilot_state import SessionDB
         _session_db = SessionDB()
     except Exception as e:
         logger.debug("Job '%s': SQLite session store not available: %s", job.get("id", "?"), e)
@@ -1401,7 +1401,7 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
 
         # Apply IPv4 preference if configured.
         try:
-            from hermes_constants import apply_ipv4_preference
+            from jarviscopilot_constants import apply_ipv4_preference
             _net_cfg = _cfg.get("network", {})
             if isinstance(_net_cfg, dict) and _net_cfg.get("force_ipv4"):
                 apply_ipv4_preference(force=True)
@@ -1409,7 +1409,7 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
             pass
 
         # Reasoning config from config.yaml
-        from hermes_constants import parse_reasoning_effort
+        from jarviscopilot_constants import parse_reasoning_effort
         effort = str(_cfg.get("agent", {}).get("reasoning_effort", "")).strip()
         reasoning_config = parse_reasoning_effort(effort)
 
@@ -1868,7 +1868,7 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
         # Partition due jobs: jobs with a per-job workdir and/or profile touch
         # process-global runtime state inside run_job. Workdir jobs temporarily
         # set os.environ["TERMINAL_CWD"]; profile jobs use a context-local
-        # Hermes home override, scheduler _hermes_home hook, and temporary
+        # JarvisCopilot home override, scheduler _hermes_home hook, and temporary
         # profile .env load into os.environ with snapshot/restore. They MUST run
         # sequentially to avoid corrupting each other. Jobs without either field
         # stay parallel-safe.

@@ -1,6 +1,6 @@
 # RFCs
 
-This directory holds design documents for hermes-webui features that are
+This directory holds design documents for jarviscopilot-webui features that are
 worth thinking through in writing before (or alongside) implementation —
 typically when the change touches durability, recovery, schema, or cross-
 cutting infrastructure.

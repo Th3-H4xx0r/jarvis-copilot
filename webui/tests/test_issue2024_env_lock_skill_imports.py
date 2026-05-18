@@ -13,7 +13,7 @@ no import machinery).
 
 These tests are AST/source-level because the actual import targets
 (``tools.skills_tool``, ``tools.skill_manager_tool``) live in the
-hermes-agent package which may not be installed in the test venv.
+jarviscopilot package which may not be installed in the test venv.
 """
 import ast
 import pathlib

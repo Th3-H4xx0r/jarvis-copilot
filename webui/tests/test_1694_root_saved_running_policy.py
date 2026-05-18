@@ -1,7 +1,7 @@
 """Regression tests for #1694 root boot policy around saved running sessions.
 
 The active pane is only a projection. A root `/` tab restored from
-``localStorage['hermes-webui-session']`` should not automatically project into a
+``localStorage['jarviscopilot-webui-session']`` should not automatically project into a
 saved session that is still running, because that makes the new tab inherit the
 running pane's busy/stream state even though the user did not explicitly open
 that session.

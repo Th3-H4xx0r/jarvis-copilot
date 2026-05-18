@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 from jarviscopilot_cli.env_loader import load_hermes_dotenv
 from utils import is_truthy_value
 from tui_gateway.transport import (
@@ -39,7 +39,7 @@ load_hermes_dotenv(
 # JSON-RPC pipe (TUI side parses it, doesn't log raw), the root logger
 # only catches handled warnings, and the subprocess exits before stderr
 # flushes through the stderr->gateway.stderr event pump. This hook
-# appends every unhandled exception to ~/.hermes/logs/tui_gateway_crash.log
+# appends every unhandled exception to ~/.jarviscopilot/logs/tui_gateway_crash.log
 # AND re-emits a one-line summary to stderr so the TUI can surface it in
 # Activity — exactly what was missing when the voice-mode turns started
 # exiting the gateway mid-TTS.
@@ -341,7 +341,7 @@ atexit.register(_shutdown_sessions)
 def _get_db():
     global _db, _db_error
     if _db is None:
-        from hermes_state import SessionDB
+        from jarviscopilot_state import SessionDB
 
         try:
             _db = SessionDB()
@@ -525,7 +525,7 @@ def _wait_agent(session: dict, rid: str, timeout: float = 30.0) -> dict | None:
 def _start_agent_build(sid: str, session: dict) -> None:
     """Start building the real AIAgent for a TUI session, once.
 
-    Classic `hermes` shows the prompt before constructing AIAgent; the TUI used
+    Classic `jarviscopilot` shows the prompt before constructing AIAgent; the TUI used
     to eagerly build it during session.create, making startup feel blocked on
     tool discovery/model metadata even though the composer was visible.  Keep
     the shell responsive by deferring this work until the first prompt (or any
@@ -861,7 +861,7 @@ def _display_mouse_tracking(display: dict) -> bool:
 
 
 def _load_reasoning_config() -> dict | None:
-    from hermes_constants import parse_reasoning_effort
+    from jarviscopilot_constants import parse_reasoning_effort
 
     effort = str(
         (_load_cfg().get("agent") or {}).get("reasoning_effort", "") or ""
@@ -2419,7 +2419,7 @@ def _(rid, params: dict) -> dict:
     if err:
         return err
 
-    from hermes_constants import display_hermes_home
+    from jarviscopilot_constants import display_hermes_home
 
     key = session.get("session_key") or params.get("session_id") or ""
     agent = session.get("agent")
@@ -2450,7 +2450,7 @@ def _(rid, params: dict) -> dict:
     provider = getattr(agent, "provider", None) or "unknown"
     model = getattr(agent, "model", None) or "(unknown)"
     lines = [
-        "Hermes TUI Status",
+        "JarvisCopilot TUI Status",
         "",
         f"Session ID: {key}",
         f"Path: {display_hermes_home()}",
@@ -2800,7 +2800,7 @@ def _(rid, params: dict) -> dict:
 
 def _spawn_trees_root():
     from pathlib import Path as _P
-    from hermes_constants import get_hermes_home
+    from jarviscopilot_constants import get_hermes_home
 
     root = get_hermes_home() / "spawn-trees"
     root.mkdir(parents=True, exist_ok=True)
@@ -3921,7 +3921,7 @@ def _(rid, params: dict) -> dict:
 
     if key == "reasoning":
         try:
-            from hermes_constants import parse_reasoning_effort
+            from jarviscopilot_constants import parse_reasoning_effort
 
             arg = str(value or "").strip().lower()
             if arg in {"show", "on"}:
@@ -4157,7 +4157,7 @@ def _(rid, params: dict) -> dict:
         except Exception as e:
             return _err(rid, 5013, str(e))
     if key == "profile":
-        from hermes_constants import display_hermes_home
+        from jarviscopilot_constants import display_hermes_home
 
         return _ok(rid, {"home": str(_hermes_home), "display": display_hermes_home()})
     if key == "full":
@@ -4359,7 +4359,7 @@ def _(rid, params: dict) -> dict:
 
 @method("reload.env")
 def _(rid, params: dict) -> dict:
-    """Re-read ``~/.hermes/.env`` into the gateway process via
+    """Re-read ``~/.jarviscopilot/.env`` into the gateway process via
     ``jarviscopilot_cli.config.reload_env``, matching classic CLI's ``/reload``
     handler.  Newly added API keys take effect on the next agent call
     without restarting the TUI.
@@ -4514,16 +4514,16 @@ def _(rid, params: dict) -> dict:
 def _cli_exec_blocked(argv: list[str]) -> str | None:
     """Return user hint if this argv must not run headless in the gateway process."""
     if not argv:
-        return "bare `hermes` is interactive — use `/hermes chat -q …` or run `hermes` in another terminal"
+        return "bare `jarviscopilot` is interactive — use `/jarviscopilot chat -q …` or run `jarviscopilot` in another terminal"
     a0 = argv[0].lower()
     if a0 == "setup":
-        return "`hermes setup` needs a full terminal — run it outside the TUI"
+        return "`jarviscopilot setup` needs a full terminal — run it outside the TUI"
     if a0 == "gateway":
-        return "`hermes gateway` is long-running — run it in another terminal"
+        return "`jarviscopilot gateway` is long-running — run it in another terminal"
     if a0 == "sessions" and len(argv) > 1 and argv[1].lower() == "browse":
-        return "`hermes sessions browse` is interactive — use /resume here, or run browse in another terminal"
+        return "`jarviscopilot sessions browse` is interactive — use /resume here, or run browse in another terminal"
     if a0 == "config" and len(argv) > 1 and argv[1].lower() == "edit":
-        return "`hermes config edit` needs $EDITOR in a real terminal"
+        return "`jarviscopilot config edit` needs $EDITOR in a real terminal"
     return None
 
 
@@ -5365,12 +5365,12 @@ def _(rid, params: dict) -> dict:
                 rid,
                 4003,
                 f"{pconfig.name} uses {pconfig.auth_type} auth — "
-                f"run `hermes model` to configure",
+                f"run `jarviscopilot model` to configure",
             )
         if not pconfig.api_key_env_vars:
             return _err(rid, 4004, f"no env var defined for {pconfig.name}")
 
-        # Save the key to ~/.hermes/.env
+        # Save the key to ~/.jarviscopilot/.env
         env_var = pconfig.api_key_env_vars[0]
         save_env_value(env_var, api_key)
         # Also set in current process so the refreshed inventory sees it.

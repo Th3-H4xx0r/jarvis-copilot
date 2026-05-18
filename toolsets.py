@@ -94,7 +94,7 @@ TOOLSETS = {
             "Search X (Twitter) posts and threads via xAI's built-in "
             "x_search Responses tool. Available when xAI credentials are "
             "configured (SuperGrok OAuth or XAI_API_KEY). Off by default; "
-            "enable in `hermes tools` → X (Twitter) Search."
+            "enable in `jarviscopilot tools` → X (Twitter) Search."
         ),
         "tools": ["x_search"],
         "includes": []
@@ -123,7 +123,7 @@ TOOLSETS = {
             "Video generation tools. Single ``video_generate`` tool covers "
             "text-to-video (prompt only) and image-to-video (prompt + "
             "image_url) — the active backend auto-routes. Configure via "
-            "``hermes tools`` → Video Generation."
+            "``jarviscopilot tools`` → Video Generation."
         ),
         "tools": ["video_generate"],
         "includes": []
@@ -322,13 +322,13 @@ TOOLSETS = {
     },
     
     # ==========================================================================
-    # Full Hermes toolsets (CLI + messaging platforms)
+    # Full JarvisCopilot toolsets (CLI + messaging platforms)
     #
     # All platforms share the same core tools (including send_message,
     # which is gated on gateway running via its check_fn).
     # ==========================================================================
 
-    "hermes-acp": {
+    "jarviscopilot-acp": {
         "description": "Editor integration (VS Code, Zed, JetBrains) — coding-focused tools without messaging, audio, or clarify UI",
         "tools": [
             "web_search", "web_extract",
@@ -388,11 +388,11 @@ TOOLSETS = {
 
     "hermes-cron": {
         # Mirrors hermes-cli so cron's "default" toolset is the same set of
-        # core tools users see interactively — then `hermes tools` filters
+        # core tools users see interactively — then `jarviscopilot tools` filters
         # them down per the platform config. _DEFAULT_OFF_TOOLSETS (moa,
         # homeassistant) are excluded by _get_platform_tools() unless
         # the user explicitly enables them.
-        "description": "Default cron toolset - same core tools as hermes-cli; gated by `hermes tools`",
+        "description": "Default cron toolset - same core tools as hermes-cli; gated by `jarviscopilot tools`",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
@@ -443,7 +443,7 @@ TOOLSETS = {
     },
 
     "hermes-email": {
-        "description": "Email bot toolset - interact with Hermes via email (IMAP/SMTP)",
+        "description": "Email bot toolset - interact with JarvisCopilot via email (IMAP/SMTP)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
@@ -516,7 +516,7 @@ TOOLSETS = {
     },
 
     "hermes-sms": {
-        "description": "SMS bot toolset - interact with Hermes via SMS (Twilio)",
+        "description": "SMS bot toolset - interact with JarvisCopilot via SMS (Twilio)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
@@ -527,7 +527,7 @@ TOOLSETS = {
         "includes": []
     },
 
-    "hermes-gateway": {
+    "jarviscopilot-gateway": {
         "description": "Gateway toolset - union of all messaging platform tools",
         "tools": [],
         "includes": ["hermes-telegram", "hermes-discord", "hermes-whatsapp", "hermes-slack", "hermes-signal", "hermes-bluebubbles", "hermes-homeassistant", "hermes-email", "hermes-sms", "hermes-mattermost", "hermes-matrix", "hermes-dingtalk", "hermes-feishu", "hermes-wecom", "hermes-wecom-callback", "hermes-weixin", "hermes-qqbot", "hermes-webhook", "hermes-yuanbao"]

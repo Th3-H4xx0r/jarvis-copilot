@@ -3,8 +3,8 @@ Feishu document comment access-control rules.
 
 3-tier rule resolution: exact doc > wildcard "*" > top-level > code defaults.
 Each field (enabled/policy/allow_from) falls back independently.
-Config: ~/.hermes/feishu_comment_rules.json (mtime-cached, hot-reload).
-Pairing store: ~/.hermes/feishu_comment_pairing.json.
+Config: ~/.jarviscopilot/feishu_comment_rules.json (mtime-cached, hot-reload).
+Pairing store: ~/.jarviscopilot/feishu_comment_pairing.json.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 
 logger = logging.getLogger(__name__)
 

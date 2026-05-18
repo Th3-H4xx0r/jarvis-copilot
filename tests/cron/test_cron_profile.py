@@ -15,7 +15,7 @@ import pytest
 
 @pytest.fixture()
 def isolated_cron_profile_home(tmp_path, monkeypatch):
-    """Create an isolated Hermes root with a named profile and temp cron store."""
+    """Create an isolated JarvisCopilot root with a named profile and temp cron store."""
     root = tmp_path / "hermes-root"
     profile_home = root / "profiles" / "support"
     profile_home.mkdir(parents=True)
@@ -152,7 +152,7 @@ class TestCronjobToolProfile:
         assert "profile" in CRONJOB_SCHEMA["parameters"]["properties"]
         desc = CRONJOB_SCHEMA["parameters"]["properties"]["profile"]["description"]
         desc_lower = desc.lower()
-        assert "hermes profile" in desc_lower
+        assert "jarviscopilot profile" in desc_lower
         assert "context-local" in desc_lower
         assert "subprocess" in desc_lower
         assert "temporarily sets hermes_home" not in desc_lower
@@ -166,7 +166,7 @@ class TestRunJobProfileContext:
 
         class FakeAgent:
             def __init__(self, **kwargs):
-                from hermes_constants import get_hermes_home
+                from jarviscopilot_constants import get_hermes_home
 
                 observed["env_home_during_init"] = os.environ.get("HERMES_HOME")
                 observed["profile_env_only_during_init"] = os.environ.get(
@@ -180,7 +180,7 @@ class TestRunJobProfileContext:
                 observed["skip_context_files"] = kwargs.get("skip_context_files")
 
             def run_conversation(self, *_a, **_kw):
-                from hermes_constants import get_hermes_home
+                from jarviscopilot_constants import get_hermes_home
 
                 observed["env_home_during_run"] = os.environ.get("HERMES_HOME")
                 observed["profile_env_only_during_run"] = os.environ.get(

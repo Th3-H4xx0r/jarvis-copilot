@@ -374,7 +374,7 @@ class TestSessionIDValidation:
         assert result is None  # No file, but no error
 
     def test_new_format_session_id_passes_validation(self):
-        """New hermes-agent session IDs (YYYYMMDD_HHMMSS_xxxxxx) must pass validation."""
+        """New jarviscopilot session IDs (YYYYMMDD_HHMMSS_xxxxxx) must pass validation."""
         from api.models import Session
         # Should pass the validator (returns None only because the file doesn't exist)
         result = Session.load("20260406_164014_74b2d1")
@@ -412,7 +412,7 @@ class TestSessionIDValidation:
 class TestSanitizeError:
     def test_unix_path_stripped(self):
         from api.helpers import _sanitize_error
-        e = FileNotFoundError("/home/hermes/.hermes/sessions/abc123.json")
+        e = FileNotFoundError("/home/hermes/.jarviscopilot/sessions/abc123.json")
         result = _sanitize_error(e)
         assert "/home/hermes" not in result
         assert "<path>" in result
@@ -432,9 +432,9 @@ class TestSanitizeError:
 
     def test_windows_path_stripped(self):
         from api.helpers import _sanitize_error
-        e = FileNotFoundError("C:\\Users\\hermes\\AppData\\sessions\\x.json not found")
+        e = FileNotFoundError("C:\\Users\\jarviscopilot\\AppData\\sessions\\x.json not found")
         result = _sanitize_error(e)
-        assert "C:\\Users\\hermes" not in result
+        assert "C:\\Users\\jarviscopilot" not in result
 
     def test_live_404_does_not_leak_path(self, webui_server):
         """Live server: file-not-found errors must not expose filesystem paths."""
@@ -516,9 +516,9 @@ class TestSkillsPathTraversal:
             "name": "test-security-skill",
             "content": "---\nname: test-security-skill\ndescription: test\n---\n# test",
         })
-        # 500 = skills module not available (hermes-agent not installed) — skip
+        # 500 = skills module not available (jarviscopilot not installed) — skip
         if status == 500:
-            import pytest; pytest.skip("skills module requires hermes-agent")
+            import pytest; pytest.skip("skills module requires jarviscopilot")
         # Should succeed (200) or need auth (401/403) — not path error (400)
         assert status in (200, 401, 403, 404), \
             f"Valid skill save got unexpected status {status}: {body}"

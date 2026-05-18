@@ -1,4 +1,4 @@
-"""Tests for GET /api/commands -- exposes hermes-agent COMMAND_REGISTRY."""
+"""Tests for GET /api/commands -- exposes jarviscopilot COMMAND_REGISTRY."""
 import json
 import urllib.request
 

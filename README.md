@@ -1,6 +1,6 @@
 # Jarvis Copilot
 
-A voice-first AI assistant fork of [JarvisCopilot](https://github.com/NousResearch/hermes-agent) with a browser-based web UI ported from [nesquena/hermes-webui](https://github.com/nesquena/hermes-webui), tool-enabled voice chat with an ack → tool → confirm cadence, a JARVIS personality with a matching Piper neural voice, Fish Audio TTS support, and a self-signed-TLS launcher so the voice tab works over your LAN out of the box.
+A voice-first AI assistant fork of [JarvisCopilot](https://github.com/NousResearch/jarviscopilot) with a browser-based web UI ported from [nesquena/jarviscopilot-webui](https://github.com/nesquena/jarviscopilot-webui), tool-enabled voice chat with an ack → tool → confirm cadence, a JARVIS personality with a matching Piper neural voice, Fish Audio TTS support, and a self-signed-TLS launcher so the voice tab works over your LAN out of the box.
 
 Everything JarvisCopilot does — skills, cron jobs, memory, sessions, the full tool ecosystem, the messaging gateway — still works. This fork adds a voice-tab UI on top.
 
@@ -53,7 +53,7 @@ Then open **https://localhost:8787** on the host, or **https://&lt;your-LAN-ip&g
 
 | Surface | Added by Jarvis Copilot |
 | --- | --- |
-| **Web UI** | Vendored from [nesquena/hermes-webui](https://github.com/nesquena/hermes-webui) — three-panel chat, workspace browser, sessions, kanban, skills, memory. Now with a Voice tab. |
+| **Web UI** | Vendored from [nesquena/jarviscopilot-webui](https://github.com/nesquena/jarviscopilot-webui) — three-panel chat, workspace browser, sessions, kanban, skills, memory. Now with a Voice tab. |
 | **Voice tab** | Push-to-talk + Realtime WebSocket modes. Web Audio mic capture, browser-side interim transcript via Web Speech API, server-side STT via JarvisCopilot's `faster-whisper`. Streams responses as they arrive (text speaks while the next tool runs). |
 | **Particle-sphere orb** | Pure Canvas2D port of JarvisClaw's `VoiceWaveform` — rotating chrome rings, additive blending, amplitude-driven spike rim, state-driven color (idle blue, listening cool, thinking pulsing purple, speaking warm orange). |
 | **Voice → chat agent** | Voice transcripts route through the user's active chat session so the agent's full tool kit (terminal, browser, file, web, etc.) is available. Auto-approve via `tools.approval.enable_session_yolo()` — speaking is consent. |
@@ -121,8 +121,8 @@ State directory is still `~/.jarviscopilot/` — renaming the on-disk path would
 
 ## Credits
 
-- [JarvisCopilot](https://github.com/NousResearch/hermes-agent) by [Nous Research](https://nousresearch.com) — the agent core, tool system, memory, cron scheduler, gateway, every part of the brains
-- [hermes-webui](https://github.com/nesquena/hermes-webui) by [nesquena](https://github.com/nesquena) — the three-panel web UI vendored in `webui/`
+- [JarvisCopilot](https://github.com/NousResearch/jarviscopilot) by [Nous Research](https://nousresearch.com) — the agent core, tool system, memory, cron scheduler, gateway, every part of the brains
+- [jarviscopilot-webui](https://github.com/nesquena/jarviscopilot-webui) by [nesquena](https://github.com/nesquena) — the three-panel web UI vendored in `webui/`
 - [JarvisClaw](https://github.com/jarvisclaw/jarvisclaw) — design inspiration for the voice tab, JARVIS persona, Piper voice config, and Fish Audio integration
 
 ---

@@ -11,14 +11,14 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright
 
 # Install system dependencies in one layer, clear APT cache
 # tini reaps orphaned zombie processes (MCP stdio subprocesses, git, bun, etc.)
-# that would otherwise accumulate when hermes runs as PID 1. See #15012.
+# that would otherwise accumulate when jarviscopilot runs as PID 1. See #15012.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential curl nodejs npm python3 ripgrep ffmpeg gcc python3-dev libffi-dev procps git openssh-client docker-cli tini && \
     rm -rf /var/lib/apt/lists/*
 
 # Non-root user for runtime; UID can be overridden via HERMES_UID at runtime
-RUN useradd -u 10000 -m -d /opt/data hermes
+RUN useradd -u 10000 -m -d /opt/data jarviscopilot
 
 COPY --chmod=0755 --from=gosu_source /gosu /usr/local/bin/
 COPY --chmod=0755 --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
@@ -43,7 +43,7 @@ COPY ui-tui/packages/hermes-ink/ ui-tui/packages/hermes-ink/
 # which defaults to `install-links=true` and installs file deps as *copies*.
 # The host-side package-lock.json is generated with a newer npm that uses
 # symlinks, so an install-as-copy produces a hidden node_modules/.package-lock.json
-# that permanently disagrees with the root lock on the @hermes/ink entry.
+# that permanently disagrees with the root lock on the @jarviscopilot/ink entry.
 # That disagreement trips the TUI launcher's `_tui_need_npm_install()`
 # check on every startup and triggers a runtime `npm install` that then
 # fails with EACCES (node_modules/ is root-owned from build time).
@@ -82,7 +82,7 @@ RUN uv sync --frozen --no-install-project --extra all --extra messaging
 
 # ---------- Source code ----------
 # .dockerignore excludes node_modules, so the installs above survive.
-COPY --chown=hermes:hermes . .
+COPY --chown=jarviscopilot:jarviscopilot . .
 
 # Build browser dashboard and terminal UI assets.
 RUN cd web && npm run build && \
@@ -91,7 +91,7 @@ RUN cd web && npm run build && \
 # ---------- Permissions ----------
 # Make install dir world-readable so any HERMES_UID can read it at runtime.
 # The venv needs to be traversable too.
-# node_modules trees additionally need to be writable by the hermes user
+# node_modules trees additionally need to be writable by the jarviscopilot user
 # so the runtime `npm install` triggered by _tui_need_npm_install() in
 # hermes_cli/main.py succeeds (see #18800). /opt/hermes/web is build-time
 # only (HERMES_WEB_DIST points at hermes_cli/web_dist) and is intentionally
@@ -102,11 +102,11 @@ RUN cd web && npm run build && \
 # fail to load.  See tools/lazy_deps.py.
 USER root
 RUN chmod -R a+rX /opt/hermes && \
-    chown -R hermes:hermes /opt/hermes/.venv /opt/hermes/ui-tui /opt/hermes/node_modules
+    chown -R jarviscopilot:jarviscopilot /opt/hermes/.venv /opt/hermes/ui-tui /opt/hermes/node_modules
 # Start as root so the entrypoint can usermod/groupmod + gosu.
-# If HERMES_UID is unset, the entrypoint drops to the default hermes user (10000).
+# If HERMES_UID is unset, the entrypoint drops to the default jarviscopilot user (10000).
 
-# ---------- Link hermes-agent itself (editable) ----------
+# ---------- Link jarviscopilot itself (editable) ----------
 # Deps are already installed in the cached layer above; `--no-deps` makes
 # this a fast (~1s) egg-link creation with no resolution or downloads.
 RUN uv pip install --no-cache-dir --no-deps -e "."

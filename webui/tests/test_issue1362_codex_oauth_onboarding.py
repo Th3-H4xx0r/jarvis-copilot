@@ -204,7 +204,7 @@ def test_codex_credentials_written_to_active_profile_auth_json(monkeypatch, tmp_
 
     assert auth_path == active_home / "auth.json"
     assert auth_path.exists()
-    assert not (realish_home / ".hermes" / "auth.json").exists()
+    assert not (realish_home / ".jarviscopilot" / "auth.json").exists()
     mode = stat.S_IMODE(auth_path.stat().st_mode)
     assert mode == 0o600
     store = json.loads(auth_path.read_text(encoding="utf-8"))

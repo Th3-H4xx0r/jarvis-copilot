@@ -12,7 +12,7 @@ import getpass
 
 from jarviscopilot_cli.banner import cprint, _DIM, _RST
 from jarviscopilot_cli.config import save_env_value_secure
-from hermes_constants import display_hermes_home
+from jarviscopilot_constants import display_hermes_home
 
 
 def clarify_callback(cli, question, choices):
@@ -67,7 +67,7 @@ def prompt_for_secret(cli, var_name: str, prompt: str, metadata=None) -> dict:
     """Prompt for a secret value through the TUI (e.g. API keys for skills).
 
     Returns a dict with keys: success, stored_as, validated, skipped, message.
-    The secret is stored in ~/.hermes/.env and never exposed to the model.
+    The secret is stored in ~/.jarviscopilot/.env and never exposed to the model.
     """
     if not getattr(cli, "_app", None):
         if not hasattr(cli, "_secret_state"):

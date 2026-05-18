@@ -24,13 +24,13 @@ The WSL launcher supports these environment variables:
 | `HERMES_WEBUI_HOST` | `127.0.0.1` | Host passed through to `start.sh` / `bootstrap.py` |
 | `HERMES_WEBUI_PORT` | `8787` | WebUI port and health-check port |
 | `HERMES_WEBUI_HEALTH_URL` | `http://127.0.0.1:$HERMES_WEBUI_PORT/health` | URL used to decide whether WebUI is already running |
-| `HERMES_WEBUI_PID_FILE` | `$HERMES_WEBUI_LOG_DIR/hermes-webui.pid` | pid file used for duplicate prevention |
+| `HERMES_WEBUI_PID_FILE` | `$HERMES_WEBUI_LOG_DIR/jarviscopilot-webui.pid` | pid file used for duplicate prevention |
 | `HERMES_WEBUI_REQUIRE_AGENT_PROCESS` | `0` | Optional: set to `1` only if your local setup requires a separate JarvisCopilot process before WebUI starts |
 
 Make the script executable once inside WSL:
 
 ```bash
-cd /path/to/hermes-webui
+cd /path/to/jarviscopilot-webui
 chmod +x scripts/wsl/hermes_webui_autostart.sh
 ```
 
@@ -55,9 +55,9 @@ This starts WebUI when your WSL login shell starts. It is the easiest option if 
 Add this to `~/.profile` or `~/.bashrc` inside WSL, adjusting the repo path:
 
 ```bash
-if [ -x "$HOME/hermes-webui/scripts/wsl/hermes_webui_autostart.sh" ]; then
-  HERMES_WEBUI_REPO="$HOME/hermes-webui" \
-    "$HOME/hermes-webui/scripts/wsl/hermes_webui_autostart.sh" >/dev/null 2>&1 &
+if [ -x "$HOME/jarviscopilot-webui/scripts/wsl/hermes_webui_autostart.sh" ]; then
+  HERMES_WEBUI_REPO="$HOME/jarviscopilot-webui" \
+    "$HOME/jarviscopilot-webui/scripts/wsl/hermes_webui_autostart.sh" >/dev/null 2>&1 &
 fi
 ```
 
@@ -84,7 +84,7 @@ From Windows PowerShell, run it with the WSL path to the launch script:
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\scripts\windows\setup_webui_autostart.ps1 `
-  -WslScriptPath "/home/your-user/hermes-webui/scripts/wsl/hermes_webui_autostart.sh" `
+  -WslScriptPath "/home/your-user/jarviscopilot-webui/scripts/wsl/hermes_webui_autostart.sh" `
   -Distro "Ubuntu"
 ```
 

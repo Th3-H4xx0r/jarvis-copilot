@@ -23,7 +23,7 @@ import os
 _PREFIX_OLD = "HERMES_"
 _PREFIX_NEW = "JARVISCOPILOT_"
 
-# Vars that exist with HERMES_ prefix but belong to OTHER tools (Hermes
+# Vars that exist with HERMES_ prefix but belong to OTHER tools (JarvisCopilot
 # Messenger, etc.) — never auto-mirror these. None known yet; placeholder
 # for the day a collision turns up.
 _BLOCKLIST: frozenset[str] = frozenset()

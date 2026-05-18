@@ -1,14 +1,14 @@
-"""hermes hooks — inspect and manage shell-script hooks.
+"""jarviscopilot hooks — inspect and manage shell-script hooks.
 
 Usage::
 
-    hermes hooks list
-    hermes hooks test <event> [--for-tool X] [--payload-file F]
-    hermes hooks revoke <command>
-    hermes hooks doctor
+    jarviscopilot hooks list
+    jarviscopilot hooks test <event> [--for-tool X] [--payload-file F]
+    jarviscopilot hooks revoke <command>
+    jarviscopilot hooks doctor
 
-Consent records live under ``~/.hermes/shell-hooks-allowlist.json`` and
-hook definitions come from the ``hooks:`` block in ``~/.hermes/config.yaml``
+Consent records live under ``~/.jarviscopilot/shell-hooks-allowlist.json`` and
+hook definitions come from the ``hooks:`` block in ``~/.jarviscopilot/config.yaml``
 (the same config read by the CLI / gateway at startup).
 
 This module is a thin CLI shell over :mod:`agent.shell_hooks`; every
@@ -24,12 +24,12 @@ from typing import Any, Dict, List
 
 
 def hooks_command(args) -> None:
-    """Entry point for ``hermes hooks`` — dispatches to the requested action."""
+    """Entry point for ``jarviscopilot hooks`` — dispatches to the requested action."""
     sub = getattr(args, "hooks_action", None)
 
     if not sub:
-        print("Usage: hermes hooks {list|test|revoke|doctor}")
-        print("Run 'hermes hooks --help' for details.")
+        print("Usage: jarviscopilot hooks {list|test|revoke|doctor}")
+        print("Run 'jarviscopilot hooks --help' for details.")
         return
 
     if sub in {"list", "ls"}:
@@ -55,8 +55,8 @@ def _cmd_list(_args) -> None:
     specs = shell_hooks.iter_configured_hooks(load_config())
 
     if not specs:
-        print("No shell hooks configured in ~/.hermes/config.yaml.")
-        print("See `hermes hooks --help` or")
+        print("No shell hooks configured in ~/.jarviscopilot/config.yaml.")
+        print("See `jarviscopilot hooks --help` or")
         print("    website/docs/user-guide/features/hooks.md")
         print("for the config schema and worked examples.")
         return
@@ -95,7 +95,7 @@ def _cmd_list(_args) -> None:
                         print(
                             f"      ⚠ script modified since approval "
                             f"(was {mtime_at}, now {mtime_now}) — "
-                            f"run `hermes hooks doctor` to re-validate"
+                            f"run `jarviscopilot hooks doctor` to re-validate"
                         )
         print()
 
@@ -107,7 +107,7 @@ def _cmd_list(_args) -> None:
 # Synthetic kwargs matching the real invoke_hook() call sites — these are
 # passed verbatim to agent.shell_hooks.run_once(), which routes them through
 # the same _serialize_payload() that production firings use.  That way the
-# stdin a script sees under `hermes hooks test` and `hermes hooks doctor`
+# stdin a script sees under `jarviscopilot hooks test` and `jarviscopilot hooks doctor`
 # is identical in shape to what it will see at runtime.
 _DEFAULT_PAYLOADS = {
     "pre_tool_call": {
@@ -259,7 +259,7 @@ def _print_run_result(result: Dict[str, Any]) -> None:
 
     parsed = result.get("parsed")
     if parsed:
-        print(f"      parsed (Hermes wire shape): {json.dumps(parsed)}")
+        print(f"      parsed (JarvisCopilot wire shape): {json.dumps(parsed)}")
     else:
         print("      parsed: <none — hook contributed nothing to the dispatcher>")
 
@@ -342,19 +342,19 @@ def _doctor_one(spec, shell_hooks) -> int:
             problems += 1
             print(f"      ⚠ script modified since approval "
                   f"(was {mtime_at}, now {mtime_now}) — review changes, "
-                  f"then `hermes hooks revoke` + re-approve to refresh")
+                  f"then `jarviscopilot hooks revoke` + re-approve to refresh")
         elif mtime_now and mtime_at and mtime_now == mtime_at:
             print("      ✓ script unchanged since approval")
 
     # 4. Produces valid JSON for a synthetic payload — only when the entry
-    # is already allowlisted.  Otherwise `hermes hooks doctor` would execute
+    # is already allowlisted.  Otherwise `jarviscopilot hooks doctor` would execute
     # every script listed in a freshly-pulled config before the user has
     # reviewed them, which directly contradicts the documented workflow
     # ("spot newly-added hooks *before they register*").
     if not entry:
         print("      ℹ skipped JSON smoke test — not allowlisted yet. "
               "Approve the hook first (via TTY prompt or --accept-hooks), "
-              "then re-run `hermes hooks doctor`.")
+              "then re-run `jarviscopilot hooks doctor`.")
     elif shell_hooks.script_is_executable(spec.command):
         payload = _DEFAULT_PAYLOADS.get(spec.event, {"extra": {}})
         result = shell_hooks.run_once(spec, payload)

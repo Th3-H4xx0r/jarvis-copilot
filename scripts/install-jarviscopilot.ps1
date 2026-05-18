@@ -1,7 +1,7 @@
 # ============================================================================
 # JarvisCopilot Installer (Windows / PowerShell)
 # ============================================================================
-# Clones the JarvisCopilot fork, creates a local Python venv, installs Hermes
+# Clones the JarvisCopilot fork, creates a local Python venv, installs JarvisCopilot
 # core + voice extras + piper-tts + webui deps, and generates a self-signed
 # TLS cert so the voice tab works over LAN.
 #
@@ -13,7 +13,7 @@
 #   - Re-creates the venv ONLY if it's missing
 #   - pip install is naturally idempotent — already-installed packages skip
 #   - TLS cert is regenerated ONLY if missing or expired
-#   - NEVER touches ~/.hermes/ contents — your config.yaml, SOUL.md, skills/,
+#   - NEVER touches ~/.jarviscopilot/ contents — your config.yaml, SOUL.md, skills/,
 #     cron jobs, sessions, auth.json, and credential pool are preserved
 # ============================================================================
 
@@ -93,11 +93,11 @@ else {
 
 Set-Location $Dir
 
-# ---- Stop any running JarvisCopilot / Hermes instances ---------------------
+# ---- Stop any running JarvisCopilot / JarvisCopilot instances ---------------------
 # Idempotent best-effort shutdown so pip install can replace files the
 # venv's python.exe / pyd modules would otherwise have locked, and so the
 # tray relaunch later isn't competing with a previous tray.
-Info "Stopping any running JarvisCopilot / Hermes instances ..."
+Info "Stopping any running JarvisCopilot / JarvisCopilot instances ..."
 
 # Anything bound to 8787 = the webui process. Stop it.
 try {
@@ -156,10 +156,10 @@ if (-not (Test-Path $VenvPy)) {
     if ($LASTEXITCODE -ne 0) { Die "venv creation failed" }
 }
 
-# ---- Install Hermes core + voice extras + webui deps -----------------------
+# ---- Install JarvisCopilot core + voice extras + webui deps -----------------------
 # `pip install -e .[all,voice,edge-tts]` is idempotent — pip checks each
 # dist's installed version against the requirement and skips if satisfied.
-# User state under ~/.hermes/ is never touched by pip.
+# User state under ~/.jarviscopilot/ is never touched by pip.
 # Quiet flags: -q hides "Requirement already satisfied" lines; the progress
 # bar still shows on actual downloads. --no-input prevents interactive prompts.
 $PipQuiet = @('-q', '--progress-bar', 'off', '--no-input')
@@ -182,11 +182,11 @@ if (-not $SkipPiper) {
 # Touch the install marker so the launch script skips re-install on next launch.
 Set-Content -Path (Join-Path $VenvDir '.webui-installed') -Value (Get-Date).ToString('o')
 
-# ---- Merge shipped personalities into ~/.hermes/config.yaml ---------------
+# ---- Merge shipped personalities into ~/.jarviscopilot/config.yaml ---------------
 # Idempotent -- adds entries (e.g. jarvis-mcu) only when missing, never
 # overwrites the user's existing personalities or other config keys. Writes a
 # timestamped backup before any change.
-Info "Merging shipped personalities into ~/.hermes/config.yaml ..."
+Info "Merging shipped personalities into ~/.jarviscopilot/config.yaml ..."
 & $VenvPy (Join-Path $Dir 'installer/merge-personalities.py')
 if ($LASTEXITCODE -ne 0) { Warn "personality merge failed (non-fatal)" }
 
@@ -221,14 +221,14 @@ if (-not (Test-Path $ShimDir)) {
     $ShimDir = Join-Path $env:USERPROFILE 'bin'
     New-Item -ItemType Directory -Force -Path $ShimDir | Out-Null
 }
-foreach ($pair in @(@($JcPath, 'jarviscopilot.cmd'), @($HermesPath, 'hermes.cmd'))) {
+foreach ($pair in @(@($JcPath, 'jarviscopilot.cmd'), @($HermesPath, 'jarviscopilot.cmd'))) {
     $target = $pair[0]; $shimName = $pair[1]
     $shim = Join-Path $ShimDir $shimName
     if (Test-Path $target) {
         Set-Content -Path $shim -Value "@echo off`r`n`"$target`" %*" -Encoding ASCII
     }
 }
-Info "CLI shims placed in $ShimDir (jarviscopilot.cmd, hermes.cmd)"
+Info "CLI shims placed in $ShimDir (jarviscopilot.cmd, jarviscopilot.cmd)"
 
 # ---- System tray shortcuts + auto-launch -----------------------------------
 # Create two shortcuts:
@@ -287,7 +287,7 @@ try {
 
 Ok "JarvisCopilot installed at $Dir"
 Write-Host ""
-Write-Host "Your existing data in ~/.hermes/ (config, skills, cron jobs, sessions,"
+Write-Host "Your existing data in ~/.jarviscopilot/ (config, skills, cron jobs, sessions,"
 Write-Host "credentials, memory) was NOT touched by this install."
 Write-Host ""
 if ($portOpen) {

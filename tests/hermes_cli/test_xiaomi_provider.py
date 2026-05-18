@@ -354,7 +354,7 @@ class TestXiaomiAuxiliary:
 
 
 class TestXiaomiDoctor:
-    """Verify hermes doctor recognizes Xiaomi env vars."""
+    """Verify jarviscopilot doctor recognizes Xiaomi env vars."""
 
     def test_provider_env_hints(self):
         from jarviscopilot_cli.doctor import _PROVIDER_ENV_HINTS

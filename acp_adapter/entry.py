@@ -1,6 +1,6 @@
-"""CLI entry point for the hermes-agent ACP adapter.
+"""CLI entry point for the jarviscopilot ACP adapter.
 
-Loads environment variables from ``~/.hermes/.env``, configures logging
+Loads environment variables from ``~/.jarviscopilot/.env``, configures logging
 to write to stderr (so stdout is reserved for ACP JSON-RPC transport),
 and starts the ACP agent server.
 
@@ -8,18 +8,18 @@ Usage::
 
     python -m acp_adapter.entry
     # or
-    hermes acp
+    jarviscopilot acp
     # or
-    hermes-acp
+    jarviscopilot-acp
 """
 
-# IMPORTANT: hermes_bootstrap must be the very first import — UTF-8 stdio
-# on Windows.  No-op on POSIX.  See hermes_bootstrap.py for full rationale.
+# IMPORTANT: jarviscopilot_bootstrap must be the very first import — UTF-8 stdio
+# on Windows.  No-op on POSIX.  See jarviscopilot_bootstrap.py for full rationale.
 try:
-    import hermes_bootstrap  # noqa: F401
+    import jarviscopilot_bootstrap  # noqa: F401
 except ModuleNotFoundError:
-    # Graceful fallback when hermes_bootstrap isn't registered in the venv
-    # yet — happens during partial ``hermes update`` where git-reset landed
+    # Graceful fallback when jarviscopilot_bootstrap isn't registered in the venv
+    # yet — happens during partial ``jarviscopilot update`` where git-reset landed
     # new code but ``uv pip install -e .`` didn't finish.  Missing bootstrap
     # means UTF-8 stdio setup is skipped on Windows; POSIX is unaffected.
     pass
@@ -29,7 +29,7 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 
 
 # Methods clients send as periodic liveness probes. They are not part of the
@@ -94,7 +94,7 @@ def _setup_logging() -> None:
 
 
 def _load_env() -> None:
-    """Load .env from HERMES_HOME (default ``~/.hermes``)."""
+    """Load .env from HERMES_HOME (default ``~/.jarviscopilot``)."""
     from jarviscopilot_cli.env_loader import load_hermes_dotenv
 
     hermes_home = get_hermes_home()
@@ -110,10 +110,10 @@ def _load_env() -> None:
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="hermes-acp",
+        prog="jarviscopilot-acp",
         description="Run JarvisCopilot as an ACP stdio server.",
     )
-    parser.add_argument("--version", action="store_true", help="Print Hermes version and exit")
+    parser.add_argument("--version", action="store_true", help="Print JarvisCopilot version and exit")
     parser.add_argument(
         "--check",
         action="store_true",
@@ -122,12 +122,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--setup",
         action="store_true",
-        help="Run interactive Hermes provider/model setup for ACP terminal auth",
+        help="Run interactive JarvisCopilot provider/model setup for ACP terminal auth",
     )
     parser.add_argument(
         "--setup-browser",
         action="store_true",
-        help="Install agent-browser + Playwright Chromium into ~/.hermes/node/ "
+        help="Install agent-browser + Playwright Chromium into ~/.jarviscopilot/node/ "
              "for browser tool support. Idempotent.",
     )
     parser.add_argument(
@@ -151,7 +151,7 @@ def _run_check() -> None:
     import acp  # noqa: F401
     from acp_adapter.server import HermesACPAgent  # noqa: F401
 
-    print("Hermes ACP check OK")
+    print("JarvisCopilot ACP check OK")
 
 
 def _run_setup() -> None:
@@ -159,7 +159,7 @@ def _run_setup() -> None:
 
     old_argv = sys.argv[:]
     try:
-        sys.argv = [old_argv[0] if old_argv else "hermes", "model"]
+        sys.argv = [old_argv[0] if old_argv else "jarviscopilot", "model"]
         hermes_main()
     finally:
         sys.argv = old_argv
@@ -185,7 +185,7 @@ def _run_setup_browser(assume_yes: bool = False) -> int:
     """Bootstrap agent-browser + Chromium.
 
     Routes through dep_ensure -> install.{sh,ps1} --ensure, sharing code
-    with ``hermes postinstall`` and the runtime lazy installer.
+    with ``jarviscopilot postinstall`` and the runtime lazy installer.
 
     Returns 0 on success, 1 on failure.
     """
@@ -231,7 +231,7 @@ def main(argv: list[str] | None = None) -> None:
     _load_env()
 
     logger = logging.getLogger(__name__)
-    logger.info("Starting hermes-agent ACP adapter")
+    logger.info("Starting jarviscopilot ACP adapter")
 
     # Ensure the project root is on sys.path so ``from run_agent import AIAgent`` works
     project_root = str(Path(__file__).resolve().parent.parent)

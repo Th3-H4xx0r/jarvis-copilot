@@ -1,9 +1,9 @@
-# nix/hermes-agent.nix — Overridable Hermes Agent package
+# nix/jarviscopilot.nix — Overridable JarvisCopilot Agent package
 #
 # callPackage auto-wires nixpkgs args; flake inputs are passed explicitly.
 # Users override via:
-#   pkgs.hermes-agent.override { extraPythonPackages = [...]; }
-#   pkgs.hermes-agent.override { extraDependencyGroups = [ "hindsight" ]; }
+#   pkgs.jarviscopilot.override { extraPythonPackages = [...]; }
+#   pkgs.jarviscopilot.override { extraDependencyGroups = [ "hindsight" ]; }
 {
   lib,
   stdenv,
@@ -118,7 +118,7 @@ let
                 if line.startswith('Name:'):
                     pkg = canonical(line.split(':', 1)[1].strip())
                     if pkg in core:
-                        print(f'ERROR: plugin package \"{pkg}\" collides with a package in hermes sealed venv', file=sys.stderr)
+                        print(f'ERROR: plugin package \"{pkg}\" collides with a package in jarviscopilot sealed venv', file=sys.stderr)
                         print(f'  from: {di}', file=sys.stderr)
                         print(f'  Remove this dependency from extraPythonPackages.', file=sys.stderr)
                         sys.exit(1)
@@ -128,7 +128,7 @@ let
   '';
 in
 stdenv.mkDerivation {
-  pname = "hermes-agent";
+  pname = "jarviscopilot";
   version = (fromTOML (builtins.readFile ../pyproject.toml)).project.version;
 
   dontUnpack = true;
@@ -138,10 +138,10 @@ stdenv.mkDerivation {
   installPhase = ''
     runHook preInstall
 
-    mkdir -p $out/share/hermes-agent $out/bin
-    cp -r ${bundledSkills} $out/share/hermes-agent/skills
-    cp -r ${bundledPlugins} $out/share/hermes-agent/plugins
-    cp -r ${hermesWeb} $out/share/hermes-agent/web_dist
+    mkdir -p $out/share/jarviscopilot $out/bin
+    cp -r ${bundledSkills} $out/share/jarviscopilot/skills
+    cp -r ${bundledPlugins} $out/share/jarviscopilot/plugins
+    cp -r ${hermesWeb} $out/share/jarviscopilot/web_dist
 
     mkdir -p $out/ui-tui
     cp -r ${hermesTui}/lib/hermes-tui/* $out/ui-tui/
@@ -150,9 +150,9 @@ stdenv.mkDerivation {
       (name: ''
         makeWrapper ${hermesVenv}/bin/${name} $out/bin/${name} \
           --suffix PATH : "${runtimePath}" \
-          --set HERMES_BUNDLED_SKILLS $out/share/hermes-agent/skills \
-          --set HERMES_BUNDLED_PLUGINS $out/share/hermes-agent/plugins \
-          --set HERMES_WEB_DIST $out/share/hermes-agent/web_dist \
+          --set HERMES_BUNDLED_SKILLS $out/share/jarviscopilot/skills \
+          --set HERMES_BUNDLED_PLUGINS $out/share/jarviscopilot/plugins \
+          --set HERMES_WEB_DIST $out/share/jarviscopilot/web_dist \
           --set HERMES_TUI_DIR $out/ui-tui \
           --set HERMES_PYTHON ${hermesVenv}/bin/python3 \
           --set HERMES_NODE ${lib.getExe nodejs} \
@@ -160,9 +160,9 @@ stdenv.mkDerivation {
           ${lib.optionalString (extraPythonPackages != [ ]) ''--suffix PYTHONPATH : "${pythonPath}"''}
       '')
       [
-        "hermes"
-        "hermes-agent"
-        "hermes-acp"
+        "jarviscopilot"
+        "jarviscopilot"
+        "jarviscopilot-acp"
       ]
     }
 
@@ -184,10 +184,10 @@ stdenv.mkDerivation {
       ;
 
     devShellHook = ''
-      STAMP=".nix-stamps/hermes-agent"
+      STAMP=".nix-stamps/jarviscopilot"
       STAMP_VALUE="${pyprojectHash}:${uvLockHash}"
       if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP")" != "$STAMP_VALUE" ]; then
-        echo "hermes-agent: installing Python dependencies..."
+        echo "jarviscopilot: installing Python dependencies..."
         uv venv .venv --python ${python312}/bin/python3 2>/dev/null || true
         source .venv/bin/activate
         uv pip install -e ".[all]"
@@ -203,8 +203,8 @@ stdenv.mkDerivation {
 
   meta = with lib; {
     description = "AI agent with advanced tool-calling capabilities";
-    homepage = "https://github.com/NousResearch/hermes-agent";
-    mainProgram = "hermes";
+    homepage = "https://github.com/NousResearch/jarviscopilot";
+    mainProgram = "jarviscopilot";
     license = licenses.mit;
     platforms = platforms.unix;
   };

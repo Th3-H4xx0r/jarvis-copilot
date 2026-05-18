@@ -678,8 +678,8 @@ def load_gateway_config() -> GatewayConfig:
 
     Priority (highest to lowest):
     1. Environment variables
-    2. ~/.hermes/config.yaml (primary user-facing config)
-    3. ~/.hermes/gateway.json (legacy — provides defaults under config.yaml)
+    2. ~/.jarviscopilot/config.yaml (primary user-facing config)
+    3. ~/.jarviscopilot/gateway.json (legacy — provides defaults under config.yaml)
     4. Built-in defaults
     """
     _home = get_hermes_home()
@@ -737,7 +737,7 @@ def load_gateway_config() -> GatewayConfig:
             streaming_cfg = yaml_cfg.get("streaming")
             if not isinstance(streaming_cfg, dict):
                 # Fall back to nested gateway.streaming written by
-                # ``hermes config set gateway.streaming.*``
+                # ``jarviscopilot config set gateway.streaming.*``
                 streaming_cfg = yaml_cfg.get("gateway", {}).get("streaming")
             if isinstance(streaming_cfg, dict):
                 gw_data["streaming"] = streaming_cfg

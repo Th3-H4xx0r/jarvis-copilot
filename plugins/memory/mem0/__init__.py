@@ -8,7 +8,7 @@ Original PR #2933 by kartik-mem0, adapted to MemoryProvider ABC.
 Config via environment variables:
   MEM0_API_KEY       — Mem0 Platform API key (required)
   MEM0_USER_ID       — User identifier (default: hermes-user)
-  MEM0_AGENT_ID      — Agent identifier (default: hermes)
+  MEM0_AGENT_ID      — Agent identifier (default: jarviscopilot)
 
 Or via $HERMES_HOME/mem0.json.
 """
@@ -44,12 +44,12 @@ def _load_config() -> dict:
     individual keys.  This avoids a silent failure when the JSON file exists
     but is missing fields like ``api_key`` that the user set in ``.env``.
     """
-    from hermes_constants import get_hermes_home
+    from jarviscopilot_constants import get_hermes_home
 
     config = {
         "api_key": os.environ.get("MEM0_API_KEY", ""),
         "user_id": os.environ.get("MEM0_USER_ID", "hermes-user"),
-        "agent_id": os.environ.get("MEM0_AGENT_ID", "hermes"),
+        "agent_id": os.environ.get("MEM0_AGENT_ID", "jarviscopilot"),
         "rerank": True,
         "keyword_search": False,
     }
@@ -125,7 +125,7 @@ class Mem0MemoryProvider(MemoryProvider):
         self._client_lock = threading.Lock()
         self._api_key = ""
         self._user_id = "hermes-user"
-        self._agent_id = "hermes"
+        self._agent_id = "jarviscopilot"
         self._rerank = True
         self._prefetch_result = ""
         self._prefetch_lock = threading.Lock()
@@ -161,7 +161,7 @@ class Mem0MemoryProvider(MemoryProvider):
         return [
             {"key": "api_key", "description": "Mem0 Platform API key", "secret": True, "required": True, "env_var": "MEM0_API_KEY", "url": "https://app.mem0.ai"},
             {"key": "user_id", "description": "User identifier", "default": "hermes-user"},
-            {"key": "agent_id", "description": "Agent identifier", "default": "hermes"},
+            {"key": "agent_id", "description": "Agent identifier", "default": "jarviscopilot"},
             {"key": "rerank", "description": "Enable reranking for recall", "default": "true", "choices": ["true", "false"]},
         ]
 
@@ -206,7 +206,7 @@ class Mem0MemoryProvider(MemoryProvider):
         # Prefer gateway-provided user_id for per-user memory scoping;
         # fall back to config/env default for CLI (single-user) sessions.
         self._user_id = kwargs.get("user_id") or self._config.get("user_id", "hermes-user")
-        self._agent_id = self._config.get("agent_id", "hermes")
+        self._agent_id = self._config.get("agent_id", "jarviscopilot")
         self._rerank = self._config.get("rerank", True)
 
     def _read_filters(self) -> Dict[str, Any]:

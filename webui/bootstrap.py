@@ -17,7 +17,7 @@ import webbrowser
 from pathlib import Path
 
 
-INSTALLER_URL = "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
+INSTALLER_URL = "https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.sh"
 REPO_ROOT = Path(__file__).resolve().parent
 
 
@@ -31,7 +31,7 @@ def _load_repo_dotenv() -> None:
     To keep a CLI-supplied value, unset it from .env or launch via start.sh
     and override there.
 
-    Only loads the webui repo .env — not ~/.hermes/.env, which the server
+    Only loads the webui repo .env — not ~/.jarviscopilot/.env, which the server
     loads independently at startup for provider credentials.
 
     Note: does not handle the ``export FOO=bar`` prefix — strip ``export``
@@ -91,25 +91,25 @@ def ensure_supported_platform() -> None:
 
 
 def _agent_dir_from_jarviscopilot_cli() -> Path | None:
-    """Resolve the agent install root by inspecting the `hermes` CLI shebang.
+    """Resolve the agent install root by inspecting the `jarviscopilot` CLI shebang.
 
-    The JarvisCopilot installer drops a `hermes` console-script in the user's
+    The JarvisCopilot installer drops a `jarviscopilot` console-script in the user's
     PATH whose shebang points at the agent's bundled venv:
 
-        #!/path/to/hermes-agent/venv/bin/python3
+        #!/path/to/jarviscopilot/venv/bin/python3
 
     Walking up the parents until we find a directory that contains
     `run_agent.py` recovers the install root regardless of where the user
-    chose to clone the agent (e.g. ~/Projects/GitHub/hermes-agent), which
+    chose to clone the agent (e.g. ~/Projects/GitHub/jarviscopilot), which
     the hard-coded candidate list in :func:`discover_agent_dir` cannot.
 
     Last-resort only: this is invoked after every explicit candidate
-    (`HERMES_WEBUI_AGENT_DIR`, `$HERMES_HOME/hermes-agent`, etc.) has missed.
-    A stale clone in a known location still wins over the live `hermes` CLI
+    (`HERMES_WEBUI_AGENT_DIR`, `$HERMES_HOME/jarviscopilot`, etc.) has missed.
+    A stale clone in a known location still wins over the live `jarviscopilot` CLI
     — that's intentional, since the candidate list is treated as
     authoritative when present, and matches existing behavior.
     """
-    hermes_path = shutil.which("hermes")
+    hermes_path = shutil.which("jarviscopilot")
     if not hermes_path:
         return None
     try:
@@ -132,13 +132,13 @@ def _agent_dir_from_jarviscopilot_cli() -> Path | None:
 
 
 def discover_agent_dir() -> Path | None:
-    home = Path(os.getenv("HERMES_HOME", str(Path.home() / ".hermes"))).expanduser()
+    home = Path(os.getenv("HERMES_HOME", str(Path.home() / ".jarviscopilot"))).expanduser()
     candidates = [
         os.getenv("HERMES_WEBUI_AGENT_DIR", ""),
-        str(home / "hermes-agent"),
-        str(REPO_ROOT.parent / "hermes-agent"),
-        str(Path.home() / ".hermes" / "hermes-agent"),
-        str(Path.home() / "hermes-agent"),
+        str(home / "jarviscopilot"),
+        str(REPO_ROOT.parent / "jarviscopilot"),
+        str(Path.home() / ".jarviscopilot" / "jarviscopilot"),
+        str(Path.home() / "jarviscopilot"),
     ]
     for raw in candidates:
         if not raw:
@@ -258,7 +258,7 @@ def ensure_python_has_webui_deps(python_exe: str, agent_dir: Path | None = None)
 
 
 def hermes_command_exists() -> bool:
-    return shutil.which("hermes") is not None
+    return shutil.which("jarviscopilot") is not None
 
 
 def install_hermes_agent() -> None:
@@ -302,7 +302,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-agent-install",
         action="store_true",
-        help="Fail instead of attempting the official Hermes installer.",
+        help="Fail instead of attempting the official JarvisCopilot installer.",
     )
     parser.add_argument(
         "--foreground",
@@ -396,7 +396,7 @@ def main() -> int:
 
     python_exe = ensure_python_has_webui_deps(discover_launcher_python(agent_dir), agent_dir)
     state_dir = Path(
-        os.getenv("HERMES_WEBUI_STATE_DIR", str(Path.home() / ".hermes" / "webui"))
+        os.getenv("HERMES_WEBUI_STATE_DIR", str(Path.home() / ".jarviscopilot" / "webui"))
     ).expanduser()
     state_dir.mkdir(parents=True, exist_ok=True)
 

@@ -116,7 +116,7 @@ def test_session_with_tool_calls_in_json_loads_ok(cleanup_test_sessions):
     sid = make_session(cleanup_test_sessions)
 
     # Manually inject tool_calls into the session's JSON file
-    sessions_dir = pathlib.Path(os.environ.get("HERMES_WEBUI_TEST_STATE_DIR", str(pathlib.Path.home() / ".hermes" / "webui-mvp-test"))) / "sessions"
+    sessions_dir = pathlib.Path(os.environ.get("HERMES_WEBUI_TEST_STATE_DIR", str(pathlib.Path.home() / ".jarviscopilot" / "webui-mvp-test"))) / "sessions"
     session_file = sessions_dir / f"{sid}.json"
     if session_file.exists():
         d = json.loads(session_file.read_text())
@@ -186,10 +186,10 @@ def test_server_py_sse_loop_breaks_on_cancel(cleanup_test_sessions):
 # ── R6: Test cron isolation (Sprint 10) ──────────────────────────────────────
 
 def test_real_jobs_json_not_polluted_by_tests(cleanup_test_sessions):
-    """R6: Test runs must not write to the real ~/.hermes/cron/jobs.json.
+    """R6: Test runs must not write to the real ~/.jarviscopilot/cron/jobs.json.
     When HERMES_HOME isolation was missing, every test run added test-job-* entries.
     """
-    real_jobs_path = pathlib.Path.home() / ".hermes" / "cron" / "jobs.json"
+    real_jobs_path = pathlib.Path.home() / ".jarviscopilot" / "cron" / "jobs.json"
     if not real_jobs_path.exists():
         return  # no jobs file at all -- fine
 
@@ -674,7 +674,7 @@ def test_loadSession_inflight_sets_active_stream_before_replaying_live_tool_card
 
 
 def test_streaming_bridge_accepts_current_tool_progress_callback_signature(cleanup_test_sessions):
-    """R17: api/streaming.py must accept the current Hermes agent callback contract.
+    """R17: api/streaming.py must accept the current JarvisCopilot agent callback contract.
     The agent now calls tool_progress_callback(event_type, name, preview, args, **kwargs).
     If the WebUI bridge only accepts (name, preview, args), live tool updates silently vanish.
     """
@@ -873,7 +873,7 @@ def test_skills_slash_command_defined():
 
     Pre-Task 2 (slash-command-parity batch 1) this checked for the
     hardcoded ``name:'skills'`` entry in the COMMANDS array. The COMMANDS
-    array is now sourced from hermes-agent's ``COMMAND_REGISTRY`` at boot
+    array is now sourced from jarviscopilot's ``COMMAND_REGISTRY`` at boot
     via ``GET /api/commands``, so the literal string is gone. The handler
     must still exist and be registered, otherwise ``/skills`` would fall
     through to \"not yet supported\".
@@ -898,7 +898,7 @@ def test_reload_recovery_persists_durable_inflight_state(cleanup_test_sessions):
     messages_src = (REPO_ROOT / "static/messages.js").read_text()
     sessions_src = (REPO_ROOT / "static/sessions.js").read_text()
 
-    assert "const INFLIGHT_STATE_KEY = 'hermes-webui-inflight-state'" in ui_src
+    assert "const INFLIGHT_STATE_KEY = 'jarviscopilot-webui-inflight-state'" in ui_src
     assert "function saveInflightState(sid, state)" in ui_src
     assert "function loadInflightState(sid, streamId)" in ui_src
     assert "function clearInflightState(sid)" in ui_src
@@ -917,7 +917,7 @@ def test_provider_oauth_authenticated_accepts_credential_pool_entries(
 ):
     """R18a: pool-only OAuth auth.json should count as authenticated.
 
-    Hermes runtime resolves Codex credentials from credential_pool; onboarding
+    JarvisCopilot runtime resolves Codex credentials from credential_pool; onboarding
     must not insist on stale or duplicated providers[provider_id] entries.
     """
     _make_auth_json_with_credential_pool(

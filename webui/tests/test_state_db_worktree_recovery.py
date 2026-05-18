@@ -34,7 +34,7 @@ def test_state_db_recovery_preserves_worktree_metadata():
         ],
         "workspace": "/home/user/proj/.worktrees/hermes-1234",
         "worktree_path": "/home/user/proj/.worktrees/hermes-1234",
-        "worktree_branch": "hermes/abc123",
+        "worktree_branch": "jarviscopilot/abc123",
         "worktree_repo_root": "/home/user/proj",
         "worktree_created_at": 1700000000,
     }
@@ -46,7 +46,7 @@ def test_state_db_recovery_preserves_worktree_metadata():
     # The four worktree_* fields must survive the rebuild — without them the
     # sidebar filter at api/models.py:1067 hides the session.
     assert sidecar["worktree_path"] == "/home/user/proj/.worktrees/hermes-1234"
-    assert sidecar["worktree_branch"] == "hermes/abc123"
+    assert sidecar["worktree_branch"] == "jarviscopilot/abc123"
     assert sidecar["worktree_repo_root"] == "/home/user/proj"
     assert sidecar["worktree_created_at"] == 1700000000
     # Workspace must round-trip from the row so terminal panels / file pickers
@@ -101,7 +101,7 @@ def test_state_db_recovery_zero_message_worktree_session_visible_in_sidebar():
         "messages": [],
         "workspace": "/home/user/proj/.worktrees/hermes-empty",
         "worktree_path": "/home/user/proj/.worktrees/hermes-empty",
-        "worktree_branch": "hermes/empty",
+        "worktree_branch": "jarviscopilot/empty",
         "worktree_repo_root": "/home/user/proj",
         "worktree_created_at": 1700000000,
     }

@@ -1,4 +1,4 @@
-"""Tests that `hermes model` always shows the model selection menu for custom
+"""Tests that `jarviscopilot model` always shows the model selection menu for custom
 providers, even when a model is already saved.
 
 Regression test for the bug where _model_flow_named_custom() returned
@@ -15,7 +15,7 @@ import pytest
 @pytest.fixture
 def config_home(tmp_path, monkeypatch):
     """Isolated HERMES_HOME with a minimal config."""
-    home = tmp_path / "hermes"
+    home = tmp_path / "jarviscopilot"
     home.mkdir()
     config_yaml = home / "config.yaml"
     config_yaml.write_text("model: old-model\ncustom_providers: []\n")

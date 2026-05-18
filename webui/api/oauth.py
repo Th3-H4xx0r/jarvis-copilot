@@ -2,7 +2,7 @@
 
 The browser receives only WebUI-local flow metadata (flow_id, user_code,
 verification_uri, high-level status). Provider device/auth codes and OAuth
-tokens stay server-side and are persisted to the active Hermes profile's
+tokens stay server-side and are persisted to the active JarvisCopilot profile's
 ``auth.json`` credential_pool.
 """
 
@@ -25,7 +25,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Compatibility for older helper tests and self-heal code that import these.
-AUTH_JSON_PATH = Path.home() / ".hermes" / "auth.json"
+AUTH_JSON_PATH = Path.home() / ".jarviscopilot" / "auth.json"
 
 CODEX_ISSUER = "https://auth.openai.com"
 CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -96,14 +96,14 @@ def _get_active_hermes_home() -> Path:
         return Path(get_active_hermes_home())
     except Exception as exc:
         # Per Opus advisor on stage-296: log the silent fallback so a corrupt
-        # profile state ending up writing tokens to ~/.hermes (instead of the
+        # profile state ending up writing tokens to ~/.jarviscopilot (instead of the
         # active profile) is observable in logs rather than failing silently.
         logger.warning(
-            "Falling back to ~/.hermes for OAuth credential storage: "
+            "Falling back to ~/.jarviscopilot for OAuth credential storage: "
             "active-profile resolution failed: %s",
             exc,
         )
-        return Path.home() / ".hermes"
+        return Path.home() / ".jarviscopilot"
 
 
 # ── legacy auth.json helpers ────────────────────────────────────────────────
@@ -277,9 +277,9 @@ def _clear_anthropic_env_values(hermes_home: Path) -> None:
 
 
 def _link_anthropic_credentials(hermes_home: Path) -> None:
-    """Link Hermes to use Claude Code's credential store.
+    """Link JarvisCopilot to use Claude Code's credential store.
 
-    Clears ANTHROPIC_TOKEN and ANTHROPIC_API_KEY from the Hermes .env so
+    Clears ANTHROPIC_TOKEN and ANTHROPIC_API_KEY from the JarvisCopilot .env so
     that resolve_anthropic_token() falls through to reading Claude Code's
     ~/.claude/.credentials.json directly — the same thing the CLI's
     ``use_anthropic_claude_code_credentials()`` does.

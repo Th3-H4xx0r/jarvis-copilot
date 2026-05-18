@@ -2,7 +2,7 @@
 
 > **Bundled with JarvisCopilot.** Originally authored by [@PCinkusz](https://github.com/PCinkusz) at https://github.com/PCinkusz/hermes-achievements — vendored into `plugins/hermes-achievements/` so it ships with the dashboard out-of-the-box and stays in lockstep with JarvisCopilot feature changes. Upstream repo remains the staging ground for new badges and UI iteration.
 >
-> When JarvisCopilot is installed via `pip install hermes-agent` or cloned from source, this plugin auto-registers as a dashboard tab on first `jarviscopilot dashboard` launch. No separate install step. See [Built-in Plugins → jarviscopilot-achievements](../../website/docs/user-guide/features/built-in-plugins.md) in the main docs.
+> When JarvisCopilot is installed via `pip install jarviscopilot` or cloned from source, this plugin auto-registers as a dashboard tab on first `jarviscopilot dashboard` launch. No separate install step. See [Built-in Plugins → jarviscopilot-achievements](../../website/docs/user-guide/features/built-in-plugins.md) in the main docs.
 
 Achievement system for the JarvisCopilot Dashboard: collectible, tiered badges generated from real local JarvisCopilot session history.
 
@@ -12,7 +12,7 @@ The screenshots use temporary demo tier data to show the full visual range. The 
 
 > **Update notice (2026-04-29):** If you installed this plugin before today, update to the latest version. The achievements scan path was refactored for much faster warm loads (snapshot cache + incremental checkpoint scan).
 >
-> **Share cards (2026-05-04, vendored in hermes-agent v0.4.0):** Unlocked achievement cards now have a "Share" button that renders a 1200×630 PNG share card (client-side canvas, no backend, no network) with Download + Copy-to-clipboard actions. Fits X/Twitter, Discord, LinkedIn, Bluesky link-preview dimensions.
+> **Share cards (2026-05-04, vendored in jarviscopilot v0.4.0):** Unlocked achievement cards now have a "Share" button that renders a 1200×630 PNG share card (client-side canvas, no backend, no network) with Download + Copy-to-clipboard actions. Fits X/Twitter, Discord, LinkedIn, Bluesky link-preview dimensions.
 
 ## What it does
 

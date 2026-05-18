@@ -1,4 +1,4 @@
-name: Hermes smoke test
+name: JarvisCopilot smoke test
 description: >
   Run the image's built-in entrypoint against `--help` and `dashboard --help`
   to catch basic runtime regressions before publishing.  Requires the image
@@ -8,7 +8,7 @@ description: >
 
 inputs:
   image:
-    description: Fully-qualified image tag (e.g. nousresearch/hermes-agent:test)
+    description: Fully-qualified image tag (e.g. nousresearch/jarviscopilot:test)
     required: true
 
 runs:
@@ -17,16 +17,16 @@ runs:
     - name: Ensure /tmp/hermes-test is hermes-writable
       shell: bash
       run: |
-        # The image runs as the hermes user (UID 10000).  GitHub Actions
-        # creates /tmp/hermes-test root-owned by default, which hermes
+        # The image runs as the jarviscopilot user (UID 10000).  GitHub Actions
+        # creates /tmp/hermes-test root-owned by default, which jarviscopilot
         # can't write to — chown it to match the in-container UID before
-        # bind-mounting.  Real users doing `docker run -v ~/.hermes:...`
+        # bind-mounting.  Real users doing `docker run -v ~/.jarviscopilot:...`
         # with their own UID hit the same issue and have their own
         # remediations (HERMES_UID env var, or chown locally).
         mkdir -p /tmp/hermes-test
         sudo chown -R 10000:10000 /tmp/hermes-test
 
-    - name: hermes --help
+    - name: jarviscopilot --help
       shell: bash
       run: |
         docker run --rm \
@@ -34,7 +34,7 @@ runs:
           --entrypoint /opt/hermes/docker/entrypoint.sh \
           "${{ inputs.image }}" --help
 
-    - name: hermes dashboard --help
+    - name: jarviscopilot dashboard --help
       shell: bash
       run: |
         # Regression guard for #9153: dashboard was present in source but

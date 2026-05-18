@@ -62,7 +62,7 @@ def _profile_default_workspace() -> str:
     Checks keys in priority order:
       1. 'workspace'         — explicit webui workspace key
       2. 'default_workspace' — alternate explicit key
-      3. 'terminal.cwd'      — hermes-agent terminal working dir (most common)
+      3. 'terminal.cwd'      — jarviscopilot terminal working dir (most common)
 
     Falls back to the live DEFAULT_WORKSPACE from api.config.
     """
@@ -101,12 +101,12 @@ def _clean_workspace_list(workspaces: list) -> list:
     - Preserve saved paths even when they are currently missing or inaccessible;
       picker state must not be destroyed by a transient stat/permission failure.
     - Remove entries whose paths live inside another profile's directory
-      (e.g. ~/.hermes/profiles/X/... should not appear on a different profile).
+      (e.g. ~/.jarviscopilot/profiles/X/... should not appear on a different profile).
     - Rename any entry whose name is literally 'default' to 'Home' (avoids
       confusion with the 'default' profile name).
     Returns the cleaned list (may be empty).
     """
-    hermes_profiles = (Path.home() / '.hermes' / 'profiles').resolve()
+    hermes_profiles = (Path.home() / '.jarviscopilot' / 'profiles').resolve()
     result = []
     for w in workspaces:
         path = w.get('path', '')
@@ -116,10 +116,10 @@ def _clean_workspace_list(workspaces: list) -> list:
         p = _safe_resolve(Path(path).expanduser())
         # Skip paths inside a DIFFERENT profile's directory (cross-profile leak).
         # Allow paths inside the CURRENT profile's own directory (e.g. test workspaces
-        # created under ~/.hermes/profiles/webui/webui-mvp-test/).
+        # created under ~/.jarviscopilot/profiles/webui/webui-mvp-test/).
         try:
             p.relative_to(hermes_profiles)
-            # p is under ~/.hermes/profiles/ — only skip if it's under a DIFFERENT profile
+            # p is under ~/.jarviscopilot/profiles/ — only skip if it's under a DIFFERENT profile
             try:
                 from api.profiles import get_active_hermes_home
                 own_profile_dir = get_active_hermes_home().resolve()
@@ -153,7 +153,7 @@ def _workspace_access_error(candidate: Path, *, missing_label: str = "Path does 
         return (
             f"Cannot access path: {candidate}. The server process could not inspect "
             f"this directory ({exc}). On macOS, grant Full Disk Access or Files and "
-            f"Folders permission to the Hermes/WebUI app or server process, then try again."
+            f"Folders permission to the JarvisCopilot/WebUI app or server process, then try again."
         )
     except OSError as exc:
         return f"Cannot access path: {candidate}. The server process could not inspect this path ({exc})."

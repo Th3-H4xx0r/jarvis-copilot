@@ -17,7 +17,7 @@ class TestAutoInstallAgentDeps:
 
     def test_disabled_by_default(self, tmp_path, capsys):
         """Auto-install must be off unless HERMES_WEBUI_AUTO_INSTALL=1 is set."""
-        agent_dir = tmp_path / 'hermes-agent'
+        agent_dir = tmp_path / 'jarviscopilot'
         agent_dir.mkdir()
         (agent_dir / 'requirements.txt').write_text('somepkg\n')
         env = {'HERMES_WEBUI_AGENT_DIR': str(agent_dir)}
@@ -29,7 +29,7 @@ class TestAutoInstallAgentDeps:
         assert 'disabled' in capsys.readouterr().out.lower()
 
     def test_installs_from_requirements_txt(self, tmp_path):
-        agent_dir = tmp_path / 'hermes-agent'
+        agent_dir = tmp_path / 'jarviscopilot'
         agent_dir.mkdir()
         req = agent_dir / 'requirements.txt'
         req.write_text('pyyaml\n')
@@ -43,9 +43,9 @@ class TestAutoInstallAgentDeps:
                     assert '-r' in args and str(req) in args
 
     def test_falls_back_to_pyproject(self, tmp_path):
-        agent_dir = tmp_path / 'hermes-agent'
+        agent_dir = tmp_path / 'jarviscopilot'
         agent_dir.mkdir()
-        (agent_dir / 'pyproject.toml').write_text('[project]\nname="hermes-agent"\n')
+        (agent_dir / 'pyproject.toml').write_text('[project]\nname="jarviscopilot"\n')
         env = {'HERMES_WEBUI_AGENT_DIR': str(agent_dir), 'HERMES_WEBUI_AUTO_INSTALL': '1'}
         with patch.dict('os.environ', env, clear=False):
             with patch('api.startup._trusted_agent_dir', return_value=True):
@@ -70,7 +70,7 @@ class TestAutoInstallAgentDeps:
         assert 'skipped' in out or 'not found' in out
 
     def test_skips_when_no_install_file(self, tmp_path, capsys):
-        agent_dir = tmp_path / 'hermes-agent'
+        agent_dir = tmp_path / 'jarviscopilot'
         agent_dir.mkdir()
         env = {'HERMES_WEBUI_AGENT_DIR': str(agent_dir), 'HERMES_WEBUI_AUTO_INSTALL': '1'}
         with patch.dict('os.environ', env, clear=False):
@@ -82,7 +82,7 @@ class TestAutoInstallAgentDeps:
 
     def test_skips_when_dir_not_trusted(self, tmp_path, capsys):
         """_trusted_agent_dir returning False must block installation."""
-        agent_dir = tmp_path / 'hermes-agent'
+        agent_dir = tmp_path / 'jarviscopilot'
         agent_dir.mkdir()
         (agent_dir / 'requirements.txt').write_text('somepkg\n')
         env = {'HERMES_WEBUI_AGENT_DIR': str(agent_dir), 'HERMES_WEBUI_AUTO_INSTALL': '1'}
@@ -94,7 +94,7 @@ class TestAutoInstallAgentDeps:
         assert 'trust' in capsys.readouterr().out.lower()
 
     def test_tolerates_pip_failure(self, tmp_path, capsys):
-        agent_dir = tmp_path / 'hermes-agent'
+        agent_dir = tmp_path / 'jarviscopilot'
         agent_dir.mkdir()
         (agent_dir / 'requirements.txt').write_text('somepkg\n')
         env = {'HERMES_WEBUI_AGENT_DIR': str(agent_dir), 'HERMES_WEBUI_AUTO_INSTALL': '1'}
@@ -107,7 +107,7 @@ class TestAutoInstallAgentDeps:
         assert 'failed' in out or 'pip' in out
 
     def test_tolerates_timeout(self, tmp_path, capsys):
-        agent_dir = tmp_path / 'hermes-agent'
+        agent_dir = tmp_path / 'jarviscopilot'
         agent_dir.mkdir()
         (agent_dir / 'requirements.txt').write_text('somepkg\n')
         env = {'HERMES_WEBUI_AGENT_DIR': str(agent_dir), 'HERMES_WEBUI_AUTO_INSTALL': '1'}

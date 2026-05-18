@@ -572,7 +572,7 @@ Five touchpoints:
 ### 8. Toolsets
 
 1. **`toolsets.py`** — Add `"jarviscopilot-newplat"` toolset definition with `_HERMES_CORE_TOOLS`
-2. **`toolsets.py`** — Add `"jarviscopilot-newplat"` to the `"hermes-gateway"` includes list
+2. **`toolsets.py`** — Add `"jarviscopilot-newplat"` to the `"jarviscopilot-gateway"` includes list
 
 ### 9. Optional: Platform Hints
 

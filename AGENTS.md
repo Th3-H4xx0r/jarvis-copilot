@@ -1,6 +1,6 @@
 # JarvisCopilot - Development Guide
 
-Instructions for AI coding assistants and developers working on the hermes-agent codebase.
+Instructions for AI coding assistants and developers working on the jarviscopilot codebase.
 
 ## Development Environment
 
@@ -10,7 +10,7 @@ source .venv/bin/activate   # or: source venv/bin/activate
 ```
 
 `scripts/run_tests.sh` probes `.venv` first, then `venv`, then
-`$HOME/.jarviscopilot/hermes-agent/venv` (for worktrees that share a venv with the
+`$HOME/.jarviscopilot/jarviscopilot/venv` (for worktrees that share a venv with the
 main checkout).
 
 ## Project Structure
@@ -20,14 +20,14 @@ The canonical source is the filesystem. The notes call out the load-bearing
 entry points you'll actually edit.
 
 ```
-hermes-agent/
+jarviscopilot/
 ├── run_agent.py          # AIAgent class — core conversation loop (~12k LOC)
 ├── model_tools.py        # Tool orchestration, discover_builtin_tools(), handle_function_call()
 ├── toolsets.py           # Toolset definitions, _HERMES_CORE_TOOLS list
 ├── cli.py                # HermesCLI class — interactive CLI orchestrator (~11k LOC)
-├── hermes_state.py       # SessionDB — SQLite session store (FTS5 search)
-├── hermes_constants.py   # get_hermes_home(), display_hermes_home() — profile-aware paths
-├── hermes_logging.py     # setup_logging() — agent.log / errors.log / gateway.log (profile-aware)
+├── jarviscopilot_state.py       # SessionDB — SQLite session store (FTS5 search)
+├── jarviscopilot_constants.py   # get_hermes_home(), display_hermes_home() — profile-aware paths
+├── jarviscopilot_logging.py     # setup_logging() — agent.log / errors.log / gateway.log (profile-aware)
 ├── batch_runner.py       # Parallel batch processing
 ├── agent/                # Agent internals (provider adapters, memory, caching, compression, etc.)
 ├── hermes_cli/           # CLI subcommands, setup wizard, plugins loader, skin engine
@@ -689,7 +689,7 @@ violate them.
    skill's own block must be dropped during salvage.
 
 The full salvage / modernization checklist for external skill PRs
-lives in the `hermes-agent-dev` skill at
+lives in the `jarviscopilot-dev` skill at
 `references/new-skill-pr-salvage.md` — load it before polishing
 contributor skill PRs.
 
@@ -897,22 +897,22 @@ automatically scope to the active profile.
 
 ### Rules for profile-safe code
 
-1. **Use `get_hermes_home()` for all HERMES_HOME paths.** Import from `hermes_constants`.
+1. **Use `get_hermes_home()` for all HERMES_HOME paths.** Import from `jarviscopilot_constants`.
    NEVER hardcode `~/.jarviscopilot` or `Path.home() / ".jarviscopilot"` in code that reads/writes state.
    ```python
    # GOOD
-   from hermes_constants import get_hermes_home
+   from jarviscopilot_constants import get_hermes_home
    config_path = get_hermes_home() / "config.yaml"
 
    # BAD — breaks profiles
    config_path = Path.home() / ".jarviscopilot" / "config.yaml"
    ```
 
-2. **Use `display_hermes_home()` for user-facing messages.** Import from `hermes_constants`.
+2. **Use `display_hermes_home()` for user-facing messages.** Import from `jarviscopilot_constants`.
    This returns `~/.jarviscopilot` for default or `~/.jarviscopilot/profiles/<name>` for profiles.
    ```python
    # GOOD
-   from hermes_constants import display_hermes_home
+   from jarviscopilot_constants import display_hermes_home
    print(f"Config saved to {display_hermes_home()}/config.yaml")
 
    # BAD — shows wrong path for profiles
@@ -945,7 +945,7 @@ automatically scope to the active profile.
 ## Known Pitfalls
 
 ### DO NOT hardcode `~/.jarviscopilot` paths
-Use `get_hermes_home()` from `hermes_constants` for code paths. Use `display_hermes_home()`
+Use `get_hermes_home()` from `jarviscopilot_constants` for code paths. Use `display_hermes_home()`
 for user-facing print/log messages. Hardcoding `~/.jarviscopilot` breaks profiles — each profile
 has its own `HERMES_HOME` directory. This was the source of 5 bugs fixed in PR #3575.
 

@@ -462,7 +462,7 @@ Transcript:
     transcript()          Builds markdown string from S.messages for download
 
 Boot IIFE:
-    localStorage key 'hermes-webui-session' stores last session_id
+    localStorage key 'jarviscopilot-webui-session' stores last session_id
     On load: try to loadSession(saved), fall back to empty state if missing or fails
     NEVER auto-creates a session on boot
 
@@ -1497,10 +1497,10 @@ B14: `document.addEventListener('keydown', ...)` at global scope catches Cmd/Ctr
 
 Moved <agent-dir>/webui-mvp/ to <repo>/.
 Symlink: <agent-dir>/webui-mvp -> <repo>
-The symlink means all existing import paths (sys.path.insert for hermes-agent modules)
+The symlink means all existing import paths (sys.path.insert for jarviscopilot modules)
 continue working unchanged. start.sh updated to reference new canonical path.
 
-Safe from: git pull, git reset --hard, git stash on hermes-agent repo.
+Safe from: git pull, git reset --hard, git stash on jarviscopilot repo.
 NOT safe from: git clean -fd (would delete symlink but not the target).
 Disk failure: still a single-copy risk. Use git init + push when ready.
 

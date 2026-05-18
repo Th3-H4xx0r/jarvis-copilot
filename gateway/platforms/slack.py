@@ -529,7 +529,7 @@ class SlackAdapter(BasePlatformAdapter):
         bot_tokens = [t.strip() for t in raw_token.split(",") if t.strip()]
 
         # Also load tokens from OAuth token file
-        from hermes_constants import get_hermes_home
+        from jarviscopilot_constants import get_hermes_home
         tokens_file = get_hermes_home() / "slack_tokens.json"
         if tokens_file.exists():
             try:
@@ -639,7 +639,7 @@ class SlackAdapter(BasePlatformAdapter):
             # N identical @app.command() decorators.
             #
             # The slash commands must ALSO be declared in the Slack app
-            # manifest (see `hermes slack manifest`). In Socket Mode, Slack
+            # manifest (see `jarviscopilot slack manifest`). In Socket Mode, Slack
             # routes the command event through the socket regardless of the
             # manifest's request URL, but it will not deliver an event for
             # a slash command the manifest doesn't declare.
@@ -720,7 +720,7 @@ class SlackAdapter(BasePlatformAdapter):
             client = self._get_client(parent_chat_id)
             if client is None:
                 return None
-            seed_text = f":thread: Hermes handoff — *{(name or 'session').strip()[:80]}*"
+            seed_text = f":thread: JarvisCopilot handoff — *{(name or 'session').strip()[:80]}*"
             result = await client.chat_postMessage(
                 channel=parent_chat_id,
                 text=seed_text,
@@ -948,7 +948,7 @@ class SlackAdapter(BasePlatformAdapter):
         """Whether top-level Slack DMs get per-message session threads.
 
         Defaults to ``True`` so each visible DM reply thread is isolated as its
-        own Hermes session — matching the per-thread behavior channels already
+        own JarvisCopilot session — matching the per-thread behavior channels already
         have.  Set ``platforms.slack.extra.dm_top_level_threads_as_sessions``
         to ``false`` in config.yaml to revert to the legacy behavior where all
         top-level DMs share one continuous session.
@@ -1811,7 +1811,7 @@ class SlackAdapter(BasePlatformAdapter):
                 from jarviscopilot_cli.commands import is_gateway_known_command
                 first_token = original_text[1:].split(maxsplit=1)[0]
                 # Strip "@suffix" the same way get_command() does, so
-                # forms like ``!stop@hermes`` still resolve.
+                # forms like ``!stop@jarviscopilot`` still resolve.
                 cmd_name = first_token.split("@", 1)[0].lower()
                 if cmd_name and "/" not in cmd_name and is_gateway_known_command(cmd_name):
                     original_text = "/" + original_text[1:]
@@ -2778,7 +2778,7 @@ class SlackAdapter(BasePlatformAdapter):
         if team_id and channel_id:
             self._channel_team[channel_id] = team_id
 
-        if slash_name in {"hermes", ""}:
+        if slash_name in {"jarviscopilot", ""}:
             # Legacy /hermes <subcommand> [args] routing + free-form questions.
             # Empty slash_name falls into this branch for backward compat
             # with any caller that didn't populate command["command"].

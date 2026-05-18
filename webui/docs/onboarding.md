@@ -20,7 +20,7 @@ skills, config, cron jobs, and provider credentials belong to JarvisCopilot.
 
 The bootstrap supports Linux, macOS, and WSL2. Native Windows is not supported
 by the bootstrap yet. A community native Windows setup is being tracked in
-[#1952](https://github.com/nesquena/hermes-webui/issues/1952), including:
+[#1952](https://github.com/nesquena/jarviscopilot-webui/issues/1952), including:
 
 - [Native Windows guide](https://github.com/markwang2658/hermes-windows-native-guide)
 - [Native Windows setup scripts](https://github.com/markwang2658/hermes-windows-native)
@@ -182,7 +182,7 @@ configuration. Include:
    container, for example:
 
 ```bash
-docker exec hermes-webui sh -c 'curl -sS -w "\nHTTP %{http_code}\n" http://host.docker.internal:1234/v1/models | head -50'
+docker exec jarviscopilot-webui sh -c 'curl -sS -w "\nHTTP %{http_code}\n" http://host.docker.internal:1234/v1/models | head -50'
 ```
 
 5. Any inline wizard error text and relevant logs.

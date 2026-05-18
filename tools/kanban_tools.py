@@ -2,15 +2,15 @@
 
 These tools are only registered into the model's schema when the agent is
 running under the dispatcher (env var ``HERMES_KANBAN_TASK`` set). A
-normal ``hermes chat`` session sees **zero** kanban tools in its schema.
+normal ``jarviscopilot chat`` session sees **zero** kanban tools in its schema.
 
-Why tools instead of just shelling out to ``hermes kanban``?
+Why tools instead of just shelling out to ``jarviscopilot kanban``?
 
 1. **Backend portability.** A worker whose terminal tool points at Docker
-   / Modal / Singularity / SSH would run ``hermes kanban complete …``
-   inside the container, where ``hermes`` isn't installed and the DB
+   / Modal / Singularity / SSH would run ``jarviscopilot kanban complete …``
+   inside the container, where ``jarviscopilot`` isn't installed and the DB
    isn't mounted. Tools run in the agent's Python process, so they
-   always reach ``~/.hermes/kanban.db`` regardless of terminal backend.
+   always reach ``~/.jarviscopilot/kanban.db`` regardless of terminal backend.
 
 2. **No shell-quoting footguns.** Passing ``--metadata '{"x": [...]}'``
    through shlex+argparse is fragile. Structured tool args skip it.
@@ -18,8 +18,8 @@ Why tools instead of just shelling out to ``hermes kanban``?
 3. **Better errors.** Tool-call failures return structured JSON the
    model can reason about, not stderr strings it has to parse.
 
-Humans continue to use the CLI (``hermes kanban …``), the dashboard
-(``hermes dashboard``), and the slash command (``/kanban …``) — all
+Humans continue to use the CLI (``jarviscopilot kanban …``), the dashboard
+(``jarviscopilot dashboard``), and the slash command (``/kanban …``) — all
 three bypass the agent entirely. The tools are ONLY for the worker
 agent's handoff back to the kernel.
 """
@@ -63,7 +63,7 @@ def _check_kanban_mode() -> bool:
     2. The current profile has ``kanban`` in its toolsets config
        (orchestrator profiles like techlead that route work via Kanban).
 
-    Humans running ``hermes chat`` without the kanban toolset see zero
+    Humans running ``jarviscopilot chat`` without the kanban toolset see zero
     kanban tools. Workers spawned by the kanban dispatcher (gateway-
     embedded by default) and orchestrator profiles with the kanban
     toolset enabled see the Kanban lifecycle tool surface.

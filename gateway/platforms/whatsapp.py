@@ -29,7 +29,7 @@ _IS_WINDOWS = platform.system() == "Windows"
 from pathlib import Path
 from typing import Dict, Optional, Any
 
-from hermes_constants import get_hermes_dir
+from jarviscopilot_constants import get_hermes_dir
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +244,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
     MAX_MESSAGE_LENGTH = 4096
     DEFAULT_REPLY_PREFIX = "⚕ *JarvisCopilot*\n────────────\n"
     
-    # Default bridge location relative to the hermes-agent install
+    # Default bridge location relative to the jarviscopilot install
     _DEFAULT_BRIDGE_DIR = Path(__file__).resolve().parents[2] / "scripts" / "whatsapp-bridge"
 
     def __init__(self, config: PlatformConfig):
@@ -495,7 +495,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
             logger.warning("[%s] Node.js not found. WhatsApp requires Node.js.", self.name)
             self._set_fatal_error(
                 "whatsapp_node_missing",
-                "Node.js is not installed — install Node.js and re-run `hermes gateway`.",
+                "Node.js is not installed — install Node.js and re-run `jarviscopilot gateway`.",
                 retryable=False,
             )
             return False
@@ -515,19 +515,19 @@ class WhatsAppAdapter(BasePlatformAdapter):
         # QR codes to its log file and never reaches status:connected,
         # so every gateway restart paid the 30s timeout + queued WhatsApp
         # for indefinite retries.  Mark non-retryable so the user gets a
-        # clear "run hermes whatsapp" message instead of the watcher
+        # clear "run jarviscopilot whatsapp" message instead of the watcher
         # silently hammering an unconfigured platform.
         creds_path = self._session_path / "creds.json"
         if not creds_path.exists():
             logger.warning(
                 "[%s] WhatsApp is enabled but not paired (no creds.json at %s). "
-                "Run `hermes whatsapp` to pair, or remove WHATSAPP_ENABLED from "
+                "Run `jarviscopilot whatsapp` to pair, or remove WHATSAPP_ENABLED from "
                 "your .env to disable.",
                 self.name, creds_path,
             )
             self._set_fatal_error(
                 "whatsapp_not_paired",
-                "WhatsApp enabled but not paired — run `hermes whatsapp` to pair.",
+                "WhatsApp enabled but not paired — run `jarviscopilot whatsapp` to pair.",
                 retryable=False,
             )
             return False
@@ -695,7 +695,7 @@ class WhatsAppAdapter(BasePlatformAdapter):
                     # auto-reconnect later, e.g. after a code 515 restart).
                     print(f"[{self.name}] ⚠ WhatsApp not connected after 30s")
                     print(f"[{self.name}]   Bridge log: {self._bridge_log}")
-                    print(f"[{self.name}]   If session expired, re-pair: hermes whatsapp")
+                    print(f"[{self.name}]   If session expired, re-pair: jarviscopilot whatsapp")
             
             # Create a persistent HTTP session for all bridge communication
             self._http_session = aiohttp.ClientSession()

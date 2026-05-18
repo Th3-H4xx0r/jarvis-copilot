@@ -11,7 +11,7 @@ Original PR #1811 by benfrank241, adapted to MemoryProvider ABC.
 
 Config via environment variables:
   HINDSIGHT_API_KEY                — API key for Hindsight Cloud
-  HINDSIGHT_BANK_ID                — memory bank identifier (default: hermes)
+  HINDSIGHT_BANK_ID                — memory bank identifier (default: jarviscopilot)
   HINDSIGHT_BUDGET                 — recall budget: low/mid/high (default: mid)
   HINDSIGHT_API_URL                — API endpoint
   HINDSIGHT_MODE                   — cloud or local (default: cloud)
@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from agent.memory_provider import MemoryProvider
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 from tools.registry import tool_error
 from jarviscopilot_cli.config import cfg_get
 
@@ -88,7 +88,7 @@ def _check_local_runtime() -> tuple[bool, str | None]:
 
     On older CPUs, importing the local Hindsight stack can raise a runtime
     error from NumPy before the daemon starts. Treat that as "unavailable"
-    so Hermes can degrade gracefully instead of repeatedly trying to start
+    so JarvisCopilot can degrade gracefully instead of repeatedly trying to start
     a broken local memory backend.
     """
     try:
@@ -330,8 +330,8 @@ def _load_config() -> dict:
         "retain_user_prefix": os.environ.get("HINDSIGHT_RETAIN_USER_PREFIX", "User"),
         "retain_assistant_prefix": os.environ.get("HINDSIGHT_RETAIN_ASSISTANT_PREFIX", "Assistant"),
         "banks": {
-            "hermes": {
-                "bankId": os.environ.get("HINDSIGHT_BANK_ID", "hermes"),
+            "jarviscopilot": {
+                "bankId": os.environ.get("HINDSIGHT_BANK_ID", "jarviscopilot"),
                 "budget": os.environ.get("HINDSIGHT_BUDGET", "mid"),
                 "enabled": True,
             }
@@ -382,9 +382,9 @@ def _utc_timestamp() -> str:
 
 
 def _embedded_profile_name(config: dict[str, Any]) -> str:
-    """Return the Hindsight embedded profile name for this Hermes config."""
-    profile = config.get("profile", "hermes")
-    return str(profile or "hermes")
+    """Return the Hindsight embedded profile name for this JarvisCopilot config."""
+    profile = config.get("profile", "jarviscopilot")
+    return str(profile or "jarviscopilot")
 
 
 def _load_simple_env(path) -> dict[str, str]:
@@ -482,14 +482,14 @@ def _resolve_bank_id_template(template: str, fallback: str, **placeholders: str)
     """Resolve a bank_id template string with the given placeholders.
 
     Supported placeholders (each is sanitized before substitution):
-      {profile}   — active Hermes profile name (from agent_identity)
-      {workspace} — Hermes workspace name (from agent_workspace)
+      {profile}   — active JarvisCopilot profile name (from agent_identity)
+      {workspace} — JarvisCopilot workspace name (from agent_workspace)
       {platform}  — "cli", "telegram", "discord", etc.
       {user}      — platform user id (gateway sessions)
       {session}   — current session id
 
     Missing/empty placeholders are rendered as the empty string and then
-    collapsed — e.g. ``hermes-{user}`` with no user becomes ``hermes``.
+    collapsed — e.g. ``hermes-{user}`` with no user becomes ``jarviscopilot``.
 
     If the template is empty, resolution falls back to *fallback*.
     Returns the sanitized bank id.
@@ -522,7 +522,7 @@ class HindsightMemoryProvider(MemoryProvider):
         self._config = None
         self._api_key = None
         self._api_url = _DEFAULT_API_URL
-        self._bank_id = "hermes"
+        self._bank_id = "jarviscopilot"
         self._budget = "mid"
         self._mode = "cloud"
         self._llm_base_url = ""
@@ -764,7 +764,7 @@ class HindsightMemoryProvider(MemoryProvider):
                 env_writes["HINDSIGHT_LLM_API_KEY"] = existing_llm_key
 
         # Step 4: Save everything
-        provider_config.setdefault("bank_id", "hermes")
+        provider_config.setdefault("bank_id", "jarviscopilot")
         provider_config.setdefault("recall_budget", "mid")
         # Read existing timeout from config if present, otherwise use default.
         # Preserve explicit 0 values instead of treating them as blank.
@@ -843,7 +843,7 @@ class HindsightMemoryProvider(MemoryProvider):
             {"key": "llm_base_url", "description": "Endpoint URL (e.g. http://192.168.1.10:8080/v1)", "default": "", "when": {"mode": "local_embedded", "llm_provider": "openai_compatible"}},
             {"key": "llm_api_key", "description": "LLM API key (optional for openai_compatible)", "secret": True, "env_var": "HINDSIGHT_LLM_API_KEY", "when": {"mode": "local_embedded"}},
             {"key": "llm_model", "description": "LLM model", "default": "gpt-4o-mini", "default_from": {"field": "llm_provider", "map": _PROVIDER_DEFAULT_MODELS}, "when": {"mode": "local_embedded"}},
-            {"key": "bank_id", "description": "Memory bank name (static fallback when bank_id_template is unset)", "default": "hermes"},
+            {"key": "bank_id", "description": "Memory bank name (static fallback when bank_id_template is unset)", "default": "jarviscopilot"},
             {"key": "bank_id_template", "description": "Optional template to derive bank_id dynamically. Placeholders: {profile}, {workspace}, {platform}, {user}, {session}. Example: hermes-{profile}", "default": ""},
             {"key": "bank_mission", "description": "Mission/purpose description for the memory bank"},
             {"key": "bank_retain_mission", "description": "Custom extraction prompt for memory retention"},
@@ -891,9 +891,9 @@ class HindsightMemoryProvider(MemoryProvider):
                 if llm_provider in {"openai_compatible", "openrouter"}:
                     llm_provider = "openai"
                 logger.debug("Creating HindsightEmbedded client (profile=%s, provider=%s)",
-                             self._config.get("profile", "hermes"), llm_provider)
+                             self._config.get("profile", "jarviscopilot"), llm_provider)
                 kwargs = dict(
-                    profile=self._config.get("profile", "hermes"),
+                    profile=self._config.get("profile", "jarviscopilot"),
                     llm_provider=llm_provider,
                     llm_api_key=self._config.get("llmApiKey") or self._config.get("llm_api_key") or os.environ.get("HINDSIGHT_LLM_API_KEY", ""),
                     llm_model=self._config.get("llm_model", ""),
@@ -1136,8 +1136,8 @@ class HindsightMemoryProvider(MemoryProvider):
         self._api_url = self._config.get("api_url") or os.environ.get("HINDSIGHT_API_URL", default_url)
         self._llm_base_url = self._config.get("llm_base_url", "")
 
-        banks = cfg_get(self._config, "banks", "hermes", default={})
-        static_bank_id = self._config.get("bank_id") or banks.get("bankId", "hermes")
+        banks = cfg_get(self._config, "banks", "jarviscopilot", default={})
+        static_bank_id = self._config.get("bank_id") or banks.get("bankId", "jarviscopilot")
         self._bank_id_template = self._config.get("bank_id_template", "") or ""
         self._bank_id = _resolve_bank_id_template(
             self._bank_id_template,
@@ -1228,7 +1228,7 @@ class HindsightMemoryProvider(MemoryProvider):
                     dem.console = Console(file=open(log_path, "a", encoding="utf-8"), force_terminal=False)
 
                     client = self._get_client()
-                    profile = self._config.get("profile", "hermes")
+                    profile = self._config.get("profile", "jarviscopilot")
 
                     # Update the profile .env to match our current config so
                     # the daemon always starts with the right settings.
@@ -1577,7 +1577,7 @@ class HindsightMemoryProvider(MemoryProvider):
         Without this hook, initialize()-cached state (``_session_id``,
         ``_document_id``, ``_session_turns``, ``_turn_counter``) would keep
         pointing at the previous session and writes would land in the wrong
-        document. See hermes-agent#6672.
+        document. See jarviscopilot#6672.
 
         Always update ``_session_id`` so metadata and tags on subsequent
         retains reflect the active session. Always mint a fresh
@@ -1718,7 +1718,7 @@ class HindsightMemoryProvider(MemoryProvider):
             try:
                 if self._mode == "local_embedded":
                     # HindsightEmbedded.close() delegates to its sync client.close().
-                    # When Hermes created/used that client on the shared async loop,
+                    # When JarvisCopilot created/used that client on the shared async loop,
                     # closing it from this thread can raise "attached to a different
                     # loop" before aiohttp releases the session. Close the embedded
                     # inner async client on the shared loop first, then let the

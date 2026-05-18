@@ -145,8 +145,8 @@ def test_same_session_profile_switch_rebuilds_agent_under_new_soul_home(tmp_path
     }
     fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
     fake_jarviscopilot_cli.runtime_provider = fake_runtime_module
-    fake_hermes_state = types.ModuleType("hermes_state")
-    fake_hermes_state.SessionDB = lambda: None
+    fake_jarviscopilot_state = types.ModuleType("jarviscopilot_state")
+    fake_jarviscopilot_state.SessionDB = lambda: None
 
     def home_for_profile(profile_name):
         return {"alpha": profile_a_home, "beta": profile_b_home}[profile_name]
@@ -175,7 +175,7 @@ def test_same_session_profile_switch_rebuilds_agent_under_new_soul_home(tmp_path
     monkeypatch.setattr("api.config.load_settings", lambda: {})
     monkeypatch.setitem(sys.modules, "jarviscopilot_cli", fake_jarviscopilot_cli)
     monkeypatch.setitem(sys.modules, "jarviscopilot_cli.runtime_provider", fake_runtime_module)
-    monkeypatch.setitem(sys.modules, "hermes_state", fake_hermes_state)
+    monkeypatch.setitem(sys.modules, "jarviscopilot_state", fake_jarviscopilot_state)
 
     with cfg.SESSION_AGENT_CACHE_LOCK:
         cfg.SESSION_AGENT_CACHE.clear()

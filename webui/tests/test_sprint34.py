@@ -9,7 +9,7 @@ Covers:
   3. _provider_oauth_authenticated() returns False for unknown/API-key providers
   4. _status_from_runtime() marks copilot/openai-codex as provider_ready when
      credentials exist
-  5. _status_from_runtime() gives a helpful "hermes auth" note (not "API key")
+  5. _status_from_runtime() gives a helpful "jarviscopilot auth" note (not "API key")
      for OAuth providers that have no credentials yet
   6. API route /api/onboarding/status reflects OAuth-ready state
 """
@@ -40,7 +40,7 @@ def _make_auth_json_with_credential_pool(
 ) -> pathlib.Path:
     """Write an auth.json with only credential_pool entries for provider_id.
 
-    This reproduces setups where Hermes runtime resolves OAuth credentials from
+    This reproduces setups where JarvisCopilot runtime resolves OAuth credentials from
     credential_pool while providers[provider_id] is absent or stale.
     """
     store = {"providers": {}, "credential_pool": {provider_id: pool_entries}}
@@ -133,7 +133,7 @@ class TestStatusFromRuntimeOAuth:
         orig_home = _ob._get_active_hermes_home
         orig_found = _ob._HERMES_FOUND
         _ob._get_active_hermes_home = lambda: hermes_home
-        # Simulate hermes-agent being available so we reach the provider logic
+        # Simulate jarviscopilot being available so we reach the provider logic
         # (without this, _status_from_runtime short-circuits to agent_unavailable)
         _ob._HERMES_FOUND = True
         try:
@@ -183,11 +183,11 @@ class TestStatusFromRuntimeOAuth:
         assert result["setup_state"] == "provider_incomplete"
 
     def test_oauth_incomplete_note_mentions_hermes_auth(self, tmp_path):
-        """When OAuth provider is incomplete, note should mention hermes auth/model."""
+        """When OAuth provider is incomplete, note should mention jarviscopilot auth/model."""
         result = self._call("openai-codex", "codex-mini-latest", tmp_path)
         note = result["provider_note"]
-        assert "hermes auth" in note or "hermes model" in note, (
-            f"Expected 'hermes auth' or 'hermes model' in note, got: {note!r}"
+        assert "jarviscopilot auth" in note or "jarviscopilot model" in note, (
+            f"Expected 'jarviscopilot auth' or 'jarviscopilot model' in note, got: {note!r}"
         )
 
     def test_oauth_incomplete_note_does_not_say_api_key(self, tmp_path):

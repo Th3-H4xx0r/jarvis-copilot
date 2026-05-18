@@ -10,7 +10,7 @@ PATH DISCOVERY:
   No hardcoded paths. Discovery order:
     1. Environment variables (HERMES_WEBUI_AGENT_DIR, HERMES_WEBUI_PYTHON, etc.)
     2. Sibling checkout heuristics relative to this repo
-    3. Common install paths (~/.hermes/hermes-agent)
+    3. Common install paths (~/.jarviscopilot/jarviscopilot)
     4. System python3 as a last resort
 """
 import json
@@ -28,7 +28,7 @@ import pytest
 TESTS_DIR  = pathlib.Path(__file__).parent.resolve()
 REPO_ROOT  = TESTS_DIR.parent.resolve()
 HOME       = pathlib.Path.home()
-HERMES_HOME = pathlib.Path(os.getenv('HERMES_HOME', str(HOME / '.hermes')))
+HERMES_HOME = pathlib.Path(os.getenv('HERMES_HOME', str(HOME / '.jarviscopilot')))
 
 # ── Test server config ────────────────────────────────────────────────────
 # Port and state dir auto-derive from the repo path when no env var is set,
@@ -62,7 +62,7 @@ TEST_WORKSPACE = TEST_STATE_DIR / 'test-workspace'
 #
 # Direct assignment is intentional for production-risk paths: tests that import
 # api.config/api.models in the pytest process must never inherit the real
-# ~/.hermes state tree before the server subprocess fixture starts.
+# ~/.jarviscopilot state tree before the server subprocess fixture starts.
 os.environ['HERMES_WEBUI_TEST_PORT'] = str(TEST_PORT)
 os.environ['HERMES_WEBUI_TEST_STATE_DIR'] = str(TEST_STATE_DIR)
 os.environ['HERMES_WEBUI_STATE_DIR'] = str(TEST_STATE_DIR)
@@ -70,7 +70,7 @@ os.environ['HERMES_WEBUI_DEFAULT_WORKSPACE'] = str(TEST_WORKSPACE)
 os.environ['HERMES_HOME'] = str(TEST_STATE_DIR)
 os.environ['HERMES_BASE_HOME'] = str(TEST_STATE_DIR)
 # JarvisCopilot sessions may inherit HERMES_CONFIG_PATH pointing at the live
-# ~/.hermes/config.yaml.  Override it before any product modules are imported so
+# ~/.jarviscopilot/config.yaml.  Override it before any product modules are imported so
 # tests that read/write config.yaml stay inside the isolated test home.
 os.environ['HERMES_CONFIG_PATH'] = str(TEST_STATE_DIR / 'config.yaml')
 
@@ -82,14 +82,14 @@ if not SERVER_SCRIPT.exists():
         "Is conftest.py in the tests/ subdirectory of the repo?"
     )
 
-# ── Hermes agent discovery (mirrors api/config._discover_agent_dir) ───────
+# ── JarvisCopilot agent discovery (mirrors api/config._discover_agent_dir) ───────
 def _discover_agent_dir() -> pathlib.Path:
     candidates = [
         os.getenv('HERMES_WEBUI_AGENT_DIR', ''),
-        str(HERMES_HOME / 'hermes-agent'),
-        str(REPO_ROOT.parent / 'hermes-agent'),
-        str(HOME / '.hermes' / 'hermes-agent'),
-        str(HOME / 'hermes-agent'),
+        str(HERMES_HOME / 'jarviscopilot'),
+        str(REPO_ROOT.parent / 'jarviscopilot'),
+        str(HOME / '.jarviscopilot' / 'jarviscopilot'),
+        str(HOME / 'jarviscopilot'),
     ]
     for c in candidates:
         if not c:
@@ -119,12 +119,12 @@ VENV_PYTHON  = _discover_python(HERMES_AGENT)
 WORKDIR = str(HERMES_AGENT) if HERMES_AGENT else str(REPO_ROOT)
 
 # ── Agent availability detection ─────────────────────────────────────────────
-# Tests that require hermes-agent modules (cron, skills, approval, chat/stream)
+# Tests that require jarviscopilot modules (cron, skills, approval, chat/stream)
 # are skipped when the agent isn't installed, instead of failing with 500 errors.
 AGENT_AVAILABLE = HERMES_AGENT is not None
 
 def _check_agent_modules():
-    """Verify hermes-agent Python modules are actually importable."""
+    """Verify jarviscopilot Python modules are actually importable."""
     if not HERMES_AGENT:
         return False
     try:
@@ -138,23 +138,23 @@ def _check_agent_modules():
 
 AGENT_MODULES_AVAILABLE = _check_agent_modules()
 
-# pytest marker: skip tests that need hermes-agent when it's not present
+# pytest marker: skip tests that need jarviscopilot when it's not present
 requires_agent = pytest.mark.skipif(
     not AGENT_AVAILABLE,
-    reason="hermes-agent not found (skipping agent-dependent test)"
+    reason="jarviscopilot not found (skipping agent-dependent test)"
 )
 requires_agent_modules = pytest.mark.skipif(
     not AGENT_MODULES_AVAILABLE,
-    reason="hermes-agent Python modules not importable (cron, skills_tool)"
+    reason="jarviscopilot Python modules not importable (cron, skills_tool)"
 )
 
 def pytest_configure(config):
-    config.addinivalue_line("markers", "requires_agent: skip when hermes-agent dir is not found")
-    config.addinivalue_line("markers", "requires_agent_modules: skip when hermes-agent Python modules are not importable")
+    config.addinivalue_line("markers", "requires_agent: skip when jarviscopilot dir is not found")
+    config.addinivalue_line("markers", "requires_agent_modules: skip when jarviscopilot Python modules are not importable")
 
 
 # ── Disable AWS IMDS probing for the pytest session ────────────────────────
-# Background: when hermes-agent's bedrock_adapter / botocore credential chain
+# Background: when jarviscopilot's bedrock_adapter / botocore credential chain
 # runs during test execution (e.g. provider catalog enumeration triggered by
 # api/config.py imports), botocore probes the EC2 Instance Metadata Service at
 # 169.254.169.254 looking for an instance role. On VPS hosts where IMDS is
@@ -212,7 +212,7 @@ os.execv = _pytest_session_safe_execv
 #
 # This module-level monkey-patch wraps socket.create_connection so any
 # non-loopback / non-RFC1918 / non-link-local / non-TEST-NET destination
-# raises OSError("hermes test network isolation").  Tests that deliberately
+# raises OSError("jarviscopilot test network isolation").  Tests that deliberately
 # attempt outbound (only test_dns_resolution_failure today) opt back in
 # explicitly via the `allow_outbound_network` fixture below.
 #
@@ -293,7 +293,7 @@ def _hermes_blocked_create_connection(address, *a, **kw):
     if _hermes_addr_is_local(host):
         return _REAL_CREATE_CONNECTION(address, *a, **kw)
     raise OSError(
-        f"hermes test network isolation: outbound socket to {address!r} is blocked. "
+        f"jarviscopilot test network isolation: outbound socket to {address!r} is blocked. "
         f"Tests should mock urllib.request.urlopen / requests / socket.create_connection. "
         f"If a test genuinely needs real outbound, request the allow_outbound_network fixture."
     )
@@ -307,7 +307,7 @@ def _hermes_blocked_socket_connect(self, address):
     if _hermes_addr_is_local(host):
         return _REAL_SOCKET_CONNECT(self, address)
     raise OSError(
-        f"hermes test network isolation: socket.connect to {address!r} is blocked."
+        f"jarviscopilot test network isolation: socket.connect to {address!r} is blocked."
     )
 
 
@@ -354,17 +354,17 @@ def _strip_skip_onboarding_env():
         os.environ["HERMES_WEBUI_SKIP_ONBOARDING"] = prior
 
 def pytest_collection_modifyitems(config, items):
-    """Auto-skip agent-dependent tests when hermes-agent is not available.
+    """Auto-skip agent-dependent tests when jarviscopilot is not available.
 
     Instead of requiring markers on every test function, we pattern-match
-    test names to known categories that depend on hermes-agent modules.
+    test names to known categories that depend on jarviscopilot modules.
     This keeps the test files clean and ensures new cron/skills tests
     get auto-skipped without manual annotation.
     """
     if AGENT_MODULES_AVAILABLE:
         return  # everything available, run all tests
 
-    # Exact list of tests known to fail without hermes-agent.
+    # Exact list of tests known to fail without jarviscopilot.
     # These hit server endpoints that import cron.jobs, tools.skills_tool,
     # or require a running agent backend — returning 500 without the agent.
     _AGENT_DEPENDENT_TESTS = {
@@ -399,7 +399,7 @@ def pytest_collection_modifyitems(config, items):
         'test_new_session_inherits_last_workspace',
     }
 
-    skip_marker = pytest.mark.skip(reason="requires hermes-agent (not installed)")
+    skip_marker = pytest.mark.skip(reason="requires jarviscopilot (not installed)")
     skipped = 0
 
     for item in items:
@@ -408,7 +408,7 @@ def pytest_collection_modifyitems(config, items):
             skipped += 1
 
     if skipped:
-        print(f"\nWARNING: hermes-agent not found; {skipped} agent-dependent tests will be skipped\n")
+        print(f"\nWARNING: jarviscopilot not found; {skipped} agent-dependent tests will be skipped\n")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -547,9 +547,9 @@ def test_server():
         # in api/profiles.py to the test state dir regardless of profile switching
         # or any os.environ mutation that happens inside the server process.
         # Without this, a profile switch or active_profile file in the real
-        # ~/.hermes can redirect _get_active_hermes_home() out of the sandbox,
+        # ~/.jarviscopilot can redirect _get_active_hermes_home() out of the sandbox,
         # causing onboarding writes (config.yaml, .env) to land in the production
-        # ~/.hermes/profiles/webui/ and overwrite real API keys.
+        # ~/.jarviscopilot/profiles/webui/ and overwrite real API keys.
         "HERMES_BASE_HOME":               str(TEST_STATE_DIR),
         "HERMES_WEBUI_PASSWORD":          "",
     })

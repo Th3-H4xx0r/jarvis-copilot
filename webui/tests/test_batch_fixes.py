@@ -26,7 +26,7 @@ class TestRootWorkspaceUnblocked:
         src = read("api/workspace.py")
         assert "Path('/root')" not in src, (
             "/root must not be in _BLOCKED_SYSTEM_ROOTS — "
-            "breaks deployments where Hermes runs as root"
+            "breaks deployments where JarvisCopilot runs as root"
         )
 
     def test_etc_still_blocked(self):

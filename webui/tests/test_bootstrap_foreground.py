@@ -196,7 +196,7 @@ class TestXPCServiceNameNoiseFilter:
         )
 
     @pytest.mark.parametrize("real_value", [
-        "com.example.hermes-webui",
+        "com.example.jarviscopilot-webui",
         "com.acme.production-server",
         "io.github.user.my-service",
     ])

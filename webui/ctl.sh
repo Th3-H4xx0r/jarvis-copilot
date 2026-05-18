@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HERMES_HOME="${HERMES_HOME:-${HOME}/.hermes}"
+HERMES_HOME="${HERMES_HOME:-${HOME}/.jarviscopilot}"
 PID_FILE="${HERMES_WEBUI_PID_FILE:-${HERMES_HOME}/webui.pid}"
 LOG_FILE="${HERMES_WEBUI_LOG_FILE:-${HERMES_HOME}/webui.log}"
 STATE_FILE="${HERMES_WEBUI_CTL_STATE_FILE:-${HERMES_HOME}/webui.ctl.env}"
@@ -13,7 +13,7 @@ usage() {
 Usage: ./ctl.sh <command> [args]
 
 Commands:
-  start [bootstrap args...]   Start Hermes WebUI as a background daemon
+  start [bootstrap args...]   Start JarvisCopilot WebUI as a background daemon
   stop                        Stop the daemon started by ctl.sh
   restart [bootstrap args...] Stop, then start again
   status                      Show daemon, host/port, log, and health status
@@ -209,7 +209,7 @@ start_cmd() {
 
   local existing_pid
   if existing_pid="$(_current_pid 2>/dev/null)"; then
-    echo "[ctl] Hermes WebUI is already running (PID ${existing_pid})"
+    echo "[ctl] JarvisCopilot WebUI is already running (PID ${existing_pid})"
     return 0
   fi
   _clear_stale_pid >/dev/null 2>&1 || true
@@ -227,11 +227,11 @@ start_cmd() {
   _write_state "${pid}" "${CTL_HOST}" "${CTL_PORT}" "${python_exe}"
   sleep 0.15
   if ! _is_alive "${pid}"; then
-    echo "[ctl] Hermes WebUI failed to stay running. Log: ${LOG_FILE}" >&2
+    echo "[ctl] JarvisCopilot WebUI failed to stay running. Log: ${LOG_FILE}" >&2
     rm -f "${PID_FILE}" "${STATE_FILE}"
     return 1
   fi
-  echo "[ctl] Started Hermes WebUI (PID ${pid})"
+  echo "[ctl] Started JarvisCopilot WebUI (PID ${pid})"
   echo "[ctl] Bound: ${CTL_HOST}:${CTL_PORT}"
   echo "[ctl] Log: ${LOG_FILE}"
 }
@@ -240,7 +240,7 @@ stop_cmd() {
   ensure_home
   local pid
   if ! pid="$(_pid_from_file 2>/dev/null)"; then
-    echo "[ctl] Hermes WebUI is stopped"
+    echo "[ctl] JarvisCopilot WebUI is stopped"
     rm -f "${PID_FILE}" "${STATE_FILE}"
     return 0
   fi
@@ -250,7 +250,7 @@ stop_cmd() {
     return 0
   fi
 
-  echo "[ctl] Stopping Hermes WebUI (PID ${pid})"
+  echo "[ctl] Stopping JarvisCopilot WebUI (PID ${pid})"
   kill "${pid}" >/dev/null 2>&1 || true
   local i
   for i in {1..50}; do
@@ -304,7 +304,7 @@ status_cmd() {
   if pid="$(_current_pid 2>/dev/null)"; then
     uptime="$(ps -p "${pid}" -o etime= 2>/dev/null | sed 's/^ *//' || true)"
     health="$(_health_line "${host}" "${port}")"
-    echo "● hermes-webui — running"
+    echo "● jarviscopilot-webui — running"
     echo "  PID:     ${pid}"
     echo "  Uptime:  ${uptime:-unknown}"
     echo "  Bound:   ${host}:${port}"
@@ -312,7 +312,7 @@ status_cmd() {
     echo "  Health:  ${health}"
   else
     [[ -f "${PID_FILE}" ]] && _clear_stale_pid >/dev/null 2>&1 || true
-    echo "● hermes-webui — stopped"
+    echo "● jarviscopilot-webui — stopped"
     echo "  PID:     -"
     echo "  Bound:   ${host}:${port}"
     echo "  Log:     ${log_path}"

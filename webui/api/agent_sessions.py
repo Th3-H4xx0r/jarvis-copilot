@@ -189,7 +189,7 @@ def _is_continuation_session(parent: dict | None, child: dict | None) -> bool:
     """Return True when ``child`` is the next segment of the same conversation.
 
     Compression rotates session ids automatically. A manual CLI close followed
-    by ``hermes -c`` also records a new child session; for sidebar projection it
+    by ``jarviscopilot -c`` also records a new child session; for sidebar projection it
     should continue the same visible conversation rather than becoming a
     separate child-session row. Plain parent/child links that started before the
     parent's ended boundary remain child sessions.
@@ -376,8 +376,8 @@ def read_importable_agent_session_rows(
         if 'source' not in session_cols:
             log.warning(
                 "agent session listing skipped: state.db at %s has no 'source' column "
-                "(older hermes-agent?). Agent sessions unavailable. "
-                "Upgrade hermes-agent to fix this.",
+                "(older jarviscopilot?). Agent sessions unavailable. "
+                "Upgrade jarviscopilot to fix this.",
                 db_path,
             )
             return []

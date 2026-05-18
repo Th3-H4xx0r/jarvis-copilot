@@ -66,7 +66,7 @@ import requests
 from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 from agent.auxiliary_client import call_llm
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 from utils import is_truthy_value
 from jarviscopilot_cli.config import cfg_get
 
@@ -418,7 +418,7 @@ def _stop_cdp_supervisor(task_id: str) -> None:
 # When the test patches ``_PROVIDER_REGISTRY``, we honour it (so the cache
 # unit tests still drive the function); otherwise the registry-backed path
 # wins. This keeps the test surface stable while letting third-party
-# plugins drop in under ``~/.hermes/plugins/browser/<vendor>/``.
+# plugins drop in under ``~/.jarviscopilot/plugins/browser/<vendor>/``.
 
 _PROVIDER_REGISTRY: Dict[str, type] = {
     "browserbase": BrowserbaseProvider,
@@ -497,7 +497,7 @@ def _get_cloud_provider() -> Optional[CloudBrowserProvider]:
     :data:`agent.browser_registry._LEGACY_PREFERENCE` walk.
 
     Selection routes through :mod:`agent.browser_registry` so third-party
-    browser plugins (``~/.hermes/plugins/browser/<vendor>/``) participate
+    browser plugins (``~/.jarviscopilot/plugins/browser/<vendor>/``) participate
     in explicit-config resolution. Test fixtures that override
     ``_PROVIDER_REGISTRY`` or ``BrowserUseProvider`` / ``BrowserbaseProvider``
     on this module still drive the function — see
@@ -591,7 +591,7 @@ def _get_cloud_provider() -> Optional[CloudBrowserProvider]:
     return _cached_cloud_provider
 
 
-from hermes_constants import is_termux as _is_termux_environment
+from jarviscopilot_constants import is_termux as _is_termux_environment
 
 
 def _browser_install_hint() -> str:
@@ -705,7 +705,7 @@ def _lightpanda_fallback_reason(engine: str, command: str, result: Dict[str, Any
     """Return the user-visible reason a Lightpanda result needs Chrome fallback.
 
     ``None`` means no fallback should run.  The returned string is copied into
-    the fallback result so CLI/TUI/gateway users can see when Hermes silently
+    the fallback result so CLI/TUI/gateway users can see when JarvisCopilot silently
     switched from Lightpanda to Chrome for completeness.
     """
     if engine != "lightpanda":
@@ -835,7 +835,7 @@ def _run_chrome_fallback_command(
             hint = (
                 "Chrome fallback requires Chromium, but it is missing. "
                 "You're running in Docker — pull the latest image: "
-                "docker pull ghcr.io/nousresearch/hermes-agent:latest"
+                "docker pull ghcr.io/nousresearch/jarviscopilot:latest"
             )
         else:
             hint = (
@@ -1199,7 +1199,7 @@ def _emergency_cleanup_all_sessions():
     Called on process exit or interrupt to prevent orphaned sessions.
 
     Also runs the orphan reaper to clean up daemons left behind by previously
-    crashed hermes processes — this way every clean hermes exit sweeps
+    crashed jarviscopilot processes — this way every clean jarviscopilot exit sweeps
     accumulated orphans, not just ones that actively used the browser tool.
     """
     global _cleanup_done
@@ -1222,9 +1222,9 @@ def _emergency_cleanup_all_sessions():
                 _session_last_activity.clear()
                 _recording_sessions.clear()
 
-    # Sweep orphans from other crashed hermes processes.  Safe even if we
+    # Sweep orphans from other crashed jarviscopilot processes.  Safe even if we
     # never used the browser — uses owner_pid liveness to avoid reaping
-    # daemons owned by other live hermes processes.
+    # daemons owned by other live jarviscopilot processes.
     try:
         _reap_orphaned_browser_sessions()
     except Exception as e:
@@ -1273,10 +1273,10 @@ def _cleanup_inactive_browser_sessions():
 
 
 def _write_owner_pid(socket_dir: str, session_name: str) -> None:
-    """Record the current hermes PID as the owner of a browser socket dir.
+    """Record the current jarviscopilot PID as the owner of a browser socket dir.
 
     Written atomically to ``<socket_dir>/<session_name>.owner_pid`` so the
-    orphan reaper can distinguish daemons owned by a live hermes process
+    orphan reaper can distinguish daemons owned by a live jarviscopilot process
     (don't reap) from daemons whose owner crashed (reap).  Best-effort —
     an OSError here just falls back to the legacy ``tracked_names``
     heuristic in the reaper.
@@ -1299,13 +1299,13 @@ def _reap_orphaned_browser_sessions():
 
     This function scans the tmp directory for ``agent-browser-*`` socket dirs
     left behind by previous runs, reads the daemon PID files, and kills any
-    daemons whose owning hermes process is no longer alive.
+    daemons whose owning jarviscopilot process is no longer alive.
 
     Ownership detection priority:
       1. ``<session>.owner_pid`` file (written by current code) — if the
-         referenced hermes PID is alive, leave the daemon alone regardless
+         referenced jarviscopilot PID is alive, leave the daemon alone regardless
          of whether it's in *this* process's ``_active_sessions``.  This is
-         cross-process safe: two concurrent hermes instances won't reap each
+         cross-process safe: two concurrent jarviscopilot instances won't reap each
          other's daemons.
       2. Fallback for daemons that predate owner_pid: check
          ``_active_sessions`` in the current process.  If not tracked here,
@@ -1356,7 +1356,7 @@ def _reap_orphaned_browser_sessions():
                 owner_alive = None  # corrupt file — fall through
 
         if owner_alive is True:
-            # Owner is alive — this session belongs to a live hermes process.
+            # Owner is alive — this session belongs to a live jarviscopilot process.
             continue
 
         if owner_alive is None:
@@ -1918,7 +1918,7 @@ def _run_browser_command(
             hint = (
                 "Chromium browser is missing. You're running in Docker — pull "
                 "the latest image to get the bundled Chromium: "
-                "docker pull ghcr.io/nousresearch/hermes-agent:latest"
+                "docker pull ghcr.io/nousresearch/jarviscopilot:latest"
             )
         else:
             hint = (
@@ -1984,7 +1984,7 @@ def _run_browser_command(
             f"agent-browser-{session_info['session_name']}"
         )
         os.makedirs(task_socket_dir, mode=0o700, exist_ok=True)
-        # Record this hermes PID as the session owner (cross-process safe
+        # Record this jarviscopilot PID as the session owner (cross-process safe
         # orphan detection — see _write_owner_pid).
         _write_owner_pid(task_socket_dir, session_info['session_name'])
         logger.debug("browser cmd=%s task=%s socket_dir=%s (%d chars)",
@@ -3069,7 +3069,7 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
 
     import base64
     import uuid as uuid_mod
-    from hermes_constants import get_hermes_dir
+    from jarviscopilot_constants import get_hermes_dir
     screenshots_dir = get_hermes_dir("cache/screenshots", "browser_screenshots")
     screenshot_path = screenshots_dir / f"browser_screenshot_{uuid_mod.uuid4().hex}.png"
     effective_task_id = _last_session_key(task_id or "default")
@@ -3097,7 +3097,7 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
             _lp_fallback_warning = fb_result.get("fallback_warning")
             fb_path = fb_result.get("data", {}).get("path", "")
             if fb_path and os.path.exists(fb_path):
-                from hermes_constants import get_hermes_dir
+                from jarviscopilot_constants import get_hermes_dir
                 screenshots_dir = get_hermes_dir("cache/screenshots", "browser_screenshots")
                 screenshots_dir.mkdir(parents=True, exist_ok=True)
                 import shutil as _shutil_vision
@@ -3683,7 +3683,7 @@ if __name__ == "__main__":
                         "     Docker: pull the latest image — the current one "
                         "predates the bundled Chromium install"
                     )
-                    print("       docker pull ghcr.io/nousresearch/hermes-agent:latest")
+                    print("       docker pull ghcr.io/nousresearch/jarviscopilot:latest")
                 else:
                     print("     Install it with:")
                     print("       npx agent-browser install --with-deps")

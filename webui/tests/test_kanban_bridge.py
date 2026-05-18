@@ -4,7 +4,7 @@ The first upstream WebUI Kanban integration is intentionally read-only: it
 surfaces JarvisCopilot Kanban data under /api/kanban/* while keeping the Agent
 kanban database as the only source of truth.
 
-CI for hermes-webui does not install hermes-agent, so these tests inject a tiny
+CI for jarviscopilot-webui does not install jarviscopilot, so these tests inject a tiny
 fake ``jarviscopilot_cli.kanban_db`` module and verify the bridge contract without
 requiring the external package.
 """

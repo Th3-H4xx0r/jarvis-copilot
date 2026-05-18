@@ -51,29 +51,29 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _HERMES_MODEL_WARNING = (
-    "Nous Research Hermes 3 & 4 models are NOT agentic and are not designed "
+    "Nous Research JarvisCopilot 3 & 4 models are NOT agentic and are not designed "
     "for use with JarvisCopilot. They lack the tool-calling capabilities "
     "required for agent workflows. Consider using an agentic model instead "
     "(Claude, GPT, Gemini, DeepSeek, etc.)."
 )
 
-# Match only the real Nous Research Hermes 3 / Hermes 4 chat families.
-# The previous substring check (`"hermes" in name.lower()`) false-positived on
+# Match only the real Nous Research JarvisCopilot 3 / JarvisCopilot 4 chat families.
+# The previous substring check (`"jarviscopilot" in name.lower()`) false-positived on
 # unrelated local Modelfiles like ``hermes-brain:qwen3-14b-ctx16k`` that just
-# happen to carry "hermes" in their tag but are fully tool-capable.
+# happen to carry "jarviscopilot" in their tag but are fully tool-capable.
 #
 # Positive examples the regex must match:
 #   NousResearch/Hermes-3-Llama-3.1-70B, hermes-4-405b, openrouter/hermes3:70b
 # Negative examples it must NOT match:
 #   hermes-brain:qwen3-14b-ctx16k, qwen3:14b, claude-opus-4-6
 _NOUS_HERMES_NON_AGENTIC_RE = re.compile(
-    r"(?:^|[/:])hermes[-_ ]?[34](?:[-_.:]|$)",
+    r"(?:^|[/:])jarviscopilot[-_ ]?[34](?:[-_.:]|$)",
     re.IGNORECASE,
 )
 
 
 def is_nous_hermes_non_agentic(model_name: str) -> bool:
-    """Return True if *model_name* is a real Nous Hermes 3/4 chat model.
+    """Return True if *model_name* is a real Nous JarvisCopilot 3/4 chat model.
 
     Used to decide whether to surface the non-agentic warning at startup.
     Callers in :mod:`cli.py` and here should go through this single helper
@@ -85,7 +85,7 @@ def is_nous_hermes_non_agentic(model_name: str) -> bool:
 
 
 def _check_hermes_model_warning(model_name: str) -> str:
-    """Return a warning string if *model_name* is a Nous Hermes 3/4 chat model."""
+    """Return a warning string if *model_name* is a Nous JarvisCopilot 3/4 chat model."""
     if is_nous_hermes_non_agentic(model_name):
         return _HERMES_MODEL_WARNING
     return ""
@@ -191,7 +191,7 @@ def _load_direct_aliases() -> dict[str, DirectAlias]:
             provider: custom
             base_url: "https://ollama.com/v1"
 
-    Also reads ``model.aliases`` (set by ``hermes config set model.aliases.xxx``)
+    Also reads ``model.aliases`` (set by ``jarviscopilot config set model.aliases.xxx``)
     and converts simple string entries (``ds-flash: deepseek/deepseek-v4-flash``)
     into DirectAlias objects.  The provider is parsed from the ``provider/``
     prefix in the value; if no slash, the current provider is used.
@@ -685,7 +685,7 @@ def switch_model(
         if pdef is None:
             _switch_err = (
                 f"Unknown provider '{explicit_provider}'. "
-                f"Check 'hermes model' for available providers, or define it "
+                f"Check 'jarviscopilot model' for available providers, or define it "
                 f"in config.yaml under 'providers:'."
             )
             # Check for common config issues that cause provider resolution failures
@@ -693,7 +693,7 @@ def switch_model(
                 from jarviscopilot_cli.config import validate_config_structure
                 _cfg_issues = validate_config_structure()
                 if _cfg_issues:
-                    _switch_err += "\n\nRun 'hermes doctor' — config issues detected:"
+                    _switch_err += "\n\nRun 'jarviscopilot doctor' — config issues detected:"
                     for _ci in _cfg_issues[:3]:
                         _switch_err += f"\n  • {_ci.message}"
             except Exception:
@@ -1158,13 +1158,13 @@ def list_authenticated_providers(
 
     data = fetch_models_dev()
 
-    # Build curated model lists keyed by hermes provider ID
+    # Build curated model lists keyed by jarviscopilot provider ID
     curated: dict[str, list[str]] = dict(_PROVIDER_MODELS)
     curated["openrouter"] = [mid for mid, _ in OPENROUTER_MODELS]
     # "nous" pulls from the remote model-catalog manifest published at
-    # https://hermes-agent.nousresearch.com/docs/api/model-catalog.json so
+    # https://jarviscopilot.nousresearch.com/docs/api/model-catalog.json so
     # newly added Portal models surface in the /model picker without
-    # requiring a Hermes release. Falls back to the in-repo
+    # requiring a JarvisCopilot release. Falls back to the in-repo
     # _PROVIDER_MODELS["nous"] snapshot when the manifest is unreachable.
     curated["nous"] = get_curated_nous_model_ids()
     # Ollama Cloud uses dynamic discovery (no static curated list)
@@ -1242,7 +1242,7 @@ def list_authenticated_providers(
         # Use curated list, falling back to models.dev if no curated list.
         # For preferred providers, merge models.dev entries into the curated
         # catalog so newly released models (e.g. mimo-v2.5-pro on opencode-go)
-        # show up in the picker without requiring a Hermes release.
+        # show up in the picker without requiring a JarvisCopilot release.
         model_ids = curated.get(hermes_id, [])
         if hermes_id in _MODELS_DEV_PREFERRED:
             model_ids = _merge_with_models_dev(hermes_id, model_ids)
@@ -1270,16 +1270,16 @@ def list_authenticated_providers(
     from jarviscopilot_cli.providers import HERMES_OVERLAYS
     from jarviscopilot_cli.auth import PROVIDER_REGISTRY as _auth_registry
 
-    # Build reverse mapping: models.dev ID → Hermes provider ID.
+    # Build reverse mapping: models.dev ID → JarvisCopilot provider ID.
     # HERMES_OVERLAYS keys may be models.dev IDs (e.g. "github-copilot")
-    # while _PROVIDER_MODELS and config.yaml use Hermes IDs ("copilot").
+    # while _PROVIDER_MODELS and config.yaml use JarvisCopilot IDs ("copilot").
     _mdev_to_hermes = {v: k for k, v in PROVIDER_TO_MODELS_DEV.items()}
 
     for pid, overlay in HERMES_OVERLAYS.items():
         if pid.lower() in seen_slugs:
             continue
 
-        # Resolve Hermes slug — e.g. "github-copilot" → "copilot"
+        # Resolve JarvisCopilot slug — e.g. "github-copilot" → "copilot"
         hermes_slug = _mdev_to_hermes.get(pid, pid)
         if hermes_slug.lower() in seen_slugs:
             continue
@@ -1365,7 +1365,7 @@ def list_authenticated_providers(
             except Exception:
                 model_ids = curated.get(hermes_slug, []) or curated.get(pid, [])
         else:
-            # Use curated list — look up by Hermes slug, fall back to overlay key
+            # Use curated list — look up by JarvisCopilot slug, fall back to overlay key
             model_ids = curated.get(hermes_slug, []) or curated.get(pid, [])
             # Merge with models.dev for preferred providers (same rationale as above).
             if hermes_slug in _MODELS_DEV_PREFERRED:
@@ -1380,7 +1380,7 @@ def list_authenticated_providers(
             "is_user_defined": False,
             "models": top,
             "total_models": total,
-            "source": "hermes",
+            "source": "jarviscopilot",
         })
         seen_slugs.add(pid.lower())
         seen_slugs.add(hermes_slug.lower())
@@ -1389,7 +1389,7 @@ def list_authenticated_providers(
     # --- 2b. Cross-check canonical provider list ---
     # Catches providers that are in CANONICAL_PROVIDERS but weren't found
     # in PROVIDER_TO_MODELS_DEV or HERMES_OVERLAYS (keeps /model in sync
-    # with `hermes model`).
+    # with `jarviscopilot model`).
     try:
         from jarviscopilot_cli.models import CANONICAL_PROVIDERS as _canon_provs
     except ImportError:
@@ -1475,7 +1475,7 @@ def list_authenticated_providers(
             if ep_name.lower() in seen_slugs:
                 continue
             display_name = ep_cfg.get("name", "") or ep_name
-            # ``base_url`` is Hermes's canonical write key (matches
+            # ``base_url`` is JarvisCopilot's canonical write key (matches
             # custom_providers and _save_custom_provider); ``api`` / ``url``
             # remain as fallbacks for hand-edited / legacy configs.
             api_url = (
@@ -1493,7 +1493,7 @@ def list_authenticated_providers(
             if default_model:
                 models_list.append(default_model)
             # Also include the full models list from config.
-            # Hermes writes ``models:`` as a dict keyed by model id
+            # JarvisCopilot writes ``models:`` as a dict keyed by model id
             # (see jarviscopilot_cli/main.py::_save_custom_provider); older
             # configs or hand-edited files may still use a list.
             cfg_models = ep_cfg.get("models", [])
@@ -1594,7 +1594,7 @@ def list_authenticated_providers(
             if group_key not in groups:
                 # Strip per-model suffix so "Ollama — GLM 5.1" becomes
                 # "Ollama" for the grouped row. Em dash is the convention
-                # Hermes's own writer uses; a hyphen variant is accepted
+                # JarvisCopilot's own writer uses; a hyphen variant is accepted
                 # for hand-edited configs.
                 display_name = raw_name
                 for sep in ("—", " - "):
@@ -1628,7 +1628,7 @@ def list_authenticated_providers(
                 }
 
             # The singular ``model:`` field only holds the currently
-            # active model. Hermes's own writer (main.py::_save_custom_provider)
+            # active model. JarvisCopilot's own writer (main.py::_save_custom_provider)
             # stores every configured model as a dict under ``models:``;
             # downstream readers (agent/models_dev.py, gateway/run.py,
             # run_agent.py, jarviscopilot_cli/config.py) already consume that dict.

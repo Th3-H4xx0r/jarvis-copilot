@@ -1,5 +1,5 @@
 """
-Top-level argparse construction for the hermes CLI.
+Top-level argparse construction for the jarviscopilot CLI.
 
 Lives in its own module so other modules (e.g. ``relaunch.py``) can
 introspect the parser to discover which flags exist without running the
@@ -39,43 +39,43 @@ def _inherited_flag(parser, *args, **kwargs):
 
 _EPILOGUE = """
 Examples:
-    hermes                        Start interactive chat
-    hermes chat -q "Hello"        Single query mode
-    hermes -c                     Resume the most recent session
-    hermes -c "my project"        Resume a session by name (latest in lineage)
-    hermes --resume <session_id>  Resume a specific session by ID
-    hermes setup                  Run setup wizard
-    hermes logout                 Clear stored authentication
-    hermes auth add <provider>    Add a pooled credential
-    hermes auth list              List pooled credentials
-    hermes auth remove <p> <t>    Remove pooled credential by index, id, or label
-    hermes auth reset <provider>  Clear exhaustion status for a provider
-    hermes model                  Select default model
-    hermes fallback [list]        Show fallback provider chain
-    hermes fallback add           Add a fallback provider (same picker as `hermes model`)
-    hermes fallback remove        Remove a fallback provider from the chain
-    hermes config                 View configuration
-    hermes config edit            Edit config in $EDITOR
-    hermes config set model gpt-4 Set a config value
-    hermes gateway                Run messaging gateway
-    hermes -s hermes-agent-dev,github-auth
-    hermes -w                     Start in isolated git worktree
-    hermes gateway install        Install gateway background service
-    hermes sessions list          List past sessions
-    hermes sessions browse        Interactive session picker
-    hermes sessions rename ID T   Rename/title a session
-    hermes logs                   View agent.log (last 50 lines)
-    hermes logs -f                Follow agent.log in real time
-    hermes logs errors            View errors.log
-    hermes logs --since 1h        Lines from the last hour
-    hermes debug share             Upload debug report for support
-    hermes update                 Update to latest version
-    hermes dashboard              Start web UI dashboard (port 9119)
-    hermes dashboard --stop       Stop running dashboard processes
-    hermes dashboard --status     List running dashboard processes
+    jarviscopilot                        Start interactive chat
+    jarviscopilot chat -q "Hello"        Single query mode
+    jarviscopilot -c                     Resume the most recent session
+    jarviscopilot -c "my project"        Resume a session by name (latest in lineage)
+    jarviscopilot --resume <session_id>  Resume a specific session by ID
+    jarviscopilot setup                  Run setup wizard
+    jarviscopilot logout                 Clear stored authentication
+    jarviscopilot auth add <provider>    Add a pooled credential
+    jarviscopilot auth list              List pooled credentials
+    jarviscopilot auth remove <p> <t>    Remove pooled credential by index, id, or label
+    jarviscopilot auth reset <provider>  Clear exhaustion status for a provider
+    jarviscopilot model                  Select default model
+    jarviscopilot fallback [list]        Show fallback provider chain
+    jarviscopilot fallback add           Add a fallback provider (same picker as `jarviscopilot model`)
+    jarviscopilot fallback remove        Remove a fallback provider from the chain
+    jarviscopilot config                 View configuration
+    jarviscopilot config edit            Edit config in $EDITOR
+    jarviscopilot config set model gpt-4 Set a config value
+    jarviscopilot gateway                Run messaging gateway
+    jarviscopilot -s jarviscopilot-dev,github-auth
+    jarviscopilot -w                     Start in isolated git worktree
+    jarviscopilot gateway install        Install gateway background service
+    jarviscopilot sessions list          List past sessions
+    jarviscopilot sessions browse        Interactive session picker
+    jarviscopilot sessions rename ID T   Rename/title a session
+    jarviscopilot logs                   View agent.log (last 50 lines)
+    jarviscopilot logs -f                Follow agent.log in real time
+    jarviscopilot logs errors            View errors.log
+    jarviscopilot logs --since 1h        Lines from the last hour
+    jarviscopilot debug share             Upload debug report for support
+    jarviscopilot update                 Update to latest version
+    jarviscopilot dashboard              Start web UI dashboard (port 9119)
+    jarviscopilot dashboard --stop       Stop running dashboard processes
+    jarviscopilot dashboard --status     List running dashboard processes
 
 For more help on a command:
-    hermes <command> --help
+    jarviscopilot <command> --help
 """
 
 
@@ -87,7 +87,7 @@ def build_top_level_parser():
     other subparsers via ``subparsers.add_parser(...)``.
     """
     parser = argparse.ArgumentParser(
-        prog="hermes",
+        prog="jarviscopilot",
         description="JarvisCopilot - AI assistant with tool-calling capabilities",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=_EPILOGUE,
@@ -112,7 +112,7 @@ def build_top_level_parser():
     # --model / --provider are accepted at the top level so they can pair
     # with -z without needing the `chat` subcommand.  If neither -z nor a
     # subcommand consumes them, they fall through harmlessly as None.
-    # Mirrors `hermes chat --model ... --provider ...` semantics.
+    # Mirrors `jarviscopilot chat --model ... --provider ...` semantics.
     _inherited_flag(
         parser,
         "-m",
@@ -201,7 +201,7 @@ def build_top_level_parser():
         "--ignore-user-config",
         action="store_true",
         default=False,
-        help="Ignore ~/.hermes/config.yaml and fall back to built-in defaults (credentials in .env are still loaded)",
+        help="Ignore ~/.jarviscopilot/config.yaml and fall back to built-in defaults (credentials in .env are still loaded)",
     )
     _inherited_flag(
         parser,
@@ -343,7 +343,7 @@ def build_top_level_parser():
         "--ignore-user-config",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Ignore ~/.hermes/config.yaml and fall back to built-in defaults (credentials in .env are still loaded). Useful for isolated CI runs, reproduction, and third-party integrations.",
+        help="Ignore ~/.jarviscopilot/config.yaml and fall back to built-in defaults (credentials in .env are still loaded). Useful for isolated CI runs, reproduction, and third-party integrations.",
     )
     _inherited_flag(
         chat_parser,

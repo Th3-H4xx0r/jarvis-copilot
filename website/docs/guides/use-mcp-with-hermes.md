@@ -42,7 +42,7 @@ If you installed JarvisCopilot with the standard install script, MCP support is 
 If you installed without extras and need to add MCP separately:
 
 ```bash
-cd ~/.jarviscopilot/hermes-agent
+cd ~/.jarviscopilot/jarviscopilot
 uv pip install -e ".[mcp]"
 ```
 

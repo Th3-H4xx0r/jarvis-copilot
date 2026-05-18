@@ -44,7 +44,7 @@ def _load_plugin_router():
 @pytest.fixture
 def kanban_home(tmp_path, monkeypatch):
     """Isolated HERMES_HOME with an empty kanban DB."""
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".jarviscopilot"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -531,7 +531,7 @@ def test_board_progress_rollup(client):
 
 def test_board_auto_initializes_missing_db(tmp_path, monkeypatch):
     """If kanban.db doesn't exist yet, GET /board must create it, not 500."""
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".jarviscopilot"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.delenv("HERMES_KANBAN_BOARD", raising=False)
@@ -556,7 +556,7 @@ def test_board_auto_initializes_missing_db(tmp_path, monkeypatch):
 def test_ws_events_rejects_when_token_required(tmp_path, monkeypatch):
     """When _SESSION_TOKEN is set (normal dashboard context), a missing or
     wrong ?token= query param must be rejected with policy-violation."""
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".jarviscopilot"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -607,7 +607,7 @@ def test_ws_events_swallows_cancellation_on_shutdown(tmp_path, monkeypatch):
     import types
     import sys as _sys
 
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".jarviscopilot"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -1064,7 +1064,7 @@ def test_create_task_includes_warning_when_no_dispatcher(client, monkeypatch):
     # Force the dispatcher probe to report "not running".
     monkeypatch.setattr(
         "jarviscopilot_cli.kanban._check_dispatcher_presence",
-        lambda: (False, "No gateway is running — start `hermes gateway start`."),
+        lambda: (False, "No gateway is running — start `jarviscopilot gateway start`."),
     )
     r = client.post(
         "/api/plugins/kanban/tasks",

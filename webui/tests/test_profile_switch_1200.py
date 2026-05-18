@@ -30,7 +30,7 @@ def test_switch_profile_returns_target_workspace_not_current(tmp_path, monkeypat
     import api.profiles as profiles
 
     # Build fake profile structure
-    default_home = tmp_path / '.hermes'
+    default_home = tmp_path / '.jarviscopilot'
     default_home.mkdir()
     ayan_home = default_home / 'profiles' / 'ayan'
     ayan_home.mkdir(parents=True)
@@ -84,7 +84,7 @@ def test_switch_profile_uses_last_workspace_txt_over_config(tmp_path, monkeypatc
     """
     import api.profiles as profiles
 
-    default_home = tmp_path / '.hermes'
+    default_home = tmp_path / '.jarviscopilot'
     default_home.mkdir()
     target_home = default_home / 'profiles' / 'myprofile'
     target_home.mkdir(parents=True)
@@ -131,7 +131,7 @@ def test_switch_profile_process_wide_false_returns_correct_model(tmp_path, monke
     """
     import api.profiles as profiles
 
-    default_home = tmp_path / '.hermes'
+    default_home = tmp_path / '.jarviscopilot'
     default_home.mkdir()
     target_home = default_home / 'profiles' / 'aiprofile'
     target_home.mkdir(parents=True)
@@ -253,7 +253,7 @@ def test_regression_switch_profile_default_workspace_not_from_process_global(tmp
     """
     import api.profiles as profiles
 
-    base = tmp_path / ".hermes"
+    base = tmp_path / ".jarviscopilot"
     base.mkdir()
 
     # Old profile (default) has workspace A
@@ -397,7 +397,7 @@ def test_get_config_reloads_when_request_profile_changes(tmp_path, monkeypatch):
     import api.config as config
     import api.profiles as profiles
 
-    default_home = tmp_path / ".hermes"
+    default_home = tmp_path / ".jarviscopilot"
     work_home = default_home / "profiles" / "work"
     work_home.mkdir(parents=True)
     default_home.mkdir(exist_ok=True)

@@ -45,7 +45,7 @@ def _run_gateway_import(hermes_home: Path, initial_env: dict[str, str]) -> dict[
             "HERMES_AGENT_TIMEOUT",
             "HERMES_AGENT_TIMEOUT_WARNING",
             "HERMES_GATEWAY_BUSY_INPUT_MODE",
-            "HERMES_TIMEZONE",
+            "jarviscopilot_timeZONE",
         ):
             v = os.environ.get(k)
             if v is not None:
@@ -99,7 +99,7 @@ def _write_env(home: Path, entries: dict[str, str]) -> None:
 
 @pytest.fixture
 def hermes_home(tmp_path: Path) -> Path:
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".jarviscopilot"
     home.mkdir()
     return home
 
@@ -145,11 +145,11 @@ def test_config_display_busy_input_mode_wins_over_stale_env(hermes_home: Path) -
 
 def test_config_timezone_wins_over_stale_env(hermes_home: Path) -> None:
     _write_config(hermes_home, timezone="America/Los_Angeles")
-    _write_env(hermes_home, {"HERMES_TIMEZONE": "UTC"})
+    _write_env(hermes_home, {"jarviscopilot_timeZONE": "UTC"})
 
     env = _run_gateway_import(hermes_home, initial_env={})
 
-    assert env.get("HERMES_TIMEZONE") == "America/Los_Angeles"
+    assert env.get("jarviscopilot_timeZONE") == "America/Los_Angeles"
 
 
 def test_env_value_survives_when_config_omits_key(hermes_home: Path) -> None:

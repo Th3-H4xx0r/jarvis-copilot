@@ -21,10 +21,10 @@ import pytest
 @pytest.fixture
 def session_db(tmp_path):
     """Create a real SessionDB for testing."""
-    os.environ["HERMES_HOME"] = str(tmp_path / ".hermes")
-    os.makedirs(tmp_path / ".hermes", exist_ok=True)
-    from hermes_state import SessionDB
-    db = SessionDB(db_path=tmp_path / ".hermes" / "test_sessions.db")
+    os.environ["HERMES_HOME"] = str(tmp_path / ".jarviscopilot")
+    os.makedirs(tmp_path / ".jarviscopilot", exist_ok=True)
+    from jarviscopilot_state import SessionDB
+    db = SessionDB(db_path=tmp_path / ".jarviscopilot" / "test_sessions.db")
     yield db
     db.close()
 

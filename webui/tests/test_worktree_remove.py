@@ -58,7 +58,7 @@ def test_remove_clean_worktree_succeeds(tmp_path):
     main = _make_minimal_git_repo(tmp_path)
     wt_path = tmp_path / "wt_clean"
     subprocess.run(
-        ["git", "-C", str(main), "worktree", "add", str(wt_path), "-b", "hermes/testclean"],
+        ["git", "-C", str(main), "worktree", "add", str(wt_path), "-b", "jarviscopilot/testclean"],
         check=True, capture_output=True,
     )
     assert wt_path.exists()
@@ -68,7 +68,7 @@ def test_remove_clean_worktree_succeeds(tmp_path):
         title="Clean",
         workspace=str(wt_path),
         worktree_path=str(wt_path),
-        worktree_branch="hermes/testclean",
+        worktree_branch="jarviscopilot/testclean",
         worktree_repo_root=str(main),
     )
 
@@ -90,7 +90,7 @@ def test_remove_clean_worktree_does_not_force(tmp_path, monkeypatch):
         title="Clean",
         workspace=str(worktree_path),
         worktree_path=str(worktree_path),
-        worktree_branch="hermes/testcleanforce",
+        worktree_branch="jarviscopilot/testcleanforce",
         worktree_repo_root=str(repo_root),
     )
     monkeypatch.setattr(worktrees, "worktree_status_for_session", lambda session: {
@@ -126,7 +126,7 @@ def test_remove_dirty_worktree_without_force_is_rejected(tmp_path, monkeypatch):
         title="Dirty",
         workspace=str(worktree_path),
         worktree_path=str(worktree_path),
-        worktree_branch="hermes/testdirty",
+        worktree_branch="jarviscopilot/testdirty",
         worktree_repo_root=str(repo_root),
     )
     monkeypatch.setattr(worktrees, "worktree_status_for_session", lambda session: {
@@ -155,7 +155,7 @@ def test_remove_untracked_worktree_without_force_is_rejected(tmp_path, monkeypat
         title="Untracked",
         workspace=str(worktree_path),
         worktree_path=str(worktree_path),
-        worktree_branch="hermes/testuntracked",
+        worktree_branch="jarviscopilot/testuntracked",
         worktree_repo_root=str(repo_root),
     )
     monkeypatch.setattr(worktrees, "worktree_status_for_session", lambda session: {
@@ -184,7 +184,7 @@ def test_remove_ahead_worktree_without_force_is_rejected(tmp_path, monkeypatch):
         title="Ahead",
         workspace=str(worktree_path),
         worktree_path=str(worktree_path),
-        worktree_branch="hermes/testahead",
+        worktree_branch="jarviscopilot/testahead",
         worktree_repo_root=str(repo_root),
     )
     monkeypatch.setattr(worktrees, "worktree_status_for_session", lambda session: {
@@ -213,7 +213,7 @@ def test_remove_force_warns_and_uses_git_force(tmp_path, monkeypatch):
         title="Force",
         workspace=str(worktree_path),
         worktree_path=str(worktree_path),
-        worktree_branch="hermes/testforce",
+        worktree_branch="jarviscopilot/testforce",
         worktree_repo_root=str(repo_root),
     )
     monkeypatch.setattr(worktrees, "worktree_status_for_session", lambda session: {
@@ -247,7 +247,7 @@ def test_remove_worktree_not_exists(tmp_path):
         title="Gone",
         workspace=str(tmp_path / "gone"),
         worktree_path=str(tmp_path / "gone"),
-        worktree_branch="hermes/gone",
+        worktree_branch="jarviscopilot/gone",
         worktree_repo_root=str(tmp_path / "repo"),
     )
 
@@ -282,7 +282,7 @@ def test_remove_worktree_route_succeeds(tmp_path, monkeypatch):
     main = _make_minimal_git_repo(tmp_path)
     wt_path = tmp_path / "wt_route"
     subprocess.run(
-        ["git", "-C", str(main), "worktree", "add", str(wt_path), "-b", "hermes/testroute"],
+        ["git", "-C", str(main), "worktree", "add", str(wt_path), "-b", "jarviscopilot/testroute"],
         check=True, capture_output=True,
     )
 
@@ -293,7 +293,7 @@ def test_remove_worktree_route_succeeds(tmp_path, monkeypatch):
         title="Route",
         workspace=str(wt_path),
         worktree_path=str(wt_path),
-        worktree_branch="hermes/testroute",
+        worktree_branch="jarviscopilot/testroute",
         worktree_repo_root=str(main),
     )
     s.save()

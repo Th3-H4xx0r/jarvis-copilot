@@ -183,7 +183,7 @@ def test_patch_replace_approval_request_includes_full_file_diff(tmp_path):
 
 def test_workspace_auto_approval_allows_workspace_and_tmp_but_not_sensitive(tmp_path):
     workspace_file = tmp_path / "src.py"
-    tmp_file = Path("/tmp/hermes-acp-auto-approve-test.txt")
+    tmp_file = Path("/tmp/jarviscopilot-acp-auto-approve-test.txt")
     env_file = tmp_path / ".env"
 
     assert should_auto_approve_edit(

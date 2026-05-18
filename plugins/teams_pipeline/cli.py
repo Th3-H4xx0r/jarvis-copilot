@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from hermes_constants import display_hermes_home
+from jarviscopilot_constants import display_hermes_home
 from gateway.config import Platform, load_gateway_config
 from plugins.teams_pipeline.meetings import (
     enrich_meeting_with_call_record,
@@ -93,7 +93,7 @@ def teams_pipeline_command(args: argparse.Namespace) -> int:
     action = getattr(args, "teams_pipeline_action", None)
     if not action:
         print(
-            "Usage: hermes teams-pipeline "
+            "Usage: jarviscopilot teams-pipeline "
             "{list|show|run|fetch|subscriptions|subscribe|renew-subscription|delete-subscription|maintain-subscriptions|token-health|validate}"
         )
         return 2

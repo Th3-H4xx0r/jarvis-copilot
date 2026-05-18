@@ -5,7 +5,7 @@ either via the "Open / self-hosted" category in the wizard, or by hand-editing
 config.yaml + .env to point at an LM Studio instance — would see LM Studio
 listed in the model picker and could chat just fine, but Settings → Providers
 showed *no* LM Studio entry, or showed it with `has_key=False, configurable=False`
-even when LMSTUDIO_API_KEY was already in `~/.hermes/.env`.
+even when LMSTUDIO_API_KEY was already in `~/.jarviscopilot/.env`.
 
 Root cause (verified by reproduction in the original investigation, then by
 the regression tests below):

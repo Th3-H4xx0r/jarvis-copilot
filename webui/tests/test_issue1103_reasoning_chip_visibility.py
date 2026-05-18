@@ -18,7 +18,7 @@ def test_boot_call_before_session_load():
         src = f.read()
     # Find the boot session load; URL-anchored tabs may prefer a URL session id
     # before falling back to the stored session id.
-    boot_marker = "localStorage.getItem('hermes-webui-session')"
+    boot_marker = "localStorage.getItem('jarviscopilot-webui-session')"
     boot_pos = src.index(boot_marker)
     fetch_pos = src.index("fetchReasoningChip()")
     # fetchReasoningChip must be called just before the saved session load

@@ -301,7 +301,7 @@ class TestSlackNativeSlashes:
         ``/hermes <subcommand>`` form keeps working after we add new
         commands and hit the 50-slash cap."""
         slashes = slack_native_slashes()
-        assert slashes[0][0] == "hermes"
+        assert slashes[0][0] == "jarviscopilot"
 
     def test_names_respect_slack_limits(self):
         for name, _desc, _hint in slack_native_slashes():
@@ -373,7 +373,7 @@ class TestSlackNativeSlashes:
 
 
 class TestSlackAppManifest:
-    """Generated Slack app manifest (used by `hermes slack manifest`)."""
+    """Generated Slack app manifest (used by `jarviscopilot slack manifest`)."""
 
     def test_returns_dict(self):
         m = slack_app_manifest()

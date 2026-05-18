@@ -90,10 +90,10 @@ class TestSetDefaultModelPreservesAtPrefix:
     def test_at_nous_prefix_strips_to_bare_for_cli_compatibility(self, tmp_path, monkeypatch):
         """set_hermes_default_model must persist the RESOLVED bare/slash form, not the
         `@provider:` prefix. The `@provider:` syntax is a WebUI-internal routing hint;
-        the hermes-agent CLI reads `config.yaml -> model.default` directly and passes
+        the jarviscopilot CLI reads `config.yaml -> model.default` directly and passes
         it to the provider API verbatim (see run_agent.py:887 — aggregator providers
         like Nous skip normalize_model_for_provider, so the raw string flows through).
-        Storing `@nous:anthropic/...` would break any user who runs `hermes` in the
+        Storing `@nous:anthropic/...` would break any user who runs `jarviscopilot` in the
         terminal right after saving via WebUI — the CLI would send the literal
         prefixed string to Nous and hit a 404. The Settings picker handles the bare
         form via the smart matcher in `_applyModelToDropdown()`.
@@ -122,7 +122,7 @@ class TestSetDefaultModelPreservesAtPrefix:
 
         saved = yaml.safe_load(config_file.read_text(encoding="utf-8"))
         assert saved["model"]["default"] == "anthropic/claude-opus-4.6", (
-            f"Config must persist the resolved bare form so the hermes-agent CLI "
+            f"Config must persist the resolved bare form so the jarviscopilot CLI "
             f"can read it and pass it to the provider API: "
             f"{saved['model']['default']!r}"
         )

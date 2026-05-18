@@ -465,7 +465,7 @@ async function loadCrons(animate) {
 }
 
 function _cronPanelExpandKey(jobId, suffix){
-  return `hermes-webui-cron-${suffix}-expanded-${encodeURIComponent(String(jobId||''))}`;
+  return `jarviscopilot-webui-cron-${suffix}-expanded-${encodeURIComponent(String(jobId||''))}`;
 }
 
 function _cronRunExpandKey(jobId, filename){
@@ -1612,7 +1612,7 @@ async function nudgeKanbanDispatcher(){
 async function runKanbanDispatcher(){
   if (_kanbanIsDispatching) return;
   // Real dispatch: claims Ready tasks and spawns worker subprocesses
-  // (one `hermes -p <assignee>` per claimed row, up to max=8 per call).
+  // (one `jarviscopilot -p <assignee>` per claimed row, up to max=8 per call).
   // Confirmation dialog first because this actually consumes API budget on
   // each spawned worker.  Result toast surfaces what happened so users see
   // the dispatcher actually doing work.
@@ -1854,7 +1854,7 @@ async function createKanbanTask(){
 // click-on-backdrop closes). The modal markup lives in static/index.html as
 // #kanbanTaskModal — see the section just above </body>.
 //
-// The assignee field auto-completes against the union of (a) live Hermes
+// The assignee field auto-completes against the union of (a) live JarvisCopilot
 // profile names from /api/profiles and (b) historical assignees on the
 // active board, with an inline hint that explains the dispatcher claim
 // contract — most users will pick a profile name from the dropdown rather
@@ -1942,7 +1942,7 @@ async function _kanbanPopulateAssigneeSelect(currentValue){
   // it last so the default-selected option is the first profile, not "no one".
   let html = '';
   if (profiles.length) {
-    html += `<optgroup label="${esc(t('kanban_assignee_profiles_label') || 'Hermes profiles')}">`;
+    html += `<optgroup label="${esc(t('kanban_assignee_profiles_label') || 'JarvisCopilot profiles')}">`;
     html += profiles.map(v => `<option value="${esc(v)}"${v === currentValue ? ' selected' : ''}>${esc(v)}</option>`).join('');
     html += '</optgroup>';
   }
@@ -2974,12 +2974,12 @@ function _renderLlmWikiStatus(d) {
   const isError = status.status === 'error';
   const badgeClass = isReady ? 'ok' : isError ? 'err' : isEmpty ? 'warn' : 'muted';
   const badgeText = isReady ? 'Available' : isError ? 'Error' : isEmpty ? 'Empty' : 'Unavailable';
-  const rawDocsUrl = status.docs_url || 'https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/research/research-llm-wiki';
+  const rawDocsUrl = status.docs_url || 'https://jarviscopilot.nousresearch.com/docs/user-guide/skills/bundled/research/research-llm-wiki';
   // Guard against unsafe URL schemes (e.g. js: / data:) if docs_url ever
   // becomes config-driven. esc() HTML-escapes but doesn't validate URL scheme.
   const docsUrl = /^https?:\/\//i.test(rawDocsUrl) ? rawDocsUrl : '#';
   const toggleNote = status.toggle_available
-    ? 'Toggle available from configured Hermes Agent setting.'
+    ? 'Toggle available from configured JarvisCopilot Agent setting.'
     : (status.toggle_reason || 'No stable LLM Wiki on/off config flag was detected, so this panel is read-only.');
   const statusNote = isReady
     ? 'LLM Wiki is configured and page metadata is visible without exposing wiki content.'
@@ -4747,7 +4747,7 @@ async function switchToProfile(name) {
     // populateModelDropdown hits /api/models; loadWorkspaceList hits /api/workspaces.
     // They are fully independent — run both simultaneously to cut switch time ~50%.
     if(typeof _clearPersistedModelState==='function') _clearPersistedModelState();
-    else localStorage.removeItem('hermes-webui-model');
+    else localStorage.removeItem('jarviscopilot-webui-model');
     _skillsData = null;
     _workspaceList = null;
     await Promise.all([populateModelDropdown(), loadWorkspaceList()]);
@@ -5381,7 +5381,7 @@ async function loadPersonalityPicker(){
   sel.innerHTML = '';
   // Always include Default as the first option.
   const def = document.createElement('option');
-  def.value = ''; def.textContent = 'Default (Hermes)';
+  def.value = ''; def.textContent = 'Default (JarvisCopilot)';
   sel.appendChild(def);
   let personalities = [];
   try {
@@ -5712,16 +5712,16 @@ async function loadSettingsPanel(){
     }
     if(typeof _applySessionNavigationPrefs==='function') _applySessionNavigationPrefs();
     // Workspace panel default-open toggle (localStorage-backed)
-    // Uses a separate key (hermes-webui-workspace-panel-pref) so that
+    // Uses a separate key (jarviscopilot-webui-workspace-panel-pref) so that
     // closing the panel via toolbar X does not clear the user's preference.
     const wsPanelCb=$('settingsWorkspacePanelOpen');
     if(wsPanelCb){
-      wsPanelCb.checked=localStorage.getItem('hermes-webui-workspace-panel-pref')==='open';
+      wsPanelCb.checked=localStorage.getItem('jarviscopilot-webui-workspace-panel-pref')==='open';
       wsPanelCb.onchange=function(){
         const open=this.checked;
-        localStorage.setItem('hermes-webui-workspace-panel-pref',open?'open':'closed');
+        localStorage.setItem('jarviscopilot-webui-workspace-panel-pref',open?'open':'closed');
         // Also sync the runtime key so the current session reflects the change
-        localStorage.setItem('hermes-webui-workspace-panel',open?'open':'closed');
+        localStorage.setItem('jarviscopilot-webui-workspace-panel',open?'open':'closed');
         document.documentElement.dataset.workspacePanel=open?'open':'closed';
         if(open&&_workspacePanelMode==='closed') openWorkspacePanel('browse');
         else if(!open&&_workspacePanelMode!=='closed') toggleWorkspacePanel(false);
@@ -5770,7 +5770,7 @@ async function loadSettingsPanel(){
       }catch(e){}
       _settingsHermesDefaultModelOnOpen=(models&&models.default_model)||'';
       // Use the smart matcher so a saved bare form like "anthropic/claude-opus-4.6"
-      // (what the CLI's `hermes model` command writes) still selects the matching
+      // (what the CLI's `jarviscopilot model` command writes) still selects the matching
       // `@nous:anthropic/claude-opus-4.6` option on a Nous setup. Without this, the
       // picker renders blank for any user whose default was persisted without the
       // @-prefix — CLI-first users, legacy installs, etc.
@@ -5919,7 +5919,7 @@ async function loadSettingsPanel(){
     // Bot name — debounced autosave (text input)
     const botNameField=$('settingsBotName');
     if(botNameField){
-      botNameField.value=settings.bot_name||'Hermes';
+      botNameField.value=settings.bot_name||'JarvisCopilot';
       let botNameTimer=null;
       botNameField.addEventListener('input',()=>{
         if(botNameTimer) clearTimeout(botNameTimer);
@@ -6309,7 +6309,7 @@ function _buildProviderCard(p){
   card.className='provider-card';
   card.dataset.provider=p.id;
   // Use the is_oauth flag from the backend — it reflects _OAUTH_PROVIDERS in providers.py.
-  // key_source can be 'oauth' (hermes auth), 'config_yaml' (token in config.yaml), or 'none'.
+  // key_source can be 'oauth' (jarviscopilot auth), 'config_yaml' (token in config.yaml), or 'none'.
   const isOauth=p.is_oauth===true;
   // models_total reflects the complete catalog (e.g. 396 for a large-tier
   // Nous Portal account). The "models" array may be trimmed to a featured
@@ -6349,14 +6349,14 @@ function _buildProviderCard(p){
     const hint=document.createElement('div');
     hint.className='provider-card-hint';
     if(p.key_source==='config_yaml'){
-      hint.textContent=t('providers_oauth_config_yaml_hint')||'Token configured via config.yaml. To update, edit the providers section in your config.yaml or run hermes auth.';
+      hint.textContent=t('providers_oauth_config_yaml_hint')||'Token configured via config.yaml. To update, edit the providers section in your config.yaml or run jarviscopilot auth.';
     } else if(p.auth_error){
       hint.textContent=p.auth_error;
       hint.style.color='var(--accent)';
     } else if(p.has_key){
       hint.textContent=t('providers_oauth_hint');
     } else {
-      hint.textContent=t('providers_oauth_not_configured_hint')||'Not authenticated. Run hermes auth in the terminal to configure this provider.';
+      hint.textContent=t('providers_oauth_not_configured_hint')||'Not authenticated. Run jarviscopilot auth in the terminal to configure this provider.';
       hint.style.color='var(--muted)';
     }
     body.appendChild(hint);
@@ -6595,7 +6595,7 @@ function _applySavedSettingsUi(saved, body, opts){
   window._sidebarDensity=sidebarDensity==='detailed'?'detailed':'compact';
   window._busyInputMode=body.busy_input_mode||'queue';
   window._sessionEndlessScrollEnabled=!!body.session_endless_scroll;
-  window._botName=body.bot_name||'Hermes';
+  window._botName=body.bot_name||'JarvisCopilot';
   if(typeof applyBotName==='function') applyBotName();
   if(typeof setLocale==='function') setLocale(language);
   if(typeof applyLocaleToDOM==='function') applyLocaleToDOM();
@@ -6714,7 +6714,7 @@ async function saveSettings(andClose){
   body.busy_input_mode=busyInputMode;
   body.auto_title_refresh_every=(($('settingsAutoTitleRefresh')||{}).value||'0');
   const botName=(($('settingsBotName')||{}).value||'').trim();
-  body.bot_name=botName||'Hermes';
+  body.bot_name=botName||'JarvisCopilot';
   // Password: only act if the field has content; blank = leave auth unchanged
   if(pw && pw.trim()){
     try{
@@ -6792,7 +6792,7 @@ const _cronNewJobIds=new Set();  // track which job IDs had new completions (unr
 
 // Auto-refresh the cron list when a job is created from chat or any external source.
 // The chat path dispatches this event when the agent response mentions cron creation.
-window.addEventListener('hermes:cron_created', () => {
+window.addEventListener('jarviscopilot:cron_created', () => {
   if ($('cronList')) loadCrons();
 });
 

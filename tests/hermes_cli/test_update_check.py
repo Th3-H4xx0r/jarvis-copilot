@@ -21,7 +21,7 @@ def test_check_for_updates_uses_cache(tmp_path, monkeypatch):
     from jarviscopilot_cli.banner import check_for_updates
 
     # Create a fake git repo and fresh cache
-    repo_dir = tmp_path / "hermes-agent"
+    repo_dir = tmp_path / "jarviscopilot"
     repo_dir.mkdir()
     (repo_dir / ".git").mkdir()
 
@@ -40,7 +40,7 @@ def test_check_for_updates_expired_cache(tmp_path, monkeypatch):
     """When cache is expired, check_for_updates should call git fetch."""
     from jarviscopilot_cli.banner import check_for_updates
 
-    repo_dir = tmp_path / "hermes-agent"
+    repo_dir = tmp_path / "jarviscopilot"
     repo_dir.mkdir()
     (repo_dir / ".git").mkdir()
 
@@ -84,7 +84,7 @@ def test_check_for_updates_fallback_to_project_root(tmp_path, monkeypatch):
     if not (project_root / ".git").exists():
         pytest.skip("Not running from a git checkout")
 
-    # Point HERMES_HOME at a temp dir with no hermes-agent/.git
+    # Point HERMES_HOME at a temp dir with no jarviscopilot/.git
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     with patch("jarviscopilot_cli.banner.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout="0\n")
@@ -118,8 +118,8 @@ def test_invalidate_update_cache_clears_all_profiles(tmp_path):
     """_invalidate_update_cache() should delete .update_check from ALL profiles."""
     from jarviscopilot_cli.main import _invalidate_update_cache
 
-    # Build a fake ~/.hermes with default + two named profiles
-    default_home = tmp_path / ".hermes"
+    # Build a fake ~/.jarviscopilot with default + two named profiles
+    default_home = tmp_path / ".jarviscopilot"
     default_home.mkdir()
     (default_home / ".update_check").write_text('{"ts":1,"behind":50}')
 
@@ -143,7 +143,7 @@ def test_invalidate_update_cache_no_profiles_dir(tmp_path):
     """Works fine when no profiles directory exists (single-profile setup)."""
     from jarviscopilot_cli.main import _invalidate_update_cache
 
-    default_home = tmp_path / ".hermes"
+    default_home = tmp_path / ".jarviscopilot"
     default_home.mkdir()
     (default_home / ".update_check").write_text('{"ts":1,"behind":5}')
 

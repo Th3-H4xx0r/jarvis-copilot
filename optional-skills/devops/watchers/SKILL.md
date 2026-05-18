@@ -66,7 +66,7 @@ Watch a GitHub repo (set `GITHUB_TOKEN` in `~/.jarviscopilot/.env` to avoid the 
 
 ```bash
 python $HERMES_HOME/skills/devops/watchers/scripts/watch_github.py \
-  --name jarviscopilot-issues --repo NousResearch/hermes-agent --scope issues
+  --name jarviscopilot-issues --repo NousResearch/jarviscopilot --scope issues
 ```
 
 Poll an arbitrary JSON API:

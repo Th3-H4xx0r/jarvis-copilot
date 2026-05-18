@@ -393,7 +393,7 @@ class FALVideoGenProvider(VideoGenProvider):
         if not os.environ.get("FAL_KEY", "").strip():
             return error_response(
                 error=(
-                    "FAL_KEY not set. Run `hermes tools` → Video Generation "
+                    "FAL_KEY not set. Run `jarviscopilot tools` → Video Generation "
                     "→ FAL to configure."
                 ),
                 error_type="auth_required",
@@ -424,7 +424,7 @@ class FALVideoGenProvider(VideoGenProvider):
                     error=(
                         f"FAL family {family_id} has no image-to-video "
                         f"endpoint. Pick a family with image-to-video support "
-                        f"via `hermes tools` → Video Generation."
+                        f"via `jarviscopilot tools` → Video Generation."
                     ),
                     error_type="modality_unsupported",
                     provider="fal", model=family_id, prompt=prompt,

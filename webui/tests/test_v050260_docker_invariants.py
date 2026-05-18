@@ -11,8 +11,8 @@ extends coverage to the related fixes shipped alongside #1428:
   or #1399 see the fix in the file they're reading
 - The `.env.docker.example` template ships and documents the same vars
 - `docs/docker.md` exists and covers the multi-container architecture
-- Stale README references to `/root/.hermes` are gone (the agent images
-  use `/home/hermes/.hermes`)
+- Stale README references to `/root/.jarviscopilot` are gone (the agent images
+  use `/home/hermes/.jarviscopilot`)
 """
 
 from __future__ import annotations
@@ -35,13 +35,13 @@ def test_two_container_compose_aligns_agent_uid_with_webui():
 
     # Agent must declare HERMES_UID/HERMES_GID
     assert "HERMES_UID=${UID:-1000}" in src, (
-        "two-container: hermes-agent must set HERMES_UID=${UID:-1000} so it "
+        "two-container: jarviscopilot must set HERMES_UID=${UID:-1000} so it "
         "matches the webui's WANTED_UID=${UID:-1000}. Before #1428 the agent "
         "ran as the image default (10000), causing PermissionError on the "
         "shared hermes-home volume."
     )
     assert "HERMES_GID=${GID:-1000}" in src, (
-        "two-container: hermes-agent must set HERMES_GID=${GID:-1000}"
+        "two-container: jarviscopilot must set HERMES_GID=${GID:-1000}"
     )
 
     # WebUI must use ${UID}/${GID} (same source)
@@ -59,7 +59,7 @@ def test_three_container_compose_aligns_all_three_services():
     # Agent + dashboard both use HERMES_UID/HERMES_GID with ${UID:-1000} as source
     # (Two occurrences each — once per service)
     assert src.count("HERMES_UID=${UID:-1000}") >= 2, (
-        "three-container: both hermes-agent and hermes-dashboard must set "
+        "three-container: both jarviscopilot and hermes-dashboard must set "
         "HERMES_UID=${UID:-1000}"
     )
     assert src.count("HERMES_GID=${GID:-1000}") >= 2
@@ -147,18 +147,18 @@ def test_docs_docker_md_exists_and_covers_failure_modes():
     )
 
 
-# ── 5: stale /root/.hermes references removed from README ──────────────────
+# ── 5: stale /root/.jarviscopilot references removed from README ──────────────────
 
 
 def test_readme_no_stale_root_hermes_path():
     """REGRESSION: the README's two-container Docker section used to claim
-    'the agent writes to /root/.hermes' which is wrong — current agent
-    images use /home/hermes/.hermes. Stale paths confuse users reading
+    'the agent writes to /root/.jarviscopilot' which is wrong — current agent
+    images use /home/hermes/.jarviscopilot. Stale paths confuse users reading
     the README to debug their own setup."""
     src = (REPO / "README.md").read_text(encoding="utf-8")
-    assert "/root/.hermes" not in src, (
-        "README.md must not reference /root/.hermes — the current agent "
-        "image uses /home/hermes/.hermes. Stale paths in docs are worse "
+    assert "/root/.jarviscopilot" not in src, (
+        "README.md must not reference /root/.jarviscopilot — the current agent "
+        "image uses /home/hermes/.jarviscopilot. Stale paths in docs are worse "
         "than no docs at all."
     )
 
@@ -218,7 +218,7 @@ def test_agent_service_does_not_recommend_invalid_home_mode():
 
         # Find each agent/dashboard service block by name and slice to the next
         # top-level service or root key.
-        for service_name in ("hermes-agent", "hermes-dashboard"):
+        for service_name in ("jarviscopilot", "hermes-dashboard"):
             service_marker = "  " + service_name + ":"
             idx = src.find(service_marker)
             if idx == -1:

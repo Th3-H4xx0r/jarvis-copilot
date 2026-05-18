@@ -1,4 +1,4 @@
-"""Tests for the `hermes memory reset` CLI command.
+"""Tests for the `jarviscopilot memory reset` CLI command.
 
 Covers:
 - Reset both stores (MEMORY.md + USER.md)
@@ -17,14 +17,14 @@ from pathlib import Path
 @pytest.fixture
 def memory_env(tmp_path, monkeypatch):
     """Set up a fake HERMES_HOME with memory files."""
-    hermes_home = tmp_path / ".hermes"
+    hermes_home = tmp_path / ".jarviscopilot"
     memories = hermes_home / "memories"
     memories.mkdir(parents=True)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
     # Create sample memory files
     (memories / "MEMORY.md").write_text(
-        "§\nHermes repo is at ~/.hermes/hermes-agent\n§\nUser prefers dark themes",
+        "§\nHermes repo is at ~/.jarviscopilot/jarviscopilot\n§\nUser prefers dark themes",
         encoding="utf-8",
     )
     (memories / "USER.md").write_text(
@@ -37,9 +37,9 @@ def memory_env(tmp_path, monkeypatch):
 def _run_memory_reset(target="all", yes=False, monkeypatch=None, confirm_input="no"):
     """Invoke the memory reset logic from cmd_memory in main.py.
 
-    Simulates what happens when `hermes memory reset` is run.
+    Simulates what happens when `jarviscopilot memory reset` is run.
     """
-    from hermes_constants import get_hermes_home, display_hermes_home
+    from jarviscopilot_constants import get_hermes_home, display_hermes_home
 
     mem_dir = get_hermes_home() / "memories"
     files_to_reset = []
@@ -63,7 +63,7 @@ def _run_memory_reset(target="all", yes=False, monkeypatch=None, confirm_input="
 
 
 class TestMemoryReset:
-    """Tests for `hermes memory reset` subcommand."""
+    """Tests for `jarviscopilot memory reset` subcommand."""
 
     def test_reset_all_with_yes_flag(self, memory_env):
         """--yes flag should skip confirmation and delete both files."""
@@ -96,7 +96,7 @@ class TestMemoryReset:
 
     def test_reset_no_files_exist(self, tmp_path, monkeypatch):
         """Should return 'nothing' when no memory files exist."""
-        hermes_home = tmp_path / ".hermes"
+        hermes_home = tmp_path / ".jarviscopilot"
         (hermes_home / "memories").mkdir(parents=True)
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -147,7 +147,7 @@ class TestMemoryReset:
 
     def test_reset_empty_memories_dir(self, tmp_path, monkeypatch):
         """No memories dir at all should report nothing."""
-        hermes_home = tmp_path / ".hermes"
+        hermes_home = tmp_path / ".jarviscopilot"
         hermes_home.mkdir(parents=True)
         # No memories dir
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))

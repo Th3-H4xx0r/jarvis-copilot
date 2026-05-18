@@ -216,7 +216,7 @@ class TestSetProviderKey:
     """Unit tests for set_provider_key() function."""
 
     def test_set_key_writes_to_env_file(self, monkeypatch, tmp_path):
-        """Setting a key should write the env var to ~/.hermes/.env."""
+        """Setting a key should write the env var to ~/.jarviscopilot/.env."""
         _install_fake_jarviscopilot_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
         # Also pin HERMES_HOME so code that reads it directly gets tmp_path,

@@ -23,7 +23,7 @@ import pytest
 
 def test_outbound_to_public_ipv4_is_blocked():
     """Attempting to connect to a public IP must raise OSError."""
-    with pytest.raises(OSError, match="hermes test network isolation"):
+    with pytest.raises(OSError, match="jarviscopilot test network isolation"):
         # 8.8.8.8 (Google DNS) is a stable real public IPv4.
         # If we accidentally connect, the test goes to 53/tcp which is
         # genuinely listening — so the block is what stops us, not lack of
@@ -33,13 +33,13 @@ def test_outbound_to_public_ipv4_is_blocked():
 
 def test_outbound_to_anthropic_ipv6_is_blocked():
     """The exact destination we observed leaking from earlier pytest runs."""
-    with pytest.raises(OSError, match="hermes test network isolation"):
+    with pytest.raises(OSError, match="jarviscopilot test network isolation"):
         socket.create_connection(("2607:6bc0::10", 443), timeout=1)
 
 
 def test_outbound_to_amazon_is_blocked():
     """AWS endpoints (botocore / bedrock) must not reach the real service."""
-    with pytest.raises(OSError, match="hermes test network isolation"):
+    with pytest.raises(OSError, match="jarviscopilot test network isolation"):
         socket.create_connection(("3.173.21.63", 443), timeout=1)
 
 

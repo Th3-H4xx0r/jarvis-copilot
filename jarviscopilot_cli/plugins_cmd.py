@@ -1,6 +1,6 @@
-"""``hermes plugins`` CLI subcommand — install, update, remove, and list plugins.
+"""``jarviscopilot plugins`` CLI subcommand — install, update, remove, and list plugins.
 
-Plugins are installed from Git repositories into ``~/.hermes/plugins/``.
+Plugins are installed from Git repositories into ``~/.jarviscopilot/plugins/``.
 Supports full URLs and ``owner/repo`` shorthand (resolves to GitHub).
 
 After install, if the plugin ships an ``after-install.md`` file it is
@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 from jarviscopilot_cli.config import cfg_get
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 def _resolve_git_executable() -> Optional[str]:
     """Resolve a git binary for subprocess use when ``PATH`` may be minimal.
 
-    Matches other Hermes subprocess resolution: :func:`shutil.which` first,
+    Matches other JarvisCopilot subprocess resolution: :func:`shutil.which` first,
     then common Git for Windows install paths and POSIX defaults.
     """
     found = shutil.which("git")
@@ -192,7 +192,7 @@ def _copy_example_files(plugin_dir: Path, console) -> None:
 
 
 def _missing_requires_env_names(manifest: dict) -> list[str]:
-    """Return declared ``requires_env`` names that are unset in ``~/.hermes/.env``."""
+    """Return declared ``requires_env`` names that are unset in ``~/.jarviscopilot/.env``."""
     requires_env = manifest.get("requires_env") or []
     if not requires_env:
         return []
@@ -234,7 +234,7 @@ def _prompt_plugin_env_vars(manifest: dict, console) -> None:
         return
 
     from jarviscopilot_cli.config import get_env_value, save_env_value  # noqa: F811
-    from hermes_constants import display_hermes_home
+    from jarviscopilot_constants import display_hermes_home
 
     # Normalise to list-of-dicts
     env_specs: list[dict] = []
@@ -343,7 +343,7 @@ def _require_installed_plugin(name: str, plugins_dir: Path, console) -> Path:
 
 
 def _install_plugin_core(identifier: str, *, force: bool) -> tuple[Path, dict, str]:
-    """Clone Git plugin into ``~/.hermes/plugins``.
+    """Clone Git plugin into ``~/.jarviscopilot/plugins``.
 
     Returns ``(target_dir, installed_manifest, canonical_name)``.
     Raises ``PluginOperationError`` on failure.
@@ -407,14 +407,14 @@ def _install_plugin_core(identifier: str, *, force: bool) -> tuple[Path, dict, s
                 raise PluginOperationError(
                     f"Plugin '{plugin_name}' requires manifest_version {mv}, "
                     f"but this installer only supports up to {_SUPPORTED_MANIFEST_VERSION}. "
-                    f"Run {recommended_update_command()} to update Hermes.",
+                    f"Run {recommended_update_command()} to update JarvisCopilot.",
                 ) from None
 
         if target.exists():
             if not force:
                 raise PluginOperationError(
                     f"Plugin '{plugin_name}' already exists. Use force reinstall "
-                    f"or run `hermes plugins update {plugin_name}`.",
+                    f"or run `jarviscopilot plugins update {plugin_name}`.",
                 )
             shutil.rmtree(target)
 
@@ -477,7 +477,7 @@ def cmd_install(
     ).exists():
         console.print(
             f"[yellow]Warning:[/yellow] {installed_name} doesn't contain plugin.yaml "
-            f"or __init__.py. It may not be a valid Hermes plugin.",
+            f"or __init__.py. It may not be a valid JarvisCopilot plugin.",
         )
 
     _prompt_plugin_env_vars(installed_manifest, console)
@@ -510,11 +510,11 @@ def cmd_install(
     else:
         console.print(
             f"[dim]Plugin installed but not enabled. "
-            f"Run `hermes plugins enable {installed_name}` to activate.[/dim]",
+            f"Run `jarviscopilot plugins enable {installed_name}` to activate.[/dim]",
         )
 
     console.print("[dim]Restart the gateway for the plugin to take effect:[/dim]")
-    console.print("[dim]  hermes gateway restart[/dim]")
+    console.print("[dim]  jarviscopilot gateway restart[/dim]")
     console.print()
 
 
@@ -718,7 +718,7 @@ def _discover_all_plugins() -> list:
     one level deeper (depth capped at 2, same as the loader).
 
     The returned ``key`` is the path-derived registry key — the value the
-    user types into ``hermes plugins enable <key>``. For category-namespaced
+    user types into ``jarviscopilot plugins enable <key>``. For category-namespaced
     plugins that's ``<category>/<dirname>``; for flat plugins it's the
     manifest's ``name`` (or the directory name if the manifest omits it).
 
@@ -799,7 +799,7 @@ def cmd_list() -> None:
     entries = _discover_all_plugins()
     if not entries:
         console.print("[dim]No plugins installed.[/dim]")
-        console.print("[dim]Install with:[/dim] hermes plugins install owner/repo")
+        console.print("[dim]Install with:[/dim] jarviscopilot plugins install owner/repo")
         return
 
     enabled = _get_enabled_set()
@@ -824,8 +824,8 @@ def cmd_list() -> None:
     console.print()
     console.print(table)
     console.print()
-    console.print("[dim]Interactive toggle:[/dim] hermes plugins")
-    console.print("[dim]Enable/disable:[/dim] hermes plugins enable/disable <name>")
+    console.print("[dim]Interactive toggle:[/dim] jarviscopilot plugins")
+    console.print("[dim]Enable/disable:[/dim] jarviscopilot plugins enable/disable <name>")
     console.print("[dim]Plugins are opt-in by default — only 'enabled' plugins load.[/dim]")
 
 
@@ -1011,7 +1011,7 @@ def cmd_toggle() -> None:
 
     if not has_plugins and not has_categories:
         console.print("[dim]No plugins installed and no provider categories available.[/dim]")
-        console.print("[dim]Install with:[/dim] hermes plugins install owner/repo")
+        console.print("[dim]Install with:[/dim] jarviscopilot plugins install owner/repo")
         return
 
     # Non-TTY fallback
@@ -1505,7 +1505,7 @@ def dashboard_set_agent_plugin_enabled(name: str, *, enabled: bool) -> dict[str,
 
 
 def _user_installed_plugin_dir(name: str) -> Optional[Path]:
-    """Resolved path under ``~/.hermes/plugins/<name>`` if it exists."""
+    """Resolved path under ``~/.jarviscopilot/plugins/<name>`` if it exists."""
     plugins_dir = _plugins_dir()
     try:
         target = _sanitize_plugin_name(name, plugins_dir)
@@ -1515,7 +1515,7 @@ def _user_installed_plugin_dir(name: str) -> Optional[Path]:
 
 
 def dashboard_update_user_plugin(name: str) -> dict[str, Any]:
-    """``git pull`` inside ``~/.hermes/plugins/<name>``."""
+    """``git pull`` inside ``~/.jarviscopilot/plugins/<name>``."""
     target = _user_installed_plugin_dir(name)
     if target is None:
         return {
@@ -1564,7 +1564,7 @@ def _git_pull_plugin_dir(target: Path) -> tuple[bool, str]:
 
 
 def dashboard_remove_user_plugin(name: str) -> dict[str, Any]:
-    """Delete a plugin tree under ``~/.hermes/plugins/`` only."""
+    """Delete a plugin tree under ``~/.jarviscopilot/plugins/`` only."""
     plugins_dir = _plugins_dir()
     for n, _ver, _d, src, _path in _discover_all_plugins():
         if n == name and src == "bundled":
@@ -1582,7 +1582,7 @@ def dashboard_remove_user_plugin(name: str) -> dict[str, Any]:
 
 
 def plugins_command(args) -> None:
-    """Dispatch hermes plugins subcommands."""
+    """Dispatch jarviscopilot plugins subcommands."""
     action = getattr(args, "plugins_action", None)
 
     if action == "install":

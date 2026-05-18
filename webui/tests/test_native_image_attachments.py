@@ -427,7 +427,7 @@ class TestIsValidImage:
 
 
 class TestAttachmentRootIntegration:
-    """Stage-361 regression: #2319 moved chat uploads to ~/.hermes/webui/attachments/<sid>/.
+    """Stage-361 regression: #2319 moved chat uploads to ~/.jarviscopilot/webui/attachments/<sid>/.
 
     Pre-fix, _build_native_multimodal_message required uploads to be under
     workspace_root, which silently rejected every image upload from the new

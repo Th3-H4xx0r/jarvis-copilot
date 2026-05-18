@@ -1586,7 +1586,7 @@ def test_session_prefers_state_db_messages_over_stale_local_snapshot(cleanup_tes
         s = Session(
             session_id=sid,
             title='Legacy Local Telegram Snapshot',
-            workspace=str(pathlib.Path.home() / '.hermes'),
+            workspace=str(pathlib.Path.home() / '.jarviscopilot'),
             model='openai/gpt-5',
             messages=[{"role": r, "content": c, "timestamp": t} for r, c, t in stale_messages],
         )

@@ -1,6 +1,6 @@
 """Remote model catalog fetcher.
 
-The Hermes docs site hosts a JSON manifest of curated models for providers
+The JarvisCopilot docs site hosts a JSON manifest of curated models for providers
 we want to update without shipping a release (currently OpenRouter and
 Nous Portal). This module fetches, validates, and caches that manifest,
 falling back to the in-repo hardcoded lists when the network is unavailable.
@@ -9,7 +9,7 @@ Pipeline
 --------
 1. ``get_catalog()`` — returns a parsed manifest dict.
    - Checks in-process cache (invalidated by TTL).
-   - Reads disk cache at ``~/.hermes/cache/model_catalog.json``.
+   - Reads disk cache at ``~/.jarviscopilot/cache/model_catalog.json``.
    - Fetches the master URL if disk cache is stale or missing.
    - On any fetch failure, keeps using the stale cache (or empty dict).
 
@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_CATALOG_URL = (
-    "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json"
+    "https://jarviscopilot.nousresearch.com/docs/api/model-catalog.json"
 )
 DEFAULT_TTL_HOURS = 24
 DEFAULT_FETCH_TIMEOUT = 8.0
@@ -104,7 +104,7 @@ def _load_catalog_config() -> dict[str, Any]:
 
 def _cache_path() -> Path:
     """Return the disk cache path. Import lazily so tests can monkeypatch home."""
-    from hermes_constants import get_hermes_home
+    from jarviscopilot_constants import get_hermes_home
     return get_hermes_home() / "cache" / "model_catalog.json"
 
 
@@ -323,7 +323,7 @@ def get_curated_nous_models() -> list[str] | None:
 
 
 def reset_cache() -> None:
-    """Clear the in-process cache. Used by tests and ``hermes model --refresh``."""
+    """Clear the in-process cache. Used by tests and ``jarviscopilot model --refresh``."""
     global _catalog_cache, _catalog_cache_source_mtime
     _catalog_cache = None
     _catalog_cache_source_mtime = 0.0

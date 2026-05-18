@@ -97,7 +97,7 @@ class TestIssue1500EnvVarAlignment:
         _install_fake_jarviscopilot_cli(monkeypatch)
 
         # Redirect every write target to the tmp_path so we don't touch the real
-        # ~/.hermes — pattern from webui-onboarding-provider-readiness skill.
+        # ~/.jarviscopilot — pattern from webui-onboarding-provider-readiness skill.
         from api import onboarding as ob
         monkeypatch.setattr(ob, "_get_active_hermes_home", lambda: tmp_path)
         cfg_path = tmp_path / "config.yaml"

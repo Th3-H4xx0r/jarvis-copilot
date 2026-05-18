@@ -400,7 +400,7 @@ def test_kanban_assignee_dropdown_uses_select_not_freetext():
     assert 'id="kanbanTaskModalAssigneeHint"' in INDEX
     hint_idx = INDEX.find('id="kanbanTaskModalAssigneeHint"')
     hint_block = INDEX[hint_idx:hint_idx + 400]
-    assert "Hermes profile" in hint_block or "data-i18n=\"kanban_assignee_hint\"" in hint_block
+    assert "JarvisCopilot profile" in hint_block or "data-i18n=\"kanban_assignee_hint\"" in hint_block
 
     # The populator function loads from /api/profiles and groups options.
     pop_match = re.search(

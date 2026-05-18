@@ -98,7 +98,7 @@ gateway:
     upload_failed:         "✗ Debug-Bericht konnte nicht hochgeladen werden: {error}"
     header:                "**Debug-Bericht hochgeladen:**"
     auto_delete:           "⏱ Pastes werden in 6 Stunden automatisch gelöscht."
-    full_logs_hint:        "Für vollständige Log-Uploads verwenden Sie `hermes debug share` aus der CLI."
+    full_logs_hint:        "Für vollständige Log-Uploads verwenden Sie `jarviscopilot debug share` aus der CLI."
     share_hint:            "Teilen Sie diese Links mit dem Hermes-Team, um Unterstützung zu erhalten."
 
   deny:
@@ -147,7 +147,7 @@ gateway:
   kanban:
     error_prefix:          "⚠ Kanban-Fehler: {error}"
     subscribed_suffix:     "(abonniert — Sie werden benachrichtigt, wenn {task_id} abgeschlossen oder blockiert wird)"
-    truncated_suffix:      "… (gekürzt; verwenden Sie `hermes kanban …` im Terminal für die vollständige Ausgabe)"
+    truncated_suffix:      "… (gekürzt; verwenden Sie `jarviscopilot kanban …` im Terminal für die vollständige Ausgabe)"
     no_output:             "(keine Ausgabe)"
 
   personality:
@@ -215,7 +215,7 @@ gateway:
 
   restart:
     in_progress:           "⏳ Gateway-Neustart läuft bereits..."
-    restarting:            "♻ Gateway wird neu gestartet. Falls Sie nicht innerhalb von 60 Sekunden benachrichtigt werden, starten Sie über die Konsole mit `hermes gateway restart` neu."
+    restarting:            "♻ Gateway wird neu gestartet. Falls Sie nicht innerhalb von 60 Sekunden benachrichtigt werden, starten Sie über die Konsole mit `jarviscopilot gateway restart` neu."
 
   resume:
     db_unavailable:        "Sitzungsdatenbank nicht verfügbar."
@@ -290,9 +290,9 @@ gateway:
     removed:               "↩️ {count} Nachricht(en) rückgängig gemacht.\nEntfernt: \"{preview}\""
 
   update:
-    platform_not_messaging:  "✗ /update ist nur auf Messaging-Plattformen verfügbar. Führen Sie `hermes update` im Terminal aus."
+    platform_not_messaging:  "✗ /update ist nur auf Messaging-Plattformen verfügbar. Führen Sie `jarviscopilot update` im Terminal aus."
     not_git_repo:            "✗ Kein Git-Repository — Update nicht möglich."
-    hermes_cmd_not_found:    "✗ Der Befehl `hermes` konnte nicht gefunden werden. Hermes läuft, aber der Update-Befehl konnte das ausführbare Programm weder im PATH noch über den aktuellen Python-Interpreter finden. Versuchen Sie, `hermes update` manuell im Terminal auszuführen."
+    hermes_cmd_not_found:    "✗ Der Befehl `jarviscopilot` konnte nicht gefunden werden. JarvisCopilot läuft, aber der Update-Befehl konnte das ausführbare Programm weder im PATH noch über den aktuellen Python-Interpreter finden. Versuchen Sie, `jarviscopilot update` manuell im Terminal auszuführen."
     start_failed:            "✗ Update konnte nicht gestartet werden: {error}"
     starting:                "⚕ Hermes-Update wird gestartet… Ich streame den Fortschritt hier."
 

@@ -1,4 +1,4 @@
-"""Shared debug session infrastructure for Hermes tools.
+"""Shared debug session infrastructure for JarvisCopilot tools.
 
 Replaces the identical DEBUG_MODE / _log_debug_call / _save_debug_log /
 get_debug_session_info boilerplate previously duplicated across web_tools,
@@ -28,7 +28,7 @@ import os
 import uuid
 from typing import Any, Dict
 
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 
 logger = logging.getLogger(__name__)
 

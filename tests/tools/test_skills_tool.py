@@ -82,10 +82,10 @@ class TestParseFrontmatter:
 
     def test_nested_yaml(self):
         content = (
-            "---\nname: test\nmetadata:\n  hermes:\n    tags: [a, b]\n---\n\nBody.\n"
+            "---\nname: test\nmetadata:\n  jarviscopilot:\n    tags: [a, b]\n---\n\nBody.\n"
         )
         fm, body = _parse_frontmatter(content)
-        assert fm["metadata"]["hermes"]["tags"] == ["a", "b"]
+        assert fm["metadata"]["jarviscopilot"]["tags"] == ["a", "b"]
 
     def test_malformed_yaml_fallback(self):
         """Malformed YAML falls back to simple key:value parsing."""
@@ -454,7 +454,7 @@ class TestSkillView:
             _make_skill(
                 tmp_path,
                 "tagged",
-                frontmatter_extra="metadata:\n  hermes:\n    tags: [fine-tuning, llm]\n",
+                frontmatter_extra="metadata:\n  jarviscopilot:\n    tags: [fine-tuning, llm]\n",
             )
             raw = skill_view("tagged")
         result = json.loads(raw)
@@ -1006,7 +1006,7 @@ class TestSkillViewPrerequisites:
 name: legacy-flat
 description: Legacy flat skill.
 metadata:
-  hermes:
+  jarviscopilot:
     tags: [legacy, flat]
 required_environment_variables:
   - name: LEGACY_KEY

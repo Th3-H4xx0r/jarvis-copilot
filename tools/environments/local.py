@@ -171,9 +171,9 @@ _HERMES_PROVIDER_ENV_BLOCKLIST = _build_provider_env_blocklist()
 
 
 def _inject_context_hermes_home(env: dict) -> None:
-    """Bridge the context-local Hermes home override into subprocess env."""
+    """Bridge the context-local JarvisCopilot home override into subprocess env."""
     try:
-        from hermes_constants import get_hermes_home_override
+        from jarviscopilot_constants import get_hermes_home_override
 
         value = get_hermes_home_override()
         if value:
@@ -207,7 +207,7 @@ def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = Non
     _inject_context_hermes_home(sanitized)
 
     # Per-profile HOME isolation for background processes (same as _make_run_env).
-    from hermes_constants import get_subprocess_home
+    from jarviscopilot_constants import get_subprocess_home
     _profile_home = get_subprocess_home()
     if _profile_home:
         sanitized["HOME"] = _profile_home
@@ -237,10 +237,10 @@ def _find_bash() -> str:
     #
     # Layouts (both checked so upgrades between MinGit and PortableGit
     # installs work transparently):
-    #   PortableGit: %LOCALAPPDATA%\hermes\git\bin\bash.exe   (primary)
-    #   MinGit:      %LOCALAPPDATA%\hermes\git\usr\bin\bash.exe (legacy/32-bit fallback)
+    #   PortableGit: %LOCALAPPDATA%\jarviscopilot\git\bin\bash.exe   (primary)
+    #   MinGit:      %LOCALAPPDATA%\jarviscopilot\git\usr\bin\bash.exe (legacy/32-bit fallback)
     _local_appdata = os.environ.get("LOCALAPPDATA", "")
-    _hermes_portable_git = os.path.join(_local_appdata, "hermes", "git") if _local_appdata else ""
+    _hermes_portable_git = os.path.join(_local_appdata, "jarviscopilot", "git") if _local_appdata else ""
     if _hermes_portable_git:
         for candidate in (
             os.path.join(_hermes_portable_git, "bin", "bash.exe"),        # PortableGit (primary)
@@ -301,7 +301,7 @@ def _make_run_env(env: dict) -> dict:
     # unrecognisable chunk, which then triggers prepending POSIX paths
     # to a Windows PATH — completely wrong).  Skip the injection entirely
     # on Windows; the native PATH already points at whatever shell
-    # Hermes is driving via _find_bash (Git Bash), and Git Bash itself
+    # JarvisCopilot is driving via _find_bash (Git Bash), and Git Bash itself
     # prepends its MSYS2 /usr/bin equivalent via the shell-init files.
     if not _IS_WINDOWS and "/usr/bin" not in existing_path.split(":"):
         run_env["PATH"] = f"{existing_path}:{_SANE_PATH}" if existing_path else _SANE_PATH
@@ -311,7 +311,7 @@ def _make_run_env(env: dict) -> dict:
     # Per-profile HOME isolation: redirect system tool configs (git, ssh, gh,
     # npm …) into {HERMES_HOME}/home/ when that directory exists.  Only the
     # subprocess sees the override — the Python process keeps the real HOME.
-    from hermes_constants import get_subprocess_home
+    from jarviscopilot_constants import get_subprocess_home
     _profile_home = get_subprocess_home()
     if _profile_home:
         run_env["HOME"] = _profile_home
@@ -356,7 +356,7 @@ def _resolve_shell_init_files() -> list[str]:
     Expands ``~`` and ``${VAR}`` references and drops anything that doesn't
     exist on disk, so a missing ``~/.bashrc`` never breaks the snapshot.
     The ``auto_source_bashrc`` path runs only when the user hasn't supplied
-    an explicit list — once they have, Hermes trusts them.
+    an explicit list — once they have, JarvisCopilot trusts them.
     """
     explicit, auto_bashrc = _read_terminal_shell_init_config()
 
@@ -453,7 +453,7 @@ class LocalEnvironment(BaseEnvironment):
             # accepts forward slashes in filesystem paths, and we control
             # the path so we can guarantee no spaces.
             try:
-                from hermes_constants import get_hermes_home
+                from jarviscopilot_constants import get_hermes_home
                 cache_dir = get_hermes_home() / "cache" / "terminal"
             except Exception:
                 cache_dir = Path(tempfile.gettempdir()) / "hermes_terminal"

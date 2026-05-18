@@ -1,9 +1,9 @@
 """Session-mutation operations for slash commands (/retry, /undo) and
 read-only aggregators (/status, /usage). Operates on the webui's own
-JSON Session store (api/models.py), not on hermes-agent's SQLite.
+JSON Session store (api/models.py), not on jarviscopilot's SQLite.
 
 Behavior parity reference: gateway/run.py:_handle_*_command in
-the hermes-agent repo.
+the jarviscopilot repo.
 """
 from __future__ import annotations
 import logging

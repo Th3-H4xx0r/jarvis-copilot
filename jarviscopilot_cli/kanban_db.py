@@ -1,10 +1,10 @@
 """SQLite-backed Kanban board for multi-profile, multi-project collaboration.
 
 In a fresh install the board lives at ``<root>/kanban.db`` where
-``<root>`` is the **shared Hermes root** (the parent of any active
+``<root>`` is the **shared JarvisCopilot root** (the parent of any active
 profile). Profiles intentionally collapse onto a shared board: it IS
 the cross-profile coordination primitive. A worker spawned with
-``hermes -p <profile>`` joins the same board as the dispatcher that
+``jarviscopilot -p <profile>`` joins the same board as the dispatcher that
 claimed the task. The same applies to ``<root>/kanban/workspaces/`` and
 ``<root>/kanban/logs/``.
 
@@ -12,7 +12,7 @@ claimed the task. The same applies to ``<root>/kanban/workspaces/`` and
 separate unrelated streams of work (e.g. one per project / repo / domain).
 Each board is a directory under ``<root>/kanban/boards/<slug>/`` with
 its own ``kanban.db``, ``workspaces/``, and ``logs/``. All boards share
-the profile's Hermes home but are otherwise isolated: a worker spawned
+the profile's JarvisCopilot home but are otherwise isolated: a worker spawned
 for a task on board ``atm10-server`` sees only that board's tasks,
 cannot enumerate other boards, and its dispatcher ticks don't touch
 other boards' DBs.
@@ -33,11 +33,11 @@ Board resolution order (highest precedence first, all optional):
   override still honoured; highest precedence when the file path itself
   is what the caller wants to force).
 * ``<root>/kanban/current`` — a one-line text file holding the slug of
-  the "currently selected" board. Written by ``hermes kanban boards
+  the "currently selected" board. Written by ``jarviscopilot kanban boards
   switch <slug>``. When absent, the active board is ``default``.
 
-In standard installs ``<root>`` is ``~/.hermes``. In Docker / custom
-deployments where ``HERMES_HOME`` points outside ``~/.hermes`` (e.g.
+In standard installs ``<root>`` is ``~/.jarviscopilot``. In Docker / custom
+deployments where ``HERMES_HOME`` points outside ``~/.jarviscopilot`` (e.g.
 ``/opt/hermes``), ``<root>`` is ``HERMES_HOME``. Legacy env-var
 overrides still work:
 
@@ -122,7 +122,7 @@ DEFAULT_BOARD = "default"
 
 # Slug validator: lowercase alphanumerics, digits, hyphens; 1–64 chars.
 # Strict enough to stop traversal (`..`) and embedded path separators, loose
-# enough that kebab-case names like ``atm10-server`` or ``hermes-agent``
+# enough that kebab-case names like ``atm10-server`` or ``jarviscopilot``
 # pass without fuss. Board names with display formatting (spaces, emoji)
 # live in ``board.json``; the slug is just the directory name.
 _BOARD_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-_]{0,63}$")
@@ -144,7 +144,7 @@ def _normalize_board_slug(slug: Optional[str]) -> Optional[str]:
 
 
 def kanban_home() -> Path:
-    """Return the shared Hermes root that anchors the kanban board.
+    """Return the shared JarvisCopilot root that anchors the kanban board.
 
     Resolution order:
 
@@ -162,7 +162,7 @@ def kanban_home() -> Path:
     override = os.environ.get("HERMES_KANBAN_HOME", "").strip()
     if override:
         return Path(override).expanduser()
-    from hermes_constants import get_default_hermes_root
+    from jarviscopilot_constants import get_default_hermes_root
     return get_default_hermes_root()
 
 
@@ -180,7 +180,7 @@ def boards_root() -> Path:
 def current_board_path() -> Path:
     """Return the path to ``<root>/kanban/current``.
 
-    One-line text file written by ``hermes kanban boards switch <slug>``
+    One-line text file written by ``jarviscopilot kanban boards switch <slug>``
     to persist the user's board selection across CLI invocations. Absent
     by default (meaning: active board is ``default``).
     """
@@ -194,7 +194,7 @@ def get_current_board() -> str:
 
     1. ``HERMES_KANBAN_BOARD`` env var (set by the dispatcher on worker
        spawn, or manually for ad-hoc overrides).
-    2. ``<root>/kanban/current`` on disk (set by ``hermes kanban boards
+    2. ``<root>/kanban/current`` on disk (set by ``jarviscopilot kanban boards
        switch``), but only when that board still exists.
     3. ``DEFAULT_BOARD`` (``"default"``).
 
@@ -231,7 +231,7 @@ def set_current_board(slug: str) -> Path:
 
     Writes ``<root>/kanban/current``. The caller should validate the slug
     exists first (via :func:`board_exists`) — this function does not —
-    so that ``hermes kanban boards switch <typo>`` returns an error
+    so that ``jarviscopilot kanban boards switch <typo>`` returns an error
     instead of silently pointing at nothing.
     """
     normed = _normalize_board_slug(slug)
@@ -331,7 +331,7 @@ def worker_logs_dir(board: Optional[str] = None) -> Path:
 
     ``default`` keeps the legacy path ``<root>/kanban/logs/``. Other
     boards use ``<root>/kanban/boards/<slug>/logs/``. Logs follow the
-    board — makes ``hermes kanban log`` unambiguous even when multiple
+    board — makes ``jarviscopilot kanban log`` unambiguous even when multiple
     boards have tasks with the same id.
     """
     slug = _normalize_board_slug(board)
@@ -924,8 +924,8 @@ def connect(
     conn.row_factory = sqlite3.Row
     # WAL doesn't work on network filesystems (NFS/SMB/FUSE).  Shared helper
     # falls back to DELETE with one WARNING so kanban stays usable there.
-    # See hermes_state._WAL_INCOMPAT_MARKERS for detection logic.
-    from hermes_state import apply_wal_with_fallback
+    # See jarviscopilot_state._WAL_INCOMPAT_MARKERS for detection logic.
+    from jarviscopilot_state import apply_wal_with_fallback
     apply_wal_with_fallback(conn, db_label=f"kanban.db ({path.name})")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -946,7 +946,7 @@ def init_db(
 ) -> Path:
     """Create the schema if it doesn't exist; return the path used.
 
-    Kept as a public entry point so CLI ``hermes kanban init`` and the
+    Kept as a public entry point so CLI ``jarviscopilot kanban init`` and the
     daemon have something explicit to call. Unlike :func:`connect`'s
     first-time auto-init (which caches by path), ``init_db`` always
     re-runs the migration pass. Callers that know the on-disk schema
@@ -1265,7 +1265,7 @@ def create_task(
 
     ``skills`` is an optional list of skill names to force-load into
     the worker when dispatched. Stored as JSON; the dispatcher passes
-    each name to ``hermes --skills ...`` alongside the built-in
+    each name to ``jarviscopilot --skills ...`` alongside the built-in
     ``kanban-worker``. Use this to pin a task to a specialist skill
     (e.g. ``skills=["translation"]`` so the worker loads the
     translation skill regardless of the profile's default config).
@@ -1283,7 +1283,7 @@ def create_task(
     # Normalise + validate skills: strip whitespace, drop empties, dedupe
     # (preserving order). Refuse commas inside a single name so we don't
     # invisibly splatter a comma-joined string into one argv slot — the
-    # `hermes --skills X,Y` comma syntax is handled in the dispatcher,
+    # `jarviscopilot --skills X,Y` comma syntax is handled in the dispatcher,
     # not here.
     skills_list: Optional[list[str]] = None
     if skills is not None:
@@ -1580,7 +1580,7 @@ def unlink_tasks(conn: sqlite3.Connection, parent_id: str, child_id: str) -> boo
         # Dependency edge removed — re-evaluate promotion eligibility for the
         # child immediately.  Matches the contract of complete_task and
         # unblock_task; without this the child stays stuck in todo until the
-        # next dispatcher tick or a manual `hermes kanban recompute` (issue #22459).
+        # next dispatcher tick or a manual `jarviscopilot kanban recompute` (issue #22459).
         recompute_ready(conn)
     return removed
 
@@ -1723,7 +1723,7 @@ def _end_run(
     timed_out / spawn_failed / gave_up / reclaimed). ``status`` is the
     run-row status (usually just ``outcome``, but callers can pass it
     explicitly). Returns the closed run_id or ``None`` if no active run
-    existed (e.g. a CLI user calling ``hermes kanban complete`` on a
+    existed (e.g. a CLI user calling ``jarviscopilot kanban complete`` on a
     task that was never claimed).
     """
     now = int(time.time())
@@ -1783,7 +1783,7 @@ def _synthesize_ended_run(
     """Insert a zero-duration, already-closed run row.
 
     Used when a terminal transition happens on a task that was never
-    claimed (CLI user calling ``hermes kanban complete <ready-task>
+    claimed (CLI user calling ``jarviscopilot kanban complete <ready-task>
     --summary X``, or dashboard "mark done" on a ready task). Without
     this, the handoff fields (summary / metadata / error) would be
     silently dropped: ``_end_run`` is a no-op because there's no
@@ -2362,7 +2362,7 @@ def complete_task(
     """Transition ``running|ready -> done`` and record ``result``.
 
     Accepts a task that is merely ``ready`` too, so a manual CLI
-    completion (``hermes kanban complete <id>``) works without requiring
+    completion (``jarviscopilot kanban complete <id>``) works without requiring
     a claim/start/complete sequence.
 
     ``summary`` and ``metadata`` are stored on the closing run (if any)
@@ -3123,7 +3123,7 @@ class DispatchResult:
     Operator-actionable — usually a misfiled task waiting for routing."""
     skipped_nonspawnable: list[str] = field(default_factory=list)
     """Ready task ids skipped because their assignee names a control-plane
-    lane (a Claude Code terminal like ``orion-cc``) rather than a Hermes
+    lane (a Claude Code terminal like ``orion-cc``) rather than a JarvisCopilot
     profile. Expected steady-state on multi-lane setups; NOT an
     operator-actionable failure. Tracked separately so health telemetry
     can distinguish "real stuck" (nothing spawned but spawnable work
@@ -3808,7 +3808,7 @@ def _record_spawn_failure(
 def _set_worker_pid(conn: sqlite3.Connection, task_id: str, pid: int) -> None:
     """Record the spawned child's pid + emit a ``spawned`` event.
 
-    The event's payload carries the pid so a human reading ``hermes kanban
+    The event's payload carries the pid so a human reading ``jarviscopilot kanban
     tail`` can correlate log lines with OS-level traces without opening
     the drawer.
     """
@@ -3850,7 +3850,7 @@ _clear_spawn_failures = _clear_failure_counter
 
 def has_spawnable_ready(conn: sqlite3.Connection) -> bool:
     """Return True iff there is at least one ready+assigned+unclaimed task
-    whose assignee maps to a real Hermes profile.
+    whose assignee maps to a real JarvisCopilot profile.
 
     Used by the gateway- and CLI-embedded dispatchers' health telemetry to
     decide whether ``0 spawned`` is a "stuck" condition (real spawnable
@@ -3991,11 +3991,11 @@ def dispatch_once(
         if not row["assignee"]:
             result.skipped_unassigned.append(row["id"])
             continue
-        # Skip ready tasks whose assignee is not a real Hermes profile.
-        # `_default_spawn` invokes ``hermes -p <assignee>`` which fails
+        # Skip ready tasks whose assignee is not a real JarvisCopilot profile.
+        # `_default_spawn` invokes ``jarviscopilot -p <assignee>`` which fails
         # with "Profile 'X' does not exist" when the assignee names a
         # control-plane lane (e.g. an interactive Claude Code terminal
-        # like ``orion-cc`` / ``orion-research``) rather than a Hermes
+        # like ``orion-cc`` / ``orion-research``) rather than a JarvisCopilot
         # profile. Those task lanes are pulled by terminals via
         # ``claim_task`` directly and should NEVER auto-spawn — the
         # subprocess would crash on startup, get reaped as a zombie,
@@ -4150,15 +4150,15 @@ def _rotate_worker_log(
 
 
 def _resolve_hermes_argv() -> list[str]:
-    """Resolve the ``hermes`` invocation as argv parts for ``Popen``.
+    """Resolve the ``jarviscopilot`` invocation as argv parts for ``Popen``.
 
     Tries in order:
 
-    1. ``shutil.which("hermes")`` — the console-script shim, the same form
+    1. ``shutil.which("jarviscopilot")`` — the console-script shim, the same form
        that shows up in ``ps`` output and existing logs. Preferred so live
        systems' diagnostics stay familiar.
     2. ``sys.executable -m jarviscopilot_cli.main`` — fallback for setups where
-       Hermes is launched from a venv and the ``hermes`` shim is not on
+       JarvisCopilot is launched from a venv and the ``jarviscopilot`` shim is not on
        the dispatcher's ``$PATH`` (cron, systemd ``User=`` services,
        launchd jobs, detached processes, etc.). Goes through the running
        interpreter so the result is independent of ``$PATH``.
@@ -4169,12 +4169,12 @@ def _resolve_hermes_argv() -> list[str]:
     """
     import shutil
 
-    hermes_bin = shutil.which("hermes")
+    hermes_bin = shutil.which("jarviscopilot")
     if hermes_bin:
         return [hermes_bin]
     # Fallback to the module form. ``jarviscopilot_cli.main`` is the actual
     # console-script target declared in pyproject.toml, NOT a top-level
-    # ``hermes`` package — there is no ``hermes`` package to import.
+    # ``jarviscopilot`` package — there is no ``jarviscopilot`` package to import.
     return [sys.executable, "-m", "jarviscopilot_cli.main"]
 
 
@@ -4214,7 +4214,7 @@ def _default_spawn(
     *,
     board: Optional[str] = None,
 ) -> Optional[int]:
-    """Fire-and-forget ``hermes -p <profile> chat -q ...`` subprocess.
+    """Fire-and-forget ``jarviscopilot -p <profile> chat -q ...`` subprocess.
 
     Returns the spawned child's PID so the dispatcher can detect crashes
     before the claim TTL expires. The child's completion is still observed
@@ -4240,10 +4240,10 @@ def _default_spawn(
     # Inject HERMES_HOME so the worker reads the profile-scoped config.yaml
     # (fallback_providers, toolsets, agent settings, etc.) instead of the root
     # config.  Without this, `env = dict(os.environ)` copies only the parent's
-    # env, and when the child process starts `hermes -p <name>` the
-    # _apply_profile_override() runs *before* hermes_constants is imported.
+    # env, and when the child process starts `jarviscopilot -p <name>` the
+    # _apply_profile_override() runs *before* jarviscopilot_constants is imported.
     # If HERMES_HOME is absent from the child's env, get_hermes_home() falls
-    # back to Path.home() / ".hermes" (the DEFAULT profile root), ignoring the
+    # back to Path.home() / ".jarviscopilot" (the DEFAULT profile root), ignoring the
     # profile-specific config entirely.  Fixes profile-scoped fallback_providers
     # being invisible to kanban workers.
     from jarviscopilot_cli.profiles import resolve_profile_env
@@ -4276,7 +4276,7 @@ def _default_spawn(
     if foreground_timeout is not None:
         env["TERMINAL_MAX_FOREGROUND_TIMEOUT"] = foreground_timeout
     # Pin the shared board + workspaces root the dispatcher resolved, so
-    # that even when the worker activates a profile (`hermes -p <name>`
+    # that even when the worker activates a profile (`jarviscopilot -p <name>`
     # rewrites HERMES_HOME), its kanban paths still match the
     # dispatcher's. Belt-and-braces with the `get_default_hermes_root()`
     # resolution in `kanban_home()` — symmetric resolution is the norm,
@@ -4289,7 +4289,7 @@ def _default_spawn(
     resolved_board = _normalize_board_slug(board) or get_current_board()
     env["HERMES_KANBAN_BOARD"] = resolved_board
     # HERMES_PROFILE is the author the kanban_comment tool defaults to.
-    # `hermes -p <assignee>` activates the profile, but the env var is
+    # `jarviscopilot -p <assignee>` activates the profile, but the env var is
     # what the tool reads — set it explicitly here so comments are
     # attributed correctly regardless of how the child loads config.
     env["HERMES_PROFILE"] = profile_arg
@@ -4324,7 +4324,7 @@ def _default_spawn(
     ])
     # Redirect output to a per-task log under <board-root>/logs/.
     # Anchored at the board root (not the shared kanban root), so
-    # `hermes kanban log` on a specific board reads its own file and
+    # `jarviscopilot kanban log` on a specific board reads its own file and
     # logs don't collide across boards that happen to share task ids.
     log_dir = worker_logs_dir(board=board)
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -4348,7 +4348,7 @@ def _default_spawn(
     except FileNotFoundError:
         log_f.close()
         raise RuntimeError(
-            "`hermes` executable not found on PATH. "
+            "`jarviscopilot` executable not found on PATH. "
             "Install JarvisCopilot or activate its venv before running the kanban dispatcher."
         )
     # NOTE: we intentionally do NOT close log_f here — we want Popen's
@@ -4374,7 +4374,7 @@ def run_daemon(
     """Run the dispatcher in a loop until interrupted.
 
     Calls :func:`dispatch_once` every ``interval`` seconds. Exits cleanly
-    on SIGINT / SIGTERM so ``hermes kanban daemon`` is systemd-friendly.
+    on SIGINT / SIGTERM so ``jarviscopilot kanban daemon`` is systemd-friendly.
     ``stop_event`` (a :class:`threading.Event`) and ``on_tick`` (a
     callable receiving the :class:`DispatchResult`) are test hooks.
     """
@@ -4993,14 +4993,14 @@ def list_profiles_on_disk() -> list[str]:
 
     Includes:
     - named profiles under ``<default-root>/profiles/<name>/config.yaml``
-    - the implicit ``default`` profile when the default Hermes root exists
+    - the implicit ``default`` profile when the default JarvisCopilot root exists
 
     Reads profile paths directly so this module has no import dependency on
     ``jarviscopilot_cli.profiles`` (which pulls in a large chunk of the CLI startup
     path).
     """
     try:
-        from hermes_constants import get_default_hermes_root
+        from jarviscopilot_constants import get_default_hermes_root
         default_root = get_default_hermes_root()
         profiles_dir = default_root / "profiles"
     except Exception:
@@ -5030,7 +5030,7 @@ def known_assignees(conn: sqlite3.Connection) -> list[dict]:
     A name is included when it's a configured profile on disk OR when
     any non-archived task has it as the assignee. Used by:
 
-    - ``hermes kanban assignees`` for the terminal.
+    - ``jarviscopilot kanban assignees`` for the terminal.
     - The dashboard assignee dropdown (so a fresh profile appears in
       the picker even before it's been given any task).
     - Router-profile heuristics ("who's overloaded?") without scanning

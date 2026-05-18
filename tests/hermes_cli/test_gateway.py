@@ -16,7 +16,7 @@ def _install_fake_gateway_run(monkeypatch, start_gateway):
     # ``run_gateway()`` calls ``refresh_systemd_unit_if_needed()`` on every
     # invocation so that restart settings stay current after exit-code-75
     # respawns. That helper writes to ``Path.home() / ".config/systemd/user
-    # /hermes-gateway.service"`` and runs ``systemctl --user daemon-reload``
+    # /jarviscopilot-gateway.service"`` and runs ``systemctl --user daemon-reload``
     # — both target the *real* user environment because the conftest only
     # sandboxes ``HERMES_HOME``, not ``HOME``. Tests that drive
     # ``run_gateway()`` end-to-end with a fake ``start_gateway`` MUST stub
@@ -69,7 +69,7 @@ def test_run_gateway_exits_nonzero_when_start_gateway_reports_failure(monkeypatc
 
 
 def test_run_gateway_refuses_root_in_official_docker(monkeypatch, tmp_path, capsys):
-    project_root = tmp_path / "opt" / "hermes"
+    project_root = tmp_path / "opt" / "jarviscopilot"
     (project_root / "docker").mkdir(parents=True)
     (project_root / "docker" / "entrypoint.sh").write_text("#!/bin/sh\n")
 
@@ -83,7 +83,7 @@ def test_run_gateway_refuses_root_in_official_docker(monkeypatch, tmp_path, caps
 
     assert exc_info.value.code == 1
     out = capsys.readouterr().out
-    assert "Refusing to run the Hermes gateway as root" in out
+    assert "Refusing to run the JarvisCopilot gateway as root" in out
     assert "/opt/hermes/docker/entrypoint.sh" in out
 
 
@@ -269,7 +269,7 @@ def test_gateway_start_in_container_with_operational_systemd_uses_systemd(monkey
 
 
 def test_systemd_status_warns_when_linger_disabled(monkeypatch, tmp_path, capsys):
-    unit_path = tmp_path / "hermes-gateway.service"
+    unit_path = tmp_path / "jarviscopilot-gateway.service"
     unit_path.write_text("[Unit]\n")
 
     monkeypatch.setattr(gateway, "get_systemd_unit_path", lambda system=False: unit_path)
@@ -299,7 +299,7 @@ def test_systemd_status_warns_when_linger_disabled(monkeypatch, tmp_path, capsys
 
 
 def test_systemd_install_checks_linger_status(monkeypatch, tmp_path, capsys):
-    unit_path = tmp_path / "systemd" / "user" / "hermes-gateway.service"
+    unit_path = tmp_path / "systemd" / "user" / "jarviscopilot-gateway.service"
 
     monkeypatch.setattr(gateway, "get_systemd_unit_path", lambda system=False: unit_path)
 
@@ -326,7 +326,7 @@ def test_systemd_install_checks_linger_status(monkeypatch, tmp_path, capsys):
 
 
 def test_systemd_install_system_scope_skips_linger_and_uses_systemctl(monkeypatch, tmp_path, capsys):
-    unit_path = tmp_path / "etc" / "systemd" / "system" / "hermes-gateway.service"
+    unit_path = tmp_path / "etc" / "systemd" / "system" / "jarviscopilot-gateway.service"
 
     monkeypatch.setattr(gateway, "get_systemd_unit_path", lambda system=False: unit_path)
     monkeypatch.setattr(
@@ -361,8 +361,8 @@ def test_systemd_install_system_scope_skips_linger_and_uses_systemctl(monkeypatc
 
 
 def test_conflicting_systemd_units_warning(monkeypatch, tmp_path, capsys):
-    user_unit = tmp_path / "user" / "hermes-gateway.service"
-    system_unit = tmp_path / "system" / "hermes-gateway.service"
+    user_unit = tmp_path / "user" / "jarviscopilot-gateway.service"
+    system_unit = tmp_path / "system" / "jarviscopilot-gateway.service"
     user_unit.parent.mkdir(parents=True)
     system_unit.parent.mkdir(parents=True)
     user_unit.write_text("[Unit]\n", encoding="utf-8")
@@ -378,7 +378,7 @@ def test_conflicting_systemd_units_warning(monkeypatch, tmp_path, capsys):
 
     out = capsys.readouterr().out
     assert "Both user and system gateway services are installed" in out
-    assert "hermes gateway uninstall" in out
+    assert "jarviscopilot gateway uninstall" in out
     assert "--system" in out
 
 
@@ -392,8 +392,8 @@ def test_install_linux_gateway_from_setup_system_choice_without_root_prints_foll
 
     out = capsys.readouterr().out
     assert (scope, did_install) == ("system", False)
-    assert "sudo hermes gateway install --system --run-as-user alice" in out
-    assert "sudo hermes gateway start --system" in out
+    assert "sudo jarviscopilot gateway install --system --run-as-user alice" in out
+    assert "sudo jarviscopilot gateway start --system" in out
 
 
 def test_install_linux_gateway_from_setup_system_choice_as_root_installs(monkeypatch):

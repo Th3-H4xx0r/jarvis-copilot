@@ -114,7 +114,7 @@ Platform toolsets define the complete tool configuration for a deployment target
 | `jarviscopilot-yuanbao` | Adds the five `yb_*` tools (DM/group/sticker) on top of `jarviscopilot-cli`. |
 | `jarviscopilot-homeassistant` | Same as `jarviscopilot-cli` (the Home Assistant tools are already present by default and activate when `HASS_TOKEN` is set). |
 | `jarviscopilot-webhook` | Same as `jarviscopilot-cli`. |
-| `hermes-gateway` | Internal gateway orchestrator toolset — union of every `jarviscopilot-<platform>` toolset; used when the gateway needs to accept any message source. |
+| `jarviscopilot-gateway` | Internal gateway orchestrator toolset — union of every `jarviscopilot-<platform>` toolset; used when the gateway needs to accept any message source. |
 
 ## Dynamic Toolsets
 

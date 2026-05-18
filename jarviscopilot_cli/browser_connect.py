@@ -1,4 +1,4 @@
-"""Shared helpers for attaching Hermes to a local Chrome CDP port."""
+"""Shared helpers for attaching JarvisCopilot to a local Chrome CDP port."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import shlex
 import shutil
 import subprocess
 
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 
 
 DEFAULT_BROWSER_CDP_PORT = 9222

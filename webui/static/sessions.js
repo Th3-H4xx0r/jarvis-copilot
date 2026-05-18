@@ -449,7 +449,7 @@ async function newSession(flash, options={}){
   S.session=data.session;S.messages=data.session.messages||[];
   S.lastUsage={...(data.session.last_usage||{})};
   if(flash)S.session._flash=true;
-  try{localStorage.setItem('hermes-webui-session',S.session.session_id);}catch(_){}
+  try{localStorage.setItem('jarviscopilot-webui-session',S.session.session_id);}catch(_){}
   _setActiveSessionUrl(S.session.session_id);
   _setSessionViewedCount(S.session.session_id, S.session.message_count || 0);
   // Sync chat-header dropdown to the session's model so the UI reflects
@@ -524,8 +524,8 @@ async function loadSession(sid){
         // If this 404 was for the saved active-session ID (not a click-into request),
         // wipe the stale localStorage value and rethrow so boot can fall through to
         // the empty-state instead of sticking to a broken "Session not available" view.
-        if(!currentSid&&localStorage.getItem('hermes-webui-session')===sid){
-          localStorage.removeItem('hermes-webui-session');
+        if(!currentSid&&localStorage.getItem('jarviscopilot-webui-session')===sid){
+          localStorage.removeItem('jarviscopilot-webui-session');
           if (_loadingSessionId === sid) _loadingSessionId = null;
           throw e;
         }
@@ -559,7 +559,7 @@ async function loadSession(sid){
   if(typeof syncTopbar==='function') syncTopbar();
   _setSessionViewedCount(S.session.session_id, Number(data.session.message_count || 0));
   _clearSessionCompletionUnread(S.session.session_id);
-  try{localStorage.setItem('hermes-webui-session',S.session.session_id);}catch(_){}
+  try{localStorage.setItem('jarviscopilot-webui-session',S.session.session_id);}catch(_){}
   _setActiveSessionUrl(S.session.session_id);
 
   const activeStreamId=S.session.active_stream_id||null;
@@ -1581,7 +1581,7 @@ function _renderBatchActionBar(){
       const retainedCount=_worktreeResponseCount(results);
       ids.forEach(_clearHandoffStorageForSession);
       if(S.session&&ids.includes(S.session.session_id)){
-        S.session=null;S.messages=[];S.entries=[];localStorage.removeItem('hermes-webui-session');
+        S.session=null;S.messages=[];S.entries=[];localStorage.removeItem('jarviscopilot-webui-session');
         const remaining=await api('/api/sessions');
         if(remaining.sessions&&remaining.sessions.length){await loadSession(remaining.sessions[0].session_id);}
         else{$('msgInner').innerHTML='';$('emptyState').style.display='';}
@@ -2461,7 +2461,7 @@ function _sessionDisplayTitle(s){
 
 function _sessionTitleIsDefaultWebUI(rawTitle){
   const title=String(rawTitle||'').replace(/\s+/g,' ').trim();
-  return title==='Hermes WebUI'||/^Hermes WebUI #\d+$/.test(title);
+  return title==='JarvisCopilot WebUI'||/^JarvisCopilot WebUI #\d+$/.test(title);
 }
 
 function _sessionTitleTags(rawTitle){
@@ -3351,7 +3351,7 @@ function renderSessionListFromCache(){
 }
 
 async function _handleActiveSessionStorageEvent(e){
-  if(!e || e.key !== 'hermes-webui-session') return;
+  if(!e || e.key !== 'jarviscopilot-webui-session') return;
   // Do not treat localStorage as a global active-session bus. Each tab owns its
   // active conversation via its URL (/session/<id>), so another tab switching
   // sessions must not force this tab to navigate away from an in-flight turn.
@@ -3464,13 +3464,13 @@ async function deleteSession(sid){
   }catch(e){setStatus(`Delete failed: ${e.message}`);return;}
   if(S.session&&S.session.session_id===sid){
     S.session=null;S.messages=[];S.entries=[];
-    localStorage.removeItem('hermes-webui-session');
+    localStorage.removeItem('jarviscopilot-webui-session');
     // load the most recent remaining session, or show blank if none left
     const remaining=await api('/api/sessions');
     if(remaining.sessions&&remaining.sessions.length){
       await loadSession(remaining.sessions[0].session_id);
     }else{
-      const _tt=$('topbarTitle');if(_tt)_tt.textContent=window._botName||'Hermes';
+      const _tt=$('topbarTitle');if(_tt)_tt.textContent=window._botName||'JarvisCopilot';
       const _tm=$('topbarMeta');if(_tm)_tm.textContent='Start a new conversation';
       $('msgInner').innerHTML='';
       $('emptyState').style.display='';

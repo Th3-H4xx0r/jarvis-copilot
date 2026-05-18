@@ -1,22 +1,22 @@
-# Three-container Docker Compose: Hermes Agent + Dashboard + WebUI
+# Three-container Docker Compose: JarvisCopilot Agent + Dashboard + WebUI
 #
 # QUICK START:
 #   docker compose -f docker-compose.three-container.yml up -d
 #   Open http://localhost:8787 (chat) and http://localhost:9119 (dashboard)
 #
-# This extends the two-container setup with the Hermes Dashboard for
+# This extends the two-container setup with the JarvisCopilot Dashboard for
 # monitoring agent activity, sessions, and resource usage.
 #
 # Services:
-#   hermes-agent     — gateway API on port 8642 (CLI, Telegram, cron, tools)
+#   jarviscopilot     — gateway API on port 8642 (CLI, Telegram, cron, tools)
 #   hermes-dashboard — monitoring dashboard on port 9119
-#   hermes-webui     — browser chat interface on port 8787
+#   jarviscopilot-webui     — browser chat interface on port 8787
 #
 # All three share the same hermes-home volume so config, sessions,
 # skills, and memory are consistent across all surfaces.
 #
 # WHEN NOT TO USE THIS:
-#   - You hit "Permission denied" trying to share an existing ~/.hermes directory
+#   - You hit "Permission denied" trying to share an existing ~/.jarviscopilot directory
 #     → use docker-compose.yml (single-container) instead, OR
 #     → keep this file but switch to NAMED VOLUMES (the default) instead of bind mounts
 #   - You're on Podman 3.4 or older without keep-id namespace support
@@ -27,26 +27,26 @@
 # for context.
 #
 # NOTE ON VOLUMES:
-#   This file uses named Docker volumes (hermes-home, hermes-agent-src) which
+#   This file uses named Docker volumes (hermes-home, jarviscopilot-src) which
 #   work out of the box. If you prefer bind mounts (e.g. to an existing
 #   directory), see docker-compose.two-container.yml for a bind-mount example.
 #   When using bind mounts, ALL THREE containers must mount the same host path
 #   AND run as the same UID/GID (set via the UID/GID env vars below).
 
 services:
-  hermes-agent:
-    image: nousresearch/hermes-agent:latest
-    container_name: hermes-agent
+  jarviscopilot:
+    image: nousresearch/jarviscopilot:latest
+    container_name: jarviscopilot
     command: gateway run
     ports:
       - "127.0.0.1:8642:8642"
     volumes:
       # Persist config, state, sessions, skills, memory across restarts
-      - hermes-home:/home/hermes/.hermes
+      - hermes-home:/home/hermes/.jarviscopilot
       # Expose agent source so the WebUI can install dependencies from it
-      - hermes-agent-src:/opt/hermes
+      - jarviscopilot-src:/opt/hermes
     environment:
-      - HERMES_HOME=/home/hermes/.hermes
+      - HERMES_HOME=/home/hermes/.jarviscopilot
       # Align UID/GID across containers sharing the hermes-home volume.
       # Defaults to 1000 to match WANTED_UID/WANTED_GID in the webui service.
       - HERMES_UID=${UID:-1000}
@@ -70,23 +70,23 @@ services:
       - hermes-net
 
   hermes-dashboard:
-    image: nousresearch/hermes-agent:latest
+    image: nousresearch/jarviscopilot:latest
     container_name: hermes-dashboard
     command: dashboard --host 0.0.0.0 --insecure
     ports:
       - "127.0.0.1:9119:9119"
     volumes:
-      - hermes-home:/home/hermes/.hermes
+      - hermes-home:/home/hermes/.jarviscopilot
     environment:
-      - HERMES_HOME=/home/hermes/.hermes
+      - HERMES_HOME=/home/hermes/.jarviscopilot
       # Align UID/GID across containers sharing the hermes-home volume.
       # Defaults to 1000 to match WANTED_UID/WANTED_GID in the webui service.
       - HERMES_UID=${UID:-1000}
       - HERMES_GID=${GID:-1000}
       # Dashboard connects to the gateway for health/session data
-      - GATEWAY_HEALTH_URL=http://hermes-agent:8642
+      - GATEWAY_HEALTH_URL=http://jarviscopilot:8642
     depends_on:
-      - hermes-agent
+      - jarviscopilot
     restart: unless-stopped
     deploy:
       resources:
@@ -96,23 +96,23 @@ services:
     networks:
       - hermes-net
 
-  hermes-webui:
-    image: ghcr.io/nesquena/hermes-webui:latest
-    container_name: hermes-webui
+  jarviscopilot-webui:
+    image: ghcr.io/nesquena/jarviscopilot-webui:latest
+    container_name: jarviscopilot-webui
     depends_on:
-      - hermes-agent
+      - jarviscopilot
     ports:
       # Expose on localhost only. Remove 127.0.0.1: to expose on all interfaces
       # (set HERMES_WEBUI_PASSWORD if doing so).
       - "127.0.0.1:8787:8787"
     volumes:
-      # Same hermes home as the agent — shares config, sessions, state
-      - hermes-home:/home/hermeswebui/.hermes
+      # Same jarviscopilot home as the agent — shares config, sessions, state
+      - hermes-home:/home/hermeswebui/.jarviscopilot
       # Agent source mounted where docker_init.bash expects it.
       # Mounted read-only — the WebUI only reads this volume to install
       # the agent's Python dependencies at startup (`uv pip install`).
       # Read-only enforces that defence-in-depth at the kernel layer.
-      - hermes-agent-src:/home/hermeswebui/.hermes/hermes-agent:ro
+      - jarviscopilot-src:/home/hermeswebui/.jarviscopilot/jarviscopilot:ro
       # Workspace directory — browse and edit files from the WebUI.
       # Adapt the host path to your project directory.
       # ${HOME} is used rather than `~` so the default resolves the same way
@@ -121,7 +121,7 @@ services:
     environment:
       - HERMES_WEBUI_HOST=0.0.0.0
       - HERMES_WEBUI_PORT=8787
-      - HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.hermes/webui
+      - HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.jarviscopilot/webui
       # Match your host user's UID/GID for correct file permissions.
       # Run `id -u` and `id -g` to find your values.
       # On macOS, UIDs start at 501 (not 1000) — set these in a .env file:
@@ -130,7 +130,7 @@ services:
       - WANTED_GID=${GID:-1000}
       # NOTE: When using bind-mount volumes shared across containers, ALL containers
       # that write to the same host directory must run as the same UID/GID.
-      # If hermes-agent initialises the state dir as root (UID 0), hermes-webui
+      # If jarviscopilot initialises the state dir as root (UID 0), jarviscopilot-webui
       # will get a PermissionError accessing those paths — including a crash on every
       # HTTP request if the auth signing-key file is unreadable. Either set WANTED_UID
       # to match the agent container's UID, or use a named Docker volume (preferred).
@@ -153,7 +153,7 @@ networks:
 
 volumes:
   # IMPORTANT — upgrading the agent image:
-  #   The `hermes-agent-src` volume is initialised from the agent image's
+  #   The `jarviscopilot-src` volume is initialised from the agent image's
   #   `/opt/hermes` on first `up`, and Docker reuses the volume verbatim on
   #   later runs — even after `docker pull` of a newer agent image. After
   #   upgrading the agent image, run:
@@ -165,4 +165,4 @@ volumes:
   #
   #   The full procedure (and why) is documented in docs/docker.md.
   hermes-home:
-  hermes-agent-src:
+  jarviscopilot-src:

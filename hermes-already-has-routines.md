@@ -127,7 +127,7 @@ A nightly backlog triage on Sonnet costs roughly $0.02-0.05. A monitoring check 
 JarvisCopilot is open source and free. The automation infrastructure — cron scheduler, webhook platform, skill system, multi-platform delivery — is built in.
 
 ```bash
-pip install hermes-agent
+pip install jarviscopilot
 jarviscopilot setup
 ```
 
@@ -149,11 +149,11 @@ jarviscopilot webhook subscribe pr-review \
   --deliver github_comment
 ```
 
-Full automation templates gallery: [hermes-agent.nousresearch.com/docs/guides/automation-templates](https://hermes-agent.nousresearch.com/docs/guides/automation-templates)
+Full automation templates gallery: [jarviscopilot.nousresearch.com/docs/guides/automation-templates](https://jarviscopilot.nousresearch.com/docs/guides/automation-templates)
 
-Documentation: [hermes-agent.nousresearch.com](https://hermes-agent.nousresearch.com)
+Documentation: [jarviscopilot.nousresearch.com](https://jarviscopilot.nousresearch.com)
 
-GitHub: [github.com/NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)
+GitHub: [github.com/NousResearch/jarviscopilot](https://github.com/NousResearch/jarviscopilot)
 
 ---
 

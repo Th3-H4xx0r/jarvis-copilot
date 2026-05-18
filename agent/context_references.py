@@ -340,7 +340,7 @@ def _resolve_path(cwd: Path, target: str, *, allowed_root: Path | None = None) -
 
 
 def _ensure_reference_path_allowed(path: Path) -> None:
-    from hermes_constants import get_hermes_home
+    from jarviscopilot_constants import get_hermes_home
     home = Path(os.path.expanduser("~")).resolve()
     hermes_home = get_hermes_home().resolve()
 
@@ -357,7 +357,7 @@ def _ensure_reference_path_allowed(path: Path) -> None:
             path.relative_to(blocked_dir)
         except ValueError:
             continue
-        raise ValueError("path is a sensitive credential or internal Hermes path and cannot be attached")
+        raise ValueError("path is a sensitive credential or internal JarvisCopilot path and cannot be attached")
 
 
 def _strip_trailing_punctuation(value: str) -> str:

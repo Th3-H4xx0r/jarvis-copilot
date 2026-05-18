@@ -1,7 +1,7 @@
 """Regression tests for _apply_profile_override HERMES_HOME guard (issue #22502).
 
-When HERMES_HOME is set to the hermes root (e.g. systemd hardcodes
-HERMES_HOME=/root/.hermes), _apply_profile_override must still read
+When HERMES_HOME is set to the jarviscopilot root (e.g. systemd hardcodes
+HERMES_HOME=/root/.jarviscopilot), _apply_profile_override must still read
 active_profile and update HERMES_HOME to the profile directory.
 
 When HERMES_HOME is already a profile directory (.../profiles/<name>),
@@ -27,7 +27,7 @@ def _run_apply_profile_override(
     Returns the value of os.environ["HERMES_HOME"] after the call,
     or None if unset.
     """
-    hermes_root = tmp_path / ".hermes"
+    hermes_root = tmp_path / ".jarviscopilot"
     hermes_root.mkdir(parents=True, exist_ok=True)
 
     if active_profile is not None:
@@ -42,7 +42,7 @@ def _run_apply_profile_override(
     else:
         monkeypatch.delenv("HERMES_HOME", raising=False)
 
-    monkeypatch.setattr(sys, "argv", argv or ["hermes", "gateway", "start"])
+    monkeypatch.setattr(sys, "argv", argv or ["jarviscopilot", "gateway", "start"])
 
     from jarviscopilot_cli.main import _apply_profile_override
     _apply_profile_override()
@@ -53,7 +53,7 @@ def _run_apply_profile_override(
 class TestApplyProfileOverrideHermesHomeGuard:
     """Regression guard for issue #22502.
 
-    Verifies that HERMES_HOME pointing to the hermes root does NOT suppress
+    Verifies that HERMES_HOME pointing to the jarviscopilot root does NOT suppress
     the active_profile check, while HERMES_HOME already pointing to a
     profile directory IS trusted as-is.
     """
@@ -61,14 +61,14 @@ class TestApplyProfileOverrideHermesHomeGuard:
     def test_hermes_home_at_root_with_active_profile_is_redirected(
         self, tmp_path, monkeypatch
     ):
-        """HERMES_HOME=/root/.hermes + active_profile=coder must redirect
+        """HERMES_HOME=/root/.jarviscopilot + active_profile=coder must redirect
         HERMES_HOME to .../profiles/coder.
 
-        Bug scenario from #22502: systemd sets HERMES_HOME to the hermes root
-        and the user switches to a profile via `hermes profile use`.
+        Bug scenario from #22502: systemd sets HERMES_HOME to the jarviscopilot root
+        and the user switches to a profile via `jarviscopilot profile use`.
         Before the fix, the guard returned early and active_profile was ignored.
         """
-        hermes_root = tmp_path / ".hermes"
+        hermes_root = tmp_path / ".jarviscopilot"
         hermes_root.mkdir(parents=True, exist_ok=True)
 
         result = _run_apply_profile_override(
@@ -94,7 +94,7 @@ class TestApplyProfileOverrideHermesHomeGuard:
         with HERMES_HOME already set to a specific profile must stay in that
         profile.
         """
-        hermes_root = tmp_path / ".hermes"
+        hermes_root = tmp_path / ".jarviscopilot"
         profile_dir = hermes_root / "profiles" / "coder"
         profile_dir.mkdir(parents=True, exist_ok=True)
 
@@ -102,7 +102,7 @@ class TestApplyProfileOverrideHermesHomeGuard:
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("HERMES_HOME", str(profile_dir))
-        monkeypatch.setattr(sys, "argv", ["hermes", "gateway", "start"])
+        monkeypatch.setattr(sys, "argv", ["jarviscopilot", "gateway", "start"])
 
         from jarviscopilot_cli.main import _apply_profile_override
         _apply_profile_override()
@@ -127,12 +127,12 @@ class TestApplyProfileOverrideHermesHomeGuard:
 
     def test_hermes_home_unset_default_profile_no_redirect(self, tmp_path, monkeypatch):
         """active_profile=default must not redirect HERMES_HOME."""
-        hermes_root = tmp_path / ".hermes"
+        hermes_root = tmp_path / ".jarviscopilot"
         hermes_root.mkdir(parents=True, exist_ok=True)
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.delenv("HERMES_HOME", raising=False)
-        monkeypatch.setattr(sys, "argv", ["hermes", "gateway", "start"])
+        monkeypatch.setattr(sys, "argv", ["jarviscopilot", "gateway", "start"])
         (hermes_root / "active_profile").write_text("default")
 
         from jarviscopilot_cli.main import _apply_profile_override

@@ -88,7 +88,7 @@ Per-version detail is in [CHANGELOG.md](./CHANGELOG.md). High-level theme chrono
 - **Sprint 19** — auth + security hardening. First sprint that made the app safe to leave running beyond localhost.
 - **Sprint 21** — mobile responsive + Docker. Two-container compose enabled the first wave of self-host deployments.
 - **Sprint 22** — multi-profile support. Major CLI-parity unlock; profile switching is now seamless without server restart.
-- **Sprint 25** — macOS desktop application. Native Swift + WKWebView shell, universal Intel + Apple Silicon DMG, Sparkle 2 auto-update. Lives in the separate `hermes-webui/hermes-swift-mac` repo.
+- **Sprint 25** — macOS desktop application. Native Swift + WKWebView shell, universal Intel + Apple Silicon DMG, Sparkle 2 auto-update. Lives in the separate `jarviscopilot-webui/hermes-swift-mac` repo.
 - **Sprint 26** — pluggable themes. CSS-variable-driven 8-theme system that lets community contributors add themes as pure CSS.
 - **Sprint 34** — v0.50.0 UI overhaul. Composer-centric controls, Control Center modal, workspace state machine, rAF streaming throttle.
 

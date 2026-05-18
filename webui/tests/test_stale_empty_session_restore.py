@@ -9,7 +9,7 @@ state.
 These tests lock in:
   1. ``api()`` attaches HTTP context (``.status``, ``.statusText``, ``.body``)
      to thrown errors so callers can branch on status without re-parsing text.
-  2. ``loadSession()`` clears the stale ``hermes-webui-session`` key on a 404
+  2. ``loadSession()`` clears the stale ``jarviscopilot-webui-session`` key on a 404
      for the currently-saved session and rethrows, so boot can fall through
      to the empty state.
 """
@@ -57,10 +57,10 @@ def test_load_session_clears_saved_stale_404_and_rethrows_to_boot():
     """A missing saved session should be removed and let boot show the empty state."""
     block = _load_session_error_block()
     assert "e.status===404" in block, "loadSession must keep a 404-specific branch"
-    assert "localStorage.getItem('hermes-webui-session')===sid" in block, (
+    assert "localStorage.getItem('jarviscopilot-webui-session')===sid" in block, (
         "loadSession must only clear the saved active session key"
     )
-    assert "localStorage.removeItem('hermes-webui-session')" in block, (
+    assert "localStorage.removeItem('jarviscopilot-webui-session')" in block, (
         "loadSession must clear stale saved session IDs on 404"
     )
     assert "_loadingSessionId = null" in block, (

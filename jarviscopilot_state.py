@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 
 from agent.memory_manager import sanitize_context
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 logger = logging.getLogger(__name__)
@@ -315,7 +315,7 @@ class SessionDB:
     """
 
     # ── Write-contention tuning ──
-    # With multiple hermes processes (gateway + CLI sessions + worktree agents)
+    # With multiple jarviscopilot processes (gateway + CLI sessions + worktree agents)
     # all sharing one state.db, WAL write-lock contention causes visible TUI
     # freezes.  SQLite's built-in busy handler uses a deterministic sleep
     # schedule that causes convoy effects under high concurrency.
@@ -366,7 +366,7 @@ class SessionDB:
             # successful open racing past this failure would erase the
             # cause that another thread's /resume is about to format.
             # Tests that need to reset the state can call
-            # ``hermes_state._set_last_init_error(None)`` explicitly.
+            # ``jarviscopilot_state._set_last_init_error(None)`` explicitly.
             _set_last_init_error(f"{type(exc).__name__}: {exc}")
             raise
 
@@ -2615,7 +2615,7 @@ class SessionDB:
         """Create Telegram DM topic-mode tables on explicit /topic opt-in.
 
         This migration is deliberately not part of automatic SessionDB startup
-        reconciliation. Operators must be able to upgrade Hermes, keep the old
+        reconciliation. Operators must be able to upgrade JarvisCopilot, keep the old
         Telegram bot behavior running, and only mutate topic-mode state when the
         user executes /topic to opt into the feature.
 
@@ -2841,9 +2841,9 @@ class SessionDB:
         session_id: str,
         managed_mode: str = "auto",
     ) -> None:
-        """Bind one Telegram DM topic thread to one Hermes session.
+        """Bind one Telegram DM topic thread to one JarvisCopilot session.
 
-        A Hermes session may only be linked to one Telegram topic in MVP.
+        A JarvisCopilot session may only be linked to one Telegram topic in MVP.
         Rebinding the same topic to the same session is idempotent; trying to
         link the same session to a different topic raises ValueError.
         """
@@ -2896,7 +2896,7 @@ class SessionDB:
         self._execute_write(_do)
 
     def is_telegram_session_linked_to_topic(self, *, session_id: str) -> bool:
-        """Return True if a Hermes session is already bound to any Telegram DM topic.
+        """Return True if a JarvisCopilot session is already bound to any Telegram DM topic.
 
         Read-only: does NOT trigger the telegram-topic migration. If the
         topic-mode tables have not been created yet (i.e. nobody has run

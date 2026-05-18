@@ -5,8 +5,8 @@ Bug: `agent/redact.py` snapshots `_REDACT_ENABLED` from the env var
 line ~174 calls `setup_logging(mode="cli")` which transitively imports
 `agent.redact` — BEFORE any config bridge ran. So if a user set
 `security.redact_secrets: false` in config.yaml (instead of as an env var
-in .env), the toggle was silently ignored in both `hermes chat` and
-`hermes gateway run`.
+in .env), the toggle was silently ignored in both `jarviscopilot chat` and
+`jarviscopilot gateway run`.
 
 Fix: bridge `security.redact_secrets` from config.yaml → `HERMES_REDACT_SECRETS`
 env var in `jarviscopilot_cli/main.py` BEFORE the `setup_logging()` call.
@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def test_redact_secrets_false_in_config_yaml_is_honored(tmp_path):
     """Setting `security.redact_secrets: false` in config.yaml must disable
     redaction — even though it's set in YAML, not as an env var."""
-    hermes_home = tmp_path / ".hermes"
+    hermes_home = tmp_path / ".jarviscopilot"
     hermes_home.mkdir()
 
     # Write a config.yaml with redact_secrets: false
@@ -80,7 +80,7 @@ def test_redact_secrets_default_true_when_unset(tmp_path):
     `security.redact_secrets: false` explicitly (or
     `HERMES_REDACT_SECRETS=false`).
     """
-    hermes_home = tmp_path / ".hermes"
+    hermes_home = tmp_path / ".jarviscopilot"
     hermes_home.mkdir()
     (hermes_home / "config.yaml").write_text("{}\n")  # empty config
     (hermes_home / ".env").write_text("")
@@ -115,7 +115,7 @@ def test_redact_secrets_default_true_when_unset(tmp_path):
 def test_redact_secrets_true_in_config_yaml_is_honored(tmp_path):
     """Setting `security.redact_secrets: true` in config.yaml must enable
     redaction — even though it's set in YAML, not as an env var."""
-    hermes_home = tmp_path / ".hermes"
+    hermes_home = tmp_path / ".jarviscopilot"
     hermes_home.mkdir()
     (hermes_home / "config.yaml").write_text(
         textwrap.dedent(
@@ -160,7 +160,7 @@ def test_redact_secrets_true_in_config_yaml_is_honored(tmp_path):
 
 def test_dotenv_redact_secrets_beats_config_yaml(tmp_path):
     """.env HERMES_REDACT_SECRETS takes precedence over config.yaml."""
-    hermes_home = tmp_path / ".hermes"
+    hermes_home = tmp_path / ".jarviscopilot"
     hermes_home.mkdir()
     (hermes_home / "config.yaml").write_text(
         textwrap.dedent(

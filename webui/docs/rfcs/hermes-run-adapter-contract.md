@@ -5,7 +5,7 @@
 - **Updated by:** @franksong2702
 - **Created:** 2026-05-11
 - **Revised:** 2026-05-16
-- **Tracking issue:** [#1925](https://github.com/nesquena/hermes-webui/issues/1925)
+- **Tracking issue:** [#1925](https://github.com/nesquena/jarviscopilot-webui/issues/1925)
 
 ## Credit and Scope
 
@@ -516,7 +516,7 @@ Slice 1. It proves execution ownership has actually moved out of the main WebUI
 request process:
 
 1. Start a long-running run from WebUI.
-2. Restart only `hermes-webui`.
+2. Restart only `jarviscopilot-webui`.
 3. Keep the active run executing outside the restarted WebUI process.
 4. Reload the browser/session.
 5. Rediscover the active run and replay/catch up from cursor.

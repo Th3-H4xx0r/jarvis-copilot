@@ -31,7 +31,7 @@ COMMON_HERMES_TOOLS = ["read_file", "search_files", "terminal", "patch", "write_
 
 class TestToolKindMap:
     def test_all_hermes_tools_have_kind(self):
-        """Every common hermes tool should appear in TOOL_KIND_MAP."""
+        """Every common jarviscopilot tool should appear in TOOL_KIND_MAP."""
         for tool in COMMON_HERMES_TOOLS:
             assert tool in TOOL_KIND_MAP, f"{tool} missing from TOOL_KIND_MAP"
 
@@ -132,9 +132,9 @@ class TestBuildToolTitle:
     def test_skill_manage_title_includes_action_and_target(self):
         title = build_tool_title(
             "skill_manage",
-            {"action": "patch", "name": "hermes-agent-operations", "file_path": "references/acp.md"},
+            {"action": "patch", "name": "jarviscopilot-operations", "file_path": "references/acp.md"},
         )
-        assert title == "skill patch: hermes-agent-operations/references/acp.md"
+        assert title == "skill patch: jarviscopilot-operations/references/acp.md"
 
     def test_unknown_tool_uses_name(self):
         title = build_tool_title("some_new_tool", {"foo": "bar"})
@@ -272,16 +272,16 @@ class TestBuildToolStart:
             "skill_manage",
             {
                 "action": "patch",
-                "name": "hermes-agent-operations",
+                "name": "jarviscopilot-operations",
                 "file_path": "references/acp.md",
                 "old_string": "old advice",
                 "new_string": "new advice",
             },
         )
         assert result.kind == "edit"
-        assert result.title == "skill patch: hermes-agent-operations/references/acp.md"
+        assert result.title == "skill patch: jarviscopilot-operations/references/acp.md"
         assert isinstance(result.content[0], FileEditToolCallContent)
-        assert result.content[0].path == "skills/hermes-agent-operations/references/acp.md"
+        assert result.content[0].path == "skills/jarviscopilot-operations/references/acp.md"
         assert result.content[0].old_text == "old advice"
         assert result.content[0].new_text == "new advice"
         assert result.raw_input is None
@@ -402,18 +402,18 @@ class TestBuildToolComplete:
         result = build_tool_complete(
             "tc-skill-manage",
             "skill_manage",
-            '{"success":true,"message":"Patched references/hermes-acp-zed-rendering.md in skill \'hermes-agent-operations\' (1 replacement)."}',
+            '{"success":true,"message":"Patched references/jarviscopilot-acp-zed-rendering.md in skill \'jarviscopilot-operations\' (1 replacement)."}',
             function_args={
                 "action": "patch",
-                "name": "hermes-agent-operations",
-                "file_path": "references/hermes-acp-zed-rendering.md",
+                "name": "jarviscopilot-operations",
+                "file_path": "references/jarviscopilot-acp-zed-rendering.md",
             },
         )
         text = result.content[0].content.text
         assert "**✅ Skill updated**" in text
         assert "`patch`" in text
-        assert "`hermes-agent-operations`" in text
-        assert "references/hermes-acp-zed-rendering.md" in text
+        assert "`jarviscopilot-operations`" in text
+        assert "references/jarviscopilot-acp-zed-rendering.md" in text
         assert "{\"success\"" not in text
         assert result.raw_output is None
 
@@ -561,12 +561,12 @@ class TestBuildToolComplete:
         result = build_tool_complete(
             "tc-search-files",
             "search_files",
-            '{"total_count":36,"files":["/home/nour/.hermes/config.yaml","/home/nour/.hermes/profiles/recall-test/config.yaml"],"truncated":true}',
+            '{"total_count":36,"files":["/home/nour/.jarviscopilot/config.yaml","/home/nour/.jarviscopilot/profiles/recall-test/config.yaml"],"truncated":true}',
         )
         text = result.content[0].content.text
         assert "File search results" in text
         assert "Found 36 files; showing 2." in text
-        assert "/home/nour/.hermes/config.yaml" in text
+        assert "/home/nour/.jarviscopilot/config.yaml" in text
         assert "use offset to page" in text
         assert "{\"total_count\"" not in text
         assert result.raw_output is None
@@ -602,13 +602,13 @@ class TestBuildToolComplete:
     def test_build_tool_complete_for_write_file_summarizes_without_repeating_diff(self, tmp_path):
         target = tmp_path / "diff-test.txt"
         snapshot = type("Snapshot", (), {"paths": [target], "before": {str(target): None}})()
-        target.write_text("hello from hermes\n", encoding="utf-8")
+        target.write_text("hello from jarviscopilot\n", encoding="utf-8")
 
         result = build_tool_complete(
             "tc-wf1",
             "write_file",
             '{"bytes_written": 18, "dirs_created": false}',
-            function_args={"path": str(target), "content": "hello from hermes\n"},
+            function_args={"path": str(target), "content": "hello from jarviscopilot\n"},
             snapshot=snapshot,
         )
         assert isinstance(result, ToolCallProgress)

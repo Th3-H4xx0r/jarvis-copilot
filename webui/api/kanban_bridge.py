@@ -1,4 +1,4 @@
-"""Hermes Kanban bridge for the WebUI.
+"""JarvisCopilot Kanban bridge for the WebUI.
 
 This module exposes a full CRUD API under ``/api/kanban/*`` while keeping
 JarvisCopilot's ``jarviscopilot_cli.kanban_db`` as the only source of truth.

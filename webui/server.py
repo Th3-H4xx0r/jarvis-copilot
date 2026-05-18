@@ -94,7 +94,7 @@ if os.environ.get("HERMES_WEBUI_TEST_NETWORK_BLOCK", "").strip() in ("1", "true"
         if _addr_is_local(host):
             return _REAL_CREATE_CONN(address, *a, **kw)
         raise OSError(
-            f"hermes test network isolation (server.py): outbound to {address!r} blocked"
+            f"jarviscopilot test network isolation (server.py): outbound to {address!r} blocked"
         )
 
     def _blocked_socket_connect(self, address):
@@ -105,7 +105,7 @@ if os.environ.get("HERMES_WEBUI_TEST_NETWORK_BLOCK", "").strip() in ("1", "true"
         if _addr_is_local(host):
             return _REAL_SOCK_CONNECT(self, address)
         raise OSError(
-            f"hermes test network isolation (server.py): socket.connect to {address!r} blocked"
+            f"jarviscopilot test network isolation (server.py): socket.connect to {address!r} blocked"
         )
 
     socket.create_connection = _blocked_create_connection
@@ -463,7 +463,7 @@ def main() -> None:
 
     ok, missing, errors = verify_hermes_imports()
     if not ok and _HERMES_FOUND:
-        print(f'[!!] Warning: Hermes agent found but missing modules: {missing}', flush=True)
+        print(f'[!!] Warning: JarvisCopilot agent found but missing modules: {missing}', flush=True)
         for mod, err in errors.items():
             print(f'     {mod}: {err}', flush=True)
         print('     Attempting to install missing dependencies from agent requirements.txt...', flush=True)

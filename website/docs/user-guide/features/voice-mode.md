@@ -14,7 +14,7 @@ If you want a practical setup walkthrough with recommended configurations and re
 
 Before using voice features, make sure you have:
 
-1. **JarvisCopilot installed** — `pip install hermes-agent` (see [Installation](/docs/getting-started/installation))
+1. **JarvisCopilot installed** — `pip install jarviscopilot` (see [Installation](/docs/getting-started/installation))
 2. **An LLM provider configured** — run `jarviscopilot model` or set your preferred provider credentials in `~/.jarviscopilot/.env`
 3. **A working base setup** — run `jarviscopilot` to verify the agent responds to text before enabling voice
 
@@ -36,19 +36,19 @@ The `~/.jarviscopilot/` directory and default `config.yaml` are created automati
 
 ```bash
 # CLI voice mode (microphone + audio playback)
-pip install "hermes-agent[voice]"
+pip install "jarviscopilot[voice]"
 
 # Discord + Telegram messaging (includes discord.py[voice] for VC support)
-pip install "hermes-agent[messaging]"
+pip install "jarviscopilot[messaging]"
 
 # Premium TTS (ElevenLabs)
-pip install "hermes-agent[tts-premium]"
+pip install "jarviscopilot[tts-premium]"
 
 # Local TTS (NeuTTS, optional)
 python -m pip install -U neutts[all]
 
 # Everything at once
-pip install "hermes-agent[all]"
+pip install "jarviscopilot[all]"
 ```
 
 | Extra | Packages | Required For |

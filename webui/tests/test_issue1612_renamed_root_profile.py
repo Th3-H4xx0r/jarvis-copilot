@@ -1,9 +1,9 @@
-"""Tests for issue #1612: renamed root profile must resolve to ~/.hermes,
-not ~/.hermes/profiles/<name>.
+"""Tests for issue #1612: renamed root profile must resolve to ~/.jarviscopilot,
+not ~/.jarviscopilot/profiles/<name>.
 
-A renamed root/default Hermes profile (`is_default=True` on the agent side
+A renamed root/default JarvisCopilot profile (`is_default=True` on the agent side
 but with a display name like `kinni`) was being treated as a named profile
-directory under `~/.hermes/profiles/kinni`, which doesn't exist. Every
+directory under `~/.jarviscopilot/profiles/kinni`, which doesn't exist. Every
 `if name == 'default':` site in api/profiles.py fell through to the wrong
 filesystem path with `Profile 'kinni' does not exist.`
 
@@ -57,7 +57,7 @@ def test_is_root_profile_caches_results(monkeypatch):
     calls = {'n': 0}
     def fake_list():
         calls['n'] += 1
-        return [{'name': 'kinni', 'is_default': True, 'path': '/tmp/.hermes'}]
+        return [{'name': 'kinni', 'is_default': True, 'path': '/tmp/.jarviscopilot'}]
     monkeypatch.setattr(p, 'list_profiles_api', fake_list)
     p._invalidate_root_profile_cache()
 
@@ -72,8 +72,8 @@ def test_is_root_profile_invalidation_drops_stale(monkeypatch):
     import api.profiles as p
 
     seq = [
-        [{'name': 'kinni', 'is_default': True, 'path': '/tmp/.hermes'}],
-        [{'name': 'noblepro', 'is_default': True, 'path': '/tmp/.hermes'}],
+        [{'name': 'kinni', 'is_default': True, 'path': '/tmp/.jarviscopilot'}],
+        [{'name': 'noblepro', 'is_default': True, 'path': '/tmp/.jarviscopilot'}],
     ]
     monkeypatch.setattr(p, 'list_profiles_api', lambda: seq[0] if seq else [])
 

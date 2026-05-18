@@ -38,10 +38,10 @@ def _read_sessions_js():
 class TestSessionDBInjection(unittest.TestCase):
     """Verify SessionDB is initialized and passed to AIAgent in streaming.py."""
 
-    def test_hermes_state_import_present(self):
-        """SessionDB must be imported from hermes_state inside _run_agent_streaming."""
+    def test_jarviscopilot_state_import_present(self):
+        """SessionDB must be imported from jarviscopilot_state inside _run_agent_streaming."""
         self.assertIn(
-            "from hermes_state import SessionDB",
+            "from jarviscopilot_state import SessionDB",
             STREAMING_PY,
             "SessionDB import missing from streaming.py (PR #356)",
         )
@@ -57,7 +57,7 @@ class TestSessionDBInjection(unittest.TestCase):
     def test_sessiondb_init_in_try_except(self):
         """SessionDB() init must be wrapped in try/except for non-fatal failure handling."""
         # Check that the try/except pattern surrounding SessionDB() is present
-        pattern = r"try:\s*\n\s*from hermes_state import SessionDB\s*\n\s*_session_db\s*=\s*SessionDB\(\)"
+        pattern = r"try:\s*\n\s*from jarviscopilot_state import SessionDB\s*\n\s*_session_db\s*=\s*SessionDB\(\)"
         self.assertRegex(
             STREAMING_PY,
             pattern,
@@ -74,7 +74,7 @@ class TestSessionDBInjection(unittest.TestCase):
 
     def test_session_db_initialized_before_agent_construction(self):
         """SessionDB initialization must appear before the AIAgent(...) constructor call."""
-        db_pos = STREAMING_PY.find("from hermes_state import SessionDB")
+        db_pos = STREAMING_PY.find("from jarviscopilot_state import SessionDB")
         agent_pos = STREAMING_PY.find("session_db=_session_db")
         self.assertGreater(
             agent_pos,
@@ -100,7 +100,7 @@ class TestRuntimeRouteInjection(unittest.TestCase):
         """WebUI must pass the runtime route fields that CLI already uses.
 
         Since issue #772 these are passed defensively via inspect-guarded kwargs
-        so the WebUI degrades gracefully against older hermes-agent builds.
+        so the WebUI degrades gracefully against older jarviscopilot builds.
         """
         for snippet in (
             "_agent_kwargs['api_mode'] = _rt.get('api_mode')",
@@ -219,8 +219,8 @@ class TestRuntimeRouteInjection(unittest.TestCase):
         fake_runtime_module.resolve_runtime_provider = resolve_runtime_provider
         fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
         fake_jarviscopilot_cli.runtime_provider = fake_runtime_module
-        fake_hermes_state = types.ModuleType("hermes_state")
-        fake_hermes_state.SessionDB = mock.Mock(return_value=fake_session_db)
+        fake_jarviscopilot_state = types.ModuleType("jarviscopilot_state")
+        fake_jarviscopilot_state.SessionDB = mock.Mock(return_value=fake_session_db)
 
         with mock.patch.object(streaming, "get_session", return_value=fake_session), \
              mock.patch.object(streaming, "_get_ai_agent", return_value=CapturingAgent), \
@@ -232,7 +232,7 @@ class TestRuntimeRouteInjection(unittest.TestCase):
                  {
                      "jarviscopilot_cli": fake_jarviscopilot_cli,
                      "jarviscopilot_cli.runtime_provider": fake_runtime_module,
-                     "hermes_state": fake_hermes_state,
+                     "jarviscopilot_state": fake_jarviscopilot_state,
                  },
              ):
             streaming.STREAMS[fake_stream_id] = fake_queue
@@ -361,8 +361,8 @@ class TestRuntimeRouteInjection(unittest.TestCase):
         })
         fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
         fake_jarviscopilot_cli.runtime_provider = fake_rt_module
-        fake_hermes_state = types.ModuleType("hermes_state")
-        fake_hermes_state.SessionDB = mock.Mock(return_value=object())
+        fake_jarviscopilot_state = types.ModuleType("jarviscopilot_state")
+        fake_jarviscopilot_state.SessionDB = mock.Mock(return_value=object())
 
         fake_session = FakeSession()
         fake_session.active_stream_id = fake_stream_id
@@ -375,7 +375,7 @@ class TestRuntimeRouteInjection(unittest.TestCase):
              mock.patch.dict(sys.modules, {
                  "jarviscopilot_cli": fake_jarviscopilot_cli,
                  "jarviscopilot_cli.runtime_provider": fake_rt_module,
-                 "hermes_state": fake_hermes_state,
+                 "jarviscopilot_state": fake_jarviscopilot_state,
              }):
             streaming.STREAMS[fake_stream_id] = fake_queue
             streaming._run_agent_streaming(
@@ -510,8 +510,8 @@ class TestRuntimeRouteInjection(unittest.TestCase):
         })
         fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
         fake_jarviscopilot_cli.runtime_provider = fake_rt_module
-        fake_hermes_state = types.ModuleType("hermes_state")
-        fake_hermes_state.SessionDB = mock.Mock(return_value=object())
+        fake_jarviscopilot_state = types.ModuleType("jarviscopilot_state")
+        fake_jarviscopilot_state.SessionDB = mock.Mock(return_value=object())
 
         fake_session = FakeSession()
         fake_session.active_stream_id = fake_stream_id
@@ -525,7 +525,7 @@ class TestRuntimeRouteInjection(unittest.TestCase):
              mock.patch.dict(sys.modules, {
                 "jarviscopilot_cli": fake_jarviscopilot_cli,
                 "jarviscopilot_cli.runtime_provider": fake_rt_module,
-                "hermes_state": fake_hermes_state,
+                "jarviscopilot_state": fake_jarviscopilot_state,
              }):
             streaming.STREAMS[fake_stream_id] = fake_queue
             streaming._run_agent_streaming(
@@ -554,7 +554,7 @@ class TestSessionDBAST(unittest.TestCase):
         The SessionDB try/except is outside the lock scope, which is correct.
         """
         # Find all 'with _ENV_LOCK:' nodes; check none of their bodies contain
-        # a Try node that also contains 'from hermes_state import SessionDB'
+        # a Try node that also contains 'from jarviscopilot_state import SessionDB'
         for node in ast.walk(self.tree):
             if not isinstance(node, ast.With):
                 continue
@@ -564,10 +564,10 @@ class TestSessionDBAST(unittest.TestCase):
             # Walk the with-body for Try nodes
             for stmt in node.body:
                 if isinstance(stmt, ast.Try):
-                    # Check if this try imports hermes_state
+                    # Check if this try imports jarviscopilot_state
                     src = ast.unparse(stmt)
                     self.assertNotIn(
-                        "hermes_state",
+                        "jarviscopilot_state",
                         src,
                         "SessionDB try/except must NOT be inside _ENV_LOCK body (deadlock risk)",
                     )
@@ -772,7 +772,7 @@ def test_routes_restores_prior_reasoning_metadata_after_followup():
 
 class TestCredentialPoolBackwardCompat(unittest.TestCase):
     """Verify credential_pool and other newer kwargs are skipped gracefully
-    when running against an older hermes-agent that lacks them (issue #772)."""
+    when running against an older jarviscopilot that lacks them (issue #772)."""
 
     def test_older_agent_without_credential_pool_does_not_crash(self):
         """WebUI must not crash with TypeError when AIAgent lacks credential_pool."""
@@ -781,7 +781,7 @@ class TestCredentialPoolBackwardCompat(unittest.TestCase):
         captured = {}
 
         class OlderAgent:
-            """Simulates a hermes-agent build that predates credential_pool."""
+            """Simulates a jarviscopilot build that predates credential_pool."""
             def __init__(self, model=None, provider=None, base_url=None, api_key=None,
                          platform=None, quiet_mode=False, enabled_toolsets=None,
                          fallback_model=None, session_id=None, session_db=None,
@@ -848,8 +848,8 @@ class TestCredentialPoolBackwardCompat(unittest.TestCase):
         })
         fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
         fake_jarviscopilot_cli.runtime_provider = fake_rt_module
-        fake_hermes_state = types.ModuleType("hermes_state")
-        fake_hermes_state.SessionDB = mock.Mock(return_value=None)
+        fake_jarviscopilot_state = types.ModuleType("jarviscopilot_state")
+        fake_jarviscopilot_state.SessionDB = mock.Mock(return_value=None)
 
         fake_session = FakeSession()
         fake_session.active_stream_id = fake_stream_id
@@ -862,7 +862,7 @@ class TestCredentialPoolBackwardCompat(unittest.TestCase):
              mock.patch.dict(sys.modules, {
                  "jarviscopilot_cli": fake_jarviscopilot_cli,
                  "jarviscopilot_cli.runtime_provider": fake_rt_module,
-                 "hermes_state": fake_hermes_state,
+                 "jarviscopilot_state": fake_jarviscopilot_state,
              }):
             streaming.STREAMS[fake_stream_id] = fake_queue
             # Must not raise TypeError

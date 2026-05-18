@@ -1,9 +1,9 @@
 """
 Skills configuration for JarvisCopilot.
-`hermes skills` enters this module.
+`jarviscopilot skills` enters this module.
 
 Toggle individual skills or categories on/off, globally or per-platform.
-Config stored in ~/.hermes/config.yaml under:
+Config stored in ~/.jarviscopilot/config.yaml under:
 
   skills:
     disabled: [skill-a, skill-b]          # global disabled list
@@ -123,7 +123,7 @@ def _toggle_by_category(skills: List[dict], disabled: Set[str]) -> Set[str]:
 # ─── Entry Point ──────────────────────────────────────────────────────────────
 
 def skills_command(args=None):
-    """Entry point for `hermes skills`."""
+    """Entry point for `jarviscopilot skills`."""
     from jarviscopilot_cli.curses_ui import curses_checklist
 
     config = load_config()

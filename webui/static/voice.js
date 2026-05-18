@@ -419,7 +419,7 @@
 
   // ---- LiveSpeech — interim transcript via browser SpeechRecognition ----
   // Browser-side STT (Chrome/Brave/Safari/Edge — not Firefox) gives a near-zero
-  // latency interim transcript while the user speaks. Hermes's server-side
+  // latency interim transcript while the user speaks. JarvisCopilot's server-side
   // STT still runs in parallel and provides the canonical transcript that
   // drives the LLM call; this class only feeds the on-screen user line so
   // the user sees their words appear as they say them. Falls back gracefully
@@ -899,7 +899,7 @@
     if (!STATE.liveSpeech.supported) return;
     STATE.liveSpeech.onInterim = (text) => {
       // Show interim text; the server-side STT result will overwrite once it
-      // lands (Hermes's transcript is the canonical one used for the LLM).
+      // lands (JarvisCopilot's transcript is the canonical one used for the LLM).
       setTranscript(text, 'user');
     };
     STATE.liveSpeech.start();
@@ -1003,7 +1003,7 @@
         opt.value = v.id; opt.textContent = v.name || v.id;
         sel.appendChild(opt);
       }
-      // Pre-select whatever Hermes config.yaml currently has set, falling
+      // Pre-select whatever JarvisCopilot config.yaml currently has set, falling
       // back to the first option. The `selected` field is set by
       // /api/voice/voices to the short ID matching the active voice path.
       const desired = (data.selected || '').trim();

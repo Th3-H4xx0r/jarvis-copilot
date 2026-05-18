@@ -163,7 +163,7 @@ class TestTencentTokenhubModelCatalog:
 
 
 # =============================================================================
-# CANONICAL_PROVIDERS (hermes model picker)
+# CANONICAL_PROVIDERS (jarviscopilot model picker)
 # =============================================================================
 
 
@@ -382,7 +382,7 @@ class TestTencentTokenhubAuxiliary:
 
 
 class TestTencentTokenhubDoctor:
-    """Verify hermes doctor recognizes Tencent TokenHub env vars."""
+    """Verify jarviscopilot doctor recognizes Tencent TokenHub env vars."""
 
     def test_provider_env_hints(self):
         from jarviscopilot_cli.doctor import _PROVIDER_ENV_HINTS
@@ -419,7 +419,7 @@ class TestTencentTokenhubCLIDispatch:
 
     def test_in_api_key_provider_tuple(self):
         """tencent-tokenhub must appear in the elif tuple in _model_flow dispatch
-        so ``hermes model`` routes it through the generic api_key_provider flow.
+        so ``jarviscopilot model`` routes it through the generic api_key_provider flow.
         """
         import inspect
         from jarviscopilot_cli import main as main_mod

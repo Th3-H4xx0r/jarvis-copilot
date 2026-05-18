@@ -12,14 +12,14 @@ locking, profile scoping, index consistency, and validation.
 
 MCP config for JarvisCopilot (add to config.yaml):
     mcp_servers:
-      hermes-webui:
+      jarviscopilot-webui:
         command: /path/to/venv/bin/python3
-        args: [/path/to/hermes-webui/mcp_server.py]
+        args: [/path/to/jarviscopilot-webui/mcp_server.py]
         env:
           HERMES_WEBUI_PASSWORD: your_password
 
 Profile override (optional):
-        args: [/path/to/hermes-webui/mcp_server.py, --profile, myprofile]
+        args: [/path/to/jarviscopilot-webui/mcp_server.py, --profile, myprofile]
 
 AI-authoring disclosure: this file was rewritten by MILO (JarvisCopilot)
 under human direction, per maintainer guidelines for #1616.
@@ -73,7 +73,7 @@ WEBUI_URL = f"http://{WEBUI_HOST}:{WEBUI_PORT}"
 _auth_cookie: str | None = None
 _auth_expires: float = 0  # unix timestamp after which we re-auth
 
-server = Server("hermes-webui")
+server = Server("jarviscopilot-webui")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

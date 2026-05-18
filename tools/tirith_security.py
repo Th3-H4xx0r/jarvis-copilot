@@ -34,7 +34,7 @@ import threading
 import time
 import urllib.request
 
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ _MARKER_TTL = 86400  # 24 hours
 
 
 def _get_hermes_home() -> str:
-    """Return the Hermes home directory, respecting HERMES_HOME env var."""
+    """Return the JarvisCopilot home directory, respecting HERMES_HOME env var."""
     return str(get_hermes_home())
 
 

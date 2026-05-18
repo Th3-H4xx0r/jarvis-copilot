@@ -60,7 +60,7 @@ When the dashboard opens, click **Create app** and fill in:
 
 | Field | Value |
 |-------|-------|
-| App name | anything (e.g. `hermes-agent`) |
+| App name | anything (e.g. `jarviscopilot`) |
 | App description | anything (e.g. `personal JarvisCopilot integration`) |
 | Website | leave blank |
 | Redirect URI | `http://127.0.0.1:43827/spotify/callback` |

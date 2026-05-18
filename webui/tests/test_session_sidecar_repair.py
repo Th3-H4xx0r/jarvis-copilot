@@ -86,7 +86,7 @@ def _make_session(session_id="test_sid", messages=None, **kwargs):
     return Session(**defaults)
 
 
-def _make_stale_session(session_id="stale_sid", pending_msg="Hello hermes", stream_id="stream_1"):
+def _make_stale_session(session_id="stale_sid", pending_msg="Hello jarviscopilot", stream_id="stream_1"):
     """Helper to create a session in stale-pending state (messages empty, pending set)."""
     s = _make_session(session_id=session_id, messages=[])
     s.pending_user_message = pending_msg
@@ -408,7 +408,7 @@ class TestGetProfileHome:
     """_get_profile_home expands ~ correctly in the ImportError fallback path."""
 
     def test_expands_tilde_when_profiles_unavailable(self, monkeypatch):
-        """When api.profiles import fails, fallback uses HERMES_HOME or ~/.hermes
+        """When api.profiles import fails, fallback uses HERMES_HOME or ~/.jarviscopilot
         with proper tilde expansion."""
         # Make api.profiles import fail
         monkeypatch.setitem(sys.modules, "api.profiles", None)
@@ -417,7 +417,7 @@ class TestGetProfileHome:
         monkeypatch.delenv("HERMES_HOME", raising=False)
         result = _get_profile_home(None)
         assert "~" not in str(result), f"Path should have ~ expanded, got: {result}"
-        assert str(result) == str(Path.home() / ".hermes")
+        assert str(result) == str(Path.home() / ".jarviscopilot")
 
     def test_uses_hermes_home_env_var(self, monkeypatch):
         """When HERMES_HOME is set, fallback uses it with expansion."""
@@ -640,8 +640,8 @@ class TestNonEmptyMessagesPendingCleared:
             "tool",
             {
                 "name": "terminal",
-                "preview": "gh pr list --repo nesquena/hermes-webui",
-                "args": {"command": "gh pr list --repo nesquena/hermes-webui"},
+                "preview": "gh pr list --repo nesquena/jarviscopilot-webui",
+                "args": {"command": "gh pr list --repo nesquena/jarviscopilot-webui"},
             },
         )
         append_run_event(
@@ -768,8 +768,8 @@ class TestNonEmptyMessagesPendingCleared:
             "tool",
             {
                 "name": "terminal",
-                "preview": "gh pr list --repo nesquena/hermes-webui",
-                "args": {"command": "gh pr list --repo nesquena/hermes-webui"},
+                "preview": "gh pr list --repo nesquena/jarviscopilot-webui",
+                "args": {"command": "gh pr list --repo nesquena/jarviscopilot-webui"},
             },
         )
         append_run_event(
@@ -826,8 +826,8 @@ class TestNonEmptyMessagesPendingCleared:
         core_tool_calls = [
             {
                 "name": "terminal",
-                "preview": "gh pr list --repo nesquena/hermes-webui",
-                "snippet": "gh pr list --repo nesquena/hermes-webui",
+                "preview": "gh pr list --repo nesquena/jarviscopilot-webui",
+                "snippet": "gh pr list --repo nesquena/jarviscopilot-webui",
                 "assistant_msg_idx": 1,
                 "done": True,
             },
@@ -851,8 +851,8 @@ class TestNonEmptyMessagesPendingCleared:
             "tool",
             {
                 "name": "terminal",
-                "preview": "gh pr list --repo nesquena/hermes-webui",
-                "args": {"command": "gh pr list --repo nesquena/hermes-webui"},
+                "preview": "gh pr list --repo nesquena/jarviscopilot-webui",
+                "args": {"command": "gh pr list --repo nesquena/jarviscopilot-webui"},
             },
         )
 

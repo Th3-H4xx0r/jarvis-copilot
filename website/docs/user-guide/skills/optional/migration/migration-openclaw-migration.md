@@ -21,7 +21,7 @@ Migrate a user's OpenClaw customization footprint into JarvisCopilot. Imports He
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `Migration`, `OpenClaw`, `JarvisCopilot`, `Memory`, `Persona`, `Import` |
-| Related skills | [`hermes-agent`](/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-hermes-agent) |
+| Related skills | [`jarviscopilot`](/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-jarviscopilot) |
 
 ## Reference: full SKILL.md
 

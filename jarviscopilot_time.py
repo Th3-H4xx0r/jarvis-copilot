@@ -1,22 +1,22 @@
 """
-Timezone-aware clock for Hermes.
+Timezone-aware clock for JarvisCopilot.
 
 Provides a single ``now()`` helper that returns a timezone-aware datetime
 based on the user's configured IANA timezone (e.g. ``Asia/Kolkata``).
 
 Resolution order:
-  1. ``HERMES_TIMEZONE`` environment variable
-  2. ``timezone`` key in ``~/.hermes/config.yaml``
+  1. ``jarviscopilot_timeZONE`` environment variable
+  2. ``timezone`` key in ``~/.jarviscopilot/config.yaml``
   3. Falls back to the server's local time (``datetime.now().astimezone()``)
 
-Invalid timezone values log a warning and fall back safely — Hermes never
+Invalid timezone values log a warning and fall back safely — JarvisCopilot never
 crashes due to a bad timezone string.
 """
 
 import logging
 import os
 from datetime import datetime
-from hermes_constants import get_config_path
+from jarviscopilot_constants import get_config_path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
-    # Python 3.8 fallback (shouldn't be needed — Hermes requires 3.9+)
+    # Python 3.8 fallback (shouldn't be needed — JarvisCopilot requires 3.9+)
     from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef]
 
 # Cached state — resolved once, reused on every call.
@@ -41,7 +41,7 @@ def _resolve_timezone_name() -> str:
     should cache the result rather than calling on every ``now()``.
     """
     # 1. Environment variable (highest priority — set by Supervisor, etc.)
-    tz_env = os.getenv("HERMES_TIMEZONE", "").strip()
+    tz_env = os.getenv("jarviscopilot_timeZONE", "").strip()
     if tz_env:
         return tz_env
 

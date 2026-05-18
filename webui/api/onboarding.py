@@ -198,7 +198,7 @@ _PROVIDER_CATEGORIES = [
 _UNSUPPORTED_PROVIDER_NOTE = (
     "Advanced provider flows such as Nous Portal and GitHub Copilot are still "
     "terminal-first. OpenAI Codex and Anthropic Claude Code can be authenticated in this onboarding flow "
-    "when your Hermes config selects the corresponding provider."
+    "when your JarvisCopilot config selects the corresponding provider."
 )
 
 
@@ -208,7 +208,7 @@ def _get_active_hermes_home() -> Path:
 
         return get_active_hermes_home()
     except ImportError:
-        return Path.home() / ".hermes"
+        return Path.home() / ".jarviscopilot"
 
 
 def _load_env_file(env_path: Path) -> dict[str, str]:
@@ -247,7 +247,7 @@ def _save_yaml_config(config_path: Path, config: dict) -> None:
     try:
         import yaml as _yaml
     except ImportError as exc:
-        raise RuntimeError("PyYAML is required to write Hermes config.yaml") from exc
+        raise RuntimeError("PyYAML is required to write JarvisCopilot config.yaml") from exc
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
@@ -413,7 +413,7 @@ def probe_provider_endpoint(
 
     headers = {
         "Accept": "application/json",
-        "User-Agent": "hermes-webui-onboarding-probe",
+        "User-Agent": "jarviscopilot-webui-onboarding-probe",
     }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -632,9 +632,9 @@ def _provider_oauth_authenticated(provider: str, hermes_home: "Path") -> bool:
     """Return True if the provider has valid OAuth credentials.
 
     Reads the profile-scoped auth.json directly so onboarding respects the
-    requested Hermes home. Known OAuth providers may store auth either in the
+    requested JarvisCopilot home. Known OAuth providers may store auth either in the
     legacy providers[provider_id] singleton state or in credential_pool entries
-    used by current Hermes runtime auth resolution.
+    used by current JarvisCopilot runtime auth resolution.
     """
     provider = (provider or "").strip().lower()
     provider = {"claude": "anthropic", "claude-code": "anthropic"}.get(provider, provider)
@@ -732,37 +732,37 @@ def _status_from_runtime(cfg: dict, imports_ok: bool) -> dict:
     if not _HERMES_FOUND or not imports_ok:
         state = "agent_unavailable"
         note = (
-            "Hermes is not fully importable from the Web UI yet. Finish bootstrap or fix the "
+            "JarvisCopilot is not fully importable from the Web UI yet. Finish bootstrap or fix the "
             "agent install before provider setup will work."
         )
     elif chat_ready:
         state = "ready"
         provider_name = _PROVIDER_DISPLAY.get(
-            provider, provider.title() if provider else "Hermes"
+            provider, provider.title() if provider else "JarvisCopilot"
         )
-        note = f"Hermes is minimally configured and ready to chat via {provider_name}."
+        note = f"JarvisCopilot is minimally configured and ready to chat via {provider_name}."
     elif provider_configured:
         state = "provider_incomplete"
         if provider == "custom" and not base_url:
             note = (
-                "Hermes has a saved provider/model selection but still needs the "
+                "JarvisCopilot has a saved provider/model selection but still needs the "
                 "base URL and API key required to chat."
             )
         elif provider not in _SUPPORTED_PROVIDER_SETUPS:
             # OAuth / unsupported provider: avoid misleading "API key" wording.
             note = (
                 f"Provider '{provider}' is configured but not yet authenticated. "
-                "Run 'hermes auth' or 'hermes model' in a terminal to complete "
+                "Run 'jarviscopilot auth' or 'jarviscopilot model' in a terminal to complete "
                 "setup, then reload the Web UI."
             )
         else:
             note = (
-                "Hermes has a saved provider/model selection but still needs the "
+                "JarvisCopilot has a saved provider/model selection but still needs the "
                 "API key required to chat."
             )
     else:
         state = "needs_provider"
-        note = "Hermes is installed, but you still need to choose a provider and save working credentials."
+        note = "JarvisCopilot is installed, but you still need to choose a provider and save working credentials."
 
     return {
         "provider_configured": provider_configured,
@@ -819,7 +819,7 @@ def _build_setup_catalog(cfg: dict) -> dict:
 
     # Flag whether the currently-configured provider is OAuth-based (not in the
     # API-key flow).  The frontend uses this to show a confirmation card instead
-    # of a key input when the user has already authenticated via 'hermes auth'.
+    # of a key input when the user has already authenticated via 'jarviscopilot auth'.
     current_is_oauth = (
         current_provider not in _SUPPORTED_PROVIDER_SETUPS and bool(current_provider)
     ) or _provider_oauth_authenticated(current_provider, _get_active_hermes_home())
@@ -858,9 +858,9 @@ def get_onboarding_status() -> dict:
     skip_requested = skip_env in {"1", "true", "yes"}
     auto_completed = skip_requested  # unconditional: operator says skip, we skip
 
-    # Auto-complete for existing Hermes users: if config.yaml already exists
+    # Auto-complete for existing JarvisCopilot users: if config.yaml already exists
     # AND the provider is configured (or the system is chat_ready), treat onboarding
-    # as done.  These users configured Hermes via the CLI before the Web UI existed;
+    # as done.  These users configured JarvisCopilot via the CLI before the Web UI existed;
     # they must never be shown the first-run wizard — it would silently overwrite their
     # config.  We use provider_configured (not chat_ready) so that users with
     # non-wizard providers (ollama-cloud, deepseek, xai, kimi, etc.) are not forced
@@ -888,7 +888,7 @@ def get_onboarding_status() -> dict:
     )
 
     # Persist the flag so it survives future transient import failures (e.g. after
-    # a git branch switch in the hermes-agent repo).  Without this, a CLI-configured
+    # a git branch switch in the jarviscopilot repo).  Without this, a CLI-configured
     # user who never ran the wizard has no onboarding_completed flag — any momentary
     # imports_ok=False during restart makes chat_ready=False, config_auto_completed=False,
     # and the wizard reappears with a broken dropdown that clobbers their config.
@@ -913,7 +913,7 @@ def get_onboarding_status() -> dict:
             "default_workspace": settings.get("default_workspace")
             or str(DEFAULT_WORKSPACE),
             "password_enabled": is_auth_enabled(),
-            "bot_name": settings.get("bot_name") or "Hermes",
+            "bot_name": settings.get("bot_name") or "JarvisCopilot",
         },
         "system": {
             "hermes_found": bool(_HERMES_FOUND),
@@ -974,7 +974,7 @@ def apply_onboarding_setup(body: dict) -> dict:
         return {
             "error": "config_exists",
             "message": (
-                "Hermes is already configured (config.yaml exists). "
+                "JarvisCopilot is already configured (config.yaml exists). "
                 "Pass confirm_overwrite=true to overwrite it."
             ),
             "requires_confirm": True,

@@ -115,7 +115,7 @@ User-defined quick commands map a short slash command to either a shell command 
 quick_commands:
   status:
     type: exec
-    command: systemctl status hermes-agent
+    command: systemctl status jarviscopilot
   deploy:
     type: exec
     command: scripts/deploy.sh

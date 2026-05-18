@@ -51,7 +51,7 @@ Pick the row that matches your goal:
 **Option A — pip (simplest):**
 
 ```bash
-pip install hermes-agent
+pip install jarviscopilot
 jarviscopilot postinstall     # optional: installs Node.js, browser, ripgrep, ffmpeg + runs setup
 ```
 
@@ -61,7 +61,7 @@ PyPI releases track tagged versions (major/minor releases), not every commit on 
 
 ```bash
 # Linux / macOS / WSL2 / Android (Termux)
-curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.sh | bash
 ```
 
 :::tip Android / Termux
@@ -250,8 +250,8 @@ jarviscopilot config set terminal.backend ssh       # Remote server
 
 ```bash
 # From the JarvisCopilot install directory (the curl installer placed it at
-# ~/.jarviscopilot/hermes-agent on Linux/macOS or %LOCALAPPDATA%\jarviscopilot\hermes-agent on Windows):
-cd ~/.jarviscopilot/hermes-agent
+# ~/.jarviscopilot/jarviscopilot on Linux/macOS or %LOCALAPPDATA%\jarviscopilot\jarviscopilot on Windows):
+cd ~/.jarviscopilot/jarviscopilot
 uv pip install -e ".[voice]"
 # Includes faster-whisper for free local speech-to-text
 ```
@@ -287,7 +287,7 @@ ACP support ships with the standard `[all]` extras, so the curl installer alread
 jarviscopilot acp
 ```
 
-(If you installed without `[all]`, run `cd ~/.jarviscopilot/hermes-agent && uv pip install -e ".[acp]"` first.)
+(If you installed without `[all]`, run `cd ~/.jarviscopilot/jarviscopilot && uv pip install -e ".[acp]"` first.)
 
 See [ACP Editor Integration](../user-guide/features/acp.md).
 

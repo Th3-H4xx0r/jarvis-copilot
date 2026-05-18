@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from hermes_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home
 
 # File + directory layout (under $HERMES_HOME):
 #
@@ -98,7 +98,7 @@ def start(
 ) -> Dict[str, Any]:
     """Spawn the meet_bot subprocess for *url*.
 
-    If a bot is already running for this hermes install, leave it first —
+    If a bot is already running for this jarviscopilot install, leave it first —
     we enforce single-active-meeting semantics.
 
     Returns a dict summarizing the started bot.

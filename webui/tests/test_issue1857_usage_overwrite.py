@@ -136,8 +136,8 @@ def test_stream_completion_overwrites_session_usage_with_latest_turn(cleanup_tes
     )
     fake_jarviscopilot_cli = types.ModuleType("jarviscopilot_cli")
     fake_jarviscopilot_cli.runtime_provider = fake_runtime_module
-    fake_hermes_state = types.ModuleType("hermes_state")
-    fake_hermes_state.SessionDB = mock.Mock(return_value=None)
+    fake_jarviscopilot_state = types.ModuleType("jarviscopilot_state")
+    fake_jarviscopilot_state.SessionDB = mock.Mock(return_value=None)
 
     # NOTE: We deliberately avoid mock.patch.dict(sys.modules, ...) here.
     # patch.dict tracks original keys at __enter__ and on __exit__ DELETES any
@@ -149,7 +149,7 @@ def test_stream_completion_overwrites_session_usage_with_latest_turn(cleanup_tes
     _injected = {
         "jarviscopilot_cli": fake_jarviscopilot_cli,
         "jarviscopilot_cli.runtime_provider": fake_runtime_module,
-        "hermes_state": fake_hermes_state,
+        "jarviscopilot_state": fake_jarviscopilot_state,
     }
     _saved = {k: sys.modules.get(k, _MISSING) for k in _injected}
     sys.modules.update(_injected)

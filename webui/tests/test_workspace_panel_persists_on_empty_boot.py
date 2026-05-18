@@ -66,7 +66,7 @@ class TestSyncStateNoSession:
 
 
 class TestBootPathsRestorePanelPref:
-    PREF_PATTERN = "hermes-webui-workspace-panel-pref"
+    PREF_PATTERN = "jarviscopilot-webui-workspace-panel-pref"
 
     def test_ephemeral_path_restores_panel_pref(self):
         """The empty-session guard (#1182) must read panelPref before
@@ -80,7 +80,7 @@ class TestBootPathsRestorePanelPref:
         # panelPref must be read between the guard and the sync call
         block = BOOT_JS[eph_idx:sync_idx]
         assert self.PREF_PATTERN in block, (
-            "Ephemeral-session boot path must read 'hermes-webui-workspace-panel-pref' "
+            "Ephemeral-session boot path must read 'jarviscopilot-webui-workspace-panel-pref' "
             "from localStorage before calling syncWorkspacePanelState()"
         )
         assert "_workspacePanelMode='browse'" in block or "_workspacePanelMode = 'browse'" in block, (
@@ -100,7 +100,7 @@ class TestBootPathsRestorePanelPref:
         assert sync_idx > 0, "syncWorkspacePanelState() not found after no-saved-session marker"
         block = BOOT_JS[m_idx:sync_idx]
         assert self.PREF_PATTERN in block, (
-            "No-saved-session boot path must read 'hermes-webui-workspace-panel-pref' "
+            "No-saved-session boot path must read 'jarviscopilot-webui-workspace-panel-pref' "
             "before calling syncWorkspacePanelState()"
         )
         assert "_workspacePanelMode='browse'" in block or "_workspacePanelMode = 'browse'" in block, (

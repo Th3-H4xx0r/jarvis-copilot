@@ -81,8 +81,8 @@ This isn't a quality bar — it's a coupling-and-maintenance decision. Memory pr
 ### Clone and install
 
 ```bash
-git clone --recurse-submodules https://github.com/NousResearch/hermes-agent.git
-cd hermes-agent
+git clone --recurse-submodules https://github.com/NousResearch/jarviscopilot.git
+cd jarviscopilot
 
 # Create venv with Python 3.11
 uv venv venv --python 3.11
@@ -134,12 +134,12 @@ pytest tests/ -v
 ## Project Structure
 
 ```
-hermes-agent/
+jarviscopilot/
 ├── run_agent.py              # AIAgent class — core conversation loop, tool dispatch, session persistence
 ├── cli.py                    # HermesCLI class — interactive TUI, prompt_toolkit integration
 ├── model_tools.py            # Tool orchestration (thin layer over tools/registry.py)
 ├── toolsets.py               # Tool groupings and presets (jarviscopilot-cli, jarviscopilot-telegram, etc.)
-├── hermes_state.py           # SQLite session database with FTS5 full-text search, session titles
+├── jarviscopilot_state.py           # SQLite session database with FTS5 full-text search, session titles
 ├── batch_runner.py           # Parallel batch processing for trajectory generation
 │
 ├── agent/                    # Agent internals (extracted modules)
@@ -194,7 +194,7 @@ hermes-agent/
 ├── skills/                   # Bundled skills (copied to ~/.jarviscopilot/skills/ on install)
 ├── optional-skills/          # Official optional skills (discoverable via hub, not activated by default)
 ├── tests/                    # Test suite
-├── website/                  # Documentation site (hermes-agent.nousresearch.com)
+├── website/                  # Documentation site (jarviscopilot.nousresearch.com)
 │
 ├── cli-config.yaml.example   # Example configuration (copied to ~/.jarviscopilot/config.yaml)
 └── AGENTS.md                 # Development guide for AI coding assistants
@@ -239,7 +239,7 @@ User message → AIAgent._run_agent_loop()
 
 - **Self-registering tools**: Each tool file calls `registry.register()` at import time. `model_tools.py` triggers discovery by importing all tool modules.
 - **Toolset grouping**: Tools are grouped into toolsets (`web`, `terminal`, `file`, `browser`, etc.) that can be enabled/disabled per platform.
-- **Session persistence**: All conversations are stored in SQLite (`hermes_state.py`) with full-text search and unique session titles. JSON logs go to `~/.jarviscopilot/sessions/`.
+- **Session persistence**: All conversations are stored in SQLite (`jarviscopilot_state.py`) with full-text search and unique session titles. JSON logs go to `~/.jarviscopilot/sessions/`.
 - **Ephemeral injection**: System prompts and prefill messages are injected at API call time, never persisted to the database or logs.
 - **Provider abstraction**: The agent works with any OpenAI-compatible API. Provider resolution happens at init time (Nous Portal OAuth, OpenRouter API key, or custom endpoint).
 - **Provider routing**: When using OpenRouter, `provider_routing` in config.yaml controls provider selection (sort by throughput/latency/price, allow/ignore specific providers, data retention policies). These are injected as `extra_body.provider` in API requests.
@@ -901,7 +901,7 @@ test(tools): add unit tests for file_operations
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/NousResearch/hermes-agent/issues)
+- Use [GitHub Issues](https://github.com/NousResearch/jarviscopilot/issues)
 - Include: OS, Python version, JarvisCopilot version (`jarviscopilot version`), full error traceback
 - Include steps to reproduce
 - Check existing issues before creating duplicates

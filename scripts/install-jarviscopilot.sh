@@ -2,7 +2,7 @@
 # ============================================================================
 # JarvisCopilot Installer (Linux / macOS / WSL2)
 # ============================================================================
-# Clones the JarvisCopilot fork, creates a local Python venv, installs Hermes
+# Clones the JarvisCopilot fork, creates a local Python venv, installs JarvisCopilot
 # core + voice extras + piper-tts + webui deps, and generates a self-signed
 # TLS cert so the voice tab works over LAN.
 #
@@ -17,7 +17,7 @@
 #   - Re-creates the venv ONLY if it's missing
 #   - pip install is naturally idempotent — already-installed packages skip
 #   - TLS cert is regenerated ONLY if missing or expired
-#   - NEVER touches ~/.hermes/ contents — your config.yaml, SOUL.md, skills/,
+#   - NEVER touches ~/.jarviscopilot/ contents — your config.yaml, SOUL.md, skills/,
 #     cron jobs, sessions, auth.json, and credential pool are preserved
 # ============================================================================
 
@@ -102,11 +102,11 @@ cd "$INSTALL_DIR"
 # it on checkout. Also covers users who tar-extracted instead of cloning.
 chmod +x scripts/*.sh 2>/dev/null || true
 
-# --- Stop any running JarvisCopilot / Hermes instances ---------------------
+# --- Stop any running JarvisCopilot / JarvisCopilot instances ---------------------
 # Idempotent best-effort shutdown so the rest of the installer (pip install,
 # systemd unit rewrite, tray re-launch) doesn't fight a process holding the
 # venv's interpreter or port 8787.
-info "Stopping any running JarvisCopilot / Hermes instances ..."
+info "Stopping any running JarvisCopilot / JarvisCopilot instances ..."
 
 SUDO_STOP=""
 if [[ "$EUID" -ne 0 ]] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
@@ -114,8 +114,8 @@ if [[ "$EUID" -ne 0 ]] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev
 fi
 
 if command -v systemctl >/dev/null 2>&1; then
-    for unit in jarviscopilot-webui.service hermes-webui.service \
-                jarviscopilot-gateway.service hermes-gateway.service; do
+    for unit in jarviscopilot-webui.service jarviscopilot-webui.service \
+                jarviscopilot-gateway.service jarviscopilot-gateway.service; do
         if [[ -n "$SUDO_STOP" ]]; then
             $SUDO_STOP systemctl stop "$unit" >/dev/null 2>&1 || true
         else
@@ -158,10 +158,10 @@ if [[ ! -x "$VENV_PY" ]]; then
     "$PY" -m venv "$VENV_DIR"
 fi
 
-# --- Install Hermes core + voice extras + webui deps -----------------------
+# --- Install JarvisCopilot core + voice extras + webui deps -----------------------
 # `pip install -e .[all,voice,edge-tts]` is idempotent — pip checks each
 # dist's installed version against the requirement and skips if satisfied.
-# Existing user state in ~/.hermes/ is never touched by pip.
+# Existing user state in ~/.jarviscopilot/ is never touched by pip.
 # Quiet flags: -q hides "Requirement already satisfied" spam; the progress
 # bar still appears on actual downloads. --no-input refuses to prompt for
 # anything so the script stays unattended.
@@ -183,12 +183,12 @@ fi
 mkdir -p "$VENV_DIR"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$VENV_DIR/.webui-installed"
 
-# --- Merge shipped personalities into ~/.hermes/config.yaml ----------------
+# --- Merge shipped personalities into ~/.jarviscopilot/config.yaml ----------------
 # Idempotent — adds entries (e.g. jarvis-mcu) only when missing, never
 # overwrites the user's existing personalities or other config keys.
 # Writes a timestamped backup before any change, so a botched merge is
-# recoverable from ~/.hermes/config.yaml.merge-bak.<timestamp>.
-info "Merging shipped personalities into ~/.hermes/config.yaml ..."
+# recoverable from ~/.jarviscopilot/config.yaml.merge-bak.<timestamp>.
+info "Merging shipped personalities into ~/.jarviscopilot/config.yaml ..."
 "$VENV_PY" "$INSTALL_DIR/installer/merge-personalities.py" || warn "personality merge failed (non-fatal)"
 
 # --- TLS cert (idempotent — only generates if missing/expired) -------------
@@ -206,7 +206,7 @@ except Exception as e:
     raise SystemExit(f"cert generation failed: {e}")
 PY
 
-# --- PATH symlinks (so `jarviscopilot` and `hermes` work from any shell) ---
+# --- PATH symlinks (so `jarviscopilot` and `jarviscopilot` work from any shell) ---
 # Linux convention: drop a symlink into /usr/local/bin (already on every
 # distro's default PATH). If we can't write there (non-root + no sudo NOPASSWD),
 # fall back to ~/.local/bin and tell the user how to add it to their PATH.
@@ -229,7 +229,7 @@ _link() {
 }
 _link "$VENV_DIR/bin/jarviscopilot" "$LINK_DIR/jarviscopilot"
 _link "$VENV_DIR/bin/hermes"        "$LINK_DIR/hermes"
-info "CLI commands linked at $LINK_DIR/{jarviscopilot,hermes}"
+info "CLI commands linked at $LINK_DIR/{jarviscopilot,jarviscopilot}"
 if [[ "$LINK_DIR" != "/usr/local/bin" ]]; then
     case ":$PATH:" in
         *":$LINK_DIR:"*) ;;
@@ -305,7 +305,7 @@ fi
 # --- Final status -----------------------------------------------------------
 ok "JarvisCopilot installed at $INSTALL_DIR"
 echo
-echo "Your existing data in ~/.hermes/ (config, skills, cron jobs, sessions,"
+echo "Your existing data in ~/.jarviscopilot/ (config, skills, cron jobs, sessions,"
 echo "credentials, memory) was NOT touched by this install."
 echo
 if [[ "$SERVICE_INSTALLED" == "true" ]]; then

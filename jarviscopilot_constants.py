@@ -17,7 +17,7 @@ _HERMES_HOME_OVERRIDE: ContextVar[str | object] = ContextVar(
 
 
 def set_hermes_home_override(path: str | Path | None) -> Token:
-    """Set a context-local Hermes home override and return its reset token.
+    """Set a context-local JarvisCopilot home override and return its reset token.
 
     This is for in-process, per-task scoping.  It deliberately does not mutate
     ``os.environ`` because that is shared by every thread in the process.
@@ -27,12 +27,12 @@ def set_hermes_home_override(path: str | Path | None) -> Token:
 
 
 def reset_hermes_home_override(token: Token) -> None:
-    """Restore the previous context-local Hermes home override."""
+    """Restore the previous context-local JarvisCopilot home override."""
     _HERMES_HOME_OVERRIDE.reset(token)
 
 
 def get_hermes_home_override() -> str | None:
-    """Return the active context-local Hermes home override, if any."""
+    """Return the active context-local JarvisCopilot home override, if any."""
     override = _HERMES_HOME_OVERRIDE.get()
     if override is _UNSET or not override:
         return None
@@ -40,20 +40,20 @@ def get_hermes_home_override() -> str | None:
 
 
 def get_hermes_home() -> Path:
-    """Return the Hermes home directory (default: ~/.hermes).
+    """Return the JarvisCopilot home directory (default: ~/.jarviscopilot).
 
-    Reads HERMES_HOME env var, falls back to ~/.hermes.
+    Reads HERMES_HOME env var, falls back to ~/.jarviscopilot.
     This is the single source of truth — all other copies should import this.
 
     When ``HERMES_HOME`` is unset but an ``active_profile`` file indicates
     a non-default profile is active, logs a loud one-shot warning to
     ``errors.log`` so cross-profile data corruption is diagnosable instead
     of silent.  Behavior is unchanged otherwise — we still return
-    ``~/.hermes`` — because raising here would brick 30+ module-level
+    ``~/.jarviscopilot`` — because raising here would brick 30+ module-level
     callers that import this at load time.  Subprocess spawners are
     expected to propagate ``HERMES_HOME`` explicitly (see the systemd
     template in ``jarviscopilot_cli/gateway.py`` and the kanban dispatcher in
-    ``jarviscopilot_cli/kanban_db.py``).  See https://github.com/NousResearch/hermes-agent/issues/18594.
+    ``jarviscopilot_cli/kanban_db.py``).  See https://github.com/NousResearch/jarviscopilot/issues/18594.
     """
     override = get_hermes_home_override()
     if override:
@@ -71,7 +71,7 @@ def get_hermes_home() -> Path:
             # Inline the default-root resolution from get_default_hermes_root()
             # to stay import-safe (this function is called from module scope
             # in 30+ files; we cannot afford to trigger logging setup here).
-            active_path = (Path.home() / ".hermes" / "active_profile")
+            active_path = (Path.home() / ".jarviscopilot" / "active_profile")
             active = active_path.read_text().strip() if active_path.exists() else ""
         except (UnicodeDecodeError, OSError):
             active = ""
@@ -85,7 +85,7 @@ def get_hermes_home() -> Path:
             import sys
             msg = (
                 f"[HERMES_HOME fallback] HERMES_HOME is unset but active "
-                f"profile is {active!r}. Falling back to ~/.hermes, which "
+                f"profile is {active!r}. Falling back to ~/.jarviscopilot, which "
                 f"is the DEFAULT profile — not {active!r}. Any data this "
                 f"process writes will land in the wrong profile. The "
                 f"subprocess spawner should pass HERMES_HOME explicitly "
@@ -97,33 +97,33 @@ def get_hermes_home() -> Path:
             except Exception:
                 pass
 
-    return Path.home() / ".hermes"
+    return Path.home() / ".jarviscopilot"
 
 
 def get_default_hermes_root() -> Path:
-    """Return the root Hermes directory for profile-level operations.
+    """Return the root JarvisCopilot directory for profile-level operations.
 
-    In standard deployments this is ``~/.hermes``.
+    In standard deployments this is ``~/.jarviscopilot``.
 
     In Docker or custom deployments where ``HERMES_HOME`` points outside
-    ``~/.hermes`` (e.g. ``/opt/data``), returns ``HERMES_HOME`` directly
+    ``~/.jarviscopilot`` (e.g. ``/opt/data``), returns ``HERMES_HOME`` directly
     — that IS the root.
 
     In profile mode where ``HERMES_HOME`` is ``<root>/profiles/<name>``,
     returns ``<root>`` so that ``profile list`` can see all profiles.
-    Works both for standard (``~/.hermes/profiles/coder``) and Docker
+    Works both for standard (``~/.jarviscopilot/profiles/coder``) and Docker
     (``/opt/data/profiles/coder``) layouts.
 
     Import-safe — no dependencies beyond stdlib.
     """
-    native_home = Path.home() / ".hermes"
+    native_home = Path.home() / ".jarviscopilot"
     env_home = os.environ.get("HERMES_HOME", "")
     if not env_home:
         return native_home
     env_path = Path(env_home)
     try:
         env_path.resolve().relative_to(native_home.resolve())
-        # HERMES_HOME is under ~/.hermes (normal or profile mode)
+        # HERMES_HOME is under ~/.jarviscopilot (normal or profile mode)
         return native_home
     except ValueError:
         pass
@@ -154,7 +154,7 @@ def get_optional_skills_dir(default: Path | None = None) -> Path:
 
 
 def get_hermes_dir(new_subpath: str, old_name: str) -> Path:
-    """Resolve a Hermes subdirectory with backward compatibility.
+    """Resolve a JarvisCopilot subdirectory with backward compatibility.
 
     New installs get the consolidated layout (e.g. ``cache/images``).
     Existing installs that already have the old path (e.g. ``image_cache``)
@@ -179,12 +179,12 @@ def display_hermes_home() -> str:
 
     Uses ``~/`` shorthand for readability::
 
-        default:  ``~/.hermes``
-        profile:  ``~/.hermes/profiles/coder``
+        default:  ``~/.jarviscopilot``
+        profile:  ``~/.jarviscopilot/profiles/coder``
         custom:   ``/opt/hermes-custom``
 
     Use this in **user-facing** print/log messages instead of hardcoding
-    ``~/.hermes``.  For code that needs a real ``Path``, use
+    ``~/.jarviscopilot``.  For code that needs a real ``Path``, use
     :func:`get_hermes_home` instead.
     """
     home = get_hermes_home()
@@ -199,7 +199,7 @@ def get_subprocess_home() -> str | None:
 
     When ``{HERMES_HOME}/home/`` exists on disk, subprocesses should use it
     as ``HOME`` so system tools (git, ssh, gh, npm …) write their configs
-    inside the Hermes data directory instead of the OS-level ``/root`` or
+    inside the JarvisCopilot data directory instead of the OS-level ``/root`` or
     ``~/``.  This provides:
 
     * **Docker persistence** — tool configs land inside the persistent volume.
@@ -310,7 +310,7 @@ def get_config_path() -> Path:
     """Return the path to ``config.yaml`` under HERMES_HOME.
 
     Replaces the ``get_hermes_home() / "config.yaml"`` pattern repeated
-    in 7+ files (skill_utils.py, hermes_logging.py, hermes_time.py, etc.).
+    in 7+ files (skill_utils.py, jarviscopilot_logging.py, jarviscopilot_time.py, etc.).
     """
     return get_hermes_home() / "config.yaml"
 

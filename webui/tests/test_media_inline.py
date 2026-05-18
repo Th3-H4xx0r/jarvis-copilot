@@ -345,7 +345,7 @@ class TestMediaEndpointIntegration(unittest.TestCase):
 
     def test_html_media_endpoint_inline_requires_csp_sandbox(self):
         """HTML opens inline only when requested and always carries CSP sandbox."""
-        html_bytes = b"<!doctype html><title>Hermes</title><script>window.ok=1</script>"
+        html_bytes = b"<!doctype html><title>JarvisCopilot</title><script>window.ok=1</script>"
         with tempfile.NamedTemporaryFile(
             suffix=".html", prefix="hermes_test_", dir="/tmp", delete=False
         ) as f:

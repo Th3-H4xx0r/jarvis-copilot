@@ -97,7 +97,7 @@ def test_minimax_fallback_provider_label():
 
     NOTE: This filters by `minimax/` ID prefix to scope strictly to the
     direct MiniMax provider routes — `minimax-X` is the canonical pattern
-    for hermes-agent routing to api.minimax.io. OpenRouter free-tier variants
+    for jarviscopilot routing to api.minimax.io. OpenRouter free-tier variants
     that happen to contain 'minimax' in their ID (e.g.
     `minimax/minimax-m2.5:free`) are routed via OpenRouter, not direct
     MiniMax, and correctly carry provider='OpenRouter'. See #1426.
@@ -151,7 +151,7 @@ def test_minimax_cn_provider_models_match_hermes_agent_catalog():
 def test_minimax_api_key_in_env_scan_tuple():
     """MINIMAX_API_KEY must be included in the env var scan performed by
     get_available_models(), so users who export MINIMAX_API_KEY see the
-    MiniMax provider in the dropdown without editing ~/.hermes/.env."""
+    MiniMax provider in the dropdown without editing ~/.jarviscopilot/.env."""
     import inspect, ast, textwrap
     src = inspect.getsource(config.get_available_models)
     assert 'MINIMAX_API_KEY' in src, (

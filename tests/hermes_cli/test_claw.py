@@ -1,4 +1,4 @@
-"""Tests for hermes claw commands."""
+"""Tests for jarviscopilot claw commands."""
 
 from argparse import Namespace
 import subprocess
@@ -644,8 +644,8 @@ class TestPrintMigrationReport:
         report = {
             "summary": {"migrated": 2, "skipped": 1, "conflict": 1, "error": 0},
             "items": [
-                {"kind": "soul", "status": "migrated", "destination": "/home/user/.hermes/SOUL.md"},
-                {"kind": "memory", "status": "migrated", "destination": "/home/user/.hermes/memories/MEMORY.md"},
+                {"kind": "soul", "status": "migrated", "destination": "/home/user/.jarviscopilot/SOUL.md"},
+                {"kind": "memory", "status": "migrated", "destination": "/home/user/.jarviscopilot/memories/MEMORY.md"},
                 {"kind": "skills", "status": "conflict", "reason": "already exists"},
                 {"kind": "tts-assets", "status": "skipped", "reason": "not found"},
             ],
@@ -662,9 +662,9 @@ class TestPrintMigrationReport:
         report = {
             "summary": {"migrated": 3, "skipped": 0, "conflict": 0, "error": 0},
             "items": [
-                {"kind": "soul", "status": "migrated", "destination": "/home/user/.hermes/SOUL.md"},
+                {"kind": "soul", "status": "migrated", "destination": "/home/user/.jarviscopilot/SOUL.md"},
             ],
-            "output_dir": "/home/user/.hermes/migration/openclaw/20250312T120000",
+            "output_dir": "/home/user/.jarviscopilot/migration/openclaw/20250312T120000",
         }
         claw_mod._print_migration_report(report, dry_run=False)
         captured = capsys.readouterr()

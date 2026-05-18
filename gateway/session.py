@@ -208,7 +208,7 @@ def _discord_tools_loaded() -> bool:
 
     Two conditions must hold:
       1. The `discord` or `discord_admin` toolset is enabled for the
-         Discord platform via `hermes tools` (opt-in, default OFF).
+         Discord platform via `jarviscopilot tools` (opt-in, default OFF).
       2. `DISCORD_BOT_TOKEN` is set — the tool's `check_fn` gates on it
          at registry time, so the toolset being enabled in config is not
          enough if the token isn't configured.
@@ -328,7 +328,7 @@ def build_session_context_prompt(
     elif context.source.platform == Platform.DISCORD:
         # Inject the Discord IDs block only when the agent actually has
         # Discord tools loaded this session — i.e. the user opted into
-        # `discord` / `discord_admin` via `hermes tools` AND the bot
+        # `discord` / `discord_admin` via `jarviscopilot tools` AND the bot
         # token is configured.  Otherwise keep the stale-API disclaimer
         # honest so we never promise tools the agent lacks.
         if _discord_tools_loaded():
@@ -394,7 +394,7 @@ def build_session_context_prompt(
     lines.append("")
     lines.append("**Delivery options for scheduled tasks:**")
 
-    from hermes_constants import display_hermes_home
+    from jarviscopilot_constants import display_hermes_home
 
     # Origin delivery
     if context.source.platform == Platform.LOCAL:
@@ -685,7 +685,7 @@ class SessionStore:
         # Initialize SQLite session database
         self._db = None
         try:
-            from hermes_state import SessionDB
+            from jarviscopilot_state import SessionDB
             self._db = SessionDB()
         except Exception as e:
             print(f"[gateway] Warning: SQLite session store unavailable, falling back to JSONL: {e}")

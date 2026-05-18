@@ -17,7 +17,7 @@ Setup::
     # Option 2: Docker
     docker run -p 9377:9377 -e CAMOFOX_PORT=9377 jo-inc/camofox-browser
 
-Then set ``CAMOFOX_URL=http://localhost:9377`` in ``~/.hermes/.env``.
+Then set ``CAMOFOX_URL=http://localhost:9377`` in ``~/.jarviscopilot/.env``.
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def _camofox_identity_override(task_id: Optional[str], camofox_cfg: Dict[str, An
     """Return an externally configured Camofox identity, if one is set.
 
     Integrations that own the visible Camofox browser can set a shared user ID
-    so Hermes operates in the same browser profile instead of creating a
+    so JarvisCopilot operates in the same browser profile instead of creating a
     separate private session.
     """
     user_id = os.getenv("CAMOFOX_USER_ID", "").strip() or str(camofox_cfg.get("user_id") or "").strip()
@@ -152,7 +152,7 @@ def _env_flag(name: str) -> Optional[bool]:
 
 
 def _adopt_existing_tab_enabled(camofox_cfg: Dict[str, Any]) -> bool:
-    """Return whether Hermes should recover an existing Camofox tab ID."""
+    """Return whether JarvisCopilot should recover an existing Camofox tab ID."""
     env_value = _env_flag("CAMOFOX_ADOPT_EXISTING_TAB")
     if env_value is not None:
         return env_value
@@ -170,7 +170,7 @@ _sessions_lock = threading.Lock()
 def _adopt_existing_tab(session: Dict[str, Any]) -> Dict[str, Any]:
     """Attach process-local state to an already-open managed Camofox tab.
 
-    Some integrations own the visible Camofox tab outside Hermes. Gateway
+    Some integrations own the visible Camofox tab outside JarvisCopilot. Gateway
     restarts can leave this module's in-memory session cache empty even though
     Camofox still has that tab, so rehydrate tab_id before creating a new tab.
     """
@@ -209,7 +209,7 @@ def _get_session(task_id: Optional[str]) -> Dict[str, Any]:
     """Get or create a camofox session for the given task.
 
     When managed persistence is enabled, uses a deterministic userId
-    derived from the Hermes profile so the Camofox server can map it
+    derived from the JarvisCopilot profile so the Camofox server can map it
     to the same persistent browser profile across restarts.
     """
     task_id = task_id or "default"
@@ -601,7 +601,7 @@ def camofox_vision(question: str, annotate: bool = False,
         )
 
         # Save screenshot to cache
-        from hermes_constants import get_hermes_home
+        from jarviscopilot_constants import get_hermes_home
         screenshots_dir = get_hermes_home() / "browser_screenshots"
         screenshots_dir.mkdir(parents=True, exist_ok=True)
         screenshot_path = str(screenshots_dir / f"browser_screenshot_{uuid.uuid4().hex[:8]}.png")

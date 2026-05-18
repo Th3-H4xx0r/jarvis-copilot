@@ -14,7 +14,7 @@ import pytest
 @pytest.fixture
 def isolated_home(tmp_path, monkeypatch):
     """Isolate HERMES_HOME + reset any module-level catalog cache per test."""
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".jarviscopilot"
     home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setenv("HERMES_HOME", str(home))
@@ -289,7 +289,7 @@ class TestIntegrationWithModelsModule:
         in-repo _PROVIDER_MODELS["nous"] snapshot. Regression: before this
         fix, list_authenticated_providers() built the curated dict from
         _PROVIDER_MODELS only — so newly-added Portal models never reached
-        the slash-command picker until the next Hermes release.
+        the slash-command picker until the next JarvisCopilot release.
         """
         # We deliberately do NOT use the ``isolated_home`` fixture here:
         # that fixture monkeypatches ``Path.home`` to ``tmp_path``, which

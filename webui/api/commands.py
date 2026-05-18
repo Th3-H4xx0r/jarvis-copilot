@@ -1,7 +1,7 @@
-"""Expose hermes-agent's COMMAND_REGISTRY to the webui frontend.
+"""Expose jarviscopilot's COMMAND_REGISTRY to the webui frontend.
 
 This module is the single integration point with jarviscopilot_cli.commands.
-If hermes-agent is unavailable the endpoint degrades to an empty list
+If jarviscopilot is unavailable the endpoint degrades to an empty list
 so the frontend can still load with WEBUI_ONLY commands.
 """
 from __future__ import annotations
@@ -83,7 +83,7 @@ def execute_plugin_command(command: str) -> str:
 
     Unknown commands raise ``KeyError`` so the HTTP layer can return 404.
     Plugin handler failures are returned as output text instead of surfacing as
-    transport errors, matching Hermes' existing slash-command UX.
+    transport errors, matching JarvisCopilot' existing slash-command UX.
     """
 
     raw = str(command or "").strip()

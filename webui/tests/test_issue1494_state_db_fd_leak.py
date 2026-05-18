@@ -4,7 +4,7 @@ The bug: Python's sqlite3 connection context manager (`with sqlite3.connect(...)
 conn:`) commits or rolls back on exit. It does NOT close the connection. In a
 long-running server with sidebar polling (`/api/sessions` calls
 `read_importable_agent_session_rows` and `read_session_lineage_metadata` on every
-poll), every poll leaked one or more open file descriptors against `~/.hermes/state.db`.
+poll), every poll leaked one or more open file descriptors against `~/.jarviscopilot/state.db`.
 
 In production this drove the WebUI process past macOS's 256-FD soft limit, after
 which new requests reset before producing a response (see #1458, #1494) — the

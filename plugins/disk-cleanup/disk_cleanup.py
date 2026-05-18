@@ -16,7 +16,7 @@ Rules:
   - >500 MB files → prompt always (deep only)
 
 Scope: strictly HERMES_HOME and /tmp/hermes-*
-Never touches: ~/.hermes/logs/ or any system directory.
+Never touches: ~/.jarviscopilot/logs/ or any system directory.
 """
 
 from __future__ import annotations
@@ -29,13 +29,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from hermes_constants import get_hermes_home
+    from jarviscopilot_constants import get_hermes_home
 except Exception:  # pragma: no cover — plugin may load before constants resolves
     import os
 
     def get_hermes_home() -> Path:  # type: ignore[no-redef]
         val = (os.environ.get("HERMES_HOME") or "").strip()
-        return Path(val).resolve() if val else (Path.home() / ".hermes").resolve()
+        return Path(val).resolve() if val else (Path.home() / ".jarviscopilot").resolve()
 
 
 logger = logging.getLogger(__name__)
@@ -298,7 +298,7 @@ def quick() -> Dict[str, Any]:
     _PROTECTED_TOP_LEVEL = {
         "logs", "memories", "sessions", "cron", "cronjobs",
         "cache", "skills", "plugins", "disk-cleanup", "optional-skills",
-        "hermes-agent", "backups", "profiles", ".worktrees",
+        "jarviscopilot", "backups", "profiles", ".worktrees",
     }
     empty_removed = 0
     try:
@@ -477,7 +477,7 @@ def guess_category(path: Path) -> Optional[str]:
         if top in {
             "disk-cleanup", "logs", "memories", "sessions", "config.yaml",
             "skills", "plugins", ".env", "USER.md", "MEMORY.md", "SOUL.md",
-            "auth.json", "hermes-agent",
+            "auth.json", "jarviscopilot",
         }:
             return None
         if top == "cron" or top == "cronjobs":

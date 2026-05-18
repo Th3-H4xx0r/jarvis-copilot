@@ -60,7 +60,7 @@ def test_workspace_prefixed_current_user_after_compaction_is_not_duplicated():
             "role": "assistant",
             "content": "[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted.",
         },
-        {"role": "user", "content": "[Workspace: /home/manfred/.hermes/workspace]\nOk, mache weiter"},
+        {"role": "user", "content": "[Workspace: /home/manfred/.jarviscopilot/workspace]\nOk, mache weiter"},
         {"role": "assistant", "content": "continuing"},
     ]
 

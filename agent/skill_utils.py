@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from hermes_constants import get_config_path, get_skills_dir
+from jarviscopilot_constants import get_config_path, get_skills_dir
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +173,7 @@ def _normalize_string_set(values) -> Set[str]:
 # (config_path_str, mtime_ns) -> resolved external dirs list.  Keyed by
 # mtime_ns so a config.yaml edit mid-run is picked up automatically;
 # otherwise every call would re-read + re-YAML-parse the 15KB config,
-# which becomes the dominant cost of ``hermes`` startup when ~120 skills
+# which becomes the dominant cost of ``jarviscopilot`` startup when ~120 skills
 # each trigger a category lookup during banner construction (10+ seconds
 # of pure waste).
 _EXTERNAL_DIRS_CACHE: Dict[Tuple[str, int], List[Path]] = {}
@@ -189,11 +189,11 @@ def get_external_skills_dirs() -> List[Path]:
 
     Each entry is expanded (``~`` and ``${VAR}``) and resolved to an absolute
     path.  Only directories that actually exist are returned.  Duplicates and
-    paths that resolve to the local ``~/.hermes/skills/`` are silently skipped.
+    paths that resolve to the local ``~/.jarviscopilot/skills/`` are silently skipped.
 
     Cached in-process, keyed on ``config.yaml`` mtime — the function is
     called once per skill during banner / tool-registry scans, and YAML
-    parsing a non-trivial config dominates ``hermes`` cold-start time
+    parsing a non-trivial config dominates ``jarviscopilot`` cold-start time
     when the cache is absent.
     """
     config_path = get_config_path()
@@ -236,7 +236,7 @@ def get_external_skills_dirs() -> List[Path]:
     if not isinstance(raw_dirs, list):
         return []
 
-    from hermes_constants import get_hermes_home
+    from jarviscopilot_constants import get_hermes_home
 
     hermes_home = get_hermes_home()
     local_skills = get_skills_dir().resolve()
@@ -271,7 +271,7 @@ def get_external_skills_dirs() -> List[Path]:
 
 
 def get_all_skills_dirs() -> List[Path]:
-    """Return all skill directories: local ``~/.hermes/skills/`` first, then external.
+    """Return all skill directories: local ``~/.jarviscopilot/skills/`` first, then external.
 
     The local dir is always first (and always included even if it doesn't exist
     yet — callers handle that).  External dirs follow in config order.
@@ -290,9 +290,9 @@ def extract_skill_conditions(frontmatter: Dict[str, Any]) -> Dict[str, List]:
     # Handle cases where metadata is not a dict (e.g., a string from malformed YAML)
     if not isinstance(metadata, dict):
         metadata = {}
-    # Prefer the JarvisCopilot namespace; fall back to legacy `hermes` so
+    # Prefer the JarvisCopilot namespace; fall back to legacy `jarviscopilot` so
     # third-party skills that haven't been rebranded still work.
-    ns = metadata.get("jarviscopilot") or metadata.get("hermes") or {}
+    ns = metadata.get("jarviscopilot") or metadata.get("jarviscopilot") or {}
     if not isinstance(ns, dict):
         ns = {}
     return {
@@ -312,7 +312,7 @@ def extract_skill_config_vars(frontmatter: Dict[str, Any]) -> List[Dict[str, Any
     Skills declare config.yaml settings they need via::
 
         metadata:
-          hermes:
+          jarviscopilot:
             config:
               - key: wiki.path
                 description: Path to the LLM Wiki knowledge base directory
@@ -325,7 +325,7 @@ def extract_skill_config_vars(frontmatter: Dict[str, Any]) -> List[Dict[str, Any
     metadata = frontmatter.get("metadata")
     if not isinstance(metadata, dict):
         return []
-    ns = metadata.get("jarviscopilot") or metadata.get("hermes")
+    ns = metadata.get("jarviscopilot") or metadata.get("jarviscopilot")
     if not isinstance(ns, dict):
         return []
     raw = ns.get("config")

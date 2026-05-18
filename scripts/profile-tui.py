@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Drive the Hermes TUI under HERMES_DEV_PERF and summarize the pipeline.
+"""Drive the JarvisCopilot TUI under HERMES_DEV_PERF and summarize the pipeline.
 
 Usage:
   scripts/profile-tui.py [--session SID] [--hold KEY] [--seconds N] [--rate HZ]
 
 Defaults: picks the session with the most messages, holds PageUp for 8s at
-~30 Hz (matching xterm key-repeat), summarizes ~/.hermes/perf.log on exit.
+~30 Hz (matching xterm key-repeat), summarizes ~/.jarviscopilot/perf.log on exit.
 
 The --tui build must exist (run `npm run build` in ui-tui first). This script
 launches `node dist/entry.js` directly with HERMES_TUI_RESUME set so it
@@ -13,7 +13,7 @@ bypasses the jarviscopilot_cli wrapper — we want repeatable timing, not the CL
 session-picker flow.
 
 Environment overrides:
-  HERMES_PERF_LOG     (default ~/.hermes/perf.log)
+  HERMES_PERF_LOG     (default ~/.jarviscopilot/perf.log)
   HERMES_PERF_NODE    (default node from $PATH)
   HERMES_TUI_DIR      (default: <repo>/ui-tui relative to this script)
 
@@ -38,11 +38,11 @@ from typing import Any
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 try:
-    from hermes_constants import get_hermes_home
+    from jarviscopilot_constants import get_hermes_home
 except ImportError:
     def get_hermes_home() -> Path:  # type: ignore[misc]
         val = (os.environ.get("HERMES_HOME") or "").strip()
-        return Path(val) if val else Path.home() / ".hermes"
+        return Path(val) if val else Path.home() / ".jarviscopilot"
 
 DEFAULT_TUI_DIR = Path(
     os.environ.get("HERMES_TUI_DIR")

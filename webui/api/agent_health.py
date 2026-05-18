@@ -1,18 +1,18 @@
-"""Hermes agent/gateway heartbeat payload helpers (#716, #1879).
+"""JarvisCopilot agent/gateway heartbeat payload helpers (#716, #1879).
 
-The WebUI process is not always paired with a long-running Hermes gateway. Some
+The WebUI process is not always paired with a long-running JarvisCopilot gateway. Some
 setups use WebUI only, while self-hosted messaging deployments run a separate
-Hermes gateway daemon that records runtime metadata in the JarvisCopilot home.
+JarvisCopilot gateway daemon that records runtime metadata in the JarvisCopilot home.
 This module turns those existing safe runtime signals into a small UI-facing
 heartbeat without shelling out or adding psutil as a hard dependency.
 
 Cross-container note (#1879): ``gateway.status.get_running_pid()`` uses
 ``fcntl.flock`` and ``os.kill(pid, 0)``, both of which require the caller to
 share a PID namespace with the gateway process. In multi-container deployments
-where the WebUI runs separately from ``hermes-agent`` and only a Hermes data
+where the WebUI runs separately from ``jarviscopilot`` and only a JarvisCopilot data
 volume is shared, those checks always return ``None`` and the dashboard
 incorrectly shows "Gateway not running". To stay accurate without forcing a
-``pid: "service:hermes-agent"`` compose workaround, we accept a recent
+``pid: "service:jarviscopilot"`` compose workaround, we accept a recent
 ``updated_at`` timestamp on ``gateway_state.json`` (combined with
 ``gateway_state == "running"``) as an equivalent live-process signal.  Older
 gateway builds do not refresh that file periodically, so a stale
@@ -169,14 +169,14 @@ def _gateway_status_module():
 
 
 def _gateway_root_pid_path() -> Path | None:
-    """Return the root Hermes gateway PID path.
+    """Return the root JarvisCopilot gateway PID path.
 
     Gateway runtime files are root-level singletons.  A profile-scoped WebUI
     process may have HERMES_HOME=<root>/profiles/<name>, but gateway.pid,
     gateway.lock, and gateway_state.json still live under <root>.
     """
     try:
-        from hermes_constants import get_default_hermes_root
+        from jarviscopilot_constants import get_default_hermes_root
         return get_default_hermes_root() / _GATEWAY_PID_FILE
     except Exception:
         return None
@@ -272,7 +272,7 @@ def _runtime_detail_subset(runtime_status: dict[str, Any] | None) -> dict[str, A
 
 
 def build_agent_health_payload() -> dict[str, Any]:
-    """Return `{alive, checked_at, details}` for the Hermes gateway/agent.
+    """Return `{alive, checked_at, details}` for the JarvisCopilot gateway/agent.
 
     `alive` is intentionally tri-state:
       * True: a gateway runtime signal says the process is alive.
