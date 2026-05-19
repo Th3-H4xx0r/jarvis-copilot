@@ -26,6 +26,18 @@ dependencies = [
   "keyring>=24",
   # YAML fallback for hand-edited config files (json is the default).
   "pyyaml>=6.0",
+  # Modern pair dialog. Embeds the native system webview — WebKit on
+  # macOS, WebView2 on Windows (preinstalled on Win11 / modern Win10),
+  # WebKitGTK on Linux (needs `python3-webkit2gtk-4.0` or similar).
+  # Falls back to a plain Tk dialog if webview can't initialise.
+  "pywebview>=5",
+  # Platform helpers pywebview needs at runtime. They're optional via
+  # markers so the wheel-only platforms (Linux/Win) don't pull macOS-
+  # specific PyObjC frameworks.
+  "pyobjc-core>=10; sys_platform == 'darwin'",
+  "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
+  "pyobjc-framework-WebKit>=10; sys_platform == 'darwin'",
+  "pythonnet>=3.0; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

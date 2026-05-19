@@ -38,13 +38,24 @@ done
 [[ -z "$PY" ]] && die "Python 3.11+ required"
 info "Using Python: $PY"
 
-# Tk for the pair dialog. Most distros ship it as `python3-tk`.
+# Pair UI prerequisites. We prefer pywebview (modern dark theme matching
+# the webui) and fall back to Tk. Either way we want at least one of
+# them runnable; the user can re-run the installer after `apt install`.
 if ! "$PY" -c 'import tkinter' 2>/dev/null; then
-    warn "tkinter not available — install via your package manager:"
+    warn "tkinter not available — fallback pair dialog won't work without it:"
     warn "  Debian/Ubuntu: sudo apt install python3-tk"
     warn "  Fedora:        sudo dnf install python3-tkinter"
     warn "  Arch:          sudo pacman -S tk"
-    warn "Skipping pair dialog at end; use 'jc-client pair --server URL --code XXX' instead."
+fi
+# pywebview on Linux needs the native WebKit2GTK runtime. We can't
+# `pip install` it — it's a system library.
+if ! pkg-config --exists webkit2gtk-4.1 2>/dev/null && \
+   ! pkg-config --exists webkit2gtk-4.0 2>/dev/null; then
+    warn "WebKit2GTK not detected — the modern pair UI will fall back to Tk."
+    warn "For the native pywebview UI, install:"
+    warn "  Debian/Ubuntu: sudo apt install gir1.2-webkit2-4.1 libwebkit2gtk-4.1-dev"
+    warn "  Fedora:        sudo dnf install webkit2gtk4.1-devel"
+    warn "  Arch:          sudo pacman -S webkit2gtk-4.1"
 fi
 
 # --- source -----------------------------------------------------------------
