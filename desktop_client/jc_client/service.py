@@ -103,6 +103,17 @@ class Service:
     def run(self) -> int:
         """Main loop. Returns shell exit code on stop."""
         log.info("jc-client service starting")
+        # Load the skill registry exactly once, here in run(), so every
+        # caller — module-level run(), run_with_handle(), the tray that
+        # creates a Service() directly, embedded tests — ends up with a
+        # populated _REGISTRY before the connect loop sends the
+        # register frame. (Otherwise the tray path silently sent an
+        # empty manifest and the server reported `skills: []`.)
+        try:
+            skills.load_all(allow_shell=credentials.load().allow_shell)
+            log.info("skill registry has %d entries", len(skills.registered_names()))
+        except Exception as exc:
+            log.error("skill registry load failed: %s", exc)
         backoff_idx = 0
 
         while not self._stop.is_set():
