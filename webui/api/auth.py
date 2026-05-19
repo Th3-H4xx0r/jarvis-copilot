@@ -426,6 +426,14 @@ def check_auth(handler, parsed) -> bool:
     # Check session cookie
     cookie_val = parse_cookie(handler)
     if cookie_val and verify_session(cookie_val):
+        # Bump the device's last_seen so browser-paired devices (which
+        # don't hold a WS bridge) still show as "online" in the Devices
+        # tab. The pairing module debounces writes so this is cheap.
+        try:
+            from api.pairing import touch_device_by_session
+            touch_device_by_session(cookie_val)
+        except Exception:
+            pass
         return True
     # Host-local carve-out for CLI/agent automation. The signing key is
     # 0600-owned by the same user the webui runs as, so a process that

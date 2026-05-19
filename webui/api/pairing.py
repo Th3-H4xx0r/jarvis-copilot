@@ -290,6 +290,52 @@ def list_devices() -> list:
     return list(_read_devices().get("devices", []))
 
 
+# Cheap in-memory rate limit: only persist last_seen if the device's
+# previous touch was more than this many seconds ago. Each authed
+# request would otherwise rewrite the file — fine for correctness but
+# noisy for fs IO. 30s is short enough that "online" detection in the
+# UI is responsive without flogging the disk.
+_TOUCH_DEBOUNCE_SECONDS = 30.0
+
+
+def touch_device_by_session(cookie_value: str) -> Optional[str]:
+    """Mark a device as recently active.
+
+    Looks up the device whose ``session_prefix`` matches the cookie's
+    token prefix (the same logic used for the device bridge). Updates
+    its ``last_seen`` timestamp at most every ``_TOUCH_DEBOUNCE_SECONDS``
+    to avoid rewriting the file on every page request. Returns the
+    matched device id (or None).
+
+    Called from ``auth.check_auth`` so every authed page / API request
+    keeps the device's online indicator fresh for browsers that don't
+    maintain a persistent WebSocket bridge.
+    """
+    if not cookie_value or "." not in cookie_value:
+        return None
+    token = cookie_value.split(".", 1)[0]
+    prefix = token[:8]
+    if not prefix:
+        return None
+    now = time.time()
+    with _LOCK:
+        devices = _read_devices()
+        matched = None
+        dirty = False
+        for d in devices["devices"]:
+            if (d.get("session_prefix") or "") != prefix:
+                continue
+            matched = d
+            last = float(d.get("last_seen", 0) or 0)
+            if now - last >= _TOUCH_DEBOUNCE_SECONDS:
+                d["last_seen"] = now
+                dirty = True
+            break
+        if dirty:
+            _write_devices(devices)
+        return matched.get("id") if matched else None
+
+
 def revoke_device(device_id: str) -> bool:
     """Remove a device record. Sessions live in auth's .sessions.json and
     expire on their own TTL; full revocation also requires invalidating

@@ -3462,17 +3462,26 @@ def handle_get(handler, parsed) -> bool:
         # Authed callers (sidebar Devices tab) get the full list.
         from api.pairing import list_devices
         rows = list_devices()
-        # Annotate with bridge-connected status for the devices tab.
+        # Two flavours of "online":
+        #   (1) Desktop clients holding a live WS bridge connection —
+        #       authoritative.
+        #   (2) Browser-paired devices — no bridge, but ``last_seen``
+        #       is bumped every authed request by auth.check_auth.
+        #       Within the freshness window we still call them online.
         try:
             from api.device_bridge import connected_device_ids, skills_for_device
             connected = set(connected_device_ids())
         except Exception:
             connected = set()
             skills_for_device = None
+        _ONLINE_WINDOW_SECONDS = 60.0
+        _now = time.time()
         out = []
         for d in rows:
             dd = dict(d)
-            dd["online"] = d.get("id") in connected
+            last_seen = float(d.get("last_seen", 0) or 0)
+            recently_active = (_now - last_seen) <= _ONLINE_WINDOW_SECONDS
+            dd["online"] = (d.get("id") in connected) or recently_active
             if skills_for_device is not None:
                 dd["skills"] = skills_for_device(d.get("id", "")) or []
             else:
