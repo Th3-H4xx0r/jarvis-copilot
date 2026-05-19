@@ -1,0 +1,331 @@
+"""Main daemon: connect to the server, register skills, execute invokes.
+
+Pseudo-loop::
+
+    while not stop:
+        creds = credentials.load()
+        if not creds.paired: sleep + retry
+        ws = WsConnection(creds.server_url, creds.cookie, creds.cert_fingerprint)
+        ws.connect()
+        ws.send_text({"type":"register", "skills":[...]})
+        spawn periodic ping thread
+        for frame in ws.read_frames():
+            handle(frame)
+        backoff before reconnect
+
+Public entry point: ``run(...)``. Used by both ``jc-client start``
+(foreground / systemd ExecStart) and the tray app (spawned as a
+background thread when the tray boots).
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import threading
+import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
+
+from jc_client import credentials
+from jc_client.logger import setup as setup_logging
+from jc_client.protocol import WsConnection, WsConnectionClosed
+from jc_client import skills
+
+log = logging.getLogger(__name__)
+
+# Reconnection backoff schedule (seconds).
+_BACKOFF_SECONDS = [1, 2, 4, 8, 16, 32, 60]
+_PING_INTERVAL = 30.0
+_MAX_CONCURRENT_INVOKES = 8
+
+
+class Service:
+    """Encapsulates the connect-and-dispatch loop. Stoppable via
+    ``stop()`` from any thread (tray, signal handler, etc.)."""
+
+    def __init__(self) -> None:
+        self._stop = threading.Event()
+        self._paused = threading.Event()
+        # When paused, invokes return {"ok":false,"error":"paused"}.
+        self._executor = ThreadPoolExecutor(
+            max_workers=_MAX_CONCURRENT_INVOKES,
+            thread_name_prefix="skill-invoke",
+        )
+        self._ws: Optional[WsConnection] = None
+        self._registered_count = 0
+        self._connected = False
+        self._last_connect_attempt = 0.0
+        self._last_error = ""
+
+    # ── public ────────────────────────────────────────────────────────
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._ws:
+            try:
+                self._ws.close()
+            except Exception:
+                pass
+
+    def pause(self) -> None:
+        self._paused.set()
+        log.info("service paused; invokes will be rejected")
+
+    def resume(self) -> None:
+        self._paused.clear()
+        log.info("service resumed")
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused.is_set()
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
+
+    @property
+    def status_summary(self) -> dict:
+        creds = credentials.load()
+        return {
+            "paired": creds.paired,
+            "server": creds.server_url,
+            "device_name": creds.device_name,
+            "connected": self._connected,
+            "paused": self.is_paused,
+            "skills_registered": self._registered_count,
+            "last_error": self._last_error,
+        }
+
+    # ── loop ──────────────────────────────────────────────────────────
+
+    def run(self) -> int:
+        """Main loop. Returns shell exit code on stop."""
+        log.info("jc-client service starting")
+        backoff_idx = 0
+
+        while not self._stop.is_set():
+            creds = credentials.load()
+            if not creds.paired:
+                self._last_error = "not paired — run `jc-client pair`"
+                log.warning(self._last_error)
+                # Wait longer when there's nothing to do — re-check every
+                # 5 seconds so a fresh pair flow can start us promptly.
+                if self._stop.wait(5):
+                    break
+                continue
+
+            self._last_connect_attempt = time.time()
+            try:
+                self._connect_and_pump(creds)
+                backoff_idx = 0  # successful disconnect → reset backoff
+            except Exception as exc:
+                self._last_error = str(exc)
+                log.warning("connection ended: %s", exc)
+
+            self._connected = False
+            if self._stop.is_set():
+                break
+
+            delay = _BACKOFF_SECONDS[min(backoff_idx, len(_BACKOFF_SECONDS) - 1)]
+            backoff_idx += 1
+            log.info("reconnecting in %ss …", delay)
+            if self._stop.wait(delay):
+                break
+
+        log.info("jc-client service stopped")
+        self._executor.shutdown(wait=False, cancel_futures=True)
+        return 0
+
+    # ── inner ─────────────────────────────────────────────────────────
+
+    def _connect_and_pump(self, creds: credentials.Credentials) -> None:
+        ws = WsConnection(
+            server_url=creds.server_url,
+            cookie=creds.cookie,
+            expected_fingerprint=creds.cert_fingerprint,
+        )
+        ws.connect()
+        self._ws = ws
+        self._connected = True
+        self._last_error = ""
+        log.info("connected to %s", creds.server_url)
+
+        # Register skills immediately.
+        manifest = skills.all_manifest(disabled=creds.skills_disabled)
+        self._registered_count = len(manifest)
+        ws.send_text(
+            json.dumps(
+                {
+                    "type": "register",
+                    "skills": manifest,
+                    "device": {
+                        "name": creds.device_name,
+                        "platform": _platform_summary(),
+                    },
+                }
+            )
+        )
+        log.info("registered %d skills", len(manifest))
+
+        # Periodic ping thread — keeps NATs / load balancers from
+        # silently dropping the connection if the server is idle.
+        ping_stop = threading.Event()
+
+        def _pinger() -> None:
+            while not ping_stop.wait(_PING_INTERVAL):
+                try:
+                    ws.send_ping(b"jc")
+                except WsConnectionClosed:
+                    return
+
+        ping_thread = threading.Thread(target=_pinger, daemon=True, name="ws-ping")
+        ping_thread.start()
+
+        try:
+            for frame in ws.read_frames():
+                if self._stop.is_set():
+                    break
+                self._handle_frame(ws, frame)
+        finally:
+            ping_stop.set()
+            try:
+                ws.close()
+            except Exception:
+                pass
+            self._ws = None
+
+    def _handle_frame(self, ws: WsConnection, frame: dict) -> None:
+        msg_type = frame.get("type")
+        if msg_type == "invoke":
+            call_id = frame.get("call_id") or ""
+            skill_name = frame.get("skill") or ""
+            args = frame.get("args") or {}
+            if not call_id or not skill_name:
+                log.warning("invoke missing call_id/skill: %r", frame)
+                return
+            if self.is_paused:
+                self._send_error(ws, call_id, "client is paused")
+                return
+            # Dispatch on the worker pool so a 30s screenshot doesn't
+            # starve the receive loop.
+            self._executor.submit(self._run_invoke, ws, call_id, skill_name, args)
+            return
+
+        if msg_type == "ping":
+            try:
+                ws.send_text(json.dumps({"type": "pong"}))
+            except WsConnectionClosed:
+                pass
+            return
+
+        if msg_type in ("hello", "registered", "pong"):
+            log.debug("server: %s", msg_type)
+            return
+
+        log.warning("unknown frame type: %r", msg_type)
+
+    def _run_invoke(
+        self, ws: WsConnection, call_id: str, name: str, args: dict
+    ) -> None:
+        try:
+            log.info("invoke %s args=%s", name, _truncate(args))
+            result = skills.invoke(name, args)
+        except KeyError:
+            self._send_error(ws, call_id, f"unknown skill: {name}")
+            return
+        except TypeError as exc:
+            self._send_error(ws, call_id, f"bad args: {exc}")
+            return
+        except Exception as exc:
+            log.error("skill %s raised: %s\n%s", name, exc, traceback.format_exc())
+            self._send_error(ws, call_id, f"{type(exc).__name__}: {exc}")
+            return
+
+        try:
+            ws.send_text(
+                json.dumps({"type": "result", "call_id": call_id, "result": result})
+            )
+        except WsConnectionClosed:
+            # The server lost us mid-invoke. Nothing useful to do.
+            pass
+
+    def _send_error(self, ws: WsConnection, call_id: str, msg: str) -> None:
+        try:
+            ws.send_text(
+                json.dumps({"type": "error", "call_id": call_id, "error": msg})
+            )
+        except WsConnectionClosed:
+            pass
+
+
+# ── helpers ────────────────────────────────────────────────────────────────
+
+
+def _platform_summary() -> dict:
+    import platform as _p
+
+    return {
+        "system": _p.system(),
+        "release": _p.release(),
+        "machine": _p.machine(),
+    }
+
+
+def _truncate(obj: object, limit: int = 200) -> str:
+    """Short repr of an arg dict, suitable for logging without bloat."""
+    try:
+        s = json.dumps(obj, default=str)
+    except Exception:
+        s = repr(obj)
+    if len(s) <= limit:
+        return s
+    return s[:limit] + "...(truncated)"
+
+
+# ── module entry ───────────────────────────────────────────────────────────
+
+
+def run(verbose: bool = False) -> int:
+    """Foreground entry. Called from ``jc-client start`` and from the
+    tray when it spawns a background thread."""
+    setup_logging(level="DEBUG" if verbose else "INFO", verbose=verbose)
+    creds = credentials.load()
+    skills.load_all(allow_shell=creds.allow_shell)
+
+    service = Service()
+    # Catch SIGTERM / SIGINT so systemd `stop` shuts us down cleanly.
+    import signal
+
+    def _sig(_signum, _frame):
+        log.info("received signal, stopping")
+        service.stop()
+
+    try:
+        signal.signal(signal.SIGINT, _sig)
+        signal.signal(signal.SIGTERM, _sig)
+    except (ValueError, OSError):
+        # Not in main thread (e.g. tray runs service in a thread).
+        pass
+
+    return service.run()
+
+
+# Cross-module handle so the tray app can pause/resume/restart the
+# running service without reaching into module internals.
+ACTIVE: Service | None = None
+
+
+def run_with_handle(verbose: bool = False) -> int:
+    """Same as ``run()`` but exposes the Service via ``ACTIVE`` for the
+    tray to talk to."""
+    global ACTIVE
+    setup_logging(level="DEBUG" if verbose else "INFO", verbose=verbose)
+    creds = credentials.load()
+    skills.load_all(allow_shell=creds.allow_shell)
+    ACTIVE = Service()
+    try:
+        return ACTIVE.run()
+    finally:
+        ACTIVE = None

@@ -1,0 +1,367 @@
+"""``jc-client`` CLI entry point.
+
+Subcommands:
+    pair              open Tk dialog (interactive)
+    pair --server URL --code XXX-XXX --name NAME  (headless)
+    start             foreground service (systemd / launchd ExecStart)
+    stop              kill the running daemon via PID file
+    restart           stop + start
+    status            show paired-server + connection + skill count
+    logs [--follow]   tail the client log
+    skills list       what skills the client currently advertises
+    skills disable <name> / enable <name>
+    config get|set [key [value]]
+    tray              spawn tray app (Windows + macOS menubar + linux AppIndicator)
+    unpair            wipe credentials
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import signal
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+from jc_client import credentials, pair_ui, service, skills
+from jc_client.logger import log_path, setup as setup_logging, state_dir
+from jc_client.protocol import HttpClient
+
+log = logging.getLogger(__name__)
+
+
+PID_FILE = state_dir() / "jc-client.pid"
+
+
+# ── PID file helpers ──────────────────────────────────────────────────────
+
+
+def _read_pid() -> int | None:
+    try:
+        raw = PID_FILE.read_text().strip()
+        return int(raw) if raw else None
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def _write_pid(pid: int) -> None:
+    PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PID_FILE.write_text(str(pid))
+
+
+def _is_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+# ── Subcommands ────────────────────────────────────────────────────────────
+
+
+def cmd_pair(args) -> int:
+    """Interactive Tk dialog OR headless pairing via --server/--code."""
+    if args.server and args.code:
+        return _pair_headless(args.server, args.code, args.name)
+    # Interactive.
+    try:
+        creds = pair_ui.show()
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    return 0 if creds else 1
+
+
+def _pair_headless(url: str, code: str, name: str | None) -> int:
+    name = name or socket.gethostname()
+    log.info("pairing %s with %s", url, name)
+    try:
+        client = HttpClient(url, expected_fingerprint="")
+        resp, fingerprint = client.post_json(
+            "/api/auth/pair/claim", {"code": code, "name": name}
+        )
+    except Exception as exc:
+        print(f"pair failed: {exc}", file=sys.stderr)
+        return 1
+    if resp.status != 200 or not resp.cookie:
+        err = resp.json().get("error") if resp.body else None
+        print(f"pair failed: HTTP {resp.status} — {err or 'unknown'}", file=sys.stderr)
+        return 1
+    creds = credentials.load()
+    creds.server_url = url.rstrip("/")
+    creds.device_name = name
+    creds.cookie = resp.cookie
+    creds.cert_fingerprint = fingerprint
+    if not creds.device_id:
+        import uuid
+        creds.device_id = uuid.uuid4().hex
+    credentials.save(creds)
+    print(f"Paired with {url}")
+    print(f"  Device name: {name}")
+    print(f"  Cert SHA-256: {fingerprint}")
+    return 0
+
+
+def cmd_start(args) -> int:
+    """Run the service in the foreground."""
+    pid = _read_pid()
+    if pid and _is_running(pid):
+        print(f"already running (pid {pid})", file=sys.stderr)
+        return 1
+    _write_pid(os.getpid())
+    try:
+        return service.run(verbose=args.verbose)
+    finally:
+        try:
+            PID_FILE.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def cmd_stop(args) -> int:
+    pid = _read_pid()
+    if not pid or not _is_running(pid):
+        print("not running", file=sys.stderr)
+        return 1
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError as exc:
+        print(f"kill failed: {exc}", file=sys.stderr)
+        return 1
+    # Wait up to 5s for the PID file to disappear.
+    for _ in range(50):
+        if not _is_running(pid):
+            break
+        time.sleep(0.1)
+    try:
+        PID_FILE.unlink()
+    except FileNotFoundError:
+        pass
+    print("stopped")
+    return 0
+
+
+def cmd_restart(args) -> int:
+    rc = cmd_stop(args)
+    # Re-spawn ourselves detached.
+    py = sys.executable
+    subprocess.Popen(
+        [py, "-m", "jc_client", "start"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+        close_fds=True,
+    )
+    print("restarted")
+    return 0
+
+
+def cmd_status(args) -> int:
+    creds = credentials.load()
+    pid = _read_pid()
+    running = pid is not None and _is_running(pid)
+    print("JarvisCopilot client status")
+    print("  paired:       ", "yes" if creds.paired else "no")
+    if creds.paired:
+        print("  server:       ", creds.server_url)
+        print("  device name:  ", creds.device_name)
+        print("  cert fp:      ", creds.cert_fingerprint[:32] + "…")
+    print("  running:      ", "yes (pid %s)" % pid if running else "no")
+    print("  log file:     ", log_path())
+    skills.load_all(allow_shell=creds.allow_shell)
+    manifest = skills.all_manifest(disabled=creds.skills_disabled)
+    print("  skills enabled:", len(manifest), "/", len(skills.registered_names()))
+    print("  allow_shell:  ", "yes" if creds.allow_shell else "no")
+    return 0
+
+
+def cmd_logs(args) -> int:
+    path = log_path()
+    if not path.exists():
+        print(f"no log file yet ({path})", file=sys.stderr)
+        return 1
+    if args.follow:
+        try:
+            # Tail-follow without external deps. Sleep-poll is fine for
+            # human reading speeds.
+            with path.open("r", encoding="utf-8", errors="replace") as fh:
+                fh.seek(0, os.SEEK_END)
+                while True:
+                    line = fh.readline()
+                    if not line:
+                        time.sleep(0.3)
+                        continue
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+        except KeyboardInterrupt:
+            return 0
+    else:
+        sys.stdout.write(path.read_text(encoding="utf-8", errors="replace"))
+        return 0
+
+
+def cmd_skills(args) -> int:
+    creds = credentials.load()
+    skills.load_all(allow_shell=creds.allow_shell)
+    sub = args.skills_command
+    if sub == "list":
+        manifest = skills.all_manifest()
+        disabled = set(creds.skills_disabled)
+        for s in manifest:
+            mark = " " if s["name"] not in disabled else "✗"
+            destr = "  destructive" if s.get("destructive") else ""
+            print(f"  [{mark}] {s['name']:<22} {s['description'][:60]}{destr}")
+        return 0
+    if sub == "disable":
+        name = args.skill_name
+        if not skills.has_skill(name):
+            print(f"unknown skill: {name}", file=sys.stderr)
+            return 1
+        creds.skills_disabled = sorted(set(creds.skills_disabled) | {name})
+        credentials.save(creds)
+        print(f"disabled {name}; restart the service for changes to apply")
+        return 0
+    if sub == "enable":
+        name = args.skill_name
+        creds.skills_disabled = [s for s in creds.skills_disabled if s != name]
+        credentials.save(creds)
+        print(f"enabled {name}; restart the service for changes to apply")
+        return 0
+    return 2
+
+
+def cmd_config(args) -> int:
+    creds = credentials.load()
+    sub = args.config_command
+    if sub == "get":
+        if args.key:
+            print(getattr(creds, args.key, ""))
+        else:
+            for f in (
+                "server_url",
+                "device_name",
+                "cert_fingerprint",
+                "device_id",
+                "allow_shell",
+                "skills_disabled",
+            ):
+                print(f"{f} = {getattr(creds, f)!r}")
+        return 0
+    if sub == "set":
+        if not hasattr(creds, args.key):
+            print(f"unknown key: {args.key}", file=sys.stderr)
+            return 1
+        cur = getattr(creds, args.key)
+        # Type-coerce the incoming string based on the existing value's type.
+        new: Any
+        if isinstance(cur, bool):
+            new = args.value.strip().lower() in ("1", "true", "yes", "on")
+        elif isinstance(cur, list):
+            new = [v.strip() for v in args.value.split(",") if v.strip()]
+        else:
+            new = args.value
+        setattr(creds, args.key, new)
+        credentials.save(creds)
+        print(f"{args.key} = {new!r}")
+        return 0
+    return 2
+
+
+def cmd_unpair(args) -> int:
+    print("This will wipe the saved server URL, cookie, and pinned cert.")
+    if not args.yes:
+        try:
+            resp = input("Continue? [y/N] ").strip().lower()
+        except EOFError:
+            resp = ""
+        if resp != "y":
+            print("aborted")
+            return 1
+    # Stop the daemon if it's running so it doesn't keep using stale creds.
+    pid = _read_pid()
+    if pid and _is_running(pid):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    credentials.clear()
+    print("unpaired. Run `jc-client pair` to set up again.")
+    return 0
+
+
+def cmd_tray(args) -> int:
+    """Launch the system-tray app. Service auto-spawns inside the tray."""
+    from jc_client import tray
+
+    tray.run()
+    return 0
+
+
+# ── Main ───────────────────────────────────────────────────────────────────
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="jc-client", description="JarvisCopilot desktop client")
+    p.add_argument("-v", "--verbose", action="store_true", help="Debug logging to stderr")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    pp = sub.add_parser("pair", help="Pair with a JarvisCopilot server")
+    pp.add_argument("--server", help="https://host:port — skip the dialog when paired with --code")
+    pp.add_argument("--code", help="6-char pairing code (XXX-XXX)")
+    pp.add_argument("--name", help="Override device name (default: hostname)")
+    pp.set_defaults(func=cmd_pair)
+
+    start = sub.add_parser("start", help="Run the service in foreground")
+    start.set_defaults(func=cmd_start)
+
+    sub.add_parser("stop", help="Stop the running daemon").set_defaults(func=cmd_stop)
+    sub.add_parser("restart", help="Stop then re-spawn").set_defaults(func=cmd_restart)
+    sub.add_parser("status", help="Show paired server + connection state").set_defaults(func=cmd_status)
+
+    logs = sub.add_parser("logs", help="Show client logs")
+    logs.add_argument("--follow", "-f", action="store_true", help="Tail-follow")
+    logs.set_defaults(func=cmd_logs)
+
+    sk = sub.add_parser("skills", help="Manage which skills are advertised")
+    sk_sub = sk.add_subparsers(dest="skills_command", required=True)
+    sk_sub.add_parser("list", help="List skills and their state")
+    d = sk_sub.add_parser("disable", help="Hide a skill from the server")
+    d.add_argument("skill_name")
+    e = sk_sub.add_parser("enable", help="Re-enable a previously-disabled skill")
+    e.add_argument("skill_name")
+    sk.set_defaults(func=cmd_skills)
+
+    cfg = sub.add_parser("config", help="Read/write local config keys")
+    cfg_sub = cfg.add_subparsers(dest="config_command", required=True)
+    g = cfg_sub.add_parser("get", help="Print one or all config values")
+    g.add_argument("key", nargs="?")
+    s = cfg_sub.add_parser("set", help="Set a config value")
+    s.add_argument("key")
+    s.add_argument("value")
+    cfg.set_defaults(func=cmd_config)
+
+    sub.add_parser("tray", help="Launch the system tray app").set_defaults(func=cmd_tray)
+
+    up = sub.add_parser("unpair", help="Wipe saved credentials")
+    up.add_argument("--yes", action="store_true", help="Skip confirmation")
+    up.set_defaults(func=cmd_unpair)
+
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    setup_logging(level="DEBUG" if args.verbose else "INFO", verbose=args.verbose)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarviscopilot-client"
+version = "0.1.0"
+description = "JarvisCopilot desktop client — pair with a JC server, expose native skills (open apps, mouse/keyboard, clipboard, screenshot, …) back to the agent."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "JarvisCopilot" }]
+license = { text = "MIT" }
+
+dependencies = [
+  # Core WS framing.
+  "wsproto>=1.2",
+  # Cross-platform mouse + keyboard control.
+  "pynput>=1.7",
+  # Clipboard read/write on all three OSes.
+  "pyperclip>=1.8",
+  # Notifications / tray rely on Pillow for icon rendering.
+  "pillow>=10",
+  # System tray (Windows + macOS menubar + Linux AppIndicator).
+  "pystray>=0.19",
+  # OS-secure credential storage.
+  "keyring>=24",
+  # YAML fallback for hand-edited config files (json is the default).
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Single-file binary builds via PyInstaller. Not part of the install
+# users run on their machines — only used by the release workflow.
+build = ["pyinstaller>=6"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+jc-client = "jc_client.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["jc_client", "jc_client.*"]
