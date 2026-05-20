@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JarvisCopilot</string>
+    <string name="a11y_description">Lets JarvisCopilot perform taps and type text in other apps when you ask it to. Only enable if you trust the agent.</string>
+    <string name="bridge_channel_name">JarvisCopilot bridge</string>
+    <string name="bridge_notification_title">JarvisCopilot is active</string>
+    <string name="bridge_notification_text">Connected to your server.</string>
+</resources>

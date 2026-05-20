@@ -1,0 +1,19 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # Allow the throw-on-bad-state pattern the skill registry uses.
+    avoid_dynamic_calls: false
+    # We rely on `print` for early-boot logs before the logger is wired.
+    avoid_print: false
+    # Many platform-channel callbacks return Object?; relaxed casts are fine.
+    prefer_typing_uninitialized_variables: false
+
+analyzer:
+  errors:
+    invalid_annotation_target: ignore
+  exclude:
+    - build/**
+    - ios/Pods/**
+    - android/.gradle/**
+    - android/build/**
