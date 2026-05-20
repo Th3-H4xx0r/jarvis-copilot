@@ -1,0 +1,16 @@
+{
+  "project": "JarvisCopilot",
+  "platform": "ios",
+  "github": {
+    "owner": "Th3-H4xx0r",
+    "repo": "jarvis-copilot"
+  },
+  "ios": {
+    "path": "./mobile_client/ios"
+  },
+  "flutter": {
+    "watch": {}
+  },
+  "reactNative": {},
+  "mobai": {}
+}
