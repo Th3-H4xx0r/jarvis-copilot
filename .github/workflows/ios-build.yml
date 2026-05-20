@@ -59,7 +59,8 @@ jobs:
       - name: Detect project type
         id: detect
         run: |
-          if [ -f "pubspec.yaml" ]; then
+          PARENT="$(dirname "${{ inputs.ios_path }}")"
+          if [ -f "pubspec.yaml" ] || [ -f "$PARENT/pubspec.yaml" ]; then
             echo "type=flutter" >> $GITHUB_OUTPUT
           elif [ -f "package.json" ] && grep -q '"expo"' package.json; then
             echo "type=expo" >> $GITHUB_OUTPUT
@@ -79,6 +80,7 @@ jobs:
 
       - name: Flutter pub get
         if: steps.detect.outputs.type == 'flutter'
+        working-directory: ${{ format('{0}/..', inputs.ios_path) }}
         run: flutter pub get
 
       - name: Setup Node.js
