@@ -2,10 +2,11 @@ import Flutter
 import UIKit
 import UserNotifications
 
-@UIApplicationMain
+@main
 @objc class AppDelegate: FlutterAppDelegate {
 
     private var pendingDeepLink: URL?
+    private var pairChannel: FlutterMethodChannel?
 
     override func application(
         _ application: UIApplication,
@@ -13,10 +14,9 @@ import UserNotifications
     ) -> Bool {
         GeneratedPluginRegistrant.register(with: self)
 
-        // ── Push registration ─────────────────────────────────────
-        // We register here so the OS hands us the APNs device token in
-        // didRegisterForRemoteNotificationsWithDeviceToken. The actual
-        // FCM token is observed on the Dart side via firebase_messaging.
+        // Push registration — APNs token comes back via
+        // FlutterAppDelegate's didRegisterForRemoteNotificationsWithDeviceToken;
+        // the FCM token is observed on the Dart side via firebase_messaging.
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().requestAuthorization(
             options: [.alert, .badge, .sound]
@@ -26,42 +26,61 @@ import UserNotifications
             }
         }
 
-        // Defer the cold-launch deep link until after the FlutterEngine
-        // is alive. didFinishLaunchingWithOptions returns BEFORE Flutter
-        // is ready, so we squirrel it away and replay it once the engine
-        // and its rootViewController are attached.
+        // Pre-scene fallback: capture the cold-launch URL. In scene
+        // mode, SceneDelegate.scene(_:willConnectTo:) hands the same URL
+        // to handlePairDeepLink via connectionOptions.urlContexts.
         if let url = launchOptions?[.url] as? URL {
             pendingDeepLink = url
         }
 
-        let ok = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
 
-        // ── Platform channels (AFTER super so FlutterViewController exists) ──
-        if let controller = window?.rootViewController as? FlutterViewController {
-            ShortcutsBridge.register(with: controller)
-            HealthKitBridge.register(with: controller)
-            TorchBridge.register(with: controller)
-            AppOpenBridge.register(with: controller)
-            SmsComposeBridge.register(with: controller)
+    // ── Channel wiring (called by SceneDelegate once the FlutterViewController
+    //    exists) ──────────────────────────────────────────────────
+    //
+    // FlutterAppDelegate.window is nil under UIScene lifecycle, so we
+    // can no longer look up the controller here. SceneDelegate hands
+    // it to us once super.scene(willConnectTo:) has built the engine.
+    func attachFlutterController(_ controller: FlutterViewController) {
+        let ch = FlutterMethodChannel(
+            name: "jarviscopilot/pair",
+            binaryMessenger: controller.binaryMessenger
+        )
+        pairChannel = ch
+        ch.setMethodCallHandler { [weak self] call, result in
+            guard let self = self else { result(nil); return }
+            switch call.method {
+            case "takePendingPairUrl":
+                result(self.pendingDeepLink?.absoluteString)
+                self.pendingDeepLink = nil
+            case "clearPendingPairUrl":
+                self.pendingDeepLink = nil
+                result(nil)
+            default:
+                result(FlutterMethodNotImplemented)
+            }
         }
-
-        // Replay any pending deep link now that the channel exists.
         if let pending = pendingDeepLink {
             pendingDeepLink = nil
             DispatchQueue.main.async { [weak self] in
                 self?.forwardPairDeepLink(pending)
             }
         }
-
-        return ok
     }
 
     // ── Deep-link handling ───────────────────────────────────────
     //
     // jarviscopilot://pair?server=https%3A%2F%2F1.2.3.4%3A8787&code=ABC-DEF
     //
-    // We forward to a MethodChannel ("jarviscopilot/pair") so the
-    // Dart side can navigate to PairPage with prefilled fields.
+    // Called from SceneDelegate.scene(_:openURLContexts:) for live
+    // delivery and from scene(_:willConnectTo:) for cold-launch URLs.
+    func handlePairDeepLink(_ url: URL) {
+        guard url.scheme == "jarviscopilot" else { return }
+        forwardPairDeepLink(url)
+    }
+
+    // Pre-scene fallback retained for non-scene runtimes.
     override func application(
         _ app: UIApplication,
         open url: URL,
@@ -75,29 +94,27 @@ import UserNotifications
     }
 
     private func forwardPairDeepLink(_ url: URL) {
-        guard let controller = window?.rootViewController as? FlutterViewController else {
+        guard let ch = pairChannel else {
+            // Channel not wired yet — stash and let attachFlutterController
+            // replay once the SceneDelegate finishes setup.
             pendingDeepLink = url
             return
         }
-        let ch = FlutterMethodChannel(name: "jarviscopilot/pair", binaryMessenger: controller.binaryMessenger)
+        pendingDeepLink = url
         ch.invokeMethod("openPair", arguments: ["url": url.absoluteString])
     }
 
     // ── Silent push wakeup ───────────────────────────────────────
     //
     // FCM forwards `content-available:1` pushes here. We get ~30s of
-    // background time. Dart's firebase_messaging onMessage runs in
-    // parallel; the completion handler must be called on the main
-    // queue once we believe work is settled.
+    // background time. firebase_messaging delivers the same payload to
+    // Dart in parallel; calling super completes the OS handler on the
+    // main queue.
     override func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        // Hand off to the Flutter app; firebase_messaging will deliver
-        // it through its background isolate. We complete with
-        // .newData unconditionally — APNs only cares that we finished
-        // before the OS suspends us.
         super.application(application,
                           didReceiveRemoteNotification: userInfo,
                           fetchCompletionHandler: completionHandler)

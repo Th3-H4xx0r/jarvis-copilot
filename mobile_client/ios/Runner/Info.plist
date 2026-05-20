@@ -123,6 +123,30 @@
          additional usage-description key required; the SMS sheet
          handles its own permission UI. -->
 
+    <!-- Scene lifecycle. iOS 13+ uses UIScene; we explicitly point the
+         default scene at our SceneDelegate so bridge wiring runs.
+         Without this, FlutterAppDelegate.window stays nil and the
+         platform channels never bind. -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+        <key>UISceneConfigurations</key>
+        <dict>
+            <key>UIWindowSceneSessionRoleApplication</key>
+            <array>
+                <dict>
+                    <key>UISceneClassName</key>
+                    <string>UIWindowScene</string>
+                    <key>UISceneConfigurationName</key>
+                    <string>Default Configuration</string>
+                    <key>UISceneDelegateClassName</key>
+                    <string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+                </dict>
+            </array>
+        </dict>
+    </dict>
+
     <!-- ATS — we pin certificates ourselves; permit arbitrary loads but
          keep TLS required. -->
     <key>NSAppTransportSecurity</key>
