@@ -143,8 +143,19 @@ def disconnect_device(device_id: str) -> bool:
 
 def invoke_skill(device_id: str, skill_name: str, args: dict,
                  timeout: float = 30.0) -> dict:
-    """Request a skill execution on the named device. Blocks up to
-    ``timeout`` seconds for the device to respond.
+    """Request a skill execution on the named device.
+
+    Three paths, in order of preference:
+
+    1. **Live WS** — device has a current bridge connection. Send the
+       invoke frame and wait on the per-call Event (same as before).
+    2. **Mobile push fallback** — device has no WS but is a mobile record
+       with a registered push token. Queue the invoke in
+       ``_pending_mobile_invokes[device_id]``, wake the app via
+       silent FCM/APNs, and wait on a futures-Event the
+       ``/api/devices/mobile/result`` endpoint will resolve.
+    3. **Disconnected** — neither path is available; surface a
+       device-offline error so the agent can pick another tool.
 
     Returns one of:
       {"ok": True, "result": <any>}
@@ -152,9 +163,14 @@ def invoke_skill(device_id: str, skill_name: str, args: dict,
     """
     with _REG_LOCK:
         c = _REG.get(device_id)
-    if not c or c.closed:
-        return {"ok": False, "error": "device not connected"}
-    # Make sure the device actually registered this skill.
+    if c and not c.closed:
+        return _invoke_via_ws(c, skill_name, args, timeout=timeout)
+    # No live WS — try the mobile push path.
+    return _invoke_via_mobile_push(device_id, skill_name, args, timeout=timeout)
+
+
+def _invoke_via_ws(c: "_DeviceConn", skill_name: str, args: dict,
+                   timeout: float) -> dict:
     if not any(s.get("name") == skill_name for s in c.skills):
         return {"ok": False, "error": f"device has no skill named {skill_name!r}"}
 
@@ -185,6 +201,168 @@ def invoke_skill(device_id: str, skill_name: str, args: dict,
     if holder["error"]:
         return {"ok": False, "error": str(holder["error"])}
     return {"ok": True, "result": holder["result"]}
+
+
+# ── Mobile push fallback ───────────────────────────────────────────────────
+#
+# When a mobile client is backgrounded its WS is gone. The bridge falls
+# back to:
+#   1. Append the invoke envelope to _PENDING_MOBILE[device_id].
+#   2. Send a silent push (FCM data / APNs background) telling the app
+#      "wake up and poll".
+#   3. Block on an Event keyed by call_id; the mobile /result endpoint
+#      sets it once the device responds.
+#
+# Timeout default is generous (30s) because APNs delivery can take a few
+# seconds even on a good network, plus the app needs its background
+# window to open before it can poll.
+
+_PENDING_MOBILE: dict[str, list[dict]] = {}     # device_id → list of {call_id, skill, args, queued_at}
+_PENDING_MOBILE_LOCK = threading.Lock()
+_MOBILE_CALL_EVENTS: dict[str, dict] = {}        # call_id → {event, result, error, device_id}
+_MOBILE_CALL_EVENTS_LOCK = threading.Lock()
+_MOBILE_QUEUE_CAP_PER_DEVICE = 32                # protects against runaway queueing
+
+
+def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
+                            timeout: float) -> dict:
+    try:
+        from api.pairing import list_devices
+        from api import push as push_mod
+    except Exception as exc:
+        return {"ok": False, "error": f"mobile push unavailable: {exc}"}
+
+    device = None
+    for d in list_devices():
+        if d.get("id") == device_id:
+            device = d
+            break
+    if not device:
+        return {"ok": False, "error": "device not connected"}
+    push_token = (device.get("push_token") or "").strip()
+    push_kind = (device.get("push_kind") or "").strip().lower()
+    kind = (device.get("kind") or "").strip().lower()
+    if not push_token or push_kind not in ("fcm", "apns"):
+        # Not a mobile record (or one that never registered a token).
+        return {"ok": False, "error": "device not connected"}
+    if not kind.startswith("mobile"):
+        return {"ok": False, "error": "device not connected"}
+
+    call_id = secrets.token_hex(8)
+    ev = threading.Event()
+    holder = {"event": ev, "result": None, "error": None, "device_id": device_id}
+    with _MOBILE_CALL_EVENTS_LOCK:
+        _MOBILE_CALL_EVENTS[call_id] = holder
+
+    with _PENDING_MOBILE_LOCK:
+        q = _PENDING_MOBILE.setdefault(device_id, [])
+        # Drop oldest entries if a runaway server keeps queueing without the
+        # phone draining — protects against unbounded memory growth.
+        if len(q) >= _MOBILE_QUEUE_CAP_PER_DEVICE:
+            dropped = q.pop(0)
+            logger.warning("mobile queue cap reached; dropped %r", dropped.get("call_id"))
+        q.append({
+            "call_id": call_id,
+            "skill": skill_name,
+            "args": args or {},
+            "queued_at": time.time(),
+        })
+
+    # Fire-and-forget push. We don't wait on the HTTP response because
+    # FCM/APNs delivery is independent of acknowledgement; if the message
+    # never lands, the per-call Event will time out below.
+    try:
+        result = push_mod.send(push_kind, push_token, {
+            "type": "invoke_pending",
+            "device_id": device_id,
+            "count": str(len(q)),
+        })
+        if not result.get("ok"):
+            logger.warning("push send failed (%s): %s", push_kind, result.get("error"))
+            # If the token is unambiguously dead (FCM 404/UNREGISTERED, APNs 410)
+            # we surface a clearer error so the agent can move on AND clear
+            # the stale token so subsequent invokes don't fire pointless pushes.
+            status = result.get("status")
+            if status in (404, 410):
+                _cleanup_mobile_call(call_id)
+                try:
+                    from api.pairing import update_device_fields
+                    update_device_fields(device_id, push_token="", push_kind="")
+                except Exception as exc:
+                    logger.warning("could not clear dead push token: %s", exc)
+                return {"ok": False, "error": "device push token expired"}
+    except Exception as exc:
+        logger.warning("push dispatch raised: %s", exc)
+
+    ok = ev.wait(timeout=timeout)
+    final = _cleanup_mobile_call(call_id)
+    if not ok:
+        return {"ok": False, "error": "device did not respond before timeout"}
+    if final.get("error"):
+        return {"ok": False, "error": str(final["error"])}
+    return {"ok": True, "result": final.get("result")}
+
+
+def _cleanup_mobile_call(call_id: str) -> dict:
+    """Remove the call from the events map AND from any device queue.
+    Returns the holder so the caller can read the final result/error."""
+    with _MOBILE_CALL_EVENTS_LOCK:
+        holder = _MOBILE_CALL_EVENTS.pop(call_id, None) or {}
+    device_id = holder.get("device_id")
+    if device_id:
+        with _PENDING_MOBILE_LOCK:
+            q = _PENDING_MOBILE.get(device_id)
+            if q:
+                _PENDING_MOBILE[device_id] = [
+                    e for e in q if e.get("call_id") != call_id
+                ]
+                if not _PENDING_MOBILE[device_id]:
+                    _PENDING_MOBILE.pop(device_id, None)
+    return holder
+
+
+# ── Public helpers used by the /api/devices/mobile/* endpoints ─────────────
+
+def take_mobile_queue(device_id: str) -> list[dict]:
+    """Drain and return the queued invocations for a mobile device.
+
+    Called by ``GET /api/devices/mobile/poll`` once the app wakes up. The
+    callers are required to send back ``{type:"result"|"error"}`` for each
+    call_id; if they fail, the per-call Event eventually times out.
+    """
+    with _PENDING_MOBILE_LOCK:
+        q = _PENDING_MOBILE.pop(device_id, [])
+    # Return a shallow copy of each entry so the caller can't mutate
+    # remaining state via aliased dicts.
+    return [dict(e) for e in q]
+
+
+def resolve_mobile_result(call_id: str, result=None, error: Optional[str] = None) -> bool:
+    """Resolve a queued invocation. Called by /api/devices/mobile/result.
+    Returns True if a waiting caller was woken.
+
+    Mutation happens *inside* the lock so a concurrent _cleanup_mobile_call
+    (e.g. from a timed-out waiter) can't pop the holder while we're
+    halfway through writing to it — which would drop the result on the
+    floor or, worse, mix a late error into a holder the caller already
+    inspected.
+    """
+    with _MOBILE_CALL_EVENTS_LOCK:
+        holder = _MOBILE_CALL_EVENTS.get(call_id)
+        if not holder:
+            return False
+        if error:
+            holder["error"] = error
+        else:
+            holder["result"] = result
+        ev = holder["event"]
+    ev.set()
+    return True
+
+
+def pending_mobile_count(device_id: str) -> int:
+    with _PENDING_MOBILE_LOCK:
+        return len(_PENDING_MOBILE.get(device_id, []))
 
 
 # ── WS handler (called from server's WS upgrade dispatch) ───────────────────

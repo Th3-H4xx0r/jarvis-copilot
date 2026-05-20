@@ -5947,6 +5947,85 @@ def handle_post(handler, parsed) -> bool:
         status = 200 if result.get("ok") else 502
         return j(handler, result, status=status)
 
+    # ── Mobile client: register push token + device kind ──
+    # POST /api/devices/mobile/token
+    # body: {"push_kind":"fcm"|"apns","push_token":"...","platform":"ios"|"android","app_version":"..."}
+    # Caller is the mobile app, authed via the paired session cookie. We
+    # match the cookie to the device record and update its push fields so
+    # the bridge can fall back to silent push when the WS isn't live.
+    if parsed.path == "/api/devices/mobile/token":
+        from api.auth import parse_cookie
+        from api.pairing import find_device_by_session, update_device_fields
+        cookie_val = parse_cookie(handler)
+        device = find_device_by_session(cookie_val or "")
+        if not device:
+            return j(handler, {"error": "no matching device for session"}, status=401)
+        push_kind = (body.get("push_kind") or "").strip().lower()[:8]
+        push_token = (body.get("push_token") or "").strip()[:512]
+        platform = (body.get("platform") or "").strip().lower()[:16]
+        app_version = (body.get("app_version") or "").strip()[:32]
+        if push_kind not in ("", "fcm", "apns"):
+            return bad(handler, "push_kind must be 'fcm' or 'apns'")
+        if push_kind and not push_token:
+            return bad(handler, "push_token required when push_kind is set")
+        kind = device.get("kind") or "browser"
+        if platform == "ios":
+            kind = "mobile-ios"
+        elif platform == "android":
+            kind = "mobile-android"
+        update_device_fields(
+            device["id"],
+            kind=kind,
+            push_kind=push_kind,
+            push_token=push_token,
+            app_version=app_version,
+        )
+        from api import push as push_mod
+        return j(handler, {
+            "ok": True,
+            "device_id": device["id"],
+            "push_configured": push_mod.configured(),
+        })
+
+    # ── Mobile client: poll queued invocations ──
+    # POST /api/devices/mobile/poll
+    # The app calls this after waking on a silent push. We drain whatever
+    # invokes the bridge has queued for this device and return them.
+    if parsed.path == "/api/devices/mobile/poll":
+        from api.auth import parse_cookie
+        from api.pairing import find_device_by_session
+        from api.device_bridge import take_mobile_queue
+        cookie_val = parse_cookie(handler)
+        device = find_device_by_session(cookie_val or "")
+        if not device:
+            return j(handler, {"error": "no matching device for session"}, status=401)
+        queue_items = take_mobile_queue(device["id"])
+        return j(handler, {"invokes": queue_items, "ts": time.time()})
+
+    # ── Mobile client: post a skill result ──
+    # POST /api/devices/mobile/result
+    # body: {"call_id":"...","result": <any>}   OR  {"call_id":"...","error":"..."}
+    if parsed.path == "/api/devices/mobile/result":
+        from api.auth import parse_cookie
+        from api.pairing import find_device_by_session
+        from api.device_bridge import resolve_mobile_result
+        cookie_val = parse_cookie(handler)
+        device = find_device_by_session(cookie_val or "")
+        if not device:
+            return j(handler, {"error": "no matching device for session"}, status=401)
+        call_id = (body.get("call_id") or "").strip()
+        if not call_id:
+            return bad(handler, "call_id required")
+        err = body.get("error")
+        if err is not None and not isinstance(err, str):
+            err = str(err)
+        woke = resolve_mobile_result(
+            call_id,
+            result=body.get("result"),
+            error=err,
+        )
+        return j(handler, {"ok": True, "delivered": woke})
+
     # ── Device session logout (POST /api/devices/<id>/logout) ──
     # Invalidates the session bound to a paired device while keeping the
     # device record so the user can re-auth (e.g. with a fresh pairing

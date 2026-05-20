@@ -74,6 +74,16 @@
         }
       }catch(_){}
     })();
+    // JarvisCopilot mobile embed: tag <html> synchronously in <head> so
+    // the rail/sidebar are hidden before first paint. boot.js still
+    // mirrors this on <body> for selectors that key off body classes.
+    (function(){
+      try{
+        if(window.JarvisCopilotMobile){
+          document.documentElement.classList.add('in-mobile-app');
+        }
+      }catch(_){}
+    })();
   </script>
 </head>
 <body>

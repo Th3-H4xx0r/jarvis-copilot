@@ -53,6 +53,26 @@ async function _savedSessionShouldStaySidebarOnly(sid){
   }
 }
 
+// ── JarvisCopilot mobile-app embed detection ───────────────────────────────
+// When the webui is loaded inside the JarvisCopilot mobile app (via the
+// embedded webview), `window.JarvisCopilotMobile` is injected by the
+// native shell. We tag <body> so the CSS can hide the rail/sidebar (the
+// app's bottom nav replaces them) and expose a back-button hook the
+// native side can call to pop the webview.
+(function _jcMobileDetect(){
+  if(!window.JarvisCopilotMobile) return;
+  const tag=()=>{ if(document.body) document.body.classList.add('in-mobile-app'); };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', tag, {once:true});
+  else tag();
+  // popView() — native side calls this when the user taps the system back
+  // gesture; we hand control back to the embedding shell to pop the route.
+  if(!window.popView){
+    window.popView = function(){
+      try{ window.JarvisCopilotMobile.popView && window.JarvisCopilotMobile.popView(); }catch(_){ }
+    };
+  }
+})();
+
 // ── Mobile navigation ──────────────────────────────────────────────────────
 let _workspacePanelMode='closed'; // 'closed' | 'browse' | 'preview'
 

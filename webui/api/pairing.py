@@ -276,6 +276,13 @@ def claim_pairing_code(code: str, *, device_name: str = "",
                 "paired_at": now,
                 "session_prefix": cookie_val.split(".", 1)[0][:8],
                 "last_seen": now,
+                # Mobile clients flip these via /api/devices/mobile/token
+                # after pairing. ``kind`` distinguishes browser/desktop/mobile
+                # records so the devices UI can render appropriately and
+                # the bridge knows whether to attempt push fallback.
+                "kind": "browser",  # browser | desktop | mobile-ios | mobile-android
+                "push_kind": "",    # "fcm" | "apns" | ""
+                "push_token": "",
             })
             # Cap device list at 64 most recent.
             devices["devices"] = devices["devices"][-64:]
@@ -334,6 +341,58 @@ def touch_device_by_session(cookie_value: str) -> Optional[str]:
         if dirty:
             _write_devices(devices)
         return matched.get("id") if matched else None
+
+
+def find_device_by_session(cookie_value: str) -> Optional[dict]:
+    """Return the device record (if any) matching this session cookie.
+
+    The bridge already does this via prefix matching, but the mobile
+    endpoints need it from the request-handler layer too. Returns None
+    when the cookie is malformed OR when no device shares that prefix.
+    """
+    if not cookie_value or "." not in cookie_value:
+        return None
+    prefix = cookie_value.split(".", 1)[0][:8]
+    if not prefix:
+        return None
+    devices = _read_devices()
+    matches = [d for d in devices["devices"]
+               if (d.get("session_prefix") or "") == prefix]
+    if not matches:
+        return None
+    matches.sort(key=lambda d: d.get("paired_at", 0), reverse=True)
+    return matches[0]
+
+
+def update_device_fields(device_id: str, **fields) -> bool:
+    """Apply a small set of allowed field updates to a device record.
+
+    Only fields in ``_DEVICE_MUTABLE_FIELDS`` are honoured. Returns True if
+    a record was actually mutated.
+    """
+    if not device_id:
+        return False
+    with _LOCK:
+        devices = _read_devices()
+        dirty = False
+        for d in devices["devices"]:
+            if d.get("id") != device_id:
+                continue
+            for k, v in fields.items():
+                if k not in _DEVICE_MUTABLE_FIELDS:
+                    continue
+                if d.get(k) != v:
+                    d[k] = v
+                    dirty = True
+            break
+        if dirty:
+            _write_devices(devices)
+        return dirty
+
+
+_DEVICE_MUTABLE_FIELDS = frozenset({
+    "name", "kind", "push_kind", "push_token", "app_version",
+})
 
 
 def revoke_device(device_id: str) -> bool:

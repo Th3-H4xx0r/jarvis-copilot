@@ -4020,6 +4020,23 @@ main.main.showing-insights > #mainInsights{display:flex;overflow-y:auto;}
 .kanban-profile-lanes{display:flex;flex-direction:column;gap:18px;min-width:100%}
 .kanban-profile-lane{border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.02);padding:10px}
 .kanban-profile-lane-head{display:flex;justify-content:space-between;align-items:center;color:var(--text);font-size:13px;font-weight:600;margin-bottom:8px}
+
+/* ── JarvisCopilot mobile-app embed adjustments ────────────────────────
+   When the webui is loaded inside the mobile app's webview the native
+   shell provides its own bottom nav, so we hide the desktop rail/sidebar
+   and tighten the safe-area paddings. The class is set synchronously in
+   <head> (on <html>) so first paint never shows the rail; boot.js
+   mirrors it onto <body> for legacy selectors. */
+html.in-mobile-app .rail,
+body.in-mobile-app .rail { display: none; }
+html.in-mobile-app .sidebar-nav,
+body.in-mobile-app .sidebar-nav { display: none; }
+html.in-mobile-app .sidebar,
+body.in-mobile-app .sidebar { display: none; }
+html.in-mobile-app .topbar,
+body.in-mobile-app .topbar { padding-left: 12px; padding-right: 12px; }
+html.in-mobile-app main.main,
+body.in-mobile-app main.main { padding-bottom: env(safe-area-inset-bottom, 0); }
 .kanban-board-in-lane{min-height:0;overflow-x:auto}
 .kanban-card-topline{display:flex;gap:6px;align-items:center;margin-bottom:4px;font-size:10px;color:var(--muted)}
 .kanban-card-id{font-family:var(--mono);opacity:.8}

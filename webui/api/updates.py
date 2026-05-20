@@ -174,6 +174,17 @@ def _detect_agent_version() -> str:
 WEBUI_VERSION: str = _detect_webui_version()
 AGENT_VERSION: str = _detect_agent_version()
 
+# When the working tree is dirty (developer iterating locally), git's
+# `-dirty` suffix is identical across consecutive edits, so browsers
+# keep their cached `?v=<version>` static assets even after a restart —
+# meaning hand-edits to webui/static/* never reach the page until the
+# user manually clears their cache. Append a per-process timestamp so
+# every restart produces a unique cache-busting token while still being
+# readable in the about/version UI.
+if 'dirty' in WEBUI_VERSION.lower():
+    import time as _time
+    WEBUI_VERSION = f"{WEBUI_VERSION}.{int(_time.time())}"
+
 
 def _normalize_remote_url(remote_url):
     """Return the browser-facing repository URL for update compare links.
