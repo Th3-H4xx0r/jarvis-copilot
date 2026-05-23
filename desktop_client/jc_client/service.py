@@ -39,6 +39,10 @@ log = logging.getLogger(__name__)
 _BACKOFF_SECONDS = [1, 2, 4, 8, 16, 32, 60]
 _PING_INTERVAL = 30.0
 _MAX_CONCURRENT_INVOKES = 8
+# Per-skill watchdog. Stay under the server's invoke_skill default of 30s
+# so the bot gets our error before timing out itself.
+_SKILL_TIMEOUT_S = 20.0
+_SKILL_SLOW_S = 3.0
 
 
 class Service:
@@ -246,20 +250,61 @@ class Service:
     def _run_invoke(
         self, ws: WsConnection, call_id: str, name: str, args: dict
     ) -> None:
-        try:
-            log.info("invoke %s args=%s", name, _truncate(args))
-            result = skills.invoke(name, args)
-        except KeyError:
-            self._send_error(ws, call_id, f"unknown skill: {name}")
+        log.info("invoke %s args=%s", name, _truncate(args))
+
+        # Watchdog: run the skill in a worker thread and wait with a
+        # timeout. If the skill hangs (osascript stuck waiting on a
+        # process, a system dialog blocking input, etc.), we still send
+        # an error to the bot within the timeout instead of letting the
+        # bot time out at 30s on its end. The hung skill thread leaks
+        # but the bot stays responsive.
+        holder: dict = {"result": None, "exc": None}
+        done = threading.Event()
+
+        def _runner() -> None:
+            try:
+                holder["result"] = skills.invoke(name, args)
+            except BaseException as e:
+                holder["exc"] = e
+            finally:
+                done.set()
+
+        t = threading.Thread(
+            target=_runner, daemon=True, name=f"skill-{name}-{call_id[:8]}"
+        )
+        t.start()
+        t0 = time.monotonic()
+        if not done.wait(timeout=_SKILL_TIMEOUT_S):
+            elapsed = time.monotonic() - t0
+            log.warning(
+                "skill %s call_id=%s exceeded %.0fs — abandoning (thread leaks)",
+                name, call_id, elapsed,
+            )
+            self._send_error(
+                ws, call_id,
+                f"skill {name!r} timed out after {int(elapsed)}s",
+            )
             return
-        except TypeError as exc:
-            self._send_error(ws, call_id, f"bad args: {exc}")
-            return
-        except Exception as exc:
-            log.error("skill %s raised: %s\n%s", name, exc, traceback.format_exc())
+
+        exc = holder["exc"]
+        if exc is not None:
+            if isinstance(exc, KeyError):
+                self._send_error(ws, call_id, f"unknown skill: {name}")
+                return
+            if isinstance(exc, TypeError):
+                self._send_error(ws, call_id, f"bad args: {exc}")
+                return
+            log.error(
+                "skill %s raised: %s\n%s",
+                name, exc, "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+            )
             self._send_error(ws, call_id, f"{type(exc).__name__}: {exc}")
             return
 
+        result = holder["result"]
+        wall = time.monotonic() - t0
+        if wall > _SKILL_SLOW_S:
+            log.warning("skill %s took %.2fs (slow)", name, wall)
         payload = json.dumps({"type": "result", "call_id": call_id, "result": result})
         t0 = time.monotonic()
         try:

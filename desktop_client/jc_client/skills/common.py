@@ -482,7 +482,7 @@ def notify(title: str = "JarvisCopilot", message: str = "") -> dict:
 # Cap a full-display retina capture (~6K × 3.5K) so the WS payload stays
 # small. Callers can override with `max_dim`.
 _SCREENSHOT_MAX_DIM_DEFAULT = 1600
-_SCREENCAPTURE_TIMEOUT_S = 15
+_SCREENCAPTURE_TIMEOUT_S = 6
 
 
 @skill(
@@ -575,11 +575,15 @@ def screenshot(
 
 
 def _grab_screen(region: dict | None):
-    """Return (PIL.Image | None, source_label). On macOS we always shell out
-    to `screencapture` so permission errors surface via stderr instead of
-    hanging inside Pillow."""
+    """Return (PIL.Image, source_label). On macOS we capture directly via
+    the Quartz CGWindowList API — instant, no subprocess, no PNG round
+    trip. Falls back to `screencapture -x` if Quartz isn't usable for
+    some reason."""
     if sys.platform == "darwin":
-        return _grab_screen_macos(region), "screencapture"
+        img = _grab_screen_quartz(region)
+        if img is not None:
+            return img, "quartz"
+        return _grab_screen_macos_cli(region), "screencapture"
 
     # Pillow first on other platforms.
     try:
@@ -602,7 +606,66 @@ def _grab_screen(region: dict | None):
     raise RuntimeError("no screenshot backend on this platform")
 
 
-def _grab_screen_macos(region: dict | None):
+def _grab_screen_quartz(region: dict | None):
+    """Capture via Quartz CGWindowListCreateImage → PIL Image. Returns
+    None if Quartz isn't importable; raises on capture failure (caller
+    will fall back)."""
+    try:
+        from Quartz import (  # type: ignore
+            CGWindowListCreateImage,
+            CGRectInfinite,
+            CGRectMake,
+            CGImageGetWidth,
+            CGImageGetHeight,
+            CGImageGetBytesPerRow,
+            CGImageGetDataProvider,
+            CGDataProviderCopyData,
+            kCGWindowListOptionOnScreenOnly,
+            kCGNullWindowID,
+            kCGWindowImageDefault,
+        )
+        from PIL import Image  # type: ignore
+    except Exception as exc:
+        log.debug("Quartz screenshot unavailable: %s", exc)
+        return None
+
+    if region:
+        rect = CGRectMake(
+            float(region["x"]), float(region["y"]),
+            float(region["w"]), float(region["h"]),
+        )
+    else:
+        rect = CGRectInfinite
+
+    img_ref = CGWindowListCreateImage(
+        rect,
+        kCGWindowListOptionOnScreenOnly,
+        kCGNullWindowID,
+        kCGWindowImageDefault,
+    )
+    if img_ref is None:
+        # Permission denied (no Screen Recording grant) or off-screen.
+        raise RuntimeError(
+            "Quartz CGWindowListCreateImage returned NULL — likely missing "
+            "Screen Recording permission. Add the venv Python "
+            "(`readlink -f ~/Library/Application\\ Support/jc-client/.venv/bin/python`) "
+            "to System Settings → Privacy & Security → Screen & System Audio "
+            "Recording, then restart the LaunchAgent."
+        )
+
+    w = int(CGImageGetWidth(img_ref))
+    h = int(CGImageGetHeight(img_ref))
+    bpr = int(CGImageGetBytesPerRow(img_ref))
+    provider = CGImageGetDataProvider(img_ref)
+    data = CGDataProviderCopyData(provider)
+    # Quartz captures BGRA (premultiplied alpha). PIL's frombuffer with
+    # raw decoder + 'BGRA' converts directly.
+    img = Image.frombuffer("RGBA", (w, h), bytes(data), "raw", "BGRA", bpr, 1)
+    return img
+
+
+def _grab_screen_macos_cli(region: dict | None):
+    """Legacy `screencapture -x` path — used only if Quartz fails."""
     fd, tmp = tempfile.mkstemp(suffix=".png")
     os.close(fd)
     try:
@@ -625,24 +688,13 @@ def _grab_screen_macos(region: dict | None):
                 f"screencapture timed out after {_SCREENCAPTURE_TIMEOUT_S}s — "
                 "likely waiting on a TCC prompt the LaunchAgent can't show. "
                 "Grant Screen Recording permission to the binary running this "
-                "service (resolve `readlink -f` on ~/Library/Application\\ "
-                "Support/jc-client/.venv/bin/python and add that path)."
+                "service."
             ) from exc
         if proc.returncode != 0 or not os.path.getsize(tmp):
             stderr = (proc.stderr or "").strip()
-            hint = ""
-            if "not authorized" in stderr.lower() or "denied" in stderr.lower() or not stderr:
-                hint = (
-                    " — likely missing Screen Recording permission. "
-                    "Add the actual binary running this service (resolve "
-                    "`readlink -f ~/Library/Application\\ Support/jc-client/.venv/bin/python`) "
-                    "to System Settings → Privacy & Security → Screen & System Audio Recording, "
-                    "then restart the LaunchAgent."
-                )
             raise RuntimeError(
-                f"screencapture exited {proc.returncode}: {stderr or '(no stderr)'}{hint}"
+                f"screencapture exited {proc.returncode}: {stderr or '(no stderr)'}"
             )
-
         from PIL import Image  # type: ignore
 
         return Image.open(tmp).copy()

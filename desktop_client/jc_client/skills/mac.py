@@ -76,12 +76,87 @@ def quit_app(name: str) -> dict:
 # ── Window management ─────────────────────────────────────────────────────
 
 
+def _quartz_windows() -> list[dict] | None:
+    """Use the Quartz CGWindowList API to enumerate on-screen windows
+    natively (milliseconds). Returns None if Quartz isn't importable so
+    the caller can fall back to AppleScript."""
+    try:
+        from Quartz import (  # type: ignore
+            CGWindowListCopyWindowInfo,
+            kCGWindowListExcludeDesktopElements,
+            kCGWindowListOptionOnScreenOnly,
+            kCGNullWindowID,
+        )
+    except Exception:
+        return None
+    raw = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+        kCGNullWindowID,
+    ) or []
+    out: list[dict] = []
+    for w in raw:
+        # Filter out menubar items, dock, system overlays — layer 0 is
+        # normal app windows. Also require an alpha > 0 (visible).
+        if int(w.get("kCGWindowLayer", 0)) != 0:
+            continue
+        if float(w.get("kCGWindowAlpha", 1)) <= 0:
+            continue
+        title = (w.get("kCGWindowName") or "").strip()
+        app = (w.get("kCGWindowOwnerName") or "").strip()
+        if not app:
+            continue
+        # Untitled windows happen (e.g. some browser pickers); skip the
+        # noisy ones with no app+title combo of any use.
+        if not title and app in ("Window Server", "Dock", "SystemUIServer"):
+            continue
+        bounds = w.get("kCGWindowBounds") or {}
+        out.append({
+            "app": app,
+            "title": title,
+            "pid": int(w.get("kCGWindowOwnerPID", 0)),
+            "window_id": int(w.get("kCGWindowNumber", 0)),
+            "x": int(bounds.get("X", 0)),
+            "y": int(bounds.get("Y", 0)),
+            "w": int(bounds.get("Width", 0)),
+            "h": int(bounds.get("Height", 0)),
+        })
+    return out
+
+
 @skill(
     "current_window",
     "Return the title + app of the currently-focused window.",
     {"type": "object"},
 )
 def current_window() -> dict:
+    # Prefer the Quartz path — instant + no Accessibility prompt.
+    # The frontmost app is the first non-zero-layer window with the
+    # highest z-order in CGWindowList (which is returned front-to-back).
+    qs = _quartz_windows()
+    if qs is not None:
+        # Frontmost app comes from NSWorkspace; that's the only way to
+        # distinguish "frontmost process" from "first window in list".
+        try:
+            from AppKit import NSWorkspace  # type: ignore
+
+            front = NSWorkspace.sharedWorkspace().frontmostApplication()
+            front_pid = int(front.processIdentifier()) if front else 0
+            front_name = str(front.localizedName()) if front else ""
+        except Exception:
+            front_pid, front_name = 0, ""
+        if front_pid:
+            for w in qs:
+                if w["pid"] == front_pid and w["title"]:
+                    return {"app": w["app"], "title": w["title"]}
+        # Fallback within Quartz: first window of the frontmost app.
+        if front_name:
+            for w in qs:
+                if w["app"] == front_name:
+                    return {"app": w["app"], "title": w["title"]}
+        if qs:
+            return {"app": qs[0]["app"], "title": qs[0]["title"]}
+
+    # Last-resort osascript path.
     script = (
         'tell application "System Events" to set frontApp to name of '
         "first application process whose frontmost is true\n"
@@ -96,17 +171,24 @@ def current_window() -> dict:
         'end tell\n'
         "return frontApp & \"\\t\" & wname"
     )
-    out = _osa(script)
+    out = _osa(script, timeout=6.0)
     parts = out.split("\t", 1)
     return {"app": parts[0], "title": parts[1] if len(parts) > 1 else ""}
 
 
 @skill(
     "list_windows",
-    "List visible windows across all apps as [{app, title}].",
+    "List visible windows across all apps as [{app, title, pid, "
+    "window_id, x, y, w, h}]. Uses the Quartz CGWindowList API — "
+    "completes in milliseconds without an Accessibility prompt.",
     {"type": "object"},
 )
 def list_windows() -> dict:
+    qs = _quartz_windows()
+    if qs is not None:
+        return {"windows": qs, "count": len(qs)}
+
+    # Fallback: AppleScript (slow, but works if Quartz is unavailable).
     script = (
         'set out to ""\n'
         'tell application "System Events"\n'
@@ -124,7 +206,7 @@ def list_windows() -> dict:
         'end tell\n'
         "return out"
     )
-    out = _osa(script)
+    out = _osa(script, timeout=8.0)
     windows = []
     for line in (out or "").splitlines():
         if "\t" in line:
