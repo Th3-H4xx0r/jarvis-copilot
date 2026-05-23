@@ -294,8 +294,103 @@ def cmd_invoke(args) -> int:
         "args": skill_args,
         "timeout": args.timeout,
     }, timeout=args.timeout + 5)
+    _strip_image_payloads(data)
     print(json.dumps(data, indent=2))
     return 0 if data.get("ok") else 1
+
+
+def cmd_screenshot(args) -> int:
+    """Capture a screen and SAVE it to a file. Returns only the path +
+    metadata in stdout — the bot reads the file via its vision tool
+    instead of swallowing a megabyte of base64."""
+    import base64
+    import tempfile
+
+    dev_id = _resolve_device_id(args.device)
+    if not dev_id:
+        print(json.dumps({"error": f"no device matching {args.device!r}"}), file=sys.stderr)
+        return 1
+
+    skill_args = {
+        "format": args.format,
+        "quality": args.quality,
+        "max_dim": args.max_dim,
+    }
+    if args.region:
+        try:
+            skill_args["region"] = json.loads(args.region)
+        except Exception as e:
+            print(json.dumps({"error": f"--region isn't valid JSON: {e}"}), file=sys.stderr)
+            return 1
+
+    status, data = _http("POST", "/api/devices/skills/invoke", body={
+        "device_id": dev_id,
+        "skill": "screenshot",
+        "args": skill_args,
+        "timeout": args.timeout,
+    }, timeout=args.timeout + 5)
+
+    if not data.get("ok"):
+        print(json.dumps(data, indent=2), file=sys.stderr)
+        return 1
+
+    result = data.get("result") or {}
+    b64 = result.get("img_b64") or result.get("png_b64")
+    if not b64:
+        print(json.dumps({"error": "device returned no image data"}, indent=2), file=sys.stderr)
+        return 1
+
+    fmt = (result.get("format") or args.format or "jpeg").lower()
+    ext = "jpg" if fmt == "jpeg" else fmt
+    out_path = args.out
+    if not out_path:
+        fd, out_path = tempfile.mkstemp(prefix="jc-screenshot-", suffix=f".{ext}")
+        os.close(fd)
+    try:
+        with open(out_path, "wb") as f:
+            f.write(base64.b64decode(b64))
+    except Exception as e:
+        print(json.dumps({"error": f"failed to write {out_path}: {e}"}, indent=2), file=sys.stderr)
+        return 1
+
+    print(json.dumps({
+        "ok": True,
+        "path": out_path,
+        "format": fmt,
+        "width": result.get("width"),
+        "height": result.get("height"),
+        "bytes": os.path.getsize(out_path),
+    }, indent=2))
+    return 0
+
+
+def _strip_image_payloads(data: dict, save_dir: Path | None = None) -> None:
+    """If a skill result contains an inline image (img_b64 / png_b64),
+    write it to a temp file and replace the field with `image_path`.
+    Keeps the printed JSON small so the bot's tool layer doesn't choke
+    on a megabyte of base64."""
+    import base64
+    import tempfile
+
+    res = data.get("result") if isinstance(data, dict) else None
+    if not isinstance(res, dict):
+        return
+    b64 = res.get("img_b64") or res.get("png_b64")
+    if not b64 or not isinstance(b64, str) or len(b64) < 1024:
+        return  # too small to bother with a file
+    fmt = (res.get("format") or "png").lower()
+    ext = "jpg" if fmt == "jpeg" else fmt
+    fd, path = tempfile.mkstemp(prefix="jc-image-", suffix=f".{ext}")
+    os.close(fd)
+    try:
+        with open(path, "wb") as f:
+            f.write(base64.b64decode(b64))
+    except Exception:
+        return
+    res.pop("img_b64", None)
+    res.pop("png_b64", None)
+    res["image_path"] = path
+    res["image_bytes"] = os.path.getsize(path)
 
 
 def main() -> int:
@@ -326,6 +421,21 @@ def main() -> int:
     sp.add_argument("--json-args", default="{}", help="JSON object passed as the skill's args")
     sp.add_argument("--timeout", type=float, default=30.0, help="Seconds to wait for a response")
     sp.set_defaults(func=cmd_invoke)
+
+    sp = sub.add_parser(
+        "screenshot",
+        help="Capture a device's screen, save it to a file, print {path, format, width, height} — "
+             "doesn't dump base64 to stdout. Prefer this over `invoke ... screenshot` for screen capture.",
+    )
+    sp.add_argument("device", help="Device ID prefix or name substring")
+    sp.add_argument("--out", help="Output path (default: temp file)")
+    sp.add_argument("--format", choices=["jpeg", "png"], default="jpeg")
+    sp.add_argument("--quality", type=int, default=70, help="JPEG quality 1-100 (default 70)")
+    sp.add_argument("--max-dim", dest="max_dim", type=int, default=1400,
+                    help="Cap longest side in px (default 1400; 0 disables)")
+    sp.add_argument("--region", help="JSON {x,y,w,h} for a sub-rect; omit for full screen")
+    sp.add_argument("--timeout", type=float, default=15.0, help="Seconds to wait")
+    sp.set_defaults(func=cmd_screenshot)
 
     args = p.parse_args()
     return args.func(args)

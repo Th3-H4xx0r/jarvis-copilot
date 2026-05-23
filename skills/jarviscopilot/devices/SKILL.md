@@ -80,6 +80,23 @@ Run one of the device's registered skills and return its result. Synchronous.
 python3 "$SCRIPT" invoke "Pranav's iPhone" send_sms --json-args '{"to":"+1...","body":"on my way"}'
 ```
 
+If a skill returns an inline image (`img_b64` / `png_b64`), `invoke` automatically writes the bytes to a temp file and replaces the field with `image_path` so the printed JSON stays small. You can hand that path to your vision tool directly.
+
+### `screenshot <device> [options]`
+**Preferred way to capture a device's screen.** Calls the `screenshot` skill, saves the image to a file, and prints only `{path, format, width, height, bytes}` — no megabyte of base64 to parse. Use this instead of `invoke ... screenshot` whenever you want to actually look at the screen.
+
+```bash
+python3 "$SCRIPT" screenshot "Pranav's Macbook"                   # default: JPEG q=70, max 1400px wide
+python3 "$SCRIPT" screenshot mac --out /tmp/x.jpg                 # explicit path
+python3 "$SCRIPT" screenshot mac --max-dim 900 --quality 50       # smaller / faster
+python3 "$SCRIPT" screenshot mac --region '{"x":0,"y":0,"w":500,"h":400}'
+python3 "$SCRIPT" screenshot mac --format png                     # lossless
+```
+
+After capture, pass the printed `path` to your vision/image-reading tool (e.g. `browser_navigate file:///<path>` or whatever your environment's image-vision call is). **Do not** try to read the base64 yourself or re-invoke `screenshot` until you've actually inspected the saved file.
+
+**When the user asks "what's on my screen" / "can you see my Mac":** find their Mac in `list`, run `screenshot <device>`, then open the saved path with your vision tool. That's the whole flow — three calls, ~1 second.
+
 ## How pairing works under the hood
 
 The helper script does **not** make HTTP calls to the webui. It writes the pending code straight to `~/.jarviscopilot/webui/.pending_pair.json` (0600), then polls the same file for `claimed=true`. The webui reads from the same file when a browser POSTs `/api/auth/pair/claim`. This avoids needing any kind of host-secret to bootstrap auth.
