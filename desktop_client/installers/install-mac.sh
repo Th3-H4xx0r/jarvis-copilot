@@ -69,8 +69,13 @@ case ":$PATH:" in
 esac
 
 # --- LaunchAgent ------------------------------------------------------------
-# Runs the tray (which auto-spawns the service). LaunchAgents run on
-# user login. KeepAlive ensures we resurrect after crashes.
+# Runs the service in the foreground so it's directly supervised.
+# We used to run the tray (which spawned the service as a daemon thread),
+# but on LaunchAgent contexts pystray's NSStatusBar setup can fail
+# silently — the tray would exit cleanly, take the service thread with
+# it, and KeepAlive (SuccessfulExit=false) wouldn't restart. Running
+# `start` directly avoids that whole class of failure. The tray can
+# still be launched separately when the user logs in if they want it.
 PLIST_DIR="$HOME/Library/LaunchAgents"
 PLIST="$PLIST_DIR/com.jarviscopilot.client.plist"
 mkdir -p "$PLIST_DIR"
@@ -84,21 +89,20 @@ cat > "$PLIST" <<EOF
     <key>ProgramArguments</key>
     <array>
         <string>$VENV_DIR/bin/jc-client</string>
-        <string>tray</string>
+        <string>start</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
     <key>StandardOutPath</key>
     <string>$HOME/.jarviscopilot-client/logs/launchd.out.log</string>
     <key>StandardErrorPath</key>
     <string>$HOME/.jarviscopilot-client/logs/launchd.err.log</string>
     <key>ProcessType</key>
-    <string>Interactive</string>
+    <string>Background</string>
 </dict>
 </plist>
 EOF

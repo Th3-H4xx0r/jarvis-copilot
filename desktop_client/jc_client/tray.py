@@ -260,4 +260,7 @@ def run() -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     app.run()
-    return 0
+    # If icon.run() returned (icon couldn't show, e.g. no UI context under
+    # a LaunchAgent), exit non-zero so KeepAlive restarts us. Otherwise
+    # we'd silently drop the service.
+    return 3

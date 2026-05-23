@@ -584,7 +584,17 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
                     "description": (s.get("description") or "")[:512],
                     "input_schema": s.get("input_schema") if isinstance(s.get("input_schema"), dict) else {"type": "object"},
                 })
-        conn.skills = clean[:64]  # cap so a misbehaving device can't bloat the registry
+        # `append=true` extends the existing registry — lets clients with
+        # large manifests chunk the registration across multiple frames
+        # so each WS message stays well under the recv buffer. Without
+        # the flag we treat the frame as authoritative and replace.
+        if msg.get("append"):
+            merged: dict[str, dict] = {s["name"]: s for s in conn.skills}
+            for s in clean:
+                merged[s["name"]] = s
+            conn.skills = list(merged.values())[:128]
+        else:
+            conn.skills = clean[:128]  # cap so a misbehaving device can't bloat the registry
         try:
             _ws_send_text(conn, json.dumps({
                 "type": "registered",

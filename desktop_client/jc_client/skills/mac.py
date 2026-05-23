@@ -212,3 +212,206 @@ def volume_set(level: int) -> dict:
     v = max(0, min(100, int(level)))
     _osa(f"set volume output volume {v}")
     return {"ok": True, "level": v}
+
+
+# ── System commands (canned keyboard shortcuts) ────────────────────────────
+
+
+# Maps the agent-friendly command name → (keystroke, modifier list)
+# for `tell application "System Events" to keystroke ... using {modifiers}`.
+_SYSTEM_COMMANDS: dict[str, tuple[str, list[str]]] = {
+    "copy":      ("c", ["command down"]),
+    "paste":     ("v", ["command down"]),
+    "cut":       ("x", ["command down"]),
+    "undo":      ("z", ["command down"]),
+    "redo":      ("z", ["command down", "shift down"]),
+    "selectall": ("a", ["command down"]),
+    "save":      ("s", ["command down"]),
+    "quit":      ("q", ["command down"]),
+    "minimize":  ("m", ["command down"]),
+    "switchapp": ("\\t", ["command down"]),  # Cmd-Tab
+    "newtab":    ("t", ["command down"]),
+    "closetab":  ("w", ["command down"]),
+    "newwindow": ("n", ["command down"]),
+    "closewindow": ("w", ["command down", "shift down"]),
+    "find":      ("f", ["command down"]),
+    "refresh":   ("r", ["command down"]),
+    "screenshot": ("4", ["command down", "shift down"]),
+    "spotlight": ("\\t", ["command down"]),  # actually Cmd-Space; see special handler
+}
+
+
+@skill(
+    "system_command",
+    "Run a canned macOS keyboard shortcut by name. Supported: copy, paste, "
+    "cut, undo, redo, selectAll, save, quit, minimize, switchApp, newTab, "
+    "closeTab, newWindow, closeWindow, find, refresh, screenshot, spotlight.",
+    {
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "enum": [
+                    "copy", "paste", "cut", "undo", "redo", "selectAll",
+                    "save", "quit", "minimize", "switchApp", "newTab",
+                    "closeTab", "newWindow", "closeWindow", "find",
+                    "refresh", "screenshot", "spotlight",
+                ],
+            },
+        },
+        "required": ["command"],
+    },
+    destructive=True,
+)
+def system_command(command: str) -> dict:
+    key = (command or "").strip().lower()
+    # Spotlight is Cmd-Space (a space char, not a named key).
+    if key == "spotlight":
+        _osa('tell application "System Events" to key code 49 using {command down}')
+        return {"ok": True, "command": command}
+
+    entry = _SYSTEM_COMMANDS.get(key)
+    if entry is None:
+        raise ValueError(f"unknown system command: {command!r}")
+    keystroke, mods = entry
+    mod_clause = "{" + ", ".join(mods) + "}"
+    # `keystroke "x" using {command down}` types the shortcut.
+    # Tab needs key code 48 because keystroke "\t" can be flaky.
+    if keystroke == "\\t":
+        _osa(f'tell application "System Events" to key code 48 using {mod_clause}')
+    else:
+        _osa(
+            f'tell application "System Events" to keystroke "{keystroke}" '
+            f"using {mod_clause}"
+        )
+    return {"ok": True, "command": command}
+
+
+# ── Window control (move / resize / minimize / restore) ────────────────────
+
+
+def _find_window(title_substring: str) -> dict | None:
+    sub = (title_substring or "").lower()
+    if not sub:
+        raise ValueError("title_substring required")
+    for w in list_windows()["windows"]:
+        if sub in (w.get("title", "")).lower() or sub in (w.get("app", "")).lower():
+            return w
+    return None
+
+
+def _set_window_attr(app: str, title: str, attr: str, value: str) -> None:
+    """Set a window attribute via System Events. `attr` is e.g. 'position'
+    or 'size'; `value` is an AppleScript literal like '{120, 80}'."""
+    app_s = app.replace('"', '\\"')
+    title_s = title.replace('"', '\\"')
+    script = (
+        f'tell application "System Events"\n'
+        f'  tell process "{app_s}"\n'
+        f'    set targetWin to (first window whose name is "{title_s}")\n'
+        f'    set {attr} of targetWin to {value}\n'
+        f'  end tell\n'
+        f'end tell'
+    )
+    _osa(script)
+
+
+def _set_window_minimized(app: str, title: str, miniaturized: bool) -> None:
+    app_s = app.replace('"', '\\"')
+    title_s = title.replace('"', '\\"')
+    flag = "true" if miniaturized else "false"
+    script = (
+        f'tell application "System Events"\n'
+        f'  tell process "{app_s}"\n'
+        f'    set value of attribute "AXMinimized" of '
+        f'(first window whose name is "{title_s}") to {flag}\n'
+        f'  end tell\n'
+        f'end tell'
+    )
+    _osa(script)
+
+
+@skill(
+    "window_move",
+    "Move a window matching `title_substring` to absolute screen position "
+    "(x, y) — top-left of the window in macOS global coords.",
+    {
+        "type": "object",
+        "properties": {
+            "title_substring": {"type": "string"},
+            "x": {"type": "number"},
+            "y": {"type": "number"},
+        },
+        "required": ["title_substring", "x", "y"],
+    },
+    destructive=True,
+)
+def window_move(title_substring: str, x: float, y: float) -> dict:
+    w = _find_window(title_substring)
+    if not w:
+        return {"ok": False, "error": f"no window matches {title_substring!r}"}
+    _set_window_attr(w["app"], w["title"], "position", f"{{{int(x)}, {int(y)}}}")
+    return {"ok": True, "matched": w, "x": int(x), "y": int(y)}
+
+
+@skill(
+    "window_resize",
+    "Resize a window matching `title_substring` to {width, height} pixels.",
+    {
+        "type": "object",
+        "properties": {
+            "title_substring": {"type": "string"},
+            "width": {"type": "number"},
+            "height": {"type": "number"},
+        },
+        "required": ["title_substring", "width", "height"],
+    },
+    destructive=True,
+)
+def window_resize(title_substring: str, width: float, height: float) -> dict:
+    w = _find_window(title_substring)
+    if not w:
+        return {"ok": False, "error": f"no window matches {title_substring!r}"}
+    _set_window_attr(
+        w["app"], w["title"], "size", f"{{{int(width)}, {int(height)}}}"
+    )
+    return {"ok": True, "matched": w, "width": int(width), "height": int(height)}
+
+
+@skill(
+    "window_minimize",
+    "Minimize a window matching `title_substring` (sends it to the Dock).",
+    {
+        "type": "object",
+        "properties": {"title_substring": {"type": "string"}},
+        "required": ["title_substring"],
+    },
+    destructive=True,
+)
+def window_minimize(title_substring: str) -> dict:
+    w = _find_window(title_substring)
+    if not w:
+        return {"ok": False, "error": f"no window matches {title_substring!r}"}
+    _set_window_minimized(w["app"], w["title"], True)
+    return {"ok": True, "matched": w}
+
+
+@skill(
+    "window_restore",
+    "Restore (un-minimize) a window matching `title_substring`.",
+    {
+        "type": "object",
+        "properties": {"title_substring": {"type": "string"}},
+        "required": ["title_substring"],
+    },
+    destructive=True,
+)
+def window_restore(title_substring: str) -> dict:
+    w = _find_window(title_substring)
+    if not w:
+        return {"ok": False, "error": f"no window matches {title_substring!r}"}
+    _set_window_minimized(w["app"], w["title"], False)
+    # Also activate it so it actually surfaces.
+    app_s = w["app"].replace('"', '\\"')
+    _osa(f'tell application "{app_s}" to activate')
+    return {"ok": True, "matched": w}

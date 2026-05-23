@@ -163,22 +163,28 @@ class Service:
         self._last_error = ""
         log.info("connected to %s", creds.server_url)
 
-        # Register skills immediately.
+        # Register skills immediately. The deployed device bridge silently
+        # drops WS messages larger than its socket recv buffer (~8 KB), so
+        # we chunk the manifest. The first chunk REPLACES the registry;
+        # subsequent chunks carry ``append: true`` so a server that
+        # supports it accumulates. Older servers (no append support) end
+        # up with only the last chunk's skills — degraded but not broken.
         manifest = skills.all_manifest(disabled=creds.skills_disabled)
         self._registered_count = len(manifest)
-        ws.send_text(
-            json.dumps(
-                {
-                    "type": "register",
-                    "skills": manifest,
-                    "device": {
-                        "name": creds.device_name,
-                        "platform": _platform_summary(),
-                    },
+        chunks = _chunk_manifest(manifest, max_bytes=6 * 1024)
+        for i, chunk in enumerate(chunks):
+            frame = {"type": "register", "skills": chunk}
+            if i == 0:
+                frame["device"] = {
+                    "name": creds.device_name,
+                    "platform": _platform_summary(),
                 }
-            )
+            else:
+                frame["append"] = True
+            ws.send_text(json.dumps(frame))
+        log.info(
+            "registered %d skills in %d frame(s)", len(manifest), len(chunks)
         )
-        log.info("registered %d skills", len(manifest))
 
         # Periodic ping thread — keeps NATs / load balancers from
         # silently dropping the connection if the server is idle.
@@ -254,13 +260,26 @@ class Service:
             self._send_error(ws, call_id, f"{type(exc).__name__}: {exc}")
             return
 
+        payload = json.dumps({"type": "result", "call_id": call_id, "result": result})
+        t0 = time.monotonic()
         try:
-            ws.send_text(
-                json.dumps({"type": "result", "call_id": call_id, "result": result})
+            ws.send_text(payload)
+        except WsConnectionClosed as exc:
+            log.warning(
+                "result send failed for %s call_id=%s bytes=%d: %s",
+                name, call_id, len(payload), exc,
             )
-        except WsConnectionClosed:
-            # The server lost us mid-invoke. Nothing useful to do.
-            pass
+            return
+        except Exception as exc:
+            log.error(
+                "result send raised for %s call_id=%s bytes=%d: %s",
+                name, call_id, len(payload), exc,
+            )
+            return
+        log.info(
+            "result sent %s call_id=%s bytes=%d in %.2fs",
+            name, call_id, len(payload), time.monotonic() - t0,
+        )
 
     def _send_error(self, ws: WsConnection, call_id: str, msg: str) -> None:
         try:
@@ -293,6 +312,30 @@ def _truncate(obj: object, limit: int = 200) -> str:
     if len(s) <= limit:
         return s
     return s[:limit] + "...(truncated)"
+
+
+def _chunk_manifest(manifest: list[dict], max_bytes: int) -> list[list[dict]]:
+    """Split a skill manifest into groups whose JSON envelope stays under
+    ``max_bytes``. Always returns at least one chunk (possibly empty)."""
+    # Rough envelope overhead for the register frame around the skills array
+    # — type field, append flag, device field on the first frame.
+    overhead = 256
+    budget = max(512, max_bytes - overhead)
+
+    chunks: list[list[dict]] = []
+    current: list[dict] = []
+    current_size = 2  # the "[]" framing
+    for skill in manifest:
+        s_size = len(json.dumps(skill)) + 1  # +1 for comma
+        if current and current_size + s_size > budget:
+            chunks.append(current)
+            current = []
+            current_size = 2
+        current.append(skill)
+        current_size += s_size
+    if current or not chunks:
+        chunks.append(current)
+    return chunks
 
 
 # ── module entry ───────────────────────────────────────────────────────────
