@@ -62,6 +62,76 @@ def _is_running(pid: int) -> bool:
         return False
 
 
+# ── Supervisor (LaunchAgent / systemd) helpers ────────────────────────────
+
+_LAUNCHCTL_LABEL = "com.jarviscopilot.client"
+_LAUNCHCTL_PLIST = Path.home() / "Library/LaunchAgents/com.jarviscopilot.client.plist"
+_SYSTEMD_UNIT = "jc-client.service"
+
+
+def _supervisor_kind() -> str | None:
+    """Return 'launchctl' if a macOS LaunchAgent plist exists, 'systemd'
+    if the user systemd unit exists, else None. The supervisor is the
+    process responsible for keeping the service alive across reboots /
+    crashes — if one's installed, `start`/`stop`/`restart` must drive
+    it rather than fight it."""
+    if sys.platform == "darwin" and _LAUNCHCTL_PLIST.is_file():
+        return "launchctl"
+    if sys.platform.startswith("linux"):
+        try:
+            unit = Path.home() / f".config/systemd/user/{_SYSTEMD_UNIT}"
+            if unit.is_file():
+                return "systemd"
+        except Exception:
+            pass
+    return None
+
+
+def _supervisor_is_loaded() -> bool:
+    kind = _supervisor_kind()
+    if kind == "launchctl":
+        rc = subprocess.run(
+            ["launchctl", "list", _LAUNCHCTL_LABEL],
+            capture_output=True, text=True,
+        )
+        return rc.returncode == 0
+    if kind == "systemd":
+        rc = subprocess.run(
+            ["systemctl", "--user", "is-active", "--quiet", _SYSTEMD_UNIT],
+            capture_output=True, text=True,
+        )
+        return rc.returncode == 0
+    return False
+
+
+def _supervisor_load() -> None:
+    kind = _supervisor_kind()
+    if kind == "launchctl":
+        subprocess.run(
+            ["launchctl", "load", "-w", str(_LAUNCHCTL_PLIST)],
+            capture_output=True, text=True, check=False,
+        )
+    elif kind == "systemd":
+        subprocess.run(
+            ["systemctl", "--user", "start", _SYSTEMD_UNIT],
+            capture_output=True, text=True, check=False,
+        )
+
+
+def _supervisor_unload() -> None:
+    kind = _supervisor_kind()
+    if kind == "launchctl":
+        subprocess.run(
+            ["launchctl", "unload", str(_LAUNCHCTL_PLIST)],
+            capture_output=True, text=True, check=False,
+        )
+    elif kind == "systemd":
+        subprocess.run(
+            ["systemctl", "--user", "stop", _SYSTEMD_UNIT],
+            capture_output=True, text=True, check=False,
+        )
+
+
 # ── Subcommands ────────────────────────────────────────────────────────────
 
 
@@ -109,15 +179,14 @@ def _pair_headless(url: str, code: str, name: str | None) -> int:
 
 
 def cmd_start(args) -> int:
-    """Run the service. With --no-tray, headless service only; otherwise
-    open the menubar tray app, which will start the service in a
-    background thread (or run UI-only if a service is already running)."""
-    pid = _read_pid()
-    running = pid and _is_running(pid)
-
-    # Headless mode (LaunchAgent / systemd / `--no-tray` from CLI).
+    """Start the service. With --no-tray, headless service in the
+    foreground. Otherwise: ensure the supervisor (LaunchAgent / systemd)
+    is loaded, then open the menubar tray. If no supervisor is
+    installed, runs the service in a background thread via the tray."""
+    # Headless mode: explicit, used by LaunchAgent/systemd themselves.
     if getattr(args, "no_tray", False):
-        if running:
+        pid = _read_pid()
+        if pid and _is_running(pid):
             print(f"already running (pid {pid})", file=sys.stderr)
             return 1
         _write_pid(os.getpid())
@@ -129,12 +198,24 @@ def cmd_start(args) -> int:
             except FileNotFoundError:
                 pass
 
-    # Interactive mode: open the tray. Tray detects the existing PID
-    # file and runs UI-only when a supervised service is already up
-    # (so `jc-client start` with a LaunchAgent active just adds the
-    # menubar icon and returns when the user quits it). Tray failing
-    # to start (no pystray, no UI context) falls back to running the
-    # service in the foreground so the command isn't silently useless.
+    # Interactive: hand supervision off to launchctl/systemd if one is
+    # installed. Otherwise the tray will spawn the service itself.
+    sup = _supervisor_kind()
+    if sup and not _supervisor_is_loaded():
+        print(f"loading {sup} supervisor …")
+        _supervisor_load()
+        # Wait for the supervisor's child to claim the PID file before
+        # the tray tries to spawn its own — otherwise both register as
+        # the same device, the server kicks them in turn, and we get
+        # the 1Hz reconnect storm again. ~3s is enough for launchd /
+        # systemd to spawn + the service to write its pid.
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            pid = _read_pid()
+            if pid and _is_running(pid):
+                break
+            time.sleep(0.1)
+
     from jc_client import tray as _tray
 
     try:
@@ -143,9 +224,13 @@ def cmd_start(args) -> int:
         log.warning("tray failed to start: %s — falling back to headless", exc)
         rc = 2
 
-    if rc == 2 and not running:
-        # Tray init failed AND no service is already running — give the
-        # user something useful by starting the service in the foreground.
+    if rc == 2 and not sup:
+        # No tray AND no supervisor — run the service in the foreground
+        # so the command isn't silently useless.
+        pid = _read_pid()
+        if pid and _is_running(pid):
+            print(f"already running (pid {pid})", file=sys.stderr)
+            return 1
         print("tray unavailable — running service in foreground", file=sys.stderr)
         _write_pid(os.getpid())
         try:
@@ -159,6 +244,14 @@ def cmd_start(args) -> int:
 
 
 def cmd_stop(args) -> int:
+    # Drive the supervisor first — otherwise killing the PID just
+    # triggers an instant launchd/systemd respawn.
+    sup = _supervisor_kind()
+    if sup and _supervisor_is_loaded():
+        _supervisor_unload()
+        print(f"stopped ({sup})")
+        return 0
+
     pid = _read_pid()
     if not pid or not _is_running(pid):
         print("not running", file=sys.stderr)
@@ -168,7 +261,7 @@ def cmd_stop(args) -> int:
     except OSError as exc:
         print(f"kill failed: {exc}", file=sys.stderr)
         return 1
-    # Wait up to 5s for the PID file to disappear.
+    # Wait up to 5s for the process to exit.
     for _ in range(50):
         if not _is_running(pid):
             break
@@ -182,6 +275,17 @@ def cmd_stop(args) -> int:
 
 
 def cmd_restart(args) -> int:
+    # Through supervisor: cleanest path.
+    sup = _supervisor_kind()
+    if sup:
+        if _supervisor_is_loaded():
+            _supervisor_unload()
+            # Give launchctl a beat to release the slot before re-loading.
+            time.sleep(0.5)
+        _supervisor_load()
+        print(f"restarted ({sup})")
+        return 0
+
     rc = cmd_stop(args)
     # Re-spawn ourselves detached.
     py = sys.executable
