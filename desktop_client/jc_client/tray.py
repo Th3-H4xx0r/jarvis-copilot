@@ -28,12 +28,29 @@ import webbrowser
 from typing import Optional
 
 from jc_client import credentials, service
-from jc_client.logger import log_path, setup as setup_logging
+from jc_client.logger import log_path, setup as setup_logging, state_dir
 
 log = logging.getLogger(__name__)
 
 
 _STATE_REFRESH_SEC = 2.0
+
+
+def _read_service_pid() -> Optional[int]:
+    """Return the PID of a running ``jc-client start`` process, or None.
+    Reads the PID file that ``cmd_start`` writes and verifies the
+    process is still alive."""
+    pid_file = state_dir() / "jc-client.pid"
+    try:
+        raw = pid_file.read_text().strip()
+        pid = int(raw)
+    except (FileNotFoundError, ValueError):
+        return None
+    try:
+        os.kill(pid, 0)
+        return pid
+    except (OSError, ProcessLookupError):
+        return None
 
 
 def _icon_image(color: tuple[int, int, int]):
@@ -82,6 +99,21 @@ class TrayApp:
     def _start_service(self) -> None:
         if self._svc_thread and self._svc_thread.is_alive():
             return
+        # If another process is already running the service (typically the
+        # LaunchAgent / systemd unit), don't spawn a second one — the
+        # server allows only one bridge per device_id, so two services
+        # would kick each other out of `_REG` in a 1Hz reconnect storm.
+        # The tray runs in UI-only mode in that case.
+        running_pid = _read_service_pid()
+        if running_pid and running_pid != os.getpid():
+            log.info(
+                "tray: service already running (pid %d) — running UI only",
+                running_pid,
+            )
+            self._svc = None
+            self._svc_thread = None
+            return
+
         self._svc = service.Service()
         # Make the active handle reachable from the tray.
         service.ACTIVE = self._svc
