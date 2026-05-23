@@ -93,6 +93,10 @@ class TrayApp:
         self._svc: service.Service | None = None
         self._svc_thread: threading.Thread | None = None
         self._stop = threading.Event()
+        # When supervised by launchctl/systemd, _svc is None but a
+        # service is alive in another process; we read status from its
+        # PID file + log tail.
+        self._supervised_pid: int | None = None
 
     # ── Service lifecycle ────────────────────────────────────────────
 
@@ -112,7 +116,9 @@ class TrayApp:
             )
             self._svc = None
             self._svc_thread = None
+            self._supervised_pid = running_pid
             return
+        self._supervised_pid = None
 
         self._svc = service.Service()
         # Make the active handle reachable from the tray.
@@ -169,6 +175,18 @@ class TrayApp:
             subprocess.Popen(["xdg-open", str(path)])
 
     def _act_restart(self, _icon, _item) -> None:
+        if self._supervised_pid:
+            # Restart via the supervisor so we don't fight it.
+            py = sys.executable
+            subprocess.Popen(
+                [py, "-m", "jc_client", "restart"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+                close_fds=True,
+            )
+            return
         self._stop_service()
         self._start_service()
 
@@ -179,9 +197,13 @@ class TrayApp:
             else:
                 self._svc.pause()
             self._refresh_menu()
+        # In supervised mode there's no IPC to pause the other process;
+        # menu item is hidden via _pause_visible.
 
     def _act_quit(self, icon, _item) -> None:
         self._stop.set()
+        # Only stop our own service handle. The supervised process keeps
+        # running — that's the whole point of LaunchAgent/systemd.
         self._stop_service()
         try:
             icon.stop()
@@ -197,10 +219,17 @@ class TrayApp:
         Sep = pystray.Menu.SEPARATOR
 
         def _status_text(_item):
-            return _format_status_line(self._svc)
+            if self._svc is not None:
+                return _format_status_line(self._svc)
+            return _format_supervised_status_line(self._supervised_pid)
 
         def _pause_label(_item):
             return "Resume" if (self._svc and self._svc.is_paused) else "Pause"
+
+        def _pause_visible(_item):
+            # Hide pause/resume when we don't own the service — there's
+            # no way to signal the supervised process to pause from here.
+            return self._svc is not None
 
         return Menu(
             MenuItem(_status_text, None, enabled=False),
@@ -209,22 +238,29 @@ class TrayApp:
             MenuItem("Re-pair…", self._act_repair),
             MenuItem("View logs", self._act_view_logs),
             MenuItem("Restart", self._act_restart),
-            MenuItem(_pause_label, self._act_pause),
+            MenuItem(_pause_label, self._act_pause, visible=_pause_visible),
             Sep,
             MenuItem("Quit", self._act_quit),
         )
 
     def _icon_for_state(self):
-        if not self._svc:
-            color = (90, 90, 90, 255)
-        elif self._svc.is_paused:
-            color = (240, 179, 65, 255)  # amber
-        elif self._svc.is_connected:
-            color = (66, 160, 90, 255)  # green
+        if self._svc is not None:
+            if self._svc.is_paused:
+                color = (240, 179, 65, 255)  # amber
+            elif self._svc.is_connected:
+                color = (66, 160, 90, 255)  # green
+            else:
+                color = (224, 85, 43, 255)  # red
         else:
-            color = (224, 85, 43, 255)  # red
-        img = _icon_image(color)
-        return img
+            # Supervised mode — derive state from PID + log tail.
+            state = _supervised_state(self._supervised_pid)
+            if state == "connected":
+                color = (66, 160, 90, 255)  # green
+            elif state == "reconnecting":
+                color = (224, 85, 43, 255)  # red
+            else:
+                color = (90, 90, 90, 255)  # grey (stopped / unknown)
+        return _icon_image(color)
 
     def _refresh_menu(self) -> None:
         # pystray updates the title + menu by calling update_menu on the
@@ -283,6 +319,51 @@ def _format_status_line(svc: Optional[service.Service]) -> str:
     if svc.is_connected:
         return f"● Connected to {creds.server_url}"
     return f"● Reconnecting to {creds.server_url}…"
+
+
+def _format_supervised_status_line(pid: Optional[int]) -> str:
+    creds = credentials.load()
+    if not creds.paired:
+        return "● Not paired"
+    if not pid or not _pid_alive(pid):
+        return "● Service not running"
+    state = _supervised_state(pid)
+    if state == "connected":
+        return f"● Connected to {creds.server_url}"
+    if state == "reconnecting":
+        return f"● Reconnecting to {creds.server_url}…"
+    return f"● Supervised (pid {pid})"
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def _supervised_state(pid: Optional[int]) -> str:
+    """Derive the supervised service's state by tailing the log file.
+    Returns 'connected', 'reconnecting', or 'unknown'. Cheap — reads
+    the last ~4 KB of the log."""
+    if not pid or not _pid_alive(pid):
+        return "stopped"
+    path = log_path()
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            f.seek(max(0, size - 4096))
+            tail = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return "unknown"
+    last_state = "unknown"
+    for line in tail.splitlines():
+        if "connected to" in line:
+            last_state = "connected"
+        elif "reconnecting in" in line:
+            last_state = "reconnecting"
+    return last_state
 
 
 def run() -> int:
