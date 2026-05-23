@@ -217,27 +217,30 @@ def volume_set(level: int) -> dict:
 # ── System commands (canned keyboard shortcuts) ────────────────────────────
 
 
-# Maps the agent-friendly command name → (keystroke, modifier list)
-# for `tell application "System Events" to keystroke ... using {modifiers}`.
-_SYSTEM_COMMANDS: dict[str, tuple[str, list[str]]] = {
-    "copy":      ("c", ["command down"]),
-    "paste":     ("v", ["command down"]),
-    "cut":       ("x", ["command down"]),
-    "undo":      ("z", ["command down"]),
-    "redo":      ("z", ["command down", "shift down"]),
-    "selectall": ("a", ["command down"]),
-    "save":      ("s", ["command down"]),
-    "quit":      ("q", ["command down"]),
-    "minimize":  ("m", ["command down"]),
-    "switchapp": ("\\t", ["command down"]),  # Cmd-Tab
-    "newtab":    ("t", ["command down"]),
-    "closetab":  ("w", ["command down"]),
-    "newwindow": ("n", ["command down"]),
-    "closewindow": ("w", ["command down", "shift down"]),
-    "find":      ("f", ["command down"]),
-    "refresh":   ("r", ["command down"]),
-    "screenshot": ("4", ["command down", "shift down"]),
-    "spotlight": ("\\t", ["command down"]),  # actually Cmd-Space; see special handler
+# Maps the agent-friendly command name → list of pynput key tokens to press
+# as a combo. Routed through the existing key_press skill (pynput) so we
+# share whatever Accessibility/Input-Monitoring permissions are already
+# granted to the Python binary — osascript `keystroke` would require its
+# own TCC grant that LaunchAgents can't prompt for.
+_SYSTEM_COMMANDS: dict[str, list[str]] = {
+    "copy":        ["cmd", "c"],
+    "paste":       ["cmd", "v"],
+    "cut":         ["cmd", "x"],
+    "undo":        ["cmd", "z"],
+    "redo":        ["cmd", "shift", "z"],
+    "selectall":   ["cmd", "a"],
+    "save":        ["cmd", "s"],
+    "quit":        ["cmd", "q"],
+    "minimize":    ["cmd", "m"],
+    "switchapp":   ["cmd", "tab"],
+    "newtab":      ["cmd", "t"],
+    "closetab":    ["cmd", "w"],
+    "newwindow":   ["cmd", "n"],
+    "closewindow": ["cmd", "shift", "w"],
+    "find":        ["cmd", "f"],
+    "refresh":     ["cmd", "r"],
+    "screenshot":  ["cmd", "shift", "4"],
+    "spotlight":   ["cmd", "space"],
 }
 
 
@@ -265,26 +268,15 @@ _SYSTEM_COMMANDS: dict[str, tuple[str, list[str]]] = {
 )
 def system_command(command: str) -> dict:
     key = (command or "").strip().lower()
-    # Spotlight is Cmd-Space (a space char, not a named key).
-    if key == "spotlight":
-        _osa('tell application "System Events" to key code 49 using {command down}')
-        return {"ok": True, "command": command}
-
-    entry = _SYSTEM_COMMANDS.get(key)
-    if entry is None:
+    keys = _SYSTEM_COMMANDS.get(key)
+    if keys is None:
         raise ValueError(f"unknown system command: {command!r}")
-    keystroke, mods = entry
-    mod_clause = "{" + ", ".join(mods) + "}"
-    # `keystroke "x" using {command down}` types the shortcut.
-    # Tab needs key code 48 because keystroke "\t" can be flaky.
-    if keystroke == "\\t":
-        _osa(f'tell application "System Events" to key code 48 using {mod_clause}')
-    else:
-        _osa(
-            f'tell application "System Events" to keystroke "{keystroke}" '
-            f"using {mod_clause}"
-        )
-    return {"ok": True, "command": command}
+    # Reuse the cross-platform key_press skill via direct import to avoid
+    # a round-trip through the registry.
+    from jc_client.skills.common import key_press
+
+    key_press(keys=keys)
+    return {"ok": True, "command": command, "keys": keys}
 
 
 # ── Window control (move / resize / minimize / restore) ────────────────────

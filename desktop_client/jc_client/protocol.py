@@ -324,9 +324,14 @@ class WsConnection:
     def send_text(self, text: str) -> None:
         if self._closed or not self._conn or not self._sock:
             raise WsConnectionClosed("not connected")
+        # Both the wsproto state mutation (_conn.send) AND the socket
+        # write must happen inside the lock. wsproto isn't thread-safe;
+        # without this, concurrent send_text calls from worker threads
+        # interleave frame bytes and the server sees a malformed frame
+        # then closes the connection.
         try:
-            data = self._conn.send(TextMessage(data=text))
             with self._send_lock:
+                data = self._conn.send(TextMessage(data=text))
                 self._sock.sendall(data)
         except (OSError, ssl.SSLError) as exc:
             self._closed = True

@@ -113,7 +113,9 @@ launchctl load -w "$PLIST"
 
 ok "Installed at $INSTALL_DIR"
 echo
-echo "LaunchAgent enabled — the tray will auto-start on login."
+echo "LaunchAgent enabled — the service will auto-start on login and"
+echo "restart on crash. Run \`jc-client tray\` separately if you want the"
+echo "menubar icon."
 echo
 echo "Pair this device now:"
 echo "  jc-client pair"
