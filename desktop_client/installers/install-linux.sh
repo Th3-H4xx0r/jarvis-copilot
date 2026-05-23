@@ -104,7 +104,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=$VENV_DIR/bin/jc-client start
+ExecStart=$VENV_DIR/bin/jc-client start --no-tray
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

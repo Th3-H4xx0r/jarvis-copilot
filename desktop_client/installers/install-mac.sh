@@ -90,6 +90,7 @@ cat > "$PLIST" <<EOF
     <array>
         <string>$VENV_DIR/bin/jc-client</string>
         <string>start</string>
+        <string>--no-tray</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

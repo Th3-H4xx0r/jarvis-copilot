@@ -109,19 +109,53 @@ def _pair_headless(url: str, code: str, name: str | None) -> int:
 
 
 def cmd_start(args) -> int:
-    """Run the service in the foreground."""
+    """Run the service. With --no-tray, headless service only; otherwise
+    open the menubar tray app, which will start the service in a
+    background thread (or run UI-only if a service is already running)."""
     pid = _read_pid()
-    if pid and _is_running(pid):
-        print(f"already running (pid {pid})", file=sys.stderr)
-        return 1
-    _write_pid(os.getpid())
-    try:
-        return service.run(verbose=args.verbose)
-    finally:
+    running = pid and _is_running(pid)
+
+    # Headless mode (LaunchAgent / systemd / `--no-tray` from CLI).
+    if getattr(args, "no_tray", False):
+        if running:
+            print(f"already running (pid {pid})", file=sys.stderr)
+            return 1
+        _write_pid(os.getpid())
         try:
-            PID_FILE.unlink()
-        except FileNotFoundError:
-            pass
+            return service.run(verbose=args.verbose)
+        finally:
+            try:
+                PID_FILE.unlink()
+            except FileNotFoundError:
+                pass
+
+    # Interactive mode: open the tray. Tray detects the existing PID
+    # file and runs UI-only when a supervised service is already up
+    # (so `jc-client start` with a LaunchAgent active just adds the
+    # menubar icon and returns when the user quits it). Tray failing
+    # to start (no pystray, no UI context) falls back to running the
+    # service in the foreground so the command isn't silently useless.
+    from jc_client import tray as _tray
+
+    try:
+        rc = _tray.run()
+    except Exception as exc:
+        log.warning("tray failed to start: %s — falling back to headless", exc)
+        rc = 2
+
+    if rc == 2 and not running:
+        # Tray init failed AND no service is already running — give the
+        # user something useful by starting the service in the foreground.
+        print("tray unavailable — running service in foreground", file=sys.stderr)
+        _write_pid(os.getpid())
+        try:
+            return service.run(verbose=args.verbose)
+        finally:
+            try:
+                PID_FILE.unlink()
+            except FileNotFoundError:
+                pass
+    return rc
 
 
 def cmd_stop(args) -> int:
@@ -318,7 +352,16 @@ def _build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--name", help="Override device name (default: hostname)")
     pp.set_defaults(func=cmd_pair)
 
-    start = sub.add_parser("start", help="Run the service in foreground")
+    start = sub.add_parser(
+        "start",
+        help="Run the service (and open the menubar tray unless --no-tray)",
+    )
+    start.add_argument(
+        "--no-tray",
+        action="store_true",
+        help="Headless: run only the service, no menubar icon "
+             "(used by the LaunchAgent / systemd unit)",
+    )
     start.set_defaults(func=cmd_start)
 
     sub.add_parser("stop", help="Stop the running daemon").set_defaults(func=cmd_stop)
