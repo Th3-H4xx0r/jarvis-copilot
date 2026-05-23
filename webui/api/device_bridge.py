@@ -56,6 +56,11 @@ class _DeviceConn:
         self.connected_at = time.time()
         self.last_seen = time.time()
         self.closed = False
+        # wsproto delivers a TextMessage event per recv chunk for a
+        # multi-chunk WS frame, with `message_finished=True` only on the
+        # final piece. We accumulate text data here until the full
+        # message arrives before parsing JSON.
+        self._text_buf: str = ""
 
 
 _REG: dict[str, _DeviceConn] = {}
@@ -489,8 +494,11 @@ def _reconstruct_request(handler) -> bytes:
     return ("\r\n".join(lines)).encode("latin-1")
 
 
-_RECV_CHUNK = 8192
-_MAX_FRAME_BYTES = 256 * 1024  # 256 KB — generous for tool args/results
+_RECV_CHUNK = 65536  # 64 KB per recv; reassembly handles larger messages
+# Hard cap on a single WS message we'll buffer in memory per connection
+# — protects against a misbehaving device flooding us. 8 MB is enough
+# for an uncompressed-but-downscaled screenshot or a large skill result.
+_MAX_FRAME_BYTES = 8 * 1024 * 1024
 _PING_INTERVAL = 30.0  # send a server-side ping every 30s
 
 
@@ -537,9 +545,30 @@ def _pump(conn: _DeviceConn) -> None:
         for event in conn.conn.events():
             conn.last_seen = time.time()
             if isinstance(event, TextMessage):
+                # wsproto delivers a TextMessage per recv chunk for a
+                # multi-recv WS frame, with `message_finished=True` only
+                # on the final piece. We must accumulate text until the
+                # message is complete before parsing JSON — otherwise
+                # any payload over ~8 KB (one recv chunk) silently
+                # never reaches _handle_message because partial JSON
+                # fails to parse and we'd `continue`. That was the
+                # source of every "device did not respond before
+                # timeout" we saw for screenshots and large results.
+                conn._text_buf += event.data or ""
+                if not getattr(event, "message_finished", True):
+                    continue
+                raw = conn._text_buf
+                conn._text_buf = ""
+                if len(raw) > _MAX_FRAME_BYTES:
+                    logger.warning(
+                        "device %s sent oversize frame (%d B > %d) — dropping",
+                        conn.device_id, len(raw), _MAX_FRAME_BYTES,
+                    )
+                    continue
                 try:
-                    msg = json.loads(event.data or "{}")
-                except Exception:
+                    msg = json.loads(raw or "{}")
+                except Exception as exc:
+                    logger.debug("bad json frame from device %s: %s", conn.device_id, exc)
                     continue
                 _handle_message(conn, msg)
             elif isinstance(event, BytesMessage):
