@@ -50,7 +50,7 @@ export const ru: Translations = {
   },
 
   app: {
-    brand: "Hermes Agent",
+    brand: "JarvisCopilot Agent",
     brandShort: "HA",
     closeNavigation: "Закрыть навигацию",
     closeModelTools: "Закрыть модель и инструменты",
@@ -120,13 +120,14 @@ export const ru: Translations = {
     starting: "Запуск",
     startedInBackground: "Запущено в фоне — следите за журналами",
     stopped: "Остановлено",
-    updateHermes: "Обновить Hermes",
-    updatingHermes: "Обновление Hermes…",
+    updateHermes: "Обновить JarvisCopilot",
+    updatingHermes: "Обновление JarvisCopilot…",
     waitingForOutput: "Ожидание вывода…",
   },
 
   sessions: {
     title: "Сессии",
+    overview: "Обзор",
     searchPlaceholder: "Поиск по содержимому сообщений...",
     noSessions: "Сессий пока нет",
     noMatch: "Нет сессий, соответствующих запросу",
@@ -266,10 +267,10 @@ export const ru: Translations = {
     enableRuntime: "Включить",
     forceReinstall: "Принудительная переустановка (сначала удалить существующую папку)",
     headline:
-      "Поиск, установка, включение и обновление плагинов Hermes (аналог `hermes plugins`).",
+      "Поиск, установка, включение и обновление плагинов JarvisCopilot (аналог `hermes plugins`).",
     identifierLabel: "Git URL или owner/repo",
     inactive: "неактивно",
-    installBtn: "Установить из Git",
+    installBtn: "Установить",
     installHeading: "Установка из GitHub / Git URL",
     installHint: "Используйте сокращение owner/repo или полный https:// или git@ URL для клонирования.",
     memoryProviderLabel: "Провайдер памяти",
@@ -283,8 +284,8 @@ export const ru: Translations = {
     providersHint:
       "Записывает memory.provider (пусто = встроенный) и context.engine в config.yaml. Применяется со следующей сессии.",
     refreshDashboard: "Пересканировать расширения панели",
-    removeConfirm: "Удалить этот плагин из ~/.hermes/plugins/?",
-    removeHint: "Удалять можно только плагины, установленные пользователем в ~/.hermes/plugins.",
+    removeConfirm: "Удалить этот плагин из ~/.jarviscopilot/plugins/?",
+    removeHint: "Удалять можно только плагины, установленные пользователем в ~/.jarviscopilot/plugins.",
     rescanHeading: "Реестр SPA-плагинов",
     rescanHint: "Пересканируйте после добавления файлов на диск, чтобы боковая панель подхватила новые манифесты.",
     runtimeHeading: "Рантайм шлюза (YAML-плагины)",
@@ -306,7 +307,7 @@ export const ru: Translations = {
     all: "Все",
     categories: "Категории",
     filters: "Фильтры",
-    noSkills: "Навыки не найдены. Навыки загружаются из ~/.hermes/skills/",
+    noSkills: "Навыки не найдены. Навыки загружаются из ~/.jarviscopilot/skills/",
     noSkillsMatch: "Нет навыков, соответствующих запросу или фильтру.",
     skillCount: "{count} навык{s}",
     resultCount: "{count} результат{s}",
@@ -320,7 +321,7 @@ export const ru: Translations = {
   },
 
   config: {
-    configPath: "~/.hermes/config.yaml",
+    configPath: "~/.jarviscopilot/config.yaml",
     filters: "Фильтры",
     sections: "Разделы",
     exportConfig: "Экспортировать конфигурацию в JSON",
@@ -367,6 +368,8 @@ export const ru: Translations = {
     description: "Управление API-ключами и секретами, хранящимися в",
     hideAdvanced: "Скрыть расширенные",
     showAdvanced: "Показать расширенные",
+    showLess: "Показать меньше",
+    showMore: "Показать больше",
     llmProviders: "Провайдеры LLM",
     providersConfigured: "Настроено {configured} из {total} провайдеров",
     getKey: "Получить ключ",
@@ -392,7 +395,7 @@ export const ru: Translations = {
     disconnect: "Отключить",
     managedExternally: "Управляется извне",
     copied: "Скопировано ✓",
-    cli: "CLI",
+    cli: "Копировать",
     copyCliCommand: "Скопировать CLI-команду (для внешнего / резервного варианта)",
     connect: "Подключить",
     sessionExpires: "Сессия истечёт через {time}",
@@ -430,11 +433,11 @@ export const ru: Translations = {
   achievements: {
     hero: {
       kicker: "Agentic Gamerscore",
-      title: "Hermes Achievements",
+      title: "JarvisCopilot Achievements",
       subtitle:
-        "Коллекционные значки Hermes, полученные на основе реальной истории сессий. Известные, но ещё не полученные достижения отображаются как «Обнаруженные»; «Секретные» достижения остаются скрытыми до появления первого подходящего поведения.",
+        "Коллекционные значки JarvisCopilot, полученные на основе реальной истории сессий. Известные, но ещё не полученные достижения отображаются как «Обнаруженные»; «Секретные» достижения остаются скрытыми до появления первого подходящего поведения.",
       scan_subtitle:
-        "Анализ истории сессий Hermes. Первое сканирование может занять 5–10 секунд при большой истории.",
+        "Анализ истории сессий JarvisCopilot. Первое сканирование может занять 5–10 секунд при большой истории.",
     },
     actions: {
       rescan: "Пересканировать",
@@ -449,7 +452,7 @@ export const ru: Translations = {
       highest_tier: "Высший уровень",
       highest_tier_hint: "Copper → Silver → Gold → Diamond → Olympian",
       latest: "Последнее",
-      latest_hint_empty: "запускайте Hermes чаще",
+      latest_hint_empty: "запускайте JarvisCopilot чаще",
       none_yet: "Пока нет",
     },
     state: {
@@ -480,10 +483,10 @@ export const ru: Translations = {
       tiers_header: "Уровни",
       secret_header: "Секретные достижения",
       secret_body:
-        "Секретные достижения скрывают свой точный триггер. Как только Hermes обнаруживает связанный сигнал, карточка становится «Обнаруженной» и показывает требование.",
+        "Секретные достижения скрывают свой точный триггер. Как только JarvisCopilot обнаруживает связанный сигнал, карточка становится «Обнаруженной» и показывает требование.",
       scan_status_header: "Статус сканирования",
       scan_status_body:
-        "Hermes сканирует локальную историю один раз, затем карточки появятся автоматически. Если это занимает несколько секунд — ничего не зависло.",
+        "JarvisCopilot сканирует локальную историю один раз, затем карточки появятся автоматически. Если это занимает несколько секунд — ничего не зависло.",
       what_scanned_header: "Что сканируется",
       what_scanned_body:
         "Сессии, вызовы инструментов, метаданные моделей, ошибки, достижения и локальное состояние разблокировки.",
@@ -530,7 +533,7 @@ export const ru: Translations = {
         "«Поделиться в X» открывает пост с заранее заполненным текстом в новой вкладке. Сначала нажмите «Скопировать изображение», если хотите прикрепить значок 1200×630 — X позволяет вставить его прямо в редактор твита. «Скачать PNG» сохраняет файл для использования где угодно.",
       clipboard_unsupported:
         "Копирование изображений в буфер обмена не поддерживается в этом браузере — используйте «Скачать».",
-      tweet_text: "Just unlocked {tier_part}\"{name}\" in Hermes Agent ☤",
+      tweet_text: "Just unlocked {tier_part}\"{name}\" in JarvisCopilot Agent ☤",
     },
   },
   kanban: {
@@ -654,6 +657,7 @@ export const ru: Translations = {
     columnLabels: {
       triage: "Сортировка",
       todo: "К выполнению",
+      scheduled: "Запланировано",
       ready: "Готово к работе",
       running: "В работе",
       blocked: "Заблокировано",
@@ -663,6 +667,7 @@ export const ru: Translations = {
     columnHelp: {
       triage: "Сырые идеи — specifier подготовит спецификацию",
       todo: "Ожидает зависимостей или без исполнителя",
+      scheduled: "Ожидает известной задержки по времени или запланированного продолжения",
       ready: "Зависимости выполнены; назначьте профиль для диспетчеризации",
       running: "Взято воркером — выполняется",
       blocked: "Воркер запросил вмешательство человека",

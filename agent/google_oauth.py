@@ -59,7 +59,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-from jarviscopilot_constants import get_hermes_home
+from jarviscopilot_constants import get_hermes_home, secure_parent_dir
 
 logger = logging.getLogger(__name__)
 
@@ -491,10 +491,8 @@ def save_credentials(creds: GoogleCredentials) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Tighten parent dir to 0o700 so siblings can't traverse to the creds file.
     # On Windows this is a no-op (POSIX mode bits aren't enforced); ignore failures.
-    try:
-        os.chmod(path.parent, 0o700)
-    except OSError:
-        pass
+    # secure_parent_dir refuses to chmod / or top-level dirs (#25821).
+    secure_parent_dir(path)
     payload = json.dumps(creds.to_dict(), indent=2, sort_keys=True) + "\n"
 
     with _credentials_lock():
@@ -658,7 +656,7 @@ def get_valid_access_token(*, force_refresh: bool = False) -> str:
     creds = load_credentials()
     if creds is None:
         raise GoogleOAuthError(
-            "No Google OAuth credentials found. Run `jarviscopilot login --provider google-gemini-cli` first.",
+            "No Google OAuth credentials found. Run `hermes login --provider google-gemini-cli` first.",
             code="google_oauth_not_logged_in",
         )
 
@@ -887,7 +885,7 @@ def start_oauth_flow(
         "access_type": "offline",
         "prompt": "consent",
     }
-    auth_url = AUTH_ENDPOINT + "?" + urllib.parse.urlencode(params) + "#jarviscopilot"
+    auth_url = AUTH_ENDPOINT + "?" + urllib.parse.urlencode(params) + "#hermes"
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
@@ -964,7 +962,7 @@ def _paste_mode_login(
         "access_type": "offline",
         "prompt": "consent",
     }
-    auth_url = AUTH_ENDPOINT + "?" + urllib.parse.urlencode(params) + "#jarviscopilot"
+    auth_url = AUTH_ENDPOINT + "?" + urllib.parse.urlencode(params) + "#hermes"
 
     print()
     print("Open this URL in a browser on any device:")

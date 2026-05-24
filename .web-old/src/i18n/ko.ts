@@ -50,7 +50,7 @@ export const ko: Translations = {
   },
 
   app: {
-    brand: "Hermes Agent",
+    brand: "JarvisCopilot Agent",
     brandShort: "HA",
     closeNavigation: "내비게이션 닫기",
     closeModelTools: "모델 및 도구 닫기",
@@ -120,13 +120,14 @@ export const ko: Translations = {
     starting: "시작 중",
     startedInBackground: "백그라운드에서 시작됨 — 진행 상황은 로그를 확인하세요",
     stopped: "중지됨",
-    updateHermes: "Hermes 업데이트",
-    updatingHermes: "Hermes 업데이트 중…",
+    updateHermes: "JarvisCopilot 업데이트",
+    updatingHermes: "JarvisCopilot 업데이트 중…",
     waitingForOutput: "출력 대기 중…",
   },
 
   sessions: {
     title: "세션",
+    overview: "개요",
     searchPlaceholder: "메시지 내용 검색...",
     noSessions: "아직 세션이 없습니다",
     noMatch: "검색과 일치하는 세션이 없습니다",
@@ -266,10 +267,10 @@ export const ko: Translations = {
     enableRuntime: "활성화",
     forceReinstall: "강제 재설치 (기존 폴더를 먼저 삭제)",
     headline:
-      "Hermes 플러그인을 검색, 설치, 활성화 및 업데이트합니다 (`hermes plugins` 동등).",
+      "JarvisCopilot 플러그인을 검색, 설치, 활성화 및 업데이트합니다 (`hermes plugins` 동등).",
     identifierLabel: "Git URL 또는 owner/repo",
     inactive: "비활성",
-    installBtn: "Git에서 설치",
+    installBtn: "설치",
     installHeading: "GitHub / Git URL에서 설치",
     installHint: "owner/repo 약어 또는 전체 https:// 또는 git@ 클론 URL을 사용하세요.",
     memoryProviderLabel: "메모리 제공자",
@@ -283,8 +284,8 @@ export const ko: Translations = {
     providersHint:
       "memory.provider (비어 있으면 = 내장)와 context.engine을 config.yaml에 기록합니다. 다음 세션부터 적용됩니다.",
     refreshDashboard: "대시보드 확장 재스캔",
-    removeConfirm: "~/.hermes/plugins/에서 이 플러그인을 제거하시겠습니까?",
-    removeHint: "~/.hermes/plugins 아래에 사용자가 설치한 플러그인만 제거할 수 있습니다.",
+    removeConfirm: "~/.jarviscopilot/plugins/에서 이 플러그인을 제거하시겠습니까?",
+    removeHint: "~/.jarviscopilot/plugins 아래에 사용자가 설치한 플러그인만 제거할 수 있습니다.",
     rescanHeading: "SPA 플러그인 레지스트리",
     rescanHint: "디스크에 파일을 추가한 후 재스캔하여 대시보드 사이드바가 새 매니페스트를 인식하도록 합니다.",
     runtimeHeading: "게이트웨이 런타임 (YAML 플러그인)",
@@ -306,7 +307,7 @@ export const ko: Translations = {
     all: "전체",
     categories: "카테고리",
     filters: "필터",
-    noSkills: "스킬을 찾을 수 없습니다. 스킬은 ~/.hermes/skills/ 에서 로드됩니다",
+    noSkills: "스킬을 찾을 수 없습니다. 스킬은 ~/.jarviscopilot/skills/ 에서 로드됩니다",
     noSkillsMatch: "검색이나 필터와 일치하는 스킬이 없습니다.",
     skillCount: "{count}개 스킬",
     resultCount: "{count}개 결과",
@@ -320,7 +321,7 @@ export const ko: Translations = {
   },
 
   config: {
-    configPath: "~/.hermes/config.yaml",
+    configPath: "~/.jarviscopilot/config.yaml",
     filters: "필터",
     sections: "섹션",
     exportConfig: "설정을 JSON으로 내보내기",
@@ -367,6 +368,8 @@ export const ko: Translations = {
     description: "다음 위치에 저장된 API 키와 비밀을 관리합니다",
     hideAdvanced: "고급 숨기기",
     showAdvanced: "고급 표시",
+    showLess: "간략히",
+    showMore: "더 보기",
     llmProviders: "LLM 제공자",
     providersConfigured: "{configured}/{total} 제공자가 구성됨",
     getKey: "키 받기",
@@ -392,7 +395,7 @@ export const ko: Translations = {
     disconnect: "연결 해제",
     managedExternally: "외부에서 관리됨",
     copied: "복사됨 ✓",
-    cli: "CLI",
+    cli: "복사",
     copyCliCommand: "CLI 명령 복사 (외부 / 대체용)",
     connect: "연결",
     sessionExpires: "세션이 {time} 후 만료됩니다",
@@ -430,11 +433,11 @@ export const ko: Translations = {
   achievements: {
     hero: {
       kicker: "Agentic Gamerscore",
-      title: "Hermes Achievements",
+      title: "JarvisCopilot Achievements",
       subtitle:
-        "실제 세션 기록에서 획득하는 Hermes 컬렉터블 배지입니다. 알려져 있지만 아직 달성되지 않은 업적은 Discovered로 표시되며, Secret 업적은 일치하는 동작이 처음 나타날 때까지 숨겨집니다.",
+        "실제 세션 기록에서 획득하는 JarvisCopilot 컬렉터블 배지입니다. 알려져 있지만 아직 달성되지 않은 업적은 Discovered로 표시되며, Secret 업적은 일치하는 동작이 처음 나타날 때까지 숨겨집니다.",
       scan_subtitle:
-        "Hermes 세션 기록을 스캔하고 있습니다. 기록이 많으면 첫 스캔에 5~10초가 걸릴 수 있습니다.",
+        "JarvisCopilot 세션 기록을 스캔하고 있습니다. 기록이 많으면 첫 스캔에 5~10초가 걸릴 수 있습니다.",
     },
     actions: {
       rescan: "다시 스캔",
@@ -449,7 +452,7 @@ export const ko: Translations = {
       highest_tier: "최고 등급",
       highest_tier_hint: "Copper → Silver → Gold → Diamond → Olympian",
       latest: "최근",
-      latest_hint_empty: "Hermes를 더 사용해 보세요",
+      latest_hint_empty: "JarvisCopilot를 더 사용해 보세요",
       none_yet: "아직 없음",
     },
     state: {
@@ -480,10 +483,10 @@ export const ko: Translations = {
       tiers_header: "등급",
       secret_header: "시크릿 업적",
       secret_body:
-        "시크릿은 정확한 트리거 조건을 숨깁니다. Hermes가 관련 신호를 감지하면 카드가 Discovered로 바뀌고 요건이 표시됩니다.",
+        "시크릿은 정확한 트리거 조건을 숨깁니다. JarvisCopilot가 관련 신호를 감지하면 카드가 Discovered로 바뀌고 요건이 표시됩니다.",
       scan_status_header: "스캔 상태",
       scan_status_body:
-        "Hermes는 로컬 기록을 한 번 스캔한 뒤 카드를 자동으로 표시합니다. 몇 초 걸리더라도 멈춘 것이 아닙니다.",
+        "JarvisCopilot는 로컬 기록을 한 번 스캔한 뒤 카드를 자동으로 표시합니다. 몇 초 걸리더라도 멈춘 것이 아닙니다.",
       what_scanned_header: "스캔 대상",
       what_scanned_body:
         "세션, 도구 호출, 모델 메타데이터, 오류, 업적 및 로컬 해제 상태입니다.",
@@ -530,7 +533,7 @@ export const ko: Translations = {
         "X에 공유를 누르면 새 탭에서 미리 작성된 게시물이 열립니다. 1200×630 배지를 첨부하려면 먼저 이미지 복사를 누르세요 — X 작성기에서 바로 붙여넣을 수 있습니다. PNG 다운로드는 파일을 저장하여 어디서나 사용할 수 있게 합니다.",
       clipboard_unsupported:
         "이 브라우저에서는 클립보드 이미지 복사를 지원하지 않습니다 — 대신 다운로드를 이용하세요.",
-      tweet_text: "Just unlocked {tier_part}\"{name}\" in Hermes Agent ☤",
+      tweet_text: "Just unlocked {tier_part}\"{name}\" in JarvisCopilot Agent ☤",
     },
   },
   kanban: {
@@ -654,6 +657,7 @@ export const ko: Translations = {
     columnLabels: {
       triage: "분류",
       todo: "할 일",
+      scheduled: "예약됨",
       ready: "준비됨",
       running: "진행 중",
       blocked: "차단됨",
@@ -663,6 +667,7 @@ export const ko: Translations = {
     columnHelp: {
       triage: "원시 아이디어 — 스페시파이어가 사양을 구체화합니다",
       todo: "종속성 대기 중 또는 미지정",
+      scheduled: "알려진 시간 지연 또는 예약된 후속 조치를 기다리는 중",
       ready: "종속성이 충족됨; 디스패치하려면 프로필을 지정하세요",
       running: "워커가 점유 중 — 실행 중",
       blocked: "워커가 사람의 입력을 요청함",

@@ -162,7 +162,7 @@ class TestGatewayCommandWSLMessages:
     """Test that WSL users see appropriate guidance."""
 
     def test_install_wsl_no_systemd(self, monkeypatch, capsys):
-        """jarviscopilot gateway install on WSL without systemd shows guidance."""
+        """hermes gateway install on WSL without systemd shows guidance."""
         monkeypatch.setattr(gateway, "is_linux", lambda: True)
         monkeypatch.setattr(gateway, "is_termux", lambda: False)
         monkeypatch.setattr(gateway, "is_wsl", lambda: True)
@@ -181,11 +181,11 @@ class TestGatewayCommandWSLMessages:
         out = capsys.readouterr().out
         assert "WSL detected" in out
         assert "systemd is not running" in out
-        assert "jarviscopilot gateway run" in out
+        assert "hermes gateway run" in out
         assert "tmux" in out
 
     def test_start_wsl_no_systemd(self, monkeypatch, capsys):
-        """jarviscopilot gateway start on WSL without systemd shows guidance."""
+        """hermes gateway start on WSL without systemd shows guidance."""
         monkeypatch.setattr(gateway, "is_linux", lambda: True)
         monkeypatch.setattr(gateway, "is_termux", lambda: False)
         monkeypatch.setattr(gateway, "is_wsl", lambda: True)
@@ -199,38 +199,11 @@ class TestGatewayCommandWSLMessages:
 
         out = capsys.readouterr().out
         assert "WSL detected" in out
-        assert "jarviscopilot gateway run" in out
+        assert "hermes gateway run" in out
         assert "wsl.conf" in out
 
-    def test_install_wsl_with_systemd_warns(self, monkeypatch, capsys):
-        """jarviscopilot gateway install on WSL with systemd shows warning but proceeds."""
-        monkeypatch.setattr(gateway, "is_linux", lambda: True)
-        monkeypatch.setattr(gateway, "is_termux", lambda: False)
-        monkeypatch.setattr(gateway, "is_wsl", lambda: True)
-        monkeypatch.setattr(gateway, "supports_systemd_services", lambda: True)
-        monkeypatch.setattr(gateway, "is_macos", lambda: False)
-        monkeypatch.setattr(gateway, "is_managed", lambda: False)
-
-        # Mock systemd_install to capture call
-        install_called = []
-        monkeypatch.setattr(
-            gateway, "systemd_install",
-            lambda **kwargs: install_called.append(kwargs),
-        )
-
-        args = SimpleNamespace(
-            gateway_command="install", force=False, system=False,
-            run_as_user=None,
-        )
-        gateway.gateway_command(args)
-
-        out = capsys.readouterr().out
-        assert "WSL detected" in out
-        assert "may not survive WSL restarts" in out
-        assert len(install_called) == 1  # install still proceeded
-
     def test_status_wsl_running_manual(self, monkeypatch, capsys):
-        """jarviscopilot gateway status on WSL with manual process shows WSL note."""
+        """hermes gateway status on WSL with manual process shows WSL note."""
         monkeypatch.setattr(gateway, "supports_systemd_services", lambda: False)
         monkeypatch.setattr(gateway, "is_macos", lambda: False)
         monkeypatch.setattr(gateway, "is_termux", lambda: False)
@@ -255,7 +228,7 @@ class TestGatewayCommandWSLMessages:
         assert "tmux or screen" in out
 
     def test_status_wsl_not_running(self, monkeypatch, capsys):
-        """jarviscopilot gateway status on WSL with no process shows WSL start advice."""
+        """hermes gateway status on WSL with no process shows WSL start advice."""
         monkeypatch.setattr(gateway, "supports_systemd_services", lambda: False)
         monkeypatch.setattr(gateway, "is_macos", lambda: False)
         monkeypatch.setattr(gateway, "is_termux", lambda: False)
@@ -275,5 +248,5 @@ class TestGatewayCommandWSLMessages:
         gateway.gateway_command(args)
 
         out = capsys.readouterr().out
-        assert "jarviscopilot gateway run" in out
+        assert "hermes gateway run" in out
         assert "tmux" in out

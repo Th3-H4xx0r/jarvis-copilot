@@ -50,7 +50,7 @@ export const de: Translations = {
   },
 
   app: {
-    brand: "Hermes Agent",
+    brand: "JarvisCopilot Agent",
     brandShort: "HA",
     closeNavigation: "Navigation schließen",
     closeModelTools: "Modell und Werkzeuge schließen",
@@ -120,13 +120,14 @@ export const de: Translations = {
     starting: "Startet",
     startedInBackground: "Im Hintergrund gestartet — siehe Protokolle für den Fortschritt",
     stopped: "Gestoppt",
-    updateHermes: "Hermes aktualisieren",
-    updatingHermes: "Hermes wird aktualisiert…",
+    updateHermes: "JarvisCopilot aktualisieren",
+    updatingHermes: "JarvisCopilot wird aktualisiert…",
     waitingForOutput: "Warte auf Ausgabe…",
   },
 
   sessions: {
     title: "Sitzungen",
+    overview: "Übersicht",
     searchPlaceholder: "Nachrichteninhalt suchen...",
     noSessions: "Noch keine Sitzungen",
     noMatch: "Keine Sitzungen entsprechen deiner Suche",
@@ -266,10 +267,10 @@ export const de: Translations = {
     enableRuntime: "Aktivieren",
     forceReinstall: "Neuinstallation erzwingen (bestehenden Ordner zuerst löschen)",
     headline:
-      "Hermes-Plugins entdecken, installieren, aktivieren und aktualisieren (entspricht `hermes plugins`).",
+      "JarvisCopilot-Plugins entdecken, installieren, aktivieren und aktualisieren (entspricht `hermes plugins`).",
     identifierLabel: "Git-URL oder owner/repo",
     inactive: "inaktiv",
-    installBtn: "Aus Git installieren",
+    installBtn: "Installieren",
     installHeading: "Aus GitHub / Git-URL installieren",
     installHint: "Verwende owner/repo-Kurzform oder eine vollständige https:// oder git@ Klon-URL.",
     memoryProviderLabel: "Speicheranbieter",
@@ -283,8 +284,8 @@ export const de: Translations = {
     providersHint:
       "Schreibt memory.provider (leer = eingebaut) und context.engine in config.yaml. Wirkt sich auf die nächste Sitzung aus.",
     refreshDashboard: "Dashboard-Erweiterungen erneut scannen",
-    removeConfirm: "Dieses Plugin aus ~/.hermes/plugins/ entfernen?",
-    removeHint: "Nur vom Benutzer installierte Plugins unter ~/.hermes/plugins können entfernt werden.",
+    removeConfirm: "Dieses Plugin aus ~/.jarviscopilot/plugins/ entfernen?",
+    removeHint: "Nur vom Benutzer installierte Plugins unter ~/.jarviscopilot/plugins können entfernt werden.",
     rescanHeading: "SPA-Plugin-Registry",
     rescanHint: "Nach dem Hinzufügen von Dateien auf dem Datenträger erneut scannen, damit die Sidebar neue Manifeste erkennt.",
     runtimeHeading: "Gateway-Laufzeit (YAML-Plugins)",
@@ -306,7 +307,7 @@ export const de: Translations = {
     all: "Alle",
     categories: "Kategorien",
     filters: "Filter",
-    noSkills: "Keine Skills gefunden. Skills werden aus ~/.hermes/skills/ geladen",
+    noSkills: "Keine Skills gefunden. Skills werden aus ~/.jarviscopilot/skills/ geladen",
     noSkillsMatch: "Keine Skills entsprechen deiner Suche oder deinem Filter.",
     skillCount: "{count} Skill{s}",
     resultCount: "{count} Ergebnis{s}",
@@ -320,7 +321,7 @@ export const de: Translations = {
   },
 
   config: {
-    configPath: "~/.hermes/config.yaml",
+    configPath: "~/.jarviscopilot/config.yaml",
     filters: "Filter",
     sections: "Bereiche",
     exportConfig: "Konfiguration als JSON exportieren",
@@ -367,6 +368,8 @@ export const de: Translations = {
     description: "Verwalte API-Schlüssel und Geheimnisse, die hier gespeichert sind",
     hideAdvanced: "Erweitert ausblenden",
     showAdvanced: "Erweitert anzeigen",
+    showLess: "Weniger anzeigen",
+    showMore: "Mehr anzeigen",
     llmProviders: "LLM-Anbieter",
     providersConfigured: "{configured} von {total} Anbietern konfiguriert",
     getKey: "Schlüssel holen",
@@ -392,7 +395,7 @@ export const de: Translations = {
     disconnect: "Trennen",
     managedExternally: "Extern verwaltet",
     copied: "Kopiert ✓",
-    cli: "CLI",
+    cli: "Kopieren",
     copyCliCommand: "CLI-Befehl kopieren (für extern / Fallback)",
     connect: "Verbinden",
     sessionExpires: "Sitzung läuft in {time} ab",
@@ -429,11 +432,11 @@ export const de: Translations = {
   achievements: {
     hero: {
       kicker: "Agentic Gamerscore",
-      title: "Hermes Achievements",
+      title: "JarvisCopilot Achievements",
       subtitle:
-        "Sammelbare Hermes-Abzeichen, verdient durch echten Sitzungsverlauf. Bekannte, noch nicht abgeschlossene Achievements werden als Entdeckt angezeigt; geheime Achievements bleiben verborgen, bis das erste passende Verhalten auftritt.",
+        "Sammelbare JarvisCopilot-Abzeichen, verdient durch echten Sitzungsverlauf. Bekannte, noch nicht abgeschlossene Achievements werden als Entdeckt angezeigt; geheime Achievements bleiben verborgen, bis das erste passende Verhalten auftritt.",
       scan_subtitle:
-        "Hermes-Sitzungsverlauf wird gescannt. Der erste Scan kann bei umfangreichem Verlauf 5–10 Sekunden dauern.",
+        "JarvisCopilot-Sitzungsverlauf wird gescannt. Der erste Scan kann bei umfangreichem Verlauf 5–10 Sekunden dauern.",
     },
     actions: {
       rescan: "Neu scannen",
@@ -448,7 +451,7 @@ export const de: Translations = {
       highest_tier: "Höchste Stufe",
       highest_tier_hint: "Copper → Silver → Gold → Diamond → Olympian",
       latest: "Neueste",
-      latest_hint_empty: "nutze Hermes mehr",
+      latest_hint_empty: "nutze JarvisCopilot mehr",
       none_yet: "Noch keine",
     },
     state: {
@@ -479,10 +482,10 @@ export const de: Translations = {
       tiers_header: "Stufen",
       secret_header: "Geheime Achievements",
       secret_body:
-        "Geheimnisse verbergen ihren genauen Auslöser. Sobald Hermes ein verwandtes Signal erkennt, wird die Karte zu Entdeckt und zeigt ihre Anforderung an.",
+        "Geheimnisse verbergen ihren genauen Auslöser. Sobald JarvisCopilot ein verwandtes Signal erkennt, wird die Karte zu Entdeckt und zeigt ihre Anforderung an.",
       scan_status_header: "Scan-Status",
       scan_status_body:
-        "Hermes scannt den lokalen Verlauf einmalig, danach erscheinen die Karten automatisch. Es ist nichts hängengeblieben, wenn dies ein paar Sekunden dauert.",
+        "JarvisCopilot scannt den lokalen Verlauf einmalig, danach erscheinen die Karten automatisch. Es ist nichts hängengeblieben, wenn dies ein paar Sekunden dauert.",
       what_scanned_header: "Was gescannt wird",
       what_scanned_body:
         "Sitzungen, Tool-Aufrufe, Modell-Metadaten, Fehler, Achievements und lokaler Freischaltstatus.",
@@ -529,7 +532,7 @@ export const de: Translations = {
         "Auf X teilen öffnet einen vorgefertigten Post in einem neuen Tab. Klicke zuerst auf Bild kopieren, wenn du das 1200×630-Abzeichen anhängen möchtest – X lässt dich es direkt in den Tweet-Editor einfügen. PNG herunterladen speichert die Datei zur Nutzung an beliebiger Stelle.",
       clipboard_unsupported:
         "Bildkopie über die Zwischenablage wird in diesem Browser nicht unterstützt – nutze stattdessen Herunterladen.",
-      tweet_text: "Just unlocked {tier_part}\"{name}\" in Hermes Agent ☤",
+      tweet_text: "Just unlocked {tier_part}\"{name}\" in JarvisCopilot Agent ☤",
     },
   },
   kanban: {
@@ -653,6 +656,7 @@ export const de: Translations = {
     columnLabels: {
       triage: "Triage",
       todo: "Zu erledigen",
+      scheduled: "Geplant",
       ready: "Bereit",
       running: "In Bearbeitung",
       blocked: "Blockiert",
@@ -662,6 +666,7 @@ export const de: Translations = {
     columnHelp: {
       triage: "Rohe Ideen — ein Specifier wird die Spezifikation ausarbeiten",
       todo: "Wartet auf Abhängigkeiten oder ist nicht zugewiesen",
+      scheduled: "Wartet auf eine bekannte Verzögerung oder eine geplante Nachverfolgung",
       ready: "Abhängigkeiten erfüllt; Profil zum Dispatch zuweisen",
       running: "Von einem Worker übernommen — in Bearbeitung",
       blocked: "Worker hat um menschliche Eingabe gebeten",

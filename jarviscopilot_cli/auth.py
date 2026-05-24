@@ -1,5 +1,5 @@
 """
-Multi-provider authentication system for JarvisCopilot.
+Multi-provider authentication system for JarvisCopilot Agent.
 
 Supports OAuth device code flows (Nous Portal, future: OpenAI Codex) and
 traditional API key providers (OpenRouter, custom endpoints). Auth state
@@ -41,14 +41,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 import yaml
 
 from jarviscopilot_cli.config import get_hermes_home, get_config_path, read_raw_config
-from jarviscopilot_constants import OPENROUTER_BASE_URL
+from jarviscopilot_constants import OPENROUTER_BASE_URL, secure_parent_dir
 from utils import atomic_replace, atomic_yaml_write, is_truthy_value
 
 logger = logging.getLogger(__name__)
@@ -126,12 +126,12 @@ QWEN_ACCESS_TOKEN_REFRESH_SKEW_SECONDS = 120
 DEFAULT_SPOTIFY_ACCOUNTS_BASE_URL = "https://accounts.spotify.com"
 DEFAULT_SPOTIFY_API_BASE_URL = "https://api.spotify.com/v1"
 DEFAULT_SPOTIFY_REDIRECT_URI = "http://127.0.0.1:43827/spotify/callback"
-SPOTIFY_DOCS_URL = "https://jarviscopilot.nousresearch.com/docs/user-guide/features/spotify"
+SPOTIFY_DOCS_URL = "https://hermes-agent.nousresearch.com/docs/user-guide/features/spotify"
 SPOTIFY_DASHBOARD_URL = "https://developer.spotify.com/dashboard"
 SPOTIFY_ACCESS_TOKEN_REFRESH_SKEW_SECONDS = 120
 
-XAI_OAUTH_DOCS_URL = "https://jarviscopilot.nousresearch.com/docs/guides/xai-grok-oauth"
-OAUTH_OVER_SSH_DOCS_URL = "https://jarviscopilot.nousresearch.com/docs/guides/oauth-over-ssh"
+XAI_OAUTH_DOCS_URL = "https://hermes-agent.nousresearch.com/docs/guides/xai-grok-oauth"
+OAUTH_OVER_SSH_DOCS_URL = "https://hermes-agent.nousresearch.com/docs/guides/oauth-over-ssh"
 DEFAULT_SPOTIFY_SCOPE = " ".join((
     "user-modify-playback-state",
     "user-read-playback-state",
@@ -749,7 +749,7 @@ def format_auth_error(error: Exception) -> str:
         return str(error)
 
     if error.relogin_required:
-        return f"{error} Run `jarviscopilot model` to re-authenticate."
+        return f"{error} Run `hermes model` to re-authenticate."
 
     if error.code == "subscription_required":
         return (
@@ -806,7 +806,7 @@ def _auth_file_path() -> Path:
     # hermetic conftest, or sandbox escapes via threads/subprocesses. In
     # production (no PYTEST_CURRENT_TEST) this is a single dict lookup.
     if os.environ.get("PYTEST_CURRENT_TEST"):
-        real_home_auth = (Path.home() / ".jarviscopilot" / "auth.json").resolve(strict=False)
+        real_home_auth = (Path.home() / ".hermes" / "auth.json").resolve(strict=False)
         try:
             resolved = path.resolve(strict=False)
         except Exception:
@@ -873,7 +873,7 @@ def _load_global_auth_store() -> Dict[str, Any]:
     if os.environ.get("PYTEST_CURRENT_TEST"):
         real_home_env = os.environ.get("HOME", "")
         if real_home_env:
-            real_root = Path(real_home_env) / ".jarviscopilot" / "auth.json"
+            real_root = Path(real_home_env) / ".hermes" / "auth.json"
             try:
                 if global_path.resolve(strict=False) == real_root.resolve(strict=False):
                     return {}
@@ -954,7 +954,10 @@ def _file_lock(
         finally:
             holder.depth = 0
             if fcntl:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                except (OSError, IOError):
+                    pass
             elif msvcrt:
                 try:
                     lock_file.seek(0)
@@ -1027,10 +1030,8 @@ def _save_auth_store(auth_store: Dict[str, Any]) -> Path:
     auth_file.parent.mkdir(parents=True, exist_ok=True)
     # Tighten parent dir to 0o700 so siblings can't traverse to creds.
     # No-op on Windows (POSIX mode bits not enforced); ignore failures.
-    try:
-        os.chmod(auth_file.parent, 0o700)
-    except OSError:
-        pass
+    # secure_parent_dir refuses to chmod / or top-level dirs (#25821).
+    secure_parent_dir(auth_file)
     auth_store["version"] = AUTH_STORE_VERSION
     auth_store["updated_at"] = datetime.now(timezone.utc).isoformat()
     payload = json.dumps(auth_store, indent=2) + "\n"
@@ -1128,7 +1129,7 @@ def read_credential_pool(provider_id: Optional[str] = None) -> Dict[str, Any]:
 
     Profile entries always win: the global fallback only applies per-provider
     when the profile has zero entries for that provider. Once the user runs
-    ``jarviscopilot auth add <provider>`` inside the profile, profile entries
+    ``hermes auth add <provider>`` inside the profile, profile entries
     fully shadow global for that provider on the next read.
 
     Writes always go to the profile (``write_credential_pool`` is unchanged).
@@ -1301,7 +1302,7 @@ def is_provider_explicitly_configured(provider_id: str) -> bool:
 
 def clear_provider_auth(provider_id: Optional[str] = None) -> bool:
     """
-    Clear auth state for a provider. Used by `jarviscopilot logout`.
+    Clear auth state for a provider. Used by `hermes logout`.
     If provider_id is None, clears the active provider.
     Returns True if something was cleared.
     """
@@ -1368,7 +1369,7 @@ def _get_config_hint_for_unknown_provider(provider_name: str) -> str:
         if not issues:
             return ""
 
-        lines = ["Config issue detected — run 'jarviscopilot doctor' for full diagnostics:"]
+        lines = ["Config issue detected — run 'hermes doctor' for full diagnostics:"]
         for ci in issues:
             prefix = "ERROR" if ci.severity == "error" else "WARNING"
             lines.append(f"  [{prefix}] {ci.message}")
@@ -1461,7 +1462,7 @@ def resolve_provider(
         if _config_hint:
             msg += f"\n\n{_config_hint}"
         else:
-            msg += " Check 'jarviscopilot model' for available providers, or run 'jarviscopilot doctor' to diagnose config issues."
+            msg += " Check 'hermes model' for available providers, or run 'hermes doctor' to diagnose config issues."
         raise AuthError(msg, code="invalid_provider")
 
     # Explicit one-off CLI creds always mean openrouter/custom
@@ -1508,7 +1509,7 @@ def resolve_provider(
         pass  # boto3 not installed — skip Bedrock auto-detection
 
     raise AuthError(
-        "No inference provider configured. Run 'jarviscopilot model' to choose a "
+        "No inference provider configured. Run 'hermes model' to choose a "
         "provider and model, or set an API key (OPENROUTER_API_KEY, "
         "OPENAI_API_KEY, etc.) in ~/.jarviscopilot/.env.",
         code="no_provider_configured",
@@ -1556,6 +1557,67 @@ def _optional_base_url(value: Any) -> Optional[str]:
         return None
     cleaned = value.strip().rstrip("/")
     return cleaned if cleaned else None
+
+
+# Allowlist of hosts the Nous Portal proxy is willing to forward minted
+# bearer tokens to. The bearer is a long-lived agent_key minted by
+# portal.nousresearch.com — sending it anywhere else would leak it.
+#
+# This is consulted only for URLs coming from the NETWORK side (Portal
+# refresh / agent-key-mint responses). User-controlled env-var overrides
+# (NOUS_INFERENCE_BASE_URL) bypass validation — that's the documented
+# dev/staging escape hatch and the env source is already trusted (the
+# user set it themselves).
+_ALLOWED_NOUS_INFERENCE_HOSTS: FrozenSet[str] = frozenset({
+    "inference-api.nousresearch.com",
+})
+
+
+def _validate_nous_inference_url_from_network(url: Optional[str]) -> Optional[str]:
+    """Validate a Portal-returned inference URL against the host allowlist.
+
+    Returns ``url`` (normalised by stripping trailing slashes) if it's a
+    well-formed ``https://<allowlisted-host>/...`` URL. Returns ``None``
+    if the URL is missing, malformed, non-https, or points at an
+    unexpected host — letting the caller fall back to the configured
+    default rather than persist or forward a poisoned value.
+
+    Defense-in-depth: a compromised refresh / mint response from the
+    Portal API (MITM, malicious response injection) could otherwise
+    redirect every subsequent proxy request — bearing the user's
+    legitimately-minted agent_key — to an attacker-controlled endpoint.
+    Validating scheme + host at the source closes that loop before the
+    poisoned URL ever lands in ``auth.json``.
+
+    The env-var override path (``NOUS_INFERENCE_BASE_URL``) bypasses
+    this — env values come from the trusted OS user, not from the
+    network, and the override is documented for staging/dev use.
+
+    Co-authored-by: memosr <mehmet.sr35@gmail.com>
+    """
+    if not isinstance(url, str):
+        return None
+    cleaned = url.strip()
+    if not cleaned:
+        return None
+    try:
+        parsed = urlparse(cleaned)
+    except Exception:
+        return None
+    if parsed.scheme != "https":
+        logger.warning(
+            "nous: refusing non-https inference URL scheme %r from Portal response",
+            parsed.scheme,
+        )
+        return None
+    if parsed.hostname not in _ALLOWED_NOUS_INFERENCE_HOSTS:
+        logger.warning(
+            "nous: refusing inference URL host %r from Portal response "
+            "(not in allowlist); falling back to default",
+            parsed.hostname,
+        )
+        return None
+    return cleaned.rstrip("/")
 
 
 def _decode_jwt_claims(token: Any) -> Dict[str, Any]:
@@ -1860,10 +1922,8 @@ def _read_qwen_cli_tokens() -> Dict[str, Any]:
 def _save_qwen_cli_tokens(tokens: Dict[str, Any]) -> Path:
     auth_path = _qwen_cli_auth_path()
     auth_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(auth_path.parent, 0o700)
-    except OSError:
-        pass
+    # secure_parent_dir refuses to chmod / or top-level dirs (#25821).
+    secure_parent_dir(auth_path)
     # Per-process random temp suffix avoids collisions between concurrent
     # writers and stale leftovers from a crashed prior write.
     tmp_path = auth_path.with_name(f"{auth_path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}")
@@ -2005,7 +2065,10 @@ def resolve_qwen_runtime_credentials(
 def get_qwen_auth_status() -> Dict[str, Any]:
     auth_path = _qwen_cli_auth_path()
     try:
-        creds = resolve_qwen_runtime_credentials(refresh_if_expiring=False)
+        # Validate the runtime credentials, including refresh when the cached
+        # CLI token is expired. Otherwise stale tokens show up as "logged in"
+        # and `hermes model` walks users into a broken Qwen setup flow.
+        creds = resolve_qwen_runtime_credentials(refresh_if_expiring=True)
         return {
             "logged_in": True,
             "auth_file": str(auth_path),
@@ -2073,7 +2136,7 @@ def resolve_gemini_oauth_runtime_credentials(
 
 
 def get_gemini_oauth_auth_status() -> Dict[str, Any]:
-    """Return a status dict for `jarviscopilot auth list` / `jarviscopilot status`."""
+    """Return a status dict for `hermes auth list` / `hermes status`."""
     try:
         from agent.google_oauth import _credentials_path, load_credentials
     except ImportError:
@@ -2422,7 +2485,7 @@ def _make_xai_callback_handler(expected_path: str) -> tuple[type[BaseHTTPRequest
                     "<h1>xAI authorization not received.</h1>"
                     "<p>No authorization code was present in this callback URL. "
                     "Return to the terminal and re-run "
-                    "<code>jarviscopilot auth add xai-oauth</code> to retry.</p>"
+                    "<code>hermes auth add xai-oauth</code> to retry.</p>"
                     "</body></html>"
                 )
                 self.wfile.write(body.encode("utf-8"))
@@ -2608,7 +2671,7 @@ def _refresh_spotify_oauth_state(
     refresh_token = str(state.get("refresh_token", "") or "").strip()
     if not refresh_token:
         raise AuthError(
-            "Spotify refresh token missing. Run `jarviscopilot auth spotify` again.",
+            "Spotify refresh token missing. Run `hermes auth spotify` again.",
             provider="spotify",
             code="spotify_refresh_token_missing",
             relogin_required=True,
@@ -2637,7 +2700,7 @@ def _refresh_spotify_oauth_state(
     if response.status_code >= 400:
         detail = response.text.strip()
         raise AuthError(
-            "Spotify token refresh failed. Run `jarviscopilot auth spotify` again."
+            "Spotify token refresh failed. Run `hermes auth spotify` again."
             + (f" Response: {detail}" if detail else ""),
             provider="spotify",
             code="spotify_refresh_failed",
@@ -2675,7 +2738,7 @@ def resolve_spotify_runtime_credentials(
         state = _load_provider_state(auth_store, "spotify")
         if not state:
             raise AuthError(
-                "Spotify is not authenticated. Run `jarviscopilot auth spotify` first.",
+                "Spotify is not authenticated. Run `hermes auth spotify` first.",
                 provider="spotify",
                 code="spotify_auth_missing",
                 relogin_required=True,
@@ -2692,7 +2755,7 @@ def resolve_spotify_runtime_credentials(
     access_token = str(state.get("access_token", "") or "").strip()
     if not access_token:
         raise AuthError(
-            "Spotify access token missing. Run `jarviscopilot auth spotify` again.",
+            "Spotify access token missing. Run `hermes auth spotify` again.",
             provider="spotify",
             code="spotify_access_token_missing",
             relogin_required=True,
@@ -2753,7 +2816,7 @@ def _spotify_interactive_setup(redirect_uri_hint: str) -> str:
     print("Steps:")
     print(f"  1. Opening {SPOTIFY_DASHBOARD_URL} in your browser...")
     print("  2. Click 'Create app' and fill in:")
-    print("       App name:     anything (e.g. jarviscopilot)")
+    print("       App name:     anything (e.g. hermes-agent)")
     print("       Description:  anything")
     print(f"       Redirect URI: {redirect_uri_hint}")
     print("       API/SDK:      Web API")
@@ -2779,7 +2842,7 @@ def _spotify_interactive_setup(redirect_uri_hint: str) -> str:
         print(f"No Client ID entered. See {SPOTIFY_DOCS_URL} for the full guide.")
         raise SystemExit("Spotify setup cancelled: empty Client ID.")
 
-    # Persist so subsequent `jarviscopilot auth spotify` runs skip the wizard.
+    # Persist so subsequent `hermes auth spotify` runs skip the wizard.
     save_env_value("HERMES_SPOTIFY_CLIENT_ID", raw)
     # Only persist the redirect URI if it's non-default, to avoid pinning
     # users to a value the default might later change to.
@@ -2891,8 +2954,107 @@ def login_spotify_command(args) -> None:
 # =============================================================================
 
 def _is_remote_session() -> bool:
-    """Detect if running in an SSH session where webbrowser.open() won't work."""
-    return bool(os.getenv("SSH_CLIENT") or os.getenv("SSH_TTY"))
+    """Detect environments where loopback OAuth can't reach the local browser.
+
+    Historically only SSH was checked, but #26923 surfaced that
+    **browser-only remote consoles** (GCP Cloud Shell, GitHub
+    Codespaces, AWS EC2 Instance Connect, Gitpod, Replit, etc.) hit
+    the exact same problem — the user has a browser on their laptop
+    but the loopback listener is bound on the remote VM that the
+    laptop's browser can't reach.  These environments typically don't
+    set ``SSH_CLIENT`` / ``SSH_TTY``, so the SSH-only check left
+    them with no guidance and no fallback.
+    """
+    if os.getenv("SSH_CLIENT") or os.getenv("SSH_TTY"):
+        return True
+    # Browser-only remote IDEs / cloud shells.  Keep this list narrow
+    # (well-known, documented env vars set by the host platform) so
+    # we don't falsely trip on a developer's local shell.
+    for var in (
+        "CLOUD_SHELL",         # GCP Cloud Shell
+        "CODESPACES",          # GitHub Codespaces
+        "CODESPACE_NAME",      # GitHub Codespaces (alt)
+        "GITPOD_WORKSPACE_ID", # Gitpod
+        "REPL_ID",             # Replit
+        "STACKBLITZ",          # StackBlitz
+    ):
+        if os.getenv(var):
+            return True
+    return False
+
+
+def _parse_pasted_callback(raw: str) -> dict:
+    """Parse a pasted callback URL / query string into the loopback shape.
+
+    Accepts any of:
+
+    * full URL:  ``http://127.0.0.1:56121/callback?code=abc&state=xyz``
+    * bare query string:  ``?code=abc&state=xyz``  or  ``code=abc&state=xyz``
+    * bare code (no state, only used when the upstream omits state):
+      ``abc-the-code-value``
+
+    Returns ``{"code", "state", "error", "error_description"}`` with
+    missing keys set to ``None`` so the loopback callsites can keep
+    using the same validation path (state check, error check, etc.)
+    they already use for the HTTP server output.  Regression for
+    #26923 — formalises the curl-the-callback-URL workaround the
+    reporter used while waiting for upstream support.
+    """
+    stripped = raw.strip()
+    result: dict = {
+        "code": None,
+        "state": None,
+        "error": None,
+        "error_description": None,
+    }
+    if not stripped:
+        return result
+    query = ""
+    if stripped.startswith(("http://", "https://")):
+        try:
+            parsed = urlparse(stripped)
+        except Exception:
+            return result
+        query = parsed.query or ""
+    elif stripped.startswith("?"):
+        query = stripped[1:]
+    elif "=" in stripped:
+        # Looks like a bare query fragment (``code=...&state=...``).
+        query = stripped
+    else:
+        # Treat as a bare opaque code value with no state.
+        result["code"] = stripped
+        return result
+    params = parse_qs(query, keep_blank_values=False)
+    for key in ("code", "state", "error", "error_description"):
+        values = params.get(key)
+        if values:
+            result[key] = values[0]
+    return result
+
+
+def _prompt_manual_callback_paste(redirect_uri: str) -> dict:
+    """Read a callback URL from stdin as a fallback for browser-only remotes.
+
+    Used when ``--manual-paste`` is set or when the loopback listener
+    cannot bind.  Returns the parsed callback dict (same shape as the
+    HTTP handler output) so the existing state / error validation in
+    the caller works unchanged.  See #26923.
+    """
+    print()
+    print("─── Manual callback paste ─────────────────────────────────────")
+    print("After approving in your browser, your browser will try to load")
+    print(f"  {redirect_uri}")
+    print("which fails (the loopback listener is on this remote machine,")
+    print("not on your laptop) — that is expected.  Copy the FULL URL")
+    print("from your browser's address bar of that failed page and paste")
+    print("it below.  A bare '?code=...&state=...' fragment also works.")
+    print("───────────────────────────────────────────────────────────────")
+    try:
+        raw = input("Callback URL: ")
+    except (EOFError, KeyboardInterrupt):
+        raw = ""
+    return _parse_pasted_callback(raw)
 
 
 def _ssh_user_at_host() -> str:
@@ -2945,6 +3107,10 @@ def _print_loopback_ssh_hint(redirect_uri: str, *, docs_url: str | None = None) 
     print(f"  ssh -N -L {port}:127.0.0.1:{port} {_ssh_user_at_host()}")
     print()
     print("Then open the authorize URL above in your local browser.")
+    print()
+    print("No SSH client (Cloud Shell / Codespaces / web IDE)?  Re-run with")
+    print("`--manual-paste` to skip the loopback listener and paste the failed")
+    print("callback URL directly.")
     if docs_url:
         print(f"Provider docs:      {docs_url}")
     print(f"SSH/jump-box guide: {OAUTH_OVER_SSH_DOCS_URL}")
@@ -2974,7 +3140,7 @@ def _read_codex_tokens(*, _lock: bool = True) -> Dict[str, Any]:
     state = _load_provider_state(auth_store, "openai-codex")
     if not state:
         raise AuthError(
-            "No Codex credentials stored. Run `jarviscopilot auth` to authenticate.",
+            "No Codex credentials stored. Run `hermes auth` to authenticate.",
             provider="openai-codex",
             code="codex_auth_missing",
             relogin_required=True,
@@ -2982,7 +3148,7 @@ def _read_codex_tokens(*, _lock: bool = True) -> Dict[str, Any]:
     tokens = state.get("tokens")
     if not isinstance(tokens, dict):
         raise AuthError(
-            "Codex auth state is missing tokens. Run `jarviscopilot auth` to re-authenticate.",
+            "Codex auth state is missing tokens. Run `hermes auth` to re-authenticate.",
             provider="openai-codex",
             code="codex_auth_invalid_shape",
             relogin_required=True,
@@ -2991,14 +3157,14 @@ def _read_codex_tokens(*, _lock: bool = True) -> Dict[str, Any]:
     refresh_token = tokens.get("refresh_token")
     if not isinstance(access_token, str) or not access_token.strip():
         raise AuthError(
-            "Codex auth is missing access_token. Run `jarviscopilot auth` to re-authenticate.",
+            "Codex auth is missing access_token. Run `hermes auth` to re-authenticate.",
             provider="openai-codex",
             code="codex_auth_missing_access_token",
             relogin_required=True,
         )
     if not isinstance(refresh_token, str) or not refresh_token.strip():
         raise AuthError(
-            "Codex auth is missing refresh_token. Run `jarviscopilot auth` to re-authenticate.",
+            "Codex auth is missing refresh_token. Run `hermes auth` to re-authenticate.",
             provider="openai-codex",
             code="codex_auth_missing_refresh_token",
             relogin_required=True,
@@ -3033,7 +3199,7 @@ def refresh_codex_oauth_pure(
     del access_token  # Access token is only used by callers to decide whether to refresh.
     if not isinstance(refresh_token, str) or not refresh_token.strip():
         raise AuthError(
-            "Codex auth is missing refresh_token. Run `jarviscopilot auth` to re-authenticate.",
+            "Codex auth is missing refresh_token. Run `hermes auth` to re-authenticate.",
             provider="openai-codex",
             code="codex_auth_missing_refresh_token",
             relogin_required=True,
@@ -3082,7 +3248,7 @@ def refresh_codex_oauth_pure(
                 "Codex refresh token was already consumed by another client "
                 "(e.g. Codex CLI or VS Code extension). "
                 "Run `codex` in your terminal to generate fresh tokens, "
-                "then run `jarviscopilot auth` to re-authenticate."
+                "then run `hermes auth` to re-authenticate."
             )
             relogin_required = True
         # A 401/403 from the token endpoint always means the refresh token
@@ -3240,7 +3406,7 @@ def _read_xai_oauth_tokens(*, _lock: bool = True) -> Dict[str, Any]:
     state = _load_provider_state(auth_store, "xai-oauth")
     if not state:
         raise AuthError(
-            "No xAI OAuth credentials stored. Select xAI Grok OAuth (SuperGrok Subscription) in `jarviscopilot model`.",
+            "No xAI OAuth credentials stored. Select xAI Grok OAuth (SuperGrok Subscription) in `hermes model`.",
             provider="xai-oauth",
             code="xai_auth_missing",
             relogin_required=True,
@@ -3248,7 +3414,7 @@ def _read_xai_oauth_tokens(*, _lock: bool = True) -> Dict[str, Any]:
     tokens = state.get("tokens")
     if not isinstance(tokens, dict):
         raise AuthError(
-            "xAI OAuth state is missing tokens. Re-authenticate with `jarviscopilot model`.",
+            "xAI OAuth state is missing tokens. Re-authenticate with `hermes model`.",
             provider="xai-oauth",
             code="xai_auth_invalid_shape",
             relogin_required=True,
@@ -3257,14 +3423,14 @@ def _read_xai_oauth_tokens(*, _lock: bool = True) -> Dict[str, Any]:
     refresh_token = str(tokens.get("refresh_token", "") or "").strip()
     if not access_token:
         raise AuthError(
-            "xAI OAuth state is missing access_token. Re-authenticate with `jarviscopilot model`.",
+            "xAI OAuth state is missing access_token. Re-authenticate with `hermes model`.",
             provider="xai-oauth",
             code="xai_auth_missing_access_token",
             relogin_required=True,
         )
     if not refresh_token:
         raise AuthError(
-            "xAI OAuth state is missing refresh_token. Re-authenticate with `jarviscopilot model`.",
+            "xAI OAuth state is missing refresh_token. Re-authenticate with `hermes model`.",
             provider="xai-oauth",
             code="xai_auth_missing_refresh_token",
             relogin_required=True,
@@ -3352,11 +3518,67 @@ def _xai_validate_oauth_endpoint(url: str, *, field: str) -> str:
             f"xAI OIDC discovery {field} host {host!r} is not on the xAI origin "
             f"(expected x.ai or a *.x.ai subdomain). Refusing to use a cached "
             f"endpoint that may have been substituted by a MITM during initial "
-            f"discovery; re-authenticate with `jarviscopilot model` to re-fetch.",
+            f"discovery; re-authenticate with `hermes model` to re-fetch.",
             provider="xai-oauth",
             code="xai_discovery_invalid",
         )
     return url
+
+
+def _xai_validate_inference_base_url(value: str, *, fallback: str) -> str:
+    """Refuse a non-xAI base_url for the OAuth-authenticated inference path.
+
+    The xAI Grok OAuth bearer is a high-value, long-lived credential tied to
+    the user's SuperGrok subscription. ``XAI_BASE_URL`` / ``HERMES_XAI_BASE_URL``
+    let users repoint the inference endpoint (handy for staging or a local
+    proxy), but the env override is also a credential-leak vector: a tampered
+    ``.env`` or hostile shell init that sets
+    ``XAI_BASE_URL=https://attacker.example/v1`` would ship the OAuth access
+    token to a third party on every request, silently.
+
+    Pin the inference origin to ``api.x.ai`` (or any ``*.x.ai`` subdomain xAI
+    may add). On rejection, fall back to the default and log a warning rather
+    than raise — a bad env var should not deadlock authentication, but it
+    should also never leak the bearer.
+
+    ``value`` is the already-stripped, trailing-slash-trimmed candidate from
+    env. Empty input returns ``fallback`` unchanged.
+    """
+    candidate = (value or "").strip().rstrip("/")
+    if not candidate:
+        return fallback
+    try:
+        parsed = urlparse(candidate)
+    except Exception:
+        logger.warning(
+            "Ignoring malformed xAI base_url override %r; using %s instead.",
+            candidate, fallback,
+        )
+        return fallback
+    if parsed.scheme != "https":
+        logger.warning(
+            "Refusing non-HTTPS xAI base_url override %r (xai-oauth bearer would "
+            "be sent in cleartext); falling back to %s.",
+            candidate, fallback,
+        )
+        return fallback
+    host = (parsed.hostname or "").lower()
+    if not host:
+        logger.warning(
+            "Ignoring xAI base_url override %r with no hostname; using %s instead.",
+            candidate, fallback,
+        )
+        return fallback
+    if host != "x.ai" and not host.endswith(".x.ai"):
+        logger.warning(
+            "Refusing xAI base_url override %r — host %r is not on the xAI origin "
+            "(expected x.ai or a *.x.ai subdomain). The xai-oauth bearer is only "
+            "valid against xAI's inference API; sending it elsewhere would leak "
+            "the credential. Falling back to %s.",
+            candidate, host, fallback,
+        )
+        return fallback
+    return candidate
 
 
 def _xai_oauth_discovery(timeout_seconds: float = 15.0) -> Dict[str, str]:
@@ -3418,7 +3640,7 @@ def refresh_xai_oauth_pure(
     del access_token
     if not isinstance(refresh_token, str) or not refresh_token.strip():
         raise AuthError(
-            "xAI OAuth is missing refresh_token. Re-authenticate with `jarviscopilot model`.",
+            "xAI OAuth is missing refresh_token. Re-authenticate with `hermes model`.",
             provider="xai-oauth",
             code="xai_auth_missing_refresh_token",
             relogin_required=True,
@@ -3428,7 +3650,7 @@ def refresh_xai_oauth_pure(
     # written by an older JarvisCopilot (or hand-edited) may carry a non-xAI
     # token_endpoint that would receive every future refresh_token in
     # plaintext if we trusted it blindly. Cheap suffix check; fast-fail
-    # with a clear error so the user can re-run `jarviscopilot model` to refetch.
+    # with a clear error so the user can re-run `hermes model` to refetch.
     _xai_validate_oauth_endpoint(endpoint, field="token_endpoint")
     timeout = httpx.Timeout(max(5.0, float(timeout_seconds)))
     with httpx.Client(timeout=timeout, headers={"Accept": "application/json"}) as client:
@@ -3443,12 +3665,34 @@ def refresh_xai_oauth_pure(
         )
     if response.status_code != 200:
         detail = response.text.strip()
+        # ``403`` from xAI's token endpoint is almost always a tier /
+        # entitlement gate (the OAuth grant exists but the account isn't
+        # on the allowlist for API access).  Re-running ``hermes model``
+        # won't fix that — surface a separate error code so
+        # ``format_auth_error`` doesn't append a misleading
+        # re-authenticate hint, and point users at the ``XAI_API_KEY``
+        # fallback.  See #26847.
+        if response.status_code == 403:
+            raise AuthError(
+                "xAI token refresh failed with HTTP 403."
+                + (f" Response: {detail}" if detail else "")
+                + " This OAuth account is not authorized for xAI API"
+                  " access — xAI may be restricting API/OAuth use to"
+                  " specific SuperGrok tiers despite the in-app"
+                  " subscription being active. Re-logging in won't"
+                  " change that; set ``XAI_API_KEY`` and switch to"
+                  " ``provider: xai`` (API-key path) if available, or"
+                  " upgrade your subscription at https://x.ai/grok.",
+                provider="xai-oauth",
+                code="xai_oauth_tier_denied",
+                relogin_required=False,
+            )
         raise AuthError(
             "xAI token refresh failed."
             + (f" Response: {detail}" if detail else ""),
             provider="xai-oauth",
             code="xai_refresh_failed",
-            relogin_required=(response.status_code in {400, 401, 403}),
+            relogin_required=(response.status_code in {400, 401}),
         )
     try:
         payload = response.json()
@@ -3546,18 +3790,46 @@ def resolve_xai_oauth_runtime_credentials(
             if should_refresh:
                 if not token_endpoint:
                     token_endpoint = _xai_oauth_discovery(refresh_timeout_seconds)["token_endpoint"]
-                tokens = _refresh_xai_oauth_tokens(
-                    tokens,
-                    token_endpoint=token_endpoint,
-                    redirect_uri=redirect_uri,
-                    timeout_seconds=refresh_timeout_seconds,
-                )
-                access_token = str(tokens.get("access_token", "") or "").strip()
+                try:
+                    tokens = _refresh_xai_oauth_tokens(
+                        tokens,
+                        token_endpoint=token_endpoint,
+                        redirect_uri=redirect_uri,
+                        timeout_seconds=refresh_timeout_seconds,
+                    )
+                    access_token = str(tokens.get("access_token", "") or "").strip()
+                except AuthError as exc:
+                    if _is_terminal_xai_oauth_refresh_error(exc):
+                        # Terminal failure (HTTP 400/401/403 — invalid_grant, token revoked).
+                        # Clear dead tokens from auth.json so subsequent sessions fail fast
+                        # without a network retry. Mirrors credential_pool.py quarantine.
+                        try:
+                            _q_store = _load_auth_store()
+                            _q_state = _load_provider_state(_q_store, "xai-oauth") or {}
+                            _q_tokens = dict(_q_state.get("tokens") or {})
+                            _q_tokens.pop("access_token", None)
+                            _q_tokens.pop("refresh_token", None)
+                            _q_state["tokens"] = _q_tokens
+                            _q_state["last_auth_error"] = {
+                                "provider": "xai-oauth",
+                                "code": exc.code or "xai_refresh_failed",
+                                "message": str(exc),
+                                "reason": "runtime_refresh_failure",
+                                "relogin_required": True,
+                                "at": datetime.now(timezone.utc).isoformat(),
+                            }
+                            _store_provider_state(_q_store, "xai-oauth", _q_state, set_active=False)
+                            _save_auth_store(_q_store)
+                        except Exception as _save_exc:
+                            logger.debug(
+                                "xAI OAuth: failed to persist quarantined state: %s", _save_exc,
+                            )
+                    raise
 
-    base_url = (
+    base_url = _xai_validate_inference_base_url(
         os.getenv("HERMES_XAI_BASE_URL", "").strip().rstrip("/")
-        or os.getenv("XAI_BASE_URL", "").strip().rstrip("/")
-        or DEFAULT_XAI_OAUTH_BASE_URL
+        or os.getenv("XAI_BASE_URL", "").strip().rstrip("/"),
+        fallback=DEFAULT_XAI_OAUTH_BASE_URL,
     )
     return {
         "provider": "xai-oauth",
@@ -3791,13 +4063,13 @@ def _poll_for_token(
 
 # -----------------------------------------------------------------------------
 # Shared Nous token store — lets OAuth credentials persist across profiles
-# so a new `jarviscopilot --profile <name> auth add nous --type oauth` can one-tap
+# so a new `hermes --profile <name> auth add nous --type oauth` can one-tap
 # import instead of running the full device-code flow every time.
 #
 # File lives at ${HERMES_SHARED_AUTH_DIR}/nous_auth.json, defaulting to
 # ``<hermes-root>/shared/nous_auth.json`` where ``<hermes-root>`` is what
 # ``get_default_hermes_root()`` returns — ``~/.jarviscopilot`` on Linux/macOS,
-# ``%LOCALAPPDATA%\jarviscopilot`` on native Windows, or the Docker/custom root.
+# ``%LOCALAPPDATA%\hermes`` on native Windows, or the Docker/custom root.
 # It is OUTSIDE any named profile's HERMES_HOME so named profiles (which
 # typically live under ``<hermes-root>/profiles/<name>/``) all see the
 # same file.
@@ -3820,7 +4092,7 @@ def _nous_shared_auth_dir() -> Path:
     ``<hermes-root>/shared/``, where ``<hermes-root>`` is what
     :func:`jarviscopilot_constants.get_default_hermes_root` returns — so
     Linux/macOS classic installs land at ``~/.jarviscopilot/shared/``, native
-    Windows installs at ``%LOCALAPPDATA%\\jarviscopilot\\shared\\``, and
+    Windows installs at ``%LOCALAPPDATA%\\hermes\\shared\\``, and
     Docker / custom ``HERMES_HOME`` deployments at
     ``<HERMES_HOME>/shared/``. Sits outside any named profile so all
     profiles under the same root share the store.
@@ -3956,10 +4228,8 @@ def _write_shared_nous_state(state: Dict[str, Any]) -> None:
         with _nous_shared_store_lock():
             path = _nous_shared_store_path()
             path.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                os.chmod(path.parent, 0o700)
-            except OSError:
-                pass
+            # secure_parent_dir refuses to chmod / or top-level dirs (#25821).
+            secure_parent_dir(path)
             tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}")
             # Create with 0o600 atomically via os.open(O_EXCL) — closes the TOCTOU
             # window where write_text() + post-write chmod briefly exposed Nous
@@ -4273,9 +4543,9 @@ def _refresh_access_token(
             "~/.jarviscopilot/auth.json) called POST /api/oauth/token with JarvisCopilot's "
             "refresh token without persisting the rotated token back.\n"
             "Nous refresh tokens are single-use — only JarvisCopilot may call the "
-            "refresh endpoint. For health checks, use `jarviscopilot auth status` "
+            "refresh endpoint. For health checks, use `hermes auth status` "
             "instead.\n"
-            "Re-authenticate with: jarviscopilot auth add nous"
+            "Re-authenticate with: hermes auth add nous"
         )
         relogin = True
 
@@ -4352,7 +4622,7 @@ def fetch_nous_models(
         if isinstance(model_id, str) and model_id.strip():
             mid = model_id.strip()
             # Skip JarvisCopilot models — they're not reliable for agentic tool-calling
-            if "jarviscopilot" in mid.lower():
+            if "hermes" in mid.lower():
                 continue
             model_ids.append(mid)
 
@@ -4570,7 +4840,7 @@ def refresh_nous_oauth_pure(
             state["refresh_token"] = refreshed.get("refresh_token") or state["refresh_token"]
             state["token_type"] = refreshed.get("token_type") or state.get("token_type") or "Bearer"
             state["scope"] = refreshed.get("scope") or state.get("scope")
-            refreshed_url = _optional_base_url(refreshed.get("inference_base_url"))
+            refreshed_url = _validate_nous_inference_url_from_network(refreshed.get("inference_base_url"))
             if refreshed_url:
                 state["inference_base_url"] = refreshed_url
             state["obtained_at"] = now.isoformat()
@@ -4606,7 +4876,7 @@ def refresh_nous_oauth_pure(
             state["agent_key_expires_in"] = mint_payload.get("expires_in")
             state["agent_key_reused"] = bool(mint_payload.get("reused", False))
             state["agent_key_obtained_at"] = now.isoformat()
-            minted_url = _optional_base_url(mint_payload.get("inference_base_url"))
+            minted_url = _validate_nous_inference_url_from_network(mint_payload.get("inference_base_url"))
             if minted_url:
                 state["inference_base_url"] = minted_url
 
@@ -4661,7 +4931,7 @@ def persist_nous_credentials(
       ``_seed_from_singletons()`` during pool load.
     - ``credential_pool.nous``: used by the runtime ``pool.select()`` path.
 
-    Historically ``jarviscopilot auth add nous`` wrote a ``manual:device_code`` pool
+    Historically ``hermes auth add nous`` wrote a ``manual:device_code`` pool
     entry only, skipping ``providers.nous``.  When the 24h agent_key TTL
     expired, the recovery path read the empty singleton state and raised
     ``AuthError`` silently (``logger.debug`` at INFO level).
@@ -4672,7 +4942,7 @@ def persist_nous_credentials(
     place; the pool never accumulates duplicate device_code rows.
 
     ``label`` is an optional user-chosen display name (from
-    ``jarviscopilot auth add nous --label <name>``).  It gets embedded in the
+    ``hermes auth add nous --label <name>``).  It gets embedded in the
     singleton state so that ``_seed_from_singletons`` uses it as the pool
     entry's label on every subsequent ``load_pool("nous")`` instead of the
     auto-derived token fingerprint.  When ``None``, the auto-derived label
@@ -4693,7 +4963,7 @@ def persist_nous_credentials(
         _save_auth_store(auth_store)
 
     # Mirror to the shared store so a new profile can one-tap import
-    # these credentials via `jarviscopilot auth add nous --type oauth`. Best-
+    # these credentials via `hermes auth add nous --type oauth`. Best-
     # effort: any I/O failure is logged and swallowed (the per-profile
     # auth.json is still the source of truth).
     _write_shared_nous_state(state)
@@ -4884,7 +5154,7 @@ def resolve_nous_runtime_credentials(
                         state["refresh_token"] = refreshed.get("refresh_token") or refresh_token
                         state["token_type"] = refreshed.get("token_type") or state.get("token_type") or "Bearer"
                         state["scope"] = refreshed.get("scope") or state.get("scope")
-                        refreshed_url = _optional_base_url(refreshed.get("inference_base_url"))
+                        refreshed_url = _validate_nous_inference_url_from_network(refreshed.get("inference_base_url"))
                         if refreshed_url:
                             inference_base_url = refreshed_url
                         state["obtained_at"] = now.isoformat()
@@ -4992,7 +5262,7 @@ def resolve_nous_runtime_credentials(
                                 state["refresh_token"] = refreshed.get("refresh_token") or latest_refresh_token
                                 state["token_type"] = refreshed.get("token_type") or state.get("token_type") or "Bearer"
                                 state["scope"] = refreshed.get("scope") or state.get("scope")
-                                refreshed_url = _optional_base_url(refreshed.get("inference_base_url"))
+                                refreshed_url = _validate_nous_inference_url_from_network(refreshed.get("inference_base_url"))
                                 if refreshed_url:
                                     inference_base_url = refreshed_url
                                 state["obtained_at"] = now.isoformat()
@@ -5047,7 +5317,7 @@ def resolve_nous_runtime_credentials(
                 state["agent_key_expires_in"] = mint_payload.get("expires_in")
                 state["agent_key_reused"] = bool(mint_payload.get("reused", False))
                 state["agent_key_obtained_at"] = now.isoformat()
-                minted_url = _optional_base_url(mint_payload.get("inference_base_url"))
+                minted_url = _validate_nous_inference_url_from_network(mint_payload.get("inference_base_url"))
                 if minted_url:
                     inference_base_url = minted_url
                 _oauth_trace(
@@ -5165,11 +5435,11 @@ def _snapshot_nous_pool_status() -> Dict[str, Any]:
 # ── Process-level memo for get_nous_auth_status() ──
 # get_nous_auth_status() validates state by calling resolve_nous_runtime_credentials(),
 # which does a synchronous OAuth refresh POST to portal.nousresearch.com. That can take
-# ~350ms even on the failure path, and read-only UI surfaces (`jarviscopilot tools`, status panels,
-# subscription-feature checks) call it many times per render — `jarviscopilot tools` → "All Platforms"
+# ~350ms even on the failure path, and read-only UI surfaces (`hermes tools`, status panels,
+# subscription-feature checks) call it many times per render — `hermes tools` → "All Platforms"
 # was firing the refresh ~31× during one menu paint, racking up >13s of HTTP and burning
 # single-use refresh tokens. Cache the snapshot for a few seconds, keyed on the auth.json
-# mtime so that `jarviscopilot auth login/logout/add/remove` invalidate naturally on the next call.
+# mtime so that `hermes auth login/logout/add/remove` invalidate naturally on the next call.
 _NOUS_AUTH_STATUS_CACHE_TTL = 15.0  # seconds
 _nous_auth_status_cache: Optional[Tuple[float, Optional[float], Dict[str, Any]]] = None
 
@@ -5276,11 +5546,11 @@ def _compute_nous_auth_status() -> Dict[str, Any]:
 def get_codex_auth_status() -> Dict[str, Any]:
     """Status snapshot for Codex auth.
     
-    Checks the credential pool first (where `jarviscopilot auth` stores credentials),
+    Checks the credential pool first (where `hermes auth` stores credentials),
     then falls back to the legacy provider state.
     """
-    # Check credential pool first — this is where `jarviscopilot auth` and
-    # `jarviscopilot model` store device_code tokens.
+    # Check credential pool first — this is where `hermes auth` and
+    # `hermes model` store device_code tokens.
     try:
         from agent.credential_pool import load_pool
         pool = load_pool("openai-codex")
@@ -5469,7 +5739,7 @@ def _get_azure_foundry_auth_status() -> Dict[str, Any]:
     checks:
 
       * ``auth_mode == "entra_id"`` AND ``azure-identity`` is importable
-        (we do NOT mint a token here; ``jarviscopilot doctor`` runs the live
+        (we do NOT mint a token here; ``hermes doctor`` runs the live
         probe and reports whether the credential chain can acquire one).
       * ``auth_mode == "api_key"`` (default) AND ``AZURE_FOUNDRY_API_KEY``
         is set with a usable value.
@@ -5522,7 +5792,7 @@ def _get_azure_foundry_auth_status() -> Dict[str, Any]:
             else:
                 info["hint"] = (
                     "azure-identity is installed; live credential validation "
-                    "is skipped here. Run `jarviscopilot doctor` to verify token acquisition."
+                    "is skipped here. Run `hermes doctor` to verify token acquisition."
                 )
             return info
         except Exception as exc:
@@ -5730,7 +6000,7 @@ def _should_reset_config_provider_on_logout(provider_id: Optional[str]) -> bool:
 def _logout_default_provider_from_config() -> Optional[str]:
     """Fallback logout target when auth.json has no active provider.
 
-    `jarviscopilot logout` historically keyed off auth.json.active_provider only.
+    `hermes logout` historically keyed off auth.json.active_provider only.
     That left users stuck when auth state had already been cleared but
     config.yaml still selected an OAuth provider such as openai-codex for the
     agent model: there was no active auth provider to target, so logout printed
@@ -5955,10 +6225,10 @@ def _save_model_choice(model_id: str) -> None:
 
 
 def login_command(args) -> None:
-    """Deprecated: use 'jarviscopilot model' or 'jarviscopilot setup' instead."""
-    print("The 'jarviscopilot login' command has been removed.")
-    print("Use 'jarviscopilot auth' to manage credentials,")
-    print("'jarviscopilot model' to select a provider, or 'jarviscopilot setup' for full setup.")
+    """Deprecated: use 'hermes model' or 'hermes setup' instead."""
+    print("The 'hermes login' command has been removed.")
+    print("Use 'hermes auth' to manage credentials,")
+    print("'hermes model' to select a provider, or 'hermes setup' for full setup.")
     raise SystemExit(0)
 
 
@@ -5972,7 +6242,7 @@ def _login_openai_codex(
 
     del args, pconfig  # kept for parity with other provider login helpers
 
-    # Check for existing Hermes-owned credentials
+    # Check for existing JarvisCopilot-owned credentials
     if not force_new_login:
         try:
             existing = resolve_codex_runtime_credentials()
@@ -6075,8 +6345,13 @@ def _login_xai_oauth(
     open_browser = not getattr(args, "no_browser", False)
     if _is_remote_session():
         open_browser = False
+    manual_paste = bool(getattr(args, "manual_paste", False))
 
-    creds = _xai_oauth_loopback_login(timeout_seconds=timeout_seconds, open_browser=open_browser)
+    creds = _xai_oauth_loopback_login(
+        timeout_seconds=timeout_seconds,
+        open_browser=open_browser,
+        manual_paste=manual_paste,
+    )
     _save_xai_oauth_tokens(
         creds["tokens"],
         discovery=creds.get("discovery"),
@@ -6102,7 +6377,7 @@ def _xai_oauth_build_authorize_url(
     # `plan=generic` opts the consent screen into xAI's generic OAuth plan
     # tier instead of falling back to the per-account default. Without it,
     # accounts.x.ai rejects loopback OAuth from non-allowlisted clients.
-    # `referrer=jarviscopilot` lets xAI attribute Hermes-originated logins
+    # `referrer=hermes-agent` lets xAI attribute JarvisCopilot-originated logins
     # in their OAuth server logs (we still impersonate the upstream Grok-CLI
     # client_id; this is best-effort attribution until xAI mints us our own).
     authorize_params = {
@@ -6115,7 +6390,7 @@ def _xai_oauth_build_authorize_url(
         "state": state,
         "nonce": nonce,
         "plan": "generic",
-        "referrer": "jarviscopilot",
+        "referrer": "hermes-agent",
     }
     return f"{authorization_endpoint}?{urlencode(authorize_params)}"
 
@@ -6155,7 +6430,7 @@ def _xai_oauth_exchange_code_for_tokens(
         raise AuthError(
             "xAI token exchange refused locally: PKCE code_verifier is empty. "
             "This is a bug in JarvisCopilot — please report at "
-            "https://github.com/NousResearch/jarviscopilot/issues/26990.",
+            "https://github.com/NousResearch/hermes-agent/issues/26990.",
             provider="xai-oauth",
             code="xai_pkce_verifier_missing",
         )
@@ -6197,6 +6472,25 @@ def _xai_oauth_exchange_code_for_tokens(
 
     if response.status_code != 200:
         body = response.text.strip()
+        # See ``refresh_xai_oauth_pure`` — token-exchange 403 also
+        # surfaces tier/entitlement gating from xAI's backend.  Avoid
+        # the misleading "re-authenticate" hint and point at the API
+        # key fallback.  See #26847.
+        if response.status_code == 403:
+            raise AuthError(
+                f"xAI token exchange failed (HTTP 403)."
+                + (f" Response: {body}" if body else "")
+                + " This OAuth account is not authorized for xAI API"
+                  " access — xAI may be restricting API/OAuth use to"
+                  " specific SuperGrok tiers despite the in-app"
+                  " subscription being active. Set ``XAI_API_KEY``"
+                  " and switch to ``provider: xai`` (API-key path) if"
+                  " available, or upgrade your subscription at"
+                  " https://x.ai/grok.",
+                provider="xai-oauth",
+                code="xai_oauth_tier_denied",
+                relogin_required=False,
+            )
         raise AuthError(
             f"xAI token exchange failed (HTTP {response.status_code})."
             + (f" Response: {body}" if body else ""),
@@ -6225,13 +6519,32 @@ def _xai_oauth_loopback_login(
     *,
     timeout_seconds: float = 20.0,
     open_browser: bool = True,
+    manual_paste: bool = False,
 ) -> Dict[str, Any]:
+    """Run the xAI OAuth PKCE flow.
+
+    When ``manual_paste=True`` the loopback HTTP listener is skipped
+    entirely and the user is prompted to paste the failed callback
+    URL into stdin (regression fix for #26923 — browser-only remote
+    consoles like GCP Cloud Shell / GitHub Codespaces / EC2 Instance
+    Connect, where the laptop's browser can't reach 127.0.0.1 on the
+    remote VM).  The same PKCE verifier, ``state``, and ``nonce`` are
+    used for both paths so the upstream-side OAuth flow is identical.
+    """
     discovery = _xai_oauth_discovery(timeout_seconds)
     authorization_endpoint = discovery["authorization_endpoint"]
     token_endpoint = discovery["token_endpoint"]
 
-    server, thread, callback_result, redirect_uri = _xai_start_callback_server()
-    try:
+    if manual_paste:
+        # No HTTP listener — synthesize a redirect_uri matching what
+        # the server would have bound to so the authorize URL the user
+        # opens (and the redirect_uri sent in the token exchange) stay
+        # byte-identical to the loopback path.  xAI's token endpoint
+        # cross-checks redirect_uri against the authorize request.
+        redirect_uri = (
+            f"http://{XAI_OAUTH_REDIRECT_HOST}:{XAI_OAUTH_REDIRECT_PORT}"
+            f"{XAI_OAUTH_REDIRECT_PATH}"
+        )
         _xai_validate_loopback_redirect_uri(redirect_uri)
         code_verifier = _oauth_pkce_code_verifier()
         code_challenge = _oauth_pkce_code_challenge(code_verifier)
@@ -6247,38 +6560,57 @@ def _xai_oauth_loopback_login(
 
         print("Open this URL to authorize JarvisCopilot with xAI:")
         print(authorize_url)
-        print()
-        print(f"Waiting for callback on {redirect_uri}")
+        callback = _prompt_manual_callback_paste(redirect_uri)
+    else:
+        server, thread, callback_result, redirect_uri = _xai_start_callback_server()
+        try:
+            _xai_validate_loopback_redirect_uri(redirect_uri)
+            code_verifier = _oauth_pkce_code_verifier()
+            code_challenge = _oauth_pkce_code_challenge(code_verifier)
+            state = uuid.uuid4().hex
+            nonce = uuid.uuid4().hex
+            authorize_url = _xai_oauth_build_authorize_url(
+                authorization_endpoint=authorization_endpoint,
+                redirect_uri=redirect_uri,
+                code_challenge=code_challenge,
+                state=state,
+                nonce=nonce,
+            )
 
-        _print_loopback_ssh_hint(redirect_uri, docs_url=XAI_OAUTH_DOCS_URL)
+            print("Open this URL to authorize JarvisCopilot with xAI:")
+            print(authorize_url)
+            print()
+            print(f"Waiting for callback on {redirect_uri}")
 
-        if open_browser and not _is_remote_session():
+            _print_loopback_ssh_hint(redirect_uri, docs_url=XAI_OAUTH_DOCS_URL)
+
+            if open_browser and not _is_remote_session():
+                try:
+                    opened = webbrowser.open(authorize_url)
+                except Exception:
+                    opened = False
+                if opened:
+                    print("Browser opened for xAI authorization.")
+                else:
+                    print("Could not open the browser automatically; use the URL above.")
+
+            callback = _xai_wait_for_callback(
+                server,
+                thread,
+                callback_result,
+                timeout_seconds=max(30.0, timeout_seconds * 9),
+            )
+        except Exception:
             try:
-                opened = webbrowser.open(authorize_url)
+                server.shutdown()
+                server.server_close()
             except Exception:
-                opened = False
-            if opened:
-                print("Browser opened for xAI authorization.")
-            else:
-                print("Could not open the browser automatically; use the URL above.")
-
-        callback = _xai_wait_for_callback(
-            server,
-            thread,
-            callback_result,
-            timeout_seconds=max(30.0, timeout_seconds * 9),
-        )
-    except Exception:
-        try:
-            server.shutdown()
-            server.server_close()
-        except Exception:
-            pass
-        try:
-            thread.join(timeout=1.0)
-        except Exception:
-            pass
-        raise
+                pass
+            try:
+                thread.join(timeout=1.0)
+            except Exception:
+                pass
+            raise
 
     if callback.get("error"):
         detail = callback.get("error_description") or callback["error"]
@@ -6324,10 +6656,10 @@ def _xai_oauth_loopback_login(
             code="xai_token_exchange_invalid",
         )
 
-    base_url = (
+    base_url = _xai_validate_inference_base_url(
         os.getenv("HERMES_XAI_BASE_URL", "").strip().rstrip("/")
-        or os.getenv("XAI_BASE_URL", "").strip().rstrip("/")
-        or DEFAULT_XAI_OAUTH_BASE_URL
+        or os.getenv("XAI_BASE_URL", "").strip().rstrip("/"),
+        fallback=DEFAULT_XAI_OAUTH_BASE_URL,
     )
     return {
         "tokens": {
@@ -6777,42 +7109,114 @@ def _refresh_minimax_oauth_state(
     return new_state
 
 
+def _minimax_oauth_quarantine_on_terminal_refresh(state: Dict[str, Any], exc: AuthError) -> None:
+    """Wipe dead tokens from auth.json after a terminal refresh failure.
+
+    Shared by both the eager-resolve path and the lazy per-request token
+    provider. Mirrors the Nous / xAI-OAuth / Codex-OAuth quarantine pattern
+    so subsequent calls fail fast without a network retry.
+    """
+    if not (exc.relogin_required and state.get("refresh_token")):
+        return
+    for _k in ("access_token", "refresh_token", "expires_at", "expires_in", "obtained_at"):
+        state.pop(_k, None)
+    state["last_auth_error"] = {
+        "provider": "minimax-oauth",
+        "code": exc.code or "refresh_failed",
+        "message": str(exc),
+        "reason": "runtime_refresh_failure",
+        "relogin_required": True,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        _minimax_save_auth_state(state)
+    except Exception as _save_exc:
+        logger.debug("MiniMax OAuth: failed to persist quarantined state: %s", _save_exc)
+
+
+def build_minimax_oauth_token_provider() -> Callable[[], str]:
+    """Return a zero-arg callable that yields a fresh MiniMax access token.
+
+    The Anthropic SDK caches ``api_key`` as a static string at construction
+    time, so a session that resolves credentials once at startup will keep
+    sending the same bearer until MiniMax's server returns 401 — typically
+    ~15 minutes in, because MiniMax issues short-lived access tokens.
+
+    Returning a *callable* instead of a string lets us hook into the
+    existing Entra-ID bearer infrastructure in
+    :mod:`agent.anthropic_adapter`: ``build_anthropic_client`` detects a
+    callable and routes through ``_build_anthropic_client_with_bearer_hook``,
+    which mints a fresh ``Authorization`` header on every outbound request.
+    Each invocation re-reads the persisted state from ``auth.json`` and
+    calls :func:`_refresh_minimax_oauth_state` — that helper is a no-op
+    when the token still has more than ``MINIMAX_OAUTH_REFRESH_SKEW_SECONDS``
+    of life left, so the steady-state cost is one file read + one
+    timestamp compare per request.
+
+    Reading state fresh each time also means a refresh persisted by one
+    process (CLI, gateway, cron) is immediately visible to every other
+    process sharing the same ``auth.json``.
+    """
+    def _provide() -> str:
+        state = get_provider_auth_state("minimax-oauth")
+        if not state or not state.get("access_token"):
+            raise AuthError(
+                "Not logged into MiniMax OAuth. Run `hermes model` and select "
+                "MiniMax (OAuth).",
+                provider="minimax-oauth", code="not_logged_in", relogin_required=True,
+            )
+        try:
+            state = _refresh_minimax_oauth_state(state)
+        except AuthError as exc:
+            _minimax_oauth_quarantine_on_terminal_refresh(state, exc)
+            raise
+        token = state.get("access_token")
+        if not token:
+            raise AuthError(
+                "MiniMax OAuth state has no access_token after refresh.",
+                provider="minimax-oauth", code="no_access_token", relogin_required=True,
+            )
+        return token
+
+    return _provide
+
+
 def resolve_minimax_oauth_runtime_credentials(
     *, min_token_ttl_seconds: int = MINIMAX_OAUTH_REFRESH_SKEW_SECONDS,
+    as_token_provider: bool = False,
 ) -> Dict[str, Any]:
-    """Return {provider, api_key, base_url, source} for minimax-oauth."""
+    """Return {provider, api_key, base_url, source} for minimax-oauth.
+
+    When ``as_token_provider`` is True, ``api_key`` is a zero-arg callable
+    that mints a fresh access token per call (proactively refreshing if
+    the cached token is within ``MINIMAX_OAUTH_REFRESH_SKEW_SECONDS`` of
+    expiry). This is what the runtime provider path uses so that long
+    sessions survive MiniMax's short access-token lifetime — see
+    :func:`build_minimax_oauth_token_provider` for the rationale.
+
+    The default (string ``api_key``) preserves the historical contract for
+    diagnostic call sites like ``hermes status`` that just want to know
+    whether a valid token exists right now.
+    """
     state = get_provider_auth_state("minimax-oauth")
     if not state or not state.get("access_token"):
         raise AuthError(
-            "Not logged into MiniMax OAuth. Run `jarviscopilot model` and select "
+            "Not logged into MiniMax OAuth. Run `hermes model` and select "
             "MiniMax (OAuth).",
             provider="minimax-oauth", code="not_logged_in", relogin_required=True,
         )
     try:
         state = _refresh_minimax_oauth_state(state)
     except AuthError as exc:
-        if exc.relogin_required and state.get("refresh_token"):
-            # Terminal refresh failure — clear dead tokens from auth.json so
-            # subsequent calls fail fast without a network retry, mirroring
-            # the Nous / xAI-OAuth / Codex-OAuth quarantine pattern.
-            for _k in ("access_token", "refresh_token", "expires_at", "expires_in", "obtained_at"):
-                state.pop(_k, None)
-            state["last_auth_error"] = {
-                "provider": "minimax-oauth",
-                "code": exc.code or "refresh_failed",
-                "message": str(exc),
-                "reason": "runtime_refresh_failure",
-                "relogin_required": True,
-                "at": datetime.now(timezone.utc).isoformat(),
-            }
-            try:
-                _minimax_save_auth_state(state)
-            except Exception as _save_exc:
-                logger.debug("MiniMax OAuth: failed to persist quarantined state: %s", _save_exc)
+        _minimax_oauth_quarantine_on_terminal_refresh(state, exc)
         raise
+    if as_token_provider:
+        api_key: Any = build_minimax_oauth_token_provider()
+    else:
+        api_key = state["access_token"]
     return {
         "provider": "minimax-oauth",
-        "api_key": state["access_token"],
+        "api_key": api_key,
         "base_url": state["inference_base_url"].rstrip("/"),
         "source": "oauth",
     }
@@ -6980,7 +7384,7 @@ def _nous_device_code_login(
             print("Your Nous Portal account does not have an active subscription.")
             print(f"  Subscribe here: {portal_url}/billing")
             print()
-            print("After subscribing, run `jarviscopilot model` again to finish setup.")
+            print("After subscribing, run `hermes model` again to finish setup.")
             raise SystemExit(1)
         raise
 
@@ -7149,7 +7553,7 @@ def _login_nous(args, pconfig: ProviderConfig) -> None:
                 _save_auth_store(auth_store)
             print()
             print("No provider change. Nous credentials saved for future use.")
-            print("  Run `jarviscopilot model` again to switch to Nous Portal.")
+            print("  Run `hermes model` again to switch to Nous Portal.")
             return
 
         config_path = _update_config_for_provider(
@@ -7193,7 +7597,7 @@ def logout_command(args) -> None:
         if should_reset_config and os.getenv("OPENROUTER_API_KEY"):
             print("JarvisCopilot will use OpenRouter for inference.")
         elif should_reset_config:
-            print("Run `jarviscopilot model` or configure an API key to use JarvisCopilot.")
+            print("Run `hermes model` or configure an API key to use JarvisCopilot.")
         else:
             print("Model provider configuration was unchanged.")
     else:

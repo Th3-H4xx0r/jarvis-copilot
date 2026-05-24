@@ -3,7 +3,7 @@
 Skills Hub CLI — Unified interface for the JarvisCopilot Skills Hub.
 
 Powers both:
-  - `jarviscopilot skills <subcommand>` (CLI argparse entry point)
+  - `hermes skills <subcommand>` (CLI argparse entry point)
   - `/skills <subcommand>` (slash command in the interactive chat)
 
 All logic lives in shared do_* functions. The CLI entry point and slash command
@@ -23,6 +23,7 @@ from rich.table import Table
 # Lazy imports to avoid circular dependencies and slow startup.
 # tools.skills_hub and tools.skills_guard are imported inside functions.
 from jarviscopilot_constants import display_hermes_home
+from agent.skill_utils import is_excluded_skill_path
 
 _console = Console()
 
@@ -178,9 +179,12 @@ def _existing_categories() -> List[str]:
             # top level (no category); otherwise treat as a category bucket.
             if (entry / "SKILL.md").exists():
                 continue
-            # Has at least one nested SKILL.md?
+            # Has at least one nested SKILL.md (excluding dependency/cache dirs)?
             try:
-                if any(entry.rglob("SKILL.md")):
+                if any(
+                    not is_excluded_skill_path(p)
+                    for p in entry.rglob("SKILL.md")
+                ):
                     out.append(entry.name)
             except OSError:
                 continue
@@ -275,8 +279,8 @@ def do_search(query: str, source: str = "all", limit: int = 10,
         )
 
     c.print(table)
-    c.print("[dim]Use: jarviscopilot skills inspect <identifier> to preview, "
-            "jarviscopilot skills install <identifier> to install[/]\n")
+    c.print("[dim]Use: hermes skills inspect <identifier> to preview, "
+            "hermes skills install <identifier> to install[/]\n")
 
 
 def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
@@ -303,7 +307,7 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
     _PER_SOURCE_LIMIT = {
         "official": 200, "skills-sh": 200, "well-known": 50,
         "github": 200, "clawhub": 500, "claude-marketplace": 100,
-        "lobehub": 500,
+        "lobehub": 500, "browse-sh": 500,
     }
 
     with c.status("[bold]Fetching skills from registries..."):
@@ -319,12 +323,14 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
         c.print("[dim]No skills found in the Skills Hub.[/]\n")
         return
 
-    # Deduplicate by name, preferring higher trust
+    # Deduplicate by identifier, preferring higher trust.
+    # identifier is always unique per skill; name is not (browse-sh skills from different
+    # sites can share the same task name, e.g. "search-listings" on Airbnb and Booking.com).
     seen: dict = {}
     for r in all_results:
         rank = _TRUST_RANK.get(r.trust_level, 0)
-        if r.name not in seen or rank > _TRUST_RANK.get(seen[r.name].trust_level, 0):
-            seen[r.name] = r
+        if r.identifier not in seen or rank > _TRUST_RANK.get(seen[r.identifier].trust_level, 0):
+            seen[r.identifier] = r
     deduped = list(seen.values())
 
     # Sort: official first, then by trust level (desc), then alphabetically
@@ -402,7 +408,7 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
         c.print(f"  [yellow]⚡ Slow sources skipped: {', '.join(timed_out)} "
                 f"— run again for cached results[/]")
 
-    c.print("[dim]Tip: 'jarviscopilot skills search <query>' searches deeper across all registries[/]\n")
+    c.print("[dim]Tip: 'hermes skills search <query>' searches deeper across all registries[/]\n")
 
 
 def do_install(identifier: str, category: str = "", force: bool = False,
@@ -487,7 +493,7 @@ def do_install(identifier: str, category: str = "", force: bool = False,
                 "and the URL path doesn't produce a valid identifier.[/]\n\n"
                 "Retry with an explicit name:\n"
                 f"  [bold]/skills install {url} --name <your-name>[/]\n"
-                f"  [bold]jarviscopilot skills install {url} --name <your-name>[/]\n\n"
+                f"  [bold]hermes skills install {url} --name <your-name>[/]\n\n"
                 "[dim]Or ask the SKILL.md's author to add a `name:` field to "
                 "its YAML frontmatter.[/]\n"
             )
@@ -572,7 +578,7 @@ def do_install(identifier: str, category: str = "", force: bool = False,
         if bundle.source == "official":
             c.print(Panel(
                 "[bold bright_cyan]This is an official optional skill maintained by Nous Research.[/]\n\n"
-                "It ships with jarviscopilot but is not activated by default.\n"
+                "It ships with hermes-agent but is not activated by default.\n"
                 "Installing will copy it to your skills directory where the agent can use it.\n\n"
                 f"Files will be at: [cyan]{display_hermes_home()}/skills/{category + '/' if category else ''}{bundle.name}/[/]",
                 title="Official Skill",
@@ -669,7 +675,7 @@ def do_inspect(identifier: str, console: Optional[Console] = None) -> None:
         preview = "\n".join(lines[:50])
         if len(lines) > 50:
             preview += f"\n\n... ({len(lines) - 50} more lines)"
-        c.print(Panel(preview, title="SKILL.md Preview", subtitle="jarviscopilot skills install <id> to install"))
+        c.print(Panel(preview, title="SKILL.md Preview", subtitle="hermes skills install <id> to install"))
 
     c.print()
 
@@ -684,7 +690,7 @@ def browse_skills(page: int = 1, page_size: int = 20, source: str = "all") -> di
     page_size = max(1, min(page_size, 100))
     _TRUST_RANK = {"builtin": 3, "trusted": 2, "community": 1}
     _PER_SOURCE_LIMIT = {"official": 100, "skills-sh": 100, "well-known": 25, "github": 100, "clawhub": 50,
-                         "claude-marketplace": 50, "lobehub": 50}
+                         "claude-marketplace": 50, "lobehub": 50, "browse-sh": 500}
     auth = GitHubAuth()
     sources = create_source_router(auth)
     all_results: list = []
@@ -702,8 +708,8 @@ def browse_skills(page: int = 1, page_size: int = 20, source: str = "all") -> di
     seen: dict = {}
     for r in all_results:
         rank = _TRUST_RANK.get(r.trust_level, 0)
-        if r.name not in seen or rank > _TRUST_RANK.get(seen[r.name].trust_level, 0):
-            seen[r.name] = r
+        if r.identifier not in seen or rank > _TRUST_RANK.get(seen[r.identifier].trust_level, 0):
+            seen[r.identifier] = r
     deduped = list(seen.values())
     deduped.sort(key=lambda r: (-_TRUST_RANK.get(r.trust_level, 0), r.source != "official", r.name.lower()))
     total = len(deduped)
@@ -768,7 +774,7 @@ def do_list(source_filter: str = "all",
         enabled_only: If True, hide disabled skills from the output.
 
     Enabled/disabled state is resolved against the currently active profile's
-    config — ``jarviscopilot -p <profile> skills list`` reads that profile's
+    config — ``hermes -p <profile> skills list`` reads that profile's
     ``skills.disabled`` list because ``-p`` swaps ``HERMES_HOME`` at process
     start.  No explicit profile flag needed here.
     """
@@ -900,8 +906,14 @@ def do_update(name: Optional[str] = None, console: Optional[Console] = None) -> 
     c.print(f"[bold green]Updated {len(updates)} skill(s).[/]\n")
 
 
-def do_audit(name: Optional[str] = None, console: Optional[Console] = None) -> None:
-    """Re-run security scan on installed hub skills."""
+def do_audit(name: Optional[str] = None, console: Optional[Console] = None,
+             deep: bool = False) -> None:
+    """Re-run security scan on installed hub skills.
+
+    When ``deep=True``, also runs an opt-in AST-level diagnostic on Python
+    files (review aid only — not a security gate; skills_guard.py verdicts
+    are unchanged).
+    """
     from tools.skills_hub import HubLockFile, SKILLS_DIR
     from tools.skills_guard import scan_skill, format_scan_report
 
@@ -922,6 +934,9 @@ def do_audit(name: Optional[str] = None, console: Optional[Console] = None) -> N
 
     c.print(f"\n[bold]Auditing {len(targets)} skill(s)...[/]\n")
 
+    if deep:
+        from tools.skills_ast_audit import ast_scan_path, format_ast_report
+
     for entry in targets:
         skill_path = SKILLS_DIR / entry["install_path"]
         if not skill_path.exists():
@@ -930,6 +945,10 @@ def do_audit(name: Optional[str] = None, console: Optional[Console] = None) -> N
 
         result = scan_skill(skill_path, source=entry.get("identifier", entry["source"]))
         c.print(format_scan_report(result))
+
+        if deep:
+            c.print(format_ast_report(ast_scan_path(skill_path), skill_name=entry["name"]))
+
         c.print()
 
 
@@ -1036,7 +1055,7 @@ def do_tap(action: str, repo: str = "", console: Optional[Console] = None) -> No
 
     elif action == "add":
         if not repo:
-            c.print("[bold red]Error:[/] Repo required. Usage: jarviscopilot skills tap add owner/repo\n")
+            c.print("[bold red]Error:[/] Repo required. Usage: hermes skills tap add owner/repo\n")
             return
         if mgr.add(repo):
             c.print(f"[bold green]Added tap:[/] {repo}\n")
@@ -1045,7 +1064,7 @@ def do_tap(action: str, repo: str = "", console: Optional[Console] = None) -> No
 
     elif action == "remove":
         if not repo:
-            c.print("[bold red]Error:[/] Repo required. Usage: jarviscopilot skills tap remove owner/repo\n")
+            c.print("[bold red]Error:[/] Repo required. Usage: hermes skills tap remove owner/repo\n")
             return
         if mgr.remove(repo):
             c.print(f"[bold green]Removed tap:[/] {repo}\n")
@@ -1102,7 +1121,7 @@ def do_publish(skill_path: str, target: str = "github", repo: str = "",
     if target == "github":
         if not repo:
             c.print("[bold red]Error:[/] --repo required for GitHub publish.\n"
-                    "Usage: jarviscopilot skills publish <path> --to github --repo owner/repo\n")
+                    "Usage: hermes skills publish <path> --to github --repo owner/repo\n")
             return
 
         auth = GitHubAuth()
@@ -1314,7 +1333,7 @@ def do_snapshot_import(input_path: str, force: bool = False,
 # ---------------------------------------------------------------------------
 
 def skills_command(args) -> None:
-    """Router for `jarviscopilot skills <subcommand>` — called from jarviscopilot_cli/main.py."""
+    """Router for `hermes skills <subcommand>` — called from jarviscopilot_cli/main.py."""
     action = getattr(args, "skills_action", None)
 
     if action == "browse":
@@ -1337,7 +1356,8 @@ def skills_command(args) -> None:
     elif action == "update":
         do_update(name=getattr(args, "name", None))
     elif action == "audit":
-        do_audit(name=getattr(args, "name", None))
+        do_audit(name=getattr(args, "name", None),
+                 deep=getattr(args, "deep", False))
     elif action == "uninstall":
         do_uninstall(args.name)
     elif action == "reset":
@@ -1356,17 +1376,17 @@ def skills_command(args) -> None:
         elif snap_action == "import":
             do_snapshot_import(args.input, force=getattr(args, "force", False))
         else:
-            _console.print("Usage: jarviscopilot skills snapshot [export|import]\n")
+            _console.print("Usage: hermes skills snapshot [export|import]\n")
     elif action == "tap":
         tap_action = getattr(args, "tap_action", None)
         repo = getattr(args, "repo", "") or getattr(args, "name", "")
         if not tap_action:
-            _console.print("Usage: jarviscopilot skills tap [list|add|remove]\n")
+            _console.print("Usage: hermes skills tap [list|add|remove]\n")
             return
         do_tap(tap_action, repo=repo)
     else:
-        _console.print("Usage: jarviscopilot skills [browse|search|install|inspect|list|check|update|audit|uninstall|reset|publish|snapshot|tap]\n")
-        _console.print("Run 'jarviscopilot skills <command> --help' for details.\n")
+        _console.print("Usage: hermes skills [browse|search|install|inspect|list|check|update|audit|uninstall|reset|publish|snapshot|tap]\n")
+        _console.print("Run 'hermes skills <command> --help' for details.\n")
 
 
 # ---------------------------------------------------------------------------
@@ -1389,6 +1409,8 @@ def handle_skills_slash(cmd: str, console: Optional[Console] = None) -> None:
         /skills update
         /skills audit
         /skills audit my-skill
+        /skills audit --deep
+        /skills audit my-skill --deep
         /skills uninstall my-skill
         /skills tap list
         /skills tap add owner/repo
@@ -1503,8 +1525,9 @@ def handle_skills_slash(cmd: str, console: Optional[Console] = None) -> None:
         do_update(name=name, console=c)
 
     elif action == "audit":
-        name = args[0] if args else None
-        do_audit(name=name, console=c)
+        name = args[0] if args and not args[0].startswith("--") else None
+        deep = "--deep" in args
+        do_audit(name=name, console=c, deep=deep)
 
     elif action == "uninstall":
         if not args:

@@ -1,5 +1,5 @@
 """
-Interactive setup wizard for JarvisCopilot.
+Interactive setup wizard for JarvisCopilot Agent.
 
 Modular wizard with independently-runnable sections:
   1. Model & Provider — choose your AI provider and model
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
-_DOCS_BASE = "https://jarviscopilot.nousresearch.com/docs"
+_DOCS_BASE = "https://hermes-agent.nousresearch.com/docs"
 
 
 def _model_config_dict(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -144,7 +144,7 @@ from jarviscopilot_cli.config import (
     get_env_value,
     ensure_hermes_home,
 )
-# display_hermes_home imported lazily at call sites (stale-module safety during jarviscopilot update)
+# display_hermes_home imported lazily at call sites (stale-module safety during hermes update)
 
 from jarviscopilot_cli.colors import Colors, color
 
@@ -184,12 +184,12 @@ def print_noninteractive_setup_guidance(reason: str | None = None) -> None:
     print_info("The interactive wizard cannot be used here.")
     print()
     print_info("Configure JarvisCopilot using environment variables or config commands:")
-    print_info("  jarviscopilot config set model.provider custom")
-    print_info("  jarviscopilot config set model.base_url http://localhost:8080/v1")
-    print_info("  jarviscopilot config set model.default your-model-name")
+    print_info("  hermes config set model.provider custom")
+    print_info("  hermes config set model.base_url http://localhost:8080/v1")
+    print_info("  hermes config set model.default your-model-name")
     print()
     print_info("Or set OPENROUTER_API_KEY / OPENAI_API_KEY in your environment.")
-    print_info("Run 'jarviscopilot setup' in an interactive terminal to use the full wizard.")
+    print_info("Run 'hermes setup' in an interactive terminal to use the full wizard.")
     print()
 
 
@@ -353,7 +353,7 @@ def _prompt_api_key(var: dict):
         save_env_value(var["name"], value)
         print_success("  ✓ Saved")
     else:
-        print_warning("  Skipped (configure later with 'jarviscopilot setup')")
+        print_warning("  Skipped (configure later with 'hermes setup')")
 
 
 def _print_setup_summary(config: dict, hermes_home):
@@ -376,7 +376,7 @@ def _print_setup_summary(config: dict, hermes_home):
     if _vision_backends:
         tool_status.append(("Vision (image analysis)", True, None))
     else:
-        tool_status.append(("Vision (image analysis)", False, "run 'jarviscopilot setup' to configure"))
+        tool_status.append(("Vision (image analysis)", False, "run 'hermes setup' to configure"))
 
     # Mixture of Agents — requires OpenRouter specifically (calls multiple models)
     if get_env_value("OPENROUTER_API_KEY"):
@@ -454,7 +454,7 @@ def _print_setup_summary(config: dict, hermes_home):
         else:
             tool_status.append(("Image Generation", False, "FAL_KEY or OPENAI_API_KEY"))
 
-    # Video generation — opt-in via `jarviscopilot tools` → Video Generation.
+    # Video generation — opt-in via `hermes tools` → Video Generation.
     # Only show the row when a plugin reports available so we don't badger
     # users who don't care about video gen with a "missing" status line.
     try:
@@ -498,7 +498,7 @@ def _print_setup_summary(config: dict, hermes_home):
         if neutts_ok:
             tool_status.append(("Text-to-Speech (NeuTTS local)", True, None))
         else:
-            tool_status.append(("Text-to-Speech (NeuTTS — not installed)", False, "run 'jarviscopilot setup tts'"))
+            tool_status.append(("Text-to-Speech (NeuTTS — not installed)", False, "run 'hermes setup tts'"))
     elif tts_provider == "kittentts":
         try:
             import importlib.util
@@ -508,7 +508,7 @@ def _print_setup_summary(config: dict, hermes_home):
         if kittentts_ok:
             tool_status.append(("Text-to-Speech (KittenTTS local)", True, None))
         else:
-            tool_status.append(("Text-to-Speech (KittenTTS — not installed)", False, "run 'jarviscopilot setup tts'"))
+            tool_status.append(("Text-to-Speech (KittenTTS — not installed)", False, "run 'hermes setup tts'"))
     else:
         tool_status.append(("Text-to-Speech (Edge TTS)", True, None))
 
@@ -518,7 +518,7 @@ def _print_setup_summary(config: dict, hermes_home):
         if subscription_features.modal.direct_override:
             tool_status.append(("Modal Execution (direct Modal)", True, None))
         else:
-            tool_status.append(("Modal Execution", False, "run 'jarviscopilot setup terminal'"))
+            tool_status.append(("Modal Execution", False, "run 'hermes setup terminal'"))
     elif managed_nous_tools_enabled() and subscription_features.nous_auth_present:
         tool_status.append(("Modal Execution (optional via Nous subscription)", True, None))
 
@@ -526,7 +526,7 @@ def _print_setup_summary(config: dict, hermes_home):
     if get_env_value("HASS_TOKEN"):
         tool_status.append(("Smart Home (Home Assistant)", True, None))
 
-    # Spotify (OAuth via jarviscopilot auth spotify — check auth.json, not env vars)
+    # Spotify (OAuth via hermes auth spotify — check auth.json, not env vars)
     try:
         from jarviscopilot_cli.auth import get_provider_auth_state
         _spotify_state = get_provider_auth_state("spotify") or {}
@@ -570,7 +570,7 @@ def _print_setup_summary(config: dict, hermes_home):
     disabled_tools = [(name, var) for name, avail, var in tool_status if not avail]
     if disabled_tools:
         print_warning(
-            "Some tools are disabled. Run 'jarviscopilot setup tools' to configure them,"
+            "Some tools are disabled. Run 'hermes setup tools' to configure them,"
         )
         from jarviscopilot_constants import display_hermes_home as _dhh
         print_warning(f"or edit {_dhh()}/.env directly to add the missing API keys.")
@@ -610,17 +610,17 @@ def _print_setup_summary(config: dict, hermes_home):
     print()
     print(color("📝 To edit your configuration:", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('jarviscopilot setup', Colors.GREEN)}          Re-run the full wizard")
-    print(f"   {color('jarviscopilot setup model', Colors.GREEN)}    Change model/provider")
-    print(f"   {color('jarviscopilot setup terminal', Colors.GREEN)} Change terminal backend")
-    print(f"   {color('jarviscopilot setup gateway', Colors.GREEN)}  Configure messaging")
-    print(f"   {color('jarviscopilot setup tools', Colors.GREEN)}    Configure tool providers")
+    print(f"   {color('hermes setup', Colors.GREEN)}          Re-run the full wizard")
+    print(f"   {color('hermes setup model', Colors.GREEN)}    Change model/provider")
+    print(f"   {color('hermes setup terminal', Colors.GREEN)} Change terminal backend")
+    print(f"   {color('hermes setup gateway', Colors.GREEN)}  Configure messaging")
+    print(f"   {color('hermes setup tools', Colors.GREEN)}    Configure tool providers")
     print()
-    print(f"   {color('jarviscopilot config', Colors.GREEN)}         View current settings")
+    print(f"   {color('hermes config', Colors.GREEN)}         View current settings")
     print(
-        f"   {color('jarviscopilot config edit', Colors.GREEN)}    Open config in your editor"
+        f"   {color('hermes config edit', Colors.GREEN)}    Open config in your editor"
     )
-    print(f"   {color('jarviscopilot config set <key> <value>', Colors.GREEN)}")
+    print(f"   {color('hermes config set <key> <value>', Colors.GREEN)}")
     print("                          Set a specific value")
     print()
     print("   Or edit the files directly:")
@@ -632,9 +632,9 @@ def _print_setup_summary(config: dict, hermes_home):
     print()
     print(color("🚀 Ready to go!", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('jarviscopilot', Colors.GREEN)}              Start chatting")
-    print(f"   {color('jarviscopilot gateway', Colors.GREEN)}      Start messaging gateway")
-    print(f"   {color('jarviscopilot doctor', Colors.GREEN)}       Check for issues")
+    print(f"   {color('hermes', Colors.GREEN)}              Start chatting")
+    print(f"   {color('hermes gateway', Colors.GREEN)}      Start messaging gateway")
+    print(f"   {color('hermes doctor', Colors.GREEN)}       Check for issues")
     print()
 
 
@@ -777,7 +777,7 @@ def _read_nearest_vercel_project(start: Path | None = None) -> dict[str, str]:
 
 
 # Tool categories and provider config are now in tools_config.py (shared
-# between `jarviscopilot tools` and `jarviscopilot setup tools`).
+# between `hermes tools` and `hermes setup tools`).
 
 
 # =============================================================================
@@ -789,10 +789,10 @@ def _read_nearest_vercel_project(start: Path | None = None) -> dict[str, str]:
 def setup_model_provider(config: dict, *, quick: bool = False):
     """Configure the inference provider and default model.
 
-    Delegates to ``cmd_model()`` (the same flow used by ``jarviscopilot model``)
+    Delegates to ``cmd_model()`` (the same flow used by ``hermes model``)
     for provider selection, credential prompting, and model picking.
     This ensures a single code path for all provider setup — any new
-    provider added to ``jarviscopilot model`` is automatically available here.
+    provider added to ``hermes model`` is automatically available here.
 
     When *quick* is True, skips credential rotation, vision, and TTS
     configuration — used by the streamlined first-time quick setup.
@@ -804,7 +804,7 @@ def setup_model_provider(config: dict, *, quick: bool = False):
     print_info(f"   Guide: {_DOCS_BASE}/integrations/providers")
     print()
 
-    # Delegate to the shared jarviscopilot model flow — handles provider picker,
+    # Delegate to the shared hermes model flow — handles provider picker,
     # credential prompting, model selection, and config persistence.
     from jarviscopilot_cli.main import select_provider_and_model
     try:
@@ -815,18 +815,17 @@ def setup_model_provider(config: dict, *, quick: bool = False):
     except Exception as exc:
         logger.debug("select_provider_and_model error during setup: %s", exc)
         print_warning(f"Provider setup encountered an error: {exc}")
-        print_info("You can try again later with: jarviscopilot model")
+        print_info("You can try again later with: hermes model")
 
     # Re-sync the wizard's config dict from what cmd_model saved to disk.
     # This is critical: cmd_model writes to disk via its own load/save cycle,
     # and the wizard's final save_config(config) must not overwrite those
-    # changes with stale values (#4172).
+    # changes with stale values (#4172). Refresh the dict in place so callers
+    # that keep the same object see every section the shared model picker may
+    # have changed (model, custom_providers, auxiliary, provider metadata, etc.).
     _refreshed = load_config()
-    config["model"] = _refreshed.get("model", config.get("model"))
-    if "custom_providers" in _refreshed:
-        config["custom_providers"] = _refreshed["custom_providers"]
-    else:
-        config.pop("custom_providers", None)
+    config.clear()
+    config.update(_refreshed)
 
     # Derive the selected provider for downstream steps (vision setup).
     selected_provider = None
@@ -996,7 +995,7 @@ def setup_model_provider(config: dict, *, quick: bool = False):
             else:
                 print_info("Skipped — vision won't be available")
         else:
-            print_info("Skipped — add later with 'jarviscopilot setup' or configure AUXILIARY_VISION_* settings")
+            print_info("Skipped — add later with 'hermes setup' or configure AUXILIARY_VISION_* settings")
 
 
     # Tool Gateway prompt is already shown by _model_flow_nous() above.
@@ -1095,7 +1094,7 @@ def _xai_oauth_logged_in_for_setup() -> bool:
     """True iff xAI Grok OAuth credentials are already stored locally.
 
     Lets TTS / STT setup skip the API-key prompt for users who logged in
-    through ``jarviscopilot model`` -> xAI Grok OAuth (SuperGrok Subscription).
+    through ``hermes model`` -> xAI Grok OAuth (SuperGrok Subscription).
     """
     try:
         from jarviscopilot_cli.auth import get_xai_oauth_auth_status
@@ -1296,7 +1295,7 @@ def _setup_tts_provider(config: dict):
                     from jarviscopilot_constants import display_hermes_home as _dhh
                     print_warning(
                         "No xAI API key provided for TTS. Configure XAI_API_KEY "
-                        f"via jarviscopilot setup model or {_dhh()}/.env to use xAI TTS. "
+                        f"via hermes setup model or {_dhh()}/.env to use xAI TTS. "
                         "Falling back to Edge TTS."
                     )
                     selected = "edge"
@@ -1381,7 +1380,7 @@ def _setup_tts_provider(config: dict):
 
 
 def setup_tts(config: dict):
-    """Standalone TTS setup (for 'jarviscopilot setup tts')."""
+    """Standalone TTS setup (for 'hermes setup tts')."""
     _setup_tts_provider(config)
 
 
@@ -1663,7 +1662,7 @@ def setup_terminal_backend(config: dict):
     elif selected_backend == "vercel_sandbox":
         print_success("Terminal backend: Vercel Sandbox")
         print_info("Cloud microVM sandboxes with snapshot-backed filesystem persistence.")
-        print_info("Requires the optional SDK: pip install 'jarviscopilot[vercel]'")
+        print_info("Requires the optional SDK: pip install 'hermes-agent[vercel]'")
 
         try:
             __import__("vercel")
@@ -1687,7 +1686,7 @@ def setup_terminal_backend(config: dict):
             if result.returncode == 0:
                 print_success("vercel SDK installed")
             else:
-                print_warning("Install failed — run manually: pip install 'jarviscopilot[vercel]'")
+                print_warning("Install failed — run manually: pip install 'hermes-agent[vercel]'")
                 if result.stderr:
                     print_info(f"  Error: {result.stderr.strip().splitlines()[-1]}")
 
@@ -1784,7 +1783,7 @@ def _apply_default_agent_settings(config: dict):
     print_info("  Tool progress: all")
     print_info("  Compression threshold: 0.50")
     print_info("  Session reset: inactivity (1440 min) + daily (4:00)")
-    print_info("  Run `jarviscopilot setup agent` later to customize.")
+    print_info("  Run `hermes setup agent` later to customize.")
 
 
 def setup_agent_settings(config: dict):
@@ -2035,74 +2034,6 @@ def _setup_telegram():
             save_env_value("TELEGRAM_HOME_CHANNEL", home_channel)
 
 
-def _setup_discord():
-    """Configure Discord bot credentials and allowlist."""
-    print_header("Discord")
-    existing = get_env_value("DISCORD_BOT_TOKEN")
-    if existing:
-        print_info("Discord: already configured")
-        if not prompt_yes_no("Reconfigure Discord?", False):
-            if not get_env_value("DISCORD_ALLOWED_USERS"):
-                print_info("⚠️  Discord has no user allowlist - anyone can use your bot!")
-                if prompt_yes_no("Add allowed users now?", True):
-                    print_info("   To find Discord ID: Enable Developer Mode, right-click name → Copy ID")
-                    allowed_users = prompt("Allowed user IDs (comma-separated)")
-                    if allowed_users:
-                        cleaned_ids = _clean_discord_user_ids(allowed_users)
-                        save_env_value("DISCORD_ALLOWED_USERS", ",".join(cleaned_ids))
-                        print_success("Discord allowlist configured")
-            return
-
-    print_info("Create a bot at https://discord.com/developers/applications")
-    token = prompt("Discord bot token", password=True)
-    if not token:
-        return
-    save_env_value("DISCORD_BOT_TOKEN", token)
-    print_success("Discord token saved")
-
-    print()
-    print_info("🔒 Security: Restrict who can use your bot")
-    print_info("   To find your Discord user ID:")
-    print_info("   1. Enable Developer Mode in Discord settings")
-    print_info("   2. Right-click your name → Copy ID")
-    print()
-    print_info("   You can also use Discord usernames (resolved on gateway start).")
-    print()
-    allowed_users = prompt(
-        "Allowed user IDs or usernames (comma-separated, leave empty for open access)"
-    )
-    if allowed_users:
-        cleaned_ids = _clean_discord_user_ids(allowed_users)
-        save_env_value("DISCORD_ALLOWED_USERS", ",".join(cleaned_ids))
-        print_success("Discord allowlist configured")
-    else:
-        print_info("⚠️  No allowlist set - anyone in servers with your bot can use it!")
-
-    print()
-    print_info("📬 Home Channel: where JarvisCopilot delivers cron job results,")
-    print_info("   cross-platform messages, and notifications.")
-    print_info("   To get a channel ID: right-click a channel → Copy Channel ID")
-    print_info("   (requires Developer Mode in Discord settings)")
-    print_info("   You can also set this later by typing /set-home in a Discord channel.")
-    home_channel = prompt("Home channel ID (leave empty to set later with /set-home)")
-    if home_channel:
-        save_env_value("DISCORD_HOME_CHANNEL", home_channel)
-
-
-def _clean_discord_user_ids(raw: str) -> list:
-    """Strip common Discord mention prefixes from a comma-separated ID string."""
-    cleaned = []
-    for uid in raw.replace(" ", "").split(","):
-        uid = uid.strip()
-        if uid.startswith("<@") and uid.endswith(">"):
-            uid = uid.lstrip("<@!").rstrip(">")
-        if uid.lower().startswith("user:"):
-            uid = uid[5:]
-        if uid:
-            cleaned.append(uid)
-    return cleaned
-
-
 def _setup_slack():
     """Configure Slack bot credentials."""
     print_header("Slack")
@@ -2114,7 +2045,7 @@ def _setup_slack():
             # new commands (e.g. /btw, /stop, ...) get registered in Slack.
             if prompt_yes_no(
                 "Regenerate the Slack app manifest with the latest command "
-                "list? (recommended after `jarviscopilot update`)",
+                "list? (recommended after `hermes update`)",
                 True,
             ):
                 _write_slack_manifest_and_instruct()
@@ -2128,7 +2059,7 @@ def _setup_slack():
     print_info("   3. Install to Workspace: Settings → Install App")
     print_info("   4. After installing, invite the bot to channels: /invite @YourBot")
     print()
-    print_info("   Full guide: https://jarviscopilot.nousresearch.com/docs/user-guide/messaging/slack/")
+    print_info("   Full guide: https://hermes-agent.nousresearch.com/docs/user-guide/messaging/slack/")
     print()
 
     # Generate and write manifest up-front so the user can paste it into
@@ -2203,14 +2134,14 @@ def _write_slack_manifest_and_instruct():
             "reinstall if scopes or slash commands changed."
         )
         print_info(
-            "   Re-run `jarviscopilot slack manifest --write` anytime to refresh after "
+            "   Re-run `hermes slack manifest --write` anytime to refresh after "
             "JarvisCopilot adds new commands."
         )
     except Exception as exc:  # pragma: no cover - best-effort UX helper
         print_warning(f"Couldn't write Slack manifest: {exc}")
         print_info(
             "   You can generate it manually later with: "
-            "jarviscopilot slack manifest --write"
+            "hermes slack manifest --write"
         )
 
 
@@ -2341,7 +2272,7 @@ def _setup_mattermost():
     home_channel = prompt("Home channel ID (leave empty to set later with /set-home)")
     if home_channel:
         save_env_value("MATTERMOST_HOME_CHANNEL", home_channel)
-    print_info("   Open config in your editor:  jarviscopilot config edit")
+    print_info("   Open config in your editor:  hermes config edit")
 
 
 def _setup_bluebubbles():
@@ -2429,7 +2360,7 @@ def _setup_webhooks():
     print_warning("   internet. For security, run the gateway in a sandboxed environment")
     print_warning("   (Docker, VM, etc.) to limit blast radius from prompt injection.")
     print()
-    print_info("   Full guide: https://jarviscopilot.nousresearch.com/docs/user-guide/messaging/webhooks/")
+    print_info("   Full guide: https://hermes-agent.nousresearch.com/docs/user-guide/messaging/webhooks/")
     print()
 
     port = prompt("Webhook port (default 8644)")
@@ -2456,10 +2387,10 @@ def _setup_webhooks():
     print_info("      http://your-server:8644/webhooks/<route-name>")
     print()
     print_info("   Route configuration guide:")
-    print_info("   https://jarviscopilot.nousresearch.com/docs/user-guide/messaging/webhooks/#configuring-routes")
+    print_info("   https://hermes-agent.nousresearch.com/docs/user-guide/messaging/webhooks/#configuring-routes")
     print()
-    print_info("   Open config in your editor:  jarviscopilot config edit")
-    print_info("   Open config in your editor:  jarviscopilot config edit")
+    print_info("   Open config in your editor:  hermes config edit")
+    print_info("   Open config in your editor:  hermes config edit")
 
 
 def setup_gateway(config: dict):
@@ -2485,7 +2416,7 @@ def setup_gateway(config: dict):
     selected = prompt_checklist("Select platforms to configure:", items, pre_selected)
 
     if not selected:
-        print_info("No platforms selected. Run 'jarviscopilot setup gateway' later to configure.")
+        print_info("No platforms selected. Run 'hermes setup gateway' later to configure.")
         return
 
     for idx in selected:
@@ -2538,7 +2469,7 @@ def setup_gateway(config: dict):
             print_info("   Set one later with /set-home in your chat, or:")
             for plat in missing_home:
                 print_info(
-                    f"     jarviscopilot config set {plat.upper()}_HOME_CHANNEL <channel_id>"
+                    f"     hermes config set {plat.upper()}_HOME_CHANNEL <channel_id>"
                 )
 
         # Offer to install the gateway as a system service
@@ -2675,24 +2606,24 @@ def setup_gateway(config: dict):
                             print_error(f"  Start failed: {e}")
                 except Exception as e:
                     print_error(f"  Install failed: {e}")
-                    print_info("  You can try manually: jarviscopilot gateway install")
+                    print_info("  You can try manually: hermes gateway install")
             else:
-                print_info("  You can install later: jarviscopilot gateway install")
+                print_info("  You can install later: hermes gateway install")
                 if supports_systemd:
-                    print_info("  Or as a boot-time service: sudo jarviscopilot gateway install --system")
-                print_info("  Or run in foreground:  jarviscopilot gateway")
+                    print_info("  Or as a boot-time service: sudo hermes gateway install --system")
+                print_info("  Or run in foreground:  hermes gateway")
         else:
             from jarviscopilot_constants import is_container
             if is_container():
                 print_info("Start the gateway to bring your bots online:")
-                print_info("   jarviscopilot gateway run          # Run as container main process")
+                print_info("   hermes gateway run          # Run as container main process")
                 print_info("")
                 print_info("For automatic restarts, use a Docker restart policy:")
                 print_info("   docker run --restart unless-stopped ...")
                 print_info("   docker restart <container>  # Manual restart")
             else:
                 print_info("Start the gateway to bring your bots online:")
-                print_info("   jarviscopilot gateway              # Run in foreground")
+                print_info("   hermes gateway              # Run in foreground")
 
         print_info("━" * 50)
 
@@ -2705,7 +2636,7 @@ def setup_gateway(config: dict):
 def setup_tools(config: dict, first_install: bool = False):
     """Configure tools — delegates to the unified tools_command() in tools_config.py.
 
-    Both `jarviscopilot setup tools` and `jarviscopilot tools` use the same flow:
+    Both `hermes setup tools` and `hermes tools` use the same flow:
     platform selection → toolset toggles → provider/API key configuration.
 
     Args:
@@ -3005,7 +2936,7 @@ def _offer_openclaw_migration(hermes_home: Path) -> bool:
 
     if not prompt_yes_no("Would you like to see what can be imported?", default=True):
         print_info(
-            "Skipping migration. You can run it later with: jarviscopilot claw migrate --dry-run"
+            "Skipping migration. You can run it later with: hermes claw migrate --dry-run"
         )
         return False
 
@@ -3063,7 +2994,7 @@ def _offer_openclaw_migration(hermes_home: Path) -> bool:
     # ── Phase 2: Confirm and execute ──
     if not prompt_yes_no("Proceed with migration?", default=False):
         print_info(
-            "Migration cancelled. You can run it later with: jarviscopilot claw migrate"
+            "Migration cancelled. You can run it later with: hermes claw migrate"
         )
         print_info(
             "Use --dry-run to preview again, or --preset minimal for a lighter import."
@@ -3101,7 +3032,7 @@ def _offer_openclaw_migration(hermes_home: Path) -> bool:
     if migrated:
         print_success(f"Imported {migrated} item(s) from OpenClaw.")
     if conflicts:
-        print_info(f"Skipped {conflicts} item(s) that already exist in JarvisCopilot (use jarviscopilot claw migrate --overwrite to force).")
+        print_info(f"Skipped {conflicts} item(s) that already exist in JarvisCopilot (use hermes claw migrate --overwrite to force).")
     if skipped:
         print_info(f"Skipped {skipped} item(s) (not found or unchanged).")
     if errors:
@@ -3129,17 +3060,130 @@ SETUP_SECTIONS = [
 ]
 
 
+def _run_portal_one_shot(config: dict) -> None:
+    """One-shot Nous Portal setup — OAuth + provider switch + Tool Gateway.
+
+    Wired into ``hermes setup --portal``. Does NOT prompt for anything
+    besides what the underlying OAuth + Tool Gateway prompts already need.
+    Designed to be shareable as a single command (``hermes setup --portal``)
+    that gets a brand-new user from zero to a fully working JarvisCopilot session
+    with web/image/tts/browser tools all routed via their Portal sub.
+    """
+    from types import SimpleNamespace
+
+    from jarviscopilot_cli.auth_commands import auth_add_command
+    from jarviscopilot_cli.config import save_config
+    from jarviscopilot_cli.auth import get_nous_auth_status
+    from jarviscopilot_cli.nous_subscription import prompt_enable_tool_gateway
+
+    print()
+    print(
+        color(
+            "┌─────────────────────────────────────────────────────────┐",
+            Colors.MAGENTA,
+        )
+    )
+    print(color("│     ⚕ JarvisCopilot Setup — Nous Portal (one-shot)             │", Colors.MAGENTA))
+    print(
+        color(
+            "└─────────────────────────────────────────────────────────┘",
+            Colors.MAGENTA,
+        )
+    )
+    print()
+    print_info("  One subscription, 300+ models, plus the Tool Gateway:")
+    print_info("    web search, image generation, TTS, browser automation")
+    print_info("    — all routed through your Nous Portal sub.")
+    print()
+    print_info("  Sign up: https://portal.nousresearch.com/manage-subscription")
+    print()
+
+    # Skip OAuth if already logged in (don't re-prompt every time the user
+    # runs `hermes setup --portal` after a successful first run).
+    already_logged_in = False
+    try:
+        already_logged_in = bool((get_nous_auth_status() or {}).get("logged_in"))
+    except Exception:
+        already_logged_in = False
+
+    if already_logged_in:
+        print_success("  Already logged into Nous Portal.")
+    else:
+        # Hand off to the shared auth wiring so the device-code flow is
+        # identical to `hermes auth add nous --type oauth`. SimpleNamespace
+        # mirrors the argparse Namespace contract that auth_add_command expects.
+        ns = SimpleNamespace(
+            provider="nous",
+            auth_type="oauth",
+            label=None,
+            api_key=None,
+            portal_url=None,
+            inference_url=None,
+            client_id=None,
+            scope=None,
+            no_browser=False,
+            timeout=None,
+            insecure=False,
+            ca_bundle=None,
+            min_key_ttl_seconds=5 * 60,
+        )
+        try:
+            auth_add_command(ns)
+        except SystemExit as e:
+            print()
+            print_error(f"  Nous Portal login failed (exit {e.code}).")
+            print_info("  You can retry later with `hermes auth add nous --type oauth`.")
+            return
+        except (KeyboardInterrupt, EOFError):
+            print()
+            print_info("  Setup cancelled.")
+            return
+        except Exception as exc:
+            print()
+            print_error(f"  Nous Portal login failed: {exc}")
+            print_info("  You can retry later with `hermes auth add nous --type oauth`.")
+            return
+
+    # Set provider → nous so the model picker, status surfaces, and
+    # managed-tool gating all light up. Leave model.model empty so the
+    # runtime picks Nous's default model; the user can change it later
+    # with `hermes model`.
+    model_cfg = config.get("model")
+    if not isinstance(model_cfg, dict):
+        model_cfg = {}
+        config["model"] = model_cfg
+    model_cfg["provider"] = "nous"
+    save_config(config)
+    print()
+    print_success("  Nous set as your inference provider.")
+
+    # Offer the Tool Gateway opt-in (single Y/n) — same flow that fires
+    # from `hermes model` after picking Nous.
+    print()
+    try:
+        prompt_enable_tool_gateway(config)
+    except (KeyboardInterrupt, EOFError):
+        pass
+    except Exception as exc:
+        print_warning(f"  Tool Gateway prompt skipped: {exc}")
+
+    print()
+    print_success("Portal setup complete.")
+    print_info("  Run `hermes portal status` to inspect routing.")
+    print_info("  Run `hermes` to start chatting.")
+
+
 def run_setup_wizard(args):
     """Run the interactive setup wizard.
 
     Supports full, quick, and section-specific setup:
-      jarviscopilot setup           — full or quick (auto-detected)
-      jarviscopilot setup model     — just model/provider
-      jarviscopilot setup tts       — just text-to-speech
-      jarviscopilot setup terminal  — just terminal backend
-      jarviscopilot setup gateway   — just messaging platforms
-      jarviscopilot setup tools     — just tool configuration
-      jarviscopilot setup agent     — just agent settings
+      hermes setup           — full or quick (auto-detected)
+      hermes setup model     — just model/provider
+      hermes setup tts       — just text-to-speech
+      hermes setup terminal  — just terminal backend
+      hermes setup gateway   — just messaging platforms
+      hermes setup tools     — just tool configuration
+      hermes setup agent     — just agent settings
     """
     from jarviscopilot_cli.config import is_managed, managed_error
     if is_managed():
@@ -3182,6 +3226,11 @@ def run_setup_wizard(args):
         print_noninteractive_setup_guidance(
             "Running in a non-interactive environment (no TTY detected)."
         )
+        return
+
+    # --portal: one-shot Nous Portal setup. Skips the rest of the wizard.
+    if bool(getattr(args, "portal", False)):
+        _run_portal_one_shot(config)
         return
 
     # Check if a specific section was requested
@@ -3232,7 +3281,7 @@ def run_setup_wizard(args):
     )
     print(
         color(
-            "│             ⚕ JarvisCopilot Setup Wizard                │", Colors.MAGENTA
+            "│             ⚕ JarvisCopilot Agent Setup Wizard                │", Colors.MAGENTA
         )
     )
     print(
@@ -3243,7 +3292,7 @@ def run_setup_wizard(args):
     )
     print(
         color(
-            "│  Let's configure your JarvisCopilot installation.       │", Colors.MAGENTA
+            "│  Let's configure your JarvisCopilot Agent installation.       │", Colors.MAGENTA
         )
     )
     print(
@@ -3276,7 +3325,7 @@ def run_setup_wizard(args):
         print_info("Running the full wizard — each prompt shows your current value.")
         print_info("Press Enter to keep it, or type a new value to change it.")
         print_info("")
-        print_info("Tip: jump straight to a section with 'jarviscopilot setup model|terminal|")
+        print_info("Tip: jump straight to a section with 'hermes setup model|terminal|")
         print_info("     gateway|tools|agent', or fill only missing items with --quick.")
         # Fall through to the "Full Setup — run all sections" block below.
         # --reconfigure is now the default on existing installs; the flag
@@ -3312,7 +3361,7 @@ def run_setup_wizard(args):
     print_info(f"Data folder:  {hermes_home}")
     print_info(f"Install dir:  {PROJECT_ROOT}")
     print()
-    print_info("You can edit these files directly or use 'jarviscopilot config edit'")
+    print_info("You can edit these files directly or use 'hermes config edit'")
 
     if migration_ran:
         print()
@@ -3353,7 +3402,7 @@ def _run_first_time_quick_setup(config: dict, hermes_home, is_existing: bool):
     """Streamlined first-time setup: provider, model, terminal & messaging.
 
     Applies sensible defaults for TTS (Edge), agent settings, and tools —
-    the user can customize later via ``jarviscopilot setup <section>``.
+    the user can customize later via ``hermes setup <section>``.
     """
     # Step 1: Model & Provider (essential — skips rotation/vision/TTS)
     setup_model_provider(config, quick=True)
@@ -3372,7 +3421,7 @@ def _run_first_time_quick_setup(config: dict, hermes_home, is_existing: bool):
         "Connect a messaging platform? (Telegram, Discord, etc.)",
         [
             "Set up messaging now (recommended)",
-            "Skip — set up later with 'jarviscopilot setup gateway'",
+            "Skip — set up later with 'hermes setup gateway'",
         ],
         0,
     )
@@ -3384,9 +3433,9 @@ def _run_first_time_quick_setup(config: dict, hermes_home, is_existing: bool):
     print()
     print_success("Setup complete! You're ready to go.")
     print()
-    print_info("  Configure all settings:    jarviscopilot setup")
+    print_info("  Configure all settings:    hermes setup")
     if gateway_choice != 0:
-        print_info("  Connect Telegram/Discord:  jarviscopilot setup gateway")
+        print_info("  Connect Telegram/Discord:  hermes setup gateway")
     print()
 
     _print_setup_summary(config, hermes_home)
@@ -3423,7 +3472,7 @@ def _run_quick_setup(config: dict, hermes_home):
     if not has_anything_missing:
         print_success("Everything is configured! Nothing to do.")
         print()
-        print_info("Run 'jarviscopilot setup' and choose 'Full Setup' to reconfigure,")
+        print_info("Run 'hermes setup' and choose 'Full Setup' to reconfigure,")
         print_info("or pick a specific section from the menu.")
         return
 
@@ -3486,7 +3535,7 @@ def _run_quick_setup(config: dict, hermes_home):
         print()
         print_header("Messaging Platforms")
         print_info("Connect JarvisCopilot to messaging apps to chat from anywhere.")
-        print_info("You can configure these later with 'jarviscopilot setup gateway'.")
+        print_info("You can configure these later with 'hermes setup gateway'.")
 
         # Group by platform (preserving order)
         platform_order = []

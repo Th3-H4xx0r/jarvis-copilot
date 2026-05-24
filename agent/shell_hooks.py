@@ -42,7 +42,7 @@ Wire protocol
 
     # Block a pre_tool_call (either shape accepted; normalised internally):
     {"decision": "block", "reason":  "Forbidden command"}   # Claude-Code-style
-    {"action":   "block", "message": "Forbidden command"}   # Hermes-canonical
+    {"action":   "block", "message": "Forbidden command"}   # JarvisCopilot-canonical
 
     # Inject context for pre_llm_call:
     {"context": "Today is Friday"}
@@ -632,7 +632,10 @@ def _locked_update_approvals() -> Iterator[Dict[str, Any]]:
             yield data
             save_allowlist(data)
         finally:
-            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+            try:
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+            except (OSError, IOError):
+                pass
 
 
 def _prompt_and_record(
@@ -837,7 +840,7 @@ def run_once(
     diverge silently from production behaviour.
 
     Returns the :func:`_spawn` diagnostic dict plus a ``parsed`` field
-    holding the canonical Hermes-wire-shape response."""
+    holding the canonical JarvisCopilot-wire-shape response."""
     stdin_json = _serialize_payload(spec.event, kwargs)
     result = _spawn(spec, stdin_json)
     result["parsed"] = _parse_response(spec.event, result["stdout"])

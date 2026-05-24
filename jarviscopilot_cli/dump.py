@@ -1,5 +1,5 @@
 """
-Dump command for jarviscopilot CLI.
+Dump command for hermes CLI.
 
 Outputs a compact, plain-text summary of the user's JarvisCopilot setup
 that can be copy-pasted into Discord/GitHub/Telegram for support context.
@@ -16,6 +16,7 @@ from pathlib import Path
 from jarviscopilot_cli.config import get_hermes_home, get_env_path, get_project_root, load_config
 from jarviscopilot_cli.env_loader import load_hermes_dotenv
 from jarviscopilot_constants import display_hermes_home
+from agent.skill_utils import is_excluded_skill_path
 
 
 def _get_git_commit(project_root: Path) -> str:
@@ -38,7 +39,7 @@ def _redact(value: str) -> str:
 
     Thin wrapper over :func:`agent.redact.mask_secret`. Returns ``""`` for
     an empty value (matches the historical behavior of this helper —
-    ``jarviscopilot dump`` formats empty values as blank, not as ``"(not set)"``).
+    ``hermes dump`` formats empty values as blank, not as ``"(not set)"``).
     """
     from agent.redact import mask_secret
     return mask_secret(value)
@@ -69,6 +70,8 @@ def _count_skills(hermes_home: Path) -> int:
         return 0
     count = 0
     for item in skills_dir.rglob("SKILL.md"):
+        if is_excluded_skill_path(item):
+            continue
         count += 1
     return count
 
@@ -242,7 +245,7 @@ def run_dump(args):
     os_info = f"{platform.system()} {platform.release()} {platform.machine()}"
 
     lines = []
-    lines.append("--- jarviscopilot dump ---")
+    lines.append("--- hermes dump ---")
     ver_str = f"{__version__}"
     if __release_date__:
         ver_str += f" ({__release_date__})"

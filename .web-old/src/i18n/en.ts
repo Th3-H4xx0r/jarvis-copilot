@@ -50,7 +50,7 @@ export const en: Translations = {
   },
 
   app: {
-    brand: "Hermes Agent",
+    brand: "JarvisCopilot Agent",
     brandShort: "HA",
     closeNavigation: "Close navigation",
     closeModelTools: "Close model and tools",
@@ -120,13 +120,14 @@ export const en: Translations = {
     starting: "Starting",
     startedInBackground: "Started in background — check logs for progress",
     stopped: "Stopped",
-    updateHermes: "Update Hermes",
-    updatingHermes: "Updating Hermes…",
+    updateHermes: "Update JarvisCopilot",
+    updatingHermes: "Updating JarvisCopilot…",
     waitingForOutput: "Waiting for output…",
   },
 
   sessions: {
     title: "Sessions",
+    overview: "Overview",
     searchPlaceholder: "Search message content...",
     noSessions: "No sessions yet",
     noMatch: "No sessions match your search",
@@ -266,10 +267,10 @@ export const en: Translations = {
     enableRuntime: "Enable",
     forceReinstall: "Force reinstall (delete existing folder first)",
     headline:
-      "Discover, install, enable, and update Hermes plugins (`hermes plugins` parity).",
+      "Discover, install, enable, and update JarvisCopilot plugins (`hermes plugins` parity).",
     identifierLabel: "Git URL or owner/repo",
     inactive: "inactive",
-    installBtn: "Install from Git",
+    installBtn: "Install",
     installHeading: "Install from GitHub / Git URL",
     installHint: "Use owner/repo shorthand or a full https:// or git@ clone URL.",
     memoryProviderLabel: "Memory provider",
@@ -283,8 +284,8 @@ export const en: Translations = {
     providersHint:
       "Writes memory.provider (empty = built-in) and context.engine to config.yaml. Takes effect next session.",
     refreshDashboard: "Rescan dashboard extensions",
-    removeConfirm: "Remove this plugin from ~/.hermes/plugins/?",
-    removeHint: "Only user-installed plugins under ~/.hermes/plugins can be removed.",
+    removeConfirm: "Remove this plugin from ~/.jarviscopilot/plugins/?",
+    removeHint: "Only user-installed plugins under ~/.jarviscopilot/plugins can be removed.",
     rescanHeading: "SPA plugin registry",
     rescanHint: "Rescan after adding files on disk so the dashboard sidebar picks up new manifests.",
     runtimeHeading: "Gateway runtime (YAML plugins)",
@@ -306,7 +307,7 @@ export const en: Translations = {
     all: "All",
     categories: "Categories",
     filters: "Filters",
-    noSkills: "No skills found. Skills are loaded from ~/.hermes/skills/",
+    noSkills: "No skills found. Skills are loaded from ~/.jarviscopilot/skills/",
     noSkillsMatch: "No skills match your search or filter.",
     skillCount: "{count} skill{s}",
     resultCount: "{count} result{s}",
@@ -320,7 +321,7 @@ export const en: Translations = {
   },
 
   config: {
-    configPath: "~/.hermes/config.yaml",
+    configPath: "~/.jarviscopilot/config.yaml",
     filters: "Filters",
     sections: "Sections",
     exportConfig: "Export config as JSON",
@@ -367,6 +368,8 @@ export const en: Translations = {
     description: "Manage API keys and secrets stored in",
     hideAdvanced: "Hide Advanced",
     showAdvanced: "Show Advanced",
+    showLess: "Show less",
+    showMore: "Show more",
     llmProviders: "LLM Providers",
     providersConfigured: "{configured} of {total} providers configured",
     getKey: "Get key",
@@ -392,7 +395,7 @@ export const en: Translations = {
     disconnect: "Disconnect",
     managedExternally: "Managed externally",
     copied: "Copied ✓",
-    cli: "CLI",
+    cli: "Copy",
     copyCliCommand: "Copy CLI command (for external / fallback)",
     connect: "Connect",
     sessionExpires: "Session expires in {time}",
@@ -430,11 +433,11 @@ export const en: Translations = {
   achievements: {
     hero: {
       kicker: "Agentic Gamerscore",
-      title: "Hermes Achievements",
+      title: "JarvisCopilot Achievements",
       subtitle:
-        "Collectible Hermes badges earned from real session history. Known unfinished achievements are shown as Discovered; Secret achievements stay hidden until the first matching behavior appears.",
+        "Collectible JarvisCopilot badges earned from real session history. Known unfinished achievements are shown as Discovered; Secret achievements stay hidden until the first matching behavior appears.",
       scan_subtitle:
-        "Scanning Hermes session history. First scan can take 5–10 seconds on large histories.",
+        "Scanning JarvisCopilot session history. First scan can take 5–10 seconds on large histories.",
     },
     actions: {
       rescan: "Rescan",
@@ -449,7 +452,7 @@ export const en: Translations = {
       highest_tier: "Highest tier",
       highest_tier_hint: "Copper → Silver → Gold → Diamond → Olympian",
       latest: "Latest",
-      latest_hint_empty: "run Hermes more",
+      latest_hint_empty: "run JarvisCopilot more",
       none_yet: "None yet",
     },
     state: {
@@ -480,10 +483,10 @@ export const en: Translations = {
       tiers_header: "Tiers",
       secret_header: "Secret achievements",
       secret_body:
-        "Secrets hide their exact trigger. Once Hermes sees a related signal, the card becomes Discovered and shows its requirement.",
+        "Secrets hide their exact trigger. Once JarvisCopilot sees a related signal, the card becomes Discovered and shows its requirement.",
       scan_status_header: "Scan status",
       scan_status_body:
-        "Hermes is scanning local history once, then cards will appear automatically. Nothing is stuck if this takes a few seconds.",
+        "JarvisCopilot is scanning local history once, then cards will appear automatically. Nothing is stuck if this takes a few seconds.",
       what_scanned_header: "What is scanned",
       what_scanned_body:
         "Sessions, tool calls, model metadata, errors, achievements, and local unlock state.",
@@ -530,7 +533,7 @@ export const en: Translations = {
         "Share on X opens a pre-filled post in a new tab. Click Copy image first if you want the 1200×630 badge attached — X lets you paste it right into the tweet composer. Download PNG saves the file for use anywhere.",
       clipboard_unsupported:
         "Clipboard image copy not supported in this browser — use Download instead.",
-      tweet_text: "Just unlocked {tier_part}\"{name}\" in Hermes Agent ☤",
+      tweet_text: "Just unlocked {tier_part}\"{name}\" in JarvisCopilot Agent ☤",
     },
   },
 
@@ -658,6 +661,7 @@ export const en: Translations = {
     columnLabels: {
       triage: "Triage",
       todo: "Todo",
+      scheduled: "Scheduled",
       ready: "Ready",
       running: "In Progress",
       blocked: "Blocked",
@@ -667,6 +671,7 @@ export const en: Translations = {
     columnHelp: {
       triage: "Raw ideas — a specifier will flesh out the spec",
       todo: "Waiting on dependencies or unassigned",
+      scheduled: "Waiting on a known time delay or scheduled follow-up",
       ready: "Dependencies satisfied; assign a profile to dispatch",
       running: "Claimed by a worker — in-flight",
       blocked: "Worker asked for human input",
@@ -679,6 +684,8 @@ export const en: Translations = {
       "Archive this task? It disappears from the default board view.",
     confirmBlocked:
       "Mark this task as blocked? The worker's claim is released.",
+    confirmScheduled:
+      "Move this task to Scheduled? Use this for known time delays rather than human blockers.",
     completionSummary:
       "Completion summary for {label}. This is stored as the task result.",
     completionSummaryRequired:

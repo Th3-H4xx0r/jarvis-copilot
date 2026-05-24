@@ -50,7 +50,7 @@ export const zhHant: Translations = {
   },
 
   app: {
-    brand: "Hermes Agent",
+    brand: "JarvisCopilot Agent",
     brandShort: "HA",
     closeNavigation: "關閉導覽",
     closeModelTools: "關閉模型與工具",
@@ -120,13 +120,14 @@ export const zhHant: Translations = {
     starting: "啟動中",
     startedInBackground: "已於背景啟動 — 請查看日誌以取得進度",
     stopped: "已停止",
-    updateHermes: "更新 Hermes",
-    updatingHermes: "正在更新 Hermes…",
+    updateHermes: "更新 JarvisCopilot",
+    updatingHermes: "正在更新 JarvisCopilot…",
     waitingForOutput: "等待輸出…",
   },
 
   sessions: {
     title: "工作階段",
+    overview: "總覽",
     searchPlaceholder: "搜尋訊息內容...",
     noSessions: "尚無工作階段",
     noMatch: "沒有符合的工作階段",
@@ -266,10 +267,10 @@ export const zhHant: Translations = {
     enableRuntime: "啟用",
     forceReinstall: "強制重新安裝（先刪除既有資料夾）",
     headline:
-      "探索、安裝、啟用並更新 Hermes 外掛（對齊 `hermes plugins` CLI）。",
+      "探索、安裝、啟用並更新 JarvisCopilot 外掛（對齊 `hermes plugins` CLI）。",
     identifierLabel: "Git 網址或 owner/repo",
     inactive: "未啟用",
-    installBtn: "從 Git 安裝",
+    installBtn: "安裝",
     installHeading: "從 GitHub / Git URL 安裝",
     installHint: "可使用 owner/repo 簡寫或完整的 https:// 或 git@ 複製網址。",
     memoryProviderLabel: "記憶提供者",
@@ -283,8 +284,8 @@ export const zhHant: Translations = {
     providersHint:
       "會寫入 config.yaml：memory.provider（留空為內建）與 context.engine。下一個工作階段生效。",
     refreshDashboard: "重新掃描儀表板擴充功能",
-    removeConfirm: "從 ~/.hermes/plugins/ 移除此外掛？",
-    removeHint: "僅可移除位於 ~/.hermes/plugins 下使用者安裝的外掛。",
+    removeConfirm: "從 ~/.jarviscopilot/plugins/ 移除此外掛？",
+    removeHint: "僅可移除位於 ~/.jarviscopilot/plugins 下使用者安裝的外掛。",
     rescanHeading: "SPA 外掛註冊表",
     rescanHint: "在磁碟新增檔案後重新掃描，使儀表板側邊欄載入新的 manifest。",
     runtimeHeading: "閘道執行階段（YAML 外掛）",
@@ -306,7 +307,7 @@ export const zhHant: Translations = {
     all: "全部",
     categories: "分類",
     filters: "篩選",
-    noSkills: "找不到技能。技能由 ~/.hermes/skills/ 載入",
+    noSkills: "找不到技能。技能由 ~/.jarviscopilot/skills/ 載入",
     noSkillsMatch: "沒有符合搜尋或篩選條件的技能。",
     skillCount: "{count} 個技能",
     resultCount: "{count} 個結果",
@@ -320,7 +321,7 @@ export const zhHant: Translations = {
   },
 
   config: {
-    configPath: "~/.hermes/config.yaml",
+    configPath: "~/.jarviscopilot/config.yaml",
     filters: "篩選",
     sections: "分類",
     exportConfig: "匯出設定為 JSON",
@@ -367,6 +368,8 @@ export const zhHant: Translations = {
     description: "管理儲存於下列位置的 API 金鑰與密鑰",
     hideAdvanced: "隱藏進階選項",
     showAdvanced: "顯示進階選項",
+    showLess: "顯示較少",
+    showMore: "顯示更多",
     llmProviders: "LLM 提供者",
     providersConfigured: "已設定 {configured}/{total} 個提供者",
     getKey: "取得金鑰",
@@ -392,7 +395,7 @@ export const zhHant: Translations = {
     disconnect: "中斷連線",
     managedExternally: "由外部管理",
     copied: "已複製 ✓",
-    cli: "CLI",
+    cli: "複製",
     copyCliCommand: "複製 CLI 指令（外部 / 備援用）",
     connect: "連線",
     sessionExpires: "工作階段將於 {time} 後過期",
@@ -430,11 +433,11 @@ export const zhHant: Translations = {
   achievements: {
     hero: {
       kicker: "Agentic Gamerscore",
-      title: "Hermes Achievements",
+      title: "JarvisCopilot Achievements",
       subtitle:
-        "從真實工作階段歷史中獲得的 Hermes 可收集徽章。已知尚未達成的成就會顯示為「已發現」；秘密成就在首次出現相符行為之前保持隱藏。",
+        "從真實工作階段歷史中獲得的 JarvisCopilot 可收集徽章。已知尚未達成的成就會顯示為「已發現」；秘密成就在首次出現相符行為之前保持隱藏。",
       scan_subtitle:
-        "正在掃描 Hermes 工作階段歷史。在歷史紀錄較多時，首次掃描可能需要 5–10 秒。",
+        "正在掃描 JarvisCopilot 工作階段歷史。在歷史紀錄較多時，首次掃描可能需要 5–10 秒。",
     },
     actions: {
       rescan: "重新掃描",
@@ -449,7 +452,7 @@ export const zhHant: Translations = {
       highest_tier: "最高等級",
       highest_tier_hint: "Copper → Silver → Gold → Diamond → Olympian",
       latest: "最新",
-      latest_hint_empty: "多多執行 Hermes",
+      latest_hint_empty: "多多執行 JarvisCopilot",
       none_yet: "尚無",
     },
     state: {
@@ -480,10 +483,10 @@ export const zhHant: Translations = {
       tiers_header: "等級",
       secret_header: "秘密成就",
       secret_body:
-        "秘密成就會隱藏其確切觸發條件。一旦 Hermes 偵測到相關訊號，卡片便會變為「已發現」並顯示其需求。",
+        "秘密成就會隱藏其確切觸發條件。一旦 JarvisCopilot 偵測到相關訊號，卡片便會變為「已發現」並顯示其需求。",
       scan_status_header: "掃描狀態",
       scan_status_body:
-        "Hermes 正在對本機歷史進行一次掃描，之後卡片會自動出現。即使需要幾秒鐘，也並未卡住。",
+        "JarvisCopilot 正在對本機歷史進行一次掃描，之後卡片會自動出現。即使需要幾秒鐘，也並未卡住。",
       what_scanned_header: "掃描內容",
       what_scanned_body:
         "工作階段、工具呼叫、模型中繼資料、錯誤、成就以及本機解鎖狀態。",
@@ -530,7 +533,7 @@ export const zhHant: Translations = {
         "「在 X 上分享」會在新分頁中開啟預先填寫的貼文。若想附上 1200×630 的徽章，請先點擊「複製圖片」—— X 允許你直接貼到推文編輯器中。「下載 PNG」會將檔案儲存下來，可在任何地方使用。",
       clipboard_unsupported:
         "此瀏覽器不支援剪貼簿圖片複製 —— 請改用「下載」。",
-      tweet_text: "Just unlocked {tier_part}\"{name}\" in Hermes Agent ☤",
+      tweet_text: "Just unlocked {tier_part}\"{name}\" in JarvisCopilot Agent ☤",
     },
   },
   kanban: {
@@ -654,6 +657,7 @@ export const zhHant: Translations = {
     columnLabels: {
       triage: "待分類",
       todo: "待辦",
+      scheduled: "已排程",
       ready: "就緒",
       running: "進行中",
       blocked: "已封鎖",
@@ -663,6 +667,7 @@ export const zhHant: Translations = {
     columnHelp: {
       triage: "原始想法 — 規格制定者將完善規格",
       todo: "等待相依項目或尚未指派",
+      scheduled: "等待已知的時間延遲或已排程的後續處理",
       ready: "相依項目已滿足；指派設定檔以便排程",
       running: "已被工作者領取 — 執行中",
       blocked: "工作者請求人工輸入",

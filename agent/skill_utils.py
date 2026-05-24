@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from jarviscopilot_constants import get_config_path, get_skills_dir
+from jarviscopilot_constants import get_config_path, get_skills_dir, is_termux
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,43 @@ PLATFORM_MAP = {
     "windows": "win32",
 }
 
-EXCLUDED_SKILL_DIRS = frozenset((".git", ".github", ".hub", ".archive"))
+EXCLUDED_SKILL_DIRS = frozenset(
+    (
+        ".git",
+        ".github",
+        ".hub",
+        ".archive",
+        ".venv",
+        "venv",
+        "node_modules",
+        "site-packages",
+        "__pycache__",
+        ".tox",
+        ".nox",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+    )
+)
+
+
+def is_excluded_skill_path(path) -> bool:
+    """True if any component of *path* is in EXCLUDED_SKILL_DIRS.
+
+    Use this on every SKILL.md path produced by ``rglob`` to prune
+    dependency, virtualenv, VCS, and cache directories. Centralising the
+    check here keeps every skill-scanning site in sync with the shared
+    exclusion set.
+
+    Accepts a Path or string.
+    """
+    try:
+        parts = path.parts  # Path
+    except AttributeError:
+        from pathlib import PurePath
+        parts = PurePath(str(path)).parts
+    return any(part in EXCLUDED_SKILL_DIRS for part in parts)
+
 
 # ── Lazy YAML loader ─────────────────────────────────────────────────────
 
@@ -100,6 +136,14 @@ def skill_matches_platform(frontmatter: Dict[str, Any]) -> bool:
 
     If the field is absent or empty the skill is compatible with **all**
     platforms (backward-compatible default).
+
+    Termux note: on Termux/Android, ``sys.platform`` is ``"linux"`` on
+    older Pythons but became ``"android"`` on Python 3.13+. Termux is a
+    Linux userland riding on the Android kernel, so skills tagged
+    ``linux`` are treated as compatible in Termux regardless of which
+    ``sys.platform`` value Python reports. Individual Linux commands
+    inside a skill may still misbehave (no systemd, BusyBox utils, no
+    apt/dnf, etc.) but that is on the skill, not on platform gating.
     """
     platforms = frontmatter.get("platforms")
     if not platforms:
@@ -107,10 +151,20 @@ def skill_matches_platform(frontmatter: Dict[str, Any]) -> bool:
     if not isinstance(platforms, list):
         platforms = [platforms]
     current = sys.platform
+    running_in_termux = is_termux()
     for platform in platforms:
         normalized = str(platform).lower().strip()
         mapped = PLATFORM_MAP.get(normalized, normalized)
         if current.startswith(mapped):
+            return True
+        # Termux runs a Linux userland on Android. Accept linux-tagged
+        # skills regardless of whether sys.platform is "linux" (pre-3.13
+        # Termux) or "android" (Python 3.13+ Termux, and any other
+        # Android runtime).
+        if running_in_termux and mapped == "linux":
+            return True
+        # Explicit termux/android tags match a Termux session too.
+        if running_in_termux and mapped in ("termux", "android"):
             return True
     return False
 
@@ -173,7 +227,7 @@ def _normalize_string_set(values) -> Set[str]:
 # (config_path_str, mtime_ns) -> resolved external dirs list.  Keyed by
 # mtime_ns so a config.yaml edit mid-run is picked up automatically;
 # otherwise every call would re-read + re-YAML-parse the 15KB config,
-# which becomes the dominant cost of ``jarviscopilot`` startup when ~120 skills
+# which becomes the dominant cost of ``hermes`` startup when ~120 skills
 # each trigger a category lookup during banner construction (10+ seconds
 # of pure waste).
 _EXTERNAL_DIRS_CACHE: Dict[Tuple[str, int], List[Path]] = {}
@@ -193,7 +247,7 @@ def get_external_skills_dirs() -> List[Path]:
 
     Cached in-process, keyed on ``config.yaml`` mtime — the function is
     called once per skill during banner / tool-registry scans, and YAML
-    parsing a non-trivial config dominates ``jarviscopilot`` cold-start time
+    parsing a non-trivial config dominates ``hermes`` cold-start time
     when the cache is absent.
     """
     config_path = get_config_path()
@@ -290,16 +344,14 @@ def extract_skill_conditions(frontmatter: Dict[str, Any]) -> Dict[str, List]:
     # Handle cases where metadata is not a dict (e.g., a string from malformed YAML)
     if not isinstance(metadata, dict):
         metadata = {}
-    # Prefer the JarvisCopilot namespace; fall back to legacy `jarviscopilot` so
-    # third-party skills that haven't been rebranded still work.
-    ns = metadata.get("jarviscopilot") or metadata.get("jarviscopilot") or {}
-    if not isinstance(ns, dict):
-        ns = {}
+    hermes = metadata.get("hermes") or {}
+    if not isinstance(hermes, dict):
+        hermes = {}
     return {
-        "fallback_for_toolsets": ns.get("fallback_for_toolsets", []),
-        "requires_toolsets": ns.get("requires_toolsets", []),
-        "fallback_for_tools": ns.get("fallback_for_tools", []),
-        "requires_tools": ns.get("requires_tools", []),
+        "fallback_for_toolsets": hermes.get("fallback_for_toolsets", []),
+        "requires_toolsets": hermes.get("requires_toolsets", []),
+        "fallback_for_tools": hermes.get("fallback_for_tools", []),
+        "requires_tools": hermes.get("requires_tools", []),
     }
 
 
@@ -312,7 +364,7 @@ def extract_skill_config_vars(frontmatter: Dict[str, Any]) -> List[Dict[str, Any
     Skills declare config.yaml settings they need via::
 
         metadata:
-          jarviscopilot:
+          hermes:
             config:
               - key: wiki.path
                 description: Path to the LLM Wiki knowledge base directory
@@ -325,10 +377,10 @@ def extract_skill_config_vars(frontmatter: Dict[str, Any]) -> List[Dict[str, Any
     metadata = frontmatter.get("metadata")
     if not isinstance(metadata, dict):
         return []
-    ns = metadata.get("jarviscopilot") or metadata.get("jarviscopilot")
-    if not isinstance(ns, dict):
+    hermes = metadata.get("hermes")
+    if not isinstance(hermes, dict):
         return []
-    raw = ns.get("config")
+    raw = hermes.get("config")
     if not raw:
         return []
     if isinstance(raw, dict):
@@ -480,7 +532,8 @@ def extract_skill_description(frontmatter: Dict[str, Any]) -> str:
 def iter_skill_index_files(skills_dir: Path, filename: str):
     """Walk skills_dir yielding sorted paths matching *filename*.
 
-    Excludes ``.git``, ``.github``, ``.hub``, ``.archive`` directories.
+    Excludes JarvisCopilot metadata, VCS, virtualenv/dependency, and cache
+    directories so dependencies cannot register nested skills.
     """
     matches = []
     for root, dirs, files in os.walk(skills_dir, followlinks=True):

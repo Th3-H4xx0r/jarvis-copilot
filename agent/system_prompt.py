@@ -111,8 +111,12 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # Kanban worker/orchestrator lifecycle — only present when the
     # dispatcher spawned this process (kanban_show check_fn gates on
     # HERMES_KANBAN_TASK env var). Normal chat sessions never see
-    # this block.
-    if "kanban_show" in agent.valid_tool_names:
+    # this block. Resolved once at __init__ (see _kanban_worker_guidance).
+    _kanban_guidance = getattr(agent, "_kanban_worker_guidance", None)
+    if _kanban_guidance:
+        tool_guidance.append(_kanban_guidance)
+    elif _kanban_guidance is None and "kanban_show" in agent.valid_tool_names:
+        # Fallback for code paths that bypass agent_init (rare).
         tool_guidance.append(KANBAN_GUIDANCE)
     if tool_guidance:
         stable_parts.append(" ".join(tool_guidance))
@@ -200,6 +204,40 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     _env_hints = _r.build_environment_hints()
     if _env_hints:
         stable_parts.append(_env_hints)
+
+    # Active-profile hint — names the JarvisCopilot profile the agent is running
+    # under so it doesn't conflate ~/.jarviscopilot/skills/ (default profile) with
+    # ~/.jarviscopilot/profiles/<active>/skills/ (this profile's). Deterministic
+    # for the lifetime of the agent — profile name doesn't change
+    # mid-session, so this doesn't break the prompt cache.
+    # See file_safety._resolve_active_profile_name + classify_cross_profile_target
+    # for the matching tool-side guard.
+    try:
+        from agent.file_safety import _resolve_active_profile_name
+        active_profile = _resolve_active_profile_name()
+    except Exception:
+        active_profile = "default"
+    if active_profile == "default":
+        stable_parts.append(
+            "Active JarvisCopilot profile: default. Other profiles (if any) live "
+            "under ~/.jarviscopilot/profiles/<name>/. Each profile has its own "
+            "skills/, plugins/, cron/, and memories/ that affect a different "
+            "session than this one. Do not modify another profile's "
+            "skills/plugins/cron/memories unless the user explicitly directs "
+            "you to."
+        )
+    else:
+        stable_parts.append(
+            f"Active JarvisCopilot profile: {active_profile}. This session reads "
+            f"and writes ~/.jarviscopilot/profiles/{active_profile}/. The default "
+            f"profile's data lives at ~/.jarviscopilot/skills/, ~/.jarviscopilot/plugins/, "
+            f"~/.jarviscopilot/cron/, ~/.jarviscopilot/memories/ — those belong to a "
+            f"different session run from a different shell. Do NOT modify "
+            f"another profile's skills/plugins/cron/memories unless the user "
+            f"explicitly directs you to. The cross-profile write guard will "
+            f"refuse such writes by default; pass cross_profile=True only "
+            f"after explicit direction."
+        )
 
     platform_key = (agent.platform or "").lower().strip()
     if platform_key in PLATFORM_HINTS:

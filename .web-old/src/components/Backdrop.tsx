@@ -1,16 +1,18 @@
 import { useGpuTier } from "@nous-research/ui/hooks/use-gpu-tier";
 
+import fillerBgUrl from "@nous-research/ui/assets/filler-bg0.webp";
+
 /**
  * Replicates the visual layer stack of `<Overlays dark />` from
  * `@nous-research/ui` without pulling in its leva / gsap / three peer deps.
  *
  * See `design-language/src/ui/components/overlays/index.tsx` for the source of
- * truth. Defaults match LENS_0 (the Hermes teal dark preset); the deep canvas
+ * truth. Defaults match LENS_0 (the JarvisCopilot teal dark preset); the deep canvas
  * and the warm vignette both read theme-switchable CSS custom properties so
  * `ThemeProvider` can repaint the stack without remounting.
  *
  *   z-1   bg = `var(--background-base)`, mix-blend-mode: difference
- *   z-2   filler-bg jpeg, inverted, opacity 0.033, difference
+ *   z-2   bundled filler-bg WebP, inverted, opacity 0.033, difference
  *   z-99  warm top-left vignette (`var(--warm-glow)`), opacity 0.22, lighten
  *   z-101 noise grain (SVG, ~55% opacity × `--noise-opacity-mul`,
  *         color-dodge) — gated on GPU tier
@@ -58,7 +60,7 @@ export function Backdrop() {
           alt=""
           className="h-[150dvh] w-auto min-w-[100dvw] object-cover object-top-left invert theme-default-filler"
           fetchPriority="low"
-          src="/ds-assets/filler-bg0.jpg"
+          src={fillerBgUrl}
         />
       </div>
 

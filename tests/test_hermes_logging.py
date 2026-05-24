@@ -151,7 +151,7 @@ class TestSetupLogging:
     def test_writes_to_agent_log(self, hermes_home):
         jarviscopilot_logging.setup_logging(hermes_home=hermes_home)
 
-        test_logger = logging.getLogger("test_jarviscopilot_logging.write_test")
+        test_logger = logging.getLogger("test_hermes_logging.write_test")
         test_logger.info("test message for agent.log")
 
         # Flush handlers
@@ -166,7 +166,7 @@ class TestSetupLogging:
     def test_warnings_appear_in_both_logs(self, hermes_home):
         jarviscopilot_logging.setup_logging(hermes_home=hermes_home)
 
-        test_logger = logging.getLogger("test_jarviscopilot_logging.warning_test")
+        test_logger = logging.getLogger("test_hermes_logging.warning_test")
         test_logger.warning("this is a warning")
 
         for h in logging.getLogger().handlers:
@@ -180,7 +180,7 @@ class TestSetupLogging:
     def test_info_not_in_errors_log(self, hermes_home):
         jarviscopilot_logging.setup_logging(hermes_home=hermes_home)
 
-        test_logger = logging.getLogger("test_jarviscopilot_logging.info_test")
+        test_logger = logging.getLogger("test_hermes_logging.info_test")
         test_logger.info("info only message")
 
         for h in logging.getLogger().handlers:
@@ -538,7 +538,10 @@ class TestComponentPrefixes:
 
     def test_gateway_prefix(self):
         assert "gateway" in jarviscopilot_logging.COMPONENT_PREFIXES
-        assert ("gateway",) == jarviscopilot_logging.COMPONENT_PREFIXES["gateway"]
+        # The gateway component captures both core gateway logs and the
+        # hermes_plugins facility (plugin-installed gateway adapters log
+        # under that prefix).
+        assert ("gateway", "hermes_plugins") == jarviscopilot_logging.COMPONENT_PREFIXES["gateway"]
 
     def test_agent_prefix(self):
         prefixes = jarviscopilot_logging.COMPONENT_PREFIXES["agent"]

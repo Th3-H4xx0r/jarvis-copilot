@@ -50,7 +50,7 @@ export const ja: Translations = {
   },
 
   app: {
-    brand: "Hermes Agent",
+    brand: "JarvisCopilot Agent",
     brandShort: "HA",
     closeNavigation: "ナビゲーションを閉じる",
     closeModelTools: "モデルとツールを閉じる",
@@ -120,13 +120,14 @@ export const ja: Translations = {
     starting: "起動中",
     startedInBackground: "バックグラウンドで起動しました — 進行状況はログをご確認ください",
     stopped: "停止",
-    updateHermes: "Hermes を更新",
-    updatingHermes: "Hermes を更新しています…",
+    updateHermes: "JarvisCopilot を更新",
+    updatingHermes: "JarvisCopilot を更新しています…",
     waitingForOutput: "出力を待機しています…",
   },
 
   sessions: {
     title: "セッション",
+    overview: "概要",
     searchPlaceholder: "メッセージ内容を検索...",
     noSessions: "まだセッションがありません",
     noMatch: "検索条件に一致するセッションはありません",
@@ -266,10 +267,10 @@ export const ja: Translations = {
     enableRuntime: "有効化",
     forceReinstall: "強制再インストール (既存のフォルダを先に削除)",
     headline:
-      "Hermes プラグインを発見、インストール、有効化、更新します (`hermes plugins` 相当)。",
+      "JarvisCopilot プラグインを発見、インストール、有効化、更新します (`hermes plugins` 相当)。",
     identifierLabel: "Git URL または owner/repo",
     inactive: "非アクティブ",
-    installBtn: "Git からインストール",
+    installBtn: "インストール",
     installHeading: "GitHub / Git URL からインストール",
     installHint: "owner/repo の短縮形、または完全な https:// もしくは git@ クローン URL を使用してください。",
     memoryProviderLabel: "メモリプロバイダー",
@@ -283,8 +284,8 @@ export const ja: Translations = {
     providersHint:
       "memory.provider (空 = 組み込み) と context.engine を config.yaml に書き込みます。次のセッションで有効になります。",
     refreshDashboard: "ダッシュボード拡張を再スキャン",
-    removeConfirm: "このプラグインを ~/.hermes/plugins/ から削除しますか？",
-    removeHint: "削除できるのは ~/.hermes/plugins 配下のユーザーがインストールしたプラグインのみです。",
+    removeConfirm: "このプラグインを ~/.jarviscopilot/plugins/ から削除しますか？",
+    removeHint: "削除できるのは ~/.jarviscopilot/plugins 配下のユーザーがインストールしたプラグインのみです。",
     rescanHeading: "SPA プラグインレジストリ",
     rescanHint: "ディスクにファイルを追加した後に再スキャンすると、ダッシュボードのサイドバーが新しいマニフェストを認識します。",
     runtimeHeading: "ゲートウェイランタイム (YAML プラグイン)",
@@ -306,7 +307,7 @@ export const ja: Translations = {
     all: "すべて",
     categories: "カテゴリ",
     filters: "フィルター",
-    noSkills: "スキルが見つかりません。スキルは ~/.hermes/skills/ から読み込まれます",
+    noSkills: "スキルが見つかりません。スキルは ~/.jarviscopilot/skills/ から読み込まれます",
     noSkillsMatch: "検索またはフィルターに一致するスキルはありません。",
     skillCount: "{count} スキル{s}",
     resultCount: "{count} 件の結果{s}",
@@ -320,7 +321,7 @@ export const ja: Translations = {
   },
 
   config: {
-    configPath: "~/.hermes/config.yaml",
+    configPath: "~/.jarviscopilot/config.yaml",
     filters: "フィルター",
     sections: "セクション",
     exportConfig: "設定を JSON としてエクスポート",
@@ -367,6 +368,8 @@ export const ja: Translations = {
     description: "API キーとシークレットを管理します。保存先:",
     hideAdvanced: "詳細設定を隠す",
     showAdvanced: "詳細設定を表示",
+    showLess: "表示を減らす",
+    showMore: "もっと見る",
     llmProviders: "LLM プロバイダー",
     providersConfigured: "{configured} / {total} プロバイダーが設定済み",
     getKey: "キーを取得",
@@ -392,7 +395,7 @@ export const ja: Translations = {
     disconnect: "切断",
     managedExternally: "外部で管理",
     copied: "コピーしました ✓",
-    cli: "CLI",
+    cli: "コピー",
     copyCliCommand: "CLI コマンドをコピー (外部 / フォールバック用)",
     connect: "接続",
     sessionExpires: "セッションは {time} 後に期限切れになります",
@@ -430,11 +433,11 @@ export const ja: Translations = {
   achievements: {
     hero: {
       kicker: "Agentic Gamerscore",
-      title: "Hermes Achievements",
+      title: "JarvisCopilot Achievements",
       subtitle:
-        "実際のセッション履歴から獲得できる Hermes のコレクタブル バッジです。既知の未達成の実績は「Discovered」として表示され、Secret 実績は最初の該当する挙動が検出されるまで非表示のままです。",
+        "実際のセッション履歴から獲得できる JarvisCopilot のコレクタブル バッジです。既知の未達成の実績は「Discovered」として表示され、Secret 実績は最初の該当する挙動が検出されるまで非表示のままです。",
       scan_subtitle:
-        "Hermes のセッション履歴をスキャンしています。履歴が大きい場合、初回スキャンには 5～10 秒かかることがあります。",
+        "JarvisCopilot のセッション履歴をスキャンしています。履歴が大きい場合、初回スキャンには 5～10 秒かかることがあります。",
     },
     actions: {
       rescan: "再スキャン",
@@ -449,7 +452,7 @@ export const ja: Translations = {
       highest_tier: "最高ティア",
       highest_tier_hint: "Copper → Silver → Gold → Diamond → Olympian",
       latest: "最新",
-      latest_hint_empty: "Hermes をもっと使ってみてください",
+      latest_hint_empty: "JarvisCopilot をもっと使ってみてください",
       none_yet: "まだありません",
     },
     state: {
@@ -480,10 +483,10 @@ export const ja: Translations = {
       tiers_header: "ティア",
       secret_header: "シークレット実績",
       secret_body:
-        "シークレットはトリガー条件を隠しています。Hermes が関連するシグナルを検出すると、カードは「Discovered」になり、要件が表示されます。",
+        "シークレットはトリガー条件を隠しています。JarvisCopilot が関連するシグナルを検出すると、カードは「Discovered」になり、要件が表示されます。",
       scan_status_header: "スキャン状況",
       scan_status_body:
-        "Hermes はローカル履歴を一度スキャンし、その後カードが自動的に表示されます。数秒かかってもスタックしているわけではありません。",
+        "JarvisCopilot はローカル履歴を一度スキャンし、その後カードが自動的に表示されます。数秒かかってもスタックしているわけではありません。",
       what_scanned_header: "スキャン対象",
       what_scanned_body:
         "セッション、ツール呼び出し、モデルのメタデータ、エラー、実績、ローカルの解除状態。",
@@ -530,7 +533,7 @@ export const ja: Translations = {
         "「X で共有」は事前入力された投稿を新しいタブで開きます。1200×630 のバッジを添付したい場合は、先に「画像をコピー」を押してください — X では投稿エディタに直接貼り付けられます。「PNG をダウンロード」はファイルとして保存し、どこでも使えるようにします。",
       clipboard_unsupported:
         "このブラウザではクリップボードへの画像コピーがサポートされていません — 代わりに「ダウンロード」をご利用ください。",
-      tweet_text: "Just unlocked {tier_part}\"{name}\" in Hermes Agent ☤",
+      tweet_text: "Just unlocked {tier_part}\"{name}\" in JarvisCopilot Agent ☤",
     },
   },
   kanban: {
@@ -654,6 +657,7 @@ export const ja: Translations = {
     columnLabels: {
       triage: "トリアージ",
       todo: "ToDo",
+      scheduled: "スケジュール済み",
       ready: "準備完了",
       running: "進行中",
       blocked: "ブロック中",
@@ -663,6 +667,7 @@ export const ja: Translations = {
     columnHelp: {
       triage: "未整理のアイデア — スペシファイアが仕様を肉付けします",
       todo: "依存関係の待機中、または未割り当て",
+      scheduled: "既知の時間遅延またはスケジュール済みのフォローアップ待ち",
       ready: "依存関係は満たされています。ディスパッチするにはプロファイルを割り当ててください",
       running: "ワーカーが取得中 — 実行中",
       blocked: "ワーカーが人間の入力を求めています",

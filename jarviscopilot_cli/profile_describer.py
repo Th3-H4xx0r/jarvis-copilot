@@ -1,6 +1,6 @@
 """Profile describer — auto-generate ``description`` for a profile.
 
-Used by ``jarviscopilot profile describe <name> --auto`` and the dashboard's
+Used by ``hermes profile describe <name> --auto`` and the dashboard's
 "auto-generate description" button. Reads the profile's installed
 skills, model+provider, name, and optionally a small slice of memory,
 then asks the auxiliary LLM to produce a 1-2 sentence description of
@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Optional
 
 from jarviscopilot_cli import profiles as profiles_mod
+from agent.skill_utils import is_excluded_skill_path
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 MAX_SKILLS_FOR_PROMPT = 60
 
 
-_SYSTEM_PROMPT = """You are a profile-describer for the JarvisCopilot kanban board.
+_SYSTEM_PROMPT = """You are a profile-describer for the JarvisCopilot Agent kanban board.
 
 A user runs multiple "profiles" — distinct agent identities, each with their
 own skills, model, and configuration. The kanban board's orchestrator routes
@@ -70,7 +71,7 @@ Rules:
                          refactors functions, opens GitHub PRs."
   - 1-2 sentences, <= 280 characters total.
   - Never invent capabilities the skills don't suggest.
-  - Never write "JarvisCopilot profile" or other meta-narration.
+  - Never write "JarvisCopilot Agent profile" or other meta-narration.
   - No code fences, no preamble, no closing remarks. Output only JSON.
 """
 
@@ -109,8 +110,7 @@ def _collect_skills(profile_dir: Path) -> list[str]:
         return []
     names: list[str] = []
     for md in skills_dir.rglob("SKILL.md"):
-        path_str = str(md)
-        if "/.hub/" in path_str or "/.git/" in path_str:
+        if is_excluded_skill_path(md):
             continue
         try:
             rel = md.relative_to(skills_dir)
@@ -201,7 +201,7 @@ def describe_profile(
     skill_list = "\n".join(f"  - {n}" for n in skill_names) or "  (no skills installed)"
     skill_count = sum(
         1 for _ in (profile_dir / "skills").rglob("SKILL.md")
-        if "/.hub/" not in str(_) and "/.git/" not in str(_)
+        if not is_excluded_skill_path(_)
     ) if (profile_dir / "skills").is_dir() else 0
 
     # Read model + provider from the profile's config.

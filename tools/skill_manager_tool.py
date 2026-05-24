@@ -40,7 +40,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from jarviscopilot_constants import get_hermes_home, display_hermes_home
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 
 from utils import atomic_replace, is_truthy_value
 from jarviscopilot_cli.config import cfg_get
@@ -62,7 +62,7 @@ def _guard_agent_created_enabled() -> bool:
     Off by default because the agent can already execute the same code
     paths via terminal() with no gate, so the scan adds friction without
     meaningful security.  Users who want belt-and-suspenders can turn it
-    on via `jarviscopilot config set skills.guard_agent_created true`.
+    on via `hermes config set skills.guard_agent_created true`.
     """
     try:
         from jarviscopilot_cli.config import load_config
@@ -152,7 +152,7 @@ def _pinned_guard(name: str) -> Optional[str]:
             return (
                 f"Skill '{name}' is pinned and cannot be deleted by "
                 f"skill_manage. Ask the user to run "
-                f"`jarviscopilot curator unpin {name}` if they want to delete it. "
+                f"`hermes curator unpin {name}` if they want to delete it. "
                 f"Patches and edits are allowed on pinned skills; only "
                 f"deletion is blocked."
             )
@@ -283,16 +283,119 @@ def _find_skill(name: str) -> Optional[Dict[str, Any]]:
     external dirs configured via skills.external_dirs.  Returns
     {"path": Path} or None.
     """
-    from agent.skill_utils import EXCLUDED_SKILL_DIRS, get_all_skills_dirs
+    from agent.skill_utils import get_all_skills_dirs, is_excluded_skill_path
     for skills_dir in get_all_skills_dirs():
         if not skills_dir.exists():
             continue
         for skill_md in skills_dir.rglob("SKILL.md"):
-            if any(part in EXCLUDED_SKILL_DIRS for part in skill_md.parts):
+            if is_excluded_skill_path(skill_md):
                 continue
             if skill_md.parent.name == name:
                 return {"path": skill_md.parent}
     return None
+
+
+def _find_skill_in_other_profiles(name: str) -> List[Tuple[str, Path]]:
+    """Look for ``name`` under SKILL.md across OTHER JarvisCopilot profiles.
+
+    Returns a list of ``(profile_name, skill_dir)`` pairs. Used to make
+    the "Skill X not found" error explain when the user is editing the
+    wrong profile. Empty list when no other profile has the skill (or
+    when profile discovery fails — fail-quiet, the caller falls back to
+    the plain "not found" error).
+    """
+    matches: List[Tuple[str, Path]] = []
+    try:
+        from jarviscopilot_constants import get_default_hermes_root
+        from agent.skill_utils import is_excluded_skill_path
+    except Exception:
+        return matches
+
+    try:
+        root = get_default_hermes_root()
+    except Exception:
+        return matches
+
+    # Collect (profile_name, skills_dir) for every profile EXCEPT the
+    # one whose SKILLS_DIR we already searched in _find_skill().
+    active_dir = SKILLS_DIR.resolve() if SKILLS_DIR.exists() else SKILLS_DIR
+    candidates: List[Tuple[str, Path]] = []
+
+    # Default profile (~/.jarviscopilot/skills) — only consider when active is non-default.
+    default_skills = root / "skills"
+    try:
+        if default_skills.resolve() != active_dir:
+            candidates.append(("default", default_skills))
+    except (OSError, RuntimeError):
+        pass
+
+    # All named profiles (~/.jarviscopilot/profiles/*/skills)
+    profiles_root = root / "profiles"
+    if profiles_root.is_dir():
+        try:
+            for entry in profiles_root.iterdir():
+                if not entry.is_dir():
+                    continue
+                pskills = entry / "skills"
+                try:
+                    if pskills.resolve() == active_dir:
+                        continue
+                except (OSError, RuntimeError):
+                    continue
+                candidates.append((entry.name, pskills))
+        except OSError:
+            pass
+
+    for profile_name, skills_dir in candidates:
+        if not skills_dir.is_dir():
+            continue
+        try:
+            for skill_md in skills_dir.rglob("SKILL.md"):
+                if is_excluded_skill_path(skill_md):
+                    continue
+                if skill_md.parent.name == name:
+                    matches.append((profile_name, skill_md.parent))
+                    break  # one match per profile is enough
+        except OSError:
+            continue
+    return matches
+
+
+def _skill_not_found_error(name: str, suffix: str = "") -> str:
+    """Build a "skill not found" error that names other profiles holding
+    the same skill, so the agent can recognize a profile-scoping mistake.
+
+    ``suffix`` is appended after the cross-profile hint if present
+    (e.g. ``" Create it first with action='create'."``).
+    """
+    from agent.file_safety import _resolve_active_profile_name
+    active = _resolve_active_profile_name()
+    base = f"Skill '{name}' not found in active profile '{active}'."
+
+    others = _find_skill_in_other_profiles(name)
+    if others:
+        if len(others) == 1:
+            other_profile, other_path = others[0]
+            base += (
+                f" A skill by that name exists in profile "
+                f"'{other_profile}' ({other_path}). To edit a skill in "
+                f"another profile, switch profiles (`hermes -p "
+                f"{other_profile}`) or operate via explicit file tools "
+                f"with ``cross_profile=True``."
+            )
+        else:
+            names = ", ".join(f"'{p}'" for p, _ in others)
+            base += (
+                f" Skills by that name exist in other profiles: {names}. "
+                f"Switch profiles (`hermes -p <name>`) to edit there, or "
+                f"operate via explicit file tools with ``cross_profile=True``."
+            )
+    else:
+        base += " Use skills_list() to see available skills."
+
+    if suffix:
+        base += suffix
+    return base
 
 
 def _validate_file_path(file_path: str) -> Optional[str]:
@@ -439,7 +542,7 @@ def _edit_skill(name: str, content: str) -> Dict[str, Any]:
 
     existing = _find_skill(name)
     if not existing:
-        return {"success": False, "error": f"Skill '{name}' not found. Use skills_list() to see available skills."}
+        return {"success": False, "error": _skill_not_found_error(name)}
 
     skill_md = existing["path"] / "SKILL.md"
     # Back up original content for rollback
@@ -479,7 +582,7 @@ def _patch_skill(
 
     existing = _find_skill(name)
     if not existing:
-        return {"success": False, "error": f"Skill '{name}' not found."}
+        return {"success": False, "error": _skill_not_found_error(name)}
 
     skill_dir = existing["path"]
 
@@ -568,7 +671,7 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
     """
     existing = _find_skill(name)
     if not existing:
-        return {"success": False, "error": f"Skill '{name}' not found."}
+        return {"success": False, "error": _skill_not_found_error(name)}
 
     pinned_err = _pinned_guard(name)
     if pinned_err:
@@ -637,7 +740,7 @@ def _write_file(name: str, file_path: str, file_content: str) -> Dict[str, Any]:
 
     existing = _find_skill(name)
     if not existing:
-        return {"success": False, "error": f"Skill '{name}' not found. Create it first with action='create'."}
+        return {"success": False, "error": _skill_not_found_error(name, " Create it first with action='create'.")}
 
     target, err = _resolve_skill_target(existing["path"], file_path)
     if err:
@@ -671,7 +774,7 @@ def _remove_file(name: str, file_path: str) -> Dict[str, Any]:
 
     existing = _find_skill(name)
     if not existing:
-        return {"success": False, "error": f"Skill '{name}' not found."}
+        return {"success": False, "error": _skill_not_found_error(name)}
 
     skill_dir = existing["path"]
 
@@ -822,7 +925,7 @@ SKILL_MANAGE_SCHEMA = {
         "Good skills: trigger conditions, numbered steps with exact commands, "
         "pitfalls section, verification steps. Use skill_view() to see format examples.\n\n"
         "Pinned skills are protected from deletion only — skill_manage(action='delete') "
-        "will refuse with a message pointing the user to `jarviscopilot curator unpin <name>`. "
+        "will refuse with a message pointing the user to `hermes curator unpin <name>`. "
         "Patches and edits go through on pinned skills so you can still improve them as "
         "pitfalls come up; pin only guards against irrecoverable loss."
     ),

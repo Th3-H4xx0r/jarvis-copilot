@@ -47,12 +47,37 @@ class TestReadChain:
         cfg = {
             "fallback_providers": [
                 {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
-                {"provider": "nous", "model": "Hermes-4-Llama-3.1-405B"},
+                {"provider": "nous", "model": "JarvisCopilot-4-Llama-3.1-405B"},
             ]
         }
         assert _read_chain(cfg) == [
             {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
-            {"provider": "nous", "model": "Hermes-4-Llama-3.1-405B"},
+            {"provider": "nous", "model": "JarvisCopilot-4-Llama-3.1-405B"},
+        ]
+
+    def test_merges_new_and_legacy_formats(self):
+        from jarviscopilot_cli.fallback_cmd import _read_chain
+        cfg = {
+            "fallback_providers": [
+                {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
+            ],
+            "fallback_model": {"provider": "nous", "model": "JarvisCopilot-4"},
+        }
+        assert _read_chain(cfg) == [
+            {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
+            {"provider": "nous", "model": "JarvisCopilot-4"},
+        ]
+
+    def test_legacy_duplicate_is_deduplicated_after_merge(self):
+        from jarviscopilot_cli.fallback_cmd import _read_chain
+        cfg = {
+            "fallback_providers": [
+                {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
+            ],
+            "fallback_model": {"provider": "OpenRouter", "model": "anthropic/claude-sonnet-4.6"},
+        }
+        assert _read_chain(cfg) == [
+            {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
         ]
 
     def test_migrates_legacy_single_dict(self):
@@ -140,7 +165,7 @@ class TestListCommand:
             "model": {"provider": "anthropic", "default": "claude-sonnet-4-6"},
             "fallback_providers": [
                 {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
-                {"provider": "nous", "model": "Hermes-4"},
+                {"provider": "nous", "model": "JarvisCopilot-4"},
             ],
         })
         from jarviscopilot_cli.fallback_cmd import cmd_fallback_list
@@ -148,7 +173,7 @@ class TestListCommand:
         out = capsys.readouterr().out
         assert "Fallback chain (2 entries)" in out
         assert "anthropic/claude-sonnet-4.6" in out
-        assert "Hermes-4" in out
+        assert "JarvisCopilot-4" in out
         # Primary should be shown too
         assert "claude-sonnet-4-6" in out
 
@@ -348,12 +373,12 @@ class TestRemoveCommand:
         _write_config(isolated_home, {
             "fallback_providers": [
                 {"provider": "openrouter", "model": "gpt-5.4"},
-                {"provider": "nous", "model": "Hermes-4"},
+                {"provider": "nous", "model": "JarvisCopilot-4"},
                 {"provider": "anthropic", "model": "claude-sonnet-4-6"},
             ],
         })
 
-        # Picker returns index 1 (the middle entry, "nous / Hermes-4")
+        # Picker returns index 1 (the middle entry, "nous / JarvisCopilot-4")
         with patch("jarviscopilot_cli.setup._curses_prompt_choice", return_value=1):
             from jarviscopilot_cli.fallback_cmd import cmd_fallback_remove
             cmd_fallback_remove(types.SimpleNamespace())
@@ -365,7 +390,7 @@ class TestRemoveCommand:
         ]
         out = capsys.readouterr().out
         assert "Removed fallback" in out
-        assert "Hermes-4" in out
+        assert "JarvisCopilot-4" in out
 
     def test_remove_cancel_keeps_chain(self, isolated_home):
         _write_config(isolated_home, {
@@ -399,7 +424,7 @@ class TestClearCommand:
         _write_config(isolated_home, {
             "fallback_providers": [
                 {"provider": "openrouter", "model": "gpt-5.4"},
-                {"provider": "nous", "model": "Hermes-4"},
+                {"provider": "nous", "model": "JarvisCopilot-4"},
             ],
         })
         monkeypatch.setattr("builtins.input", lambda *a, **kw: "y")

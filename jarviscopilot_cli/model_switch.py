@@ -63,7 +63,7 @@ _HERMES_MODEL_WARNING = (
 # happen to carry "jarviscopilot" in their tag but are fully tool-capable.
 #
 # Positive examples the regex must match:
-#   NousResearch/Hermes-3-Llama-3.1-70B, hermes-4-405b, openrouter/hermes3:70b
+#   NousResearch/JarvisCopilot-3-Llama-3.1-70B, hermes-4-405b, openrouter/hermes3:70b
 # Negative examples it must NOT match:
 #   hermes-brain:qwen3-14b-ctx16k, qwen3:14b, claude-opus-4-6
 _NOUS_HERMES_NON_AGENTIC_RE = re.compile(
@@ -1200,7 +1200,7 @@ def list_authenticated_providers(
             live = [current_model]
         curated["lmstudio"] = live
 
-    # --- 1. Check Hermes-mapped providers ---
+    # --- 1. Check JarvisCopilot-mapped providers ---
     for hermes_id, mdev_id in PROVIDER_TO_MODELS_DEV.items():
         # Skip aliases that map to the same models.dev provider (e.g.
         # kimi-coding and kimi-coding-cn both → kimi-for-coding).
@@ -1232,7 +1232,7 @@ def list_authenticated_providers(
             try:
                 from jarviscopilot_cli.auth import _load_auth_store
                 store = _load_auth_store()
-                if store and hermes_id in store.get("credential_pool", {}):
+                if store and store.get("credential_pool", {}).get(hermes_id):
                     has_creds = True
             except Exception:
                 pass
@@ -1266,7 +1266,7 @@ def list_authenticated_providers(
         seen_mdev_ids.add(mdev_id)
         _record_builtin_endpoint(slug)
 
-    # --- 2. Check Hermes-only providers (nous, openai-codex, copilot, opencode-go) ---
+    # --- 2. Check JarvisCopilot-only providers (nous, openai-codex, copilot, opencode-go) ---
     from jarviscopilot_cli.providers import HERMES_OVERLAYS
     from jarviscopilot_cli.auth import PROVIDER_REGISTRY as _auth_registry
 
@@ -1720,7 +1720,10 @@ def list_authenticated_providers(
             results.append({
                 "slug": slug,
                 "name": grp["name"],
-                "is_current": slug == current_provider,
+                "is_current": slug == current_provider or (
+                    bool(current_base_url)
+                    and _grp_url_norm == current_base_url.strip().rstrip("/").lower()
+                ),
                 "is_user_defined": True,
                 "models": grp["models"],
                 "total_models": len(grp["models"]),

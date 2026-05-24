@@ -1,7 +1,7 @@
 """
-Gateway subcommand for jarviscopilot CLI.
+Gateway subcommand for hermes CLI.
 
-Handles: jarviscopilot gateway [run|start|stop|restart|status|install|uninstall|setup]
+Handles: hermes gateway [run|start|stop|restart|status|install|uninstall|setup]
 """
 
 import asyncio
@@ -32,7 +32,7 @@ from jarviscopilot_cli.config import (
     save_env_value,
 )
 # display_hermes_home is imported lazily at call sites to avoid ImportError
-# when jarviscopilot_constants is cached from a pre-update version during `jarviscopilot update`.
+# when jarviscopilot_constants is cached from a pre-update version during `hermes update`.
 from jarviscopilot_cli.setup import (
     print_header, print_info, print_success, print_warning, print_error,
     prompt, prompt_choice, prompt_yes_no,
@@ -84,7 +84,7 @@ def _get_service_pids() -> set:
         for scope_args in [["systemctl", "--user"], ["systemctl"]]:
             try:
                 result = subprocess.run(
-                    scope_args + ["list-units", "jarviscopilot-gateway*",
+                    scope_args + ["list-units", "hermes-gateway*",
                                   "--plain", "--no-legend", "--no-pager"],
                     capture_output=True, text=True, timeout=5,
                 )
@@ -139,7 +139,7 @@ def _get_parent_pid(pid: int) -> int | None:
     older implementation shelled out to ``ps -o ppid= -p <pid>``, which
     silently fails on Windows (no ``ps``) so the ancestor walk terminated
     at self — the caller's dedup / exclude logic then couldn't distinguish
-    "jarviscopilot CLI that invoked this scan" from "real gateway process".
+    "hermes CLI that invoked this scan" from "real gateway process".
     """
     if pid <= 1:
         return None
@@ -262,7 +262,7 @@ def _get_ancestor_pids() -> set[int]:
 
     Walks from the current PID up to PID 1 (init) so that process-table scans
     never match the calling CLI process or any of its parents.  This prevents
-    ``jarviscopilot gateway status`` from falsely counting the ``jarviscopilot`` CLI that
+    ``hermes gateway status`` from falsely counting the ``hermes`` CLI that
     invoked it as a running gateway instance (see #13242).
     """
     ancestors: set[int] = set()
@@ -293,7 +293,7 @@ def _scan_gateway_pids(exclude_pids: set[int], all_profiles: bool = False) -> li
     discover gateways outside the current profile.
     """
     # Exclude the entire ancestor chain so the CLI process that invoked this
-    # scan (e.g. ``jarviscopilot gateway status``) is never mistaken for a running
+    # scan (e.g. ``hermes gateway status``) is never mistaken for a running
     # gateway.  See #13242.
     exclude_pids = exclude_pids | _get_ancestor_pids()
     pids: list[int] = []
@@ -304,7 +304,7 @@ def _scan_gateway_pids(exclude_pids: set[int], all_profiles: bool = False) -> li
         "jarviscopilot_cli/main.py gateway",
         "jarviscopilot_cli/main.py --profile",
         "jarviscopilot_cli/main.py -p",
-        "jarviscopilot gateway",
+        "hermes gateway",
         "gateway/run.py",
     ]
     current_home = str(get_hermes_home().resolve())
@@ -515,7 +515,7 @@ def find_gateway_pids(exclude_pids: set | None = None, all_profiles: bool = Fals
         exclude_pids: PIDs to exclude from the result (e.g. service-managed
             PIDs that should not be killed during a stale-process sweep).
         all_profiles: When ``True``, return gateway PIDs across **all**
-            profiles (the pre-7923 global behaviour).  ``jarviscopilot update``
+            profiles (the pre-7923 global behaviour).  ``hermes update``
             needs this because a code update affects every profile.
             When ``False`` (default), only PIDs belonging to the current
             JarvisCopilot profile are returned.
@@ -584,8 +584,8 @@ def launch_detached_profile_gateway_restart(profile: str, old_pid: int) -> bool:
     #
     # Windows — ``start_new_session`` is silently accepted but does NOT
     # detach.  The watcher stays attached to the CLI's console and dies
-    # when the user closes the terminal, leaving ``jarviscopilot update`` users
-    # with no running gateway until they re-invoke ``jarviscopilot gateway``
+    # when the user closes the terminal, leaving ``hermes update`` users
+    # with no running gateway until they re-invoke ``hermes gateway``
     # manually.  The Win32 equivalent is the ``CREATE_NEW_PROCESS_GROUP |
     # DETACHED_PROCESS | CREATE_NO_WINDOW`` creationflags bundle.
     #
@@ -706,7 +706,7 @@ def _sync_hermes_home_from_systemd_unit(system: bool) -> None:
     """When acting on a system-scope unit, adopt its ``HERMES_HOME``.
 
     Under ``sudo``, ``HERMES_HOME`` is stripped and ``HOME=/root``, so
-    :func:`get_hermes_home` falls back to ``/root/.jarviscopilot`` — the wrong
+    :func:`get_hermes_home` falls back to ``/root/.hermes`` — the wrong
     profile. The unit file pins ``HERMES_HOME`` for the actual gateway
     process, so we mirror that into our own environment to make
     ``read_runtime_status`` / ``get_running_pid`` read the correct files.
@@ -854,7 +854,7 @@ def _wait_for_systemd_service_restart(
 
     print(
         f"⚠ {scope_label} service did not become active within {int(timeout)}s.\n"
-        f"  Check status: {'sudo ' if system else ''}jarviscopilot gateway status\n"
+        f"  Check status: {'sudo ' if system else ''}hermes gateway status\n"
         f"  Check logs:   journalctl {'--user ' if not system else ''}-u {svc} -l --since '2 min ago'"
     )
     return False
@@ -895,7 +895,7 @@ def _print_systemd_start_limit_wait(system: bool = False) -> None:
     journal_prefix = "journalctl " if system else "journalctl --user "
     print(f"⏳ {scope_label} service is temporarily rate-limited by systemd.")
     print("  systemd is refusing another immediate start after repeated exits.")
-    print(f"  Wait for the start-limit window to expire, then run: {'sudo ' if system else ''}jarviscopilot gateway restart{scope_flag}")
+    print(f"  Wait for the start-limit window to expire, then run: {'sudo ' if system else ''}hermes gateway restart{scope_flag}")
     print(f"  Or clear the failed state manually: {systemctl_prefix}reset-failed {svc}")
     print(f"  Check logs: {journal_prefix}-u {svc} -l --since '5 min ago'")
 
@@ -1025,14 +1025,14 @@ def _print_gateway_process_mismatch(snapshot: GatewayRuntimeSnapshot) -> None:
     print()
     print("⚠ Gateway process is running for this profile, but the service is not active")
     print(f"  PID(s): {_format_gateway_pids(snapshot.gateway_pids, limit=None)}")
-    print("  This is usually a manual foreground/tmux/nohup run, so `jarviscopilot gateway`")
+    print("  This is usually a manual foreground/tmux/nohup run, so `hermes gateway`")
     print("  can refuse to start another copy until this process stops.")
 
 
 def _print_other_profiles_gateway_status() -> None:
     """Print a summary of gateway status across all profiles.
 
-    Shown at the bottom of ``jarviscopilot gateway status`` output so users with
+    Shown at the bottom of ``hermes gateway status`` output so users with
     multiple profiles can tell at a glance which gateways are running and
     avoid confusing another profile's process with the current one.
     """
@@ -1232,7 +1232,7 @@ def is_windows() -> bool:
 def _windows_gateway_should_absorb_console_controls() -> bool:
     """Return True for detached Windows gateway runs that should ignore Ctrl+C.
 
-    Foreground ``jarviscopilot gateway run`` must remain interruptible from
+    Foreground ``hermes gateway run`` must remain interruptible from
     PowerShell/CMD. Detached service-style launches opt in via
     ``HERMES_GATEWAY_DETACHED=1``; older wrappers without the env marker are
     treated as detached when no interactive stdin is attached.
@@ -1254,8 +1254,8 @@ def _windows_gateway_should_absorb_console_controls() -> bool:
 # Service Configuration
 # =============================================================================
 
-_SERVICE_BASE = "jarviscopilot-gateway"
-SERVICE_DESCRIPTION = "JarvisCopilot Gateway - Messaging Platform Integration"
+_SERVICE_BASE = "hermes-gateway"
+SERVICE_DESCRIPTION = "JarvisCopilot Agent Gateway - Messaging Platform Integration"
 
 
 def _profile_suffix() -> str:
@@ -1316,8 +1316,8 @@ def _profile_arg(hermes_home: str | None = None) -> str:
 def get_service_name() -> str:
     """Derive a systemd service name scoped to this HERMES_HOME.
 
-    Default ``~/.jarviscopilot`` returns ``jarviscopilot-gateway`` (backward compatible).
-    Profile ``~/.jarviscopilot/profiles/coder`` returns ``jarviscopilot-gateway-coder``.
+    Default ``~/.jarviscopilot`` returns ``hermes-gateway`` (backward compatible).
+    Profile ``~/.jarviscopilot/profiles/coder`` returns ``hermes-gateway-coder``.
     Any other HERMES_HOME appends a short hash for uniqueness.
     """
     suffix = _profile_suffix()
@@ -1523,7 +1523,7 @@ def _raise_user_systemd_unavailable(username: str, *, reason: str, fix_hint: str
         "\n"
         "  Alternative: run the gateway in the foreground (stays up until\n"
         "  you exit / close the terminal):\n"
-        "    jarviscopilot gateway run"
+        "    hermes gateway run"
     )
     raise UserSystemdUnavailableError(msg)
 
@@ -1575,10 +1575,10 @@ def has_conflicting_systemd_units() -> bool:
 
 
 # Legacy service names from older JarvisCopilot installs that predate the
-# jarviscopilot-gateway rename. Kept as an explicit allowlist (NOT a glob) so
-# profile units (jarviscopilot-gateway-*.service) and unrelated third-party
-# "jarviscopilot" units are never matched.
-_LEGACY_SERVICE_NAMES: tuple[str, ...] = ("jarviscopilot.service",)
+# hermes-gateway rename. Kept as an explicit allowlist (NOT a glob) so
+# profile units (hermes-gateway-*.service) and unrelated third-party
+# "hermes" units are never matched.
+_LEGACY_SERVICE_NAMES: tuple[str, ...] = ("hermes.service",)
 
 # ExecStart content markers that identify a unit as running our gateway.
 # A legacy unit is only flagged when its file contains one of these.
@@ -1586,8 +1586,8 @@ _LEGACY_UNIT_EXECSTART_MARKERS: tuple[str, ...] = (
     "jarviscopilot_cli.main gateway",
     "jarviscopilot_cli/main.py gateway",
     "gateway/run.py",
-    " jarviscopilot gateway ",
-    "/jarviscopilot gateway ",
+    " hermes gateway ",
+    "/hermes gateway ",
 )
 
 
@@ -1607,19 +1607,19 @@ def _find_legacy_hermes_units() -> list[tuple[str, Path, bool]]:
     """Return ``[(unit_name, unit_path, is_system)]`` for legacy JarvisCopilot gateway units.
 
     Detects unit files installed by older JarvisCopilot versions that used a
-    different service name (e.g. ``jarviscopilot.service`` before the rename to
-    ``jarviscopilot-gateway.service``). When both a legacy unit and the current
-    ``jarviscopilot-gateway.service`` are active, they fight over the same bot
+    different service name (e.g. ``hermes.service`` before the rename to
+    ``hermes-gateway.service``). When both a legacy unit and the current
+    ``hermes-gateway.service`` are active, they fight over the same bot
     token — the PR #5646 signal-recovery change turns this into a 30-second
     SIGTERM flap loop.
 
     Safety guards:
 
     * Explicit allowlist of legacy names (no globbing). Profile units such
-      as ``jarviscopilot-gateway-coder.service`` and unrelated third-party
+      as ``hermes-gateway-coder.service`` and unrelated third-party
       ``hermes-*`` services are never matched.
     * ExecStart content check — only flag units that invoke our gateway
-      entrypoint. A user-created ``jarviscopilot.service`` running an unrelated
+      entrypoint. A user-created ``hermes.service`` running an unrelated
       binary is left untouched.
     * Results are returned purely for caller inspection; this function
       never mutates or removes anything.
@@ -1659,10 +1659,10 @@ def print_legacy_unit_warning() -> None:
     for name, path, is_system in legacy:
         scope = "system" if is_system else "user"
         print_info(f"    {path}  ({scope} scope)")
-    print_info("  These run alongside the current jarviscopilot-gateway service and")
+    print_info("  These run alongside the current hermes-gateway service and")
     print_info("  cause SIGTERM flap loops — both try to use the same bot token.")
     print_info("  Remove them with:")
-    print_info("    jarviscopilot gateway migrate-legacy")
+    print_info("    hermes gateway migrate-legacy")
 
 
 def remove_legacy_hermes_units(
@@ -1705,7 +1705,7 @@ def remove_legacy_hermes_units(
         return 0, [p for _, p, _ in legacy]
 
     if interactive and not prompt_yes_no("Remove these legacy units?", True):
-        print("Skipped. Run again with: jarviscopilot gateway migrate-legacy")
+        print("Skipped. Run again with: hermes gateway migrate-legacy")
         return 0, [p for _, p, _ in legacy]
 
     removed = 0
@@ -1734,7 +1734,7 @@ def remove_legacy_hermes_units(
         if os.geteuid() != 0:  # windows-footgun: ok — Linux systemd removal path, guarded by `if system == "Linux"` / systemd-only branch
             print()
             print_warning("System-scope legacy units require root to remove.")
-            print_info("  Re-run with: sudo jarviscopilot gateway migrate-legacy")
+            print_info("  Re-run with: sudo hermes gateway migrate-legacy")
             for _, path in system_units:
                 remaining.append(path)
         else:
@@ -1773,8 +1773,8 @@ def print_systemd_scope_conflict_warning() -> None:
     print_info("  This is confusing and can make start/stop/status behavior ambiguous.")
     print_info("  Default gateway commands target the user service unless you pass --system.")
     print_info("  Keep one of these:")
-    print_info("    jarviscopilot gateway uninstall")
-    print_info("    sudo jarviscopilot gateway uninstall --system")
+    print_info("    hermes gateway uninstall")
+    print_info("    sudo hermes gateway uninstall --system")
 
 
 def _require_root_for_system_service(action: str) -> None:
@@ -1839,7 +1839,7 @@ def prompt_linux_gateway_install_scope() -> str | None:
     return {0: "user", 1: "system", 2: None}[choice]
 
 
-def install_linux_gateway_from_setup(force: bool = False) -> tuple[str | None, bool]:
+def install_linux_gateway_from_setup(force: bool = False, enable_on_startup: bool = True) -> tuple[str | None, bool]:
     scope = prompt_linux_gateway_install_scope()
     if scope is None:
         return None, False
@@ -1849,10 +1849,10 @@ def install_linux_gateway_from_setup(force: bool = False) -> tuple[str | None, b
         if os.geteuid() != 0:  # windows-footgun: ok — Linux systemd install wizard, never invoked on Windows
             print_warning("  System service install requires sudo, so JarvisCopilot can't create it from this user session.")
             if run_as_user:
-                print_info(f"  After setup, run: sudo jarviscopilot gateway install --system --run-as-user {run_as_user}")
+                print_info(f"  After setup, run: sudo hermes gateway install --system --run-as-user {run_as_user}")
             else:
-                print_info("  After setup, run: sudo jarviscopilot gateway install --system --run-as-user <your-user>")
-            print_info("  Then start it with: sudo jarviscopilot gateway start --system")
+                print_info("  After setup, run: sudo hermes gateway install --system --run-as-user <your-user>")
+            print_info("  Then start it with: sudo hermes gateway start --system")
             return scope, False
 
         if not run_as_user:
@@ -1863,10 +1863,10 @@ def install_linux_gateway_from_setup(force: bool = False) -> tuple[str | None, b
                     break
                 print_error("  Enter a username.")
 
-        systemd_install(force=force, system=True, run_as_user=run_as_user)
+        systemd_install(force=force, system=True, run_as_user=run_as_user, enable_on_startup=enable_on_startup)
         return scope, True
 
-    systemd_install(force=force, system=False)
+    systemd_install(force=force, system=False, enable_on_startup=enable_on_startup)
     return scope, True
 
 
@@ -1946,11 +1946,11 @@ def _launchd_user_home() -> Path:
 def get_launchd_plist_path() -> Path:
     """Return the launchd plist path, scoped per profile.
 
-    Default ``~/.jarviscopilot`` → ``ai.jarviscopilot.gateway.plist`` (backward compatible).
-    Profile ``~/.jarviscopilot/profiles/coder`` → ``ai.jarviscopilot.gateway-coder.plist``.
+    Default ``~/.jarviscopilot`` → ``ai.hermes.gateway.plist`` (backward compatible).
+    Profile ``~/.jarviscopilot/profiles/coder`` → ``ai.hermes.gateway-coder.plist``.
     """
     suffix = _profile_suffix()
-    name = f"ai.jarviscopilot.gateway-{suffix}" if suffix else "ai.jarviscopilot.gateway"
+    name = f"ai.hermes.gateway-{suffix}" if suffix else "ai.hermes.gateway"
     return _launchd_user_home() / "Library" / "LaunchAgents" / f"{name}.plist"
 
 def _detect_venv_dir() -> Path | None:
@@ -2059,7 +2059,7 @@ def _remap_path_for_user(path: str, target_home_dir: str) -> str:
     If *path* lives under ``Path.home()`` the corresponding prefix is swapped
     to *target_home_dir*; otherwise the path is returned unchanged.
 
-      /root/.jarviscopilot/jarviscopilot  -> /home/alice/.jarviscopilot/jarviscopilot
+      /root/.hermes/hermes-agent  -> /home/alice/.hermes/hermes-agent
       /opt/hermes                 -> /opt/hermes  (kept as-is)
 
     Note: this function intentionally does NOT resolve symlinks. A venv's
@@ -2084,13 +2084,13 @@ def _hermes_home_for_target_user(target_home_dir: str) -> str:
 
     When installing a system service via sudo, get_hermes_home() resolves to
     root's home.  This translates it to the target user's equivalent path:
-      /root/.jarviscopilot                    → /home/alice/.jarviscopilot
-      /root/.jarviscopilot/profiles/coder     → /home/alice/.jarviscopilot/profiles/coder
+      /root/.hermes                    → /home/alice/.hermes
+      /root/.hermes/profiles/coder     → /home/alice/.hermes/profiles/coder
       /opt/custom-hermes               → /opt/custom-hermes  (kept as-is)
     """
     current_hermes = get_hermes_home().resolve()
-    current_default = (Path.home() / ".jarviscopilot").resolve()
-    target_default = Path(target_home_dir) / ".jarviscopilot"
+    current_default = (Path.home() / ".hermes").resolve()
+    target_default = Path(target_home_dir) / ".hermes"
 
     # Default ~/.jarviscopilot → remap to target user's default
     if current_hermes == current_default:
@@ -2418,9 +2418,9 @@ def _print_system_scope_remediation(action: str) -> None:
     else:
         print_info(f"         sudo systemctl {action} {svc}")
     print_info("    2. Switch to a per-user service (recommended for personal use):")
-    print_info("         sudo jarviscopilot gateway uninstall --system")
-    print_info("         jarviscopilot gateway install")
-    print_info("         jarviscopilot gateway start")
+    print_info("         sudo hermes gateway uninstall --system")
+    print_info("         hermes gateway install")
+    print_info("         hermes gateway start")
 
 
 def _get_restart_drain_timeout() -> float:
@@ -2437,12 +2437,17 @@ def _get_restart_drain_timeout() -> float:
     return parse_restart_drain_timeout(raw)
 
 
-def systemd_install(force: bool = False, system: bool = False, run_as_user: str | None = None):
+def systemd_install(
+    force: bool = False,
+    system: bool = False,
+    run_as_user: str | None = None,
+    enable_on_startup: bool = True,
+):
     if system:
         _require_root_for_system_service("install")
 
-    # Offer to remove legacy units (jarviscopilot.service from pre-rename installs)
-    # before installing the new jarviscopilot-gateway.service. If both remain, they
+    # Offer to remove legacy units (hermes.service from pre-rename installs)
+    # before installing the new hermes-gateway.service. If both remain, they
     # flap-fight for the Telegram bot token on every gateway startup.
     # Only removes units matching _LEGACY_SERVICE_NAMES + our ExecStart
     # signature — profile units are never touched.
@@ -2461,7 +2466,8 @@ def systemd_install(force: bool = False, system: bool = False, run_as_user: str 
         if not systemd_unit_is_current(system=system):
             print(f"↻ Repairing outdated {_service_scope_label(system)} systemd service at: {unit_path}")
             refresh_systemd_unit_if_needed(system=system)
-            _run_systemctl(["enable", get_service_name()], system=system, check=True, timeout=30)
+            if enable_on_startup:
+                _run_systemctl(["enable", get_service_name()], system=system, check=True, timeout=30)
             print(f"✓ {_service_scope_label(system).capitalize()} service definition updated")
             return
         print(f"Service already installed at: {unit_path}")
@@ -2473,14 +2479,16 @@ def systemd_install(force: bool = False, system: bool = False, run_as_user: str 
     unit_path.write_text(generate_systemd_unit(system=system, run_as_user=run_as_user), encoding="utf-8")
 
     _run_systemctl(["daemon-reload"], system=system, check=True, timeout=30)
-    _run_systemctl(["enable", get_service_name()], system=system, check=True, timeout=30)
+    if enable_on_startup:
+        _run_systemctl(["enable", get_service_name()], system=system, check=True, timeout=30)
 
     print()
-    print(f"✓ {_service_scope_label(system).capitalize()} service installed and enabled!")
+    enable_label = "installed and enabled" if enable_on_startup else "installed"
+    print(f"✓ {_service_scope_label(system).capitalize()} service {enable_label}!")
     print()
     print("Next steps:")
-    print(f"  {'sudo ' if system else ''}jarviscopilot gateway start{scope_flag}              # Start the service")
-    print(f"  {'sudo ' if system else ''}jarviscopilot gateway status{scope_flag}             # Check status")
+    print(f"  {'sudo ' if system else ''}hermes gateway start{scope_flag}              # Start the service")
+    print(f"  {'sudo ' if system else ''}hermes gateway status{scope_flag}             # Check status")
     print(f"  {'journalctl' if system else 'journalctl --user'} -u {get_service_name()} -f  # View logs")
     print()
 
@@ -2517,7 +2525,7 @@ def _require_service_installed(action: str, system: bool = False) -> None:
     if not unit_path.exists():
         scope_flag = " --system" if system else ""
         print(f"✗ Gateway service is not installed")
-        print(f"  Run: {'sudo ' if system else ''}jarviscopilot gateway install{scope_flag}")
+        print(f"  Run: {'sudo ' if system else ''}hermes gateway install{scope_flag}")
         sys.exit(1)
 
 
@@ -2556,7 +2564,7 @@ def systemd_stop(system: bool = False):
         label = _service_scope_label(system)
         print(
             f"Gateway {label} service is still stopping after 90s; "
-            "check `jarviscopilot gateway status` or logs for final shutdown state."
+            "check `hermes gateway status` or logs for final shutdown state."
         )
         return
     print(f"✓ {_service_scope_label(system).capitalize()} service stopped")
@@ -2624,7 +2632,7 @@ def systemd_restart(system: bool = False):
             label = _service_scope_label(system)
             print(
                 f"Gateway {label} service is still restarting after 90s; "
-                "check `jarviscopilot gateway status` or logs for final state."
+                "check `hermes gateway status` or logs for final state."
             )
             return
         _wait_for_systemd_service_restart(system=system, previous_pid=pid)
@@ -2650,7 +2658,7 @@ def systemd_restart(system: bool = False):
         label = _service_scope_label(system)
         print(
             f"Gateway {label} service is still restarting after 90s; "
-            "check `jarviscopilot gateway status` or logs for final state."
+            "check `hermes gateway status` or logs for final state."
         )
         return
     _wait_for_systemd_service_restart(system=system, previous_pid=pid)
@@ -2664,7 +2672,7 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
 
     if not unit_path.exists():
         print("✗ Gateway service is not installed")
-        print(f"  Run: {'sudo ' if system else ''}jarviscopilot gateway install{scope_flag}")
+        print(f"  Run: {'sudo ' if system else ''}hermes gateway install{scope_flag}")
         return
 
     _sync_hermes_home_from_systemd_unit(system=system)
@@ -2679,7 +2687,7 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
 
     if not systemd_unit_is_current(system=system):
         print("⚠ Installed gateway service definition is outdated")
-        print(f"  Run: {'sudo ' if system else ''}jarviscopilot gateway restart{scope_flag}  # auto-refreshes the unit")
+        print(f"  Run: {'sudo ' if system else ''}hermes gateway restart{scope_flag}  # auto-refreshes the unit")
         print()
 
     status_cmd = ["status", get_service_name(), "--no-pager"]
@@ -2707,7 +2715,7 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
         print(f"✓ {_service_scope_label(system).capitalize()} gateway service is running")
     else:
         print(f"✗ {_service_scope_label(system).capitalize()} gateway service is stopped")
-        print(f"  Run: {'sudo ' if system else ''}jarviscopilot gateway start{scope_flag}")
+        print(f"  Run: {'sudo ' if system else ''}hermes gateway start{scope_flag}")
 
     configured_user = _read_systemd_user_from_unit(unit_path) if system else None
     if configured_user:
@@ -2729,11 +2737,11 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
         print("  ⏳ Restart pending: systemd is waiting to relaunch the gateway")
     elif _systemd_unit_is_start_limited(unit_props):
         print("  ⏳ Restart pending: systemd is temporarily rate-limiting starts")
-        print(f"  Run after the start-limit window expires: {'sudo ' if system else ''}jarviscopilot gateway restart{scope_flag}")
+        print(f"  Run after the start-limit window expires: {'sudo ' if system else ''}hermes gateway restart{scope_flag}")
         print(f"  Or clear it manually: systemctl {'--user ' if not system else ''}reset-failed {get_service_name()}")
     elif active_state == "failed" and exec_main_status == str(GATEWAY_SERVICE_RESTART_EXIT_CODE):
         print("  ⚠ Planned restart is stuck in systemd failed state (exit 75)")
-        print(f"  Run: systemctl {'--user ' if not system else ''}reset-failed {get_service_name()} && {'sudo ' if system else ''}jarviscopilot gateway start{scope_flag}")
+        print(f"  Run: systemctl {'--user ' if not system else ''}reset-failed {get_service_name()} && {'sudo ' if system else ''}hermes gateway start{scope_flag}")
     elif active_state == "failed" and result_code:
         print(f"  ⚠ Systemd unit result: {result_code}")
 
@@ -2765,7 +2773,7 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
 def get_launchd_label() -> str:
     """Return the launchd service label, scoped per profile."""
     suffix = _profile_suffix()
-    return f"ai.jarviscopilot.gateway-{suffix}" if suffix else "ai.jarviscopilot.gateway"
+    return f"ai.hermes.gateway-{suffix}" if suffix else "ai.hermes.gateway"
 
 
 def _launchd_domain() -> str:
@@ -2912,7 +2920,7 @@ def launchd_install(force: bool = False):
     print("✓ Service installed and loaded!")
     print()
     print("Next steps:")
-    print("  jarviscopilot gateway status             # Check status")
+    print("  hermes gateway status             # Check status")
     from jarviscopilot_constants import display_hermes_home as _dhh
     print(f"  tail -f {_dhh()}/logs/gateway.log  # View logs")
 
@@ -2965,7 +2973,7 @@ def launchd_stop():
     # bootout unloads the service definition so KeepAlive doesn't respawn
     # the process.  A plain `kill SIGTERM` only signals the process — launchd
     # immediately restarts it because KeepAlive.SuccessfulExit = false.
-    # `jarviscopilot gateway start` re-bootstraps when it detects the job is unloaded.
+    # `hermes gateway start` re-bootstraps when it detects the job is unloaded.
     try:
         subprocess.run(["launchctl", "bootout", target], check=True, timeout=90)
     except subprocess.CalledProcessError as e:
@@ -3071,7 +3079,7 @@ def launchd_status(deep: bool = False):
         print("✓ Service definition matches the current JarvisCopilot install")
     else:
         print("⚠ Service definition is stale relative to the current JarvisCopilot install")
-        print("  Run: jarviscopilot gateway start")
+        print("  Run: hermes gateway start")
 
     if loaded:
         print("✓ Gateway service is loaded")
@@ -3079,7 +3087,7 @@ def launchd_status(deep: bool = False):
     else:
         print("✗ Gateway service is not loaded")
         print("  Service definition exists locally but launchd has not loaded it.")
-        print("  Run: jarviscopilot gateway start")
+        print("  Run: hermes gateway start")
     
     if deep:
         log_file = get_hermes_home() / "logs" / "gateway.log"
@@ -3117,7 +3125,7 @@ def _guard_official_docker_root_gateway() -> None:
         "Refusing to run the JarvisCopilot gateway as root inside the official Docker image."
     )
     print(
-        "  The image entrypoint normally drops privileges to the 'jarviscopilot' user. "
+        "  The image entrypoint normally drops privileges to the 'hermes' user. "
         "If you override entrypoint in Docker Compose, include "
         "/opt/hermes/docker/entrypoint.sh before the JarvisCopilot command."
     )
@@ -3143,7 +3151,7 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False):
     sys.path.insert(0, str(PROJECT_ROOT))
 
     # Detached Windows gateway runs must ignore console-control broadcasts
-    # from sibling CLI processes, but foreground `jarviscopilot gateway run` still
+    # from sibling CLI processes, but foreground `hermes gateway run` still
     # needs to obey the banner's "Press Ctrl+C to stop" contract.
     # Service-style launchers set HERMES_GATEWAY_DETACHED=1; older wrappers
     # without the marker are handled by the non-TTY fallback.
@@ -3184,10 +3192,10 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False):
     # Refresh the systemd unit definition on every boot so that restart
     # settings (RestartSec, StartLimitIntervalSec, etc.) stay current even
     # when the process was respawned via exit-code-75 (stale-code or
-    # /restart) rather than through `jarviscopilot gateway restart` which already
+    # /restart) rather than through `hermes gateway restart` which already
     # calls refresh_systemd_unit_if_needed().  Without this, a code update
     # that ships new unit settings won't take effect until the next manual
-    # `jarviscopilot gateway start/restart` — leaving the gateway vulnerable to
+    # `hermes gateway start/restart` — leaving the gateway vulnerable to
     # the exact failure mode the new settings were meant to prevent.
     if supports_systemd_services():
         try:
@@ -3319,34 +3327,9 @@ _PLATFORMS = [
              "help": "For DMs, this is your user ID. You can set it later by typing /set-home in chat."},
         ],
     },
-    {
-        "key": "discord",
-        "label": "Discord",
-        "emoji": "💬",
-        "token_var": "DISCORD_BOT_TOKEN",
-        "setup_instructions": [
-            "1. Go to https://discord.com/developers/applications → New Application",
-            "2. Go to Bot → Reset Token → copy the bot token",
-            "3. Enable: Bot → Privileged Gateway Intents → Message Content Intent",
-            "4. Invite the bot to your server:",
-            "   OAuth2 → URL Generator → check BOTH scopes:",
-            "     - bot",
-            "     - applications.commands  (required for slash commands!)",
-            "   Bot Permissions: Send Messages, Read Message History, Attach Files",
-            "   Copy the URL and open it in your browser to invite.",
-            "5. Get your user ID: enable Developer Mode in Discord settings,",
-            "   then right-click your name → Copy ID",
-        ],
-        "vars": [
-            {"name": "DISCORD_BOT_TOKEN", "prompt": "Bot token", "password": True,
-             "help": "Paste the token from step 2 above."},
-            {"name": "DISCORD_ALLOWED_USERS", "prompt": "Allowed user IDs or usernames (comma-separated)", "password": False,
-             "is_allowlist": True,
-             "help": "Paste your user ID from step 5 above."},
-            {"name": "DISCORD_HOME_CHANNEL", "prompt": "Home channel ID (for cron/notification delivery, or empty to set later with /set-home)", "password": False,
-             "help": "Right-click a channel → Copy Channel ID (requires Developer Mode)."},
-        ],
-    },
+    # Discord moved to plugins/platforms/discord/ — its setup metadata is
+    # discovered dynamically via _all_platforms() from the platform registry
+    # entry registered by plugins/platforms/discord/adapter.py::register().
     {
         "key": "slack",
         "label": "Slack",
@@ -3399,7 +3382,7 @@ _PLATFORMS = [
             {"name": "MATRIX_ACCESS_TOKEN", "prompt": "Access token (leave empty to use password login instead)", "password": True,
              "help": "Paste your access token, or leave empty and provide user ID + password below."},
             {"name": "MATRIX_USER_ID", "prompt": "User ID (@bot:server — required for password login)", "password": False,
-             "help": "Full Matrix user ID, e.g. @jarviscopilot:matrix.example.org"},
+             "help": "Full Matrix user ID, e.g. @hermes:matrix.example.org"},
             {"name": "MATRIX_ALLOWED_USERS", "prompt": "Allowed user IDs (comma-separated, e.g. @you:server)", "password": False,
              "is_allowlist": True,
              "help": "Matrix user IDs who can interact with the bot."},
@@ -3415,7 +3398,7 @@ _PLATFORMS = [
         "setup_instructions": [
             "1. In Mattermost: Integrations → Bot Accounts → Add Bot Account",
             "   (System Console → Integrations → Bot Accounts must be enabled)",
-            "2. Give it a username (e.g. jarviscopilot) and copy the bot token",
+            "2. Give it a username (e.g. hermes) and copy the bot token",
             "3. Works with any self-hosted Mattermost instance — enter your server URL",
             "4. To find your user ID: click your avatar (top-left) → Profile",
             "   Your user ID is displayed there — click it to copy.",
@@ -3462,7 +3445,7 @@ _PLATFORMS = [
         ],
         "vars": [
             {"name": "EMAIL_ADDRESS", "prompt": "Email address", "password": False,
-             "help": "The email address JarvisCopilot will use (e.g., jarviscopilot@gmail.com)."},
+             "help": "The email address JarvisCopilot will use (e.g., hermes@gmail.com)."},
             {"name": "EMAIL_PASSWORD", "prompt": "Email password (or app password)", "password": True,
              "help": "For Gmail, use an App Password (not your regular password)."},
             {"name": "EMAIL_IMAP_HOST", "prompt": "IMAP host", "password": False,
@@ -3622,7 +3605,7 @@ _PLATFORMS = [
             "4. The server URL is typically http://<your-mac-ip>:1234",
             "5. JarvisCopilot connects via the BlueBubbles REST API and receives",
             "   incoming messages via a local webhook",
-            "6. To authorize users, use DM pairing: jarviscopilot pairing generate bluebubbles",
+            "6. To authorize users, use DM pairing: hermes pairing generate bluebubbles",
             "   Share the code — the user sends it via iMessage to get approved",
         ],
         "vars": [
@@ -3685,7 +3668,7 @@ def _all_platforms() -> list[dict]:
     Combines the built-in ``_PLATFORMS`` with plugin platforms registered via
     ``platform_registry``. Plugins are discovered on first call so bundled
     platforms (like IRC, which auto-load via ``kind: platform``) appear in
-    ``jarviscopilot setup gateway`` without needing the gateway to be running.
+    ``hermes setup gateway`` without needing the gateway to be running.
     Built-ins keep their dict shape; plugin entries are adapted to the same
     shape with ``_registry_entry`` holding the source.
 
@@ -3695,7 +3678,7 @@ def _all_platforms() -> list[dict]:
         ``mautrix[encryption]`` -> ``python-olm``, which has no Windows
         wheel and needs ``make`` + libolm to build from sdist. There's
         no native Windows path that works, so we don't offer it in the
-        picker. Users who want Matrix on Windows can run jarviscopilot under
+        picker. Users who want Matrix on Windows can run hermes under
         WSL.
     """
     # Populate the registry so plugin platforms are visible. Idempotent.
@@ -3754,7 +3737,12 @@ def _platform_status(platform: dict) -> str:
                 configured = bool(entry.is_connected(synthetic))
             except Exception:
                 configured = False
-        if not configured:
+        else:
+            # No is_connected hook — fall back to check_fn as a coarse
+            # "are deps present" gate. Don't fall back when is_connected
+            # is defined and returned False; that would let "SDK is
+            # installed" override "no token configured" and incorrectly
+            # report the platform as ready.
             try:
                 configured = bool(entry.check_fn())
             except Exception:
@@ -3905,7 +3893,7 @@ def _setup_standard_platform(platform: dict):
                 print()
                 access_choices = [
                     "Enable open access (anyone can message the bot)",
-                    "Use DM pairing (unknown users request access, you approve with 'jarviscopilot pairing approve')",
+                    "Use DM pairing (unknown users request access, you approve with 'hermes pairing approve')",
                     "Skip for now (bot will deny all users until configured)",
                 ]
                 access_idx = prompt_choice("  How should unauthorized users be handled?", access_choices, 1)
@@ -3914,9 +3902,9 @@ def _setup_standard_platform(platform: dict):
                     print_warning("  Open access enabled — anyone can use your bot!")
                 elif access_idx == 1:
                     print_success("  DM pairing mode — users will receive a code to request access.")
-                    print_info("  Approve with: jarviscopilot pairing approve <platform> <code>")
+                    print_info("  Approve with: hermes pairing approve <platform> <code>")
                 else:
-                    print_info("  Skipped — configure later with 'jarviscopilot gateway setup'")
+                    print_info("  Skipped — configure later with 'hermes gateway setup'")
             continue
 
         value = prompt(f"  {var['prompt']}", password=var.get("password", False))
@@ -4107,7 +4095,7 @@ def _setup_wecom():
         print()
         access_choices = [
             "Enable open access (anyone can message the bot)",
-            "Use DM pairing (unknown users request access, you approve with 'jarviscopilot pairing approve')",
+            "Use DM pairing (unknown users request access, you approve with 'hermes pairing approve')",
             "Disable direct messages",
             "Skip for now (bot will deny all users until configured)",
         ]
@@ -4119,12 +4107,12 @@ def _setup_wecom():
         elif access_idx == 1:
             save_env_value("WECOM_DM_POLICY", "pairing")
             print_success("  DM pairing mode — users will receive a code to request access.")
-            print_info("  Approve with: jarviscopilot pairing approve <platform> <code>")
+            print_info("  Approve with: hermes pairing approve <platform> <code>")
         elif access_idx == 2:
             save_env_value("WECOM_DM_POLICY", "disabled")
             print_warning("  Direct messages disabled.")
         else:
-            print_info("  Skipped — configure later with 'jarviscopilot gateway setup'")
+            print_info("  Skipped — configure later with 'hermes gateway setup'")
 
     # ── Home channel (optional) ──
     print()
@@ -4231,7 +4219,7 @@ def _setup_weixin():
 
     if not check_weixin_requirements():
         print_error("  Missing dependencies: Weixin needs aiohttp and cryptography.")
-        print_info("  Install them, then rerun `jarviscopilot gateway setup`.")
+        print_info("  Install them, then rerun `hermes gateway setup`.")
         return
 
     print()
@@ -4278,7 +4266,7 @@ def _setup_weixin():
         save_env_value("WEIXIN_ALLOW_ALL_USERS", "false")
         save_env_value("WEIXIN_ALLOWED_USERS", "")
         print_success("  DM pairing enabled.")
-        print_info("  Unknown DM users can request access and you approve them with `jarviscopilot pairing approve`.")
+        print_info("  Unknown DM users can request access and you approve them with `hermes pairing approve`.")
     elif access_idx == 1:
         save_env_value("WEIXIN_DM_POLICY", "open")
         save_env_value("WEIXIN_ALLOW_ALL_USERS", "true")
@@ -4468,7 +4456,7 @@ def _setup_feishu():
         save_env_value("FEISHU_ALLOW_ALL_USERS", "false")
         save_env_value("FEISHU_ALLOWED_USERS", "")
         print_success("  DM pairing enabled.")
-        print_info("  Unknown users can request access; approve with `jarviscopilot pairing approve`.")
+        print_info("  Unknown users can request access; approve with `hermes pairing approve`.")
     elif access_idx == 1:
         save_env_value("FEISHU_ALLOW_ALL_USERS", "true")
         save_env_value("FEISHU_ALLOWED_USERS", "")
@@ -4586,7 +4574,7 @@ def _setup_qqbot():
         else:
             save_env_value("QQ_ALLOWED_USERS", "")
         print_success("  DM pairing enabled.")
-        print_info("  Unknown users can request access; approve with `jarviscopilot pairing approve`.")
+        print_info("  Unknown users can request access; approve with `hermes pairing approve`.")
     elif access_idx == 1:
         save_env_value("QQ_ALLOW_ALL_USERS", "true")
         save_env_value("QQ_ALLOWED_USERS", "")
@@ -4739,7 +4727,9 @@ def _builtin_setup_fn(key: str):
     from jarviscopilot_cli import setup as _s
     return {
         "telegram": _s._setup_telegram,
-        "discord": _s._setup_discord,
+        # discord moved into the plugin: setup_fn is registered by
+        # plugins/platforms/discord/adapter.py::register() and dispatched
+        # via the plugin path in _configure_platform().
         "slack": _s._setup_slack,
         "matrix": _s._setup_matrix,
         "mattermost": _s._setup_mattermost,
@@ -4906,7 +4896,7 @@ def gateway_setup():
                         gateway_windows.restart()
                     else:
                         stop_profile_gateway()
-                        print_info("Start manually: jarviscopilot gateway")
+                        print_info("Start manually: hermes gateway")
                 except UserSystemdUnavailableError as e:
                     print_error("  Restart failed — user systemd not reachable:")
                     for line in str(e).splitlines():
@@ -4947,31 +4937,37 @@ def gateway_setup():
                 else:
                     platform_name = "Scheduled Task"
                 wsl_note = " (note: services may not survive WSL restarts)" if is_wsl() else ""
-                if prompt_yes_no(f"  Install the gateway as a {platform_name} service?{wsl_note} (runs in background, starts on boot)", True):
+                start_now = prompt_yes_no("  Start the gateway now?", True)
+                start_on_login = prompt_yes_no(
+                    f"  Start the gateway automatically on login/boot as a {platform_name} service?{wsl_note}",
+                    True,
+                )
+                if start_now or start_on_login:
                     try:
                         installed_scope = None
                         did_install = False
-                        started_inline = False
                         if supports_systemd_services():
-                            installed_scope, did_install = install_linux_gateway_from_setup(force=False)
+                            installed_scope, did_install = install_linux_gateway_from_setup(
+                                force=False,
+                                enable_on_startup=start_on_login,
+                            )
                         elif is_macos():
                             launchd_install(force=False)
                             did_install = True
                         else:
-                            # gateway_windows.install() registers the Scheduled
-                            # Task AND starts it (schtasks /Run or direct-spawn
-                            # fallback), so no separate start prompt is needed.
                             from jarviscopilot_cli import gateway_windows
                             gateway_windows.install(force=False)
                             did_install = True
-                            started_inline = True
                         print()
-                        if did_install and not started_inline and prompt_yes_no("  Start the service now?", True):
+                        if did_install and start_now:
                             try:
                                 if supports_systemd_services():
                                     systemd_start(system=installed_scope == "system")
-                                else:
+                                elif is_macos():
                                     launchd_start()
+                                elif is_windows():
+                                    from jarviscopilot_cli import gateway_windows
+                                    gateway_windows.start()
                             except UserSystemdUnavailableError as e:
                                 print_error("  Start failed — user systemd not reachable:")
                                 for line in str(e).splitlines():
@@ -4980,28 +4976,29 @@ def gateway_setup():
                                 print_error(f"  Start failed: {e}")
                     except subprocess.CalledProcessError as e:
                         print_error(f"  Install failed: {e}")
-                        print_info("  You can try manually: jarviscopilot gateway install")
+                        print_info("  You can try manually: hermes gateway install")
                 else:
-                    print_info("  You can install later: jarviscopilot gateway install")
+                    print_info("  Skipped start and auto-start setup.")
+                    print_info("  You can install later: hermes gateway install")
                     if supports_systemd_services():
-                        print_info("  Or as a boot-time service: sudo jarviscopilot gateway install --system")
-                    print_info("  Or run in foreground:  jarviscopilot gateway run")
+                        print_info("  Or as a boot-time service: sudo hermes gateway install --system")
+                    print_info("  Or run in foreground:  hermes gateway run")
             elif is_wsl():
                 print_info("  WSL detected but systemd is not running.")
-                print_info("  Run in foreground: jarviscopilot gateway run")
-                print_info("  For persistence:   tmux new -s jarviscopilot 'jarviscopilot gateway run'")
+                print_info("  Run in foreground: hermes gateway run")
+                print_info("  For persistence:   tmux new -s hermes 'hermes gateway run'")
                 print_info("  To enable systemd: add systemd=true to /etc/wsl.conf, then 'wsl --shutdown'")
             elif is_termux():
                 from jarviscopilot_constants import display_hermes_home as _dhh
                 print_info("  Termux does not use systemd/launchd services.")
-                print_info("  Run in foreground: jarviscopilot gateway run")
-                print_info(f"  Or start it manually in the background (best effort): nohup jarviscopilot gateway run >{_dhh()}/logs/gateway.log 2>&1 &")
+                print_info("  Run in foreground: hermes gateway run")
+                print_info(f"  Or start it manually in the background (best effort): nohup hermes gateway run >{_dhh()}/logs/gateway.log 2>&1 &")
             else:
                 print_info("  Service install not supported on this platform.")
-                print_info("  Run in foreground: jarviscopilot gateway run")
+                print_info("  Run in foreground: hermes gateway run")
     else:
         print()
-        print_info("No platforms configured. Run 'jarviscopilot gateway setup' when ready.")
+        print_info("No platforms configured. Run 'hermes gateway setup' when ready.")
 
     print()
 
@@ -5022,7 +5019,7 @@ def gateway_command(args):
             print(f"  {line}")
         sys.exit(1)
     except SystemScopeRequiresRootError as e:
-        # The direct ``jarviscopilot gateway install|uninstall|start|stop|restart``
+        # The direct ``hermes gateway install|uninstall|start|stop|restart``
         # path lands here when the user typed a system-scope action without
         # sudo. Same exit code as before — just gives the wizard a way to
         # intercept the same condition with friendlier guidance before the
@@ -5056,28 +5053,42 @@ def _gateway_command_inner(args):
         run_as_user = getattr(args, 'run_as_user', None)
         if is_termux():
             print("Gateway service installation is not supported on Termux.")
-            print("Run manually: jarviscopilot gateway")
+            print("Run manually: hermes gateway")
             sys.exit(1)
         if supports_systemd_services():
             if is_wsl():
                 print_warning("WSL detected — systemd services may not survive WSL restarts.")
-                print_info("  Consider running in foreground instead: jarviscopilot gateway run")
-                print_info("  Or use tmux/screen for persistence: tmux new -s jarviscopilot 'jarviscopilot gateway run'")
+                print_info("  Consider running in foreground instead: hermes gateway run")
+                print_info("  Or use tmux/screen for persistence: tmux new -s hermes 'hermes gateway run'")
                 print()
-            systemd_install(force=force, system=system, run_as_user=run_as_user)
+            start_now = prompt_yes_no("Start the gateway now after installing the service?", True)
+            start_on_login = prompt_yes_no("Start the gateway automatically on login/boot with systemd?", True)
+            systemd_install(
+                force=force,
+                system=system,
+                run_as_user=run_as_user,
+                enable_on_startup=start_on_login,
+            )
+            if start_now:
+                systemd_start(system=system)
         elif is_macos():
             launchd_install(force)
         elif is_windows():
             from jarviscopilot_cli import gateway_windows
-            gateway_windows.install(force=force)
+            gateway_windows.install(
+                force=force,
+                start_now=getattr(args, 'start_now', None),
+                start_on_login=getattr(args, 'start_on_login', None),
+                elevated_handoff=getattr(args, 'elevated_handoff', False),
+            )
         elif is_wsl():
             print("WSL detected but systemd is not running.")
             print("Either enable systemd (add systemd=true to /etc/wsl.conf and restart WSL)")
             print("or run the gateway in foreground mode:")
             print()
-            print("  jarviscopilot gateway run                              # direct foreground")
-            print("  tmux new -s jarviscopilot 'jarviscopilot gateway run'         # persistent via tmux")
-            print("  nohup jarviscopilot gateway run > ~/.jarviscopilot/logs/gateway.log 2>&1 &  # background")
+            print("  hermes gateway run                              # direct foreground")
+            print("  tmux new -s hermes 'hermes gateway run'         # persistent via tmux")
+            print("  nohup hermes gateway run > ~/.jarviscopilot/logs/gateway.log 2>&1 &  # background")
             sys.exit(1)
         elif is_container():
             print("Service installation is not needed inside a Docker container.")
@@ -5086,11 +5097,11 @@ def _gateway_command_inner(args):
             print("  docker run --restart unless-stopped ...   # auto-restart on crash/reboot")
             print("  docker restart <container>                # manual restart")
             print()
-            print("To run the gateway: jarviscopilot gateway run")
+            print("To run the gateway: hermes gateway run")
             sys.exit(0)
         else:
             print("Service installation not supported on this platform.")
-            print("Run manually: jarviscopilot gateway run")
+            print("Run manually: hermes gateway run")
             sys.exit(1)
     
     elif subcmd == "uninstall":
@@ -5100,7 +5111,7 @@ def _gateway_command_inner(args):
         system = getattr(args, 'system', False)
         if is_termux():
             print("Gateway service uninstall is not supported on Termux because there is no managed service to remove.")
-            print("Stop manual runs with: jarviscopilot gateway stop")
+            print("Stop manual runs with: hermes gateway stop")
             sys.exit(1)
         if supports_systemd_services():
             systemd_uninstall(system=system)
@@ -5133,7 +5144,7 @@ def _gateway_command_inner(args):
 
         if is_termux():
             print("Gateway service start is not supported on Termux because there is no system service manager.")
-            print("Run manually: jarviscopilot gateway")
+            print("Run manually: hermes gateway")
             sys.exit(1)
         if supports_systemd_services():
             systemd_start(system=system)
@@ -5146,9 +5157,9 @@ def _gateway_command_inner(args):
             print("WSL detected but systemd is not available.")
             print("Run the gateway in foreground mode instead:")
             print()
-            print("  jarviscopilot gateway run                              # direct foreground")
-            print("  tmux new -s jarviscopilot 'jarviscopilot gateway run'         # persistent via tmux")
-            print("  nohup jarviscopilot gateway run > ~/.jarviscopilot/logs/gateway.log 2>&1 &  # background")
+            print("  hermes gateway run                              # direct foreground")
+            print("  tmux new -s hermes 'hermes gateway run'         # persistent via tmux")
+            print("  nohup hermes gateway run > ~/.jarviscopilot/logs/gateway.log 2>&1 &  # background")
             print()
             print("To enable systemd: add systemd=true to /etc/wsl.conf and run 'wsl --shutdown' from PowerShell.")
             sys.exit(1)
@@ -5159,7 +5170,7 @@ def _gateway_command_inner(args):
             print("  docker start <container>     # start a stopped container")
             print("  docker restart <container>   # restart a running container")
             print()
-            print("Or run the gateway directly: jarviscopilot gateway run")
+            print("Or run the gateway directly: hermes gateway run")
             sys.exit(0)
         else:
             print("Not supported on this platform.")
@@ -5275,10 +5286,13 @@ def _gateway_command_inner(args):
                 launchd_start()
             elif is_windows():
                 from jarviscopilot_cli import gateway_windows
-                if gateway_windows.is_installed():
-                    gateway_windows.start()
-                else:
-                    run_gateway(verbose=0)
+                # On Windows, even without a registered Scheduled Task / Startup
+                # entry, gateway_windows.start() uses the safe detached
+                # pythonw.exe launcher.  Do not fall back to run_gateway() here:
+                # when invoked from a gateway-hosted agent/tool call, foreground
+                # run_gateway() is tied to the very gateway process we just
+                # stopped and can die before the replacement is stable.
+                gateway_windows.start()
             else:
                 run_gateway(verbose=0)
             return
@@ -5299,13 +5313,19 @@ def _gateway_command_inner(args):
                 pass
         elif is_windows():
             from jarviscopilot_cli import gateway_windows
-            if gateway_windows.is_installed():
-                service_configured = True
-                try:
-                    gateway_windows.restart()
-                    service_available = True
-                except (subprocess.CalledProcessError, RuntimeError):
-                    pass
+            # Prefer the Windows-specific restart path: it supports both
+            # registered Scheduled Task / Startup installs and no-service
+            # detached restarts.  In the normal successful Telegram-triggered
+            # restart flow, this avoids the generic foreground run_gateway()
+            # path that can be reaped with the old gateway process.  If the
+            # Windows backend raises, intentionally preserve the existing
+            # generic failure fallback below.
+            service_configured = gateway_windows.is_installed()
+            try:
+                gateway_windows.restart()
+                return
+            except (subprocess.CalledProcessError, RuntimeError, OSError):
+                pass
         
         if not service_available:
             # systemd/launchd restart failed — check if linger is the issue
@@ -5321,14 +5341,14 @@ def _gateway_command_inner(args):
                     print(f"  Run:  sudo loginctl enable-linger {_username}")
                     print()
                     print("  Then restart the gateway:")
-                    print("    jarviscopilot gateway restart")
+                    print("    hermes gateway restart")
                     return
 
             if service_configured:
                 print()
                 print("✗ Gateway service restart failed.")
                 print("  The service definition exists, but the service manager did not recover it.")
-                print("  Fix the service, then retry: jarviscopilot gateway start")
+                print("  Fix the service, then retry: hermes gateway start")
                 sys.exit(1)
 
             # Manual restart: stop only this profile's gateway
@@ -5384,11 +5404,11 @@ def _gateway_command_inner(args):
                     print("  Use tmux or screen for persistence across terminal closes.")
                 elif is_windows():
                     print("To install as a Windows Scheduled Task (auto-start on login):")
-                    print("  jarviscopilot gateway install")
+                    print("  hermes gateway install")
                 else:
                     print("To install as a service:")
-                    print("  jarviscopilot gateway install")
-                    print("  sudo jarviscopilot gateway install --system")
+                    print("  hermes gateway install")
+                    print("  sudo hermes gateway install --system")
             else:
                 print("✗ Gateway is not running")
                 runtime_lines = _runtime_health_lines()
@@ -5399,17 +5419,17 @@ def _gateway_command_inner(args):
                         print(f"  {line}")
                 print()
                 print("To start:")
-                print("  jarviscopilot gateway run      # Run in foreground")
+                print("  hermes gateway run      # Run in foreground")
                 if is_termux():
-                    print("  nohup jarviscopilot gateway run > ~/.jarviscopilot/logs/gateway.log 2>&1 &  # Best-effort background start")
+                    print("  nohup hermes gateway run > ~/.jarviscopilot/logs/gateway.log 2>&1 &  # Best-effort background start")
                 elif is_wsl():
-                    print("  tmux new -s jarviscopilot 'jarviscopilot gateway run'         # persistent via tmux")
-                    print("  nohup jarviscopilot gateway run > ~/.jarviscopilot/logs/gateway.log 2>&1 &  # background")
+                    print("  tmux new -s hermes 'hermes gateway run'         # persistent via tmux")
+                    print("  nohup hermes gateway run > ~/.jarviscopilot/logs/gateway.log 2>&1 &  # background")
                 elif is_windows():
-                    print("  jarviscopilot gateway install  # Install as Windows Scheduled Task (auto-start on login)")
+                    print("  hermes gateway install  # Install as Windows Scheduled Task (auto-start on login)")
                 else:
-                    print("  jarviscopilot gateway install  # Install as user service")
-                    print("  sudo jarviscopilot gateway install --system  # Install as boot-time system service")
+                    print("  hermes gateway install  # Install as user service")
+                    print("  sudo hermes gateway install --system  # Install as boot-time system service")
 
         # Show other profiles' gateway status for multi-profile awareness
         _print_other_profiles_gateway_status()
@@ -5419,7 +5439,7 @@ def _gateway_command_inner(args):
 
     elif subcmd == "migrate-legacy":
         # Stop, disable, and remove legacy JarvisCopilot gateway unit files from
-        # pre-rename installs (e.g. jarviscopilot.service). Profile units and
+        # pre-rename installs (e.g. hermes.service). Profile units and
         # unrelated third-party services are never touched.
         dry_run = getattr(args, 'dry_run', False)
         yes = getattr(args, 'yes', False)

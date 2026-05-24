@@ -2,12 +2,12 @@
 """
 SWE Runner with JarvisCopilot Trajectory Format
 
-A runner that uses Hermes-Agent's built-in execution environments
-(local, docker, modal) and outputs trajectories in the Hermes-Agent format
+A runner that uses JarvisCopilot-Agent's built-in execution environments
+(local, docker, modal) and outputs trajectories in the JarvisCopilot-Agent format
 compatible with batch_runner.py and trajectory_compressor.py.
 
 Features:
-- Uses Hermes-Agent's Docker, Modal, or Local environments for command execution
+- Uses JarvisCopilot-Agent's Docker, Modal, or Local environments for command execution
 - Outputs trajectories in JarvisCopilot format (from/value pairs with <tool_call>/<tool_response> XML)
 - Compatible with the trajectory compression pipeline
 - Supports batch processing from JSONL prompt files
@@ -38,6 +38,7 @@ from typing import List, Dict, Any, Optional, Literal
 
 import fire
 from dotenv import load_dotenv
+from agent.tool_dispatch_helpers import make_tool_result_message
 
 # Load environment variables
 load_dotenv()
@@ -65,7 +66,7 @@ def _effective_temperature_for_model(
 
 
 # ============================================================================
-# Terminal Tool Definition (matches Hermes-Agent format)
+# Terminal Tool Definition (matches JarvisCopilot-Agent format)
 # ============================================================================
 
 TERMINAL_TOOL_DEFINITION = {
@@ -125,7 +126,7 @@ def create_environment(
     **kwargs
 ):
     """
-    Create an execution environment using Hermes-Agent's built-in backends.
+    Create an execution environment using JarvisCopilot-Agent's built-in backends.
     
     Args:
         env_type: One of "local", "docker", "modal"
@@ -159,8 +160,8 @@ def create_environment(
 
 class MiniSWERunner:
     """
-    Agent runner that uses Hermes-Agent's built-in execution environments
-    and outputs trajectories in Hermes-Agent format.
+    Agent runner that uses JarvisCopilot-Agent's built-in execution environments
+    and outputs trajectories in JarvisCopilot-Agent format.
     """
     
     def __init__(
@@ -536,11 +537,9 @@ Complete the user's task step by step."""
                             completed = True
                         
                         # Add tool response
-                        messages.append({
-                            "role": "tool",
-                            "content": result_json,
-                            "tool_call_id": tc.id
-                        })
+                        messages.append(make_tool_result_message(
+                            tc.function.name, result_json, tc.id,
+                        ))
                         
                         print(f"   ✅ exit_code={result['exit_code']}, output={len(result['output'])} chars")
                     

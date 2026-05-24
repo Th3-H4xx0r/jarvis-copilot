@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from jarviscopilot_constants import get_hermes_home
+from agent.skill_utils import is_excluded_skill_path
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,9 @@ def get_keep() -> int:
 
 def _count_skill_files(base: Path) -> int:
     try:
-        return sum(1 for _ in base.rglob("SKILL.md"))
+        return sum(
+            1 for p in base.rglob("SKILL.md") if not is_excluded_skill_path(p)
+        )
     except OSError:
         return 0
 
@@ -546,7 +549,7 @@ def rollback(backup_id: Optional[str] = None) -> Tuple[bool, str, Optional[Path]
             False,
             f"no matching backup found"
             + (f" for id '{backup_id}'" if backup_id else "")
-            + " (use `jarviscopilot curator rollback --list` to see available snapshots)",
+            + " (use `hermes curator rollback --list` to see available snapshots)",
             None,
         )
     archive = target / "skills.tar.gz"

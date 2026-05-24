@@ -309,8 +309,8 @@ _PROVIDERS_WITHOUT_VISION: frozenset = frozenset({
 # `X-Title` is the canonical attribution header OpenRouter's dashboard
 # reads; the previous `X-OpenRouter-Title` label was not recognized there.
 _OR_HEADERS_BASE = {
-    "HTTP-Referer": "https://jarviscopilot.nousresearch.com",
-    "X-Title": "JarvisCopilot",
+    "HTTP-Referer": "https://hermes-agent.nousresearch.com",
+    "X-Title": "JarvisCopilot Agent",
     "X-OpenRouter-Categories": "productivity,cli-agent",
 }
 
@@ -389,8 +389,8 @@ def build_nvidia_nim_headers(base_url: str | None) -> dict:
 from jarviscopilot_cli import __version__ as _HERMES_VERSION
 
 _AI_GATEWAY_HEADERS = {
-    "HTTP-Referer": "https://jarviscopilot.nousresearch.com",
-    "X-Title": "JarvisCopilot",
+    "HTTP-Referer": "https://hermes-agent.nousresearch.com",
+    "X-Title": "JarvisCopilot Agent",
     "User-Agent": f"HermesAgent/{_HERMES_VERSION}",
 }
 
@@ -460,7 +460,7 @@ def _codex_cloudflare_headers(access_token: str) -> Dict[str, str]:
     crash at client construction.
     """
     headers = {
-        "User-Agent": "codex_cli_rs/0.0.0 (JarvisCopilot)",
+        "User-Agent": "codex_cli_rs/0.0.0 (JarvisCopilot Agent)",
         "originator": "codex_cli_rs",
     }
     if not isinstance(access_token, str) or not access_token.strip():
@@ -1299,7 +1299,7 @@ def _resolve_xai_oauth_for_aux() -> Optional[Tuple[str, str]]:
     Prefer the credential pool, matching the main runtime/provider status
     path.  Some xAI OAuth logins live only as pool entries; falling straight
     to the singleton auth-store resolver would make auxiliary tasks such as
-    compression report "no provider configured" even though ``jarviscopilot auth
+    compression report "no provider configured" even though ``hermes auth
     status`` shows xAI OAuth as logged in.
 
     Falls back to ``jarviscopilot_cli.auth``'s singleton runtime resolver for older
@@ -1307,7 +1307,10 @@ def _resolve_xai_oauth_for_aux() -> Optional[Tuple[str, str]]:
     with xAI Grok OAuth.
     """
     try:
-        from jarviscopilot_cli.auth import DEFAULT_XAI_OAUTH_BASE_URL
+        from jarviscopilot_cli.auth import (
+            DEFAULT_XAI_OAUTH_BASE_URL,
+            _xai_validate_inference_base_url,
+        )
 
         pool = load_pool("xai-oauth")
         if pool and pool.has_credentials():
@@ -1318,13 +1321,13 @@ def _resolve_xai_oauth_for_aux() -> Optional[Tuple[str, str]]:
                     or getattr(entry, "access_token", "")
                     or ""
                 ).strip()
-                base_url = str(
+                base_url = _xai_validate_inference_base_url(
                     os.getenv("HERMES_XAI_BASE_URL", "").strip().rstrip("/")
                     or os.getenv("XAI_BASE_URL", "").strip().rstrip("/")
-                    or getattr(entry, "runtime_base_url", None)
-                    or getattr(entry, "base_url", None)
-                    or DEFAULT_XAI_OAUTH_BASE_URL
-                ).strip().rstrip("/")
+                    or str(getattr(entry, "runtime_base_url", None) or "").strip().rstrip("/")
+                    or str(getattr(entry, "base_url", None) or "").strip().rstrip("/"),
+                    fallback=DEFAULT_XAI_OAUTH_BASE_URL,
+                )
                 if api_key and base_url:
                     return api_key, base_url
     except Exception as exc:
@@ -1553,7 +1556,7 @@ def _try_nous(vision: bool = False) -> Tuple[Optional[OpenAI], Optional[str]]:
     if runtime is None and not nous:
         logger.warning(
             "Auxiliary Nous client unavailable: no Nous authentication found "
-            "(run: jarviscopilot auth)."
+            "(run: hermes auth)."
         )
         _mark_provider_unhealthy("nous", ttl=60)
         return None, None
@@ -1791,7 +1794,7 @@ def _validate_base_url(base_url: str) -> None:
     except ValueError as exc:
         raise RuntimeError(
             f"Malformed custom endpoint URL: {candidate!r}. "
-            "Run `jarviscopilot setup` or `jarviscopilot model` and enter a valid http(s) base URL."
+            "Run `hermes setup` or `hermes model` and enter a valid http(s) base URL."
         ) from exc
 
 
@@ -2141,7 +2144,7 @@ def _get_provider_chain() -> List[tuple]:
 # happened). Entries auto-expire so a topped-up account recovers without
 # manual intervention.
 #
-# Failure isolation: the cache is in-process only. A second jarviscopilot
+# Failure isolation: the cache is in-process only. A second hermes
 # process won't inherit the unhealthy mark — that's intentional, since
 # the user might be running two profiles with different OpenRouter keys.
 
@@ -2227,7 +2230,7 @@ def _log_skip_unhealthy(label: str, task: Optional[str] = None) -> None:
 
 def _reset_aux_unhealthy_cache() -> None:
     """Clear the unhealthy cache. Used by tests and by a future explicit
-    user trigger (e.g. ``jarviscopilot config aux reset``)."""
+    user trigger (e.g. ``hermes config aux reset``)."""
     _aux_unhealthy_until.clear()
     _aux_unhealthy_logged_at.clear()
 
@@ -2898,7 +2901,7 @@ def _resolve_auto(main_runtime: Optional[Dict[str, Any]] = None) -> Tuple[Option
 
     # ── Warn once if OPENAI_BASE_URL is set but config.yaml uses a named
     #    provider (not 'custom').  This catches the common "env poisoning"
-    #    scenario where a user switches providers via `jarviscopilot model` but the
+    #    scenario where a user switches providers via `hermes model` but the
     #    old OPENAI_BASE_URL lingers in ~/.jarviscopilot/.env. ──
     if not _stale_base_url_warned:
         _env_base = os.getenv("OPENAI_BASE_URL", "").strip()
@@ -2909,7 +2912,7 @@ def _resolve_auto(main_runtime: Optional[Dict[str, Any]] = None) -> Tuple[Option
             logger.warning(
                 "OPENAI_BASE_URL is set (%s) but model.provider is '%s'. "
                 "Auxiliary clients may route to the wrong endpoint. "
-                "Run: jarviscopilot model to reconfigure, or remove "
+                "Run: hermes model to reconfigure, or remove "
                 "OPENAI_BASE_URL from ~/.jarviscopilot/.env",
                 _env_base, _cfg_provider,
             )
@@ -3204,7 +3207,7 @@ def resolve_provider_client(
         client, default = _try_nous(vision=_is_vision)
         if client is None:
             logger.warning("resolve_provider_client: nous requested "
-                           "but Nous Portal not configured (run: jarviscopilot auth)")
+                           "but Nous Portal not configured (run: hermes auth)")
             return None, None
         final_model = _normalize_resolved_model(model or default, provider)
         return (_to_async_client(client, final_model, is_vision=is_vision) if async_mode
@@ -3225,7 +3228,7 @@ def resolve_provider_client(
             codex_token = _read_codex_access_token()
             if not codex_token:
                 logger.warning("resolve_provider_client: openai-codex requested "
-                               "but no Codex OAuth token found (run: jarviscopilot model)")
+                               "but no Codex OAuth token found (run: hermes model)")
                 return None, None
             final_model = _normalize_resolved_model(model, provider)
             raw_client = OpenAI(
@@ -3238,7 +3241,7 @@ def resolve_provider_client(
         client, default = _build_codex_client(model)
         if client is None:
             logger.warning("resolve_provider_client: openai-codex requested "
-                           "but no Codex OAuth token found (run: jarviscopilot model)")
+                           "but no Codex OAuth token found (run: hermes model)")
             return None, None
         final_model = _normalize_resolved_model(model or default, provider)
         return (_to_async_client(client, final_model, is_vision=is_vision) if async_mode
@@ -3257,7 +3260,7 @@ def resolve_provider_client(
         if client is None:
             logger.warning(
                 "resolve_provider_client: xai-oauth requested but no xAI "
-                "OAuth token found (run: jarviscopilot model -> xAI Grok OAuth — SuperGrok Subscription)"
+                "OAuth token found (run: hermes model -> xAI Grok OAuth — SuperGrok Subscription)"
             )
             return None, None
         final_model = _normalize_resolved_model(model or default, provider)
@@ -3459,7 +3462,7 @@ def resolve_provider_client(
         if client is None:
             logger.warning(
                 "resolve_provider_client: azure-foundry requested but "
-                "runtime resolution failed (run: jarviscopilot doctor for "
+                "runtime resolution failed (run: hermes doctor for "
                 "diagnostics)"
             )
             return None, None
@@ -4341,7 +4344,17 @@ _DEFAULT_AUX_TIMEOUT = 30.0
 
 
 def _get_auxiliary_task_config(task: str) -> Dict[str, Any]:
-    """Return the config dict for auxiliary.<task>, or {} when unavailable."""
+    """Return the config dict for auxiliary.<task>, or {} when unavailable.
+
+    For plugin-registered auxiliary tasks (see
+    :meth:`jarviscopilot_cli.plugins.PluginContext.register_auxiliary_task`) the
+    plugin's declared *defaults* are layered underneath the user's config
+    so an unconfigured plugin task still works:
+
+        plugin defaults  ←  config.yaml auxiliary.<task>  (user wins)
+
+    Built-in tasks ignore this path (their defaults live in DEFAULT_CONFIG).
+    """
     if not task:
         return {}
     try:
@@ -4351,7 +4364,27 @@ def _get_auxiliary_task_config(task: str) -> Dict[str, Any]:
         return {}
     aux = config.get("auxiliary", {}) if isinstance(config, dict) else {}
     task_config = aux.get(task, {}) if isinstance(aux, dict) else {}
-    return task_config if isinstance(task_config, dict) else {}
+    if not isinstance(task_config, dict):
+        task_config = {}
+
+    # Layer plugin-declared defaults underneath user config so
+    # ctx.register_auxiliary_task(defaults={...}) takes effect without
+    # forcing the user to write config.yaml entries.
+    try:
+        from jarviscopilot_cli.plugins import get_plugin_auxiliary_tasks
+        for _entry in get_plugin_auxiliary_tasks():
+            if _entry.get("key") == task:
+                _defaults = _entry.get("defaults") or {}
+                if isinstance(_defaults, dict):
+                    merged = dict(_defaults)
+                    merged.update(task_config)
+                    return merged
+                break
+    except Exception:
+        # Plugin discovery failure must not break aux task config reads.
+        pass
+
+    return task_config
 
 
 def _get_task_timeout(task: str, default: float = _DEFAULT_AUX_TIMEOUT) -> float:
@@ -4631,7 +4664,7 @@ def call_llm(
         if client is None:
             raise RuntimeError(
                 f"No LLM provider configured for task={task} provider={resolved_provider}. "
-                f"Run: jarviscopilot setup"
+                f"Run: hermes setup"
             )
         resolved_provider = effective_provider or resolved_provider
     else:
@@ -4652,7 +4685,7 @@ def call_llm(
                 raise RuntimeError(
                     f"Provider '{_explicit}' is set in config.yaml but no API key "
                     f"was found. Set the {_explicit.upper()}_API_KEY environment "
-                    f"variable, or switch to a different provider with `jarviscopilot model`."
+                    f"variable, or switch to a different provider with `hermes model`."
                 )
             # For auto/custom with no credentials, try the full auto chain
             # rather than hardcoding OpenRouter (which may be depleted).
@@ -4666,7 +4699,7 @@ def call_llm(
         if client is None:
             raise RuntimeError(
                 f"No LLM provider configured for task={task} provider={resolved_provider}. "
-                f"Run: jarviscopilot setup")
+                f"Run: hermes setup")
 
     effective_timeout = timeout if timeout is not None else _get_task_timeout(task)
 
@@ -5033,7 +5066,7 @@ async def async_call_llm(
         if client is None:
             raise RuntimeError(
                 f"No LLM provider configured for task={task} provider={resolved_provider}. "
-                f"Run: jarviscopilot setup"
+                f"Run: hermes setup"
             )
         resolved_provider = effective_provider or resolved_provider
     else:
@@ -5051,7 +5084,7 @@ async def async_call_llm(
                 raise RuntimeError(
                     f"Provider '{_explicit}' is set in config.yaml but no API key "
                     f"was found. Set the {_explicit.upper()}_API_KEY environment "
-                    f"variable, or switch to a different provider with `jarviscopilot model`."
+                    f"variable, or switch to a different provider with `hermes model`."
                 )
             if not resolved_base_url:
                 logger.info("Auxiliary %s: provider %s unavailable, trying auto-detection chain",
@@ -5060,7 +5093,7 @@ async def async_call_llm(
         if client is None:
             raise RuntimeError(
                 f"No LLM provider configured for task={task} provider={resolved_provider}. "
-                f"Run: jarviscopilot setup")
+                f"Run: hermes setup")
 
     effective_timeout = timeout if timeout is not None else _get_task_timeout(task)
 

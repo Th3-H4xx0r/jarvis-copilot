@@ -6,7 +6,7 @@
 # Uses uv for desktop/server installs and Python's stdlib venv + pip on Termux.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
 #
 # Or with options:
 #   curl -fsSL ... | bash -s -- --no-venv --skip-setup
@@ -43,9 +43,9 @@ NC='\033[0m' # No Color
 BOLD='\033[1m'
 
 # Configuration
-REPO_URL_SSH="git@github.com:NousResearch/jarviscopilot.git"
-REPO_URL_HTTPS="https://github.com/NousResearch/jarviscopilot.git"
-HERMES_HOME="${HERMES_HOME:-$HOME/.jarviscopilot}"
+REPO_URL_SSH="git@github.com:NousResearch/hermes-agent.git"
+REPO_URL_HTTPS="https://github.com/NousResearch/hermes-agent.git"
+HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 # INSTALL_DIR is resolved AFTER arg parsing and OS detection so we can pick an
 # FHS-style layout for root installs.  Track whether the user gave us an
 # explicit directory — if so we never override it.
@@ -60,8 +60,8 @@ PYTHON_VERSION="3.11"
 NODE_VERSION="22"
 
 # FHS-style root install layout (set by resolve_install_layout when applicable):
-#   code at /usr/local/lib/jarviscopilot, command at /usr/local/bin/hermes,
-#   data still at /root/.jarviscopilot (HERMES_HOME).  Matches Claude Code / Codex CLI
+#   code at /usr/local/lib/hermes-agent, command at /usr/local/bin/hermes,
+#   data still at /root/.hermes (HERMES_HOME).  Matches Claude Code / Codex CLI
 #   and keeps Docker bind-mounted /root/ volumes lean.
 ROOT_FHS_LAYOUT=false
 DETECTED_BROWSER_EXECUTABLE=""
@@ -130,24 +130,24 @@ while [[ $# -gt 0 ]]; do
             echo "  --skip-browser Skip Playwright/Chromium install (browser tools won't work)"
             echo "  --branch NAME  Git branch to install (default: main)"
             echo "  --dir PATH     Installation directory"
-            echo "                   default (non-root):  ~/.jarviscopilot/jarviscopilot"
-            echo "                   default (root, Linux): /usr/local/lib/jarviscopilot"
+            echo "                   default (non-root):  ~/.jarviscopilot/hermes-agent"
+            echo "                   default (root, Linux): /usr/local/lib/hermes-agent"
             echo "  --hermes-home PATH  Data directory (default: ~/.jarviscopilot, or \$HERMES_HOME)"
             echo "  -h, --help     Show this help"
             echo ""
             echo "Notes:"
             echo "  When running as root on Linux, JarvisCopilot installs the code under"
-            echo "  /usr/local/lib/jarviscopilot and links the command into"
+            echo "  /usr/local/lib/hermes-agent and links the command into"
             echo "  /usr/local/bin/hermes (FHS layout — matches Claude Code / Codex CLI)."
             echo "  Data, config, sessions, and logs still live in \$HERMES_HOME"
-            echo "  (default /root/.jarviscopilot).  This keeps Docker bind-mounted volumes"
+            echo "  (default /root/.hermes).  This keeps Docker bind-mounted volumes"
             echo "  small and ensures the command is on PATH for all shells."
-            echo "  Existing installs at \$HERMES_HOME/jarviscopilot are preserved in-place."
+            echo "  Existing installs at \$HERMES_HOME/hermes-agent are preserved in-place."
             echo "  --ensure DEPS  Install only specified deps (comma-separated)"
             echo "                   Supported: node, browser, ripgrep, ffmpeg"
             echo "                   Does NOT clone repo or create venv"
             echo "  --postinstall  Run post-install setup only (for pip users)"
-            echo "                   Installs optional deps + runs jarviscopilot setup"
+            echo "                   Installs optional deps + runs hermes setup"
             echo "                   Does NOT clone repo or create venv"
             exit 0
             ;;
@@ -230,18 +230,18 @@ is_termux() {
     [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux/files/usr"* ]]
 }
 
-# Decide where the repo checkout + venv live, and where the `jarviscopilot` command
+# Decide where the repo checkout + venv live, and where the `hermes` command
 # symlink goes.  Called after detect_os so $OS/$DISTRO are known.
 #
 # Defaults:
-#   - Non-root, any OS:       INSTALL_DIR = $HERMES_HOME/jarviscopilot
+#   - Non-root, any OS:       INSTALL_DIR = $HERMES_HOME/hermes-agent
 #                             command link in $HOME/.local/bin
-#   - Termux (any uid):       INSTALL_DIR = $HERMES_HOME/jarviscopilot
+#   - Termux (any uid):       INSTALL_DIR = $HERMES_HOME/hermes-agent
 #                             command link in $PREFIX/bin (already on PATH)
-#   - Root on Linux (new):    INSTALL_DIR = /usr/local/lib/jarviscopilot
+#   - Root on Linux (new):    INSTALL_DIR = /usr/local/lib/hermes-agent
 #                             command link in /usr/local/bin
 #                             (unless a legacy install already exists at
-#                              $HERMES_HOME/jarviscopilot — then preserve it)
+#                              $HERMES_HOME/hermes-agent — then preserve it)
 #
 # Always no-op when the user set --dir or $HERMES_INSTALL_DIR.
 resolve_install_layout() {
@@ -252,7 +252,7 @@ resolve_install_layout() {
 
     # Termux: package manager manages /data/data/..., keep code in HERMES_HOME.
     if is_termux; then
-        INSTALL_DIR="$HERMES_HOME/jarviscopilot"
+        INSTALL_DIR="$HERMES_HOME/hermes-agent"
         return 0
     fi
 
@@ -260,13 +260,13 @@ resolve_install_layout() {
     # macOS root installs keep the legacy layout because /usr/local/ on macOS
     # is Homebrew territory and we don't want to fight that.
     if [ "$OS" = "linux" ] && [ "$(id -u)" -eq 0 ]; then
-        if [ -d "$HERMES_HOME/jarviscopilot/.git" ]; then
-            INSTALL_DIR="$HERMES_HOME/jarviscopilot"
+        if [ -d "$HERMES_HOME/hermes-agent/.git" ]; then
+            INSTALL_DIR="$HERMES_HOME/hermes-agent"
             log_info "Existing install detected at $INSTALL_DIR — keeping legacy layout"
-            log_info "  (new root installs use /usr/local/lib/jarviscopilot)"
+            log_info "  (new root installs use /usr/local/lib/hermes-agent)"
             return 0
         fi
-        INSTALL_DIR="/usr/local/lib/jarviscopilot"
+        INSTALL_DIR="/usr/local/lib/hermes-agent"
         ROOT_FHS_LAYOUT=true
         log_info "Root install on Linux — using FHS layout"
         log_info "  Code:    $INSTALL_DIR"
@@ -276,7 +276,7 @@ resolve_install_layout() {
     fi
 
     # Default: non-root, non-Termux → legacy user-scoped layout.
-    INSTALL_DIR="$HERMES_HOME/jarviscopilot"
+    INSTALL_DIR="$HERMES_HOME/hermes-agent"
 }
 
 get_command_link_dir() {
@@ -305,7 +305,7 @@ get_hermes_command_path() {
     if [ -x "$link_dir/hermes" ]; then
         echo "$link_dir/hermes"
     else
-        echo "jarviscopilot"
+        echo "hermes"
     fi
 }
 
@@ -337,7 +337,7 @@ detect_os() {
             OS="windows"
             DISTRO="windows"
             log_error "Windows detected. Please use the PowerShell installer:"
-            log_info "  irm https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.ps1 | iex"
+            log_info "  iex (irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1)"
             exit 1
             ;;
         *)
@@ -547,7 +547,7 @@ check_node() {
     if [ -x "$HERMES_HOME/node/bin/node" ]; then
         export PATH="$HERMES_HOME/node/bin:$PATH"
         local found_ver=$("$HERMES_HOME/node/bin/node" --version)
-        log_success "Node.js $found_ver found (Hermes-managed)"
+        log_success "Node.js $found_ver found (JarvisCopilot-managed)"
         HAS_NODE=true
         return 0
     fi
@@ -1185,7 +1185,7 @@ try:
     specs = data["project"]["optional-dependencies"]["all"]
     extras = []
     for s in specs:
-        m = re.search(r"jarviscopilot\[([\w-]+)\]", s)
+        m = re.search(r"hermes-agent\[([\w-]+)\]", s)
         if m:
             extras.append(m.group(1))
     print(",".join(extras))
@@ -1258,21 +1258,21 @@ PY
 }
 
 setup_path() {
-    log_info "Setting up jarviscopilot command..."
+    log_info "Setting up hermes command..."
 
     if [ "$USE_VENV" = true ]; then
         HERMES_BIN="$INSTALL_DIR/venv/bin/hermes"
     else
-        HERMES_BIN="$(which jarviscopilot 2>/dev/null || echo "")"
+        HERMES_BIN="$(which hermes 2>/dev/null || echo "")"
         if [ -z "$HERMES_BIN" ]; then
-            log_warn "jarviscopilot not found on PATH after install"
+            log_warn "hermes not found on PATH after install"
             return 0
         fi
     fi
 
     # Verify the entry point script was actually generated
     if [ ! -x "$HERMES_BIN" ]; then
-        log_warn "jarviscopilot entry point not found at $HERMES_BIN"
+        log_warn "hermes entry point not found at $HERMES_BIN"
         log_info "This usually means the pip install didn't complete successfully."
         if [ "$DISTRO" = "termux" ]; then
             log_info "Try: cd $INSTALL_DIR && python -m pip install -e '.[termux-all]' -c constraints-termux.txt"
@@ -1287,7 +1287,7 @@ setup_path() {
     command_link_dir="$(get_command_link_dir)"
     command_link_display_dir="$(get_command_link_display_dir)"
 
-    # Create a user-facing shim for the jarviscopilot command.
+    # Create a user-facing shim for the hermes command.
     # We intentionally clear PYTHONPATH/PYTHONHOME here so inherited env vars
     # can't make this launcher import modules from another checkout.
     mkdir -p "$command_link_dir"
@@ -1302,12 +1302,12 @@ unset PYTHONHOME
 exec "$HERMES_BIN" "\$@"
 EOF
     chmod +x "$command_link_dir/hermes"
-    log_success "Installed jarviscopilot launcher → $command_link_display_dir/hermes"
+    log_success "Installed hermes launcher → $command_link_display_dir/hermes"
 
     if [ "$DISTRO" = "termux" ]; then
         export PATH="$command_link_dir:$PATH"
         log_info "$command_link_display_dir is the native Termux command path"
-        log_success "jarviscopilot command ready"
+        log_success "hermes command ready"
         return 0
     fi
 
@@ -1322,14 +1322,14 @@ EOF
         # Probe a fresh non-login interactive bash the way the user will use it.
         # `bash -i -c` sources ~/.bashrc but NOT ~/.bash_profile or /etc/profile,
         # which is the exact scenario where RHEL root loses /usr/local/bin.
-        if env -i HOME="$HOME" TERM="${TERM:-dumb}" bash -i -c 'command -v jarviscopilot' \
+        if env -i HOME="$HOME" TERM="${TERM:-dumb}" bash -i -c 'command -v hermes' \
                 >/dev/null 2>&1; then
             log_info "/usr/local/bin is already on PATH for all shells"
-            log_success "jarviscopilot command ready"
+            log_success "hermes command ready"
             return 0
         fi
 
-        log_info "jarviscopilot not on PATH in non-login shells (common on RHEL-family)"
+        log_info "hermes not on PATH in non-login shells (common on RHEL-family)"
         PATH_LINE='export PATH="/usr/local/bin:$PATH"'
         PATH_COMMENT='# JarvisCopilot Agent — ensure /usr/local/bin is on PATH (RHEL non-login shells)'
         for SHELL_CONFIG in "$HOME/.bashrc" "$HOME/.bash_profile"; do
@@ -1342,7 +1342,7 @@ EOF
                 log_success "Added /usr/local/bin to PATH in $SHELL_CONFIG"
             fi
         done
-        log_success "jarviscopilot command ready"
+        log_success "hermes command ready"
         return 0
     fi
 
@@ -1412,10 +1412,10 @@ EOF
         log_info "~/.local/bin already on PATH"
     fi
 
-    # Export for current session so jarviscopilot works immediately
+    # Export for current session so hermes works immediately
     export PATH="$command_link_dir:$PATH"
 
-    log_success "jarviscopilot command ready"
+    log_success "hermes command ready"
 }
 
 copy_config_templates() {
@@ -1684,7 +1684,7 @@ install_node_deps() {
         log_info "Installing TUI dependencies..."
         cd "$INSTALL_DIR/ui-tui"
         npm install --silent 2>/dev/null || {
-            log_warn "TUI npm install failed (jarviscopilot --tui may not work)"
+            log_warn "TUI npm install failed (hermes --tui may not work)"
         }
         log_success "TUI dependencies installed"
     fi
@@ -1707,7 +1707,7 @@ run_setup_wizard() {
     # but opening fails with ENXIO, so the wizard would proceed and
     # then crash on `< /dev/tty` below.
     if ! (: </dev/tty) 2>/dev/null; then
-        log_info "Setup wizard skipped (no terminal available). Run 'jarviscopilot setup' after install."
+        log_info "Setup wizard skipped (no terminal available). Run 'hermes setup' after install."
         return 0
     fi
 
@@ -1717,7 +1717,7 @@ run_setup_wizard() {
 
     cd "$INSTALL_DIR"
 
-    # Run jarviscopilot setup using the venv Python directly (no activation needed).
+    # Run hermes setup using the venv Python directly (no activation needed).
     # Redirect stdin from /dev/tty so interactive prompts work when piped from curl.
     if [ "$USE_VENV" = true ]; then
         "$INSTALL_DIR/venv/bin/python" -m jarviscopilot_cli.main setup < /dev/tty
@@ -1757,14 +1757,14 @@ maybe_start_gateway() {
         if [ "$IS_INTERACTIVE" = true ]; then
             echo ""
             log_info "WhatsApp is enabled but not yet paired."
-            log_info "Running 'jarviscopilot whatsapp' to pair via QR code..."
+            log_info "Running 'hermes whatsapp' to pair via QR code..."
             echo ""
             if prompt_yes_no "Pair WhatsApp now?" "yes"; then
                 HERMES_CMD="$(get_hermes_command_path)"
                 $HERMES_CMD whatsapp || true
             fi
         else
-            log_info "WhatsApp pairing skipped (non-interactive). Run 'jarviscopilot whatsapp' to pair."
+            log_info "WhatsApp pairing skipped (non-interactive). Run 'hermes whatsapp' to pair."
         fi
     fi
 
@@ -1772,7 +1772,7 @@ maybe_start_gateway() {
     # in Docker builds where the device node is in the mount namespace
     # but opening fails with ENXIO. See #16746.
     if ! (: </dev/tty) 2>/dev/null; then
-        log_info "Gateway setup skipped (no terminal available). Run 'jarviscopilot gateway install' later."
+        log_info "Gateway setup skipped (no terminal available). Run 'hermes gateway install' later."
         return 0
     fi
 
@@ -1798,10 +1798,10 @@ maybe_start_gateway() {
                 if $HERMES_CMD gateway start 2>/dev/null; then
                     log_success "Gateway started! Your bot is now online."
                 else
-                    log_warn "Service installed but failed to start. Try: jarviscopilot gateway start"
+                    log_warn "Service installed but failed to start. Try: hermes gateway start"
                 fi
             else
-                log_warn "Systemd install failed. You can start manually: jarviscopilot gateway"
+                log_warn "Systemd install failed. You can start manually: hermes gateway"
             fi
         else
             if [ "$DISTRO" = "termux" ]; then
@@ -1813,13 +1813,13 @@ maybe_start_gateway() {
             GATEWAY_PID=$!
             log_success "Gateway started (PID $GATEWAY_PID). Logs: ~/.jarviscopilot/logs/gateway.log"
             log_info "To stop: kill $GATEWAY_PID"
-            log_info "To restart later: jarviscopilot gateway"
+            log_info "To restart later: hermes gateway"
             if [ "$DISTRO" = "termux" ]; then
                 log_warn "Android may stop background processes when Termux is suspended or the system reclaims resources."
             fi
         fi
     else
-        log_info "Skipped. Start the gateway later with: jarviscopilot gateway"
+        log_info "Skipped. Start the gateway later with: hermes gateway"
     fi
 }
 
@@ -1845,24 +1845,24 @@ print_success() {
     echo ""
     echo -e "${CYAN}${BOLD}🚀 Commands:${NC}"
     echo ""
-    echo -e "   ${GREEN}jarviscopilot${NC}              Start chatting"
-    echo -e "   ${GREEN}jarviscopilot setup${NC}        Configure API keys & settings"
-    echo -e "   ${GREEN}jarviscopilot config${NC}       View/edit configuration"
-    echo -e "   ${GREEN}jarviscopilot config edit${NC}  Open config in editor"
-    echo -e "   ${GREEN}jarviscopilot gateway install${NC} Install gateway service (messaging + cron)"
-    echo -e "   ${GREEN}jarviscopilot update${NC}       Update to latest version"
+    echo -e "   ${GREEN}hermes${NC}              Start chatting"
+    echo -e "   ${GREEN}hermes setup${NC}        Configure API keys & settings"
+    echo -e "   ${GREEN}hermes config${NC}       View/edit configuration"
+    echo -e "   ${GREEN}hermes config edit${NC}  Open config in editor"
+    echo -e "   ${GREEN}hermes gateway install${NC} Install gateway service (messaging + cron)"
+    echo -e "   ${GREEN}hermes update${NC}       Update to latest version"
     echo ""
 
     echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
     echo ""
     if [ "$DISTRO" = "termux" ]; then
-        echo -e "${YELLOW}⚡ 'jarviscopilot' was linked into $(get_command_link_display_dir), which is already on PATH in Termux.${NC}"
+        echo -e "${YELLOW}⚡ 'hermes' was linked into $(get_command_link_display_dir), which is already on PATH in Termux.${NC}"
         echo ""
     elif [ "$ROOT_FHS_LAYOUT" = true ]; then
-        echo -e "${YELLOW}⚡ 'jarviscopilot' was linked into /usr/local/bin and is ready to use — no shell reload needed.${NC}"
+        echo -e "${YELLOW}⚡ 'hermes' was linked into /usr/local/bin and is ready to use — no shell reload needed.${NC}"
         echo ""
     else
-        echo -e "${YELLOW}⚡ Reload your shell to use 'jarviscopilot' command:${NC}"
+        echo -e "${YELLOW}⚡ Reload your shell to use 'hermes' command:${NC}"
         echo ""
         LOGIN_SHELL="$(basename "${SHELL:-/bin/bash}")"
         if [ "$LOGIN_SHELL" = "zsh" ]; then
@@ -2022,12 +2022,12 @@ postinstall_mode() {
         ensure_browser
     fi
 
-    HERMES_CMD="$(command -v jarviscopilot 2>/dev/null || echo "")"
+    HERMES_CMD="$(command -v hermes 2>/dev/null || echo "")"
     if [ -n "$HERMES_CMD" ]; then
-        log_info "Running jarviscopilot setup..."
+        log_info "Running hermes setup..."
         "$HERMES_CMD" setup
     else
-        log_warn "jarviscopilot command not found on PATH"
+        log_warn "hermes command not found on PATH"
         log_info "Try: python -m jarviscopilot_cli.main setup"
     fi
 }

@@ -5,7 +5,7 @@
 # Uses uv for fast Python provisioning and package management.
 #
 # Usage:
-#   irm https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.ps1 | iex
+#   iex (irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1)
 #
 # Or download and run with options:
 #   .\install.ps1 -NoVenv -SkipSetup
@@ -16,8 +16,15 @@ param(
     [switch]$NoVenv,
     [switch]$SkipSetup,
     [string]$Branch = "main",
-    [string]$HermesHome = "$env:LOCALAPPDATA\jarviscopilot",
-    [string]$InstallDir = "$env:LOCALAPPDATA\jarviscopilot\jarviscopilot",
+    # -Commit and -Tag are higher-precedence variants of -Branch for users
+    # who need reproducible installs (desktop installer pinning, CI, release
+    # bundles).  When set, the repository stage clones $Branch (faster than
+    # cloning the full default-branch history) and then `git checkout`s the
+    # exact ref.  Precedence: Commit > Tag > Branch.
+    [string]$Commit = "",
+    [string]$Tag = "",
+    [string]$HermesHome = "$env:LOCALAPPDATA\hermes",
+    [string]$InstallDir = "$env:LOCALAPPDATA\hermes\hermes-agent",
 
     # --- Stage protocol (additive; default invocation behaves as before) ----
     # See the "Stage protocol" section near the bottom of the file for the
@@ -68,8 +75,8 @@ try {
 # Configuration
 # ============================================================================
 
-$RepoUrlSsh = "git@github.com:NousResearch/jarviscopilot.git"
-$RepoUrlHttps = "https://github.com/NousResearch/jarviscopilot.git"
+$RepoUrlSsh = "git@github.com:NousResearch/hermes-agent.git"
+$RepoUrlHttps = "https://github.com/NousResearch/hermes-agent.git"
 $PythonVersion = "3.11"
 $NodeVersion = "22"
 
@@ -481,7 +488,7 @@ function Install-Git {
       1. Existing ``git`` on PATH -- use it as-is (the common fast path).
       2. Download **PortableGit** from the official git-for-windows GitHub
          release (self-extracting 7z.exe) and unpack it to
-         ``%LOCALAPPDATA%\jarviscopilot\git`` -- never touches system Git, never
+         ``%LOCALAPPDATA%\hermes\git`` -- never touches system Git, never
          requires admin, works even on locked-down machines and machines
          with a broken system Git install.
 
@@ -495,7 +502,7 @@ function Install-Git {
     We deliberately skip winget because it fails badly when the system Git
     install is in a half-installed state (partially registered, or uninstall-
     blocked).  Owning the JarvisCopilot copy of Git ourselves is predictable and
-    recoverable: if it ever breaks, ``Remove-Item %LOCALAPPDATA%\jarviscopilot\git``
+    recoverable: if it ever breaks, ``Remove-Item %LOCALAPPDATA%\hermes\git``
     and re-running this installer fully recovers.
 
     After install we locate ``bash.exe`` and persist the path in
@@ -531,33 +538,35 @@ function Install-Git {
             "32-bit-mingit"
         }
 
-        $releaseApi = "https://api.github.com/repos/git-for-windows/git/releases/latest"
-        $release = Invoke-RestMethod -Uri $releaseApi -UseBasicParsing -Headers @{ "User-Agent" = "hermes-installer" }
+        # Pinned git-for-windows release. We deliberately do NOT hit
+        # api.github.com/repos/.../releases/latest here: that endpoint
+        # is rate-limited to 60 requests/hour/IP for unauthenticated
+        # callers, and users behind CGNAT / corporate NAT / dorm WiFi
+        # routinely hit the limit, breaking the installer.
+        # Static github.com/.../releases/download/<tag>/<asset> URLs
+        # are not subject to the API rate limit.
+        $gitTag    = "v2.54.0.windows.1"
+        $gitVer    = "2.54.0"
+        $gitVerTag = "$gitVer.windows.1"
 
         if ($arch -eq "32-bit-mingit") {
             Write-Warn "32-bit Windows detected -- PortableGit is 64-bit only.  Installing MinGit 32-bit as a last resort; bash-dependent JarvisCopilot features (terminal tool, agent-browser) will not work on this machine."
-            $assetPattern = "MinGit-*-32-bit.zip"
+            $assetName    = "MinGit-$gitVer-32-bit.zip"
             $downloadIsZip = $true
         } elseif ($arch -eq "arm64") {
-            $assetPattern = "PortableGit-*-arm64.7z.exe"
+            $assetName    = "PortableGit-$gitVer-arm64.7z.exe"
             $downloadIsZip = $false
         } else {
-            $assetPattern = "PortableGit-*-64-bit.7z.exe"
+            $assetName    = "PortableGit-$gitVer-64-bit.7z.exe"
             $downloadIsZip = $false
         }
 
-        $asset = $release.assets | Where-Object { $_.name -like $assetPattern } | Select-Object -First 1
-
-        if (-not $asset) {
-            throw "Could not find $assetPattern in latest git-for-windows release"
-        }
-
-        $downloadUrl = $asset.browser_download_url
+        $downloadUrl = "https://github.com/git-for-windows/git/releases/download/$gitTag/$assetName"
         $downloadExt = if ($downloadIsZip) { "zip" } else { "7z.exe" }
-        $tmpFile = "$env:TEMP\$($asset.name)"
+        $tmpFile = "$env:TEMP\$assetName"
         $gitDir = "$HermesHome\git"
 
-        Write-Info "Downloading $($asset.name) ($([math]::Round($asset.size / 1MB, 1)) MB)..."
+        Write-Info "Downloading $assetName (Git for Windows $gitVerTag)..."
         Invoke-WebRequest -Uri $downloadUrl -OutFile $tmpFile -UseBasicParsing
 
         if (Test-Path $gitDir) {
@@ -694,7 +703,7 @@ function Test-Node {
     if (Test-Path $managedNode) {
         $version = & $managedNode --version
         $env:Path = "$HermesHome\node;$env:Path"
-        Write-Success "Node.js $version found (Hermes-managed)"
+        Write-Success "Node.js $version found (JarvisCopilot-managed)"
         $script:HasNode = $true
         return $true
     }
@@ -955,14 +964,36 @@ function Install-Repository {
         if ($repoValid) {
             Write-Info "Existing installation found, updating..."
             Push-Location $InstallDir
+            # Wrap the entire fetch+checkout block in EAP=Continue so git's
+            # routine stderr output (e.g. 'From <url>' info lines emitted by
+            # `git fetch`) doesn't terminate the script under the global
+            # EAP=Stop.  We rely on $LASTEXITCODE for actual failures.
+            $prevEAP = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
             try {
                 git -c windows.appendAtomically=false fetch origin
                 if ($LASTEXITCODE -ne 0) { throw "git fetch failed (exit $LASTEXITCODE)" }
-                git -c windows.appendAtomically=false checkout $Branch
-                if ($LASTEXITCODE -ne 0) { throw "git checkout $Branch failed (exit $LASTEXITCODE)" }
-                git -c windows.appendAtomically=false pull origin $Branch
-                if ($LASTEXITCODE -ne 0) { throw "git pull failed (exit $LASTEXITCODE)" }
+                # Precedence: Commit > Tag > Branch.  Commit and Tag check
+                # out as detached HEAD intentionally -- they're meant to be
+                # reproducible pins, not branches the user pulls into.
+                if ($Commit) {
+                    # Make sure we have the commit locally (a tag-less commit
+                    # SHA isn't always reachable from any one branch fetch).
+                    git -c windows.appendAtomically=false fetch origin $Commit
+                    git -c windows.appendAtomically=false checkout --detach $Commit
+                    if ($LASTEXITCODE -ne 0) { throw "git checkout $Commit failed (exit $LASTEXITCODE)" }
+                } elseif ($Tag) {
+                    git -c windows.appendAtomically=false fetch origin "refs/tags/${Tag}:refs/tags/${Tag}"
+                    git -c windows.appendAtomically=false checkout --detach "refs/tags/$Tag"
+                    if ($LASTEXITCODE -ne 0) { throw "git checkout tag $Tag failed (exit $LASTEXITCODE)" }
+                } else {
+                    git -c windows.appendAtomically=false checkout $Branch
+                    if ($LASTEXITCODE -ne 0) { throw "git checkout $Branch failed (exit $LASTEXITCODE)" }
+                    git -c windows.appendAtomically=false pull origin $Branch
+                    if ($LASTEXITCODE -ne 0) { throw "git pull failed (exit $LASTEXITCODE)" }
+                }
             } finally {
+                $ErrorActionPreference = $prevEAP
                 Pop-Location
             }
             $didUpdate = $true
@@ -978,7 +1009,7 @@ function Install-Repository {
             } catch {
                 Write-Err "Could not remove $InstallDir : $_"
                 Write-Info "Close any programs that might be using files in $InstallDir (editors,"
-                Write-Info "terminals, running jarviscopilot processes) and try again."
+                Write-Info "terminals, running hermes processes) and try again."
                 throw
             }
         }
@@ -1020,9 +1051,21 @@ function Install-Repository {
             if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue }
             Write-Warn "Git clone failed -- downloading ZIP archive instead..."
             try {
-                $zipUrl = "https://github.com/NousResearch/jarviscopilot/archive/refs/heads/$Branch.zip"
-                $zipPath = "$env:TEMP\jarviscopilot-$Branch.zip"
-                $extractPath = "$env:TEMP\jarviscopilot-extract"
+                # Pick the ZIP URL for the most-specific ref the caller asked
+                # for.  GitHub supports archive URLs for commits, tags, and
+                # branches; we honour Commit > Tag > Branch.
+                if ($Commit) {
+                    $zipUrl = "https://github.com/NousResearch/hermes-agent/archive/$Commit.zip"
+                    $zipLabel = $Commit
+                } elseif ($Tag) {
+                    $zipUrl = "https://github.com/NousResearch/hermes-agent/archive/refs/tags/$Tag.zip"
+                    $zipLabel = $Tag
+                } else {
+                    $zipUrl = "https://github.com/NousResearch/hermes-agent/archive/refs/heads/$Branch.zip"
+                    $zipLabel = $Branch
+                }
+                $zipPath = "$env:TEMP\hermes-agent-$zipLabel.zip"
+                $extractPath = "$env:TEMP\hermes-agent-extract"
 
                 Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
                 if (Test-Path $extractPath) { Remove-Item -Recurse -Force $extractPath }
@@ -1062,6 +1105,37 @@ function Install-Repository {
     # Set per-repo config (harmless if it fails)
     Push-Location $InstallDir
     git -c windows.appendAtomically=false config windows.appendAtomically false 2>$null
+
+    # Post-clone pin: when a clone (or ZIP-fallback init) just landed us on
+    # $Branch's tip, honour the higher-precedence $Commit / $Tag by checking
+    # the exact ref out as a detached HEAD.  Skipped for the in-place update
+    # path (above) since that already routed via the same precedence.
+    if (-not $didUpdate) {
+        # Same EAP=Continue wrap as the update path -- git fetch's 'From <url>'
+        # info line goes to stderr and would terminate the script under the
+        # global EAP=Stop otherwise.  We check $LASTEXITCODE for real errors.
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            if ($Commit) {
+                Write-Info "Pinning to commit $Commit..."
+                git -c windows.appendAtomically=false fetch origin $Commit
+                git -c windows.appendAtomically=false checkout --detach $Commit
+                if ($LASTEXITCODE -ne 0) {
+                    throw "git checkout $Commit failed (exit $LASTEXITCODE)"
+                }
+            } elseif ($Tag) {
+                Write-Info "Pinning to tag $Tag..."
+                git -c windows.appendAtomically=false fetch origin "refs/tags/${Tag}:refs/tags/${Tag}"
+                git -c windows.appendAtomically=false checkout --detach "refs/tags/$Tag"
+                if ($LASTEXITCODE -ne 0) {
+                    throw "git checkout tag $Tag failed (exit $LASTEXITCODE)"
+                }
+            }
+        } finally {
+            $ErrorActionPreference = $prevEAP
+        }
+    }
 
     # Ensure submodules are initialized and updated
     Write-Info "Initializing submodules..."
@@ -1132,7 +1206,7 @@ function Install-Dependencies {
         # UV_PROJECT_ENVIRONMENT pins the sync target to our venv\.
         # Without it, modern uv (>=0.5) ignores VIRTUAL_ENV for `sync`
         # and creates a sibling .venv\ inside the repo -- leaving venv\
-        # empty and producing the broken state where `jarviscopilot.exe` exists
+        # empty and producing the broken state where `hermes.exe` exists
         # in the wrong directory and imports fail with ModuleNotFoundError.
         # (Mirrors the same flag in scripts/install.sh::install_deps.)
         $env:UV_PROJECT_ENVIRONMENT = "$InstallDir\venv"
@@ -1184,7 +1258,7 @@ try:
     specs = data['project']['optional-dependencies']['all']
     out = []
     for s in specs:
-        m = re.search(r'jarviscopilot\[([\w-]+)\]', s)
+        m = re.search(r'hermes-agent\[([\w-]+)\]', s)
         if m: out.append(m.group(1))
     print(','.join(out))
 except Exception:
@@ -1222,16 +1296,16 @@ except Exception:
         }
     }
     if (-not $installed) {
-        throw "Failed to install jarviscopilot package even with no extras. Inspect the uv pip install output above."
+        throw "Failed to install hermes-agent package even with no extras. Inspect the uv pip install output above."
     }
 
     # Baseline-import gate. Even if a tier reported success above, the
     # actual deps may have landed somewhere other than $InstallDir\venv\
     # (e.g. uv 0.5+ syncing into a sibling .venv\ when UV_PROJECT_ENVIRONMENT
-    # isn't set, leaving venv\ empty and jarviscopilot.exe broken with
+    # isn't set, leaving venv\ empty and hermes.exe broken with
     # `ModuleNotFoundError: No module named 'dotenv'` on first run).
     # We probe via the venv's own python so a misdirected sync is caught
-    # here, not 30 seconds later when the user runs `jarviscopilot`.
+    # here, not 30 seconds later when the user runs `hermes`.
     if (-not $NoVenv) {
         $venvPython = "$InstallDir\venv\Scripts\python.exe"
         if (-not (Test-Path $venvPython)) {
@@ -1261,7 +1335,7 @@ except Exception:
     }
 
     # Verify the dashboard deps specifically -- they're the most common thing
-    # users hit and lazy-import errors from `jarviscopilot dashboard` are confusing.
+    # users hit and lazy-import errors from `hermes dashboard` are confusing.
     # If tier 1 failed (the common case), [web] was still picked up by tiers
     # 2-3; only tier 4 leaves you without it.
     $pythonExe = if (-not $NoVenv) { "$InstallDir\venv\Scripts\python.exe" } else { (& $UvCmd python find $PythonVersion) }
@@ -1280,11 +1354,11 @@ except Exception:
         } catch { }
         $ErrorActionPreference = $prevEAP
         if (-not $webOk) {
-            Write-Warn "fastapi/uvicorn not importable -- `jarviscopilot dashboard` will not work."
+            Write-Warn "fastapi/uvicorn not importable -- `hermes dashboard` will not work."
             Write-Info "Attempting targeted install of [web] extra as last resort..."
             & $UvCmd pip install -e ".[web]"
             if ($LASTEXITCODE -eq 0) {
-                Write-Success "[web] extra installed; `jarviscopilot dashboard` should now work."
+                Write-Success "[web] extra installed; `hermes dashboard` should now work."
             } else {
                 Write-Warn "Could not install [web] extra. Run manually: uv pip install --python `"$pythonExe`" `"fastapi>=0.104,<1`" `"uvicorn[standard]>=0.24,<1`""
             }
@@ -1297,7 +1371,7 @@ except Exception:
 }
 
 function Set-PathVariable {
-    Write-Info "Setting up jarviscopilot command..."
+    Write-Info "Setting up hermes command..."
     
     if ($NoVenv) {
         $hermesBin = "$InstallDir"
@@ -1305,8 +1379,8 @@ function Set-PathVariable {
         $hermesBin = "$InstallDir\venv\Scripts"
     }
     
-    # Add the venv Scripts dir to user PATH so jarviscopilot is globally available
-    # On Windows, the jarviscopilot.exe in venv\Scripts\ has the venv Python baked in
+    # Add the venv Scripts dir to user PATH so hermes is globally available
+    # On Windows, the hermes.exe in venv\Scripts\ has the venv Python baked in
     $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
     
     if ($currentPath -notlike "*$hermesBin*") {
@@ -1321,7 +1395,7 @@ function Set-PathVariable {
     }
     
     # Set HERMES_HOME so the Python code finds config/data in the right place.
-    # Only needed on Windows where we install to %LOCALAPPDATA%\jarviscopilot instead
+    # Only needed on Windows where we install to %LOCALAPPDATA%\hermes instead
     # of the Unix default ~/.jarviscopilot
     $currentHermesHome = [Environment]::GetEnvironmentVariable("HERMES_HOME", "User")
     if (-not $currentHermesHome -or $currentHermesHome -ne $HermesHome) {
@@ -1333,7 +1407,7 @@ function Set-PathVariable {
     # Update current session
     $env:Path = "$hermesBin;$env:Path"
     
-    Write-Success "jarviscopilot command ready"
+    Write-Success "hermes command ready"
 }
 
 function Copy-ConfigTemplates {
@@ -1452,7 +1526,7 @@ function Install-NodeDeps {
     $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
     if (-not $npmCmd) {
         Write-Warn "npm not found on PATH -- skipping Node.js dependencies."
-        Write-Info "Open a new PowerShell window and re-run 'jarviscopilot setup tools' later."
+        Write-Info "Open a new PowerShell window and re-run 'hermes setup tools' later."
         return
     }
     $npmExe = $npmCmd.Source
@@ -1768,7 +1842,7 @@ function Invoke-SetupWizard {
         # The setup wizard prompts for API keys, model choice, persona, etc.
         # Non-interactive callers (GUI installer) own that UX themselves; let
         # them drive it after install.ps1 returns.
-        Write-Info "Skipping setup wizard (non-interactive). Configure via the GUI or 'jarviscopilot setup'."
+        Write-Info "Skipping setup wizard (non-interactive). Configure via the GUI or 'hermes setup'."
         return
     }
 
@@ -1778,7 +1852,7 @@ function Invoke-SetupWizard {
 
     Push-Location $InstallDir
 
-    # Run jarviscopilot setup using the venv Python directly (no activation needed)
+    # Run hermes setup using the venv Python directly (no activation needed)
     if (-not $NoVenv) {
         & ".\venv\Scripts\python.exe" -m jarviscopilot_cli.main setup
     } else {
@@ -1801,9 +1875,9 @@ function Start-GatewayIfConfigured {
 
     if (-not $hasMessaging) { return }
 
-    $hermesCmd = "$InstallDir\venv\Scripts\jarviscopilot.exe"
+    $hermesCmd = "$InstallDir\venv\Scripts\hermes.exe"
     if (-not (Test-Path $hermesCmd)) {
-        $hermesCmd = "jarviscopilot"
+        $hermesCmd = "hermes"
     }
 
     # If WhatsApp is enabled but not yet paired, run foreground for QR scan
@@ -1812,7 +1886,7 @@ function Start-GatewayIfConfigured {
     if ($whatsappEnabled -and -not (Test-Path $whatsappSession)) {
         Write-Host ""
         Write-Info "WhatsApp is enabled but not yet paired."
-        Write-Info "Running 'jarviscopilot whatsapp' to pair via QR code..."
+        Write-Info "Running 'hermes whatsapp' to pair via QR code..."
         Write-Host ""
         # Non-interactive callers (GUI installer, CI) skip the QR-pair prompt;
         # WhatsApp pairing requires a human looking at a phone camera, so the
@@ -1841,7 +1915,7 @@ function Start-GatewayIfConfigured {
     # services on the build agent, etc.).  Treat it like the user declined.
     if ($NonInteractive) {
         Write-Info "Skipping gateway autostart prompt (non-interactive)."
-        Write-Info "Start the gateway later with: jarviscopilot gateway"
+        Write-Info "Start the gateway later with: hermes gateway"
         return
     }
 
@@ -1859,10 +1933,10 @@ function Start-GatewayIfConfigured {
             Write-Info "Logs: $logFile"
             Write-Info "To stop: close the gateway process from Task Manager"
         } catch {
-            Write-Warn "Failed to start gateway. Run manually: jarviscopilot gateway"
+            Write-Warn "Failed to start gateway. Run manually: hermes gateway"
         }
     } else {
-        Write-Info "Skipped. Start the gateway later with: jarviscopilot gateway"
+        Write-Info "Skipped. Start the gateway later with: hermes gateway"
     }
 }
 
@@ -1883,24 +1957,24 @@ function Write-Completion {
     Write-Host "   Data:      " -NoNewline -ForegroundColor Yellow
     Write-Host "$HermesHome\cron\, sessions\, logs\"
     Write-Host "   Code:      " -NoNewline -ForegroundColor Yellow
-    Write-Host "$HermesHome\jarviscopilot\"
+    Write-Host "$HermesHome\hermes-agent\"
     Write-Host ""
     
     Write-Host "---------------------------------------------------------" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "* Commands:" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "   jarviscopilot              " -NoNewline -ForegroundColor Green
+    Write-Host "   hermes              " -NoNewline -ForegroundColor Green
     Write-Host "Start chatting"
-    Write-Host "   jarviscopilot setup        " -NoNewline -ForegroundColor Green
+    Write-Host "   hermes setup        " -NoNewline -ForegroundColor Green
     Write-Host "Configure API keys & settings"
-    Write-Host "   jarviscopilot config       " -NoNewline -ForegroundColor Green
+    Write-Host "   hermes config       " -NoNewline -ForegroundColor Green
     Write-Host "View/edit configuration"
-    Write-Host "   jarviscopilot config edit  " -NoNewline -ForegroundColor Green
+    Write-Host "   hermes config edit  " -NoNewline -ForegroundColor Green
     Write-Host "Open config in editor"
-    Write-Host "   jarviscopilot gateway      " -NoNewline -ForegroundColor Green
+    Write-Host "   hermes gateway      " -NoNewline -ForegroundColor Green
     Write-Host "Start messaging gateway (Telegram, Discord, etc.)"
-    Write-Host "   jarviscopilot update       " -NoNewline -ForegroundColor Green
+    Write-Host "   hermes update       " -NoNewline -ForegroundColor Green
     Write-Host "Update to latest version"
     Write-Host ""
     
@@ -2290,7 +2364,7 @@ try {
     Write-Err "Installation failed: $_"
     Write-Host ""
     Write-Info "If the error is unclear, try downloading and running the script directly:"
-    Write-Host "  Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/NousResearch/jarviscopilot/main/scripts/install.ps1' -OutFile install.ps1" -ForegroundColor Yellow
+    Write-Host "  Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1' -OutFile install.ps1" -ForegroundColor Yellow
     Write-Host "  .\install.ps1" -ForegroundColor Yellow
     Write-Host ""
 }
