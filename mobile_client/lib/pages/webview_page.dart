@@ -41,6 +41,12 @@ class _WebViewPageState extends State<WebViewPage> {
   InAppWebViewController? _wv;
   bool _loading = true;
   double _progress = 0;
+  // Cache the seed future so FutureBuilder doesn't see a new Future on
+  // every rebuild — without this, every setState (onLoadStart,
+  // onProgressChanged, onLoadStop) creates a fresh _seedCookie() Future,
+  // sends FutureBuilder back to waiting, and unmounts/remounts the
+  // InAppWebView in a tight loop before any page can finish loading.
+  late final Future<void> _seedFuture = _seedCookie();
 
   Uri get _uri => Uri.parse('${Credentials.instance.serverUrl}${widget.path}');
 
@@ -97,7 +103,7 @@ class _WebViewPageState extends State<WebViewPage> {
             if (_loading) LinearProgressIndicator(value: _progress),
             Expanded(
               child: FutureBuilder<void>(
-                future: _seedCookie(),
+                future: _seedFuture,
                 builder: (_, snap) {
                   if (snap.connectionState != ConnectionState.done) {
                     return const Center(child: CircularProgressIndicator());
@@ -140,6 +146,19 @@ class _WebViewPageState extends State<WebViewPage> {
                     },
                     onProgressChanged: (_, p) =>
                         setState(() => _progress = p / 100),
+                    onPermissionRequest: (controller, request) async {
+                      // WKWebView denies media (mic/camera) requests by
+                      // default; the webui's voice UI then surfaces
+                      // "Microphone access denied or unavailable." even
+                      // though iOS already granted the app-level
+                      // permission. The page only loads if the server's
+                      // cert pinning passed in onReceivedServerTrustAuth-
+                      // Request above, so we trust the origin here.
+                      return PermissionResponse(
+                        resources: request.resources,
+                        action: PermissionResponseAction.GRANT,
+                      );
+                    },
                     onReceivedServerTrustAuthRequest: (controller, challenge) async {
                       final expected =
                           Credentials.instance.certFingerprint?.toLowerCase();

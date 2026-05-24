@@ -97,6 +97,32 @@ After capture, pass the printed `path` to your vision/image-reading tool (e.g. `
 
 **When the user asks "what's on my screen" / "can you see my Mac":** find their Mac in `list`, run `screenshot <device>`, then open the saved path with your vision tool. That's the whole flow — three calls, ~1 second.
 
+## Controlling an iPhone / iPad (iOS)
+
+iOS sandboxes apps hard: there is **no** way to tap/type/swipe in arbitrary apps the way Android accessibility allows. The supported, powerful control surface on iOS is **Shortcuts**, exposed through the `run_shortcut` device skill.
+
+- `run_shortcut` runs a Shortcut **by exact name** and returns its text output:
+  ```bash
+  python3 "$SCRIPT" invoke "Pranav's iPhone" run_shortcut \
+    --json-args '{"name":"Set Low Power Mode","input":"on"}'
+  # → {"ran": true, "result": "..."}   (or {"ran": false, "error": "..."})
+  ```
+- A Shortcut can toggle settings (Low Power Mode, Wi-Fi, Focus, brightness, volume), control **HomeKit** scenes/devices, play/pause media, read battery/location/clipboard, send messages, open apps/URLs, run **SSH/HTTP** requests, and much more. So "control the phone" almost always means "find or build the right Shortcut, then `run_shortcut` it."
+- `shortcuts_list` returns `[]` on iOS (Apple exposes no enumeration API). Ask the user which Shortcuts they have, or rely on the **JarvisCopilot Runner** dispatcher Shortcut (below).
+
+### Creating Shortcuts ("set up its own tasks")
+
+An iOS app **cannot install a Shortcut programmatically** — Apple blocks it. Two real ways to give the iPhone a new capability:
+
+1. **Author on the paired Mac → iCloud sync.** If the user also has a paired Mac with iCloud Shortcuts sync on, create/edit the Shortcut there (the Shortcuts app / `shortcuts` CLI live on macOS). It syncs to the iPhone within seconds, then `run_shortcut` can call it. This is the preferred "create a new task" path.
+2. **JarvisCopilot Runner (dispatcher).** Ask the user to install the one-time **"JarvisCopilot Runner"** Shortcut (see the mobile app's iOS control setup doc). It takes a JSON command as input and performs it (HTTP callback to the server, SSH to the Mac, set clipboard, show notification, control Home, etc.), so you can drive many tasks through a single installed Shortcut without authoring a new one each time:
+   ```bash
+   python3 "$SCRIPT" invoke "Pranav's iPhone" run_shortcut \
+     --json-args '{"name":"JarvisCopilot Runner","input":"{\"action\":\"set_brightness\",\"value\":0.4}"}'
+   ```
+
+If a Shortcut needs to exist but doesn't, tell the user exactly what to create (or create it on their Mac) rather than guessing names — `run_shortcut` fails cleanly with `{"ran": false}` when the name doesn't match.
+
 ## How pairing works under the hood
 
 The helper script does **not** make HTTP calls to the webui. It writes the pending code straight to `~/.jarviscopilot/webui/.pending_pair.json` (0600), then polls the same file for `claimed=true`. The webui reads from the same file when a browser POSTs `/api/auth/pair/claim`. This avoids needing any kind of host-secret to bootstrap auth.

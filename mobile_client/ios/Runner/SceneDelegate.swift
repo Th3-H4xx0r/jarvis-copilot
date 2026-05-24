@@ -29,10 +29,12 @@ class SceneDelegate: FlutterSceneDelegate {
 
     private func wireBridges(scene: UIScene, pendingURLs: [URL]) {
         guard let windowScene = scene as? UIWindowScene,
-              let controller = windowScene.windows.first?.rootViewController as? FlutterViewController else {
+              let window = windowScene.windows.first,
+              let controller = window.rootViewController as? FlutterViewController else {
             return
         }
-        ShortcutsBridge.register(with: controller)
+        // Shortcuts channel is owned by AppDelegate (it also routes the
+        // x-callback-url results back to Dart), wired in attachFlutterController.
         HealthKitBridge.register(with: controller)
         TorchBridge.register(with: controller)
         AppOpenBridge.register(with: controller)

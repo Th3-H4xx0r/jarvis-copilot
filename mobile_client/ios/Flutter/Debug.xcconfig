@@ -1,1 +1,9 @@
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
 #include "Generated.xcconfig"
+
+// firebase_messaging.framework's umbrella imports <Firebase/Firebase.h>.
+// The `Firebase` CocoaPod is header-only, so even with use_modular_headers!
+// it doesn't get a framework module — making the import "non-modular".
+// Clang errors on that when Runner does `@import firebase_messaging`
+// (via GeneratedPluginRegistrant). Relax the check on Runner.
+CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES = YES

@@ -7,11 +7,41 @@ import UserNotifications
 
     private var pendingDeepLink: URL?
     private var pairChannel: FlutterMethodChannel?
+    // Shortcuts x-callback-url result routing. Running a Shortcut opens
+    // `shortcuts://x-callback-url/run-shortcut?...&x-success=jarviscopilot://shortcut-result?rid=…`
+    // and iOS re-opens our app with the shortcut's output. We forward
+    // that back to Dart, which matches it to the awaiting run_shortcut
+    // call by `rid`.
+    private var shortcutsChannel: FlutterMethodChannel?
+    private var pendingShortcutCallbacks: [URL] = []
 
     override func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        // UIScene migration: pre-create the FlutterViewController + window
+        // here, before plugin registration. Two things depend on this:
+        //
+        //   1. FlutterSceneDelegate.scene(_:willConnectTo:) detects an
+        //      AppDelegate-owned rootViewController and moves it into the
+        //      scene's window (engine's moveRootViewControllerFrom:to:).
+        //      The scene's visible root therefore IS this controller —
+        //      not a placeholder — so Flutter actually renders.
+        //   2. FlutterAppDelegate.registrarForPlugin: routes to
+        //      rootViewController.pluginRegistry when that controller is
+        //      a FlutterViewController, otherwise to the launchEngine.
+        //      Registering plugins now connects them to this controller's
+        //      engine — which is the one the scene then displays — so
+        //      platform-channel calls from Dart reach the right engine.
+        //
+        // This also satisfies plugins that capture
+        // UIApplication.shared.delegate!.window!!.rootViewController!
+        // synchronously inside register (e.g. flutter_contacts) — they
+        // capture the real visible controller, not a placeholder.
+        let window = UIWindow()
+        window.rootViewController = FlutterViewController()
+        self.window = window
+
         GeneratedPluginRegistrant.register(with: self)
 
         // Push registration — APNs token comes back via
@@ -61,23 +91,57 @@ import UserNotifications
                 result(FlutterMethodNotImplemented)
             }
         }
+        // Shortcuts channel: Dart→native `list` (iOS can't enumerate user
+        // shortcuts, so []), and native→Dart `shortcutResult`/`shortcutError`
+        // delivered when a Shortcut's x-callback URL re-opens the app.
+        let sc = FlutterMethodChannel(
+            name: "jarviscopilot/shortcuts",
+            binaryMessenger: controller.binaryMessenger
+        )
+        shortcutsChannel = sc
+        sc.setMethodCallHandler { call, result in
+            switch call.method {
+            case "list":
+                result([])
+            default:
+                result(FlutterMethodNotImplemented)
+            }
+        }
+        // Replay any shortcut callbacks that arrived before the channel
+        // existed (cold launch back into the app).
+        let queued = pendingShortcutCallbacks
+        pendingShortcutCallbacks.removeAll()
+        for url in queued { forwardShortcutCallback(url) }
+
         if let pending = pendingDeepLink {
             pendingDeepLink = nil
             DispatchQueue.main.async { [weak self] in
-                self?.forwardPairDeepLink(pending)
+                self?.handleIncomingURL(pending)
             }
         }
     }
 
     // ── Deep-link handling ───────────────────────────────────────
     //
-    // jarviscopilot://pair?server=https%3A%2F%2F1.2.3.4%3A8787&code=ABC-DEF
+    //   jarviscopilot://pair?server=…&code=…            → pairing
+    //   jarviscopilot://shortcut-result?rid=…&result=…  → Shortcut output
+    //   jarviscopilot://shortcut-error?rid=…&errorMessage=…
     //
     // Called from SceneDelegate.scene(_:openURLContexts:) for live
     // delivery and from scene(_:willConnectTo:) for cold-launch URLs.
+    // (Name kept for the SceneDelegate call site.)
     func handlePairDeepLink(_ url: URL) {
+        handleIncomingURL(url)
+    }
+
+    func handleIncomingURL(_ url: URL) {
         guard url.scheme == "jarviscopilot" else { return }
-        forwardPairDeepLink(url)
+        switch url.host {
+        case "shortcut-result", "shortcut-error":
+            forwardShortcutCallback(url)
+        default:
+            forwardPairDeepLink(url)
+        }
     }
 
     // Pre-scene fallback retained for non-scene runtimes.
@@ -87,7 +151,7 @@ import UserNotifications
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
         if url.scheme == "jarviscopilot" {
-            forwardPairDeepLink(url)
+            handleIncomingURL(url)
             return true
         }
         return super.application(app, open: url, options: options)
@@ -102,6 +166,31 @@ import UserNotifications
         }
         pendingDeepLink = url
         ch.invokeMethod("openPair", arguments: ["url": url.absoluteString])
+    }
+
+    private func forwardShortcutCallback(_ url: URL) {
+        guard let ch = shortcutsChannel else {
+            pendingShortcutCallbacks.append(url)
+            return
+        }
+        let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let items = comps?.queryItems ?? []
+        func val(_ name: String) -> String {
+            items.first(where: { $0.name == name })?.value ?? ""
+        }
+        // rid is the last path component: jarviscopilot://shortcut-result/<rid>
+        let rid = url.lastPathComponent
+        if url.host == "shortcut-error" {
+            ch.invokeMethod("shortcutError", arguments: [
+                "rid": rid,
+                "error": val("errorMessage"),
+            ])
+        } else {
+            ch.invokeMethod("shortcutResult", arguments: [
+                "rid": rid,
+                "result": val("result"),
+            ])
+        }
     }
 
     // ── Silent push wakeup ───────────────────────────────────────
