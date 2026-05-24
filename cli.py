@@ -5903,6 +5903,24 @@ class HermesCLI:
         if self.agent and self.conversation_history:
             # Trigger memory extraction on the old session before session_id rotates.
             self.agent.commit_memory_session(self.conversation_history)
+            # Outcome-driven retrospective: self-grade the just-ended task and
+            # distill generalizable lessons into MEMORY.md. Best-effort, runs in
+            # a daemon thread on a snapshot so it never blocks /new. Requires a
+            # real task (>= 2 user turns) and the memory store to be live.
+            try:
+                _user_turns = sum(
+                    1 for m in self.conversation_history
+                    if isinstance(m, dict) and m.get("role") == "user"
+                )
+                if (_user_turns >= 2
+                        and getattr(self.agent, "_memory_store", None)
+                        and "memory" in getattr(self.agent, "valid_tool_names", set())):
+                    self.agent._spawn_background_review(
+                        messages_snapshot=list(self.conversation_history),
+                        review_outcome=True,
+                    )
+            except Exception:
+                pass
             self._notify_session_boundary("on_session_finalize")
         elif self.agent:
             # First session or empty history — still finalize the old session

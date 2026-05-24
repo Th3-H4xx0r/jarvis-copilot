@@ -214,6 +214,30 @@ _COMBINED_REVIEW_PROMPT = (
     "and stop — but don't reach for that conclusion as a default."
 )
 
+_RETROSPECTIVE_REVIEW_PROMPT = (
+    "The conversation above is a COMPLETED task/session. Do an honest, concise "
+    "retrospective so the NEXT task goes better.\n\n"
+    "Step 1 — Grade the outcome as exactly one of: SUCCESS (the user's goal was "
+    "met), PARTIAL (progress but incomplete or with caveats), or FAILURE (goal "
+    "not met). Judge by what actually happened: did the user get what they asked "
+    "for, did they repeatedly correct you, did the task stall?\n\n"
+    "Step 2 — Distill 0 to 3 GENERALIZABLE lessons that would transfer to a "
+    "different future task. Each lesson MUST be of the form 'When <situation>, do "
+    "<action>, because <reason>.' Reject anything tied to today's specific data, "
+    "files, or one-off request.\n\n"
+    "Step 3 — Save each lesson by calling the memory tool exactly: "
+    "memory(action=\"add\", target=\"memory\", content=\"<lesson>\"). Keep each "
+    "lesson to 1-2 sentences. Memory is char-limited — consolidate with or refine "
+    "an existing entry rather than duplicating it.\n\n"
+    "Do NOT save: one-off task narratives; environment-specific failures (missing "
+    "binaries, unconfigured credentials — the user fixes those); negative claims "
+    "about tools ('X is broken'); or transient errors that resolved on retry "
+    "(there the lesson is the retry pattern, not the failure).\n\n"
+    "If the session produced no transferable lesson, reply 'Nothing to save.' and "
+    "stop. A PARTIAL or FAILURE outcome almost always yields at least one lesson; "
+    "don't reach for 'Nothing to save.' as a default there."
+)
+
 
 
 def summarize_background_review_actions(
@@ -310,6 +334,8 @@ def _run_review_in_thread(
     agent: Any,
     messages_snapshot: List[Dict],
     prompt: str,
+    origin: str = "background_review",
+    state_override: Optional[Dict] = None,
 ) -> None:
     """Worker function executed in the background-review daemon thread.
 
@@ -391,9 +417,24 @@ def _run_review_in_thread(
                 parent_session_id=agent.session_id,
                 skip_memory=True,
             )
-            review_agent._memory_write_origin = "background_review"
-            review_agent._memory_write_context = "background_review"
-            review_agent._memory_store = agent._memory_store
+            review_agent._memory_write_origin = origin
+            review_agent._memory_write_context = origin
+            # The retrospective fires at the session boundary, where the caller
+            # (new_session) concurrently reloads/rotates the parent's store via
+            # an unlocked load_from_disk on the same object. Sharing it would
+            # race that against the fork's mutating add(). Give the retrospective
+            # fork its OWN store over the same files instead: add() reloads under
+            # a file lock + atomic os.replace, so concurrent writers stay safe.
+            if state_override and state_override.get("own_store"):
+                from tools.memory_tool import MemoryStore as _MemoryStore
+                _own = _MemoryStore(
+                    memory_char_limit=getattr(agent._memory_store, "memory_char_limit", 2200),
+                    user_char_limit=getattr(agent._memory_store, "user_char_limit", 1375),
+                )
+                _own.load_from_disk()
+                review_agent._memory_store = _own
+            else:
+                review_agent._memory_store = agent._memory_store
             review_agent._memory_enabled = agent._memory_enabled
             review_agent._user_profile_enabled = agent._user_profile_enabled
             review_agent._memory_nudge_interval = 0
@@ -416,16 +457,24 @@ def _run_review_in_thread(
             # issue #25322 and PR #17276 for the full analysis +
             # measured impact (~26% end-to-end cost reduction on
             # Sonnet 4.5).
-            review_agent._cached_system_prompt = agent._cached_system_prompt
-            # Defensive: pin session_start + session_id to the
-            # parent's so any code path that re-renders parts of
-            # the system prompt (compression, plugin hooks) still
-            # produces byte-identical output. The cached-prompt
-            # assignment above already short-circuits the normal
-            # rebuild path, but these pins guarantee parity even
-            # if a future code path bypasses the cache.
-            review_agent.session_start = agent.session_start
-            review_agent.session_id = agent.session_id
+            # When a snapshot was captured before the caller rotated session
+            # state (retrospective at the session boundary), use it; otherwise
+            # read the parent's live state (per-turn review, where it's stable).
+            review_agent._cached_system_prompt = (
+                state_override.get("cached_system_prompt") if state_override
+                else agent._cached_system_prompt
+            )
+            # Defensive: pin session_start + session_id so any code path that
+            # re-renders parts of the system prompt (compression, plugin hooks)
+            # still produces byte-identical output. The cached-prompt assignment
+            # above already short-circuits the normal rebuild path, but these
+            # pins guarantee parity even if a future code path bypasses the cache.
+            if state_override:
+                review_agent.session_start = state_override.get("session_start")
+                review_agent.session_id = state_override.get("session_id")
+            else:
+                review_agent.session_start = agent.session_start
+                review_agent.session_id = agent.session_id
 
             from model_tools import get_tool_definitions
             from jarviscopilot_cli.plugins import (
@@ -433,10 +482,19 @@ def _run_review_in_thread(
                 clear_thread_tool_whitelist,
             )
 
+            # The retrospective only writes lessons via the memory tool, so
+            # scope its whitelist to the memory toolset. This also keeps the
+            # "retrospective" write-origin out of skill creation (which
+            # is_background_review() doesn't recognize), so it can't author an
+            # unmanaged skill.
+            _review_toolsets = (
+                ["memory"] if (state_override and state_override.get("memory_only"))
+                else ["memory", "skills"]
+            )
             review_whitelist = {
                 t["function"]["name"]
                 for t in get_tool_definitions(
-                    enabled_toolsets=["memory", "skills"],
+                    enabled_toolsets=_review_toolsets,
                     quiet_mode=True,
                 )
             }
@@ -491,6 +549,12 @@ def _run_review_in_thread(
             agent._safe_print(
                 f"  💾 Self-improvement review: {summary}"
             )
+            try:
+                from agent import self_improvement_log as _sil
+                _sil.log_change(origin, summary)
+                _sil.commit_home_change(f"{origin}: {summary}")
+            except Exception:
+                pass
             _bg_cb = agent.background_review_callback
             if _bg_cb:
                 try:
@@ -502,6 +566,11 @@ def _run_review_in_thread(
 
     except Exception as e:
         logger.warning("Background memory/skill review failed: %s", e)
+        try:
+            from agent import self_improvement_log as _sil
+            _sil.log_failure(origin, e)
+        except Exception:
+            pass
         agent._emit_auxiliary_failure("background review", e)
     finally:
         # Safety-net cleanup for the exception path.  Normal
@@ -537,25 +606,53 @@ def spawn_background_review_thread(
     messages_snapshot: List[Dict],
     review_memory: bool = False,
     review_skills: bool = False,
+    review_outcome: bool = False,
 ):
     """Build the review thread target and prompt for a background review.
 
     Returns a ``(target, prompt)`` tuple.  The caller (``AIAgent._spawn_background_review``)
     owns the actual ``threading.Thread`` construction so test-level patches
     of ``run_agent.threading.Thread`` keep working.
+
+    ``review_outcome`` selects the once-per-task retrospective (self-graded
+    outcome + generalizable lessons written to MEMORY.md); it takes precedence
+    over the per-turn memory/skill nudge prompts.
     """
     # Pick the right prompt based on which triggers fired.  Allow per-agent
     # override (the prompts moved to module-level constants but old code paths
     # that set agent._MEMORY_REVIEW_PROMPT etc. directly keep working).
-    if review_memory and review_skills:
+    state_override: Optional[Dict] = None
+    if review_outcome:
+        prompt = getattr(agent, "_RETROSPECTIVE_REVIEW_PROMPT", _RETROSPECTIVE_REVIEW_PROMPT)
+        origin = "retrospective"
+        # Snapshot the parent's session scalars NOW (synchronously, before the
+        # caller — new_session — rotates session_id/session_start and clears the
+        # cached system prompt). The fork reads these lazily in its thread, so
+        # without a snapshot it would capture the rotated-out state and miss the
+        # prefix cache. own_store + memory_only make the fork self-contained so
+        # it can't race the parent's store reload either.
+        state_override = {
+            "session_id": getattr(agent, "session_id", None),
+            "session_start": getattr(agent, "session_start", None),
+            "cached_system_prompt": getattr(agent, "_cached_system_prompt", None),
+            "own_store": True,
+            "memory_only": True,
+        }
+    elif review_memory and review_skills:
         prompt = getattr(agent, "_COMBINED_REVIEW_PROMPT", _COMBINED_REVIEW_PROMPT)
+        origin = "background_review"
     elif review_memory:
         prompt = getattr(agent, "_MEMORY_REVIEW_PROMPT", _MEMORY_REVIEW_PROMPT)
+        origin = "background_review"
     else:
         prompt = getattr(agent, "_SKILL_REVIEW_PROMPT", _SKILL_REVIEW_PROMPT)
+        origin = "background_review"
 
     def _target() -> None:
-        _run_review_in_thread(agent, messages_snapshot, prompt)
+        _run_review_in_thread(
+            agent, messages_snapshot, prompt,
+            origin=origin, state_override=state_override,
+        )
 
     return _target, prompt
 
@@ -564,6 +661,7 @@ __all__ = [
     "_MEMORY_REVIEW_PROMPT",
     "_SKILL_REVIEW_PROMPT",
     "_COMBINED_REVIEW_PROMPT",
+    "_RETROSPECTIVE_REVIEW_PROMPT",
     "spawn_background_review_thread",
     "summarize_background_review_actions",
     "build_memory_write_metadata",
