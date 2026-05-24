@@ -33,6 +33,7 @@ Bridge mode (the only mode shipped today — no Moshi/Mini-Omni-2 sidecar):
 import base64
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -405,6 +406,20 @@ class _VoiceAgentError(Exception):
 # slow (browser launches, web searches, etc.), so this is generous.
 _VOICE_TURN_TIMEOUT_SECONDS = 180.0
 
+# Prepended to every voice transcript before it enters the (shared) chat
+# pipeline. The chat session's system prompt is tuned for a rich text/markdown
+# UI; for a spoken reply that's the wrong shape (long, markdown-laden, narrates
+# its plan step by step). This per-turn directive tells the agent the reply
+# will be read aloud so it answers tersely in plain speech. Only voice turns go
+# through _run_agent_turn_via_chat, so this never affects the text chat tab.
+_VOICE_REPLY_DIRECTIVE = (
+    "[Voice mode — your reply is read aloud by text-to-speech. Answer in at most "
+    "one or two short, natural spoken sentences. Plain speech only: no markdown, "
+    "asterisks, bullet points, headers, code blocks, or raw URLs. Do not narrate "
+    "your plan or your steps — just do the task and give the brief answer or "
+    "confirmation.]\n\n"
+)
+
 
 def _run_agent_turn_via_chat(session_id: str, user_text: str):
     """GENERATOR. Push `user_text` into the user's active chat session and
@@ -451,7 +466,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str):
     try:
         response = _start_chat_stream_for_session(
             s,
-            msg=user_text,
+            msg=_VOICE_REPLY_DIRECTIVE + user_text,
             workspace=getattr(s, "workspace", None) or "",
             model=getattr(s, "model", None) or "",
             model_provider=getattr(s, "model_provider", None),
@@ -649,7 +664,50 @@ def _hermes_config() -> dict:
         return {}
 
 
+# Markdown / symbol patterns that TTS otherwise reads aloud literally
+# ("asterisk asterisk", "pound", "backtick"). Voice-only: callers send the
+# original (markdown) text to the client for display before synthesizing,
+# so stripping here changes only what is *spoken*, never the chat or the
+# on-screen transcript.
+_SPK_FENCE = re.compile(r"```[\s\S]*?```")
+_SPK_IMG = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+_SPK_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+_SPK_INLINE_CODE = re.compile(r"`([^`]+)`")
+_SPK_HEADER = re.compile(r"^\s{0,3}#{1,6}\s*", re.MULTILINE)
+_SPK_QUOTE = re.compile(r"^\s{0,3}>\s?", re.MULTILINE)
+_SPK_BULLET = re.compile(r"^\s{0,3}[-*+]\s+", re.MULTILINE)
+_SPK_EMPHASIS = re.compile(r"\*\*|\*|__|_|~~|`")
+_SPK_MULTI_NL = re.compile(r"\n{3,}")
+
+
+def _speakable(text: str) -> str:
+    """Strip markdown/symbols so TTS speaks clean prose.
+
+    Removes code fences, link/image syntax (keeping the visible text),
+    headers, blockquote/list markers, and emphasis characters (``**``,
+    ``*``, ``_``, ``~~``, ``` ` ```). Conservative — leaves ordinary
+    punctuation intact.
+    """
+    if not text:
+        return text
+    s = _SPK_FENCE.sub(" ", text)
+    s = _SPK_IMG.sub(r"\1", s)
+    s = _SPK_LINK.sub(r"\1", s)
+    s = _SPK_INLINE_CODE.sub(r"\1", s)
+    s = _SPK_HEADER.sub("", s)
+    s = _SPK_QUOTE.sub("", s)
+    s = _SPK_BULLET.sub("", s)
+    s = _SPK_EMPHASIS.sub("", s)
+    s = s.replace("•", " ").replace("→", " to ")
+    s = _SPK_MULTI_NL.sub("\n\n", s)
+    return s.strip()
+
+
 def _tts_to_base64(text: str) -> str:
+    if not text:
+        return ""
+    # Speak clean prose, not raw markdown ("asterisk asterisk").
+    text = _speakable(text)
     if not text:
         return ""
     # Fish Audio is a cloud REST API, not a JarvisCopilot built-in. Special-case
