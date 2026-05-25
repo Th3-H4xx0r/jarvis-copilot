@@ -18,6 +18,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _allowShell = false;
   bool _paused = false;
   bool _trackLocation = false;
+  Map<String, dynamic> _locDiag = const {};
 
   @override
   void initState() {
@@ -25,6 +26,23 @@ class _SettingsPageState extends State<SettingsPage> {
     _allowShell = Credentials.instance.allowShell;
     _paused = app.runner.paused.value;
     _trackLocation = Credentials.instance.trackLocation;
+    _loadLocDiag();
+  }
+
+  Future<void> _loadLocDiag() async {
+    final d = await app.location.diag();
+    if (mounted) setState(() => _locDiag = d);
+  }
+
+  static String _ago(Object? ts) {
+    final secs = (ts is num) ? ts.toDouble() : 0.0;
+    if (secs <= 0) return 'never';
+    final dt = DateTime.fromMillisecondsSinceEpoch((secs * 1000).round());
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 60) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 
   Future<void> _toggleTrackLocation(bool v) async {
@@ -45,6 +63,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     setState(() => _trackLocation = v);
     await Credentials.instance.saveTrackLocation(v);
+    await _loadLocDiag();
   }
 
   Future<void> _unpair() async {
@@ -121,6 +140,23 @@ class _SettingsPageState extends State<SettingsPage> {
             value: _trackLocation,
             onChanged: _toggleTrackLocation,
           ),
+          if (_trackLocation)
+            ListTile(
+              dense: true,
+              title: const Text('Background location status',
+                  style: TextStyle(fontSize: 13)),
+              subtitle: Text(
+                'Last movement event: ${_ago(_locDiag['lastSlc'])}\n'
+                'Last background push: ${_ago(_locDiag['lastPush'])}'
+                '${(_locDiag['lastPushStatus'] ?? '').toString().isEmpty ? '' : ' — ${_locDiag['lastPushStatus']}'}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              isThreeLine: true,
+              trailing: IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: _loadLocDiag,
+              ),
+            ),
           SwitchListTile(
             title: const Text('Pause skill execution'),
             subtitle: const Text('Server invokes return "paused" until off.'),

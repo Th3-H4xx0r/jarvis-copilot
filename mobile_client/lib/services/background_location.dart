@@ -75,6 +75,17 @@ class BackgroundLocation {
     return true;
   }
 
+  /// Native background-location diagnostics for the Settings screen:
+  /// {tracking, lastSlc (epoch s), lastPush (epoch s), lastPushStatus}.
+  Future<Map<String, dynamic>> diag() async {
+    try {
+      final r = await _native.invokeMethod('getDiag');
+      return r is Map ? Map<String, dynamic>.from(r) : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
   Future<void> _setNativeTracking(bool on) async {
     try {
       if (on) {

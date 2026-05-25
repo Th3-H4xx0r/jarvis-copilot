@@ -155,6 +155,14 @@ import AppIntents
                     self.stopSlc()
                 }
                 result(true)
+            } else if call.method == "getDiag" {
+                let d = UserDefaults.standard
+                result([
+                    "tracking": d.bool(forKey: "jc_track_location"),
+                    "lastSlc": d.double(forKey: "jc_last_slc_ts"),
+                    "lastPush": d.double(forKey: "jc_last_push_ts"),
+                    "lastPushStatus": d.string(forKey: "jc_last_push_status") ?? "",
+                ])
             } else {
                 result(FlutterMethodNotImplemented)
             }
@@ -280,6 +288,11 @@ import AppIntents
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
+        // Diagnostic: record that an SLC event arrived (visible in Settings).
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "jc_last_slc_ts")
+        NSLog("[jc-loc] SLC update %f,%f state=%ld",
+              loc.coordinate.latitude, loc.coordinate.longitude,
+              UIApplication.shared.applicationState.rawValue)
         // Foreground fixes are reported by the Dart geolocator stream; only
         // push from here when we're backgrounded (incl. a force-quit
         // relaunch) to avoid duplicate rows.
@@ -290,6 +303,11 @@ import AppIntents
                 accuracy: loc.horizontalAccuracy
             )
         }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        UserDefaults.standard.set("loc err: \(error.localizedDescription)", forKey: "jc_last_push_status")
+        NSLog("[jc-loc] location error: %@", error.localizedDescription)
     }
 
     private func _pushLocationNatively(lat: Double, lng: Double, accuracy: Double) {
@@ -319,7 +337,17 @@ import AppIntents
         }
         let poster = PinnedPoster(pinHex: pin)
         let session = URLSession(configuration: .ephemeral, delegate: poster, delegateQueue: nil)
-        let task = session.dataTask(with: req) { _, _, _ in
+        let task = session.dataTask(with: req) { _, resp, err in
+            let d = UserDefaults.standard
+            d.set(Date().timeIntervalSince1970, forKey: "jc_last_push_ts")
+            if let http = resp as? HTTPURLResponse {
+                d.set("HTTP \(http.statusCode)", forKey: "jc_last_push_status")
+            } else if let err = err {
+                d.set("err: \(err.localizedDescription)", forKey: "jc_last_push_status")
+            } else {
+                d.set("sent", forKey: "jc_last_push_status")
+            }
+            NSLog("[jc-loc] push result: %@", d.string(forKey: "jc_last_push_status") ?? "?")
             session.finishTasksAndInvalidate()
             if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask); bgTask = .invalid }
         }
