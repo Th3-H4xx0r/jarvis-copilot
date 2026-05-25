@@ -25,13 +25,53 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    app.voiceLaunchRequested.addListener(_onVoiceLaunch);
+    _c.addListener(_manageWake);
+    // Cold launch via Siri may have latched the request before we mounted.
+    if (app.voiceLaunchRequested.value) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _onVoiceLaunch());
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    app.voiceLaunchRequested.removeListener(_onVoiceLaunch);
+    _c.removeListener(_manageWake);
     _c.dispose();
     super.dispose();
+  }
+
+  // Keep the app-wide wake word in sync with turns: the mic can't be
+  // shared, so release it while a turn runs and resume when idle.
+  void _manageWake() {
+    if (_c.active) {
+      app.wake.suppress();
+    } else {
+      app.wake.resume();
+    }
+  }
+
+  Future<void> _toggleWake() async {
+    if (app.wake.enabled.value) {
+      await app.wake.setEnabled(false);
+      return;
+    }
+    final ok = await app.wake.setEnabled(true);
+    if (!ok) await _showMicDialog();
+  }
+
+  // Siri intent / wake word latched a request: go realtime and start.
+  void _onVoiceLaunch() {
+    if (!mounted || !app.voiceLaunchRequested.value) return;
+    app.voiceLaunchRequested.value = false; // consume
+    app.wake.suppress(); // release the wake mic before recording
+    if (_c.mode != VoiceMode.realtime) _c.setMode(VoiceMode.realtime);
+    if (!_c.active) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_c.active) _onPrimary();
+      });
+    }
   }
 
   @override
@@ -106,7 +146,24 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: JcTheme.bg,
-      appBar: AppBar(title: const Text('Voice')),
+      appBar: AppBar(
+        title: const Text('Voice'),
+        actions: [
+          ValueListenableBuilder<bool>(
+            valueListenable: app.wake.enabled,
+            builder: (_, on, __) => IconButton(
+              tooltip: on
+                  ? 'Wake word on ("Hey Jarvis") — foreground only'
+                  : 'Enable "Hey Jarvis" wake word',
+              icon: Icon(
+                on ? Icons.hearing : Icons.hearing_disabled,
+                color: on ? JcTheme.accent : JcTheme.muted,
+              ),
+              onPressed: _toggleWake,
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: ListenableBuilder(
           listenable: _c,

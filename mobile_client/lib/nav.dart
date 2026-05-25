@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'main.dart' as app;
 import 'pages/chat_page.dart';
 import 'pages/devices_page.dart';
 import 'pages/more_page.dart';
@@ -35,9 +36,27 @@ class _NavShellState extends State<NavShell> {
   @override
   void initState() {
     super.initState();
+    // Cold launch via the Siri intent: the request may already be latched
+    // before we mounted, so honour it as the initial tab.
+    if (app.voiceLaunchRequested.value) _index = 1;
+    app.voiceLaunchRequested.addListener(_onVoiceLaunch);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybePromptAccessibility();
     });
+  }
+
+  @override
+  void dispose() {
+    app.voiceLaunchRequested.removeListener(_onVoiceLaunch);
+    super.dispose();
+  }
+
+  // Siri / wake word asked to open Voice — jump to that tab (VoicePage
+  // listens to the same latch and starts the turn).
+  void _onVoiceLaunch() {
+    if (mounted && app.voiceLaunchRequested.value && _index != 1) {
+      setState(() => _index = 1);
+    }
   }
 
   Future<void> _maybePromptAccessibility() async {

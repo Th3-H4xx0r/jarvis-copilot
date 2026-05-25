@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -150,7 +151,7 @@ class VoiceController extends ChangeNotifier {
     await _audio.stop();
     _pcm.clear();
     try {
-      final stream = await _recorder.startStream(_micConfig());
+      final stream = await _startMicStream();
       _micSub = stream.listen((chunk) {
         _pcm.addAll(chunk);
         amplitude.value = _peak(chunk);
@@ -261,7 +262,7 @@ class VoiceController extends ChangeNotifier {
       );
       _sendJson({'type': 'begin_turn', 'sample_rate': _micRate, 'session_id': sid});
 
-      final stream = await _recorder.startStream(_micConfig());
+      final stream = await _startMicStream();
       _micSub = stream.listen(_onRealtimeFrame);
       _set(VoiceState.listening);
     } catch (e) {
@@ -463,6 +464,31 @@ class VoiceController extends ChangeNotifier {
   }
 
   // ── Shared helpers ────────────────────────────────────────────
+  /// Start the mic stream, retrying the iOS audio-session activation a few
+  /// times. When the wake-word recognizer (or a just-ended turn) hasn't
+  /// fully released the AVAudioSession yet, the first `setActive` throws
+  /// "Session activation failed"; a short wait + retry clears it.
+  Future<Stream<Uint8List>> _startMicStream() async {
+    for (var attempt = 0;; attempt++) {
+      try {
+        return await _recorder.startStream(_micConfig());
+      } on PlatformException catch (e) {
+        final msg = '${e.message} ${e.details}';
+        final transient = msg.contains('Session activation') ||
+            msg.contains('setActive') ||
+            msg.contains('activation failed');
+        if (transient && attempt < 4) {
+          try {
+            await _recorder.stop();
+          } catch (_) {}
+          await Future.delayed(const Duration(milliseconds: 350));
+          continue;
+        }
+        rethrow;
+      }
+    }
+  }
+
   RecordConfig _micConfig() => const RecordConfig(
         encoder: AudioEncoder.pcm16bits,
         sampleRate: _micRate,
@@ -576,7 +602,7 @@ class VoiceController extends ChangeNotifier {
     _capturePaused = false;
     if (mode != VoiceMode.realtime || !active) return;
     try {
-      final stream = await _recorder.startStream(_micConfig());
+      final stream = await _startMicStream();
       _micSub = stream.listen(_onRealtimeFrame);
       if (state != VoiceState.speaking) {
         _resetVad();

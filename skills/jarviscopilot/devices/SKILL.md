@@ -123,6 +123,31 @@ An iOS app **cannot install a Shortcut programmatically** — Apple blocks it. T
 
 If a Shortcut needs to exist but doesn't, tell the user exactly what to create (or create it on their Mac) rather than guessing names — `run_shortcut` fails cleanly with `{"ran": false}` when the name doesn't match.
 
+## Location history ("where was I…")
+
+If the user enabled **Location history** in the mobile app (Settings → "Track my location"), the phone **pushes** a reverse-geocoded GPS fix every ~10 min (and on significant movement) to the server — you don't pull it. Each fix is one JSON line appended to:
+
+```
+$HERMES_WEBUI_STATE_DIR/location_history/<device_id>.jsonl
+# default: ~/.jarviscopilot/webui/location_history/<device_id>.jsonl
+```
+
+Line shape: `{"ts": <epoch s>, "lat", "lng", "accuracy_m", "address": "<resolved street address>"}`.
+
+To answer location questions, read that file directly (you have shell access). Get the device id from `list`, then e.g.:
+
+```bash
+DIR="${HERMES_WEBUI_STATE_DIR:-$HOME/.jarviscopilot/webui}/location_history"
+FILE="$(ls -t "$DIR"/*.jsonl 2>/dev/null | head -1)"   # or match the device id from `list`
+tail -n 50 "$FILE" | jq .                               # recent fixes
+# Last known place:
+tail -n 1 "$FILE" | jq -r '.address'
+# Fixes within a time window (epoch seconds):
+jq -c 'select(.ts >= 1716600000 and .ts <= 1716686400)' "$FILE"
+```
+
+Timestamps are epoch seconds; convert with `date -r <ts>`. If the file is missing or empty, the user hasn't enabled tracking yet (tell them to turn on "Track my location" in the app) or the phone hasn't reported a fix since. Don't try to `get_location`-poll a backgrounded phone for history — it will time out; the pushed history is the source of truth.
+
 ## How pairing works under the hood
 
 The helper script does **not** make HTTP calls to the webui. It writes the pending code straight to `~/.jarviscopilot/webui/.pending_pair.json` (0600), then polls the same file for `claimed=true`. The webui reads from the same file when a browser POSTs `/api/auth/pair/claim`. This avoids needing any kind of host-secret to bootstrap auth.

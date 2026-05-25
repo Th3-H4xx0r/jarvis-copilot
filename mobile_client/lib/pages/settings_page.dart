@@ -17,12 +17,34 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   bool _allowShell = false;
   bool _paused = false;
+  bool _trackLocation = false;
 
   @override
   void initState() {
     super.initState();
     _allowShell = Credentials.instance.allowShell;
     _paused = app.runner.paused.value;
+    _trackLocation = Credentials.instance.trackLocation;
+  }
+
+  Future<void> _toggleTrackLocation(bool v) async {
+    if (v) {
+      final ok = await app.location.setEnabled(true);
+      if (!ok) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Location permission needed. Enable Location → Always for '
+                'JarvisCopilot in iOS Settings.'),
+          ));
+        }
+        return; // leave the switch off
+      }
+    } else {
+      await app.location.setEnabled(false);
+    }
+    setState(() => _trackLocation = v);
+    await Credentials.instance.saveTrackLocation(v);
   }
 
   Future<void> _unpair() async {
@@ -90,6 +112,15 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           const Divider(),
+          SwitchListTile(
+            title: const Text('Track my location'),
+            subtitle: const Text(
+                'Records location history (~every 10 min) for the assistant '
+                'to query, and keeps it connected in the background. Needs '
+                '"Always" location; uses battery.'),
+            value: _trackLocation,
+            onChanged: _toggleTrackLocation,
+          ),
           SwitchListTile(
             title: const Text('Pause skill execution'),
             subtitle: const Text('Server invokes return "paused" until off.'),

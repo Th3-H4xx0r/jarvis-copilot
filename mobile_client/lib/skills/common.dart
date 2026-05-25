@@ -248,9 +248,23 @@ final List<SkillEntry> _common = [
       // geolocator 11.x exposes `desiredAccuracy`; the `locationSettings`
       // form only landed in 12.x. Stay on the 11.x API while we're pinned
       // to that version (chosen to keep firebase_messaging 14.x happy).
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-      );
+      //
+      // Cap the fix attempt and fall back to the last known position so
+      // this returns in seconds instead of hanging to the server's 30s
+      // invoke timeout when a fresh GPS fix is slow (indoors / cold start).
+      Position? pos;
+      try {
+        pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.medium,
+          timeLimit: const Duration(seconds: 12),
+        );
+      } catch (_) {
+        pos = await Geolocator.getLastKnownPosition();
+      }
+      pos ??= await Geolocator.getLastKnownPosition();
+      if (pos == null) {
+        throw StateError('no location fix available (try again outdoors)');
+      }
       return {
         'latitude': pos.latitude,
         'longitude': pos.longitude,

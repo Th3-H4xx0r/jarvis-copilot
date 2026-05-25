@@ -79,6 +79,21 @@ class ApiClient {
     return u.endsWith('/') ? u.substring(0, u.length - 1) : u;
   }
 
+  /// Cheap "is the server reachable at all?" probe for the launch gate.
+  /// Any HTTP response (even 401/403) means reachable — only a
+  /// connection refusal, timeout, or TLS/cert failure counts as down.
+  Future<bool> reachable() async {
+    if (_serverUrl == null || _serverUrl!.isEmpty) return false;
+    try {
+      await get('/api/auth/status').timeout(const Duration(seconds: 8));
+      return true;
+    } on DioException catch (e) {
+      return e.response != null;
+    } catch (_) {
+      return false; // TimeoutException, socket/cert errors, etc.
+    }
+  }
+
   Future<Response<dynamic>> get(String path,
       {Map<String, dynamic>? query, Map<String, String>? headers}) {
     return _dio.get(

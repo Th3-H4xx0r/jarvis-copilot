@@ -31,6 +31,9 @@ class WsBridge {
   static const _backoff = [1, 2, 4, 8, 16, 32, 60];
   Timer? _pingTimer;
   Timer? _reconnectTimer;
+  // Lets pokeReconnect() interrupt the backoff delay so the socket
+  // re-opens immediately when the app returns to the foreground.
+  Completer<void>? _wake;
 
   final ValueNotifier<bool> connected = ValueNotifier(false);
   final ValueNotifier<String> lastError = ValueNotifier('');
@@ -80,8 +83,25 @@ class WsBridge {
       final delay = _backoff[_backoffIdx.clamp(0, _backoff.length - 1)];
       _backoffIdx++;
       debugPrint('Reconnecting in ${delay}s …');
-      await Future.delayed(Duration(seconds: delay));
+      // Interruptible delay: pokeReconnect() (app resume) completes _wake
+      // to retry immediately instead of waiting out the backoff.
+      _wake = Completer<void>();
+      await Future.any([
+        Future.delayed(Duration(seconds: delay)),
+        _wake!.future,
+      ]);
+      _wake = null;
     }
+  }
+
+  /// Reconnect as soon as possible — resets backoff and wakes the loop out
+  /// of its current delay. Call this when the app returns to the foreground
+  /// so the live bridge is back up immediately.
+  void pokeReconnect() {
+    if (_stopped) return;
+    _backoffIdx = 0;
+    final w = _wake;
+    if (w != null && !w.isCompleted) w.complete();
   }
 
   Future<void> _connectOnce() async {

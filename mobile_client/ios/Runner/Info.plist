@@ -60,6 +60,10 @@
         <string>remote-notification</string>
         <string>fetch</string>
         <string>audio</string>
+        <!-- location: opt-in background location history + keeps the device
+             bridge connected so server skills don't time out while
+             backgrounded. Only active when the user enables tracking. -->
+        <string>location</string>
     </array>
 
     <!-- LSApplicationQueriesSchemes — iOS sandbox blocks
@@ -100,6 +104,8 @@
     <string>Used to record voice messages and live audio sent to JarvisCopilot.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Used to answer "where am I?" and to provide location to skills you invoke.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>With "Always" access, JarvisCopilot records your location history (about every 10 minutes) so you can ask where you've been, and stays connected in the background so it can run tasks you request.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Used so JarvisCopilot can pick or attach photos at your request.</string>
     <key>NSContactsUsageDescription</key>

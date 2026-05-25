@@ -1,12 +1,17 @@
 import Flutter
 import UIKit
 import UserNotifications
+#if canImport(AppIntents)
+import AppIntents
+#endif
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
 
     private var pendingDeepLink: URL?
     private var pairChannel: FlutterMethodChannel?
+    // "Talk to JarvisCopilot" Siri App Intent → open Voice + start a turn.
+    private var intentsChannel: FlutterMethodChannel?
     // Shortcuts x-callback-url result routing. Running a Shortcut opens
     // `shortcuts://x-callback-url/run-shortcut?...&x-success=jarviscopilot://shortcut-result?rid=…`
     // and iOS re-opens our app with the shortcut's output. We forward
@@ -113,6 +118,19 @@ import UserNotifications
         pendingShortcutCallbacks.removeAll()
         for url in queued { forwardShortcutCallback(url) }
 
+        // Siri intent channel + observer. The StartVoiceIntent sets a
+        // UserDefaults flag (cold launch) and posts a notification (warm).
+        intentsChannel = FlutterMethodChannel(
+            name: "jarviscopilot/intents",
+            binaryMessenger: controller.binaryMessenger
+        )
+        NotificationCenter.default.removeObserver(
+            self, name: Notification.Name("jcStartVoice"), object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(fireStartVoiceIfPending),
+            name: Notification.Name("jcStartVoice"), object: nil)
+        fireStartVoiceIfPending()
+
         if let pending = pendingDeepLink {
             pendingDeepLink = nil
             DispatchQueue.main.async { [weak self] in
@@ -193,6 +211,23 @@ import UserNotifications
         }
     }
 
+    // ── Siri "Talk to JarvisCopilot" intent hand-off ────────────
+    //
+    // StartVoiceIntent sets `jc_pending_voice` (covers cold launch) and
+    // posts `jcStartVoice` (covers warm launch). Either way we tell Dart
+    // to open the Voice tab and start a turn, then clear the flag.
+    @objc func fireStartVoiceIfPending() {
+        guard UserDefaults.standard.bool(forKey: "jc_pending_voice") else { return }
+        guard let ch = intentsChannel else { return } // retried on next activate
+        UserDefaults.standard.set(false, forKey: "jc_pending_voice")
+        ch.invokeMethod("startVoice", arguments: nil)
+    }
+
+    override func applicationDidBecomeActive(_ application: UIApplication) {
+        super.applicationDidBecomeActive(application)
+        fireStartVoiceIfPending()
+    }
+
     // ── Silent push wakeup ───────────────────────────────────────
     //
     // FCM forwards `content-available:1` pushes here. We get ~30s of
@@ -209,3 +244,46 @@ import UserNotifications
                           fetchCompletionHandler: completionHandler)
     }
 }
+
+// ── Siri App Intent ──────────────────────────────────────────────
+//
+// Exposes "Talk to JarvisCopilot" to Siri + Shortcuts (iOS 16+). Siri
+// requires the app name in the phrase, so the trigger is e.g. "Hey Siri,
+// Talk to JarvisCopilot" (a true custom "Hey Jarvis" wake word isn't
+// available to third-party apps). When run, it opens the app; the app
+// then jumps to Voice and starts a realtime turn.
+#if canImport(AppIntents)
+@available(iOS 16.0, *)
+struct StartVoiceIntent: AppIntent {
+    static var title: LocalizedStringResource = "Talk to JarvisCopilot"
+    static var description = IntentDescription("Open JarvisCopilot and start a voice conversation.")
+    static var openAppWhenRun: Bool = true
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        UserDefaults.standard.set(true, forKey: "jc_pending_voice")
+        NotificationCenter.default.post(name: Notification.Name("jcStartVoice"), object: nil)
+        return .result()
+    }
+}
+
+@available(iOS 16.0, *)
+struct JarvisAppShortcuts: AppShortcutsProvider {
+    static var appShortcuts: [AppShortcut] {
+        // Avoid "Talk to …" / "Call …" / "Hey …" — Siri routes those to
+        // telephony/FaceTime and would dial a contact instead of running
+        // this intent. These phrases launch the app cleanly.
+        AppShortcut(
+            intent: StartVoiceIntent(),
+            phrases: [
+                "Start \(.applicationName) voice",
+                "Ask \(.applicationName)",
+                "Open \(.applicationName) voice",
+                "\(.applicationName) voice",
+            ],
+            shortTitle: "Start JarvisCopilot voice",
+            systemImageName: "mic.fill"
+        )
+    }
+}
+#endif

@@ -29,6 +29,8 @@ class Credentials {
   String? deviceName;
   String? deviceId;
   bool allowShell = false;
+  // Opt-in background location history + connection keep-alive.
+  bool trackLocation = false;
   Set<String> skillsDisabled = {};
   String? pushToken;
 
@@ -41,6 +43,7 @@ class Credentials {
     deviceName = await _store.read(key: 'device_name');
     deviceId = await _store.read(key: 'device_id');
     allowShell = (await _store.read(key: 'allow_shell')) == '1';
+    trackLocation = (await _store.read(key: 'track_location')) == '1';
     final raw = await _store.read(key: 'skills_disabled');
     if (raw != null && raw.isNotEmpty) {
       try {
@@ -77,6 +80,11 @@ class Credentials {
   Future<void> saveDeviceId(String id) async {
     deviceId = id;
     await _store.write(key: 'device_id', value: id);
+  }
+
+  Future<void> saveTrackLocation(bool value) async {
+    trackLocation = value;
+    await _store.write(key: 'track_location', value: value ? '1' : '0');
   }
 
   Future<void> saveAllowShell(bool value) async {

@@ -4,10 +4,14 @@ import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show WidgetsFlutterBinding;
 
+import '../skills/common.dart' as common_skills;
+import '../skills/registry.dart';
 import 'api_client.dart';
 import 'credentials.dart';
 import 'invoke_runner.dart';
+import 'ws_bridge.dart';
 
 /// Push registration + background-wake handler.
 ///
@@ -102,6 +106,11 @@ class PushHandler {
     }
   }
 
+  /// Drain any queued server commands now (e.g. on app resume). Public
+  /// wrapper so the app-lifecycle observer can flush the queue the moment
+  /// the app comes back to the foreground.
+  Future<void> drainNow() => _drainQueue();
+
   /// Pull queued invokes from the server, execute them, post results.
   Future<void> _drainQueue() async {
     try {
@@ -146,18 +155,49 @@ Future<void> _backgroundMessageHandler(RemoteMessage msg) async {
   try {
     await Firebase.initializeApp();
   } catch (_) {/* already initialized — fine */}
+  // A Flutter binding is needed for plugin platform channels to work in
+  // this background isolate (best-effort — UI-bound skills still won't run).
+  WidgetsFlutterBinding.ensureInitialized();
   debugPrint('FCM background: ${msg.data}');
-  // Spin up a minimal client + runner for the background isolate. The
-  // foreground InvokeRunner isn't reachable, so we run only Tier-1
-  // platform skills that don't need UI to behave.
+
   await Credentials.instance.load();
-  // Implementations relying on platform channels must be careful to
-  // initialize their bindings; some channels require a Flutter binding
-  // and won't work in a pure background isolate. We do best-effort
-  // here, and any unsupported skill returns an error which the server
-  // surfaces back to the agent.
-  // NB: leaving the actual draining to the foreground handler when
-  // the user taps; the silent-push pattern means iOS wakes us into
-  // the foreground onMessage handler anyway, so explicit work here is
-  // a fallback.
+  if (!Credentials.instance.isPaired) return;
+
+  // The background isolate has its own memory, so the skill registry and
+  // service singletons from main() don't exist here — rebuild them.
+  registerCommonSkills(common_skills.everything);
+  final bgApi = ApiClient();
+  final bgRunner = InvokeRunner(api: bgApi, ws: WsBridge(api: bgApi));
+
+  // Drain the server's queued commands within the OS background budget
+  // (~30s on iOS). Skills that need the foreground/UI return an error,
+  // which the server surfaces back to the agent — strictly better than
+  // the previous no-op that only worked when the user opened the app.
+  try {
+    final pollResp = await bgApi.postJson('/api/devices/mobile/poll', const {});
+    final body = pollResp.data;
+    if (body is! Map) return;
+    final invokes = (body['invokes'] as List?) ?? const [];
+    for (final raw in invokes) {
+      if (raw is! Map) continue;
+      final callId = (raw['call_id'] ?? '').toString();
+      final skill = (raw['skill'] ?? '').toString();
+      final args = (raw['args'] is Map)
+          ? Map<String, dynamic>.from(raw['args'] as Map)
+          : <String, dynamic>{};
+      if (callId.isEmpty || skill.isEmpty) continue;
+      final r = await bgRunner.run(skill, args);
+      try {
+        await bgApi.postJson('/api/devices/mobile/result', {
+          'call_id': callId,
+          if (r.error != null) 'error': r.error,
+          if (r.error == null) 'result': r.result,
+        });
+      } catch (e) {
+        debugPrint('bg: failed to post result: $e');
+      }
+    }
+  } catch (e) {
+    debugPrint('bg drain failed: $e');
+  }
 }

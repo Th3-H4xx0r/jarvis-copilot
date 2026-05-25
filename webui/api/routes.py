@@ -6026,6 +6026,42 @@ def handle_post(handler, parsed) -> bool:
         )
         return j(handler, {"ok": True, "delivered": woke})
 
+    # ── Mobile client: report a location fix ──
+    # POST /api/devices/mobile/location
+    # body: {"lat": .., "lng": .., "accuracy"?: .., "ts"?: .., "address"?: ..}
+    # The phone pushes periodic fixes here (it can't be pulled reliably when
+    # backgrounded). We reverse-geocode + append to the device's history.
+    if parsed.path == "/api/devices/mobile/location":
+        from api.auth import parse_cookie
+        from api.pairing import find_device_by_session
+        from api.location_history import record_location
+        cookie_val = parse_cookie(handler)
+        device = find_device_by_session(cookie_val or "")
+        if not device:
+            return j(handler, {"error": "no matching device for session"}, status=401)
+        try:
+            lat = float(body.get("lat"))
+            lng = float(body.get("lng"))
+        except (TypeError, ValueError):
+            return bad(handler, "lat and lng are required numbers")
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            return bad(handler, "lat/lng out of range")
+        def _num(v):
+            try:
+                return float(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+        addr = body.get("address")
+        if addr is not None and not isinstance(addr, str):
+            addr = None
+        entry = record_location(
+            device["id"], lat, lng,
+            accuracy=_num(body.get("accuracy")),
+            ts=_num(body.get("ts")),
+            address=addr,
+        )
+        return j(handler, {"ok": True, "stored": entry})
+
     # ── Device session logout (POST /api/devices/<id>/logout) ──
     # Invalidates the session bound to a paired device while keeping the
     # device record so the user can re-auth (e.g. with a fresh pairing
