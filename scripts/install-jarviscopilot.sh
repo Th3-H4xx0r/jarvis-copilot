@@ -280,6 +280,28 @@ UNITEOF
         $SUDO systemctl restart jarviscopilot-webui.service
         SERVICE_INSTALLED=true
         ok "Service enabled and started. View logs with: journalctl -u jarviscopilot-webui -f"
+
+        # Restart the gateway too if it's installed. The gateway (separate
+        # from the webui) is what ticks the cron scheduler AND runs the
+        # messaging platforms — server.py / launch-webui.sh do NOT. The
+        # stop-loop near the top of this script stopped it, so without this
+        # re-running the installer to deploy would silently kill cron jobs +
+        # messaging until a manual `jarviscopilot gateway restart`. We only
+        # restart a unit that already exists (we never create it here), and
+        # check both system and user scope so non-root setups are covered.
+        if $SUDO systemctl cat jarviscopilot-gateway.service >/dev/null 2>&1; then
+            if $SUDO systemctl restart jarviscopilot-gateway.service >/dev/null 2>&1; then
+                ok "Restarted jarviscopilot-gateway.service (cron scheduler + messaging)."
+            else
+                warn "jarviscopilot-gateway.service exists but failed to restart -- run: jarviscopilot gateway restart"
+            fi
+        elif systemctl --user cat jarviscopilot-gateway.service >/dev/null 2>&1; then
+            if systemctl --user restart jarviscopilot-gateway.service >/dev/null 2>&1; then
+                ok "Restarted jarviscopilot-gateway.service (user scope; cron + messaging)."
+            else
+                warn "user jarviscopilot-gateway.service failed to restart -- run: jarviscopilot gateway restart"
+            fi
+        fi
     fi
 fi
 
