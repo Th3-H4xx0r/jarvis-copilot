@@ -45,6 +45,19 @@ _TUNED: Dict[str, Any] = {
 }
 
 _GITIGNORE = """\
+# Credentials & secrets — NEVER track these in the home git repo.
+auth.json
+auth.lock
+.env
+.env.*
+*.oauth.json
+.anthropic_oauth.json
+webhook_subscriptions.json
+mcp-tokens/
+webui-tls/
+*.pem
+*.key
+credentials*
 # Volatile runtime state — not tracked for self-improvement audit.
 *.db
 *.db-*
@@ -57,6 +70,7 @@ sessions/
 logs/
 tmp/
 cache/
+audio_cache/
 """
 
 
