@@ -240,6 +240,25 @@ if [[ "$LINK_DIR" != "/usr/local/bin" ]]; then
     esac
 fi
 
+# --- Self-improvement: tune config + initialize the learning loop -----------
+# Idempotent. Turns on the memory/skill self-evolution loop so it actually
+# fires on this server's usage (mobile/webui/gateway): lowers the per-turn
+# review nudge intervals (so short turns accumulate toward a review), ensures
+# built-in memory is enabled, and git-inits HERMES_HOME (credentials excluded)
+# for a revertable audit log. Runs BEFORE the service (re)start below so the
+# restarted gateway/webui pick up the tuned config. Cross-platform: this is the
+# same code path on Linux/macOS/Windows — it only writes config + seeds skills.
+info "Activating self-improvement loop (tuning config + initializing) ..."
+if ( cd "$INSTALL_DIR" && "$VENV_PY" -m scripts.init_self_improvement ) >/dev/null 2>&1; then
+    ok "Self-improvement active. Signs of learning will appear in:"
+    echo "    • Memory tab (MEMORY.md / USER.md grow as it learns about you)"
+    echo "    • Skills tab (skills get auto-created/patched after substantial tasks)"
+    echo "    • Console + messaging: a '💾 Self-improvement review: …' line per change"
+    echo "    • Audit log: ~/.jarviscopilot/self_improvement.log (+ git history in ~/.jarviscopilot)"
+else
+    warn "Self-improvement init failed -- run manually: (cd $INSTALL_DIR && $VENV_PY -m scripts.init_self_improvement)"
+fi
+
 # --- systemd unit (auto-start, survives reboot) ----------------------------
 # Only on Linux with systemd available. Idempotent — we always rewrite the
 # unit file (matches whatever this script knows about the install path) and

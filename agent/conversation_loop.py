@@ -401,6 +401,24 @@ def run_conversation(
                 # review immediately on resume (which would surprise users
                 # whose session happened to land just past a multiple of N).
                 agent._turns_since_memory = prior_user_turns % agent._memory_nudge_interval
+            # Same fix for the SKILL-review counter. The gateway/webui build a
+            # fresh agent per message, so _iters_since_skill resets every turn
+            # and short turns never reach _skill_nudge_interval — skill
+            # self-evolution effectively never fires on those surfaces. Seed it
+            # from the tool-call rounds already in history (% interval keeps the
+            # 1-in-N cadence) so skill review accrues across the session, the
+            # same way the memory counter does. Gated on _user_turn_count == 0
+            # so a persistent CLI agent that just reset the counter mid-session
+            # is NOT re-inflated. See [[self-improvement-effort]].
+            if agent._skill_nudge_interval > 0 and agent._iters_since_skill == 0:
+                prior_tool_rounds = sum(
+                    1 for m in conversation_history
+                    if isinstance(m, dict)
+                    and m.get("role") == "assistant"
+                    and m.get("tool_calls")
+                )
+                if prior_tool_rounds > 0:
+                    agent._iters_since_skill = prior_tool_rounds % agent._skill_nudge_interval
 
 
     # Prefill messages (few-shot priming) are injected at API-call time only,
