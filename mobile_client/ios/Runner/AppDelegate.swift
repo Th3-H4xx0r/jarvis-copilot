@@ -1,17 +1,25 @@
 import Flutter
 import UIKit
 import UserNotifications
+import CoreLocation
+import CryptoKit
 #if canImport(AppIntents)
 import AppIntents
 #endif
 
 @main
-@objc class AppDelegate: FlutterAppDelegate {
+@objc class AppDelegate: FlutterAppDelegate, CLLocationManagerDelegate {
 
     private var pendingDeepLink: URL?
     private var pairChannel: FlutterMethodChannel?
     // "Talk to JarvisCopilot" Siri App Intent → open Voice + start a turn.
     private var intentsChannel: FlutterMethodChannel?
+    // Background location: Significant-Location-Change monitoring. This is
+    // the only mechanism that survives a force-quit — iOS relaunches the
+    // app on ~500 m movement, even after the user swiped it away. On each
+    // update we push the fix to the server natively (no Flutter needed).
+    private var intentsLocationChannel: FlutterMethodChannel?
+    private var locationManager: CLLocationManager?
     // Shortcuts x-callback-url result routing. Running a Shortcut opens
     // `shortcuts://x-callback-url/run-shortcut?...&x-success=jarviscopilot://shortcut-result?rid=…`
     // and iOS re-opens our app with the shortcut's output. We forward
@@ -68,6 +76,12 @@ import AppIntents
             pendingDeepLink = url
         }
 
+        // Re-arm significant-location-change monitoring on every launch
+        // (including when iOS relaunched us in the background for a
+        // location event after a force-quit). Self-contained — does not
+        // need the Flutter engine.
+        startSlcIfEnabled()
+
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 
@@ -117,6 +131,34 @@ import AppIntents
         let queued = pendingShortcutCallbacks
         pendingShortcutCallbacks.removeAll()
         for url in queued { forwardShortcutCallback(url) }
+
+        // Location channel: Dart tells us to start/stop SLC and hands over
+        // the server URL + cookie + cert pin so we can push fixes natively
+        // (incl. after a force-quit relaunch, when Dart isn't running).
+        let locCh = FlutterMethodChannel(
+            name: "jarviscopilot/location",
+            binaryMessenger: controller.binaryMessenger
+        )
+        intentsLocationChannel = locCh
+        locCh.setMethodCallHandler { [weak self] call, result in
+            guard let self = self else { result(nil); return }
+            if call.method == "setTracking", let a = call.arguments as? [String: Any] {
+                let enabled = (a["enabled"] as? Bool) ?? false
+                let d = UserDefaults.standard
+                d.set(enabled, forKey: "jc_track_location")
+                if enabled {
+                    d.set((a["serverUrl"] as? String) ?? "", forKey: "jc_server_url")
+                    d.set((a["cookie"] as? String) ?? "", forKey: "jc_cookie")
+                    d.set((a["certSha256"] as? String) ?? "", forKey: "jc_cert_sha256")
+                    self.startSlc()
+                } else {
+                    self.stopSlc()
+                }
+                result(true)
+            } else {
+                result(FlutterMethodNotImplemented)
+            }
+        }
 
         // Siri intent channel + observer. The StartVoiceIntent sets a
         // UserDefaults flag (cold launch) and posts a notification (warm).
@@ -211,6 +253,79 @@ import AppIntents
         }
     }
 
+    // ── Background location (significant-change, survives force-quit) ──
+    private func startSlcIfEnabled() {
+        if UserDefaults.standard.bool(forKey: "jc_track_location") { startSlc() }
+    }
+
+    private func startSlc() {
+        guard CLLocationManager.significantLocationChangeMonitoringAvailable() else { return }
+        if locationManager == nil {
+            let m = CLLocationManager()
+            m.delegate = self
+            m.desiredAccuracy = kCLLocationAccuracyHundredMeters
+            m.pausesLocationUpdatesAutomatically = false
+            // Requires the `location` UIBackgroundMode (declared) + Always
+            // authorization (requested on the Dart side) to deliver in the
+            // background.
+            m.allowsBackgroundLocationUpdates = true
+            locationManager = m
+        }
+        locationManager?.startMonitoringSignificantLocationChanges()
+    }
+
+    private func stopSlc() {
+        locationManager?.stopMonitoringSignificantLocationChanges()
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let loc = locations.last else { return }
+        // Foreground fixes are reported by the Dart geolocator stream; only
+        // push from here when we're backgrounded (incl. a force-quit
+        // relaunch) to avoid duplicate rows.
+        if UIApplication.shared.applicationState != .active {
+            _pushLocationNatively(
+                lat: loc.coordinate.latitude,
+                lng: loc.coordinate.longitude,
+                accuracy: loc.horizontalAccuracy
+            )
+        }
+    }
+
+    private func _pushLocationNatively(lat: Double, lng: Double, accuracy: Double) {
+        let d = UserDefaults.standard
+        guard d.bool(forKey: "jc_track_location") else { return }
+        var base = (d.string(forKey: "jc_server_url") ?? "").trimmingCharacters(in: .whitespaces)
+        guard !base.isEmpty else { return }
+        while base.hasSuffix("/") { base.removeLast() }
+        guard let url = URL(string: base + "/api/devices/mobile/location") else { return }
+        let cookie = d.string(forKey: "jc_cookie") ?? ""
+        let pin = d.string(forKey: "jc_cert_sha256") ?? ""
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !cookie.isEmpty { req.setValue(cookie, forHTTPHeaderField: "Cookie") }
+        let payload: [String: Any] = [
+            "lat": lat, "lng": lng, "accuracy": accuracy,
+            "ts": Date().timeIntervalSince1970,
+        ]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+
+        // Keep ~25s of background time so the request can finish.
+        var bgTask: UIBackgroundTaskIdentifier = .invalid
+        bgTask = UIApplication.shared.beginBackgroundTask(withName: "jcLocPush") {
+            if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask); bgTask = .invalid }
+        }
+        let poster = PinnedPoster(pinHex: pin)
+        let session = URLSession(configuration: .ephemeral, delegate: poster, delegateQueue: nil)
+        let task = session.dataTask(with: req) { _, _, _ in
+            session.finishTasksAndInvalidate()
+            if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask); bgTask = .invalid }
+        }
+        task.resume()
+    }
+
     // ── Siri "Talk to JarvisCopilot" intent hand-off ────────────
     //
     // StartVoiceIntent sets `jc_pending_voice` (covers cold launch) and
@@ -287,3 +402,43 @@ struct JarvisAppShortcuts: AppShortcutsProvider {
     }
 }
 #endif
+
+// ── Cert-pinned one-shot POST (for native background location push) ──
+//
+// Mirrors the Dart pinning: validate the leaf cert's SHA-256 (of its DER)
+// against the fingerprint captured at pair time before trusting the TLS
+// connection. Used so a force-quit relaunch can report location without
+// the Flutter engine / Dio.
+final class PinnedPoster: NSObject, URLSessionDelegate {
+    private let pinHex: String
+    init(pinHex: String) { self.pinHex = pinHex.lowercased() }
+
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        var leaf: SecCertificate?
+        if #available(iOS 15.0, *) {
+            leaf = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first
+        } else {
+            leaf = SecTrustGetCertificateAtIndex(trust, 0)
+        }
+        guard !pinHex.isEmpty, let cert = leaf else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        let der = SecCertificateCopyData(cert) as Data
+        let hex = SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
+        if hex == pinHex {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
+    }
+}

@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'api_client.dart';
+import 'credentials.dart';
 
 /// Opt-in background location history + connection keep-alive.
 ///
@@ -25,6 +27,11 @@ class BackgroundLocation {
   final ApiClient api;
   final ValueNotifier<bool> enabled = ValueNotifier(false);
 
+  // Native side runs significant-location-change monitoring that survives
+  // a force-quit (iOS relaunches the app on movement and it pushes the fix
+  // natively). Dart hands it the server URL + cookie + cert pin.
+  static const MethodChannel _native = MethodChannel('jarviscopilot/location');
+
   StreamSubscription<Position>? _sub;
   DateTime _lastReport = DateTime.fromMillisecondsSinceEpoch(0);
   Position? _lastReported;
@@ -39,10 +46,12 @@ class BackgroundLocation {
       enabled.value = false;
       await _sub?.cancel();
       _sub = null;
+      await _setNativeTracking(false);
       return true;
     }
     if (!await Geolocator.isLocationServiceEnabled()) return false;
     var perm = await Geolocator.checkPermission();
+    // 1) "When In Use" prompt (iOS won't show "Always" on the first ask).
     if (perm == LocationPermission.denied) {
       perm = await Geolocator.requestPermission();
     }
@@ -50,13 +59,38 @@ class BackgroundLocation {
         perm == LocationPermission.deniedForever) {
       return false;
     }
-    // whileInUse is enough to begin; true background needs "Always", which
-    // iOS escalates to on its own after the app has used location in the
-    // background a few times (or the user can set it in Settings).
+    // 2) Escalate to "Always" so background tracking actually works — on
+    //    iOS this triggers the "Change to Always Allow" system prompt.
+    if (perm == LocationPermission.whileInUse) {
+      // A beat lets the first dialog fully dismiss before the second.
+      await Future.delayed(const Duration(milliseconds: 400));
+      perm = await Geolocator.requestPermission();
+    }
     enabled.value = true;
+    // Native SLC = the force-quit-surviving background mechanism (like
+    // Life360). The Dart stream below adds finer updates while alive.
+    await _setNativeTracking(true);
     await _startStream();
     unawaited(_reportOnce()); // seed history immediately
     return true;
+  }
+
+  Future<void> _setNativeTracking(bool on) async {
+    try {
+      if (on) {
+        await _native.invokeMethod('setTracking', {
+          'enabled': true,
+          'serverUrl': Credentials.instance.serverUrl ?? '',
+          'cookie': Credentials.instance.cookie ?? '',
+          'certSha256': Credentials.instance.certFingerprint ?? '',
+        });
+      } else {
+        await _native.invokeMethod('setTracking', {'enabled': false});
+      }
+    } catch (_) {
+      // Channel not available (e.g. Android / not wired) — the Dart
+      // stream still covers the foreground/alive case.
+    }
   }
 
   Future<void> _startStream() async {
