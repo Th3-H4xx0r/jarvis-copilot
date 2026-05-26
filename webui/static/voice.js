@@ -871,12 +871,38 @@
   // the chat surface makes when none exists. Returns the session id ("" if it
   // couldn't be created, e.g. newSession unavailable).
   async function _ensureVoiceSession() {
-    let sid = (typeof S !== 'undefined' && S && S.session && S.session.session_id) || '';
-    if (!sid && typeof newSession === 'function') {
-      try { await newSession(); } catch (e) { /* fall through to error */ }
-      sid = (typeof S !== 'undefined' && S && S.session && S.session.session_id) || '';
+    const _sid = () => (typeof S !== 'undefined' && S && S.session && S.session.session_id) || '';
+    let sid = _sid();
+    if (sid) return sid;
+    // Preferred: the app's own creator (keeps S + the session list in sync).
+    if (typeof newSession === 'function') {
+      try { await newSession(); } catch (e) { console.warn('[voice] newSession() failed:', e); }
+      sid = _sid();
+      if (sid) return sid;
     }
-    return sid;
+    // Fallback: create the session directly so the mini popup works even if
+    // newSession() isn't available or threw.
+    try {
+      const profile = (typeof S !== 'undefined' && S && S.activeProfile) || 'default';
+      const res = await fetch('api/session/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile }),
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const s = data && data.session;
+        if (s && s.session_id) {
+          if (typeof S !== 'undefined' && S) { S.session = s; S.messages = s.messages || []; }
+          return s.session_id;
+        }
+      } else {
+        console.warn('[voice] /api/session/new failed:', res.status);
+      }
+    } catch (e) {
+      console.warn('[voice] /api/session/new error:', e);
+    }
+    return '';
   }
 
   async function stopQualityCaptureAndSend() {
