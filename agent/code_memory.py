@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -133,3 +134,63 @@ def read_entries(slug, kind, limit: int = _DEFAULT_LIMIT, home: Any = None) -> l
     if not isinstance(limit, int) or limit <= 0:
         limit = _DEFAULT_LIMIT
     return rows[:limit]
+
+
+def count_entries(slug, kind, home: Any = None) -> int:
+    return len(read_entries(slug, kind, limit=10 ** 9, home=home))
+
+
+def delete_entry(slug, kind, ts, home: Any = None) -> int:
+    """Remove every entry whose timestamp == ts. Returns the count removed."""
+    f = _file(slug, kind, home)  # validates kind + slug
+    if not f.exists():
+        return 0
+    text = f.read_text(encoding="utf-8", errors="replace")
+    kept, removed = [], 0
+    for m in _ENTRY_RE.finditer(text):
+        if m.group("ts") == ts:
+            removed += 1
+            continue
+        kept.append((m.group("ts"), m.group("type").strip(), m.group("body").strip()))
+    if removed:
+        out = "".join(f"\n## {t} \xb7 {ty}\n{b}\n" for (t, ty, b) in kept)
+        f.write_text(out, encoding="utf-8")
+    return removed
+
+
+def delete_project(slug, home: Any = None) -> bool:
+    """Remove the project's directory + its projects.json entry. True if it existed."""
+    safe = _sanitize(slug)
+    if not safe:
+        return False
+    existed = False
+    d = _root(home) / safe
+    if d.exists():
+        shutil.rmtree(d, ignore_errors=True)
+        existed = True
+    idx = list_projects(home)
+    if safe in idx:
+        del idx[safe]
+        (_root(home) / "projects.json").write_text(json.dumps(idx, indent=2), encoding="utf-8")
+        existed = True
+    return existed
+
+
+def stats(home: Any = None) -> dict:
+    """Global counts across all projects."""
+    idx = list_projects(home)
+    total_k = total_s = 0
+    by_type: dict = {}
+    last = None
+    for slug in idx:
+        for row in read_entries(slug, "knowledge", limit=10 ** 9, home=home):
+            total_k += 1
+            by_type[row["entry_type"]] = by_type.get(row["entry_type"], 0) + 1
+            if last is None or row["ts"] > last:
+                last = row["ts"]
+        for row in read_entries(slug, "sessions", limit=10 ** 9, home=home):
+            total_s += 1
+            if last is None or row["ts"] > last:
+                last = row["ts"]
+    return {"projects": len(idx), "knowledge": total_k, "sessions": total_s,
+            "by_type": by_type, "last_activity": last}
