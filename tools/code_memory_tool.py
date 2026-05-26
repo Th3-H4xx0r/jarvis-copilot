@@ -18,18 +18,20 @@ def _cwd_slug() -> str:
     return cm.project_slug(os.getcwd(), remote)
 
 
-def code_memory(action: str, kind: str = "knowledge", entry_type: str = "note",
+def code_memory(action: str, kind: str = "knowledge", entry_type: str | None = None,
                 content: str = "", project: str | None = None,
                 limit: int = 50, name: str = "", root: str = "",
-                ts: str = "", query: str = "", ids: list | None = None) -> dict:
+                ts: str = "", query: str = "", ids: list | None = None,
+                id: str = "") -> dict:
     """Read/write the shared project code-memory.
 
-    action: search | get | recall | store | register | list_projects | delete_entry | delete_project
+    action: search | get | recall | store | edit | delete | register | list_projects | delete_entry | delete_project
     kind:   knowledge | sessions   (sessions = handoff log)
 
     Prefer progressive recall: `search` returns compact ranked rows (no bodies),
     then `get ids=[...]` fetches full bodies for the few you need. `recall` returns
-    full bodies (use for the conversational browse interface, or small limits).
+    full bodies. `edit` updates one entry by `id` in place (preserving its ts);
+    `delete` removes one entry by `id`. Ids come from search/recall.
     """
     slug = project or _cwd_slug()
     try:
@@ -43,7 +45,11 @@ def code_memory(action: str, kind: str = "knowledge", entry_type: str = "note",
                     "entries": cm.read_entries(slug, kind, limit=limit)}
         if action == "store":
             return {"ok": True, "slug": slug,
-                    **cm.write_entry(slug, kind, entry_type, content)}
+                    **cm.write_entry(slug, kind, entry_type or "note", content)}
+        if action == "edit":
+            return cm.update_by_id(id, content, entry_type)  # entry_type=None keeps existing
+        if action == "delete":
+            return {"ok": cm.delete_by_id(id), "id": id}
         if action == "register":
             return {"ok": True, "entry": cm.register_project(slug, name or slug, root, "")}
         if action == "list_projects":
@@ -66,10 +72,12 @@ CODE_MEMORY_SCHEMA = {
     "description": (
         "Read/write the shared project code-memory (durable knowledge + session "
         "handoff), scoped to the current repo. "
-        "action: search|get|recall|store|register|list_projects|delete_entry|delete_project. "
+        "action: search|get|recall|store|edit|delete|register|list_projects|delete_entry|delete_project. "
         "Progressive recall: `search` (optional `query`) returns COMPACT ranked rows with "
         "ids + one-line summaries (no bodies, token-cheap); then `get` with `ids=[...]` "
-        "fetches full bodies for the few you need. `recall` returns full bodies. "
+        "fetches full bodies for the few you need. `recall` returns full bodies (each has an `id`). "
+        "`edit` updates one entry by `id` in place (preserving its ts; optional new `entry_type`); "
+        "`delete` removes one entry by `id`. "
         "kind: knowledge|sessions; "
         "entry_type for knowledge: bug|fix|repo_structure|gotcha|decision|note "
         "(store SHORT declarative facts, one per call); for sessions: claude|jarviscopilot."
@@ -77,7 +85,7 @@ CODE_MEMORY_SCHEMA = {
     "input_schema": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["search", "get", "recall", "store", "register", "list_projects", "delete_entry", "delete_project"]},
+            "action": {"type": "string", "enum": ["search", "get", "recall", "store", "edit", "delete", "register", "list_projects", "delete_entry", "delete_project"]},
             "kind": {"type": "string", "enum": ["knowledge", "sessions"]},
             "entry_type": {"type": "string"},
             "content": {"type": "string"},
@@ -88,6 +96,7 @@ CODE_MEMORY_SCHEMA = {
             "ts": {"type": "string"},
             "query": {"type": "string", "description": "search text (action=search)"},
             "ids": {"type": "array", "items": {"type": "string"}, "description": "entry ids to fetch (action=get)"},
+            "id": {"type": "string", "description": "single entry id for action=edit|delete"},
         },
         "required": ["action"],
     },
@@ -110,7 +119,7 @@ registry.register(
         code_memory(
             action=args.get("action", ""),
             kind=args.get("kind", "knowledge"),
-            entry_type=args.get("entry_type", "note"),
+            entry_type=args.get("entry_type"),  # None -> store defaults to "note"; edit keeps existing
             content=args.get("content", ""),
             project=args.get("project"),
             limit=args.get("limit", 50),
@@ -119,6 +128,7 @@ registry.register(
             ts=args.get("ts", ""),
             query=args.get("query", ""),
             ids=args.get("ids"),
+            id=args.get("id", ""),
         ),
         ensure_ascii=False,
     ),

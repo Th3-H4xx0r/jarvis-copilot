@@ -234,6 +234,10 @@ async function switchPanel(name, opts = {}) {
       mainEl.classList.toggle('showing-' + p, nextPanel === p);
     });
   }
+  // Code Memory has its own project nav, so the conversation sidebar would just
+  // be empty dead space — hide it (desktop only; on mobile it's the off-canvas
+  // nav menu) so the panel uses the full width.
+  document.body.classList.toggle('cm-fullwidth', nextPanel === 'codememory');
   // Lazy-load panel data
   if (nextPanel === 'tasks') await loadCrons();
   if (nextPanel === 'kanban') await loadKanban();
@@ -2867,6 +2871,7 @@ function _cmEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&am
 let _cmProjectsCache = {};
 let _cmOpenSlug = null;
 const _CM_TRASH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
+const _CM_PENCIL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 
 function _cmRelTime(ts) {
   if (!ts) return '';
@@ -2948,11 +2953,13 @@ function _cmSyncProjectMeta(slug, kc, sc) {
 function _cmEntryCard(slug, kind, e) {
   const type = e.entry_type || (kind === 'sessions' ? 'handoff' : 'note');
   const typeClass = String(type).replace(/[^a-z0-9_-]/gi, '');
-  return `<div class="cm-entry">
+  const eid = _cmEsc(e.id || '');
+  return `<div class="cm-entry" data-id="${eid}">
       <div class="cm-entry-top">
         <span class="cm-type cm-type-${typeClass}">${_cmEsc(type)}</span>
         <span class="cm-ts">${_cmEsc(_cmDateTime(e.ts))}</span>
-        <button class="cm-del" title="Delete entry" onclick="cmDeleteEntry('${_cmEsc(slug)}','${_cmEsc(kind)}','${_cmEsc(e.ts)}')">${_CM_TRASH}</button>
+        <button class="cm-act" title="Edit entry" onclick="cmEditEntry(this)">${_CM_PENCIL}</button>
+        <button class="cm-act cm-del" title="Delete entry" onclick="cmDeleteEntry('${eid}')">${_CM_TRASH}</button>
       </div>
       <div class="cm-content">${_cmEsc(e.content)}</div>
     </div>`;
@@ -3033,13 +3040,46 @@ function cmSearch(slug, q) {
   }, 200);
 }
 
-async function cmDeleteEntry(slug, kind, ts) {
+async function cmDeleteEntry(id) {
   if (!confirm('Delete this entry? This cannot be undone.')) return;
   try {
-    const r = await fetch('api/code-memory/delete-entry', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slug, kind, ts})});
+    const r = await fetch('api/code-memory/delete-entry', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id})});
     if (!r.ok) { alert('Delete failed (' + r.status + ')'); return; }
   } catch (e) { alert('Delete failed: ' + e); return; }
   loadCodeMemory();
+}
+
+function cmEditEntry(btn) {
+  const entry = btn.closest('.cm-entry');
+  if (!entry || entry.querySelector('.cm-edit')) return;  // already editing
+  const id = entry.dataset.id;
+  const contentEl = entry.querySelector('.cm-content');
+  contentEl.style.display = 'none';
+  const box = document.createElement('div');
+  box.className = 'cm-edit';
+  const ta = document.createElement('textarea');
+  ta.className = 'cm-edit-area';
+  ta.value = contentEl.textContent;  // raw (decoded) text — safe to set via .value
+  const bar = document.createElement('div');
+  bar.className = 'cm-edit-bar';
+  const save = document.createElement('button');
+  save.className = 'cm-edit-save'; save.textContent = 'Save';
+  const cancel = document.createElement('button');
+  cancel.className = 'cm-edit-cancel'; cancel.textContent = 'Cancel';
+  bar.appendChild(cancel); bar.appendChild(save);
+  box.appendChild(ta); box.appendChild(bar);
+  contentEl.after(box);
+  ta.focus();
+  const close = () => { box.remove(); contentEl.style.display = ''; };
+  cancel.onclick = close;
+  save.onclick = async () => {
+    save.disabled = true;
+    try {
+      const r = await fetch('api/code-memory/update', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id, content: ta.value})});
+      if (!r.ok) { alert('Edit failed (' + r.status + ')'); save.disabled = false; return; }
+    } catch (e) { alert('Edit failed: ' + e); save.disabled = false; return; }
+    if (_cmOpenSlug) cmOpenProject(_cmOpenSlug);  // refresh card + counts + _cmKnowAll
+  };
 }
 async function cmDeleteProject(slug) {
   if (!confirm(`Delete ALL code memory for ${slug}? This cannot be undone.`)) return;

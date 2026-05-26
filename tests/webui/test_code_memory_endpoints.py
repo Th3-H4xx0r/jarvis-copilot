@@ -118,3 +118,35 @@ def test_projects_counts_match_writes(monkeypatch, tmp_path):
     routes._handle_code_memory_projects(h)
     meta = _json(h)["projects"]["s3"]
     assert meta["knowledge_count"] == 2 and meta["sessions_count"] == 0
+
+
+def test_read_returns_ids_then_update_and_delete_by_id(monkeypatch, tmp_path):
+    from urllib.parse import urlparse
+    routes = _routes(monkeypatch, tmp_path)
+    _write(routes, "s4", "bug", "original")
+    hr = FakeHandler()
+    routes._handle_code_memory_read(hr, urlparse("/api/code-memory?project=s4&kind=knowledge"))
+    row = _json(hr)["entries"][0]
+    assert row["id"].startswith("s4::knowledge::")
+    # edit in place
+    hu = FakeHandler()
+    routes._handle_code_memory_update(hu, {"id": row["id"], "content": "edited", "entry_type": "fix"})
+    assert _json(hu)["ok"] is True
+    hr2 = FakeHandler()
+    routes._handle_code_memory_read(hr2, urlparse("/api/code-memory?project=s4&kind=knowledge"))
+    edited = _json(hr2)["entries"][0]
+    assert edited["content"] == "edited" and edited["entry_type"] == "fix"
+    # delete by id
+    hd = FakeHandler()
+    routes._handle_code_memory_delete_entry(hd, {"id": edited["id"]})
+    assert _json(hd)["ok"] is True
+    hr3 = FakeHandler()
+    routes._handle_code_memory_read(hr3, urlparse("/api/code-memory?project=s4&kind=knowledge"))
+    assert _json(hr3)["entries"] == []
+
+
+def test_update_requires_id_and_content(monkeypatch, tmp_path):
+    routes = _routes(monkeypatch, tmp_path)
+    h = FakeHandler()
+    routes._handle_code_memory_update(h, {"id": "x"})
+    assert h.status == 400

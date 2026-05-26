@@ -5379,6 +5379,8 @@ def handle_post(handler, parsed) -> bool:
         return _handle_code_memory_delete(handler, body)
     if parsed.path == "/api/code-memory/delete-entry":
         return _handle_code_memory_delete_entry(handler, body)
+    if parsed.path == "/api/code-memory/update":
+        return _handle_code_memory_update(handler, body)
 
     # ── Profile API (POST) ──
     if parsed.path == "/api/profile/switch":
@@ -10385,16 +10387,32 @@ def _handle_code_memory_delete(handler, body):
 
 
 def _handle_code_memory_delete_entry(handler, body):
+    from agent import code_memory as cm
+    if body.get("id"):  # precise single-entry delete (preferred)
+        return j(handler, {"ok": cm.delete_by_id(body["id"], home=_code_mem_home())})
     try:
         require(body, "slug", "kind", "ts")
     except ValueError as e:
         return bad(handler, str(e))
-    from agent import code_memory as cm
     try:
         removed = cm.delete_entry(body["slug"], body["kind"], body["ts"], home=_code_mem_home())
     except ValueError as e:
         return bad(handler, str(e))
     return j(handler, {"ok": True, "removed": removed})
+
+
+def _handle_code_memory_update(handler, body):
+    try:
+        require(body, "id", "content")
+    except ValueError as e:
+        return bad(handler, str(e))
+    from agent import code_memory as cm
+    try:
+        res = cm.update_by_id(body["id"], body["content"], body.get("entry_type") or None,
+                              home=_code_mem_home())
+    except ValueError as e:
+        return bad(handler, str(e))
+    return j(handler, res)
 
 
 def _handle_code_memory_read(handler, parsed):

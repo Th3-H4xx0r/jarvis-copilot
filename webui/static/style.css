@@ -2539,6 +2539,10 @@ main.main.showing-devices > #mainDevices{display:flex;overflow-y:auto;}
 main.main.showing-logs > #mainLogs{display:flex;}
 main.main.showing-selfimprovement > #mainSelfimprovement{display:flex;overflow-y:auto;}
 main.main.showing-codememory > #mainCodememory{display:flex;flex-direction:column;}
+/* Code Memory has its own project nav — reclaim the (empty) conversation sidebar
+   for full-width content. Desktop only; on mobile the sidebar is the off-canvas
+   nav menu, so leave it alone. */
+@media(min-width:641px){ body.cm-fullwidth .sidebar{display:none;} }
 /* ============ Code Memory tab ============ */
 .cm-header{display:flex;align-items:center;gap:14px;padding:13px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap;}
 .cm-header-title{display:flex;align-items:center;gap:8px;font-size:0.92rem;font-weight:650;color:var(--text);margin-right:auto;}
@@ -2580,9 +2584,19 @@ main.main.showing-codememory > #mainCodememory{display:flex;flex-direction:colum
 .cm-type{font-size:0.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 9px;border-radius:var(--radius-pill);border:1px solid transparent;white-space:nowrap;}
 .cm-ts{font-size:0.72rem;color:var(--muted);margin-left:auto;white-space:nowrap;}
 .cm-content{font-size:0.875rem;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-word;}
-.cm-del{flex-shrink:0;background:none;border:0;cursor:pointer;color:var(--muted);opacity:0;transition:opacity .12s,color .12s,background .12s;padding:3px;border-radius:5px;display:inline-flex;align-items:center;}
-.cm-entry:hover .cm-del{opacity:.65;}
-.cm-del:hover{opacity:1;color:#ef4444;background:rgba(239,68,68,.12);}
+.cm-act{flex-shrink:0;background:none;border:0;cursor:pointer;color:var(--muted);opacity:0;transition:opacity .12s,color .12s,background .12s;padding:3px;border-radius:5px;display:inline-flex;align-items:center;}
+.cm-entry:hover .cm-act{opacity:.6;}
+.cm-act:hover{opacity:1;color:var(--accent-text);background:var(--accent-bg);}
+.cm-del:hover{color:#ef4444;background:rgba(239,68,68,.12);}
+.cm-edit{margin-top:8px;}
+.cm-edit-area{width:100%;min-height:92px;resize:vertical;background:var(--input-bg);border:1px solid var(--border2);border-radius:var(--radius-md);color:var(--text);font:inherit;font-size:0.875rem;line-height:1.55;padding:9px 11px;box-sizing:border-box;}
+.cm-edit-area:focus{outline:none;border-color:var(--accent-bg-strong);}
+.cm-edit-bar{display:flex;justify-content:flex-end;gap:8px;margin-top:8px;}
+.cm-edit-save,.cm-edit-cancel{font-size:0.8rem;padding:5px 14px;border-radius:var(--radius-md);cursor:pointer;border:1px solid var(--border2);background:none;color:var(--text);}
+.cm-edit-save{background:var(--accent-bg-strong);border-color:var(--accent);color:var(--accent-text);font-weight:600;}
+.cm-edit-save:hover{background:var(--accent-bg);}
+.cm-edit-cancel:hover{background:var(--hover-bg);}
+.cm-edit-save:disabled{opacity:.6;cursor:default;}
 
 .cm-del-proj{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;background:none;border:1px solid var(--border2);color:var(--muted);cursor:pointer;font-size:0.78rem;padding:6px 12px;border-radius:var(--radius-md);transition:all .12s;}
 .cm-del-proj:hover{border-color:#ef4444;color:#ef4444;background:rgba(239,68,68,.08);}

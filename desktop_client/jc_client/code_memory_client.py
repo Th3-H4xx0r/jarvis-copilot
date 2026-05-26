@@ -93,6 +93,19 @@ def delete_entry(slug, kind, ts):
                                 {"slug": slug, "kind": kind, "ts": ts}).json()
 
 
+def delete_by_id(eid):
+    """Precise single-entry delete by id (slug::kind::ts::ordinal)."""
+    return _http().request_json("POST", "/api/code-memory/delete-entry", {"id": eid}).json()
+
+
+def update(eid, content, entry_type=""):
+    """Edit one entry in place by id; optionally change its entry_type."""
+    body = {"id": eid, "content": content}
+    if entry_type:
+        body["entry_type"] = entry_type
+    return _http().request_json("POST", "/api/code-memory/update", body).json()
+
+
 def projects():
     return _http().request_json("GET", "/api/code-memory/projects").json().get("projects", {})
 

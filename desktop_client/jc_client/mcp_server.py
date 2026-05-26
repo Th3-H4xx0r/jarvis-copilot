@@ -61,9 +61,23 @@ def _recall_session_handoff(project: str | None = None, limit: int = 3) -> str:
     try:
         slug = project or cmc.current_slug()
         rows = cmc.recall(slug, "sessions", limit=limit)
-        return "\n\n".join(f"[{r.get('ts','')}] {r.get('content','')}" for r in rows) or "(no prior sessions)"
+        return "\n\n".join(f"{r.get('id','')}  [{r.get('ts','')}]\n{r.get('content','')}" for r in rows) or "(no prior sessions)"
     except cmc.NotPaired as e:
         return f"error: {e}"
+
+
+def _edit_code_memory(eid: str, content: str, entry_type: str = "") -> dict:
+    try:
+        return cmc.update(eid, content, entry_type or "")
+    except cmc.NotPaired as e:
+        return {"error": str(e)}
+
+
+def _delete_code_memory(eid: str) -> dict:
+    try:
+        return cmc.delete_by_id(eid)
+    except cmc.NotPaired as e:
+        return {"error": str(e)}
 
 
 def _query_memory(query: str = "") -> str:
@@ -131,6 +145,22 @@ def build_server():
         """Fetch the FULL bodies of specific knowledge entries by their ids (from
         recall_code_knowledge). Fetch only the ids you actually need."""
         return _get_code_knowledge(ids)
+
+    @mcp.tool()
+    def edit_code_memory(id: str, content: str, entry_type: str = "") -> dict:
+        """Edit an existing entry IN PLACE by its id (ids come from
+        recall_code_knowledge / recall_session_handoff). Replaces its content — and
+        entry_type if given (knowledge: bug|fix|repo_structure|gotcha|decision|note) —
+        while preserving its timestamp. Prefer this over storing a near-duplicate when
+        correcting or shortening a fact."""
+        return _edit_code_memory(id, content, entry_type)
+
+    @mcp.tool()
+    def delete_code_memory(id: str) -> dict:
+        """Delete a single code-memory entry by its id (from recall_code_knowledge /
+        recall_session_handoff). Precise — removes only that entry. Use for stale,
+        wrong, or duplicate entries."""
+        return _delete_code_memory(id)
 
     @mcp.tool()
     def store_session_handoff(content: str, project: str = "") -> dict:

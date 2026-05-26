@@ -41,4 +41,11 @@ SHAs, or "Phase N done" (stale within a week) — those go in the handoff below.
 `code_memory action=store kind=sessions entry_type=jarviscopilot content="<what you did; current state; open threads/next steps>"`
 so the next session (here or in Claude) picks up with full context.
 
+## FIX or REMOVE an entry
+Every row from `search`/`recall` carries an `id`. To keep memory correct instead
+of piling on duplicates:
+- `code_memory action=edit id="<id>" content="…"` (optional `entry_type=…`) —
+  edits that entry in place, preserving its timestamp.
+- `code_memory action=delete id="<id>"` — removes just that one entry.
+
 Project scope is automatic (derived from the repo's git remote / directory).

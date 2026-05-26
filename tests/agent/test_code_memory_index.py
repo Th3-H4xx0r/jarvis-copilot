@@ -148,6 +148,52 @@ def test_get_by_ids_falls_back_to_markdown(tmp_path, monkeypatch):
     assert full and "null deref" in full[0]["content"]
 
 
+def test_read_entries_carries_id(tmp_path):
+    cm.write_entry("p1", "knowledge", "bug", "boom", home=tmp_path)
+    rows = cm.read_entries("p1", "knowledge", home=tmp_path)
+    assert rows[0]["id"].startswith("p1::knowledge::") and rows[0]["id"].endswith("::0")
+
+
+def test_update_by_id_edits_in_place(tmp_path):
+    cm.write_entry("p1", "knowledge", "bug", "original text", home=tmp_path)
+    eid = cm.read_entries("p1", "knowledge", home=tmp_path)[0]["id"]
+    res = cm.update_by_id(eid, "corrected text", entry_type="fix", home=tmp_path)
+    assert res["ok"] and res["entry_type"] == "fix"
+    rows = cm.read_entries("p1", "knowledge", home=tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["content"] == "corrected text" and rows[0]["entry_type"] == "fix"
+    assert rows[0]["id"] == eid  # ts/ordinal preserved
+
+
+def test_update_by_id_keeps_type_when_omitted_and_warns_when_long(tmp_path):
+    cm.write_entry("p1", "knowledge", "gotcha", "short", home=tmp_path)
+    eid = cm.read_entries("p1", "knowledge", home=tmp_path)[0]["id"]
+    res = cm.update_by_id(eid, "y" * (cm.SOFT_ENTRY_CHARS + 10), home=tmp_path)
+    assert res["ok"] and res["entry_type"] == "gotcha" and "warning" in res
+
+
+def test_update_bad_id_returns_not_ok(tmp_path):
+    assert cm.update_by_id("nope", "x", home=tmp_path)["ok"] is False
+
+
+def test_delete_by_id_is_precise_for_same_timestamp(tmp_path):
+    f = cm._file("pY", "knowledge", tmp_path)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    ts = "2026-05-26T12:00:00Z"
+    f.write_text(f"\n{cm._SEP}## {ts} \xb7 note\nKEEP first\n"
+                 f"\n{cm._SEP}## {ts} \xb7 fix\nDELETE second\n", encoding="utf-8")
+    rows = cm.read_entries("pY", "knowledge", home=tmp_path)
+    second = next(r for r in rows if r["content"] == "DELETE second")
+    assert cm.delete_by_id(second["id"], home=tmp_path) is True
+    left = cm.read_entries("pY", "knowledge", home=tmp_path)
+    assert len(left) == 1 and left[0]["content"] == "KEEP first"  # sibling survives
+
+
+def test_delete_by_id_unknown_returns_false(tmp_path):
+    cm.write_entry("p1", "knowledge", "bug", "x", home=tmp_path)
+    assert cm.delete_by_id("p1::knowledge::2099-01-01T00:00:00Z::0", home=tmp_path) is False
+
+
 def test_same_timestamp_fallback_matches_index(tmp_path, monkeypatch):
     """Two entries sharing a ts must get distinct, matching ids from BOTH the
     index and the markdown fallback, and get_by_ids must resolve each correctly."""

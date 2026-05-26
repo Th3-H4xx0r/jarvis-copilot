@@ -25,8 +25,11 @@ web-UI "Code Memory" tab and Claude Code's jarviscopilot-code-assist plugin use.
   `code_memory action=store kind=knowledge entry_type=<bug|fix|repo_structure|gotcha|decision|note> content="…"`.
   Store a SHORT declarative fact (1-3 sentences); keep run-specific results in a
   session handoff (`kind=sessions`), not knowledge.
-- **"Forget that … / delete that entry"** → find the entry's timestamp via
-  `recall`, then `code_memory action=delete_entry kind=<…> ts=<ts> project=<…>`.
+- **"Edit / fix / shorten that entry"** → find its `id` via `recall`/`search`,
+  then `code_memory action=edit id=<id> content="…"` (optionally `entry_type=…`).
+  Edits in place, preserving the timestamp.
+- **"Forget that … / delete that entry"** → find its `id` via `recall`/`search`,
+  then `code_memory action=delete id=<id>` (precise — removes only that entry).
 - **"Wipe / delete all memory for X"** → `code_memory action=delete_project project=<X>`.
   **Always confirm with the user before delete_project** — it removes everything
   for that project and cannot be undone.

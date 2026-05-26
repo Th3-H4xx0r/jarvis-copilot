@@ -114,14 +114,18 @@ def write_entry(slug, kind, entry_type, content, home: Any = None) -> dict:
     with open(f, "a", encoding="utf-8") as fh:
         fh.write(block)
     res = {"ts": ts, "entry_type": entry_type}
-    if kind == "knowledge" and len(content) > SOFT_ENTRY_CHARS:
-        res["warning"] = (
-            f"Stored, but this entry is {len(content)} chars. Code-memory knowledge "
-            "should be a short declarative fact (1-3 sentences, ~400 chars). Trim to the "
-            "durable nugget or split it; keep run-specific results/numbers in a session "
-            "handoff, not knowledge."
-        )
+    w = _length_warning(kind, content)
+    if w:
+        res["warning"] = w
     return res
+
+
+def _length_warning(kind: str, content: str) -> str | None:
+    if kind == "knowledge" and len(content) > SOFT_ENTRY_CHARS:
+        return (f"This entry is {len(content)} chars. Code-memory knowledge should be a short "
+                "declarative fact (1-3 sentences, ~400 chars). Trim to the durable nugget or "
+                "split it; keep run-specific results/numbers in a session handoff, not knowledge.")
+    return None
 
 
 # Each entry header is prefixed with a record-separator control char (U+001E)
@@ -152,10 +156,15 @@ def read_entries(slug, kind, limit: int = _DEFAULT_LIMIT, home: Any = None) -> l
     if not f.exists():
         return []
     text = f.read_text(encoding="utf-8", errors="replace")
-    rows = [
-        {"ts": m.group("ts"), "entry_type": m.group("type").strip(), "content": m.group("body").strip()}
-        for m in _entries_re(text).finditer(text)
-    ]
+    safe = _sanitize(slug)
+    seen: dict[str, int] = {}
+    rows = []
+    for m in _entries_re(text).finditer(text):  # file order (oldest first)
+        ts = m.group("ts")
+        o = seen.get(ts, 0)
+        seen[ts] = o + 1
+        rows.append({"id": f"{safe}::{kind}::{ts}::{o}", "ts": ts,
+                     "entry_type": m.group("type").strip(), "content": m.group("body").strip()})
     rows.reverse()  # newest first
     if not isinstance(limit, int) or limit <= 0:
         limit = _DEFAULT_LIMIT
@@ -181,9 +190,95 @@ def delete_entry(slug, kind, ts, home: Any = None) -> int:
     if removed:
         # Rewrite in the sentinel format regardless of the source (migrates a
         # legacy file on first edit so future parses are collision-proof).
-        out = "".join(f"\n{_SEP}## {t} \xb7 {ty}\n{b}\n" for (t, ty, b) in kept)
-        f.write_text(out, encoding="utf-8")
+        _rewrite(f, kept)
     return removed
+
+
+def _parse_id(eid: str):
+    """slug::kind::ts::ordinal -> (slug, kind, ts, ordinal) or None."""
+    parts = (eid or "").split("::")
+    if len(parts) < 4:
+        return None
+    slug, kind, ts = parts[0], parts[1], parts[2]
+    if kind not in KINDS:
+        return None
+    try:
+        return slug, kind, ts, int(parts[3])
+    except ValueError:
+        return None
+
+
+def _rewrite(f, kept) -> None:
+    """Rewrite a file from (ts, entry_type, body) tuples in the sentinel format."""
+    out = "".join(f"\n{_SEP}## {t} \xb7 {ty}\n{b}\n" for (t, ty, b) in kept)
+    f.write_text(out, encoding="utf-8")
+
+
+def delete_by_id(eid, home: Any = None) -> bool:
+    """Delete exactly one entry (slug::kind::ts::ordinal). Precise — unlike
+    delete_entry it never removes a sibling that merely shares the timestamp."""
+    parsed = _parse_id(eid)
+    if not parsed:
+        return False
+    slug, kind, ts, ordn = parsed
+    f = _file(slug, kind, home)
+    if not f.exists():
+        return False
+    text = f.read_text(encoding="utf-8", errors="replace")
+    seen: dict[str, int] = {}
+    kept, removed = [], False
+    for m in _entries_re(text).finditer(text):  # file order
+        t = m.group("ts")
+        o = seen.get(t, 0)
+        seen[t] = o + 1
+        if not removed and t == ts and o == ordn:
+            removed = True
+            continue
+        kept.append((t, m.group("type").strip(), m.group("body").strip()))
+    if removed:
+        _rewrite(f, kept)
+    return removed
+
+
+def update_by_id(eid, content, entry_type=None, home: Any = None) -> dict:
+    """Edit one entry in place, preserving its timestamp and position. Optionally
+    change its entry_type. Returns {ok, id, ...} (+ a warning for long knowledge)."""
+    parsed = _parse_id(eid)
+    if not parsed:
+        return {"ok": False, "error": "bad id"}
+    slug, kind, ts, ordn = parsed
+    if len(content.encode("utf-8")) > MAX_ENTRY_BYTES:
+        raise ValueError(f"content exceeds {MAX_ENTRY_BYTES} bytes")
+    if entry_type is not None:
+        if kind == "knowledge" and entry_type not in KNOWLEDGE_TYPES:
+            raise ValueError(f"entry_type must be one of {KNOWLEDGE_TYPES}")
+        if kind == "sessions" and entry_type not in SESSION_SURFACES:
+            raise ValueError(f"surface must be one of {SESSION_SURFACES}")
+    f = _file(slug, kind, home)
+    if not f.exists():
+        return {"ok": False, "error": "not found"}
+    text = f.read_text(encoding="utf-8", errors="replace")
+    seen: dict[str, int] = {}
+    kept, found, new_type = [], False, entry_type
+    for m in _entries_re(text).finditer(text):  # file order
+        t = m.group("ts")
+        ty = m.group("type").strip()
+        b = m.group("body").strip()
+        o = seen.get(t, 0)
+        seen[t] = o + 1
+        if not found and t == ts and o == ordn:
+            found = True
+            new_type = entry_type or ty
+            ty, b = new_type, content.rstrip()
+        kept.append((t, ty, b))
+    if not found:
+        return {"ok": False, "error": "not found"}
+    _rewrite(f, kept)
+    res = {"ok": True, "id": eid, "ts": ts, "entry_type": new_type}
+    w = _length_warning(kind, content)
+    if w:
+        res["warning"] = w
+    return res
 
 
 def delete_project(slug, home: Any = None) -> bool:

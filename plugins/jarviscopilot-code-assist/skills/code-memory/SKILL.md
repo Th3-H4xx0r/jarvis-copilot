@@ -46,9 +46,20 @@ Run-specific findings and "where I left off" go in a **session handoff**, not
 knowledge: call `store_session_handoff` (what you did, current state, open
 threads). The Stop hook will also remind you periodically — but store as you go.
 
-If a fact supersedes one you recalled, store the corrected version concisely and
-say what changed; don't pile on many near-identical entries (the periodic
-`jc-client code-memory distill` pass merges and trims near-duplicates).
+## EDIT / DELETE — keep memory correct, don't pile on duplicates
+
+Every recalled row carries an `id` (`recall_code_knowledge` and
+`recall_session_handoff` both return ids). Use it to fix the store in place
+rather than appending near-duplicates:
+
+- **`edit_code_memory(id, content[, entry_type])`** — replace an entry's content
+  (and optionally its type) in place, preserving its timestamp. Use to shorten a
+  bloated entry or correct a fact that changed.
+- **`delete_code_memory(id)`** — remove a single stale, wrong, or duplicate entry.
+  Precise: only that entry is affected.
+
+When a fact is superseded, **edit the existing entry** (or delete + store) instead
+of leaving both around.
 
 ## Other tools
 
