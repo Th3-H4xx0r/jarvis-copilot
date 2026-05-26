@@ -540,7 +540,7 @@ def cmd_code_memory(args) -> int:
                 for r in know:
                     print(f"- [{r.get('entry_type','')}] {r.get('content','')}")
     except cmc.NotPaired as e:
-        print(f"(jarvisclaw-code-assist: {e})")
+        print(f"(jarviscopilot-code-assist: {e})")
     return 0
 
 
@@ -648,7 +648,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Launch the full terminal UI (attached to the paired server)",
     ).set_defaults(func=cmd_tui)
 
-    sub.add_parser("mcp-serve", help="Run the jarvisclaw-code-assist MCP server (stdio)").set_defaults(func=cmd_mcp_serve)
+    sub.add_parser("mcp-serve", help="Run the jarviscopilot-code-assist MCP server (stdio)").set_defaults(func=cmd_mcp_serve)
     cmsub = sub.add_parser("code-memory", help="Project code-memory (bootstrap/recall/store/projects)")
     cmsubp = cmsub.add_subparsers(dest="cm_command", required=True)
     cmsubp.add_parser("bootstrap")

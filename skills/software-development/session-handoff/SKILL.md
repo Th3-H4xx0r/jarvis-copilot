@@ -12,7 +12,7 @@ metadata:
 
 This project's coding knowledge and session history are stored in the shared
 code-memory (the `code_memory` tool), scoped to the current repo. The SAME store
-is used by Claude Code (via the jarvisclaw-code-assist MCP server) — so context
+is used by Claude Code (via the jarviscopilot-code-assist MCP server) — so context
 carries across both surfaces.
 
 ## At the START of coding work in a repo

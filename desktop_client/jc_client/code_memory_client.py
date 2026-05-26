@@ -65,3 +65,25 @@ def recall(slug, kind, limit=50):
 
 def projects():
     return _http().request_json("GET", "/api/code-memory/projects").json().get("projects", {})
+
+
+def ask_agent(question: str, skill: str | None = None, timeout: float = 180.0) -> str:
+    """One-shot question to the JarvisCopilot agent (uses its model + skills +
+    memory). Runs an ephemeral side-session via /api/btw and returns the answer.
+    If `skill` is given, the prompt directs the agent to use that skill."""
+    msg = question if not skill else f"Use the {skill} skill. Input:\n{question}"
+    http = _http()  # raises NotPaired if unpaired
+    session_id = ((http.request_json("POST", "/api/session/new", {}).json().get("session") or {})
+                  .get("session_id"))
+    if not session_id:
+        return "error: could not create a session"
+    stream_id = http.request_json(
+        "POST", "/api/btw", {"session_id": session_id, "question": msg}
+    ).json().get("stream_id")
+    if not stream_id:
+        return "error: agent did not start"
+    data = http.get_sse_event(
+        f"/api/chat/stream?stream_id={quote(stream_id)}", "done", timeout=timeout)
+    if not data:
+        return "error: no response from the agent (timed out)"
+    return str(data.get("answer", "")).strip() or "(empty answer)"

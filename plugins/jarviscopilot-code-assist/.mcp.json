@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "jarvisclaw-code-assist": {
+    "jarviscopilot-code-assist": {
       "command": "jc-client",
       "args": ["mcp-serve"]
     }

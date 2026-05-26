@@ -223,6 +223,65 @@ class HttpClient:
                 pass
         return _parse_http_response(raw)
 
+    def get_sse_event(self, path: str, event_name: str, timeout: float = 180.0):
+        """GET a Server-Sent-Events stream and return the JSON ``data`` of the
+        first ``event: <event_name>`` block, or None on EOF/timeout. Reads
+        incrementally and stops at the match. The webui runs HTTP/1.0 (no chunked
+        transfer-encoding), so events are plain ``event:``/``data:`` lines."""
+        full_path = self._prefix + path
+        lines = [
+            f"GET {full_path} HTTP/1.1",
+            f"Host: {self._host}:{self._port}",
+            "Accept: text/event-stream",
+        ]
+        if self.cookie:
+            lines.append(f"Cookie: {self.cookie}")
+        lines.append("Connection: close")
+        req = ("\r\n".join(lines) + "\r\n\r\n").encode("ascii")
+        sock, _ = self._connect()
+        try:
+            sock.settimeout(timeout)
+            sock.sendall(req)
+            buf = b""
+            while b"\r\n\r\n" not in buf:           # consume + drop the HTTP headers
+                chunk = sock.recv(_RECV_CHUNK)
+                if not chunk:
+                    return None
+                buf += chunk
+            buf = buf.split(b"\r\n\r\n", 1)[1]
+            while True:
+                while b"\n\n" in buf:               # one SSE block per \n\n
+                    block, buf = buf.split(b"\n\n", 1)
+                    ev, data = _parse_sse_block(block.decode("utf-8", "replace"))
+                    if ev == event_name:
+                        try:
+                            return json.loads(data) if data else {}
+                        except Exception:
+                            return {}
+                chunk = sock.recv(_RECV_CHUNK)
+                if not chunk:
+                    return None
+                buf += chunk
+        except OSError:                              # includes socket.timeout
+            return None
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+
+def _parse_sse_block(text: str):
+    """Parse one SSE block → (event_name, data_string)."""
+    event = ""
+    data = []
+    for ln in text.splitlines():
+        if ln.startswith("event:"):
+            event = ln[len("event:"):].strip()
+        elif ln.startswith("data:"):
+            data.append(ln[len("data:"):].lstrip())
+    return event, "\n".join(data)
+
 
 def _parse_http_response(raw: bytes) -> HttpResponse:
     """Bare-minimum HTTP/1.1 parser. Handles Content-Length OR

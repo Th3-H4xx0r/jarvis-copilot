@@ -1,4 +1,4 @@
-"""jarvisclaw-code-assist MCP server — exposes JarvisCopilot's shared code-memory
+"""jarviscopilot-code-assist MCP server — exposes JarvisCopilot's shared code-memory
 (+ general memory query) to Claude Code over stdio. Reaches hermes via the paired
 pinned connection (code_memory_client)."""
 from __future__ import annotations
@@ -67,9 +67,23 @@ def _query_memory(query: str = "") -> str:
         return f"error: {e}"
 
 
+def _ask(question: str) -> str:
+    try:
+        return cmc.ask_agent(question)
+    except cmc.NotPaired as e:
+        return f"error: {e}"
+
+
+def _run_skill(skill: str, tool_input: str = "") -> str:
+    try:
+        return cmc.ask_agent(tool_input, skill=skill)
+    except cmc.NotPaired as e:
+        return f"error: {e}"
+
+
 def build_server():
     from mcp.server.fastmcp import FastMCP
-    mcp = FastMCP("jarvisclaw-code-assist")
+    mcp = FastMCP("jarviscopilot-code-assist")
 
     @mcp.tool()
     def register_project(name: str, root: str = "", remote: str = "") -> dict:
@@ -100,6 +114,16 @@ def build_server():
     def query_memory(query: str = "") -> str:
         """Read JarvisCopilot's general memory (MEMORY.md / USER.md)."""
         return _query_memory(query)
+
+    @mcp.tool()
+    def ask(question: str) -> str:
+        """Ask the JarvisCopilot agent a one-shot question (uses its model, skills, and memory). Slower than recall — use for reasoning/help, not for memory lookups."""
+        return _ask(question)
+
+    @mcp.tool()
+    def run_skill(skill: str, tool_input: str = "") -> str:
+        """Run a named JarvisCopilot skill on the given input via a one-shot agent turn."""
+        return _run_skill(skill, tool_input)
 
     return mcp
 

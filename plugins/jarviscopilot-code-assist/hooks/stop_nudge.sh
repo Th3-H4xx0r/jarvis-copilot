@@ -6,7 +6,7 @@ input="$(cat 2>/dev/null)"
 sid="$(printf '%s' "$input" | python3 -c 'import sys,json
 try: print(json.load(sys.stdin).get("session_id",""))
 except Exception: print("")' 2>/dev/null)"
-mark="${TMPDIR:-/tmp}/jarvisclaw_handoff_${sid:-default}"
+mark="${TMPDIR:-/tmp}/jarviscopilot_handoff_${sid:-default}"
 if [ ! -f "$mark" ]; then
   : > "$mark" 2>/dev/null || true
   echo "Before finishing: persist this session to JarvisCopilot — call store_session_handoff (what you did, current state, open threads) and store_code_knowledge for any durable learnings (bugs/fixes/repo structure/gotchas/decisions)."

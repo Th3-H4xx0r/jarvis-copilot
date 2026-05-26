@@ -1,5 +1,5 @@
 {
-  "name": "jarvisclaw-code-assist",
+  "name": "jarviscopilot-code-assist",
   "description": "JarvisCopilot as Claude's cross-project coding memory + session handoff. Registers each project, stores/recalls coding knowledge and session handoffs in JarvisCopilot's memory (shared with the JarvisCopilot TUI), and exposes query_memory.",
   "version": "0.1.0",
   "author": {"name": "Pranav"}
