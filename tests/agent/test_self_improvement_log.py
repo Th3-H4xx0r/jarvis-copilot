@@ -47,3 +47,12 @@ def test_commit_home_change_noop_without_git(home):
     from agent import self_improvement_log as sil
     # No .git in home → returns False, never raises.
     assert sil.commit_home_change("nothing") is False
+
+
+def test_log_rejected_appends_line(home):
+    from agent import self_improvement_log as sil
+    sil.log_rejected("background_review", "invalid skill frontmatter: missing name")
+    log = (home / "self_improvement.log").read_text(encoding="utf-8")
+    assert "REJECTED" in log
+    assert "invalid skill frontmatter" in log
+    assert "background_review" in log

@@ -321,6 +321,55 @@ def summarize_background_review_actions(
     return actions
 
 
+def summarize_background_review_failures(
+    review_messages: List[Dict],
+    prior_snapshot: List[Dict],
+) -> List[str]:
+    """Collect FAILED memory/skill tool results from a review pass.
+
+    The success summary (above) skips ``success: False`` results, so a skill
+    create rejected by frontmatter validation, a name collision, or a memory
+    char-limit hit vanishes silently — it looks like "nothing happened" even
+    though the agent tried to save something. We surface these to the
+    self-improvement log so a botched self-evolution attempt is diagnosable
+    rather than invisible. Prior-snapshot tool messages are skipped (same
+    inherited-history guard as the success path, #14944).
+    """
+    existing_tool_call_ids = set()
+    existing_tool_contents = set()
+    for prior in prior_snapshot or []:
+        if not isinstance(prior, dict) or prior.get("role") != "tool":
+            continue
+        tcid = prior.get("tool_call_id")
+        if tcid:
+            existing_tool_call_ids.add(tcid)
+        else:
+            content = prior.get("content")
+            if isinstance(content, str):
+                existing_tool_contents.add(content)
+
+    failures: List[str] = []
+    for msg in review_messages or []:
+        if not isinstance(msg, dict) or msg.get("role") != "tool":
+            continue
+        tcid = msg.get("tool_call_id")
+        if tcid and tcid in existing_tool_call_ids:
+            continue
+        if not tcid:
+            content_str = msg.get("content")
+            if isinstance(content_str, str) and content_str in existing_tool_contents:
+                continue
+        try:
+            data = json.loads(msg.get("content", "{}"))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(data, dict) or data.get("success") is not False:
+            continue
+        err = data.get("error") or data.get("message") or "unknown error"
+        failures.append(str(err).strip()[:200])
+    return failures
+
+
 def build_memory_write_metadata(
     agent: Any,
     *,
@@ -587,6 +636,21 @@ def _run_review_in_thread(
                 except Exception:
                     pass
 
+        # Log rejected memory/skill writes so a silently-dropped self-evolution
+        # attempt (e.g. invalid skill frontmatter, name collision, char limit)
+        # is diagnosable instead of vanishing. Log-only (not surfaced to the
+        # user) since the review often retries and succeeds.
+        try:
+            _failures = summarize_background_review_failures(
+                review_messages, messages_snapshot
+            )
+            if _failures:
+                from agent import self_improvement_log as _sil
+                for _f in dict.fromkeys(_failures):
+                    _sil.log_rejected(origin, _f)
+        except Exception:
+            pass
+
     except Exception as e:
         logger.warning("Background memory/skill review failed: %s", e)
         try:
@@ -687,5 +751,6 @@ __all__ = [
     "_RETROSPECTIVE_REVIEW_PROMPT",
     "spawn_background_review_thread",
     "summarize_background_review_actions",
+    "summarize_background_review_failures",
     "build_memory_write_metadata",
 ]

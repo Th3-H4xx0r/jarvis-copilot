@@ -46,6 +46,16 @@ def log_failure(origin: str, exc: BaseException) -> None:
     _append(f"[{origin}] FAIL: {type(exc).__name__}: {exc}")
 
 
+def log_rejected(origin: str, detail: str) -> None:
+    """Record a memory/skill write the agent attempted but that was REJECTED.
+
+    e.g. invalid skill frontmatter, a name collision, or a memory char-limit
+    hit. These never appear in the success summary, so without this a botched
+    self-evolution attempt is a silent drop that looks like nothing happened.
+    """
+    _append(f"[{origin}] REJECTED: {detail}")
+
+
 def commit_home_change(message: str) -> bool:
     """Best-effort: stage + commit all changes in HERMES_HOME. Returns True iff committed.
 
@@ -76,4 +86,4 @@ def commit_home_change(message: str) -> bool:
         return False
 
 
-__all__ = ["log_change", "log_failure", "commit_home_change"]
+__all__ = ["log_change", "log_failure", "log_rejected", "commit_home_change"]
