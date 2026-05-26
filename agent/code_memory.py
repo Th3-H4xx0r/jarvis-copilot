@@ -177,12 +177,19 @@ def delete_project(slug, home: Any = None) -> bool:
 
 
 def stats(home: Any = None) -> dict:
-    """Global counts across all projects."""
+    """Global counts across all projects (registered + unregistered dirs)."""
     idx = list_projects(home)
+    root = _root(home)
+    # collect all slugs: registered ones + any subdirs that have .md files
+    slugs: set = set(idx.keys())
+    if root.is_dir():
+        for d in root.iterdir():
+            if d.is_dir() and any(d.glob("*.md")):
+                slugs.add(d.name)
     total_k = total_s = 0
     by_type: dict = {}
     last = None
-    for slug in idx:
+    for slug in slugs:
         for row in read_entries(slug, "knowledge", limit=10 ** 9, home=home):
             total_k += 1
             by_type[row["entry_type"]] = by_type.get(row["entry_type"], 0) + 1
@@ -192,5 +199,5 @@ def stats(home: Any = None) -> dict:
             total_s += 1
             if last is None or row["ts"] > last:
                 last = row["ts"]
-    return {"projects": len(idx), "knowledge": total_k, "sessions": total_s,
+    return {"projects": len(slugs), "knowledge": total_k, "sessions": total_s,
             "by_type": by_type, "last_activity": last}

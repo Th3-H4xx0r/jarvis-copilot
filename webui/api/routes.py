@@ -4400,6 +4400,8 @@ def handle_get(handler, parsed) -> bool:
         return _handle_code_memory_read(handler, parsed)
     if parsed.path == "/api/code-memory/projects":
         return _handle_code_memory_projects(handler)
+    if parsed.path == "/api/code-memory/stats":
+        return _handle_code_memory_stats(handler)
 
     # ── Profile API (GET) ──
     if parsed.path == "/api/profiles":
@@ -5367,6 +5369,10 @@ def handle_post(handler, parsed) -> bool:
         return _handle_code_memory_register(handler, body)
     if parsed.path == "/api/code-memory/write":
         return _handle_code_memory_write(handler, body)
+    if parsed.path == "/api/code-memory/delete":
+        return _handle_code_memory_delete(handler, body)
+    if parsed.path == "/api/code-memory/delete-entry":
+        return _handle_code_memory_delete_entry(handler, body)
 
     # ── Profile API (POST) ──
     if parsed.path == "/api/profile/switch":
@@ -10304,7 +10310,39 @@ def _handle_code_memory_register(handler, body):
 
 def _handle_code_memory_projects(handler):
     from agent import code_memory as cm
-    return j(handler, {"projects": cm.list_projects(home=_code_mem_home())})
+    home = _code_mem_home()
+    idx = cm.list_projects(home=home)
+    for slug, meta in idx.items():
+        meta["knowledge_count"] = cm.count_entries(slug, "knowledge", home=home)
+        meta["sessions_count"] = cm.count_entries(slug, "sessions", home=home)
+    return j(handler, {"projects": idx})
+
+
+def _handle_code_memory_stats(handler):
+    from agent import code_memory as cm
+    return j(handler, cm.stats(home=_code_mem_home()))
+
+
+def _handle_code_memory_delete(handler, body):
+    try:
+        require(body, "slug")
+    except ValueError as e:
+        return bad(handler, str(e))
+    from agent import code_memory as cm
+    return j(handler, {"ok": cm.delete_project(body["slug"], home=_code_mem_home())})
+
+
+def _handle_code_memory_delete_entry(handler, body):
+    try:
+        require(body, "slug", "kind", "ts")
+    except ValueError as e:
+        return bad(handler, str(e))
+    from agent import code_memory as cm
+    try:
+        removed = cm.delete_entry(body["slug"], body["kind"], body["ts"], home=_code_mem_home())
+    except ValueError as e:
+        return bad(handler, str(e))
+    return j(handler, {"ok": True, "removed": removed})
 
 
 def _handle_code_memory_read(handler, parsed):
