@@ -500,8 +500,8 @@ def _run_review_in_thread(
             if state_override and state_override.get("own_store"):
                 from tools.memory_tool import MemoryStore as _MemoryStore
                 _own = _MemoryStore(
-                    memory_char_limit=getattr(agent._memory_store, "memory_char_limit", 2200),
-                    user_char_limit=getattr(agent._memory_store, "user_char_limit", 1375),
+                    memory_char_limit=getattr(agent._memory_store, "memory_char_limit", 4400),
+                    user_char_limit=getattr(agent._memory_store, "user_char_limit", 2750),
                 )
                 _own.load_from_disk()
                 review_agent._memory_store = _own
