@@ -4395,6 +4395,12 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/memory":
         return _handle_memory_read(handler)
 
+    # ── Code-Memory API (GET) ──
+    if parsed.path == "/api/code-memory":
+        return _handle_code_memory_read(handler, parsed)
+    if parsed.path == "/api/code-memory/projects":
+        return _handle_code_memory_projects(handler)
+
     # ── Profile API (GET) ──
     if parsed.path == "/api/profiles":
         from api.profiles import list_profiles_api, get_active_profile_name
@@ -5355,6 +5361,12 @@ def handle_post(handler, parsed) -> bool:
     # ── Memory (POST) ──
     if parsed.path == "/api/memory/write":
         return _handle_memory_write(handler, body)
+
+    # ── Code-Memory API (POST) ──
+    if parsed.path == "/api/code-memory/register":
+        return _handle_code_memory_register(handler, body)
+    if parsed.path == "/api/code-memory/write":
+        return _handle_code_memory_write(handler, body)
 
     # ── Profile API (POST) ──
     if parsed.path == "/api/profile/switch":
@@ -10266,6 +10278,62 @@ def _handle_memory_write(handler, body):
         return bad(handler, 'section must be "memory" or "user"')
     target.write_text(body["content"], encoding="utf-8")
     return j(handler, {"ok": True, "section": section, "path": str(target)})
+
+
+# ── Code-Memory API ──────────────────────────────────────────────────────────
+
+def _code_mem_home():
+    try:
+        from api.profiles import get_active_hermes_home
+        return get_active_hermes_home()
+    except ImportError:
+        from pathlib import Path
+        return Path.home() / ".jarviscopilot"
+
+
+def _handle_code_memory_register(handler, body):
+    try:
+        require(body, "slug", "name", "root")
+    except ValueError as e:
+        return bad(handler, str(e))
+    from agent import code_memory as cm
+    slug = cm._sanitize(body["slug"])
+    entry = cm.register_project(slug, body["name"], body["root"], body.get("remote", ""), home=_code_mem_home())
+    return j(handler, {"ok": True, "slug": slug, "entry": entry})
+
+
+def _handle_code_memory_projects(handler):
+    from agent import code_memory as cm
+    return j(handler, {"projects": cm.list_projects(home=_code_mem_home())})
+
+
+def _handle_code_memory_read(handler, parsed):
+    from urllib.parse import parse_qs
+    from agent import code_memory as cm
+    q = parse_qs(parsed.query or "")
+    slug = (q.get("project", [""])[0] or "").strip()
+    kind = (q.get("kind", ["knowledge"])[0] or "knowledge").strip()
+    try:
+        limit = int(q.get("limit", ["50"])[0])
+    except ValueError:
+        limit = 50
+    if not slug or kind not in cm.KINDS:
+        return bad(handler, "project and valid kind required")
+    rows = cm.read_entries(slug, kind, limit=limit, home=_code_mem_home())
+    return j(handler, {"slug": slug, "kind": kind, "entries": rows})
+
+
+def _handle_code_memory_write(handler, body):
+    try:
+        require(body, "slug", "kind", "entry_type", "content")
+    except ValueError as e:
+        return bad(handler, str(e))
+    from agent import code_memory as cm
+    try:
+        meta = cm.write_entry(body["slug"], body["kind"], body["entry_type"], body["content"], home=_code_mem_home())
+    except ValueError as e:
+        return bad(handler, str(e))
+    return j(handler, {"ok": True, **meta})
 
 
 def _normalize_message_for_import_refresh(message: object) -> object:
