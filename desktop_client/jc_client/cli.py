@@ -442,6 +442,14 @@ def cmd_tray(args) -> int:
     return 0
 
 
+def cmd_voice_popup(args) -> int:
+    """Open the draggable voice-orb popup window (blocks until closed)."""
+    from jc_client.voice_popup import run_voice_popup
+
+    run_voice_popup()
+    return 0
+
+
 # ── Main ───────────────────────────────────────────────────────────────────
 
 
@@ -495,6 +503,11 @@ def _build_parser() -> argparse.ArgumentParser:
     cfg.set_defaults(func=cmd_config)
 
     sub.add_parser("tray", help="Launch the system tray app").set_defaults(func=cmd_tray)
+
+    sub.add_parser(
+        "voice-popup",
+        help="Open the draggable voice-orb popup window",
+    ).set_defaults(func=cmd_voice_popup)
 
     up = sub.add_parser("unpair", help="Wipe saved credentials")
     up.add_argument("--yes", action="store_true", help="Skip confirmation")

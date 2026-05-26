@@ -97,6 +97,10 @@ class TrayApp:
         # service is alive in another process; we read status from its
         # PID file + log tail.
         self._supervised_pid: int | None = None
+        # The voice-orb popup runs as a separate process (pywebview can't share
+        # the macOS main run loop with pystray); track it so the menu item can
+        # toggle it open/closed.
+        self._voice_proc: subprocess.Popen | None = None
 
     # ── Service lifecycle ────────────────────────────────────────────
 
@@ -158,6 +162,28 @@ class TrayApp:
         py = sys.executable
         subprocess.Popen(
             [py, "-m", "jc_client", "pair"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+
+    def _act_voice_orb(self, _icon, _item) -> None:
+        # Toggle the popup: if one is already open, close it; otherwise spawn a
+        # fresh `jc-client voice-popup` process. Spawned separately because
+        # pywebview needs the main run loop, which pystray already owns.
+        proc = self._voice_proc
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            self._voice_proc = None
+            return
+        py = sys.executable
+        self._voice_proc = subprocess.Popen(
+            [py, "-m", "jc_client", "voice-popup"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
@@ -235,6 +261,7 @@ class TrayApp:
             MenuItem(_status_text, None, enabled=False),
             Sep,
             MenuItem("Open dashboard", self._act_open_dashboard),
+            MenuItem("Voice Orb", self._act_voice_orb),
             MenuItem("Re-pair…", self._act_repair),
             MenuItem("View logs", self._act_view_logs),
             MenuItem("Restart", self._act_restart),
