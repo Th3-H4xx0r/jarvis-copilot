@@ -56,3 +56,41 @@ def test_log_rejected_appends_line(home):
     assert "REJECTED" in log
     assert "invalid skill frontmatter" in log
     assert "background_review" in log
+
+
+def test_read_recent_parses_and_classifies(home):
+    from agent import self_improvement_log as sil
+    sil.log_change("background_review", "Skill created: ios-shortcuts")
+    sil.log_rejected("background_review", "name collision: ios-shortcuts")
+    sil.log_failure("retrospective", RuntimeError("boom"))
+    rows = sil.read_recent(limit=10)
+    assert len(rows) == 3
+    # newest first
+    assert rows[0]["kind"] == "fail" and rows[0]["origin"] == "retrospective"
+    assert "boom" in rows[0]["text"]
+    assert rows[1]["kind"] == "rejected" and "collision" in rows[1]["text"]
+    assert rows[2]["kind"] == "change" and "Skill created" in rows[2]["text"]
+    assert all(r["ts"] for r in rows)  # timestamps parsed
+
+
+def test_read_recent_empty_when_no_log(home):
+    from agent import self_improvement_log as sil
+    assert sil.read_recent() == []
+
+
+def test_read_recent_respects_limit(home):
+    from agent import self_improvement_log as sil
+    for i in range(10):
+        sil.log_change("background_review", f"change {i}")
+    rows = sil.read_recent(limit=3)
+    assert len(rows) == 3
+    assert rows[0]["text"] == "change 9"  # newest first
+
+
+def test_read_recent_nonpositive_limit_is_bounded(home):
+    from agent import self_improvement_log as sil
+    for i in range(60):
+        sil.log_change("background_review", f"c{i}")
+    # 0 / negative must not dump the whole tail — clamp to the 50 default.
+    assert len(sil.read_recent(limit=0)) == 50
+    assert len(sil.read_recent(limit=-5)) == 50

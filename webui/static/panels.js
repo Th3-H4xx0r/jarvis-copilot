@@ -224,7 +224,7 @@ async function switchPanel(name, opts = {}) {
   // showing-<name> class on <main>; no class means chat (the default).
   const mainEl = document.querySelector('main.main');
   if (mainEl) {
-    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','voice','devices'].forEach(p => {
+    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','voice','devices','selfimprovement'].forEach(p => {
       mainEl.classList.toggle('showing-' + p, nextPanel === p);
     });
   }
@@ -238,6 +238,7 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'todos') loadTodos();
   if (nextPanel === 'insights') await loadInsights();
   if (nextPanel === 'logs') await loadLogs();
+  if (nextPanel === 'selfimprovement') await loadSelfImprovement();
   if (nextPanel === 'devices' && typeof loadDevices === 'function') await loadDevices();
   if (nextPanel === 'voice' && typeof initVoicePanel === 'function') initVoicePanel();
   if (prevPanel === 'voice' && nextPanel !== 'voice' && typeof onVoicePanelLeave === 'function') onVoicePanelLeave();
@@ -2840,6 +2841,53 @@ async function loadLogs(animate) {
     }
     _syncLogsAutoRefresh();
   }
+}
+
+async function loadSelfImprovement(animate) {
+  const box = $('selfImprovementContent');
+  const refreshBtn = $('selfImprovementRefreshBtn');
+  if (!box) return;
+  if (animate && refreshBtn) { refreshBtn.style.opacity = '0.5'; refreshBtn.disabled = true; }
+  try {
+    box.innerHTML = '<div class="logs-empty">Loading…</div>';
+    const data = await api('/api/self-improvement/recent?limit=100');
+    _renderSelfImprovement(data);
+  } catch (e) {
+    box.innerHTML = `<div class="logs-empty">${esc((t('error_prefix') || 'Error: ') + e.message)}</div>`;
+  } finally {
+    if (animate && refreshBtn) { refreshBtn.style.opacity = ''; refreshBtn.disabled = false; }
+  }
+}
+
+function _renderSelfImprovement(data) {
+  const box = $('selfImprovementContent');
+  if (!box) return;
+  const entries = (data && Array.isArray(data.entries)) ? data.entries : [];
+  if (!entries.length) {
+    const hint = (data && data.hint) ? data.hint
+      : 'No self-improvement activity yet. After a substantial task, skills and memory the agent saves on its own will appear here.';
+    box.innerHTML = `<div class="logs-empty">${esc(hint)}</div>`;
+    return;
+  }
+  const meta = {
+    fail:     { label: 'FAILED',   color: '#f87171' },
+    rejected: { label: 'REJECTED', color: '#fbbf24' },
+    change:   { label: 'LEARNED',  color: '#34d399' },
+  };
+  box.innerHTML = entries.map(e => {
+    const m = meta[(e && e.kind) || 'change'] || meta.change;
+    const origin = e && e.origin ? esc(e.origin) : '';
+    const ts = e && e.ts ? esc(e.ts) : '';
+    const text = e && e.text ? esc(e.text) : '';
+    return `<div style="padding:10px 12px;margin:6px 0;border:1px solid var(--border,#2a2a3a);border-radius:8px;background:var(--surface,#16161f);">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span style="font-size:11px;font-weight:700;color:${m.color};border:1px solid ${m.color};border-radius:5px;padding:1px 6px;">${m.label}</span>
+        ${origin ? `<span style="font-size:12px;opacity:0.6;">${origin}</span>` : ''}
+      </div>
+      <div style="white-space:pre-wrap;">${text}</div>
+      ${ts ? `<div style="font-size:11px;opacity:0.5;margin-top:6px;">${ts}</div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 function _renderLogs(data) {

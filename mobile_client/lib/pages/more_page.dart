@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme.dart';
 import 'logs_page.dart';
+import 'self_improvement_page.dart';
 import 'settings_page.dart';
 import 'webview_page.dart';
 
@@ -20,6 +21,7 @@ class MorePage extends StatelessWidget {
     _MoreItem('Profiles', Icons.person_outline, _WebRoute('Profiles', '/?panel=profiles')),
     _MoreItem('Todos', Icons.checklist, _WebRoute('Todos', '/?panel=todos')),
     _MoreItem('Insights', Icons.insights, _WebRoute('Insights', '/?panel=insights')),
+    _MoreItem('Learning', Icons.auto_awesome, _NativeRoute(SelfImprovementPage())),
     _MoreItem('Server logs', Icons.article_outlined, _WebRoute('Server logs', '/?panel=logs')),
     _MoreItem('This device logs', Icons.history, _NativeRoute(LogsPage())),
     _MoreItem('Settings', Icons.settings, _NativeRoute(SettingsPage())),

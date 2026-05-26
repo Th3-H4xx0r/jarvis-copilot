@@ -61,7 +61,44 @@ interface SkillsReloadResponse {
   output?: string
 }
 
+interface SelfImprovementEntry {
+  kind?: string
+  origin?: string
+  text?: string
+  ts?: string
+}
+
+interface SelfImprovementRecentResponse {
+  entries?: SelfImprovementEntry[]
+}
+
 export const opsCommands: SlashCommand[] = [
+  {
+    aliases: ['self-improvement', 'self-improve'],
+    help: 'show recent self-improvement activity (skills learned, memory updated, rejected attempts)',
+    name: 'learned',
+    run: (_arg, ctx) => {
+      return ctx.gateway
+        .rpc<SelfImprovementRecentResponse>('self_improvement.recent', { limit: 40 })
+        .then(
+          ctx.guarded<SelfImprovementRecentResponse>(r => {
+            const entries = r.entries ?? []
+            if (!entries.length) {
+              return ctx.transcript.sys('no self-improvement activity yet')
+            }
+            ctx.transcript.panel('Self-improvement', [
+              {
+                rows: entries.map(e => [
+                  e.kind === 'fail' ? 'FAILED' : e.kind === 'rejected' ? 'REJECTED' : 'LEARNED',
+                  [e.text, e.ts].filter(Boolean).join(' · ') || '(no detail)'
+                ])
+              }
+            ])
+          })
+        )
+        .catch(ctx.guardedErr)
+    }
+  },
   {
     help: 'stop background processes',
     name: 'stop',

@@ -3025,6 +3025,23 @@ def _(rid, params: dict) -> dict:
     return _ok(rid, {"path": str(path), "session_id": session_id})
 
 
+@method("self_improvement.recent")
+def _(rid, params: dict) -> dict:
+    """Recent self-improvement events for the TUI ``/learned`` command.
+
+    Reads ~/.jarviscopilot/self_improvement.log (same HOME the gateway runs
+    under) via the shared parser. Best-effort: returns an empty list on any
+    error so the command never breaks.
+    """
+    limit = int(params.get("limit") or 50)
+    try:
+        from agent.self_improvement_log import read_recent
+        entries = read_recent(limit=limit)
+    except Exception:
+        entries = []
+    return _ok(rid, {"entries": entries})
+
+
 @method("spawn_tree.list")
 def _(rid, params: dict) -> dict:
     session_id = str(params.get("session_id") or "").strip()

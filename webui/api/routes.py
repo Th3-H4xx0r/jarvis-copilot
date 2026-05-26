@@ -2671,6 +2671,39 @@ def _handle_logs(handler, parsed) -> bool:
         logger.exception("Failed to read whitelisted log file %s", file_key)
         return bad(handler, _sanitize_error(exc), status=500)
 
+
+def _handle_self_improvement(handler, parsed) -> bool:
+    """Return recent self-improvement / self-learning events for the UIs.
+
+    Reads the active profile's ``self_improvement.log`` via the shared parser
+    so the web + mobile clients can show what the agent has been learning:
+    skills auto-created/patched, memory updated, and rejected attempts.
+    """
+    query = parse_qs(parsed.query)
+    try:
+        limit = int((query.get("limit", ["50"])[0]) or 50)
+    except (ValueError, TypeError):
+        limit = 50
+    limit = max(1, min(limit, 500))
+    try:
+        from api.profiles import get_active_hermes_home
+
+        hermes_home = Path(get_active_hermes_home()).expanduser()
+    except Exception:
+        hermes_home = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".jarviscopilot")).expanduser()
+    try:
+        from agent.self_improvement_log import read_recent
+
+        entries = read_recent(limit=limit, home=hermes_home)
+        return j(handler, {
+            "entries": entries,
+            "total": len(entries),
+            "hint": "" if entries else "No self-improvement activity recorded yet.",
+        })
+    except Exception as exc:
+        logger.exception("Failed to read self-improvement log")
+        return bad(handler, _sanitize_error(exc), status=500)
+
 # ── Insights endpoint ──────────────────────────────────────────────────────────
 
 _LLM_WIKI_DOCS_URL = "https://jarviscopilot.nousresearch.com/docs/user-guide/skills/bundled/research/research-llm-wiki"
@@ -3571,6 +3604,8 @@ def handle_get(handler, parsed) -> bool:
         return _handle_llm_wiki_status(handler, parsed)
     if parsed.path == "/api/logs":
         return _handle_logs(handler, parsed)
+    if parsed.path == "/api/self-improvement/recent":
+        return _handle_self_improvement(handler, parsed)
 
     if parsed.path == "/health":
         return _handle_health(handler, parsed)
