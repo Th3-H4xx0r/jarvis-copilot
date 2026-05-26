@@ -2856,7 +2856,7 @@ function toggleCodeMemoryTab(on) {
   applyCodeMemoryTabVisibility();
   if (!on && _currentPanel === 'codememory' && typeof switchPanel === 'function') switchPanel('chat');
 }
-function _cmEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function _cmEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 async function loadCodeMemory() {
   const bar = document.getElementById('cmStatusBar');
@@ -2901,12 +2901,18 @@ async function cmOpenProject(slug) {
 
 async function cmDeleteEntry(slug, kind, ts) {
   if (!confirm('Delete this entry?')) return;
-  await fetch('api/code-memory/delete-entry', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slug, kind, ts})});
+  try {
+    const r = await fetch('api/code-memory/delete-entry', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slug, kind, ts})});
+    if (!r.ok) { alert('Delete failed (' + r.status + ')'); return; }
+  } catch (e) { alert('Delete failed: ' + e); return; }
   cmOpenProject(slug);
 }
 async function cmDeleteProject(slug) {
   if (!confirm(`Delete ALL code memory for ${slug}? This cannot be undone.`)) return;
-  await fetch('api/code-memory/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slug})});
+  try {
+    const r = await fetch('api/code-memory/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slug})});
+    if (!r.ok) { alert('Delete failed (' + r.status + ')'); return; }
+  } catch (e) { alert('Delete failed: ' + e); return; }
   document.getElementById('cmDetail').innerHTML = '<div class="cm-empty">Project deleted.</div>';
   loadCodeMemory();
 }

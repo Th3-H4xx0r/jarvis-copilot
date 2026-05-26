@@ -10311,7 +10311,7 @@ def _handle_code_memory_register(handler, body):
 def _handle_code_memory_projects(handler):
     from agent import code_memory as cm
     home = _code_mem_home()
-    idx = cm.list_projects(home=home)
+    idx = cm.list_all_projects(home=home)  # registered + dirs-with-entries, so it matches stats
     for slug, meta in idx.items():
         meta["knowledge_count"] = cm.count_entries(slug, "knowledge", home=home)
         meta["sessions_count"] = cm.count_entries(slug, "sessions", home=home)

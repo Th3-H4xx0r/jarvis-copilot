@@ -105,20 +105,33 @@ def write_entry(slug, kind, entry_type, content, home: Any = None) -> dict:
     f = _file(slug, kind, home)
     f.parent.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    block = f"\n## {ts} \xb7 {entry_type}\n{content.rstrip()}\n"
+    block = f"\n{_SEP}## {ts} \xb7 {entry_type}\n{content.rstrip()}\n"
     with open(f, "a", encoding="utf-8") as fh:
         fh.write(block)
     return {"ts": ts, "entry_type": entry_type}
 
 
-# Header is `## <ISO-ts> · <type>`. Both the match and the entry-boundary
-# lookahead require a full ISO timestamp, so a body line that merely starts
-# with `## ` (or `## foo · bar`) is NOT mistaken for a new entry.
+# Each entry header is prefixed with a record-separator control char (U+001E)
+# that free-text bodies never contain, so an entry whose BODY quotes a line
+# like `## 2026-… · bug` can't be mis-parsed as a second entry (which would
+# make delete_entry truncate the real entry — data loss). New writes use the
+# sentinel; files written before it (no \x1e) fall back to the legacy header
+# regex so existing data still reads.
 _TS_RE = r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ"
+_SEP = "\x1e"
 _ENTRY_RE = re.compile(
+    rf"^{_SEP}## (?P<ts>{_TS_RE}) \xb7 (?P<type>[^\n]+)\n(?P<body>.*?)(?=\n{_SEP}## |\Z)",
+    re.DOTALL | re.MULTILINE,
+)
+_LEGACY_ENTRY_RE = re.compile(
     rf"^## (?P<ts>{_TS_RE}) \xb7 (?P<type>[^\n]+)\n(?P<body>.*?)(?=\n## {_TS_RE} \xb7 |\Z)",
     re.DOTALL | re.MULTILINE,
 )
+
+
+def _entries_re(text: str):
+    """Sentinel parser for new files; legacy parser for pre-sentinel files."""
+    return _ENTRY_RE if _SEP in text else _LEGACY_ENTRY_RE
 
 
 def read_entries(slug, kind, limit: int = _DEFAULT_LIMIT, home: Any = None) -> list[dict]:
@@ -128,7 +141,7 @@ def read_entries(slug, kind, limit: int = _DEFAULT_LIMIT, home: Any = None) -> l
     text = f.read_text(encoding="utf-8", errors="replace")
     rows = [
         {"ts": m.group("ts"), "entry_type": m.group("type").strip(), "content": m.group("body").strip()}
-        for m in _ENTRY_RE.finditer(text)
+        for m in _entries_re(text).finditer(text)
     ]
     rows.reverse()  # newest first
     if not isinstance(limit, int) or limit <= 0:
@@ -147,13 +160,15 @@ def delete_entry(slug, kind, ts, home: Any = None) -> int:
         return 0
     text = f.read_text(encoding="utf-8", errors="replace")
     kept, removed = [], 0
-    for m in _ENTRY_RE.finditer(text):
+    for m in _entries_re(text).finditer(text):
         if m.group("ts") == ts:
             removed += 1
             continue
         kept.append((m.group("ts"), m.group("type").strip(), m.group("body").strip()))
     if removed:
-        out = "".join(f"\n## {t} \xb7 {ty}\n{b}\n" for (t, ty, b) in kept)
+        # Rewrite in the sentinel format regardless of the source (migrates a
+        # legacy file on first edit so future parses are collision-proof).
+        out = "".join(f"\n{_SEP}## {t} \xb7 {ty}\n{b}\n" for (t, ty, b) in kept)
         f.write_text(out, encoding="utf-8")
     return removed
 
@@ -176,16 +191,31 @@ def delete_project(slug, home: Any = None) -> bool:
     return existed
 
 
-def stats(home: Any = None) -> dict:
-    """Global counts across all projects (registered + unregistered dirs)."""
-    idx = list_projects(home)
+def _fs_slugs(home: Any = None) -> set:
+    """Slugs of code_memory subdirs that actually have entry files on disk."""
     root = _root(home)
-    # collect all slugs: registered ones + any subdirs that have .md files
-    slugs: set = set(idx.keys())
+    out: set = set()
     if root.is_dir():
         for d in root.iterdir():
             if d.is_dir() and any(d.glob("*.md")):
-                slugs.add(d.name)
+                out.add(d.name)
+    return out
+
+
+def list_all_projects(home: Any = None) -> dict:
+    """Registered projects PLUS stub entries for dirs that have entries but no
+    index row, so the browsable list matches what stats() counts."""
+    idx = dict(list_projects(home))
+    for slug in _fs_slugs(home):
+        idx.setdefault(slug, {"name": slug, "root": "", "remote": "",
+                              "first_seen": "", "last_seen": ""})
+    return idx
+
+
+def stats(home: Any = None) -> dict:
+    """Global counts across all projects (registered + unregistered dirs)."""
+    idx = list_projects(home)
+    slugs: set = set(idx.keys()) | _fs_slugs(home)
     total_k = total_s = 0
     by_type: dict = {}
     last = None
