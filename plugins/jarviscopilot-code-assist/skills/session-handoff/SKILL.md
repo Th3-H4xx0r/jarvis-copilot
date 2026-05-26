@@ -1,72 +1,78 @@
 ---
 name: session-handoff
-description: "Use when starting, pausing, resuming, or finishing coding work in a repo, when context is getting full, at a milestone, or when the user says 'save state', 'create handoff', 'I need to pause', 'resume from', or 'continue where we left off'. Writes comprehensive handoffs into JarvisCopilot's shared store so they carry across Claude Code and the JarvisCopilot TUI, per project."
+description: "Use when starting, pausing, resuming, or finishing coding work in a repo, when context is getting full, at a milestone, or when the user says 'save state', 'create handoff', 'I need to pause', 'resume from', or 'continue where we left off'. Writes comprehensive, validated handoffs into JarvisCopilot's shared store so they carry across Claude Code and the JarvisCopilot TUI, per project."
 ---
 
 # Session handoff (jarviscopilot-code-assist)
 
-A **handoff** is a comprehensive snapshot of a session that lets the next agent —
-you in a later session, or the JarvisCopilot TUI — resume with zero ambiguity.
-Handoffs are stored in JarvisCopilot's shared, project-scoped code-memory (the same
-store as `recall_code_knowledge`), so they carry across both surfaces. Project
-scope is automatic (git remote / directory).
+A **handoff** is a comprehensive snapshot that lets the next agent — you later, or
+the JarvisCopilot TUI — resume with zero ambiguity. Handoffs are stored in
+JarvisCopilot's shared, project-scoped code-memory (`store_session_handoff` /
+`recall_session_handoff`), so they carry across both surfaces. Project scope is
+automatic (git remote / directory).
+
+Scripts and references below live under this skill's directory
+(`${CLAUDE_PLUGIN_ROOT}/skills/session-handoff/`).
 
 ## Mode selection
-- **RESUME** — starting or continuing work; "load handoff", "resume from",
-  "continue where we left off" → RESUME workflow.
-- **CREATE** — wrapping up, pausing, "save state", "create handoff", context
-  getting full, or a milestone reached → CREATE workflow.
+- **CREATE** — wrapping up, pausing, "save state", "create handoff", context getting
+  full, or a milestone reached → CREATE workflow.
+- **RESUME** — starting/continuing work, "load handoff", "resume from", "continue
+  where we left off" → RESUME workflow.
 - **Proactive** — after substantial work (5+ file edits, hard debugging, or a key
   decision) with no recent handoff, offer: *"We've made real progress — want me to
   store a session handoff so the next session picks up seamlessly?"*
 
-## RESUME — at the START of work
-1. `recall_session_handoff` — read the latest handoff(s) IN FULL. The newest is the
-   head; older ones are the chain/history.
-2. **Verify the context still holds before acting:**
-   - Right repo and branch? (`git status`, `git branch --show-current`, `git log --oneline -10`)
-   - Have the handoff's *Blockers/Open questions* been resolved? Do its *Assumptions* still hold?
-   - Do the *Critical files* still exist? If the codebase moved on, re-explore before trusting the handoff.
-3. Pull durable knowledge cheaply: `recall_code_knowledge` with a `query`
-   (task/file/error/symbol) → `get_code_knowledge(ids=[…])` for the few that matter.
-4. Begin with **Next steps #1** from the handoff; follow its *Key patterns* and avoid its *Gotchas*.
+## CREATE workflow
+1. **Gather real git context** — run it and keep the output:
+   `bash ${CLAUDE_PLUGIN_ROOT}/skills/session-handoff/scripts/gather_git_context.sh`
+   (branch, upstream sync, recent commits, HEAD, working tree). This grounds the
+   handoff in actual state — use it to fill Session Metadata + Files modified.
+2. **Fill the template** in `references/handoff-template.md` — replace EVERY
+   `[TODO: ...]`. Be specific: file paths WITH line numbers, before→after tables for
+   config/prod/knob changes (and the exact revert), exact resume commands, commit
+   SHAs, and the WHY (rationale) for decisions — not just the WHAT. The most
+   important section is **Important Context (read before doing anything)**. Never
+   paste secrets — env-var NAMES only.
+3. **Validate** before storing (write the draft to a temp file or pipe it):
+   `python3 ${CLAUDE_PLUGIN_ROOT}/skills/session-handoff/scripts/validate_handoff.py <draft>`
+   Fix until the verdict is READY (score ≥70, no `[TODO:]`, required sections
+   complete, **no secrets**).
+4. **Store + confirm** — `store_session_handoff(content="<validated handoff>")`.
+   Report the score and the #1 next step. (Chaining: see below.)
 
-## CREATE — when wrapping up, pausing, or context is filling
-Fill the template below and store it: `store_session_handoff(content="<filled template>")`.
+## RESUME workflow
+1. **Find** the latest handoff: `recall_session_handoff` (or
+   `bash ${CLAUDE_PLUGIN_ROOT}/skills/session-handoff/scripts/list_handoffs.sh`).
+2. **Check staleness** before trusting it:
+   `python3 ${CLAUDE_PLUGIN_ROOT}/skills/session-handoff/scripts/check_staleness.py <handoff>`
+   VERY_STALE → re-explore before acting.
+3. **Read it in full** (and the one it "Continues from", if any).
+4. **Verify context** — follow `references/resume-checklist.md` (right repo/branch,
+   blockers resolved?, assumptions still valid?, critical files still exist?).
+5. **Recall knowledge cheaply** — `recall_code_knowledge(query="<task/file/error>")`
+   → `get_code_knowledge(ids=[…])` for the few that matter.
+6. **Begin** at "Immediate next steps" #1 (honor `(USER)` markers — those need the operator).
 
-- Be specific and concrete: file paths with line numbers, and WHAT **and WHY**
-  (rationale), not vague summaries.
-- **Never paste secrets** (tokens, keys, passwords) — env-var *names* only.
-- **Chaining:** a new handoff supersedes the prior one; open with a one-line
-  `Continues from: <prev ts/title>` so the lineage is clear.
+## Chaining
+A new handoff supersedes the prior one. Set `Continues from:` to the previous
+handoff's title/timestamp and carry still-true facts into "Architecture &
+Carried-Forward Context" so the lineage stays intact across a long project.
 
-### Handoff template
-```
-# Handoff: <task title>
-Continues from: <prev handoff ts/title, or "—">
-Current state: <one paragraph — what was being worked on, status, where it left off>
-
-Work completed:
-- <task> — <what was done>
-Files touched: <path:line — change — why>
-Decisions: <chose X over Y — because …>
-
-Pending:
-- Next steps (ordered): 1) … 2) … 3) …
-- Blockers / open questions: <…> — needs: <…>
-- Deferred: <… — why>
-
-Context to resume:
-- Important: <the must-know facts the next agent needs>
-- Assumptions: <what was taken to be true>
-- Gotchas: <edge cases / non-obvious behavior>
-- Env / processes: <dev servers, watchers, required env-var NAMES — no values>
-```
-
-## Handoff vs durable knowledge
+## Handoff vs durable knowledge (JarvisCopilot)
 The handoff captures session-specific state (run results, dated findings, where you
 left off). **Durable, reusable facts** (a non-obvious bug/fix, repo structure, a
-gotcha, a decision) go in knowledge instead — store them SHORT (1-3 sentences) with
-`store_code_knowledge` as you go (see the code-memory skill). To correct rather than
-duplicate, `edit_code_memory(id, …)` or `delete_code_memory(id)` (ids come from the
-recall tools).
+gotcha, a decision) belong in *knowledge* instead — store them SHORT (1-3 sentences)
+with `store_code_knowledge` as you go (see the code-memory skill). To correct rather
+than duplicate, `edit_code_memory(id, …)` or `delete_code_memory(id)` (ids come from
+the recall tools).
+
+## Resources
+| Path | Purpose |
+|------|---------|
+| `scripts/gather_git_context.sh` | Pre-fill real git metadata for the handoff |
+| `scripts/validate_handoff.py [file\|-]` | Completeness + secret scan + 0-100 score |
+| `scripts/check_staleness.py [file\|-]` | FRESH/STALE assessment vs current git |
+| `scripts/list_handoffs.sh [N]` | List stored handoffs for this project |
+| `references/handoff-template.md` | The template to fill |
+| `references/resume-checklist.md` | Verification checklist for resuming |
