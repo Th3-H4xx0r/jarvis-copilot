@@ -152,7 +152,7 @@ def _pinned_guard(name: str) -> Optional[str]:
             return (
                 f"Skill '{name}' is pinned and cannot be deleted by "
                 f"skill_manage. Ask the user to run "
-                f"`hermes curator unpin {name}` if they want to delete it. "
+                f"`jarviscopilot curator unpin {name}` if they want to delete it. "
                 f"Patches and edits are allowed on pinned skills; only "
                 f"deletion is blocked."
             )
@@ -416,6 +416,18 @@ def _validate_file_path(file_path: str) -> Optional[str]:
 
     # Must be under an allowed subdirectory
     if not normalized.parts or normalized.parts[0] not in ALLOWED_SUBDIRS:
+        # Common autonomous-review mistake: trying to update the skill BODY by
+        # write_file'ing SKILL.md. write_file is only for support files; the
+        # body is edited with action='patch'/'edit'. Steer the caller there so
+        # the update lands (it otherwise gets silently dropped). See the
+        # self-improvement loop / [[self-improvement-effort]].
+        if normalized.name.upper() == "SKILL.MD":
+            return (
+                "To change the skill's SKILL.md body, use action='patch' "
+                "(find/replace a snippet) or action='edit' (replace the whole "
+                "body) — NOT write_file. write_file only adds support files "
+                f"under: {', '.join(sorted(ALLOWED_SUBDIRS))}."
+            )
         allowed = ", ".join(sorted(ALLOWED_SUBDIRS))
         return f"File must be under one of: {allowed}. Got: '{file_path}'"
 
@@ -925,7 +937,7 @@ SKILL_MANAGE_SCHEMA = {
         "Good skills: trigger conditions, numbered steps with exact commands, "
         "pitfalls section, verification steps. Use skill_view() to see format examples.\n\n"
         "Pinned skills are protected from deletion only — skill_manage(action='delete') "
-        "will refuse with a message pointing the user to `hermes curator unpin <name>`. "
+        "will refuse with a message pointing the user to `jarviscopilot curator unpin <name>`. "
         "Patches and edits go through on pinned skills so you can still improve them as "
         "pitfalls come up; pin only guards against irrecoverable loss."
     ),

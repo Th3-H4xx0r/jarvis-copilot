@@ -2873,6 +2873,7 @@ function _renderSelfImprovement(data) {
     fail:     { label: 'FAILED',   color: '#f87171' },
     rejected: { label: 'REJECTED', color: '#fbbf24' },
     change:   { label: 'LEARNED',  color: '#34d399' },
+    noop:     { label: 'REVIEWED', color: '#9ca3af' },
   };
   box.innerHTML = entries.map(e => {
     const m = meta[(e && e.kind) || 'change'] || meta.change;

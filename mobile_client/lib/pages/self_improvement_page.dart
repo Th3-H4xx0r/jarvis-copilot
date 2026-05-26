@@ -46,6 +46,8 @@ class _SelfImprovementPageState extends State<SelfImprovementPage> {
         return JcTheme.danger;
       case 'rejected':
         return JcTheme.accent;
+      case 'noop':
+        return JcTheme.muted;
       default:
         return JcTheme.success;
     }
@@ -57,6 +59,8 @@ class _SelfImprovementPageState extends State<SelfImprovementPage> {
         return 'FAILED';
       case 'rejected':
         return 'REJECTED';
+      case 'noop':
+        return 'REVIEWED';
       default:
         return 'LEARNED';
     }

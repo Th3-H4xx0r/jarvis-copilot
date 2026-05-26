@@ -94,3 +94,25 @@ def test_read_recent_nonpositive_limit_is_bounded(home):
     # 0 / negative must not dump the whole tail — clamp to the 50 default.
     assert len(sil.read_recent(limit=0)) == 50
     assert len(sil.read_recent(limit=-5)) == 50
+
+
+def test_log_noop_classified_and_marker_stripped(home):
+    from agent import self_improvement_log as sil
+    sil.log_noop("background_review")
+    rows = sil.read_recent(limit=5)
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "noop"
+    assert "nothing new to save" in rows[0]["text"]
+    assert "NOOP" not in rows[0]["text"]  # the NOOP: marker is stripped for display
+
+
+def test_log_noop_collapses_consecutive(home):
+    from agent import self_improvement_log as sil
+    sil.log_noop("background_review")
+    sil.log_noop("background_review")
+    sil.log_noop("background_review")
+    assert len([r for r in sil.read_recent() if r["kind"] == "noop"]) == 1
+    # a real event between no-ops resets the collapse
+    sil.log_change("background_review", "Skill 'x' created")
+    sil.log_noop("background_review")
+    assert len([r for r in sil.read_recent() if r["kind"] == "noop"]) == 2

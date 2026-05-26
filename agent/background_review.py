@@ -636,18 +636,25 @@ def _run_review_in_thread(
                 except Exception:
                     pass
 
-        # Log rejected memory/skill writes so a silently-dropped self-evolution
-        # attempt (e.g. invalid skill frontmatter, name collision, char limit)
-        # is diagnosable instead of vanishing. Log-only (not surfaced to the
-        # user) since the review often retries and succeeds.
+        # Make the review's outcome visible in the self-improvement log even
+        # when it didn't write anything: log REJECTED for silently-dropped
+        # writes (bad frontmatter, name collision, char limit), or a muted
+        # NOOP so the user can tell "the review fired but had nothing to save"
+        # apart from "it never ran". Log-only (not surfaced to chat).
         try:
-            _failures = summarize_background_review_failures(
-                review_messages, messages_snapshot
-            )
+            _failures = []
+            try:
+                _failures = summarize_background_review_failures(
+                    review_messages, messages_snapshot
+                )
+            except Exception:
+                _failures = []
+            from agent import self_improvement_log as _sil
             if _failures:
-                from agent import self_improvement_log as _sil
                 for _f in dict.fromkeys(_failures):
                     _sil.log_rejected(origin, _f)
+            elif not actions:
+                _sil.log_noop(origin)
         except Exception:
             pass
 

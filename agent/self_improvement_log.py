@@ -63,12 +63,42 @@ def log_rejected(origin: str, detail: str) -> None:
     _append(f"[{origin}] REJECTED: {detail}")
 
 
+def log_noop(origin: str) -> None:
+    """Record that a review ran but had nothing to save.
+
+    Makes the loop's activity visible even on a no-op, so a user who did a task
+    and saw no new skill can tell the difference between 'the review never
+    fired' and 'it fired and decided nothing was worth saving'. Surfaced as a
+    muted 'REVIEWED' entry in the UIs so it doesn't drown real learning events.
+
+    Collapses consecutive no-ops: if the most recent log entry is already a
+    NOOP, this is a no-op itself — so a quiet stretch leaves a single REVIEWED
+    marker instead of flooding the feed and pushing real events out of the
+    bounded tail.
+    """
+    try:
+        path = _log_path()
+        if path.exists():
+            with open(path, "rb") as fh:
+                fh.seek(0, 2)
+                fh.seek(max(0, fh.tell() - 4096))
+                tail = fh.read().decode("utf-8", errors="replace").splitlines()
+            for ln in reversed(tail):
+                if ln.strip():
+                    if "] NOOP:" in ln:
+                        return  # last entry is already a no-op — don't pile on
+                    break
+    except Exception:
+        pass
+    _append(f"[{origin}] NOOP: reviewed — nothing new to save")
+
+
 def read_recent(limit: int = 50, home: Any = None) -> List[Dict[str, Any]]:
     """Return the most recent self-improvement events, NEWEST FIRST.
 
     Parses the log written by _append into structured rows for the UIs
     (webui endpoint, gateway RPC / TUI, mobile). Each row:
-        {"ts": ISO str, "origin": str, "kind": "change"|"rejected"|"fail",
+        {"ts": ISO str, "origin": str, "kind": "change"|"rejected"|"fail"|"noop",
          "text": summary str}
     ``home`` overrides the HERMES_HOME directory (the webui passes the active
     profile's home for parity with its other log endpoints); defaults to
@@ -102,6 +132,9 @@ def read_recent(limit: int = 50, home: Any = None) -> List[Dict[str, Any]]:
                 kind = "fail"
             elif low.startswith("rejected:"):
                 kind = "rejected"
+            elif low.startswith("noop:"):
+                kind = "noop"
+                summary = summary.split(":", 1)[1].strip()  # drop the NOOP: marker
             else:
                 kind = "change"
             entries.append({
@@ -152,5 +185,6 @@ def commit_home_change(message: str) -> bool:
 
 
 __all__ = [
-    "log_change", "log_failure", "log_rejected", "commit_home_change", "read_recent",
+    "log_change", "log_failure", "log_rejected", "log_noop",
+    "commit_home_change", "read_recent",
 ]

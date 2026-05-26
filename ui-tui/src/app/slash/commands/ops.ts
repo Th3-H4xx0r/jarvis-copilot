@@ -89,7 +89,13 @@ export const opsCommands: SlashCommand[] = [
             ctx.transcript.panel('Self-improvement', [
               {
                 rows: entries.map(e => [
-                  e.kind === 'fail' ? 'FAILED' : e.kind === 'rejected' ? 'REJECTED' : 'LEARNED',
+                  e.kind === 'fail'
+                    ? 'FAILED'
+                    : e.kind === 'rejected'
+                      ? 'REJECTED'
+                      : e.kind === 'noop'
+                        ? 'REVIEWED'
+                        : 'LEARNED',
                   [e.text, e.ts].filter(Boolean).join(' · ') || '(no detail)'
                 ])
               }
