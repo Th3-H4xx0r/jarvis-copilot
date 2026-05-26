@@ -26,6 +26,10 @@ dependencies = [
   "keyring>=24",
   # YAML fallback for hand-edited config files (json is the default).
   "pyyaml>=6.0",
+  # MCP SDK — powers `jc-client mcp-serve` (the jarviscopilot-code-assist
+  # stdio server that Claude Code launches). Without it the server crashes
+  # on launch and Claude reports the MCP connection as failed (-32000).
+  "mcp>=1.2",
   # Modern pair dialog. Embeds the native system webview — WebKit on
   # macOS, WebView2 on Windows (preinstalled on Win11 / modern Win10),
   # WebKitGTK on Linux (needs `python3-webkit2gtk-4.0` or similar).
