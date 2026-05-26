@@ -28,10 +28,32 @@ def _uitui_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "ui-tui"
 
 
+def _dist_is_stale(uidir: Path, entry: Path) -> bool:
+    """True if any ui-tui source file is newer than the built bundle.
+
+    `jc-client update` does `git reset --hard`, which bumps changed files'
+    mtimes, so a stale prebuilt bundle is detected and rebuilt on the next run
+    instead of silently serving outdated UI (e.g. old branding)."""
+    try:
+        entry_mtime = entry.stat().st_mtime
+        for sub in ("src", "packages"):
+            base = uidir / sub
+            if not base.exists():
+                continue
+            for p in base.rglob("*.ts*"):
+                if "node_modules" in p.parts:
+                    continue
+                if p.stat().st_mtime > entry_mtime:
+                    return True
+        return False
+    except OSError:
+        return False
+
+
 def _ensure_built(uidir: Path) -> str | None:
     """Return the entry.js path to run, building ui-tui if needed. None on failure."""
     entry = uidir / "dist" / "entry.js"
-    if entry.exists():
+    if entry.exists() and not _dist_is_stale(uidir, entry):
         return str(entry)
     npm = shutil.which("npm")
     if not npm:

@@ -53,6 +53,25 @@ def test_attach_url():
     assert tl.gateway_attach_url(7777) == "ws://127.0.0.1:7777/api/tui/ws"
 
 
+def test_dist_stale_when_source_newer(tmp_path):
+    tl = _tl()
+    uidir = tmp_path / "ui-tui"
+    (uidir / "dist").mkdir(parents=True)
+    entry = uidir / "dist" / "entry.js"
+    entry.write_text("//", encoding="utf-8")
+    (uidir / "src").mkdir()
+    src = uidir / "src" / "banner.ts"
+    src.write_text("x", encoding="utf-8")
+    import os
+    # Make the source newer than the bundle.
+    os.utime(entry, (1, 1))
+    os.utime(src, (10_000, 10_000))
+    assert tl._dist_is_stale(uidir, entry) is True
+    # And not stale when the bundle is newer.
+    os.utime(entry, (20_000, 20_000))
+    assert tl._dist_is_stale(uidir, entry) is False
+
+
 def test_noop_when_unpaired(monkeypatch):
     tl = _tl()
     monkeypatch.setattr(tl.credentials, "load", lambda: _Unpaired())
