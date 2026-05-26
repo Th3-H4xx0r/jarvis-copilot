@@ -217,6 +217,12 @@ TOOLSETS = {
         "tools": ["clarify"],
         "includes": []
     },
+
+    "code_memory": {
+        "description": "Read/write the shared project code-memory (durable knowledge + session handoff)",
+        "tools": ["code_memory"],
+        "includes": [],
+    },
     
     "code_execution": {
         "description": "Run Python scripts that call tools programmatically (reduces LLM round trips)",
