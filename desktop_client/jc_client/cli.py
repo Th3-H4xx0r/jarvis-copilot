@@ -504,6 +504,46 @@ def cmd_tui(args) -> int:
     return run_tui()
 
 
+def cmd_mcp_serve(args) -> int:
+    from jc_client.mcp_server import main as serve
+    serve()
+    return 0
+
+
+def cmd_code_memory(args) -> int:
+    import json as _json
+    import os as _os
+    from jc_client import code_memory_client as cmc
+    try:
+        if args.cm_command == "projects":
+            print(_json.dumps(cmc.projects(), indent=2))
+        elif args.cm_command == "recall":
+            slug = args.project or cmc.current_slug()
+            for r in cmc.recall(slug, args.kind, limit=args.limit):
+                print(f"[{r.get('ts','')}] [{r.get('entry_type','')}] {r.get('content','')}")
+        elif args.cm_command == "store":
+            slug = args.project or cmc.current_slug()
+            cmc.store(slug, args.kind, args.entry_type, args.content)
+            print("stored")
+        elif args.cm_command == "bootstrap":
+            slug = cmc.current_slug()
+            cmc.register(slug, _os.path.basename(_os.getcwd()), _os.getcwd(), "")
+            print(f"# JarvisCopilot code-memory for `{slug}`\n")
+            sess = cmc.recall(slug, "sessions", limit=3)
+            if sess:
+                print("## Recent session handoff")
+                for r in sess:
+                    print(f"- {r.get('content','')}")
+            know = cmc.recall(slug, "knowledge", limit=20)
+            if know:
+                print("\n## Known project knowledge")
+                for r in know:
+                    print(f"- [{r.get('entry_type','')}] {r.get('content','')}")
+    except cmc.NotPaired as e:
+        print(f"(jarvisclaw-code-assist: {e})")
+    return 0
+
+
 def cmd_update(args) -> int:
     """Pull the latest client code and reinstall — same as re-running the installer.
 
@@ -607,6 +647,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "tui",
         help="Launch the full terminal UI (attached to the paired server)",
     ).set_defaults(func=cmd_tui)
+
+    sub.add_parser("mcp-serve", help="Run the jarvisclaw-code-assist MCP server (stdio)").set_defaults(func=cmd_mcp_serve)
+    cmsub = sub.add_parser("code-memory", help="Project code-memory (bootstrap/recall/store/projects)")
+    cmsubp = cmsub.add_subparsers(dest="cm_command", required=True)
+    cmsubp.add_parser("bootstrap")
+    cmsubp.add_parser("projects")
+    _r = cmsubp.add_parser("recall"); _r.add_argument("--project", default=""); _r.add_argument("--kind", default="knowledge"); _r.add_argument("--limit", type=int, default=20)
+    _s = cmsubp.add_parser("store"); _s.add_argument("--project", default=""); _s.add_argument("--kind", default="knowledge"); _s.add_argument("--entry-type", dest="entry_type", default="note"); _s.add_argument("--content", required=True)
+    cmsub.set_defaults(func=cmd_code_memory)
 
     upd = sub.add_parser("update", help="Pull the latest client code and reinstall")
     upd.add_argument("--branch", default=None,
