@@ -532,7 +532,10 @@ def cmd_code_memory(args) -> int:
             cmc.register(slug, _os.path.basename(_os.getcwd()), _os.getcwd(), "")
             print(f"# JarvisCopilot code-memory for `{slug}`\n")
             print(cmc.digest(slug))
-            print("\nRecall on demand: `recall_code_knowledge(query=…)` → "
+            print("\n**Resuming?** If a handoff is listed above, call "
+                  "`recall_session_handoff` to load the latest one IN FULL before "
+                  "non-trivial work (the digest only shows its title). Then recall "
+                  "knowledge on demand: `recall_code_knowledge(query=…)` → "
                   "`get_code_knowledge(ids=[…])`. Store short durable facts as you go.")
         elif args.cm_command == "digest":
             print(cmc.digest(args.project or cmc.current_slug()))
