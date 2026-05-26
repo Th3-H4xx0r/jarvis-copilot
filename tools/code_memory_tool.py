@@ -66,6 +66,8 @@ CODE_MEMORY_SCHEMA = {
             "content": {"type": "string"},
             "project": {"type": "string"},
             "limit": {"type": "integer"},
+            "name": {"type": "string"},
+            "root": {"type": "string"},
         },
         "required": ["action"],
     },

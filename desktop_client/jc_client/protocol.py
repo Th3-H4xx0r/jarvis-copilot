@@ -189,6 +189,9 @@ class HttpClient:
     def request_json(self, method: str, path: str, body: dict | None = None) -> "HttpResponse":
         """Pinned HTTP request (GET/POST/…) with the session cookie. JSON body optional."""
         full_path = self._prefix + path
+        # NOTE: we intentionally send no Accept-Encoding, so the server replies
+        # uncompressed and _parse_http_response (Content-Length / close framing)
+        # handles it. Do NOT add gzip here without teaching the parser to decode.
         payload = b"" if body is None else json.dumps(body).encode("utf-8")
         lines = [
             f"{method.upper()} {full_path} HTTP/1.1",

@@ -110,8 +110,12 @@ def write_entry(slug, kind, entry_type, content, home: Any = None) -> dict:
     return {"ts": ts, "entry_type": entry_type}
 
 
+# Header is `## <ISO-ts> · <type>`. Both the match and the entry-boundary
+# lookahead require a full ISO timestamp, so a body line that merely starts
+# with `## ` (or `## foo · bar`) is NOT mistaken for a new entry.
+_TS_RE = r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ"
 _ENTRY_RE = re.compile(
-    r"^## (?P<ts>\S+) \xb7 (?P<type>[^\n]+)\n(?P<body>.*?)(?=\n## |\Z)",
+    rf"^## (?P<ts>{_TS_RE}) \xb7 (?P<type>[^\n]+)\n(?P<body>.*?)(?=\n## {_TS_RE} \xb7 |\Z)",
     re.DOTALL | re.MULTILINE,
 )
 
