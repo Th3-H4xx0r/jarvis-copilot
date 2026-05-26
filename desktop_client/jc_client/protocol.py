@@ -130,8 +130,9 @@ class HttpClient:
     so a pinned host that's been swapped never sees our bytes.
     """
 
-    def __init__(self, server_url: str, expected_fingerprint: str = ""):
+    def __init__(self, server_url: str, cookie: str = "", expected_fingerprint: str = ""):
         self.server_url = server_url
+        self.cookie = cookie
         self.expected_fingerprint = expected_fingerprint
         self._host, self._port, self._scheme, self._prefix = _split_url(server_url)
 
@@ -184,6 +185,40 @@ class HttpClient:
                 pass
 
         return _parse_http_response(raw), observed
+
+    def request_json(self, method: str, path: str, body: dict | None = None) -> "HttpResponse":
+        """Pinned HTTP request (GET/POST/…) with the session cookie. JSON body optional."""
+        full_path = self._prefix + path
+        payload = b"" if body is None else json.dumps(body).encode("utf-8")
+        lines = [
+            f"{method.upper()} {full_path} HTTP/1.1",
+            f"Host: {self._host}:{self._port}",
+            "User-Agent: jc-client/0.1",
+            "Accept: application/json",
+            "X-Requested-With: jc-client",
+        ]
+        if self.cookie:
+            lines.append(f"Cookie: {self.cookie}")
+        if body is not None:
+            lines.append("Content-Type: application/json")
+            lines.append(f"Content-Length: {len(payload)}")
+        lines.append("Connection: close")
+        req = ("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + payload
+        sock, _ = self._connect()
+        try:
+            sock.sendall(req)
+            raw = b""
+            while True:
+                chunk = sock.recv(_RECV_CHUNK)
+                if not chunk:
+                    break
+                raw += chunk
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+        return _parse_http_response(raw)
 
 
 def _parse_http_response(raw: bytes) -> HttpResponse:
