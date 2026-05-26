@@ -865,6 +865,20 @@
     STATE._qualityChunks = chunks;
   }
 
+  // Voice needs a chat session to route the turn through (so it gets tools +
+  // segmented responses). In the mini popup there's no chat UI to pick one, so
+  // auto-create one on first use via the global newSession() — the same call
+  // the chat surface makes when none exists. Returns the session id ("" if it
+  // couldn't be created, e.g. newSession unavailable).
+  async function _ensureVoiceSession() {
+    let sid = (typeof S !== 'undefined' && S && S.session && S.session.session_id) || '';
+    if (!sid && typeof newSession === 'function') {
+      try { await newSession(); } catch (e) { /* fall through to error */ }
+      sid = (typeof S !== 'undefined' && S && S.session && S.session.session_id) || '';
+    }
+    return sid;
+  }
+
   async function stopQualityCaptureAndSend() {
     const chunks = STATE._qualityChunks || [];
     STATE._qualityChunks = null;
@@ -888,7 +902,7 @@
       // chat session so the response can include tool calls (Open Chrome,
       // search the web, etc.). The session id is needed so the server knows
       // which chat to inject the user message into.
-      const sessionId = (typeof S !== 'undefined' && S && S.session && S.session.session_id) || '';
+      const sessionId = await _ensureVoiceSession();
       if (!sessionId) {
         showError(tr('voice_err_no_session', 'Open a chat session first so voice has somewhere to talk.'));
         setStatus('idle');
@@ -1031,9 +1045,10 @@
       return;
     }
     // Realtime mode also routes through the user's active chat session so
-    // it gets tools + segmented ack-tool-confirm responses. If no session
-    // is selected, the server falls back to a non-tool reply.
-    const _sid = (typeof S !== 'undefined' && S && S.session && S.session.session_id) || '';
+    // it gets tools + segmented ack-tool-confirm responses. Auto-create one if
+    // none exists (e.g. the mini popup) instead of falling back to a tool-less
+    // reply.
+    const _sid = await _ensureVoiceSession();
     STATE.ws.sendJson({ type: 'begin_turn', sample_rate: 16000, session_id: _sid });
     setStatus('listening');
     _startLiveSpeech();
