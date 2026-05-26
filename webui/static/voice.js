@@ -118,13 +118,14 @@
     setTranscript('', 'assistant');
   }
 
-  // ---- VoiceOrb — Canvas particle-sphere visualizer ----
+  // ---- VoiceOrbCanvas2D — Canvas particle-sphere visualizer (fallback) ----
   // Ports the spirit of JarvisClaw's VoiceWaveform (apps/web/src/components/
   // VoiceWaveform.tsx) — rotating particle sphere, additive blending, chrome
   // rings, amplitude-driven spike rim, state-driven color. ~250 LOC vs ~430
   // in the React/SVG source; we drop the SVG layer and render everything in
-  // a single canvas to keep the dependency surface at zero.
-  class VoiceOrb {
+  // a single canvas to keep the dependency surface at zero. Used when WebGL /
+  // Three.js is unavailable; otherwise VoiceOrbGL renders the MCU orb.
+  class VoiceOrbCanvas2D {
     constructor(canvas) {
       this.canvas = canvas;
       this.ctx = canvas.getContext('2d');
@@ -333,6 +334,174 @@
       return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${bb.toString(16).padStart(2, '0')}`;
     }
   }
+
+  // ---- VoiceOrbGL — MCU JARVIS orb (WebGL / Three.js) ----
+  // Amber holographic particle-sphere + HUD arc rings + white-hot core, on a
+  // transparent background, rendered with additive blending so the points
+  // bloom into the "hologram" glow. Same public API as VoiceOrbCanvas2D
+  // (constructor(canvas), start, stop, setState, setAmplitude, _resize) so the
+  // call site in this file is interchangeable between the two.
+  function _amberSpriteTexture(THREE) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0.00, 'rgba(255,246,230,1)');
+    grd.addColorStop(0.25, 'rgba(255,179,71,0.9)');
+    grd.addColorStop(0.60, 'rgba(255,106,0,0.35)');
+    grd.addColorStop(1.00, 'rgba(255,106,0,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 64, 64);
+    const t = new THREE.Texture(c);
+    t.needsUpdate = true;
+    return t;
+  }
+
+  class VoiceOrbGL {
+    constructor(canvas) {
+      const THREE = window.THREE;
+      this.canvas = canvas;
+      this.state = 'idle';
+      this.amp = 0;        // smoothed amplitude
+      this.target = 0;     // raw input amplitude
+      this._raf = 0;
+
+      this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+      this.renderer.setClearColor(0x000000, 0);
+      this.scene = new THREE.Scene();
+      this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+      this.camera.position.z = 3.2;
+      this.group = new THREE.Group();
+      this.scene.add(this.group);
+
+      const tex = _amberSpriteTexture(THREE);
+
+      // Particle sphere (Fibonacci / golden-spiral distribution).
+      const N = 2200;
+      const pos = new Float32Array(N * 3);
+      const golden = Math.PI * (3 - Math.sqrt(5));
+      for (let i = 0; i < N; i++) {
+        const y = 1 - (i / (N - 1)) * 2;
+        const r = Math.sqrt(Math.max(0, 1 - y * y));
+        const phi = golden * i;
+        pos[i * 3] = Math.cos(phi) * r;
+        pos[i * 3 + 1] = y;
+        pos[i * 3 + 2] = Math.sin(phi) * r;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      this.mat = new THREE.PointsMaterial({
+        size: 0.055, map: tex, transparent: true, depthWrite: false,
+        blending: THREE.AdditiveBlending, color: 0xffa64d,
+      });
+      this.points = new THREE.Points(geo, this.mat);
+      this.group.add(this.points);
+
+      // Concentric HUD arc rings — partial circles at varied radii / tilt.
+      this.rings = [];
+      for (let k = 0; k < 3; k++) {
+        const segs = 96, rad = 1.15 + k * 0.18, span = Math.PI * (1.1 + k * 0.25);
+        const rp = new Float32Array((segs + 1) * 3);
+        for (let i = 0; i <= segs; i++) {
+          const a = (i / segs) * span;
+          rp[i * 3] = Math.cos(a) * rad;
+          rp[i * 3 + 1] = Math.sin(a) * rad;
+          rp[i * 3 + 2] = 0;
+        }
+        const rg = new THREE.BufferGeometry();
+        rg.setAttribute('position', new THREE.BufferAttribute(rp, 3));
+        const rl = new THREE.Line(rg, new THREE.LineBasicMaterial({
+          color: 0xff7a1a, transparent: true,
+          opacity: 0.5 - k * 0.1, blending: THREE.AdditiveBlending,
+        }));
+        rl.rotation.x = 0.5 + k * 0.4;
+        rl.rotation.y = k * 0.6;
+        this.group.add(rl);
+        this.rings.push(rl);
+      }
+
+      // Bright white-hot core.
+      this.core = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: tex, color: 0xfff2d6, transparent: true,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      this.core.scale.set(1.1, 1.1, 1);
+      this.scene.add(this.core);
+
+      this._tick = this._tick.bind(this);
+      this._resize = this._resize.bind(this);
+      window.addEventListener('resize', this._resize);
+      this._resize();
+    }
+
+    setState(state) { this.state = state; }
+    setAmplitude(a) { this.target = Math.max(0, Math.min(1, a)); }
+
+    _resize() {
+      const parent = this.canvas.parentElement || this.canvas;
+      const rect = parent.getBoundingClientRect();
+      const side = Math.max(80, Math.min(rect.width || 320, rect.height || 320, 480));
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      this.renderer.setSize(side, side);  // updateStyle=true → sets CSS + buffer
+      this.camera.aspect = 1;
+      this.camera.updateProjectionMatrix();
+    }
+
+    start() { if (!this._raf) this._raf = requestAnimationFrame(this._tick); }
+    stop() {
+      if (this._raf) cancelAnimationFrame(this._raf);
+      this._raf = 0;
+    }
+
+    _tick() {
+      this._raf = requestAnimationFrame(this._tick);
+      // Smooth amplitude towards the input (snappier on rise).
+      const k = this.target > this.amp ? 0.30 : 0.10;
+      this.amp += (this.target - this.amp) * k;
+
+      const active = this.state === 'listening' || this.state === 'speaking';
+      const speed = this.state === 'thinking' ? 0.022 : (active ? 0.012 : 0.004);
+      this.group.rotation.y += speed;
+      this.group.rotation.x += speed * 0.3;
+
+      const now = performance.now();
+      const baseScale = 1
+        + (active ? this.amp * 0.18 : 0)
+        + (this.state === 'thinking' ? 0.04 * Math.sin(now / 180) : 0);
+      this.group.scale.setScalar(baseScale);
+
+      this.mat.opacity = (this.state === 'idle' ? 0.55 : 0.85) + this.amp * 0.15;
+      this.mat.size = 0.05 + this.amp * 0.03;
+
+      const coreS = 0.9 + (active ? this.amp * 0.6 : 0.1 * Math.sin(now / 400));
+      this.core.scale.set(coreS, coreS, 1);
+      this.core.material.opacity = 0.6 + this.amp * 0.4;
+
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+  // Choose the WebGL orb when Three.js + a WebGL context are available, else
+  // the Canvas-2D fallback. Probes on a throwaway canvas so we never consume
+  // the real canvas's context with the wrong type before WebGLRenderer claims
+  // it.
+  function createVoiceOrb(canvas) {
+    let ok = false;
+    try {
+      const probe = document.createElement('canvas');
+      ok = !!(window.THREE && (probe.getContext('webgl2') || probe.getContext('webgl')));
+    } catch (e) { ok = false; }
+    if (ok) {
+      try { return new VoiceOrbGL(canvas); }
+      catch (e) { console.warn('[voice] WebGL orb failed, falling back to Canvas-2D:', e); }
+    }
+    return new VoiceOrbCanvas2D(canvas);
+  }
+
+  // Back-compat: the call site does `new VoiceOrb(canvas)`. A constructor that
+  // returns an object yields that object from `new`, so this thin wrapper keeps
+  // the call site unchanged while transparently selecting GL-or-2D.
+  function VoiceOrb(canvas) { return createVoiceOrb(canvas); }
 
   // ---- MicCapture — WebAudio mic → 16 kHz mono int16 PCM ----
   // Uses ScriptProcessorNode (deprecated but ubiquitous) + manual decimation.
