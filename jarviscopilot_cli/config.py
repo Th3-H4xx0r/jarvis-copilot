@@ -1191,8 +1191,11 @@ DEFAULT_CONFIG = {
     "memory": {
         "memory_enabled": True,
         "user_profile_enabled": True,
-        "memory_char_limit": 4400,   # ~1600 tokens at 2.75 chars/token
-        "user_char_limit": 2750,     # ~1000 tokens at 2.75 chars/token
+        # Injected into the system prompt EVERY turn, so keep modest. 0 = unlimited
+        # (NOT recommended — bloats every request and dilutes signal; for large,
+        # relevance-retrieved memory enable an external provider below instead).
+        "memory_char_limit": 4400,   # ~1600 tokens at 2.75 chars/token (0 = unlimited)
+        "user_char_limit": 2750,     # ~1000 tokens at 2.75 chars/token (0 = unlimited)
         # External memory provider plugin (empty = built-in only).
         # Set to a provider name to activate: "openviking", "mem0",
         # "hindsight", "holographic", "retaindb", "byterover".

@@ -256,10 +256,14 @@ class MemoryStore:
             return 0
         return len(ENTRY_DELIMITER.join(entries))
 
+    def _raw_limit(self, target: str) -> int:
+        """The configured cap. 0 (or negative) means UNLIMITED."""
+        return self.user_char_limit if target == "user" else self.memory_char_limit
+
     def _char_limit(self, target: str) -> int:
-        if target == "user":
-            return self.user_char_limit
-        return self.memory_char_limit
+        """Effective cap used for enforcement; <=0 => a huge sentinel (no cap)."""
+        lim = self._raw_limit(target)
+        return lim if lim and lim > 0 else 10 ** 12
 
     def add(self, target: str, content: str) -> Dict[str, Any]:
         """Append a new entry. Returns error if it would exceed the char limit."""
@@ -425,14 +429,18 @@ class MemoryStore:
     def _success_response(self, target: str, message: str = None) -> Dict[str, Any]:
         entries = self._entries_for(target)
         current = self._char_count(target)
-        limit = self._char_limit(target)
-        pct = min(100, int((current / limit) * 100)) if limit > 0 else 0
+        raw = self._raw_limit(target)
+        if raw and raw > 0:
+            pct = min(100, int((current / raw) * 100))
+            usage = f"{pct}% — {current:,}/{raw:,} chars"
+        else:
+            usage = f"{current:,} chars (no limit)"
 
         resp = {
             "success": True,
             "target": target,
             "entries": entries,
-            "usage": f"{pct}% — {current:,}/{limit:,} chars",
+            "usage": usage,
             "entry_count": len(entries),
         }
         if message:
@@ -444,15 +452,17 @@ class MemoryStore:
         if not entries:
             return ""
 
-        limit = self._char_limit(target)
+        raw = self._raw_limit(target)
         content = ENTRY_DELIMITER.join(entries)
         current = len(content)
-        pct = min(100, int((current / limit) * 100)) if limit > 0 else 0
-
-        if target == "user":
-            header = f"USER PROFILE (who the user is) [{pct}% — {current:,}/{limit:,} chars]"
+        if raw and raw > 0:
+            pct = min(100, int((current / raw) * 100))
+            usage = f"{pct}% — {current:,}/{raw:,} chars"
         else:
-            header = f"MEMORY (your personal notes) [{pct}% — {current:,}/{limit:,} chars]"
+            usage = f"{current:,} chars"
+
+        label = "USER PROFILE (who the user is)" if target == "user" else "MEMORY (your personal notes)"
+        header = f"{label} [{usage}]"
 
         separator = "═" * 46
         return f"{separator}\n{header}\n{separator}\n{content}"
