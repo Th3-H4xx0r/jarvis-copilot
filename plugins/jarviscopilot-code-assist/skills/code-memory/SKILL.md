@@ -43,8 +43,9 @@ nugget or split it. Quality bar (from the agent's memory discipline):
   **stale within a week** — they do NOT belong in knowledge).
 
 Run-specific findings and "where I left off" go in a **session handoff**, not
-knowledge: call `store_session_handoff` (what you did, current state, open
-threads). The Stop hook will also remind you periodically — but store as you go.
+knowledge — use the **session-handoff** skill (comprehensive `store_session_handoff`
+/ `recall_session_handoff` workflow). The Stop hook also reminds you periodically —
+but store knowledge as you go.
 
 ## EDIT / DELETE — keep memory correct, don't pile on duplicates
 
