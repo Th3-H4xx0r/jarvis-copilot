@@ -26,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 from jc_client import credentials
+from jc_client._mac_media import enable_microphone
 
 logger = logging.getLogger(__name__)
 
@@ -256,14 +257,18 @@ def run_voice_popup() -> None:
             webbrowser.open(url)
             proxy.wait()  # keep the proxy alive while the browser tab is open
         else:
+            # Grant the embedded WebView microphone access before it loads
+            # (pywebview doesn't do this itself). No-op off macOS.
+            enable_microphone()
+            # Native title bar → real close / minimize / zoom buttons, and the
+            # window is freely movable (not pinned on-top "stuck to the screen").
             webview.create_window(
                 "JARVIS",
                 url,
-                width=380,
-                height=520,
-                frameless=True,
-                on_top=True,
-                easy_drag=True,
+                width=400,
+                height=560,
+                frameless=False,
+                on_top=False,
                 resizable=False,
             )
             webview.start(debug=False)

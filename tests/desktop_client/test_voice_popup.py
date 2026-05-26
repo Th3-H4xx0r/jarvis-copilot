@@ -113,6 +113,7 @@ def test_run_voice_popup_loads_local_proxy_url_in_webview(monkeypatch):
     _FakeProxy.instances = []
     monkeypatch.setattr(vp.credentials, "load", lambda: _PairedCreds())
     monkeypatch.setattr(vp, "PinnedProxy", _FakeProxy)
+    monkeypatch.setattr(vp, "enable_microphone", lambda: None)  # skip native mic setup
 
     calls = {}
 
@@ -129,8 +130,11 @@ def test_run_voice_popup_loads_local_proxy_url_in_webview(monkeypatch):
     vp.run_voice_popup()
 
     assert calls["url"] == "http://127.0.0.1:54321/?mini=voice"
-    assert calls["kw"].get("frameless") is True
-    assert calls["kw"].get("on_top") is True
+    # Native frame → close/minimize controls; movable (not pinned on-top);
+    # fixed size (not resizable).
+    assert calls["kw"].get("frameless") is False
+    assert calls["kw"].get("on_top") is False
+    assert calls["kw"].get("resizable") is False
     assert calls.get("started") is True
     # Proxy built from the configured (tray) credentials and torn down after.
     assert _FakeProxy.instances[0].args == ("https://hermes:8787", "AABBCC", "SESSIONVAL")
