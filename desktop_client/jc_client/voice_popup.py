@@ -33,12 +33,16 @@ logger = logging.getLogger(__name__)
 _MINI_PATH = "/?mini=voice"
 _RECV = 65536
 
-# Hop-by-hop / connection-management headers we must not blindly forward. Host
-# and Cookie are dropped here and re-set by the proxy; Upgrade/Connection are
-# re-emitted explicitly for WebSocket upgrades.
+# Headers we must not blindly forward. Host and Cookie are dropped here and
+# re-set by the proxy; Upgrade/Connection are re-emitted for WebSocket upgrades.
+# Origin/Referer are dropped because the page's origin is the loopback proxy
+# (http://127.0.0.1:<port>), which wouldn't match the server's Host — the
+# webui's CSRF check rejects that cross-origin mismatch on POSTs. Stripping them
+# makes the server treat this trusted loopback forwarder like a non-browser
+# client (curl/agent) and allow the request (see routes._check_csrf).
 _DROP_HEADERS = frozenset({
     "host", "cookie", "connection", "proxy-connection", "keep-alive",
-    "transfer-encoding", "te", "trailer", "upgrade",
+    "transfer-encoding", "te", "trailer", "upgrade", "origin", "referer",
 })
 
 

@@ -54,6 +54,20 @@ def test_build_upstream_head_injects_cookie_and_rewrites_host():
     assert out.endswith("\r\n\r\n")
 
 
+def test_build_upstream_head_strips_origin_and_referer():
+    # The loopback proxy origin (http://127.0.0.1:<port>) would fail the webui's
+    # cross-origin CSRF check on POSTs, so Origin/Referer must be dropped.
+    vp = _vp()
+    h = http.client.HTTPMessage()
+    h.add_header("Origin", "http://127.0.0.1:51234")
+    h.add_header("Referer", "http://127.0.0.1:51234/?mini=voice")
+    out = vp.build_upstream_head(
+        "POST", "/api/session/new", h, "hermes_session=abc", "hermes", 8787, False).decode()
+    assert "127.0.0.1:51234" not in out
+    assert "\r\nOrigin:" not in out
+    assert "\r\nReferer:" not in out
+
+
 def test_build_upstream_head_does_not_double_cookie_prefix():
     # creds.cookie is the full "hermes_session=<value>" string — must be sent
     # as-is, never "hermes_session=hermes_session=<value>" (which 302s to /pair).
