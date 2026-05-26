@@ -1200,7 +1200,25 @@ DEFAULT_CONFIG = {
         # Set to a provider name to activate: "openviking", "mem0",
         # "hindsight", "holographic", "retaindb", "byterover".
         # Only ONE external provider is allowed at a time.
-        "provider": "",
+        #
+        # "holographic" (LOCAL, recommended): unlimited fact storage in a local
+        # SQLite db; only the top relevant facts are retrieved + injected per
+        # prompt (not the whole store), so it scales without bloating every turn.
+        # Coexists with the bounded built-in MEMORY.md/USER.md core above.
+        # Full semantic (HRR) retrieval needs numpy; without it, it degrades to
+        # SQLite FTS5 keyword retrieval (still relevance-gated, no crash).
+        "provider": "holographic",
+    },
+
+    # Per-plugin config. holographic memory provider reads `hermes-memory-store`.
+    "plugins": {
+        "hermes-memory-store": {
+            # "db_path": "$HERMES_HOME/memory_store.db",  # default if omitted
+            "auto_extract": False,        # regex-extract prefs/decisions at session end
+            "default_trust": 0.5,
+            "min_trust_threshold": 0.3,   # facts below this aren't retrieved
+            "temporal_decay_half_life": 0,  # 0 = no time decay
+        },
     },
 
     # Subagent delegation — override the provider:model used by delegate_task
