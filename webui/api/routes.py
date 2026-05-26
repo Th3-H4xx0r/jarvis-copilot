@@ -4402,6 +4402,12 @@ def handle_get(handler, parsed) -> bool:
         return _handle_code_memory_projects(handler)
     if parsed.path == "/api/code-memory/stats":
         return _handle_code_memory_stats(handler)
+    if parsed.path == "/api/code-memory/search":
+        return _handle_code_memory_search(handler, parsed)
+    if parsed.path == "/api/code-memory/entries":
+        return _handle_code_memory_entries(handler, parsed)
+    if parsed.path == "/api/code-memory/digest":
+        return _handle_code_memory_digest(handler, parsed)
 
     # ── Profile API (GET) ──
     if parsed.path == "/api/profiles":
@@ -10312,10 +10318,56 @@ def _handle_code_memory_projects(handler):
     from agent import code_memory as cm
     home = _code_mem_home()
     idx = cm.list_all_projects(home=home)  # registered + dirs-with-entries, so it matches stats
+    pc = cm.project_counts(home=home)  # {sanitized_slug: {knowledge, sessions}} in one query
     for slug, meta in idx.items():
-        meta["knowledge_count"] = cm.count_entries(slug, "knowledge", home=home)
-        meta["sessions_count"] = cm.count_entries(slug, "sessions", home=home)
+        c = pc.get(cm._sanitize(slug), {})
+        meta["knowledge_count"] = c.get("knowledge", 0)
+        meta["sessions_count"] = c.get("sessions", 0)
     return j(handler, {"projects": idx})
+
+
+def _handle_code_memory_search(handler, parsed):
+    from urllib.parse import parse_qs
+    from agent import code_memory as cm
+    q = parse_qs(parsed.query or "")
+    slug = (q.get("project", [""])[0] or "").strip()
+    if not slug:
+        return bad(handler, "project required")
+    kind = (q.get("kind", ["knowledge"])[0] or "knowledge").strip()
+    if kind not in cm.KINDS:
+        return bad(handler, "valid kind required")
+    entry_type = (q.get("type", [""])[0] or "").strip() or None
+    query = (q.get("q", [""])[0] or "").strip() or None
+    try:
+        limit = max(1, min(200, int(q.get("limit", ["20"])[0])))
+    except ValueError:
+        limit = 20
+    try:
+        offset = max(0, int(q.get("offset", ["0"])[0]))
+    except ValueError:
+        offset = 0
+    rows = cm.search(slug, kind=kind, entry_type=entry_type, query=query,
+                     limit=limit, offset=offset, home=_code_mem_home())
+    return j(handler, {"slug": slug, "kind": kind, "entries": rows})
+
+
+def _handle_code_memory_entries(handler, parsed):
+    from urllib.parse import parse_qs
+    from agent import code_memory as cm
+    q = parse_qs(parsed.query or "")
+    ids = [i for i in (q.get("ids", [""])[0] or "").split(",") if i.strip()]
+    rows = cm.get_by_ids(ids, home=_code_mem_home())
+    return j(handler, {"entries": rows})
+
+
+def _handle_code_memory_digest(handler, parsed):
+    from urllib.parse import parse_qs
+    from agent import code_memory as cm
+    q = parse_qs(parsed.query or "")
+    slug = (q.get("project", [""])[0] or "").strip()
+    if not slug:
+        return bad(handler, "project required")
+    return j(handler, {"slug": slug, "digest": cm.digest(slug, home=_code_mem_home())})
 
 
 def _handle_code_memory_stats(handler):

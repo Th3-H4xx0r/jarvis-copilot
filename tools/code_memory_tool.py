@@ -21,14 +21,23 @@ def _cwd_slug() -> str:
 def code_memory(action: str, kind: str = "knowledge", entry_type: str = "note",
                 content: str = "", project: str | None = None,
                 limit: int = 50, name: str = "", root: str = "",
-                ts: str = "") -> dict:
+                ts: str = "", query: str = "", ids: list | None = None) -> dict:
     """Read/write the shared project code-memory.
 
-    action: recall | store | register | list_projects
+    action: search | get | recall | store | register | list_projects | delete_entry | delete_project
     kind:   knowledge | sessions   (sessions = handoff log)
+
+    Prefer progressive recall: `search` returns compact ranked rows (no bodies),
+    then `get ids=[...]` fetches full bodies for the few you need. `recall` returns
+    full bodies (use for the conversational browse interface, or small limits).
     """
     slug = project or _cwd_slug()
     try:
+        if action == "search":
+            return {"slug": slug, "kind": kind,
+                    "entries": cm.search(slug, kind=kind, query=query or None, limit=limit)}
+        if action == "get":
+            return {"entries": cm.get_by_ids(ids or [])}
         if action == "recall":
             return {"slug": slug, "kind": kind,
                     "entries": cm.read_entries(slug, kind, limit=limit)}
@@ -57,15 +66,18 @@ CODE_MEMORY_SCHEMA = {
     "description": (
         "Read/write the shared project code-memory (durable knowledge + session "
         "handoff), scoped to the current repo. "
-        "action: recall|store|register|list_projects; "
+        "action: search|get|recall|store|register|list_projects|delete_entry|delete_project. "
+        "Progressive recall: `search` (optional `query`) returns COMPACT ranked rows with "
+        "ids + one-line summaries (no bodies, token-cheap); then `get` with `ids=[...]` "
+        "fetches full bodies for the few you need. `recall` returns full bodies. "
         "kind: knowledge|sessions; "
-        "entry_type for knowledge: bug|fix|repo_structure|gotcha|decision|note; "
-        "for sessions: claude|jarviscopilot."
+        "entry_type for knowledge: bug|fix|repo_structure|gotcha|decision|note "
+        "(store SHORT declarative facts, one per call); for sessions: claude|jarviscopilot."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["recall", "store", "register", "list_projects", "delete_entry", "delete_project"]},
+            "action": {"type": "string", "enum": ["search", "get", "recall", "store", "register", "list_projects", "delete_entry", "delete_project"]},
             "kind": {"type": "string", "enum": ["knowledge", "sessions"]},
             "entry_type": {"type": "string"},
             "content": {"type": "string"},
@@ -74,6 +86,8 @@ CODE_MEMORY_SCHEMA = {
             "name": {"type": "string"},
             "root": {"type": "string"},
             "ts": {"type": "string"},
+            "query": {"type": "string", "description": "search text (action=search)"},
+            "ids": {"type": "array", "items": {"type": "string"}, "description": "entry ids to fetch (action=get)"},
         },
         "required": ["action"],
     },
@@ -103,6 +117,8 @@ registry.register(
             name=args.get("name", ""),
             root=args.get("root", ""),
             ts=args.get("ts", ""),
+            query=args.get("query", ""),
+            ids=args.get("ids"),
         ),
         ensure_ascii=False,
     ),

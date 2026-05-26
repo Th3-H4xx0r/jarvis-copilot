@@ -23,6 +23,10 @@ KINDS = ("knowledge", "sessions")
 KNOWLEDGE_TYPES = ("bug", "fix", "repo_structure", "gotcha", "decision", "note")
 SESSION_SURFACES = ("claude", "jarviscopilot")
 MAX_ENTRY_BYTES = 64 * 1024
+# Soft target for a knowledge entry: a short, declarative fact (1-3 sentences).
+# Above this we still save (never lose data) but return a warning nudging the
+# writer to trim to the durable nugget. See SKILLs / store_code_knowledge.
+SOFT_ENTRY_CHARS = 600
 _DEFAULT_LIMIT = 50
 
 
@@ -62,6 +66,7 @@ def project_slug(root: str, remote: str | None) -> str:
 
 
 def register_project(slug, name, root, remote, home: Any = None) -> dict:
+    slug = _sanitize(slug) or "project"  # keep dir, projects.json key, and index slug consistent
     root_dir = _root(home)
     root_dir.mkdir(parents=True, exist_ok=True)
     (root_dir / slug).mkdir(parents=True, exist_ok=True)
@@ -108,7 +113,15 @@ def write_entry(slug, kind, entry_type, content, home: Any = None) -> dict:
     block = f"\n{_SEP}## {ts} \xb7 {entry_type}\n{content.rstrip()}\n"
     with open(f, "a", encoding="utf-8") as fh:
         fh.write(block)
-    return {"ts": ts, "entry_type": entry_type}
+    res = {"ts": ts, "entry_type": entry_type}
+    if kind == "knowledge" and len(content) > SOFT_ENTRY_CHARS:
+        res["warning"] = (
+            f"Stored, but this entry is {len(content)} chars. Code-memory knowledge "
+            "should be a short declarative fact (1-3 sentences, ~400 chars). Trim to the "
+            "durable nugget or split it; keep run-specific results/numbers in a session "
+            "handoff, not knowledge."
+        )
+    return res
 
 
 # Each entry header is prefixed with a record-separator control char (U+001E)
@@ -213,7 +226,20 @@ def list_all_projects(home: Any = None) -> dict:
 
 
 def stats(home: Any = None) -> dict:
-    """Global counts across all projects (registered + unregistered dirs)."""
+    """Global counts. Uses the SQLite index when available; the project count is
+    taken from list_all_projects so it matches the browsable list."""
+    projects = len(list_all_projects(home))
+    try:
+        from agent import code_memory_index as _idx
+        s = _idx.stats(home=home)
+        return {"projects": projects, "knowledge": s["knowledge"], "sessions": s["sessions"],
+                "by_type": s["by_type"], "last_activity": s["last_activity"]}
+    except Exception:
+        return _stats_scan(home)
+
+
+def _stats_scan(home: Any = None) -> dict:
+    """Markdown-scan fallback for stats() when the index is unavailable."""
     idx = list_projects(home)
     slugs: set = set(idx.keys()) | _fs_slugs(home)
     total_k = total_s = 0
@@ -231,3 +257,118 @@ def stats(home: Any = None) -> dict:
                 last = row["ts"]
     return {"projects": len(slugs), "knowledge": total_k, "sessions": total_s,
             "by_type": by_type, "last_activity": last}
+
+
+# =============================================================================
+# Progressive recall (token-cheap): search -> pick ids -> fetch bodies.
+# All index-backed with a markdown-scan fallback so recall never breaks.
+# =============================================================================
+def _compact_rows(slug: str, kind: str, rows_newest_first: list[dict]) -> list[dict]:
+    """Build compact rows with ids matching the index's scheme.
+
+    The index assigns the ``::ordinal`` in FILE order (oldest-first), so compute
+    ordinals on the reversed list, then return rows still newest-first to match
+    read_entries / the index's recency ordering.
+    """
+    safe = _sanitize(slug)
+    ordinal_by_pos: dict[int, int] = {}
+    seen: dict[str, int] = {}
+    for r in reversed(rows_newest_first):  # oldest-first = file order
+        o = seen.get(r["ts"], 0)
+        seen[r["ts"]] = o + 1
+        ordinal_by_pos[id(r)] = o
+    out = []
+    for r in rows_newest_first:
+        body = (r.get("content") or "").strip()
+        out.append({"id": f"{safe}::{kind}::{r['ts']}::{ordinal_by_pos[id(r)]}",
+                    "slug": safe, "kind": kind, "entry_type": r["entry_type"],
+                    "ts": r["ts"], "first_line": body.splitlines()[0][:120] if body else ""})
+    return out
+
+
+def search(slug: str, kind: str = "knowledge", entry_type: str | None = None,
+           query: str | None = None, limit: int = 20, offset: int = 0,
+           home: Any = None) -> list[dict]:
+    """Compact ranked rows (no bodies). Index-backed; markdown fallback."""
+    try:
+        from agent import code_memory_index as _idx
+        return _idx.search(slug=slug, kind=kind, entry_type=entry_type,
+                           query=query, limit=limit, offset=offset, home=home)
+    except Exception:
+        rows = read_entries(slug, kind, limit=10 ** 9, home=home)
+        pairs = list(zip(_compact_rows(slug, kind, rows), rows))  # ids over the FULL set
+        if entry_type:
+            pairs = [(c, r) for c, r in pairs if r["entry_type"] == entry_type]
+        if query:
+            ql = query.lower()
+            pairs = [(c, r) for c, r in pairs if ql in (r.get("content") or "").lower()]
+        return [c for c, _ in pairs[offset:offset + max(1, limit)]]
+
+
+def get_by_ids(ids: list[str], home: Any = None) -> list[dict]:
+    """Full bodies for the given entry ids (id = slug::kind::ts::ordinal)."""
+    try:
+        from agent import code_memory_index as _idx
+        return _idx.get_by_ids(ids, home=home)
+    except Exception:
+        out = []
+        for eid in ids or []:
+            parts = (eid or "").split("::")
+            if len(parts) < 3:
+                continue
+            slug, kind, ts = parts[0], parts[1], parts[2]
+            if kind not in KINDS:
+                continue
+            try:
+                ordn = int(parts[3]) if len(parts) >= 4 else 0
+            except ValueError:
+                ordn = 0
+            # ordinal is file-order (oldest-first); read_entries is newest-first
+            file_order = list(reversed(read_entries(slug, kind, limit=10 ** 9, home=home)))
+            same_ts = [r for r in file_order if r["ts"] == ts]
+            if 0 <= ordn < len(same_ts):
+                r = same_ts[ordn]
+                out.append({"id": eid, "slug": _sanitize(slug), "kind": kind,
+                            "entry_type": r["entry_type"], "ts": ts, "content": r["content"]})
+        return out
+
+
+def project_counts(home: Any = None) -> dict:
+    """{slug: {'knowledge': n, 'sessions': m}}. Index-backed; markdown fallback."""
+    try:
+        from agent import code_memory_index as _idx
+        return _idx.project_counts(home=home)
+    except Exception:
+        out = {}
+        for slug in list_all_projects(home):
+            out[_sanitize(slug)] = {"knowledge": count_entries(slug, "knowledge", home=home),
+                                    "sessions": count_entries(slug, "sessions", home=home)}
+        return out
+
+
+_DIGEST_NOTABLE = ("decision", "gotcha", "fix", "bug")
+
+
+def digest(slug: str, home: Any = None) -> str:
+    """A tiny (<300-token) session-start digest: counts + most-recent handoff +
+    a few notable knowledge first-lines. Full entries stay recallable on demand."""
+    try:
+        from agent import code_memory_index as _idx
+        c = _idx.counts(slug, home=home)
+        nk, ns = c.get("knowledge", 0), c.get("sessions", 0)
+        sess = _idx.search(slug=slug, kind="sessions", limit=2, home=home)
+        know = _idx.search(slug=slug, kind="knowledge", limit=14, home=home)
+    except Exception:
+        nk = count_entries(slug, "knowledge", home=home)
+        ns = count_entries(slug, "sessions", home=home)
+        sess = _compact_rows(slug, "sessions", read_entries(slug, "sessions", limit=2, home=home))
+        know = _compact_rows(slug, "knowledge", read_entries(slug, "knowledge", limit=14, home=home))
+    lines = [f"{nk} knowledge · {ns} handoffs"]
+    if sess:
+        lines.append(f"Latest handoff: {sess[0]['first_line']}")
+    notable = [r for r in know if r["entry_type"] in _DIGEST_NOTABLE][:5]
+    if notable:
+        lines.append("Key knowledge:")
+        lines += [f"- [{r['entry_type']}] {r['first_line']}" for r in notable]
+    lines.append("(Recall full entries on demand: search/get_code_knowledge — don't ask for everything.)")
+    return "\n".join(lines)

@@ -2571,6 +2571,8 @@ main.main.showing-codememory > #mainCodememory{display:flex;flex-direction:colum
 .cm-section-head{display:flex;align-items:center;gap:8px;margin-bottom:11px;}
 .cm-section-title{font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
 .cm-section-count{font-size:0.72rem;color:var(--muted);background:var(--surface-subtle);border:1px solid var(--border);border-radius:var(--radius-pill);padding:1px 9px;}
+.cm-search{margin-left:auto;background:var(--input-bg);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text);font-size:0.8rem;padding:5px 10px;width:200px;max-width:40%;}
+.cm-search:focus{outline:none;border-color:var(--accent-bg-strong);}
 
 .cm-entry{position:relative;background:var(--surface-subtle);border:1px solid var(--border);border-radius:var(--radius-card);padding:12px 14px;margin-bottom:10px;transition:border-color .12s;}
 .cm-entry:hover{border-color:var(--border2);}

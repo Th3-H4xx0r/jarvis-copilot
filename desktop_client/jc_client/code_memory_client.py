@@ -63,6 +63,36 @@ def recall(slug, kind, limit=50):
     return _http().request_json("GET", path).json().get("entries", [])
 
 
+def search(slug, kind="knowledge", q="", entry_type="", limit=20, offset=0):
+    """Compact ranked rows (id/entry_type/ts/first_line) — no bodies."""
+    path = (f"/api/code-memory/search?project={quote(slug)}&kind={quote(kind)}"
+            f"&limit={int(limit)}&offset={int(offset)}")
+    if q:
+        path += f"&q={quote(q)}"
+    if entry_type:
+        path += f"&type={quote(entry_type)}"
+    return _http().request_json("GET", path).json().get("entries", [])
+
+
+def get_by_ids(ids):
+    """Full bodies for the given entry ids."""
+    if not ids:
+        return []
+    path = f"/api/code-memory/entries?ids={quote(','.join(ids))}"
+    return _http().request_json("GET", path).json().get("entries", [])
+
+
+def digest(slug):
+    """Small (<300-token) session-start digest string for a project."""
+    path = f"/api/code-memory/digest?project={quote(slug)}"
+    return _http().request_json("GET", path).json().get("digest", "")
+
+
+def delete_entry(slug, kind, ts):
+    return _http().request_json("POST", "/api/code-memory/delete-entry",
+                                {"slug": slug, "kind": kind, "ts": ts}).json()
+
+
 def projects():
     return _http().request_json("GET", "/api/code-memory/projects").json().get("projects", {})
 

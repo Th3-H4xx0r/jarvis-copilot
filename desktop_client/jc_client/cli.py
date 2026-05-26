@@ -526,22 +526,118 @@ def cmd_code_memory(args) -> int:
             cmc.store(slug, args.kind, args.entry_type, args.content)
             print("stored")
         elif args.cm_command == "bootstrap":
+            # Emit a small (<300-token) digest, NOT a full dump — Claude pulls
+            # detail on demand via recall_code_knowledge -> get_code_knowledge.
             slug = cmc.current_slug()
             cmc.register(slug, _os.path.basename(_os.getcwd()), _os.getcwd(), "")
             print(f"# JarvisCopilot code-memory for `{slug}`\n")
-            sess = cmc.recall(slug, "sessions", limit=3)
-            if sess:
-                print("## Recent session handoff")
-                for r in sess:
-                    print(f"- {r.get('content','')}")
-            know = cmc.recall(slug, "knowledge", limit=20)
-            if know:
-                print("\n## Known project knowledge")
-                for r in know:
-                    print(f"- [{r.get('entry_type','')}] {r.get('content','')}")
+            print(cmc.digest(slug))
+            print("\nRecall on demand: `recall_code_knowledge(query=…)` → "
+                  "`get_code_knowledge(ids=[…])`. Store short durable facts as you go.")
+        elif args.cm_command == "digest":
+            print(cmc.digest(args.project or cmc.current_slug()))
+        elif args.cm_command == "distill":
+            return _cm_distill(cmc, args)
     except cmc.NotPaired as e:
         print(f"(jarviscopilot-code-assist: {e})")
     return 0
+
+
+def _cm_distill(cmc, args) -> int:
+    """Re-summarize a project's bloated knowledge into short facts via the agent.
+
+    Dry-run by default (prints the plan); --apply rewrites the markdown store
+    (delete the originals that are dropped/rewritten, then store the short ones).
+    """
+    slug = args.project or cmc.current_slug()
+    rows = cmc.recall(slug, "knowledge", limit=500)
+    if not rows:
+        print("(no knowledge to distill)")
+        return 0
+    listing = "\n".join(
+        f"{i}. [{r.get('entry_type','note')}] ({r.get('ts','')}) {r.get('content','')}"
+        for i, r in enumerate(rows)
+    )
+    prompt = (
+        "Distill this project's code-memory knowledge into SHORT durable facts. "
+        "Return ONLY a JSON array of objects "
+        '{"i": <index>, "action": "keep"|"rewrite"|"drop", "entry_type": <type>, "content": <short fact>}. '
+        "Rules: REWRITE long entries into 1-3 sentence declarative facts (keep the durable nugget); "
+        "DROP entries that are run-specific results, dated verdicts, dollar figures, PR/commit SHAs, "
+        "or duplicates (keep the single best one); KEEP entries already short and durable. "
+        "entry_type is one of bug|fix|repo_structure|gotcha|decision|note.\n\nEntries:\n" + listing
+    )
+    plan = _distill_parse(cmc.ask_agent(prompt, timeout=300.0))
+    if plan is None:
+        print("Could not parse a JSON plan from the agent — nothing changed.")
+        return 1
+    drops, rewrites = [], []
+    for p in plan:
+        if not isinstance(p, dict):
+            continue
+        i = p.get("i")
+        if not isinstance(i, int) or not (0 <= i < len(rows)):
+            continue
+        act = p.get("action")
+        if act == "drop":
+            drops.append(i)
+            print(f"DROP     {rows[i].get('content','')[:72]}")
+        elif act == "rewrite":
+            rewrites.append((i, p.get("entry_type", rows[i].get("entry_type", "note")), p.get("content", "")))
+            print(f"REWRITE  -> [{p.get('entry_type')}] {str(p.get('content',''))[:72]}")
+        else:
+            print(f"KEEP     {rows[i].get('content','')[:72]}")
+    if not args.apply:
+        print(f"\n(dry-run — {len(drops)} drop, {len(rewrites)} rewrite; re-run with --apply to rewrite the store)")
+        return 0
+    # Apply. delete_entry removes EVERY entry sharing a timestamp, and these rows
+    # carry no per-entry id, so only delete a timestamp when NO kept entry shares
+    # it — otherwise we'd silently nuke a kept same-second entry. Rewrites whose
+    # timestamp is shared are still stored (the short fact is added); the original
+    # is left in place and reported, so nothing is lost.
+    touched = set(drops) | {r[0] for r in rewrites}
+    kept_ts = {rows[i]["ts"] for i in range(len(rows)) if i not in touched}
+    deleted_ts, skipped = set(), 0
+    for i in touched:
+        ts = rows[i].get("ts")
+        if not ts:
+            continue
+        if ts in kept_ts:
+            skipped += 1
+            continue
+        if ts not in deleted_ts:
+            deleted_ts.add(ts)
+            cmc.delete_entry(slug, "knowledge", ts)
+    stored = 0
+    for _i, etype, content in rewrites:
+        if str(content).strip():
+            cmc.store(slug, "knowledge", etype, str(content).strip())
+            stored += 1
+    msg = f"\nApplied: deleted {len(deleted_ts)} timestamp group(s), stored {stored} rewrite(s)."
+    if skipped:
+        msg += (f" Left {skipped} entry(ies) in place because they shared a timestamp with a kept "
+                "entry (delete-by-timestamp would have removed the kept one too) — trim those via the UI if needed.")
+    print(msg)
+    return 0
+
+
+def _distill_parse(answer):
+    """Extract a JSON array plan from the agent's answer (tolerates surrounding prose)."""
+    import json as _json
+    s = (answer or "").strip()
+    try:
+        v = _json.loads(s)
+        return v if isinstance(v, list) else None
+    except Exception:
+        pass
+    start = s.find("[")
+    if start < 0:
+        return None
+    try:
+        v, _end = _json.JSONDecoder().raw_decode(s[start:])  # stops at end of first valid array
+        return v if isinstance(v, list) else None
+    except Exception:
+        return None
 
 
 def cmd_update(args) -> int:
@@ -653,8 +749,11 @@ def _build_parser() -> argparse.ArgumentParser:
     cmsubp = cmsub.add_subparsers(dest="cm_command", required=True)
     cmsubp.add_parser("bootstrap")
     cmsubp.add_parser("projects")
+    _d = cmsubp.add_parser("digest"); _d.add_argument("--project", default="")
     _r = cmsubp.add_parser("recall"); _r.add_argument("--project", default=""); _r.add_argument("--kind", default="knowledge"); _r.add_argument("--limit", type=int, default=20)
     _s = cmsubp.add_parser("store"); _s.add_argument("--project", default=""); _s.add_argument("--kind", default="knowledge"); _s.add_argument("--entry-type", dest="entry_type", default="note"); _s.add_argument("--content", required=True)
+    _dl = cmsubp.add_parser("distill", help="Re-summarize a project's bloated entries into short facts (uses the agent)")
+    _dl.add_argument("--project", default=""); _dl.add_argument("--apply", action="store_true", help="Apply the plan (default: dry-run, print only)")
     cmsub.set_defaults(func=cmd_code_memory)
 
     upd = sub.add_parser("update", help="Pull the latest client code and reinstall")

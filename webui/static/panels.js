@@ -2947,9 +2947,10 @@ function _cmSyncProjectMeta(slug, kc, sc) {
 
 function _cmEntryCard(slug, kind, e) {
   const type = e.entry_type || (kind === 'sessions' ? 'handoff' : 'note');
+  const typeClass = String(type).replace(/[^a-z0-9_-]/gi, '');
   return `<div class="cm-entry">
       <div class="cm-entry-top">
-        <span class="cm-type cm-type-${_cmEsc(type)}">${_cmEsc(type)}</span>
+        <span class="cm-type cm-type-${typeClass}">${_cmEsc(type)}</span>
         <span class="cm-ts">${_cmEsc(_cmDateTime(e.ts))}</span>
         <button class="cm-del" title="Delete entry" onclick="cmDeleteEntry('${_cmEsc(slug)}','${_cmEsc(kind)}','${_cmEsc(e.ts)}')">${_CM_TRASH}</button>
       </div>
@@ -2968,6 +2969,7 @@ async function cmOpenProject(slug) {
       fetch('api/code-memory?project=' + encodeURIComponent(slug) + '&kind=sessions&limit=200').then(r => r.json()),
     ]);
     const kEntries = k.entries || [], sEntries = s.entries || [];
+    _cmKnowAll = kEntries;
     const meta = _cmProjectsCache[slug] || {};
     const know = kEntries.map(e => _cmEntryCard(slug, 'knowledge', e)).join('') || '<div class="cm-empty">No knowledge stored yet.</div>';
     const sess = sEntries.map(e => _cmEntryCard(slug, 'sessions', e)).join('') || '<div class="cm-empty">No session handoffs yet.</div>';
@@ -2981,8 +2983,11 @@ async function cmOpenProject(slug) {
       </div>
       <div class="cm-detail-body">
         <div class="cm-section">
-          <div class="cm-section-head"><span class="cm-section-title">Knowledge</span><span class="cm-section-count">${kEntries.length}</span></div>
-          ${know}
+          <div class="cm-section-head">
+            <span class="cm-section-title">Knowledge</span><span class="cm-section-count" id="cmKnowCount">${kEntries.length}</span>
+            <input class="cm-search" type="search" placeholder="Search knowledge…" oninput="cmSearch('${_cmEsc(slug)}', this.value)">
+          </div>
+          <div id="cmKnowledgeList">${know}</div>
         </div>
         <div class="cm-section">
           <div class="cm-section-head"><span class="cm-section-title">Session handoffs</span><span class="cm-section-count">${sEntries.length}</span></div>
@@ -2993,6 +2998,39 @@ async function cmOpenProject(slug) {
   } catch (e) {
     detail.innerHTML = '<div class="cm-detail-body"><div class="cm-empty">Failed to load project memory.</div></div>';
   }
+}
+
+let _cmKnowAll = [];
+let _cmSearchTimer = null;
+let _cmSearchSeq = 0;  // generation token: ignore stale in-flight search results
+function _cmRenderKnowList(slug, entries, emptyMsg) {
+  if (slug !== _cmOpenSlug) return;  // project switched out from under us
+  const list = document.getElementById('cmKnowledgeList');
+  const cnt = document.getElementById('cmKnowCount');
+  if (!list) return;
+  list.innerHTML = entries.length
+    ? entries.map(e => _cmEntryCard(slug, 'knowledge', e)).join('')
+    : '<div class="cm-empty">' + (emptyMsg || 'No matches.') + '</div>';
+  if (cnt) cnt.textContent = entries.length;
+}
+function cmSearch(slug, q) {
+  q = (q || '').trim();
+  clearTimeout(_cmSearchTimer);
+  const seq = ++_cmSearchSeq;  // invalidates any in-flight search
+  if (!q) { _cmRenderKnowList(slug, _cmKnowAll); return; }
+  _cmSearchTimer = setTimeout(async () => {
+    try {
+      const rows = await fetch('api/code-memory/search?project=' + encodeURIComponent(slug) + '&kind=knowledge&q=' + encodeURIComponent(q) + '&limit=100').then(r => r.json());
+      if (seq !== _cmSearchSeq) return;  // a newer search superseded this one
+      const ids = (rows.entries || []).map(r => r.id);
+      if (!ids.length) { _cmRenderKnowList(slug, []); return; }
+      const full = await fetch('api/code-memory/entries?ids=' + encodeURIComponent(ids.join(','))).then(r => r.json());
+      if (seq !== _cmSearchSeq) return;
+      _cmRenderKnowList(slug, full.entries || []);
+    } catch (e) {
+      if (seq === _cmSearchSeq) _cmRenderKnowList(slug, [], 'Search failed.');
+    }
+  }, 200);
 }
 
 async function cmDeleteEntry(slug, kind, ts) {

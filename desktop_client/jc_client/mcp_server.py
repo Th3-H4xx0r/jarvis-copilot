@@ -23,11 +23,28 @@ def _store_code_knowledge(entry_type: str, content: str, project: str | None = N
         return {"error": str(e)}
 
 
-def _recall_code_knowledge(project: str | None = None, limit: int = 50) -> str:
+def _recall_code_knowledge(project: str | None = None, query: str = "", limit: int = 20) -> str:
     try:
         slug = project or cmc.current_slug()
-        rows = cmc.recall(slug, "knowledge", limit=limit)
-        return "\n\n".join(f"[{r.get('entry_type','')}] {r.get('content','')}" for r in rows) or "(no knowledge yet)"
+        rows = cmc.search(slug, "knowledge", q=query or "", limit=limit)
+        if not rows:
+            return "(no matching knowledge yet)"
+        lines = [f"{r.get('id','')}  [{r.get('entry_type','')}] {r.get('first_line','')}" for r in rows]
+        return ("Compact matches (id  [type]  summary). Call get_code_knowledge(ids=[...]) to read the "
+                "full body of the FEW you actually need — don't fetch them all:\n" + "\n".join(lines))
+    except cmc.NotPaired as e:
+        return f"error: {e}"
+
+
+def _get_code_knowledge(ids) -> str:
+    try:
+        if isinstance(ids, str):
+            ids = [i.strip() for i in ids.split(",") if i.strip()]
+        rows = cmc.get_by_ids(list(ids or []))
+        if not rows:
+            return "(no entries for those ids)"
+        return "\n\n".join(
+            f"[{r.get('entry_type','')}] ({r.get('ts','')})\n{r.get('content','')}" for r in rows)
     except cmc.NotPaired as e:
         return f"error: {e}"
 
@@ -92,13 +109,28 @@ def build_server():
 
     @mcp.tool()
     def store_code_knowledge(entry_type: str, content: str, project: str = "") -> dict:
-        """Store a durable coding learning. entry_type: bug|fix|repo_structure|gotcha|decision|note."""
+        """Store ONE durable coding fact for this project. entry_type: bug|fix|repo_structure|gotcha|decision|note.
+
+        Keep it SHORT — a 1-3 sentence declarative fact (~400 chars), one fact per call.
+        Store proactively when you fix a non-obvious bug, learn repo structure, hit a
+        gotcha, make a decision, or find an approach works/fails. Do NOT store run-specific
+        results, dated verdicts, PR/commit SHAs, or anything stale within a week — those go
+        in a session handoff, not knowledge. Returns a `warning` if the entry is too long."""
         return _store_code_knowledge(entry_type, content, project or None)
 
     @mcp.tool()
-    def recall_code_knowledge(project: str = "", limit: int = 50) -> str:
-        """Recall durable coding knowledge for this project (newest first)."""
-        return _recall_code_knowledge(project or None, limit)
+    def recall_code_knowledge(project: str = "", query: str = "", limit: int = 20) -> str:
+        """Search this project's durable coding knowledge. Returns COMPACT ranked rows
+        (id + type + one-line summary), token-cheap. Pass `query` to rank by relevance.
+        Then call get_code_knowledge(ids=[...]) to read the full body of only the few you
+        need. Prefer this over dumping everything."""
+        return _recall_code_knowledge(project or None, query, limit)
+
+    @mcp.tool()
+    def get_code_knowledge(ids: list[str]) -> str:
+        """Fetch the FULL bodies of specific knowledge entries by their ids (from
+        recall_code_knowledge). Fetch only the ids you actually need."""
+        return _get_code_knowledge(ids)
 
     @mcp.tool()
     def store_session_handoff(content: str, project: str = "") -> dict:

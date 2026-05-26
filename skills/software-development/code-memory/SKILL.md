@@ -19,8 +19,12 @@ web-UI "Code Memory" tab and Claude Code's jarviscopilot-code-assist plugin use.
   `code_memory action=recall kind=knowledge project=<slug-or-name>` (and
   `kind=sessions` for session handoffs). If the user names a project, match it
   against `list_projects`; otherwise use the current repo (omit `project`).
+  For a large store or a targeted question, prefer `action=search query="…"`
+  (compact ranked rows) then `action=get ids=[…]` for the full bodies.
 - **"Remember / add a note that …"** →
   `code_memory action=store kind=knowledge entry_type=<bug|fix|repo_structure|gotcha|decision|note> content="…"`.
+  Store a SHORT declarative fact (1-3 sentences); keep run-specific results in a
+  session handoff (`kind=sessions`), not knowledge.
 - **"Forget that … / delete that entry"** → find the entry's timestamp via
   `recall`, then `code_memory action=delete_entry kind=<…> ts=<ts> project=<…>`.
 - **"Wipe / delete all memory for X"** → `code_memory action=delete_project project=<X>`.
