@@ -41,6 +41,11 @@ const APP_TITLEBAR_KEYS = {
   profiles: 'tab_profiles', todos: 'tab_todos', insights: 'tab_insights', logs: 'tab_logs', settings: 'tab_settings',
 };
 
+// Display names for panels whose auto-capitalized slug reads badly (multi-word).
+const PANEL_DISPLAY_NAMES = {
+  codememory: 'Code Memory', selfimprovement: 'Self-Improvement', kanban: 'Kanban',
+};
+
 /**
  * Update the top app titlebar to reflect the current page or selected conversation.
  * On the chat panel, a selected session's title takes precedence over the page name.
@@ -60,7 +65,8 @@ function syncAppTitlebar() {
     if (S.session.is_cli_session) sourceLabel = S.session.source_label || S.session.source_tag || S.session.raw_source || '';
   } else {
     const key = APP_TITLEBAR_KEYS[panel];
-    mainText = key && typeof t === 'function' ? t(key) : (panel.charAt(0).toUpperCase() + panel.slice(1));
+    mainText = key && typeof t === 'function' ? t(key)
+      : (PANEL_DISPLAY_NAMES[panel] || (panel.charAt(0).toUpperCase() + panel.slice(1)));
   }
 
   // Don't touch the element while an inline rename is in progress — replacing
@@ -2858,54 +2864,144 @@ function toggleCodeMemoryTab(on) {
 }
 function _cmEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+let _cmProjectsCache = {};
+let _cmOpenSlug = null;
+const _CM_TRASH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
+
+function _cmRelTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return _cmEsc(ts);
+  const s = (Date.now() - d.getTime()) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  if (s < 604800) return Math.floor(s / 86400) + 'd ago';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function _cmDateTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return _cmEsc(ts);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
+    ' · ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+function _cmProjMeta(p) {
+  const ls = p && p.last_seen;
+  return `<span>${p && p.knowledge_count || 0} knowledge</span><span class="cm-proj-dot">·</span>`
+    + `<span>${p && p.sessions_count || 0} handoffs</span>`
+    + (ls ? `<span class="cm-proj-dot">·</span><span>${_cmEsc(_cmRelTime(ls))}</span>` : '');
+}
+function _cmRenderStats(stats) {
+  const el = document.getElementById('cmStats');
+  if (!el) return;
+  let html = [
+    ['Projects', stats.projects || 0],
+    ['Knowledge', stats.knowledge || 0],
+    ['Handoffs', stats.sessions || 0],
+  ].map(([label, num]) => `<div class="cm-stat"><span class="cm-stat-num">${num}</span><span class="cm-stat-label">${label}</span></div>`).join('');
+  if (stats.last_activity) {
+    html += `<div class="cm-stat cm-stat-text"><span class="cm-stat-num">${_cmEsc(_cmRelTime(stats.last_activity))}</span><span class="cm-stat-label">Last active</span></div>`;
+  }
+  el.innerHTML = html;
+}
+
 async function loadCodeMemory() {
-  const bar = document.getElementById('cmStatusBar');
   const list = document.getElementById('cmProjects');
   try {
     const [stats, proj] = await Promise.all([
       fetch('api/code-memory/stats').then(r => r.json()),
       fetch('api/code-memory/projects').then(r => r.json()),
     ]);
-    const projects = proj.projects || {};
-    bar.textContent = `${stats.projects||0} projects · ${stats.knowledge||0} knowledge · ${stats.sessions||0} handoffs` +
-      (stats.last_activity ? ` · last ${stats.last_activity}` : '');
-    const slugs = Object.keys(projects).sort((a,b)=>(projects[b].last_seen||'').localeCompare(projects[a].last_seen||''));
-    if (!slugs.length) { list.innerHTML = '<div class="cm-empty">No projects yet. They appear as Claude/JarvisCopilot store coding memory.</div>'; return; }
+    _cmRenderStats(stats || {});
+    const projects = (proj && proj.projects) || {};
+    _cmProjectsCache = projects;
+    const slugs = Object.keys(projects).sort((a, b) => (projects[b].last_seen || '').localeCompare(projects[a].last_seen || ''));
+    if (!slugs.length) {
+      list.innerHTML = '<div class="cm-projects-empty">No projects yet.<br><br>Code memory appears here as Claude or the JarvisCopilot agent stores knowledge and session handoffs for a repo.</div>';
+      document.getElementById('cmDetail').innerHTML = '<div class="cm-detail-body"><div class="cm-empty">No code memory yet.</div></div>';
+      return;
+    }
     list.innerHTML = slugs.map(s => {
       const p = projects[s];
       return `<button class="cm-proj" data-slug="${_cmEsc(s)}" onclick="cmOpenProject('${_cmEsc(s)}')">
-        <div class="cm-proj-name">${_cmEsc(p.name||s)}</div>
-        <div class="cm-proj-meta">${p.knowledge_count||0}k · ${p.sessions_count||0}h · ${_cmEsc(p.last_seen||'')}</div></button>`;
+        <div class="cm-proj-name">${_cmEsc(p.name || s)}</div>
+        <div class="cm-proj-sub">${_cmEsc(s)}</div>
+        <div class="cm-proj-meta">${_cmProjMeta(p)}</div></button>`;
     }).join('');
+    cmOpenProject(_cmOpenSlug && projects[_cmOpenSlug] ? _cmOpenSlug : slugs[0]);
   } catch (e) {
-    bar.textContent = "couldn't load code memory (is JarvisCopilot reachable?)";
+    list.innerHTML = '<div class="cm-projects-empty">Couldn\'t load code memory (is JarvisCopilot reachable?)</div>';
   }
 }
 
+function _cmSyncProjectMeta(slug, kc, sc) {
+  const p = _cmProjectsCache[slug];
+  if (p) { p.knowledge_count = kc; p.sessions_count = sc; }
+  document.querySelectorAll('.cm-proj').forEach(b => {
+    if (b.dataset.slug !== slug) return;
+    const meta = b.querySelector('.cm-proj-meta');
+    if (meta) meta.innerHTML = _cmProjMeta(p);
+  });
+}
+
+function _cmEntryCard(slug, kind, e) {
+  const type = e.entry_type || (kind === 'sessions' ? 'handoff' : 'note');
+  return `<div class="cm-entry">
+      <div class="cm-entry-top">
+        <span class="cm-type cm-type-${_cmEsc(type)}">${_cmEsc(type)}</span>
+        <span class="cm-ts">${_cmEsc(_cmDateTime(e.ts))}</span>
+        <button class="cm-del" title="Delete entry" onclick="cmDeleteEntry('${_cmEsc(slug)}','${_cmEsc(kind)}','${_cmEsc(e.ts)}')">${_CM_TRASH}</button>
+      </div>
+      <div class="cm-content">${_cmEsc(e.content)}</div>
+    </div>`;
+}
+
 async function cmOpenProject(slug) {
+  _cmOpenSlug = slug;
+  document.querySelectorAll('.cm-proj').forEach(b => b.classList.toggle('active', b.dataset.slug === slug));
   const detail = document.getElementById('cmDetail');
-  detail.innerHTML = '<div class="cm-empty">Loading…</div>';
+  detail.innerHTML = '<div class="cm-detail-body"><div class="cm-empty">Loading…</div></div>';
   try {
     const [k, s] = await Promise.all([
-      fetch('api/code-memory?project='+encodeURIComponent(slug)+'&kind=knowledge&limit=500').then(r=>r.json()),
-      fetch('api/code-memory?project='+encodeURIComponent(slug)+'&kind=sessions&limit=200').then(r=>r.json()),
+      fetch('api/code-memory?project=' + encodeURIComponent(slug) + '&kind=knowledge&limit=500').then(r => r.json()),
+      fetch('api/code-memory?project=' + encodeURIComponent(slug) + '&kind=sessions&limit=200').then(r => r.json()),
     ]);
-    const know = (k.entries||[]).map(e => `<div class="cm-entry"><span class="cm-type cm-type-${_cmEsc(e.entry_type)}">${_cmEsc(e.entry_type)}</span><span class="cm-content">${_cmEsc(e.content)}</span><button class="cm-del" title="Delete entry" onclick="cmDeleteEntry('${_cmEsc(slug)}','knowledge','${_cmEsc(e.ts)}')">🗑</button></div>`).join('') || '<div class="cm-empty">No knowledge yet.</div>';
-    const sess = (s.entries||[]).map(e => `<div class="cm-entry"><span class="cm-ts">${_cmEsc(e.ts)}</span><span class="cm-content">${_cmEsc(e.content)}</span><button class="cm-del" title="Delete entry" onclick="cmDeleteEntry('${_cmEsc(slug)}','sessions','${_cmEsc(e.ts)}')">🗑</button></div>`).join('') || '<div class="cm-empty">No session handoffs yet.</div>';
-    detail.innerHTML = `<div class="cm-detail-head"><b>${_cmEsc(slug)}</b>
-      <button class="cm-del-proj" onclick="cmDeleteProject('${_cmEsc(slug)}')">🗑 Delete project memory</button></div>
-      <h4>Knowledge</h4><div class="cm-knowledge">${know}</div>
-      <h4>Session handoffs</h4><div class="cm-sessions">${sess}</div>`;
-  } catch (e) { detail.innerHTML = '<div class="cm-empty">Failed to load project.</div>'; }
+    const kEntries = k.entries || [], sEntries = s.entries || [];
+    const meta = _cmProjectsCache[slug] || {};
+    const know = kEntries.map(e => _cmEntryCard(slug, 'knowledge', e)).join('') || '<div class="cm-empty">No knowledge stored yet.</div>';
+    const sess = sEntries.map(e => _cmEntryCard(slug, 'sessions', e)).join('') || '<div class="cm-empty">No session handoffs yet.</div>';
+    detail.innerHTML = `
+      <div class="cm-detail-head">
+        <div class="cm-detail-titles">
+          <div class="cm-detail-name">${_cmEsc(meta.name || slug)}</div>
+          <div class="cm-detail-slug">${_cmEsc(slug)}</div>
+        </div>
+        <button class="cm-del-proj" onclick="cmDeleteProject('${_cmEsc(slug)}')">${_CM_TRASH}<span>Delete project memory</span></button>
+      </div>
+      <div class="cm-detail-body">
+        <div class="cm-section">
+          <div class="cm-section-head"><span class="cm-section-title">Knowledge</span><span class="cm-section-count">${kEntries.length}</span></div>
+          ${know}
+        </div>
+        <div class="cm-section">
+          <div class="cm-section-head"><span class="cm-section-title">Session handoffs</span><span class="cm-section-count">${sEntries.length}</span></div>
+          ${sess}
+        </div>
+      </div>`;
+    _cmSyncProjectMeta(slug, kEntries.length, sEntries.length);
+  } catch (e) {
+    detail.innerHTML = '<div class="cm-detail-body"><div class="cm-empty">Failed to load project memory.</div></div>';
+  }
 }
 
 async function cmDeleteEntry(slug, kind, ts) {
-  if (!confirm('Delete this entry?')) return;
+  if (!confirm('Delete this entry? This cannot be undone.')) return;
   try {
     const r = await fetch('api/code-memory/delete-entry', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slug, kind, ts})});
     if (!r.ok) { alert('Delete failed (' + r.status + ')'); return; }
   } catch (e) { alert('Delete failed: ' + e); return; }
-  cmOpenProject(slug);
+  loadCodeMemory();
 }
 async function cmDeleteProject(slug) {
   if (!confirm(`Delete ALL code memory for ${slug}? This cannot be undone.`)) return;
@@ -2913,7 +3009,7 @@ async function cmDeleteProject(slug) {
     const r = await fetch('api/code-memory/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slug})});
     if (!r.ok) { alert('Delete failed (' + r.status + ')'); return; }
   } catch (e) { alert('Delete failed: ' + e); return; }
-  document.getElementById('cmDetail').innerHTML = '<div class="cm-empty">Project deleted.</div>';
+  if (_cmOpenSlug === slug) _cmOpenSlug = null;
   loadCodeMemory();
 }
 
