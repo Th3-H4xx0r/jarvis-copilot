@@ -309,6 +309,13 @@ class Handler(BaseHTTPRequestHandler):
                         return
                 except Exception:
                     pass
+                # Local TUI gateway bridge (/api/tui/ws → spawned tui_gateway).
+                try:
+                    from api.tui_bridge import handle_websocket as _tui_ws
+                    if _tui_ws(self, parsed):
+                        return
+                except Exception:
+                    pass
                 from api.voice import handle_websocket
                 if handle_websocket(self, parsed):
                     return
