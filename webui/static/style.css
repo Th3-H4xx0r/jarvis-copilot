@@ -4187,3 +4187,54 @@ main.main.showing-logs > #mainLogs{display:flex;}
   text-align:left;
   unicode-bidi:isolate;
 }
+
+/* ── Mini voice popup (desktop tray window: /?mini=voice) ──────────────────
+   Chrome-less, single-panel layout: hide the titlebar / rail / sidebar /
+   composer and let the voice panel fill the small window. switchPanel('voice')
+   (fired from the boot hook in index.html) handles showing #mainVoice; these
+   rules just strip the surrounding chrome and size the panel to the window. */
+html.mini-voice .app-titlebar,
+html.mini-voice .rail,
+html.mini-voice .sidebar,
+html.mini-voice .composer-wrap{
+  display:none !important;
+}
+html.mini-voice,
+html.mini-voice body{
+  margin:0;
+  height:100%;
+  background:#000;
+  overflow:hidden;
+}
+html.mini-voice main.main{
+  display:block;
+  position:fixed;
+  inset:0;
+  width:100vw;
+  height:100vh;
+  padding:0;
+  margin:0;
+}
+html.mini-voice #mainVoice.main-view{
+  display:flex !important;
+  flex-direction:column;
+  width:100vw;
+  height:100vh;
+}
+html.mini-voice #voiceOrbWrap{
+  flex:1 1 auto;
+  min-height:0;
+}
+html.mini-voice .voice-transcript-wrap{
+  max-height:32vh;
+  overflow-y:auto;
+}
+/* A thin grab strip at the top — pywebview easy_drag moves the window from
+   anywhere, this just hints where to grab. */
+html.mini-voice main.main::before{
+  content:"";
+  display:block;
+  height:16px;
+  width:100%;
+  background:linear-gradient(180deg, rgba(255,138,0,0.18), transparent);
+}

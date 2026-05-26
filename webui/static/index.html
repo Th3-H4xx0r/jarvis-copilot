@@ -87,6 +87,25 @@
   </script>
 </head>
 <body>
+<script>
+  // Mini mode (desktop voice popup): ?mini=voice → chrome-less single-panel
+  // layout showing only the voice orb + transcript + controls. The class is
+  // added synchronously here (before the chrome paints, avoiding a flash), and
+  // the voice panel is selected once panels.js has defined switchPanel.
+  (function () {
+    try {
+      if (new URLSearchParams(location.search).get('mini') === 'voice') {
+        document.documentElement.classList.add('mini', 'mini-voice');
+        document.addEventListener('DOMContentLoaded', function () {
+          (function go() {
+            if (typeof switchPanel === 'function') switchPanel('voice');
+            else setTimeout(go, 50);
+          })();
+        });
+      }
+    } catch (e) {}
+  })();
+</script>
 <header class="app-titlebar" role="banner">
   <button class="app-titlebar-hamburger has-tooltip has-tooltip--bottom" id="btnHamburger" onclick="toggleMobileSidebar()" type="button" data-tooltip="Menu" aria-label="Menu">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
