@@ -20,7 +20,8 @@ def _cwd_slug() -> str:
 
 def code_memory(action: str, kind: str = "knowledge", entry_type: str = "note",
                 content: str = "", project: str | None = None,
-                limit: int = 50, name: str = "", root: str = "") -> dict:
+                limit: int = 50, name: str = "", root: str = "",
+                ts: str = "") -> dict:
     """Read/write the shared project code-memory.
 
     action: recall | store | register | list_projects
@@ -38,6 +39,10 @@ def code_memory(action: str, kind: str = "knowledge", entry_type: str = "note",
             return {"ok": True, "entry": cm.register_project(slug, name or slug, root, "")}
         if action == "list_projects":
             return {"projects": cm.list_projects()}
+        if action == "delete_entry":
+            return {"ok": True, "slug": slug, "removed": cm.delete_entry(slug, kind, ts)}
+        if action == "delete_project":
+            return {"ok": cm.delete_project(slug), "slug": slug}
         return {"error": f"unknown action {action!r}"}
     except ValueError as e:
         return {"error": str(e)}
@@ -60,7 +65,7 @@ CODE_MEMORY_SCHEMA = {
     "input_schema": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["recall", "store", "register", "list_projects"]},
+            "action": {"type": "string", "enum": ["recall", "store", "register", "list_projects", "delete_entry", "delete_project"]},
             "kind": {"type": "string", "enum": ["knowledge", "sessions"]},
             "entry_type": {"type": "string"},
             "content": {"type": "string"},
@@ -68,6 +73,7 @@ CODE_MEMORY_SCHEMA = {
             "limit": {"type": "integer"},
             "name": {"type": "string"},
             "root": {"type": "string"},
+            "ts": {"type": "string"},
         },
         "required": ["action"],
     },
@@ -96,6 +102,7 @@ registry.register(
             limit=args.get("limit", 50),
             name=args.get("name", ""),
             root=args.get("root", ""),
+            ts=args.get("ts", ""),
         ),
         ensure_ascii=False,
     ),
