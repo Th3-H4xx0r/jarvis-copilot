@@ -36,6 +36,7 @@ log = logging.getLogger(__name__)
 
 
 PID_FILE = state_dir() / "jc-client.pid"
+TRAY_PID_FILE = state_dir() / "jc-client-tray.pid"
 
 
 # ── PID file helpers ──────────────────────────────────────────────────────
@@ -52,6 +53,19 @@ def _read_pid() -> int | None:
 def _write_pid(pid: int) -> None:
     PID_FILE.parent.mkdir(parents=True, exist_ok=True)
     PID_FILE.write_text(str(pid))
+
+
+def _read_tray_pid() -> int | None:
+    try:
+        raw = TRAY_PID_FILE.read_text().strip()
+        return int(raw) if raw else None
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def _write_tray_pid(pid: int) -> None:
+    TRAY_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TRAY_PID_FILE.write_text(str(pid))
 
 
 def _is_running(pid: int) -> bool:
@@ -216,34 +230,67 @@ def cmd_start(args) -> int:
                 break
             time.sleep(0.1)
 
-    from jc_client import tray as _tray
-
+    # The tray is a GUI process. Run it DETACHED (its own session, stdio to
+    # /dev/null) so closing this terminal doesn't SIGHUP the menubar icon —
+    # `jc-client start` should background it, not tie it to the shell.
     try:
-        rc = _tray.run()
-    except Exception as exc:
-        log.warning("tray failed to start: %s — falling back to headless", exc)
-        rc = 2
+        import pystray  # noqa: F401  (probe: is a GUI tray even possible here?)
+        have_gui = True
+    except Exception:
+        have_gui = False
 
-    if rc == 2 and not sup:
-        # No tray AND no supervisor — run the service in the foreground
-        # so the command isn't silently useless.
-        pid = _read_pid()
-        if pid and _is_running(pid):
-            print(f"already running (pid {pid})", file=sys.stderr)
-            return 1
-        print("tray unavailable — running service in foreground", file=sys.stderr)
-        _write_pid(os.getpid())
+    if have_gui:
+        existing = _read_tray_pid()
+        if existing and _is_running(existing):
+            print(f"tray already running (pid {existing})")
+            return 0
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "jc_client", "tray"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+        _write_tray_pid(proc.pid)
+        print(f"tray started in background (pid {proc.pid}). "
+              "Safe to close this terminal.")
+        return 0
+
+    # No GUI here. If a supervisor runs the service, we're done; otherwise run
+    # the service in the foreground so the command isn't silently useless.
+    if sup:
+        print(f"no GUI available — service is supervised by {sup}")
+        return 0
+    pid = _read_pid()
+    if pid and _is_running(pid):
+        print(f"already running (pid {pid})", file=sys.stderr)
+        return 1
+    print("tray unavailable — running service in foreground", file=sys.stderr)
+    _write_pid(os.getpid())
+    try:
+        return service.run(verbose=args.verbose)
+    finally:
         try:
-            return service.run(verbose=args.verbose)
-        finally:
-            try:
-                PID_FILE.unlink()
-            except FileNotFoundError:
-                pass
-    return rc
+            PID_FILE.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def cmd_stop(args) -> int:
+    # Also stop the detached tray UI we launched from `start`, so the menubar
+    # icon doesn't linger after the service is stopped.
+    tray_pid = _read_tray_pid()
+    if tray_pid and _is_running(tray_pid):
+        try:
+            os.kill(tray_pid, signal.SIGTERM)
+        except OSError:
+            pass
+    try:
+        TRAY_PID_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
     # Drive the supervisor first — otherwise killing the PID just
     # triggers an instant launchd/systemd respawn.
     sup = _supervisor_kind()
