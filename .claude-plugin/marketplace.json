@@ -1,0 +1,13 @@
+{
+  "name": "jarviscopilot",
+  "owner": {
+    "name": "Pranav"
+  },
+  "plugins": [
+    {
+      "name": "jarviscopilot-code-assist",
+      "source": "./plugins/jarviscopilot-code-assist",
+      "description": "JarvisCopilot as Claude's cross-project coding memory + session handoff: store/recall coding knowledge and session context (shared with the JarvisCopilot TUI), query memory, ask the agent, and run skills."
+    }
+  ]
+}
