@@ -49,6 +49,10 @@ def _resolve_session_ttl() -> int:
 PUBLIC_PATHS = frozenset({
     '/login', '/health', '/favicon.ico', '/sw.js',
     '/api/auth/login', '/api/auth/status',
+    # Voice-popup session bootstrap: the desktop client holds a valid session
+    # value but the frameless webview can't set the cookie itself, so it hits
+    # /api/auth/handoff to exchange the value for a Set-Cookie (validated below).
+    '/api/auth/handoff',
     '/manifest.json', '/manifest.webmanifest',
     '/session/manifest.json', '/session/manifest.webmanifest',
     # JarvisCopilot pairing flow — must be reachable without a session so
@@ -561,6 +565,48 @@ def set_auth_cookie(handler, cookie_value) -> None:
     if _is_secure_context(handler):
         cookie[COOKIE_NAME]['secure'] = True
     handler.send_header('Set-Cookie', cookie[COOKIE_NAME].OutputString())
+
+
+def _safe_next_path(raw: str) -> str:
+    """Same-origin relative path only. Rejects open-redirects.
+
+    Must begin with a single '/' and contain no scheme or backslash. Anything
+    else (protocol-relative '//host', absolute 'https://…', a bare word, or a
+    '/\\host' smuggle) falls back to the mini voice popup target so a crafted
+    `next=` can't bounce the authenticated webview off-origin.
+    """
+    default = "/?mini=voice"
+    if not raw or not raw.startswith("/") or raw.startswith("//"):
+        return default
+    if "://" in raw or "\\" in raw:
+        return default
+    return raw
+
+
+def handle_auth_handoff(handler, parsed) -> bool:
+    """Bootstrap a webview session from the client's existing session value.
+
+    The desktop client already holds a valid `hermes_session` value (keyring).
+    The frameless popup webview can't easily set that cookie itself, so it
+    loads /api/auth/handoff?session=<value>&next=<path>; if the value is a live
+    session we re-issue the cookie (Set-Cookie) and 302 to the sanitized
+    `next`. An invalid/missing value 302s to /login. Always returns True
+    (request fully handled). The query string carries a secret, so callers must
+    keep it out of access logs (see the handler's log_message redaction)."""
+    import urllib.parse as _urlparse
+    qs = _urlparse.parse_qs(parsed.query or "")
+    session_val = (qs.get("session", [""])[0] or "").strip()
+    next_path = _safe_next_path((qs.get("next", [""])[0] or "").strip())
+    if session_val and verify_session(session_val):
+        handler.send_response(302)
+        set_auth_cookie(handler, session_val)
+        handler.send_header("Location", next_path)
+        handler.end_headers()
+    else:
+        handler.send_response(302)
+        handler.send_header("Location", "/login")
+        handler.end_headers()
+    return True
 
 
 def clear_auth_cookie(handler) -> None:

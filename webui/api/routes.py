@@ -3606,6 +3606,9 @@ def handle_get(handler, parsed) -> bool:
         return _handle_logs(handler, parsed)
     if parsed.path == "/api/self-improvement/recent":
         return _handle_self_improvement(handler, parsed)
+    if parsed.path == "/api/auth/handoff":
+        from api.auth import handle_auth_handoff
+        return handle_auth_handoff(handler, parsed)
 
     if parsed.path == "/health":
         return _handle_health(handler, parsed)

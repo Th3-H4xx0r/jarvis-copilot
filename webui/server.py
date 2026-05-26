@@ -275,11 +275,14 @@ class Handler(BaseHTTPRequestHandler):
     def log_request(self, code: str='-', size: str='-') -> None:
         """Structured JSON logs for each request."""
         import json as _json
+        import re as _re
         duration_ms = round((time.time() - getattr(self, '_req_t0', time.time())) * 1000, 1)
+        # Never log a session secret (e.g. /api/auth/handoff?session=<value>).
+        safe_path = _re.sub(r'(session=)[^&]*', r'\1REDACTED', self.path or '-')
         record = _json.dumps({
             'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
             'method': self.command or '-',
-            'path': self.path or '-',
+            'path': safe_path,
             'status': int(code) if str(code).isdigit() else code,
             'ms': duration_ms,
         })
