@@ -497,6 +497,13 @@ def cmd_voice_popup(args) -> int:
     return 0
 
 
+def cmd_tui(args) -> int:
+    """Launch the full terminal UI locally, attached to the paired server."""
+    from jc_client.tui_launcher import run_tui
+
+    return run_tui()
+
+
 def cmd_update(args) -> int:
     """Pull the latest client code and reinstall — same as re-running the installer.
 
@@ -595,6 +602,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "voice-popup",
         help="Open the draggable voice-orb popup window",
     ).set_defaults(func=cmd_voice_popup)
+
+    sub.add_parser(
+        "tui",
+        help="Launch the full terminal UI (attached to the paired server)",
+    ).set_defaults(func=cmd_tui)
 
     upd = sub.add_parser("update", help="Pull the latest client code and reinstall")
     upd.add_argument("--branch", default=None,
