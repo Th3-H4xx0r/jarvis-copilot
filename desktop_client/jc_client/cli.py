@@ -450,6 +450,46 @@ def cmd_voice_popup(args) -> int:
     return 0
 
 
+def cmd_update(args) -> int:
+    """Pull the latest client code and reinstall — same as re-running the installer.
+
+    The client runs from an editable git checkout (the installer's `src` clone),
+    which is an auto-managed mirror of origin. We hard-sync it to origin/<branch>
+    so local drift never blocks the update (the old `git pull --ff-only` aborted
+    with "local changes would be overwritten"), then refresh the editable install.
+    """
+    # cli.py lives at <src>/desktop_client/jc_client/cli.py → repo root is parents[2].
+    repo = Path(__file__).resolve().parents[2]
+    if not (repo / ".git").exists():
+        print(f"update: {repo} is not a git checkout — re-run the installer instead.",
+              file=sys.stderr)
+        return 1
+    branch = getattr(args, "branch", None) or "main"
+
+    def _git(*cargs) -> int:
+        return subprocess.run(["git", "-C", str(repo), *cargs]).returncode
+
+    print(f"Syncing {repo} to origin/{branch} …")
+    if _git("fetch", "--quiet", "origin", branch) != 0:
+        print("update: git fetch failed (no network / bad remote?)", file=sys.stderr)
+        return 1
+    # Discard local drift, then point the branch at origin. reset --hard (no
+    # ref) cleans the working tree first so the checkout can't be blocked.
+    if _git("reset", "--hard", "--quiet") != 0 or \
+            _git("checkout", "-q", "-B", branch, f"origin/{branch}") != 0:
+        print("update: git sync failed", file=sys.stderr)
+        return 1
+
+    print("Refreshing the editable install …")
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-e", str(repo / "desktop_client"),
+         "-q", "--disable-pip-version-check"],
+    )
+    print("Updated. Restart to apply: quit + relaunch the tray for the new menu,"
+          " and `jc-client restart` for the background service.")
+    return 0
+
+
 # ── Main ───────────────────────────────────────────────────────────────────
 
 
@@ -508,6 +548,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "voice-popup",
         help="Open the draggable voice-orb popup window",
     ).set_defaults(func=cmd_voice_popup)
+
+    upd = sub.add_parser("update", help="Pull the latest client code and reinstall")
+    upd.add_argument("--branch", default=None,
+                     help="Git branch to sync to (default: main)")
+    upd.set_defaults(func=cmd_update)
 
     up = sub.add_parser("unpair", help="Wipe saved credentials")
     up.add_argument("--yes", action="store_true", help="Skip confirmation")

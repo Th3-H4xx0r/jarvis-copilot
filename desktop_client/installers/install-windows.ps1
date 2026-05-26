@@ -46,11 +46,16 @@ Info "Using Python: $Py $($script:PyArgs -join ' ')"
 # --- source -----------------------------------------------------------------
 $SrcDir = Join-Path $Dir 'src'
 if (Test-Path (Join-Path $SrcDir '.git')) {
-    Info "Updating $SrcDir"
+    Info "Updating $SrcDir (syncing to origin/$Branch)"
+    # Hard-sync to origin: this is an auto-managed mirror, so any local drift in
+    # the checkout is discarded rather than merged. (A plain `git pull --ff-only`
+    # aborts with "local changes would be overwritten" the moment a tracked file
+    # differs, which broke re-running the installer.)
     Push-Location $SrcDir
     try {
         git fetch origin $Branch --quiet
-        git pull --ff-only origin $Branch | Out-Null
+        git reset --hard --quiet
+        git checkout -q -B $Branch "origin/$Branch"
     } finally { Pop-Location }
 } else {
     Info "Cloning $Repo -> $SrcDir"

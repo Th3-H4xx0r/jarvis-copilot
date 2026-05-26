@@ -38,8 +38,19 @@ info "Using Python: $PY"
 SRC_DIR="$INSTALL_DIR/src"
 mkdir -p "$INSTALL_DIR"
 if [[ -d "$SRC_DIR/.git" ]]; then
-    info "Updating $SRC_DIR"
-    (cd "$SRC_DIR" && git fetch origin "$BRANCH" --quiet && git pull --ff-only origin "$BRANCH" >/dev/null)
+    info "Updating $SRC_DIR (syncing to origin/$BRANCH)"
+    # Hard-sync to origin: this is an auto-managed mirror, so any local drift in
+    # the checkout is discarded rather than merged. (A plain `git pull --ff-only`
+    # aborts with "local changes would be overwritten" the moment a tracked file
+    # differs, which broke re-running the installer.)
+    if ! (
+        cd "$SRC_DIR" \
+            && git fetch origin "$BRANCH" --quiet \
+            && git reset --hard --quiet \
+            && git checkout -q -B "$BRANCH" "origin/$BRANCH"
+    ); then
+        warn "Update failed; remove '$SRC_DIR' and re-run for a fresh clone."
+    fi
 else
     info "Cloning $REPO_URL → $SRC_DIR"
     git clone --branch "$BRANCH" --single-branch --quiet "$REPO_URL" "$SRC_DIR"
