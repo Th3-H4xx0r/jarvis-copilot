@@ -54,6 +54,17 @@ def test_build_upstream_head_injects_cookie_and_rewrites_host():
     assert out.endswith("\r\n\r\n")
 
 
+def test_build_upstream_head_does_not_double_cookie_prefix():
+    # creds.cookie is the full "hermes_session=<value>" string — must be sent
+    # as-is, never "hermes_session=hermes_session=<value>" (which 302s to /pair).
+    vp = _vp()
+    h = http.client.HTTPMessage()
+    out = vp.build_upstream_head(
+        "GET", "/?mini=voice", h, "hermes_session=abc.def", "hermes", 8787, False).decode()
+    assert "Cookie: hermes_session=abc.def" in out
+    assert "hermes_session=hermes_session=" not in out
+
+
 def test_build_upstream_head_preserves_websocket_upgrade():
     vp = _vp()
     h = http.client.HTTPMessage()

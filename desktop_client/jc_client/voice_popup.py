@@ -68,7 +68,12 @@ def build_upstream_head(command, path, headers, cookie, host, port, is_ws):
         for value in headers.get_all(key, []):
             lines.append(f"{key}: {value}")
     lines.append(f"Host: {host}:{port}")
-    lines.append(f"Cookie: hermes_session={cookie}")
+    # creds.cookie is stored as the full "hermes_session=<value>" string (that's
+    # what HttpResponse.cookie returns and what the headless client sends
+    # verbatim), so don't re-prefix it — that would produce an invalid
+    # "hermes_session=hermes_session=…" and the webui would bounce us to /pair.
+    cookie_header = cookie if cookie.lower().startswith("hermes_session=") else f"hermes_session={cookie}"
+    lines.append(f"Cookie: {cookie_header}")
     if is_ws:
         lines.append("Connection: Upgrade")
         lines.append("Upgrade: websocket")
