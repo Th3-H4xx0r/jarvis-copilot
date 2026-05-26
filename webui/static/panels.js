@@ -224,7 +224,7 @@ async function switchPanel(name, opts = {}) {
   // showing-<name> class on <main>; no class means chat (the default).
   const mainEl = document.querySelector('main.main');
   if (mainEl) {
-    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','voice','devices','selfimprovement'].forEach(p => {
+    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','voice','devices','selfimprovement','codememory'].forEach(p => {
       mainEl.classList.toggle('showing-' + p, nextPanel === p);
     });
   }
@@ -239,6 +239,7 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'insights') await loadInsights();
   if (nextPanel === 'logs') await loadLogs();
   if (nextPanel === 'selfimprovement') await loadSelfImprovement();
+  if (nextPanel === 'codememory') await loadCodeMemory();
   if (nextPanel === 'devices' && typeof loadDevices === 'function') await loadDevices();
   if (nextPanel === 'voice' && typeof initVoicePanel === 'function') initVoicePanel();
   if (prevPanel === 'voice' && nextPanel !== 'voice' && typeof onVoicePanelLeave === 'function') onVoicePanelLeave();
@@ -2841,6 +2842,73 @@ async function loadLogs(animate) {
     }
     _syncLogsAutoRefresh();
   }
+}
+
+// ── Code Memory panel ──
+function applyCodeMemoryTabVisibility() {
+  const on = (localStorage.getItem('hermes-codememory-tab') ?? 'on') !== 'off';
+  document.querySelectorAll('[data-panel="codememory"]').forEach(b => { b.style.display = on ? '' : 'none'; });
+  const cb = document.getElementById('settingCodeMemoryTab');
+  if (cb) cb.checked = on;
+}
+function toggleCodeMemoryTab(on) {
+  localStorage.setItem('hermes-codememory-tab', on ? 'on' : 'off');
+  applyCodeMemoryTabVisibility();
+  if (!on && _currentPanel === 'codememory' && typeof switchPanel === 'function') switchPanel('chat');
+}
+function _cmEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function loadCodeMemory() {
+  const bar = document.getElementById('cmStatusBar');
+  const list = document.getElementById('cmProjects');
+  try {
+    const [stats, proj] = await Promise.all([
+      fetch('api/code-memory/stats').then(r => r.json()),
+      fetch('api/code-memory/projects').then(r => r.json()),
+    ]);
+    const projects = proj.projects || {};
+    bar.textContent = `${stats.projects||0} projects · ${stats.knowledge||0} knowledge · ${stats.sessions||0} handoffs` +
+      (stats.last_activity ? ` · last ${stats.last_activity}` : '');
+    const slugs = Object.keys(projects).sort((a,b)=>(projects[b].last_seen||'').localeCompare(projects[a].last_seen||''));
+    if (!slugs.length) { list.innerHTML = '<div class="cm-empty">No projects yet. They appear as Claude/JarvisCopilot store coding memory.</div>'; return; }
+    list.innerHTML = slugs.map(s => {
+      const p = projects[s];
+      return `<button class="cm-proj" data-slug="${_cmEsc(s)}" onclick="cmOpenProject('${_cmEsc(s)}')">
+        <div class="cm-proj-name">${_cmEsc(p.name||s)}</div>
+        <div class="cm-proj-meta">${p.knowledge_count||0}k · ${p.sessions_count||0}h · ${_cmEsc(p.last_seen||'')}</div></button>`;
+    }).join('');
+  } catch (e) {
+    bar.textContent = "couldn't load code memory (is JarvisCopilot reachable?)";
+  }
+}
+
+async function cmOpenProject(slug) {
+  const detail = document.getElementById('cmDetail');
+  detail.innerHTML = '<div class="cm-empty">Loading…</div>';
+  try {
+    const [k, s] = await Promise.all([
+      fetch('api/code-memory?project='+encodeURIComponent(slug)+'&kind=knowledge&limit=500').then(r=>r.json()),
+      fetch('api/code-memory?project='+encodeURIComponent(slug)+'&kind=sessions&limit=200').then(r=>r.json()),
+    ]);
+    const know = (k.entries||[]).map(e => `<div class="cm-entry"><span class="cm-type cm-type-${_cmEsc(e.entry_type)}">${_cmEsc(e.entry_type)}</span><span class="cm-content">${_cmEsc(e.content)}</span><button class="cm-del" title="Delete entry" onclick="cmDeleteEntry('${_cmEsc(slug)}','knowledge','${_cmEsc(e.ts)}')">🗑</button></div>`).join('') || '<div class="cm-empty">No knowledge yet.</div>';
+    const sess = (s.entries||[]).map(e => `<div class="cm-entry"><span class="cm-ts">${_cmEsc(e.ts)}</span><span class="cm-content">${_cmEsc(e.content)}</span><button class="cm-del" title="Delete entry" onclick="cmDeleteEntry('${_cmEsc(slug)}','sessions','${_cmEsc(e.ts)}')">🗑</button></div>`).join('') || '<div class="cm-empty">No session handoffs yet.</div>';
+    detail.innerHTML = `<div class="cm-detail-head"><b>${_cmEsc(slug)}</b>
+      <button class="cm-del-proj" onclick="cmDeleteProject('${_cmEsc(slug)}')">🗑 Delete project memory</button></div>
+      <h4>Knowledge</h4><div class="cm-knowledge">${know}</div>
+      <h4>Session handoffs</h4><div class="cm-sessions">${sess}</div>`;
+  } catch (e) { detail.innerHTML = '<div class="cm-empty">Failed to load project.</div>'; }
+}
+
+async function cmDeleteEntry(slug, kind, ts) {
+  if (!confirm('Delete this entry?')) return;
+  await fetch('api/code-memory/delete-entry', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slug, kind, ts})});
+  cmOpenProject(slug);
+}
+async function cmDeleteProject(slug) {
+  if (!confirm(`Delete ALL code memory for ${slug}? This cannot be undone.`)) return;
+  await fetch('api/code-memory/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slug})});
+  document.getElementById('cmDetail').innerHTML = '<div class="cm-empty">Project deleted.</div>';
+  loadCodeMemory();
 }
 
 async function loadSelfImprovement(animate) {
@@ -7257,3 +7325,5 @@ async function _restoreCheckpoint(workspace,checkpoint,message){
     showToast(t('checkpoint_restore')+': '+e.message,'error');
   }
 }
+
+document.addEventListener('DOMContentLoaded', applyCodeMemoryTabVisibility);
