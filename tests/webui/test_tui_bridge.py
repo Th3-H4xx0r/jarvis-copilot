@@ -41,6 +41,30 @@ def test_write_to_gateway_appends_newline():
     assert proc.stdin.getvalue() == b'{"method":"ping"}\n'
 
 
+def test_reassembles_multichunk_frame():
+    # A WS message split across recv chunks must be reassembled before it's
+    # written to the gateway (regression: device_bridge.py afc1c9039).
+    tb = _bridge()
+    line, buf, dropped = tb._take_complete_frame("", '{"method":"prompt', False, 1000)
+    assert line is None and buf == '{"method":"prompt' and dropped is False
+    line, buf, dropped = tb._take_complete_frame(buf, '.submit"}', True, 1000)
+    assert line == '{"method":"prompt.submit"}' and buf == "" and dropped is False
+
+
+def test_oversize_frame_dropped_and_reset():
+    tb = _bridge()
+    line, buf, dropped = tb._take_complete_frame("", "x" * 50, True, 10)
+    assert line is None and dropped is True and buf == ""
+
+
+def test_take_complete_frame_handles_bytes():
+    tb = _bridge()
+    raw, buf, dropped = tb._take_complete_frame(b"", b"ab", False, 1000)
+    assert raw is None and buf == b"ab"
+    raw, buf, dropped = tb._take_complete_frame(buf, b"cd", True, 1000)
+    assert raw == b"abcd" and buf == b"" and dropped is False
+
+
 def test_pump_stdout_forwards_lines():
     tb = _bridge()
 

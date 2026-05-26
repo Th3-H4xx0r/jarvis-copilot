@@ -147,6 +147,11 @@ class _ProxyHandler(BaseHTTPRequestHandler):
         server(pinned wss). WS frames are opaque bytes, so a raw relay works."""
         client_read = self.rfile      # holds any bytes buffered past the headers
         client_sock = self.connection
+        # Disable Nagle on the browser/TUI side too (low-latency interactive WS).
+        try:
+            client_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
 
         def pump_up_to_client():
             try:
@@ -195,6 +200,12 @@ class PinnedProxy:
         # Lazy import: protocol pulls wsproto, which we don't want at module load.
         from jc_client.protocol import _make_ssl_context, _verify_fingerprint
         sock = socket.create_connection((self.host, self.port), timeout=15)
+        # Disable Nagle: the interactive TUI sends tiny keystroke/render frames,
+        # and coalescing them adds visible latency. Harmless for bulk transfers.
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
         if self.scheme == "https":
             ctx = _make_ssl_context()
             sock = ctx.wrap_socket(sock, server_hostname=self.host)

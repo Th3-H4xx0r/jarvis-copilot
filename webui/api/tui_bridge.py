@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 _PATH = "/api/tui/ws"
 _RECV_CHUNK = 8192
+# Bound a reassembled inbound frame so a pathological client can't balloon
+# memory. Generous enough for large pasted prompts.
+_MAX_FRAME_BYTES = 16 * 1024 * 1024
 
 
 def _reconstruct_http_request(handler) -> bytes:
@@ -31,6 +34,24 @@ def _reconstruct_http_request(handler) -> bytes:
     lines.append("")
     lines.append("")
     return ("\r\n".join(lines)).encode("latin-1")
+
+
+def _take_complete_frame(buf, data, finished: bool, max_bytes: int):
+    """Reassemble a WS message split across recv chunks.
+
+    wsproto emits one event per chunk with ``message_finished=True`` only on the
+    last. Append ``data`` to ``buf``; return ``(line, new_buf, dropped)``:
+      - not finished → ``(None, buf, False)`` (keep accumulating)
+      - finished + within limit → ``(complete, empty_buf, False)``
+      - finished + oversize → ``(None, empty_buf, True)`` (drop, reset)
+    Works for both str and bytes buffers (``buf[:0]`` yields the right empty)."""
+    if data:
+        buf = buf + data
+    if not finished:
+        return None, buf, False
+    if len(buf) > max_bytes:
+        return None, buf[:0], True
+    return buf, buf[:0], False
 
 
 def _write_to_gateway(proc, text: str) -> bool:
@@ -107,7 +128,12 @@ def handle_websocket(handler, parsed) -> bool:
 
 def _run_bridge(conn, sock) -> None:
     from wsproto.events import TextMessage, BytesMessage, CloseConnection, Ping, Pong
-    state = {"closed": False}
+    # text_buf/bytes_buf accumulate a WS message that wsproto splits across recv
+    # chunks (it emits one event per chunk, message_finished=True only on the
+    # last). We must reassemble before writing a line to the gateway, or any
+    # RPC over ~8 KB gets chopped into invalid partial JSON lines. (Same bug as
+    # device_bridge.py commit afc1c9039.)
+    state = {"closed": False, "text_buf": "", "bytes_buf": b""}
     lock = threading.Lock()
 
     def send_text(line: str) -> bool:
@@ -136,9 +162,21 @@ def _run_bridge(conn, sock) -> None:
             conn.receive_data(data)
             for event in conn.events():
                 if isinstance(event, TextMessage):
-                    _write_to_gateway(proc, event.data or "")
+                    line, state["text_buf"], dropped = _take_complete_frame(
+                        state["text_buf"], event.data or "",
+                        getattr(event, "message_finished", True), _MAX_FRAME_BYTES)
+                    if dropped:
+                        logger.warning("tui WS oversize text frame — dropping")
+                    elif line is not None:
+                        _write_to_gateway(proc, line)
                 elif isinstance(event, BytesMessage):
-                    _write_to_gateway(proc, (event.data or b"").decode("utf-8", "replace"))
+                    raw, state["bytes_buf"], dropped = _take_complete_frame(
+                        state["bytes_buf"], event.data or b"",
+                        getattr(event, "message_finished", True), _MAX_FRAME_BYTES)
+                    if dropped:
+                        logger.warning("tui WS oversize binary frame — dropping")
+                    elif raw is not None:
+                        _write_to_gateway(proc, raw.decode("utf-8", "replace"))
                 elif isinstance(event, Ping):
                     with lock:
                         try:
@@ -157,11 +195,39 @@ def _run_bridge(conn, sock) -> None:
         print("[webui] tui WS error: " + traceback.format_exc(), flush=True)
     finally:
         state["closed"] = True
+        # Close stdin first: tui_gateway.entry exits on stdin EOF, which closes
+        # its stdout and lets the reader thread's blocking readline() return.
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
         try:
             proc.terminate()
         except Exception:
             pass
         try:
             proc.wait(timeout=3)
+        except Exception:
+            # SIGTERM ignored / slow → force-kill so we never leak the agent.
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+        # Gateway dead → stdout EOF → reader thread returns; reap it.
+        try:
+            reader.join(timeout=2)
+        except Exception:
+            pass
+        with lock:
+            try:
+                sock.sendall(conn.send(CloseConnection(code=1000)))
+            except Exception:
+                pass
+        try:
+            sock.close()
         except Exception:
             pass
