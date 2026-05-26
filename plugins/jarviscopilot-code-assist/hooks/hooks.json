@@ -3,8 +3,12 @@
     "SessionStart": [
       {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session_start.sh"}]}
     ],
+    "Notification": [
+      {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh notification"}]}
+    ],
     "Stop": [
-      {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop_nudge.sh"}]}
+      {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop_nudge.sh"}]},
+      {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh stop"}]}
     ]
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "jarviscopilot-code-assist",
-  "description": "JarvisCopilot as Claude's cross-project coding memory + session handoff. Registers each project; stores short durable coding facts and session handoffs (shared with the JarvisCopilot TUI); token-cheap progressive recall (search -> compact rows -> fetch full bodies by id); a small session-start digest; and query_memory / ask / run_skill.",
-  "version": "0.5.0",
+  "description": "JarvisCopilot as Claude's cross-project coding memory + session handoff. Registers each project; stores short durable coding facts and session handoffs (shared with the JarvisCopilot TUI); token-cheap progressive recall (search -> compact rows -> fetch full bodies by id); a small session-start digest; and query_memory / ask / run_skill. Pings a connected messaging channel (Telegram/etc.) when Claude needs input or finishes.",
+  "version": "0.6.0",
   "author": {
     "name": "Pranav"
   }

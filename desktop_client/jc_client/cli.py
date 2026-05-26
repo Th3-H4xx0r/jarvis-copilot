@@ -436,6 +436,8 @@ def cmd_config(args) -> int:
                 "device_id",
                 "allow_shell",
                 "skills_disabled",
+                "notify_target",
+                "notify_events",
             ):
                 print(f"{f} = {getattr(creds, f)!r}")
         return 0
@@ -643,6 +645,63 @@ def _distill_parse(answer):
         return None
 
 
+def _notify_allowed(events: str, event: str) -> bool:
+    """Whether a hook event should fire, given notify_events (all|input|stop|off)
+    and the event (notification|stop|manual). Manual always fires."""
+    events = (events or "all").lower()
+    if event == "manual":
+        return True
+    if events == "off":
+        return False
+    if events == "input":
+        return event == "notification"
+    if events == "stop":
+        return event == "stop"
+    return True  # "all" (or anything unexpected)
+
+
+def cmd_notify(args) -> int:
+    """Send a notification to a JarvisCopilot-connected messaging channel.
+
+    Designed to be hook-safe: silently no-ops (exit 0) when unpaired, gated off,
+    or unconfigured, so it never disrupts Claude. `--list` shows available targets.
+    """
+    from jc_client import credentials
+    from jc_client.protocol import HttpClient
+    creds = credentials.load()
+    if not creds.paired:
+        if args.list:
+            print("not paired — run `jc-client pair`", file=sys.stderr)
+            return 1
+        return 0
+    http = HttpClient(creds.server_url, cookie=creds.cookie, expected_fingerprint=creds.cert_fingerprint)
+    if args.list:
+        try:
+            data = http.request_json("GET", "/api/notify/targets").json()
+        except Exception as e:
+            print(f"(could not list targets: {e})", file=sys.stderr)
+            return 1
+        print(data.get("targets") or "(no messaging channels configured on JarvisCopilot)")
+        return 0
+    if not _notify_allowed(getattr(creds, "notify_events", "all"), args.event):
+        return 0
+    target = args.target or getattr(creds, "notify_target", "") or ""
+    if not target:
+        if args.event == "manual":
+            print("No notify target set. Run `jc-client notify --list` for options, then "
+                  "`jc-client config set notify_target telegram` (or telegram:<chat_id>).", file=sys.stderr)
+            return 1
+        return 0  # feature stays off until a target is configured
+    text = (args.text or "").strip()
+    if not text:
+        return 0
+    try:
+        http.request_json("POST", "/api/notify", {"text": text, "target": target})
+    except Exception:
+        pass  # never let a notification failure disrupt a hook
+    return 0
+
+
 def cmd_update(args) -> int:
     """Pull the latest client code and reinstall — same as re-running the installer.
 
@@ -758,6 +817,13 @@ def _build_parser() -> argparse.ArgumentParser:
     _dl = cmsubp.add_parser("distill", help="Re-summarize a project's bloated entries into short facts (uses the agent)")
     _dl.add_argument("--project", default=""); _dl.add_argument("--apply", action="store_true", help="Apply the plan (default: dry-run, print only)")
     cmsub.set_defaults(func=cmd_code_memory)
+
+    nt = sub.add_parser("notify", help="Send a notification to your connected messaging channel (Telegram/etc.)")
+    nt.add_argument("text", nargs="?", default="")
+    nt.add_argument("--event", default="manual", choices=["manual", "notification", "stop"])
+    nt.add_argument("--target", default="", help="send_message target (default: configured notify_target)")
+    nt.add_argument("--list", action="store_true", help="List available messaging targets")
+    nt.set_defaults(func=cmd_notify)
 
     upd = sub.add_parser("update", help="Pull the latest client code and reinstall")
     upd.add_argument("--branch", default=None,

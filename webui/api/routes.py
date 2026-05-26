@@ -4408,6 +4408,8 @@ def handle_get(handler, parsed) -> bool:
         return _handle_code_memory_entries(handler, parsed)
     if parsed.path == "/api/code-memory/digest":
         return _handle_code_memory_digest(handler, parsed)
+    if parsed.path == "/api/notify/targets":
+        return _handle_notify_list(handler)
 
     # ── Profile API (GET) ──
     if parsed.path == "/api/profiles":
@@ -5381,6 +5383,8 @@ def handle_post(handler, parsed) -> bool:
         return _handle_code_memory_delete_entry(handler, body)
     if parsed.path == "/api/code-memory/update":
         return _handle_code_memory_update(handler, body)
+    if parsed.path == "/api/notify":
+        return _handle_notify(handler, body)
 
     # ── Profile API (POST) ──
     if parsed.path == "/api/profile/switch":
@@ -10399,6 +10403,46 @@ def _handle_code_memory_delete_entry(handler, body):
     except ValueError as e:
         return bad(handler, str(e))
     return j(handler, {"ok": True, "removed": removed})
+
+
+def _notify_target_from_cron():
+    """Fall back to the cron auto-delivery target if the caller gave none."""
+    try:
+        from tools.send_message_tool import _get_cron_auto_delivery_target
+        t = _get_cron_auto_delivery_target()
+        if t:
+            ref = f"{t['platform']}:{t['chat_id']}"
+            return ref + (f":{t['thread_id']}" if t.get("thread_id") else "")
+    except Exception:
+        pass
+    return ""
+
+
+def _handle_notify(handler, body):
+    """Push a short notification to a JarvisCopilot-connected messaging channel."""
+    text = (body.get("text") or "").strip()
+    if not text:
+        return bad(handler, "text required")
+    target = (body.get("target") or "").strip() or _notify_target_from_cron()
+    if not target:
+        return j(handler, {"ok": False, "error": "no notify target configured"})
+    try:
+        import json as _json
+        from tools.send_message_tool import send_message_tool
+        res = _json.loads(send_message_tool({"action": "send", "target": target, "message": text}))
+    except Exception as e:
+        return j(handler, {"ok": False, "error": str(e)})
+    if res.get("success"):
+        return j(handler, {"ok": True})
+    return j(handler, {"ok": False, "error": res.get("error", "send failed")})
+
+
+def _handle_notify_list(handler):
+    try:
+        from gateway.channel_directory import format_directory_for_display
+        return j(handler, {"targets": format_directory_for_display()})
+    except Exception as e:
+        return j(handler, {"targets": "", "error": str(e)})
 
 
 def _handle_code_memory_update(handler, body):

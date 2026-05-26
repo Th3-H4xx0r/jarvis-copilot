@@ -44,6 +44,11 @@ class Credentials:
     skills_disabled: list[str] = field(default_factory=list)
     # Off by default — flipping to True opens the run_shell skill.
     allow_shell: bool = False
+    # Notifications to a JarvisCopilot-connected messaging channel when Claude Code
+    # needs input or finishes. Empty target = feature off. Target is a send_message
+    # ref: "telegram" (platform home channel) or "telegram:<chat_id>".
+    notify_target: str = ""
+    notify_events: str = "all"        # all | input | stop | off
 
     @property
     def paired(self) -> bool:
@@ -131,6 +136,8 @@ def load() -> Credentials:
         cookie=cookie,
         skills_disabled=list(data.get("skills_disabled", []) or []),
         allow_shell=bool(data.get("allow_shell", False)),
+        notify_target=data.get("notify_target", ""),
+        notify_events=data.get("notify_events", "all"),
     )
 
 
