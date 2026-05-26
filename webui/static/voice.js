@@ -336,26 +336,62 @@
   }
 
   // ---- VoiceOrbGL — MCU JARVIS orb (WebGL / Three.js) ----
-  // Amber holographic particle-sphere + HUD arc rings + white-hot core, on a
-  // transparent background, rendered with additive blending so the points
-  // bloom into the "hologram" glow. Same public API as VoiceOrbCanvas2D
-  // (constructor(canvas), start, stop, setState, setAmplitude, _resize) so the
-  // call site in this file is interchangeable between the two.
-  function _amberSpriteTexture(THREE) {
+  // A DENSE amber particle shell rendered with a custom additive shader:
+  // front-facing points glow brighter (depth fade) and twinkle per-point, so
+  // the cloud reads as a luminous holographic sphere instead of scattered
+  // dots. A tight white-hot core, an ambient bloom halo, and three slow
+  // gyroscopic reticle rings (clean full circles) complete the look. Same
+  // public API as VoiceOrbCanvas2D (constructor(canvas), start, stop,
+  // setState, setAmplitude, _resize) so the call site is interchangeable.
+  function _radialTexture(THREE, stops) {
     const c = document.createElement('canvas');
-    c.width = c.height = 64;
+    c.width = c.height = 128;
     const g = c.getContext('2d');
-    const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grd.addColorStop(0.00, 'rgba(255,246,230,1)');
-    grd.addColorStop(0.25, 'rgba(255,179,71,0.9)');
-    grd.addColorStop(0.60, 'rgba(255,106,0,0.35)');
-    grd.addColorStop(1.00, 'rgba(255,106,0,0)');
+    const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    for (const [stop, color] of stops) grd.addColorStop(stop, color);
     g.fillStyle = grd;
-    g.fillRect(0, 0, 64, 64);
+    g.fillRect(0, 0, 128, 128);
     const t = new THREE.Texture(c);
     t.needsUpdate = true;
     return t;
   }
+
+  // Per-point: depth-faded brightness (front of the sphere glows) + twinkle,
+  // size attenuated by distance and pumped by amplitude.
+  const _ORB_VERT = `
+    attribute float aSize;
+    attribute float aPhase;
+    uniform float uTime;
+    uniform float uAmp;
+    uniform float uSize;
+    uniform float uPixelRatio;
+    varying float vAlpha;
+    void main() {
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      float depth = -mv.z;
+      float front = smoothstep(4.8, 2.2, depth);          // 1 near camera, 0 far
+      float tw = 0.55 + 0.45 * sin(uTime * 1.8 + aPhase);  // per-point twinkle
+      vAlpha = (0.22 + 0.78 * front) * tw;
+      gl_Position = projectionMatrix * mv;
+      gl_PointSize = uSize * aSize * uPixelRatio * (1.0 + uAmp * 0.5) / depth;
+    }
+  `;
+  // Round soft point with a hot center; additive blending sums the overlaps
+  // into the shell glow.
+  const _ORB_FRAG = `
+    precision mediump float;
+    uniform vec3 uColor;
+    uniform vec3 uHot;
+    varying float vAlpha;
+    void main() {
+      vec2 uv = gl_PointCoord - 0.5;
+      float d = length(uv);
+      if (d > 0.5) discard;
+      float core = smoothstep(0.5, 0.0, d);
+      vec3 col = mix(uColor, uHot, pow(core, 3.0) * 0.7);
+      gl_FragColor = vec4(col, pow(core, 2.2) * vAlpha);
+    }
+  `;
 
   class VoiceOrbGL {
     constructor(canvas) {
@@ -365,67 +401,113 @@
       this.amp = 0;        // smoothed amplitude
       this.target = 0;     // raw input amplitude
       this._raf = 0;
+      this._t = 0;
 
       this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
       this.renderer.setClearColor(0x000000, 0);
       this.scene = new THREE.Scene();
-      this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-      this.camera.position.z = 3.2;
+      this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+      this.camera.position.z = 3.6;
       this.group = new THREE.Group();
       this.scene.add(this.group);
 
-      const tex = _amberSpriteTexture(THREE);
+      // Ambient bloom halo behind everything (fakes the glow without an
+      // expensive post-process bloom pass).
+      this.halo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: _radialTexture(THREE, [
+          [0.0, 'rgba(255,150,40,0.55)'],
+          [0.35, 'rgba(255,110,0,0.18)'],
+          [1.0, 'rgba(255,90,0,0)'],
+        ]),
+        transparent: true, depthWrite: false, depthTest: false,
+        blending: THREE.AdditiveBlending, opacity: 0.5,
+      }));
+      this.halo.scale.set(3.4, 3.4, 1);
+      this.halo.position.z = -0.5;
+      this.scene.add(this.halo);
 
-      // Particle sphere (Fibonacci / golden-spiral distribution).
-      const N = 2200;
+      // Dense particle shell — Fibonacci distribution with small jitter so the
+      // golden-spiral lattice doesn't read as visible "arms".
+      const N = 9000;
       const pos = new Float32Array(N * 3);
+      const aSize = new Float32Array(N);
+      const aPhase = new Float32Array(N);
       const golden = Math.PI * (3 - Math.sqrt(5));
       for (let i = 0; i < N; i++) {
         const y = 1 - (i / (N - 1)) * 2;
         const r = Math.sqrt(Math.max(0, 1 - y * y));
         const phi = golden * i;
-        pos[i * 3] = Math.cos(phi) * r;
-        pos[i * 3 + 1] = y;
-        pos[i * 3 + 2] = Math.sin(phi) * r;
+        const jr = 1 + (Math.random() - 0.5) * 0.06;
+        pos[i * 3]     = (Math.cos(phi) * r + (Math.random() - 0.5) * 0.03) * jr;
+        pos[i * 3 + 1] = (y            + (Math.random() - 0.5) * 0.03) * jr;
+        pos[i * 3 + 2] = (Math.sin(phi) * r + (Math.random() - 0.5) * 0.03) * jr;
+        aSize[i] = 0.5 + Math.random() * 1.1;
+        aPhase[i] = Math.random() * Math.PI * 2;
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      this.mat = new THREE.PointsMaterial({
-        size: 0.055, map: tex, transparent: true, depthWrite: false,
-        blending: THREE.AdditiveBlending, color: 0xffa64d,
+      geo.setAttribute('aSize', new THREE.BufferAttribute(aSize, 1));
+      geo.setAttribute('aPhase', new THREE.BufferAttribute(aPhase, 1));
+      this.uniforms = {
+        uTime: { value: 0 },
+        uAmp: { value: 0 },
+        uSize: { value: 6.5 },
+        uPixelRatio: { value: 1 },
+        uColor: { value: new THREE.Color(0xff8a1e) },
+        uHot: { value: new THREE.Color(0xfff1d6) },
+      };
+      this.mat = new THREE.ShaderMaterial({
+        uniforms: this.uniforms,
+        vertexShader: _ORB_VERT,
+        fragmentShader: _ORB_FRAG,
+        transparent: true, depthTest: false, depthWrite: false,
+        blending: THREE.AdditiveBlending,
       });
       this.points = new THREE.Points(geo, this.mat);
       this.group.add(this.points);
 
-      // Concentric HUD arc rings — partial circles at varied radii / tilt.
+      // Gyroscopic reticle rings — clean full circles at fixed tilts, each
+      // spinning slowly on its own axis (the orbital-gyroscope HUD look).
+      const ringDefs = [
+        { rx: 1.25, ry: 0.0, rad: 1.50, op: 0.32 },
+        { rx: -0.6, ry: 0.9, rad: 1.62, op: 0.22 },
+        { rx: 0.2, ry: -0.7, rad: 1.16, op: 0.40 },
+      ];
       this.rings = [];
-      for (let k = 0; k < 3; k++) {
-        const segs = 96, rad = 1.15 + k * 0.18, span = Math.PI * (1.1 + k * 0.25);
+      for (const def of ringDefs) {
+        const segs = 220;
         const rp = new Float32Array((segs + 1) * 3);
         for (let i = 0; i <= segs; i++) {
-          const a = (i / segs) * span;
-          rp[i * 3] = Math.cos(a) * rad;
-          rp[i * 3 + 1] = Math.sin(a) * rad;
+          const a = (i / segs) * Math.PI * 2;
+          rp[i * 3] = Math.cos(a) * def.rad;
+          rp[i * 3 + 1] = Math.sin(a) * def.rad;
           rp[i * 3 + 2] = 0;
         }
         const rg = new THREE.BufferGeometry();
         rg.setAttribute('position', new THREE.BufferAttribute(rp, 3));
         const rl = new THREE.Line(rg, new THREE.LineBasicMaterial({
-          color: 0xff7a1a, transparent: true,
-          opacity: 0.5 - k * 0.1, blending: THREE.AdditiveBlending,
+          color: 0xffa23a, transparent: true, opacity: def.op,
+          blending: THREE.AdditiveBlending, depthTest: false,
         }));
-        rl.rotation.x = 0.5 + k * 0.4;
-        rl.rotation.y = k * 0.6;
-        this.group.add(rl);
+        rl.rotation.x = def.rx;
+        rl.rotation.y = def.ry;
+        rl.userData.spin = -0.004 + (Math.random() - 0.5) * 0.01;
+        this.scene.add(rl);
         this.rings.push(rl);
       }
 
-      // Bright white-hot core.
+      // Tight white-hot core.
       this.core = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: tex, color: 0xfff2d6, transparent: true,
-        blending: THREE.AdditiveBlending, depthWrite: false,
+        map: _radialTexture(THREE, [
+          [0.0, 'rgba(255,255,250,1)'],
+          [0.3, 'rgba(255,220,160,0.85)'],
+          [0.7, 'rgba(255,140,40,0.25)'],
+          [1.0, 'rgba(255,120,0,0)'],
+        ]),
+        transparent: true, depthWrite: false, depthTest: false,
+        blending: THREE.AdditiveBlending,
       }));
-      this.core.scale.set(1.1, 1.1, 1);
+      this.core.scale.set(0.7, 0.7, 1);
       this.scene.add(this.core);
 
       this._tick = this._tick.bind(this);
@@ -440,9 +522,11 @@
     _resize() {
       const parent = this.canvas.parentElement || this.canvas;
       const rect = parent.getBoundingClientRect();
-      const side = Math.max(80, Math.min(rect.width || 320, rect.height || 320, 480));
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      const side = Math.max(80, Math.min(rect.width || 320, rect.height || 320, 640));
+      const pr = Math.min(window.devicePixelRatio || 1, 2);
+      this.renderer.setPixelRatio(pr);
       this.renderer.setSize(side, side);  // updateStyle=true → sets CSS + buffer
+      this.uniforms.uPixelRatio.value = pr;
       this.camera.aspect = 1;
       this.camera.updateProjectionMatrix();
     }
@@ -458,24 +542,33 @@
       // Smooth amplitude towards the input (snappier on rise).
       const k = this.target > this.amp ? 0.30 : 0.10;
       this.amp += (this.target - this.amp) * k;
+      this._t += 1 / 60;
+      const now = this._t;
 
       const active = this.state === 'listening' || this.state === 'speaking';
-      const speed = this.state === 'thinking' ? 0.022 : (active ? 0.012 : 0.004);
+      const thinking = this.state === 'thinking';
+      const speed = thinking ? 0.020 : (active ? 0.010 : 0.0045);
       this.group.rotation.y += speed;
-      this.group.rotation.x += speed * 0.3;
+      this.group.rotation.x = Math.sin(now * 0.15) * 0.18;
+      for (const r of this.rings) r.rotation.z += r.userData.spin;
 
-      const now = performance.now();
-      const baseScale = 1
-        + (active ? this.amp * 0.18 : 0)
-        + (this.state === 'thinking' ? 0.04 * Math.sin(now / 180) : 0);
-      this.group.scale.setScalar(baseScale);
+      // Effective "energy" drives glow: real amplitude when active, a gentle
+      // breathing pulse when idle/thinking so the orb is always alive.
+      const idlePulse = 0.5 + 0.5 * Math.sin(now * 1.1);
+      const energy = active ? this.amp : idlePulse * (thinking ? 0.35 : 0.12);
 
-      this.mat.opacity = (this.state === 'idle' ? 0.55 : 0.85) + this.amp * 0.15;
-      this.mat.size = 0.05 + this.amp * 0.03;
+      this.uniforms.uTime.value = now;
+      this.uniforms.uAmp.value = energy;
 
-      const coreS = 0.9 + (active ? this.amp * 0.6 : 0.1 * Math.sin(now / 400));
+      const scale = 1
+        + (active ? this.amp * 0.16 : 0)
+        + (thinking ? 0.03 * Math.sin(now * 5.5) : 0);
+      this.group.scale.setScalar(scale);
+
+      const coreS = 0.6 + energy * 0.5;
       this.core.scale.set(coreS, coreS, 1);
-      this.core.material.opacity = 0.6 + this.amp * 0.4;
+      this.core.material.opacity = 0.7 + energy * 0.3;
+      this.halo.material.opacity = 0.35 + energy * 0.35;
 
       this.renderer.render(this.scene, this.camera);
     }
