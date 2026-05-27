@@ -262,8 +262,13 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
                 # PATCH: ChatGPT Codex backend streams valid output items
                 # but get_final_response() can return an empty output list.
                 # Backfill from collected items or synthesize from deltas.
+                # output can be an empty list OR None (gpt-5.5 via the ChatGPT
+                # Codex backend returns output=None, which also makes the SDK's
+                # output_text @property raise). Treat both as "needs backfill",
+                # and guarantee output is always a list on return (never None) so
+                # downstream output_text access can't blow up.
                 _out = getattr(final_response, "output", None)
-                if isinstance(_out, list) and not _out:
+                if not _out:
                     if collected_output_items:
                         final_response.output = list(collected_output_items)
                         logger.debug(
@@ -282,6 +287,8 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
                             "Codex stream: synthesized output from %d text deltas (%d chars)",
                             len(agent._codex_streamed_text_parts), len(assembled),
                         )
+                    elif getattr(final_response, "output", None) is None:
+                        final_response.output = []  # never return None
                 return final_response
         except (_httpx.RemoteProtocolError, _httpx.ReadTimeout, _httpx.ConnectError, ConnectionError) as exc:
             if attempt < max_stream_retries:
@@ -350,9 +357,29 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
         except (TypeError, AttributeError) as exc:
             # The SDK's streaming state machine / response accumulation can raise
             # these on unexpected backend stream shapes (observed: gpt-5.5 via the
-            # ChatGPT Codex backend → "'NoneType' object is not iterable"). Don't
-            # fail the turn — fall back to the non-stream create() path, which
-            # avoids the streaming accumulator and parses the response directly.
+            # ChatGPT Codex backend → "'NoneType' object is not iterable"). We've
+            # already consumed the stream — recover from what we collected rather
+            # than failing the turn or paying for a second request.
+            if collected_output_items:
+                logger.warning(
+                    "Codex stream raised %s (%s); recovering from %d collected output item(s). %s",
+                    type(exc).__name__, exc, len(collected_output_items), agent._client_log_context(),
+                )
+                return SimpleNamespace(output=list(collected_output_items), output_text="", status="completed")
+            if agent._codex_streamed_text_parts and not has_tool_calls:
+                assembled = "".join(agent._codex_streamed_text_parts)
+                logger.warning(
+                    "Codex stream raised %s (%s); recovering from %d streamed text delta(s). %s",
+                    type(exc).__name__, exc, len(agent._codex_streamed_text_parts), agent._client_log_context(),
+                )
+                return SimpleNamespace(
+                    output=[SimpleNamespace(
+                        type="message", role="assistant", status="completed",
+                        content=[SimpleNamespace(type="output_text", text=assembled)],
+                    )],
+                    output_text=assembled, status="completed",
+                )
+            # Nothing usable streamed — re-issue via the non-stream create() path.
             logger.warning(
                 "Codex Responses stream raised %s (%s); falling back to create(stream=True). %s",
                 type(exc).__name__, exc, agent._client_log_context(),
@@ -435,9 +462,11 @@ def run_codex_create_stream_fallback(agent, api_kwargs: dict, client: Any = None
             if terminal_response is None and isinstance(event, dict):
                 terminal_response = event.get("response")
             if terminal_response is not None:
-                # Backfill empty output from collected stream events
+                # Backfill empty/None output from collected stream events, and
+                # guarantee output is a list (never None) so the SDK output_text
+                # property + downstream access can't raise.
                 _out = getattr(terminal_response, "output", None)
-                if isinstance(_out, list) and not _out:
+                if not _out:
                     if collected_output_items:
                         terminal_response.output = list(collected_output_items)
                         logger.debug(
@@ -455,6 +484,8 @@ def run_codex_create_stream_fallback(agent, api_kwargs: dict, client: Any = None
                             "Codex fallback stream: synthesized from %d deltas (%d chars)",
                             len(collected_text_deltas), len(assembled),
                         )
+                    elif getattr(terminal_response, "output", None) is None:
+                        terminal_response.output = []  # never return None
                 return terminal_response
     finally:
         close_fn = getattr(stream_or_response, "close", None)

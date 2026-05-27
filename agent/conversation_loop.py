@@ -1204,8 +1204,16 @@ def run_conversation(
                                 error_details.append(f"response.status={_codex_resp_status}: {_codex_error_msg}")
                             else:
                                 # output_text fallback: stream backfill may have failed
-                                # but normalize can still recover from output_text
-                                _out_text = getattr(response, "output_text", None)
+                                # but normalize can still recover from output_text.
+                                # NOTE: SDK's output_text is a @property that does
+                                # `for o in self.output` — it raises TypeError (not
+                                # AttributeError) when response.output is None
+                                # (gpt-5.5 via the ChatGPT Codex backend), and
+                                # getattr's default does NOT catch that. Guard it.
+                                try:
+                                    _out_text = getattr(response, "output_text", None)
+                                except Exception:
+                                    _out_text = None
                                 _out_text_stripped = _out_text.strip() if isinstance(_out_text, str) else ""
                                 if _out_text_stripped:
                                     logger.debug(
