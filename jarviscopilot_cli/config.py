@@ -1201,18 +1201,15 @@ DEFAULT_CONFIG = {
         # "hindsight", "holographic", "retaindb", "byterover".
         # Only ONE external provider is allowed at a time.
         #
-        # "holographic" (LOCAL, recommended): unlimited fact storage in a local
+        # "holographic" (LOCAL, default): unlimited fact storage in a local
         # SQLite db; only the top relevant facts are retrieved + injected per
         # prompt (not the whole store), so it scales without bloating every turn.
         # Coexists with the bounded built-in MEMORY.md/USER.md core above.
-        # Full semantic (HRR) retrieval needs numpy; without it, it degrades to
-        # SQLite FTS5 keyword retrieval (still relevance-gated, no crash).
-        # NOTE: opt-in (empty by default). Enabling it injects fact_store/
-        # fact_feedback tools + per-turn memory context into the request; on some
-        # model providers (observed: GPT 5.5 via OpenAI Codex) that surfaced a
-        # latent "'NoneType' object is not iterable" in the provider's tool path.
-        # Set to "holographic" on your server once that provider path is fixed.
-        "provider": "",
+        # Full semantic (HRR) retrieval needs numpy (pip install -e ".[holographic]");
+        # without it, it degrades to SQLite FTS5 keyword retrieval (still
+        # relevance-gated, no crash). Enabling it injects fact_store/fact_feedback
+        # tools + per-turn memory context; set to "" to disable.
+        "provider": "holographic",
     },
 
     # Per-plugin config. holographic memory provider reads `hermes-memory-store`.
