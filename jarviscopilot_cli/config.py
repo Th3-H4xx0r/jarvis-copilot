@@ -1207,7 +1207,12 @@ DEFAULT_CONFIG = {
         # Coexists with the bounded built-in MEMORY.md/USER.md core above.
         # Full semantic (HRR) retrieval needs numpy; without it, it degrades to
         # SQLite FTS5 keyword retrieval (still relevance-gated, no crash).
-        "provider": "holographic",
+        # NOTE: opt-in (empty by default). Enabling it injects fact_store/
+        # fact_feedback tools + per-turn memory context into the request; on some
+        # model providers (observed: GPT 5.5 via OpenAI Codex) that surfaced a
+        # latent "'NoneType' object is not iterable" in the provider's tool path.
+        # Set to "holographic" on your server once that provider path is fixed.
+        "provider": "",
     },
 
     # Per-plugin config. holographic memory provider reads `hermes-memory-store`.
