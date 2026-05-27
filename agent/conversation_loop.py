@@ -2304,6 +2304,14 @@ def run_conversation(
                     agent._client_log_context(),
                     _error_summary,
                 )
+                # Internal errors (not API/HTTP/network) indicate a bug in our
+                # request-build or response-parse path — log the FULL traceback so
+                # the exact failing line is captured, not just the summary string.
+                if error_type in ("TypeError", "AttributeError", "KeyError", "IndexError", "ValueError"):
+                    logger.warning(
+                        "%sInternal %s during API call — full traceback follows:",
+                        agent.log_prefix, error_type, exc_info=True,
+                    )
 
                 _provider = getattr(agent, "provider", "unknown")
                 _base = getattr(agent, "base_url", "unknown")
