@@ -146,7 +146,7 @@ class MemoryStore:
         Tool responses always reflect this live state.
     """
 
-    def __init__(self, memory_char_limit: int = 4400, user_char_limit: int = 2750):
+    def __init__(self, memory_char_limit: int = 0, user_char_limit: int = 0):  # 0 = unlimited
         self.memory_entries: List[str] = []
         self.user_entries: List[str] = []
         self.memory_char_limit = memory_char_limit

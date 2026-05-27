@@ -1191,11 +1191,13 @@ DEFAULT_CONFIG = {
     "memory": {
         "memory_enabled": True,
         "user_profile_enabled": True,
-        # Injected into the system prompt EVERY turn, so keep modest. 0 = unlimited
-        # (NOT recommended — bloats every request and dilutes signal; for large,
-        # relevance-retrieved memory enable an external provider below instead).
-        "memory_char_limit": 4400,   # ~1600 tokens at 2.75 chars/token (0 = unlimited)
-        "user_char_limit": 2750,     # ~1000 tokens at 2.75 chars/token (0 = unlimited)
+        # 0 = UNLIMITED (no cap on the built-in MEMORY.md/USER.md). NOTE: this
+        # memory is injected into the system prompt EVERY turn, so with no cap it
+        # grows the request over time. For large memory WITHOUT per-turn bloat,
+        # the holographic provider below stores facts unbounded and injects only
+        # the relevant ones per prompt. Set a positive number to re-bound.
+        "memory_char_limit": 0,   # 0 = unlimited (else ~chars; 2.75 chars/token)
+        "user_char_limit": 0,     # 0 = unlimited
         # External memory provider plugin (empty = built-in only).
         # Set to a provider name to activate: "openviking", "mem0",
         # "hindsight", "holographic", "retaindb", "byterover".
