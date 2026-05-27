@@ -240,7 +240,25 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
                             sum(len(p) for p in agent._codex_streamed_text_parts),
                             agent._client_log_context(),
                         )
-                final_response = stream.get_final_response()
+                try:
+                    final_response = stream.get_final_response()
+                except Exception as _gfr_exc:
+                    # The OpenAI SDK's get_final_response() accumulates the event
+                    # stream into a Response object and can raise (observed:
+                    # gpt-5.5 via chatgpt.com/backend-api/codex →
+                    # "'NoneType' object is not iterable") when the backend's
+                    # stream shape doesn't match what the SDK expects. Don't fail
+                    # the whole turn — recover from the items/text we already
+                    # received during streaming (handled by the backfill below).
+                    logger.warning(
+                        "Codex get_final_response() raised %s: %s — recovering from "
+                        "%d streamed item(s) / %d text delta(s). %s",
+                        type(_gfr_exc).__name__, _gfr_exc,
+                        len(collected_output_items),
+                        len(getattr(agent, "_codex_streamed_text_parts", []) or []),
+                        agent._client_log_context(),
+                    )
+                    final_response = SimpleNamespace(output=[], output_text="", status="completed")
                 # PATCH: ChatGPT Codex backend streams valid output items
                 # but get_final_response() can return an empty output list.
                 # Backfill from collected items or synthesize from deltas.
@@ -329,6 +347,17 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
                 )
                 return agent._run_codex_create_stream_fallback(api_kwargs, client=active_client)
             raise
+        except (TypeError, AttributeError) as exc:
+            # The SDK's streaming state machine / response accumulation can raise
+            # these on unexpected backend stream shapes (observed: gpt-5.5 via the
+            # ChatGPT Codex backend → "'NoneType' object is not iterable"). Don't
+            # fail the turn — fall back to the non-stream create() path, which
+            # avoids the streaming accumulator and parses the response directly.
+            logger.warning(
+                "Codex Responses stream raised %s (%s); falling back to create(stream=True). %s",
+                type(exc).__name__, exc, agent._client_log_context(),
+            )
+            return agent._run_codex_create_stream_fallback(api_kwargs, client=active_client)
 
 
 
