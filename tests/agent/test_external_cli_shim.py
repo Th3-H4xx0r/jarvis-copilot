@@ -105,6 +105,41 @@ def test_render_message_content_variants():
     assert render_message_content([{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]) == "a\nb"
 
 
+def test_role_renderers_override_default_label_format():
+    """A backend can supply a per-role renderer to wrap content in custom
+    delimiters — claude-code uses this to wrap tool results in
+    <tool_result> blocks so the model doesn't echo `Tool:` lines."""
+    def _tool_renderer(content, msg):
+        name = msg.get("name", "") if isinstance(msg, dict) else ""
+        return f'<tool_result name="{name}">\n{content}\n</tool_result>'
+
+    msgs = [
+        {"role": "user", "content": "weather?"},
+        {"role": "assistant", "content": "checking"},
+        {"role": "tool", "name": "get_weather", "content": '{"temp_f": 68}'},
+    ]
+    prompt = format_messages_as_prompt(
+        msgs, role_renderers={"tool": _tool_renderer}
+    )
+    # Tool result is wrapped, NOT prefixed with "Tool:"
+    assert '<tool_result name="get_weather">' in prompt
+    assert '</tool_result>' in prompt
+    assert '{"temp_f": 68}' in prompt
+    assert "Tool:\n" not in prompt  # default label suppressed
+    # Other roles still use the default label format
+    assert "User:\nweather?" in prompt
+    assert "Assistant:\nchecking" in prompt
+
+
+def test_role_renderers_callable_one_arg_still_supported():
+    """Renderers may accept just `content` (no message kwarg)."""
+    prompt = format_messages_as_prompt(
+        [{"role": "tool", "content": "X"}],
+        role_renderers={"tool": lambda c: f"<R>{c}</R>"},
+    )
+    assert "<R>X</R>" in prompt
+
+
 def test_copilot_acp_imports_still_work_after_refactor():
     """The refactor in copilot_acp_client.py must re-export the helpers as
     underscore-prefixed names so the rest of that module keeps working."""

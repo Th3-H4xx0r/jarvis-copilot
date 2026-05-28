@@ -67,12 +67,21 @@ def format_messages_as_prompt(
     tools: list[dict[str, Any]] | None = None,
     tool_choice: Any = None,
     header_lines: list[str] | None = None,
+    role_renderers: dict[str, Any] | None = None,
 ) -> str:
     """Render an OpenAI-style message list + tool schemas into one text prompt.
 
     ``header_lines`` is the backend-specific preamble (falls back to a generic
     one). Tool schemas are embedded as JSON and the model is instructed to emit
     ``<tool_call>{...}</tool_call>`` blocks rather than executing tools itself.
+
+    ``role_renderers`` lets a backend customise how individual roles are
+    rendered in the transcript. It's a dict ``{role: callable(content,
+    message)}`` whose callable returns the rendered block. Roles not in the
+    dict fall back to the default ``"<Label>:\n<content>"`` style. The
+    claude-code client uses this to wrap tool results in
+    ``<tool_result>…</tool_result>`` so claude doesn't echo bare ``Tool:``
+    labels from the transcript back into its own response (#claude-code).
     """
     sections: list[str] = list(header_lines or _DEFAULT_HEADER_LINES)
     if model:
@@ -122,14 +131,23 @@ def format_messages_as_prompt(
         if not rendered:
             continue
 
-        label = {
-            "system": "System",
-            "user": "User",
-            "assistant": "Assistant",
-            "tool": "Tool",
-            "context": "Context",
-        }.get(role, role.title())
-        transcript.append(f"{label}:\n{rendered}")
+        # Per-role custom renderer (e.g. claude-code wraps tool results in
+        # <tool_result> tags). Falls back to the default labelled-block style.
+        if role_renderers and role in role_renderers:
+            try:
+                block = role_renderers[role](rendered, message)
+            except TypeError:
+                block = role_renderers[role](rendered)
+            transcript.append(block)
+        else:
+            label = {
+                "system": "System",
+                "user": "User",
+                "assistant": "Assistant",
+                "tool": "Tool",
+                "context": "Context",
+            }.get(role, role.title())
+            transcript.append(f"{label}:\n{rendered}")
 
     if transcript:
         sections.append("Conversation transcript:\n\n" + "\n\n".join(transcript))

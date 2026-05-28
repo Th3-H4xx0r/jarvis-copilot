@@ -381,6 +381,65 @@ def test_stream_emits_tool_call_delta_when_text_contains_tool_call_block():
     assert "get_weather" not in "".join(content_parts)
 
 
+def test_stream_suppresses_thinking_deltas_so_chat_doesnt_show_internal_reasoning():
+    """We deliberately drop thinking_delta events for claude-code so the
+    WebUI doesn't render claude's internal reasoning inline in the chat."""
+    c = ClaudeCodeClient()
+    events = [
+        {"type": "system", "subtype": "init"},
+        {"type": "stream_event",
+         "event": {"type": "content_block_start", "index": 0,
+                   "content_block": {"type": "thinking"}}},
+        {"type": "stream_event",
+         "event": {"type": "content_block_delta", "index": 0,
+                   "delta": {"type": "thinking_delta",
+                             "thinking": "The user wants X. I should..."}}},
+        {"type": "stream_event",
+         "event": {"type": "content_block_start", "index": 1,
+                   "content_block": {"type": "text"}}},
+        {"type": "stream_event",
+         "event": {"type": "content_block_delta", "index": 1,
+                   "delta": {"type": "text_delta", "text": "Hello"}}},
+        {"type": "result", "is_error": False, "stop_reason": "end_turn",
+         "usage": {"input_tokens": 5, "output_tokens": 2}},
+    ]
+    lines = [json.dumps(e) for e in events]
+    with mock.patch("agent.claude_code_client.subprocess.Popen",
+                    return_value=_FakePopen(lines)):
+        chunks = list(c.chat.completions.create(
+            stream=True, model="claude-haiku-4-5",
+            messages=[{"role": "user", "content": "x"}]))
+
+    for ch in chunks:
+        if not ch.choices:
+            continue
+        d = ch.choices[0].delta
+        # No reasoning leakage in any chunk's delta.
+        assert not d.reasoning_content
+        assert not d.reasoning
+
+
+def test_tool_result_renders_as_xml_block_not_bare_label():
+    """Past tool results in the prompt must be wrapped in <tool_result>
+    blocks so claude doesn't echo `Tool: {...}` lines back as its own text."""
+    from agent.claude_code_client import _ROLE_RENDERERS, _render_tool_result
+    from agent.external_cli_shim import format_messages_as_prompt
+
+    msgs = [
+        {"role": "user", "content": "give brief"},
+        {"role": "assistant", "content": "ok"},
+        {"role": "tool", "name": "skill_view",
+         "content": '{"linked":"morning-brief"}'},
+    ]
+    prompt = format_messages_as_prompt(msgs, role_renderers=_ROLE_RENDERERS)
+    assert "<tool_result name=\"skill_view\">" in prompt
+    assert "</tool_result>" in prompt
+    assert "Tool:\n" not in prompt
+    # Standalone helper round-trip
+    assert _render_tool_result("X", {"name": "foo"}) == '<tool_result name="foo">\nX\n</tool_result>'
+    assert _render_tool_result("X", {}) == "<tool_result>\nX\n</tool_result>"
+
+
 def test_stream_holds_back_partial_tool_call_open_across_chunks():
     """If `<tool_call>` straddles two text_delta chunks, the prefix must be
     held back so it isn't streamed as content."""

@@ -29,12 +29,37 @@ logger = logging.getLogger(__name__)
 CLAUDE_CLI_MARKER_BASE_URL = "claude-cli://local"
 _DEFAULT_TIMEOUT_SECONDS = 900.0
 
+def _render_tool_result(content: str, message: dict[str, Any]) -> str:
+    """Wrap a past tool result in <tool_result name="…"> tags.
+
+    Claude would otherwise mimic the bare ``Tool:\n…`` transcript label and
+    spit ``Tool: {...}`` lines back into its own response (real-user-visible
+    bug). Wrapping in an XML-ish block lets us tell claude in the header to
+    treat ``<tool_result>`` blocks as read-only context.
+    """
+    tool_name = ""
+    if isinstance(message, dict):
+        tool_name = str(message.get("name") or "").strip()
+    attr = f' name="{tool_name}"' if tool_name else ""
+    return f"<tool_result{attr}>\n{content}\n</tool_result>"
+
+
+_ROLE_RENDERERS = {"tool": _render_tool_result}
+
+
 _HEADER_LINES = [
     "You are being used as the LLM backend for JarvisCopilot. You have NO tools of your own.",
     "IMPORTANT: If you take an action with a tool, output ONLY a <tool_call>{...}</tool_call> "
     "block with one JSON object whose keys are id/type/function{name,arguments}; "
     "arguments must be a JSON string. Do not call tools yourself — emit text only.",
     "If no tool is needed, answer the user normally as the assistant.",
+    # Past tool results appear in the transcript inside `<tool_result>…</tool_result>`
+    # blocks (with the tool name as an attribute). They are context for you to
+    # reason from — DO NOT echo them, quote them, or reproduce their JSON in
+    # your reply. Reply naturally to the user as if you observed the result;
+    # the user already sees the tool result rendered in the chat UI.
+    "Never start a line with 'Tool:', 'User:', 'Assistant:', or 'System:' — "
+    "those are transcript labels, not output formats.",
 ]
 
 # `claude --model` accepts full ids (e.g. "claude-opus-4-7") and short aliases
@@ -232,6 +257,7 @@ class ClaudeCodeClient:
             tools=tools,
             tool_choice=tool_choice,
             header_lines=_HEADER_LINES,
+            role_renderers=_ROLE_RENDERERS,
         )
         eff_timeout = _norm_timeout(timeout if timeout is not None else self._timeout)
         argv = self._build_argv(model)
@@ -351,6 +377,7 @@ class ClaudeCodeClient:
             tools=tools,
             tool_choice=tool_choice,
             header_lines=_HEADER_LINES,
+            role_renderers=_ROLE_RENDERERS,
         )
         eff_timeout = _norm_timeout(timeout if timeout is not None else self._timeout)
         argv = self._build_argv(model, stream=True)
@@ -496,9 +523,11 @@ class ClaudeCodeClient:
                         dtype = d.get("type")
 
                         if dtype == "thinking_delta":
-                            thinking = d.get("thinking") or ""
-                            if thinking:
-                                yield _build_chunk(reasoning=thinking)
+                            # Suppress reasoning deltas for claude-code so the
+                            # WebUI doesn't render claude's internal thinking
+                            # inline in the chat bubble. The model still uses
+                            # extended thinking internally — we just don't
+                            # propagate it to display consumers.
                             continue
 
                         if dtype != "text_delta":
