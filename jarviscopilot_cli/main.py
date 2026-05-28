@@ -2019,6 +2019,8 @@ def select_provider_and_model(args=None):
         _model_flow_google_gemini_cli(config, current_model)
     elif selected_provider == "copilot-acp":
         _model_flow_copilot_acp(config, current_model)
+    elif selected_provider == "claude-code":
+        _model_flow_claude_code(config, current_model)
     elif selected_provider == "copilot":
         _model_flow_copilot(config, current_model)
     elif selected_provider == "custom":
@@ -4529,6 +4531,108 @@ def _model_flow_copilot_acp(config, current_model=""):
         )
         or selected
     )
+    _save_model_choice(selected)
+
+    cfg = load_config()
+    model = cfg.get("model")
+    if not isinstance(model, dict):
+        model = {"default": model} if model else {}
+        cfg["model"] = model
+    model["provider"] = provider_id
+    model["base_url"] = effective_base
+    model["api_mode"] = "chat_completions"
+    save_config(cfg)
+    deactivate_provider()
+
+    print(f"Default model set to: {selected} (via {pconfig.name})")
+
+
+def _model_flow_claude_code(config, current_model=""):
+    """Claude Code (local CLI) flow.
+
+    Unlike OAuth providers, there is no auth flow to drive here: login lives
+    entirely in the user's local ``claude`` CLI (via ``claude`` interactive
+    or ``claude setup-token``). We only:
+
+      1. Verify the ``claude`` binary is present (resolve via shutil.which +
+         HERMES_CLAUDE_CODE_COMMAND / CLAUDE_CLI_PATH env overrides).
+      2. Tell the user how to log in if it isn't.
+      3. Let them pick a model from the static fallback list.
+      4. Persist provider=claude-code + base_url=claude-cli://local +
+         api_mode=chat_completions so subsequent requests route to
+         ClaudeCodeClient.
+    """
+    from jarviscopilot_cli.auth import (
+        PROVIDER_REGISTRY,
+        _prompt_model_selection,
+        _save_model_choice,
+        deactivate_provider,
+        get_external_process_provider_status,
+        resolve_external_process_provider_credentials,
+    )
+    from jarviscopilot_cli.config import load_config, save_config
+    from jarviscopilot_cli.models import _PROVIDER_MODELS
+
+    del config
+
+    provider_id = "claude-code"
+    pconfig = PROVIDER_REGISTRY[provider_id]
+    effective_base = pconfig.inference_base_url  # "claude-cli://local"
+
+    status = get_external_process_provider_status(provider_id)
+    resolved_command = status.get("resolved_command")
+
+    print("  Claude Code uses your locally-installed `claude` CLI as the LLM")
+    print("  backend, so requests are billed against your Claude subscription")
+    print("  (Pro/Max) instead of API credits. JarvisCopilot keeps its own agent")
+    print("  loop; the CLI is invoked as a pure text generator.")
+    print()
+
+    if not resolved_command:
+        print("  ⚠ Could not find the `claude` CLI on your PATH.")
+        print()
+        print("  Install Claude Code, then sign in:")
+        print("    $ claude            # interactive login (recommended)")
+        print("    $ claude setup-token  # long-lived token (alternative)")
+        print()
+        print("  If `claude` is installed elsewhere, point JarvisCopilot at it:")
+        print("    $ export HERMES_CLAUDE_CODE_COMMAND=/path/to/claude")
+        print("  or set CLAUDE_CLI_PATH.")
+        return
+
+    print(f"  Command: {resolved_command}")
+    print(f"  Backend marker: {effective_base}")
+    print(
+        "  Login lives in the `claude` CLI itself — if requests fail with an"
+    )
+    print("  auth error, run `claude` in a terminal and sign in.")
+    print()
+
+    # Confirm the auth-layer resolver is happy too (same check the runtime
+    # uses to build client_kwargs); surfaces any HERMES_CLAUDE_CODE_COMMAND
+    # mismatch up front.
+    try:
+        resolve_external_process_provider_credentials(provider_id)
+    except Exception as exc:
+        print(f"  ⚠ {exc}")
+        return
+
+    model_list = list(_PROVIDER_MODELS.get("claude-code", []))
+    if not model_list:
+        # Should never happen given models.py registration, but degrade safely.
+        model_list = [
+            "claude-opus-4-7", "claude-opus-4-6",
+            "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-4-5",
+        ]
+
+    selected = _prompt_model_selection(
+        model_list,
+        current_model=current_model if current_model in model_list else "",
+    )
+    if not selected:
+        print("No change.")
+        return
+
     _save_model_choice(selected)
 
     cfg = load_config()
