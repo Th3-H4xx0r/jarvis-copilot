@@ -1141,6 +1141,17 @@ def run_conversation(
                     or str(agent.base_url or "").lower().startswith("acp+tcp://")
                 ):
                     _use_streaming = False
+                # ClaudeCodeClient shells out to `claude -p --output-format
+                # json` once per request and returns the full SimpleNamespace
+                # response (no native streaming surface). Iterating the
+                # response raises "'types.SimpleNamespace' object is not
+                # iterable" in the stream loop — same class of issue as
+                # copilot-acp above.
+                elif (
+                    agent.provider == "claude-code"
+                    or str(agent.base_url or "").lower().startswith("claude-cli://")
+                ):
+                    _use_streaming = False
                 elif not agent._has_stream_consumers():
                     # No display/TTS consumer. Still prefer streaming for
                     # health checking, but skip for Mock clients in tests
