@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import subprocess
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -190,18 +191,24 @@ class ClaudeCodeClient:
 
     # --- internals ----------------------------------------------------------
 
-    def _build_argv(self, model: str | None) -> list[str]:
-        return [
+    def _build_argv(self, model: str | None, *, stream: bool = False) -> list[str]:
+        argv = [
             self._command,
             "-p",
             "--tools", "",                        # disable all native tools → pure text gen
-            "--output-format", "json",            # single JSON object on stdout
+            "--output-format", "stream-json" if stream else "json",
             "--model", _map_model_to_cli(model),
             "--setting-sources", "",              # skip user/project/local settings
             "--strict-mcp-config",                # ignore global MCP config
             "--no-session-persistence",           # one-shot
-            *self._extra_args,
         ]
+        if stream:
+            # --include-partial-messages emits content_block_delta events as the
+            # model generates; --verbose is required alongside --print for the
+            # full stream-event firehose.
+            argv += ["--include-partial-messages", "--verbose"]
+        argv += list(self._extra_args)
+        return argv
 
     def _create_chat_completion(
         self,
@@ -211,8 +218,14 @@ class ClaudeCodeClient:
         tools: list[dict[str, Any]] | None = None,
         tool_choice: Any = None,
         timeout: Any = None,
+        stream: bool = False,
         **_: Any,
     ) -> Any:
+        if stream:
+            return self._stream_chat_completion(
+                model=model, messages=messages, tools=tools,
+                tool_choice=tool_choice, timeout=timeout,
+            )
         prompt = _format_messages_as_prompt(
             messages or [],
             model=model,
@@ -299,3 +312,318 @@ class ClaudeCodeClient:
             usage=usage,
             model=model or "claude-code",
         )
+
+    # ─── Streaming ────────────────────────────────────────────────────────
+    #
+    # ``claude -p --output-format stream-json --include-partial-messages``
+    # emits NDJSON events:
+    #   {"type":"stream_event", "event":{"type":"content_block_delta",
+    #       "delta":{"type":"text_delta", "text":"PONG"}}}
+    #   {"type":"stream_event", "event":{"type":"content_block_delta",
+    #       "delta":{"type":"thinking_delta", "thinking":"..."}}}
+    #   {"type":"assistant", "message":{...}}
+    #   {"type":"result", "stop_reason":"end_turn", "usage":{...}}
+    #
+    # We translate those into the OpenAI streaming-chunk shape the agent's
+    # interruptible_streaming_api_call expects (chunk.choices[0].delta with
+    # .content/.tool_calls/.reasoning_content/.reasoning, plus a final
+    # empty-choices chunk carrying usage).
+    #
+    # Tool calls: because --tools "" disables claude's native tools, claude
+    # emits our instructed `<tool_call>{...}</tool_call>` block as plain text.
+    # A small state machine intercepts that — pre-tag text streams as content,
+    # the tag body buffers, and the parsed call is emitted in one tool-call
+    # delta. A short held-back buffer handles `<tool_call>` opens that
+    # straddle chunk boundaries.
+
+    def _stream_chat_completion(
+        self,
+        *,
+        model: str | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any = None,
+        timeout: Any = None,
+    ):
+        prompt = _format_messages_as_prompt(
+            messages or [],
+            model=model,
+            tools=tools,
+            tool_choice=tool_choice,
+            header_lines=_HEADER_LINES,
+        )
+        eff_timeout = _norm_timeout(timeout if timeout is not None else self._timeout)
+        argv = self._build_argv(model, stream=True)
+
+        try:
+            proc = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                cwd=self._cwd,
+                env=_build_subprocess_env(),
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                f"Could not start the Claude Code CLI ('{self._command}'). "
+                "Install Claude Code and run `claude` to log in to your Claude "
+                "subscription, or set HERMES_CLAUDE_CODE_COMMAND."
+            ) from exc
+
+        # Send the prompt and close stdin so claude knows it has the full input.
+        try:
+            if proc.stdin is not None:
+                proc.stdin.write(prompt)
+                proc.stdin.close()
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            raise
+
+        model_name = model or "claude-code"
+        emitted_finish = False
+        tc_emit_idx = 0
+
+        # Tool-call state machine
+        _TC_OPEN, _TC_CLOSE = "<tool_call>", "</tool_call>"
+        mode = "text"          # "text" | "tool_call"
+        held = ""               # text held back (possible partial <tool_call>)
+        tc_buf = ""             # text inside <tool_call>...</tool_call>
+
+        def _build_chunk(
+            *, content=None, tool_calls=None, reasoning=None, finish_reason=None,
+        ):
+            delta = SimpleNamespace(
+                content=content,
+                tool_calls=tool_calls,
+                reasoning_content=reasoning,
+                reasoning=reasoning,
+            )
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    index=0, delta=delta, finish_reason=finish_reason,
+                )],
+                model=model_name,
+                usage=None,
+            )
+
+        def _emit_tool_call(json_text: str):
+            """Parse a <tool_call> body and yield the corresponding delta chunk."""
+            nonlocal tc_emit_idx
+            try:
+                obj = json.loads(json_text.strip())
+            except Exception:
+                return None
+            if not isinstance(obj, dict):
+                return None
+            fn = obj.get("function") or {}
+            if not isinstance(fn, dict):
+                return None
+            name = fn.get("name")
+            if not isinstance(name, str) or not name.strip():
+                return None
+            args = fn.get("arguments", "{}")
+            if not isinstance(args, str):
+                args = json.dumps(args, ensure_ascii=False)
+            call_id = obj.get("id")
+            if not isinstance(call_id, str) or not call_id.strip():
+                call_id = f"cli_call_{tc_emit_idx + 1}"
+            tc_delta = SimpleNamespace(
+                index=tc_emit_idx,
+                id=call_id,
+                type="function",
+                function=SimpleNamespace(name=name.strip(), arguments=args),
+                extra_content=None,
+            )
+            tc_emit_idx += 1
+            return _build_chunk(tool_calls=[tc_delta])
+
+        def _flushable_suffix(buf: str) -> tuple[str, str]:
+            """Split `buf` into (safe_to_emit, hold_back).
+
+            Holds back a trailing prefix of `<tool_call>` so a tag that
+            straddles a chunk boundary isn't streamed as text.
+            """
+            for i in range(min(len(buf), len(_TC_OPEN)), 0, -1):
+                if buf.endswith(_TC_OPEN[:i]):
+                    return buf[: len(buf) - i], buf[len(buf) - i:]
+            return buf, ""
+
+        try:
+            assert proc.stdout is not None
+            start_time = time.monotonic()
+            for raw_line in proc.stdout:
+                # Coarse wall-clock timeout — the agent has its own
+                # stall-detection on the stream side; this is just a hard cap.
+                if time.monotonic() - start_time > eff_timeout:
+                    raise RuntimeError(
+                        f"Claude Code CLI streaming timed out after {eff_timeout:.0f}s."
+                    )
+
+                line = (raw_line or "").strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except Exception:
+                    continue
+
+                etype = event.get("type")
+
+                # Surface explicit error events from the CLI immediately.
+                if etype == "result" and event.get("is_error"):
+                    msg = event.get("result") or event.get("error") or "unknown error"
+                    raise RuntimeError(f"Claude Code error: {msg}")
+
+                if etype == "assistant":
+                    # Update model name if it shows up in the snapshot.
+                    m = (event.get("message") or {}).get("model")
+                    if m:
+                        model_name = m
+                    continue
+
+                if etype == "stream_event":
+                    sub = event.get("event") or {}
+                    stype = sub.get("type")
+
+                    if stype == "content_block_delta":
+                        d = sub.get("delta") or {}
+                        dtype = d.get("type")
+
+                        if dtype == "thinking_delta":
+                            thinking = d.get("thinking") or ""
+                            if thinking:
+                                yield _build_chunk(reasoning=thinking)
+                            continue
+
+                        if dtype != "text_delta":
+                            # Ignore signature_delta etc.
+                            continue
+
+                        text = d.get("text") or ""
+                        if not text:
+                            continue
+
+                        if mode == "tool_call":
+                            tc_buf += text
+                            if _TC_CLOSE in tc_buf:
+                                end = tc_buf.index(_TC_CLOSE)
+                                json_text = tc_buf[:end]
+                                tail = tc_buf[end + len(_TC_CLOSE):]
+                                tc_chunk = _emit_tool_call(json_text)
+                                if tc_chunk is not None:
+                                    yield tc_chunk
+                                mode = "text"
+                                tc_buf = ""
+                                held = tail
+                            continue
+
+                        # mode == "text"
+                        held += text
+                        if _TC_OPEN in held:
+                            idx = held.index(_TC_OPEN)
+                            pre = held[:idx]
+                            if pre:
+                                yield _build_chunk(content=pre)
+                            mode = "tool_call"
+                            tc_buf = held[idx + len(_TC_OPEN):]
+                            held = ""
+                            if _TC_CLOSE in tc_buf:
+                                end = tc_buf.index(_TC_CLOSE)
+                                tc_chunk = _emit_tool_call(tc_buf[:end])
+                                if tc_chunk is not None:
+                                    yield tc_chunk
+                                tail = tc_buf[end + len(_TC_CLOSE):]
+                                mode = "text"
+                                tc_buf = ""
+                                held = tail
+                            continue
+
+                        safe, hold = _flushable_suffix(held)
+                        if safe:
+                            yield _build_chunk(content=safe)
+                        held = hold
+
+                    elif stype == "message_delta":
+                        # Usage updates land here too; the final result event
+                        # carries the canonical totals so we ignore mid-stream.
+                        pass
+
+                    elif stype == "message_stop":
+                        pass
+
+                if etype == "result":
+                    # Flush any leftover held text or unterminated tool_call.
+                    if mode == "tool_call" and tc_buf:
+                        # Tool-call open but never closed — fall back to text.
+                        yield _build_chunk(content=_TC_OPEN + tc_buf)
+                        tc_buf = ""
+                    if held:
+                        yield _build_chunk(content=held)
+                        held = ""
+
+                    # Emit finish_reason (so the streaming consumer's
+                    # "did we get a finish?" check passes) then a final
+                    # empty-choices chunk carrying usage (per OpenAI shape).
+                    raw_stop = event.get("stop_reason") or "end_turn"
+                    finish = _STOP_REASON_TO_FINISH.get(raw_stop, "stop")
+                    yield _build_chunk(finish_reason=finish)
+                    emitted_finish = True
+
+                    u = event.get("usage") or {}
+                    prompt_toks = int(u.get("input_tokens") or 0)
+                    completion_toks = int(u.get("output_tokens") or 0)
+                    cached = int(u.get("cache_read_input_tokens") or 0)
+                    usage = SimpleNamespace(
+                        prompt_tokens=prompt_toks,
+                        completion_tokens=completion_toks,
+                        total_tokens=prompt_toks + completion_toks,
+                        prompt_tokens_details=SimpleNamespace(cached_tokens=cached),
+                    )
+                    yield SimpleNamespace(
+                        choices=[], usage=usage, model=model_name,
+                    )
+                    break
+        finally:
+            # Clean up the subprocess.
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=2.0)
+                    except Exception:
+                        proc.kill()
+            except Exception:
+                pass
+
+        if not emitted_finish:
+            # Stream ended without a result event (process died mid-stream).
+            stderr_tail = ""
+            try:
+                if proc.stderr is not None:
+                    stderr_tail = (proc.stderr.read() or "").strip()[:500]
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"Claude Code CLI stream ended unexpectedly. stderr: {stderr_tail}"
+            )
+
+
+# Map claude stop_reasons to OpenAI finish_reasons (mirrors
+# agent/transports/anthropic.py:_STOP_REASON_MAP so downstream code stays
+# consistent across the two Claude paths).
+_STOP_REASON_TO_FINISH = {
+    "end_turn": "stop",
+    "tool_use": "tool_calls",
+    "max_tokens": "length",
+    "stop_sequence": "stop",
+    "refusal": "content_filter",
+    "model_context_window_exceeded": "length",
+}
+
+

@@ -263,6 +263,155 @@ def test_parse_claude_json_recovers_from_leading_log_lines():
     assert _parse_claude_json('') is None
 
 
+# ── Streaming (stream-json + --include-partial-messages) ──────────────────
+
+
+class _FakePopen:
+    """Minimal Popen stand-in that yields canned NDJSON lines from stdout."""
+    def __init__(self, lines):
+        self.stdin = mock.Mock()
+        self.stderr = mock.Mock()
+        self.stderr.read = lambda: ""
+        self.stdout = iter(line + "\n" for line in lines)
+        self._returncode = 0
+    def poll(self):
+        return self._returncode
+    def terminate(self):
+        self._returncode = 0
+    def wait(self, timeout=None):
+        return self._returncode
+    def kill(self):
+        self._returncode = -9
+
+
+def _ndjson_events(*, text_chunks=None, tool_call=None, stop="end_turn"):
+    """Construct a realistic claude stream-json NDJSON event list."""
+    events = [
+        {"type": "system", "subtype": "init"},
+        {"type": "stream_event",
+         "event": {"type": "message_start",
+                   "message": {"model": "claude-haiku-4-5-20251001"}}},
+        {"type": "stream_event",
+         "event": {"type": "content_block_start", "index": 0,
+                   "content_block": {"type": "text"}}},
+    ]
+    text_chunks = list(text_chunks or [])
+    if tool_call is not None:
+        full = "<tool_call>" + json.dumps(tool_call) + "</tool_call>"
+        text_chunks = [full]
+    for chunk in text_chunks:
+        events.append({
+            "type": "stream_event",
+            "event": {"type": "content_block_delta", "index": 0,
+                      "delta": {"type": "text_delta", "text": chunk}},
+        })
+    events.append({"type": "stream_event",
+                   "event": {"type": "content_block_stop", "index": 0}})
+    events.append({"type": "stream_event",
+                   "event": {"type": "message_stop"}})
+    events.append({
+        "type": "result", "is_error": False, "stop_reason": stop,
+        "usage": {"input_tokens": 10, "output_tokens": 5,
+                  "cache_read_input_tokens": 2},
+    })
+    return [json.dumps(e) for e in events]
+
+
+def test_stream_yields_text_deltas_and_final_usage():
+    c = ClaudeCodeClient()
+    lines = _ndjson_events(text_chunks=["He", "llo, ", "world!"])
+    with mock.patch("agent.claude_code_client.subprocess.Popen",
+                    return_value=_FakePopen(lines)):
+        chunks = list(c.chat.completions.create(
+            stream=True, model="claude-haiku-4-5",
+            messages=[{"role": "user", "content": "hi"}]))
+
+    # Drop chunks with no content/tool_calls/finish_reason for the assertion
+    content_parts = []
+    finish_reasons = []
+    usage_chunk = None
+    for ch in chunks:
+        if not ch.choices:
+            if ch.usage:
+                usage_chunk = ch
+            continue
+        d = ch.choices[0].delta
+        if d.content:
+            content_parts.append(d.content)
+        if ch.choices[0].finish_reason:
+            finish_reasons.append(ch.choices[0].finish_reason)
+
+    assert "".join(content_parts) == "Hello, world!"
+    assert finish_reasons == ["stop"]
+    assert usage_chunk is not None
+    assert usage_chunk.usage.prompt_tokens == 10
+    assert usage_chunk.usage.completion_tokens == 5
+    assert usage_chunk.usage.prompt_tokens_details.cached_tokens == 2
+
+
+def test_stream_emits_tool_call_delta_when_text_contains_tool_call_block():
+    c = ClaudeCodeClient()
+    lines = _ndjson_events(tool_call={
+        "id": "1", "type": "function",
+        "function": {"name": "get_weather", "arguments": '{"city":"Paris"}'},
+    })
+    with mock.patch("agent.claude_code_client.subprocess.Popen",
+                    return_value=_FakePopen(lines)):
+        chunks = list(c.chat.completions.create(
+            stream=True, model="claude-haiku-4-5",
+            messages=[{"role": "user", "content": "weather?"}]))
+
+    tool_call_deltas = []
+    content_parts = []
+    for ch in chunks:
+        if not ch.choices:
+            continue
+        d = ch.choices[0].delta
+        if d.tool_calls:
+            tool_call_deltas.extend(d.tool_calls)
+        if d.content:
+            content_parts.append(d.content)
+
+    assert len(tool_call_deltas) == 1
+    assert tool_call_deltas[0].function.name == "get_weather"
+    assert tool_call_deltas[0].function.arguments == '{"city":"Paris"}'
+    # The <tool_call> body must NOT have leaked into the user-visible
+    # content stream — that's the whole point of the state machine.
+    assert "<tool_call>" not in "".join(content_parts)
+    assert "get_weather" not in "".join(content_parts)
+
+
+def test_stream_holds_back_partial_tool_call_open_across_chunks():
+    """If `<tool_call>` straddles two text_delta chunks, the prefix must be
+    held back so it isn't streamed as content."""
+    c = ClaudeCodeClient()
+    # Split "<tool_call>{...}</tool_call>" across chunks at "<too" | "l_call>{...}..."
+    payload = '{"id":"1","type":"function","function":{"name":"x","arguments":"{}"}}'
+    lines = _ndjson_events(text_chunks=[
+        "<too",
+        "l_call>" + payload + "</tool_call>",
+    ])
+    with mock.patch("agent.claude_code_client.subprocess.Popen",
+                    return_value=_FakePopen(lines)):
+        chunks = list(c.chat.completions.create(
+            stream=True, model="claude-haiku-4-5",
+            messages=[{"role": "user", "content": "x"}]))
+
+    content_parts = []
+    tcs = []
+    for ch in chunks:
+        if not ch.choices:
+            continue
+        d = ch.choices[0].delta
+        if d.content:
+            content_parts.append(d.content)
+        if d.tool_calls:
+            tcs.extend(d.tool_calls)
+    # The "<too" prefix must NOT have leaked as content.
+    assert "<too" not in "".join(content_parts)
+    assert len(tcs) == 1 and tcs[0].function.name == "x"
+
+
 def test_norm_timeout_handles_httpx_timeout_shape():
     httpx_like = SimpleNamespace(read=60, write=10, connect=5, pool=5, timeout=None)
     assert _norm_timeout(httpx_like) == 60.0
