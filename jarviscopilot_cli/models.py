@@ -204,6 +204,13 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
     "copilot-acp": [
         "copilot-acp",
     ],
+    "claude-code": [
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+    ],
     "copilot": [
         "gpt-5.4",
         "gpt-5.4-mini",
@@ -926,7 +933,8 @@ CANONICAL_PROVIDERS: list[ProviderEntry] = [
     ProviderEntry("openrouter",     "OpenRouter",               "OpenRouter (100+ models, pay-per-use)"),
     ProviderEntry("novita",         "NovitaAI",                 "NovitaAI (AI-native cloud: Model API, Agent Sandbox, GPU Cloud)"),
     ProviderEntry("lmstudio",       "LM Studio",                "LM Studio (local desktop app with built-in model server)"),
-    ProviderEntry("anthropic",      "Anthropic",                "Anthropic (Claude models — API key or Claude Code)"),
+    ProviderEntry("anthropic",      "Anthropic",                "Anthropic (Claude models — API key)"),
+    ProviderEntry("claude-code",    "Claude Code",              "Claude Code (local CLI — uses your Claude subscription)"),
     ProviderEntry("openai-codex",   "OpenAI Codex",             "OpenAI Codex"),
     ProviderEntry("alibaba",        "Qwen Cloud",               "Qwen Cloud / DashScope Coding (Qwen + multi-provider)"),
     ProviderEntry("xai-oauth",      "xAI Grok OAuth (SuperGrok Subscription)", "xAI Grok OAuth (SuperGrok Subscription)"),
@@ -2197,6 +2205,10 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
             pass
         if normalized == "copilot-acp":
             return list(_PROVIDER_MODELS.get("copilot", []))
+    if normalized == "claude-code":
+        # No live catalog endpoint — the user's CLI has its own model list and
+        # the JarvisCopilot picker uses the static fallback we registered above.
+        return list(_PROVIDER_MODELS.get("claude-code", []))
     if normalized == "nous":
         # Try live Nous Portal /models endpoint
         try:

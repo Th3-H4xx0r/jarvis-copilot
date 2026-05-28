@@ -1229,6 +1229,23 @@ def create_openai_client(agent, client_kwargs: dict, *, reason: str, shared: boo
             agent._client_log_context(),
         )
         return client
+    if agent.provider == "claude-code" or str(client_kwargs.get("base_url", "")).startswith("claude-cli://"):
+        from agent.claude_code_client import ClaudeCodeClient
+
+        # Strip OpenAI-specific kwargs the CLI client doesn't accept; ClaudeCodeClient
+        # also tolerates **_ but the explicit allowlist mirrors the gemini-cli branch.
+        safe_kwargs = {
+            k: v for k, v in client_kwargs.items()
+            if k in {"api_key", "base_url", "default_headers", "command", "args", "cwd", "timeout"}
+        }
+        client = ClaudeCodeClient(**safe_kwargs)
+        _ra().logger.info(
+            "Claude Code CLI client created (%s, shared=%s) %s",
+            reason,
+            shared,
+            agent._client_log_context(),
+        )
+        return client
     if agent.provider == "google-gemini-cli" or str(client_kwargs.get("base_url", "")).startswith("cloudcode-pa://"):
         from agent.gemini_cloudcode_adapter import GeminiCloudCodeClient
 

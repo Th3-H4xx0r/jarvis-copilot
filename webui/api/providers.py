@@ -689,6 +689,7 @@ _PROVIDER_ENV_VAR_ALIASES: dict[str, tuple[str, ...]] = {
 _OAUTH_PROVIDERS = frozenset({
     "copilot",
     "copilot-acp",
+    "claude-code",   # local Claude Code CLI — login lives in the `claude` CLI
     "nous",
     "openai-codex",
     "qwen-oauth",

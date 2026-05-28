@@ -237,6 +237,15 @@ PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
         inference_base_url=DEFAULT_COPILOT_ACP_BASE_URL,
         base_url_env_var="COPILOT_ACP_BASE_URL",
     ),
+    # Claude Code (local CLI) — login lives in the `claude` CLI itself; the
+    # base_url is a marker scheme routed to ClaudeCodeClient. No env vars: the
+    # subscription is reached entirely through the CLI's own auth.
+    "claude-code": ProviderConfig(
+        id="claude-code",
+        name="Claude Code",
+        auth_type="external_process",
+        inference_base_url="claude-cli://local",
+    ),
     "gemini": ProviderConfig(
         id="gemini",
         name="Google AI Studio",
@@ -5672,6 +5681,24 @@ def get_external_process_provider_status(provider_id: str) -> Dict[str, Any]:
     if not pconfig or pconfig.auth_type != "external_process":
         return {"configured": False}
 
+    if provider_id == "claude-code":
+        command = (
+            os.getenv("HERMES_CLAUDE_CODE_COMMAND", "").strip()
+            or os.getenv("CLAUDE_CLI_PATH", "").strip()
+            or "claude"
+        )
+        resolved_command = shutil.which(command)
+        return {
+            "configured": bool(resolved_command),
+            "provider": provider_id,
+            "name": pconfig.name,
+            "command": command,
+            "args": [],
+            "resolved_command": resolved_command,
+            "base_url": pconfig.inference_base_url,
+            "logged_in": bool(resolved_command),
+        }
+
     command = (
         os.getenv("HERMES_COPILOT_ACP_COMMAND", "").strip()
         or os.getenv("COPILOT_CLI_PATH", "").strip()
@@ -5715,7 +5742,7 @@ def get_auth_status(provider_id: Optional[str] = None) -> Dict[str, Any]:
         return get_gemini_oauth_auth_status()
     if target == "minimax-oauth":
         return get_minimax_oauth_auth_status()
-    if target == "copilot-acp":
+    if target in ("copilot-acp", "claude-code"):
         return get_external_process_provider_status(target)
     if target == "azure-foundry":
         return _get_azure_foundry_auth_status()
@@ -5864,6 +5891,33 @@ def resolve_external_process_provider_credentials(provider_id: str) -> Dict[str,
             provider=provider_id,
             code="invalid_provider",
         )
+
+    if provider_id == "claude-code":
+        # Claude Code uses the locally-installed `claude` CLI's own login —
+        # nothing to look up beyond the binary path. The base_url is a marker
+        # scheme routed to ClaudeCodeClient.
+        command = (
+            os.getenv("HERMES_CLAUDE_CODE_COMMAND", "").strip()
+            or os.getenv("CLAUDE_CLI_PATH", "").strip()
+            or "claude"
+        )
+        resolved_command = shutil.which(command)
+        if not resolved_command:
+            raise AuthError(
+                f"Could not find the Claude Code CLI ('{command}'). "
+                "Install Claude Code and run `claude` to log in to your "
+                "subscription, or set HERMES_CLAUDE_CODE_COMMAND / CLAUDE_CLI_PATH.",
+                provider=provider_id,
+                code="missing_claude_cli",
+            )
+        return {
+            "provider": provider_id,
+            "api_key": "claude-code",
+            "base_url": "claude-cli://local",
+            "command": resolved_command,
+            "args": [],
+            "source": "process",
+        }
 
     base_url = os.getenv(pconfig.base_url_env_var, "").strip() if pconfig.base_url_env_var else ""
     if not base_url:

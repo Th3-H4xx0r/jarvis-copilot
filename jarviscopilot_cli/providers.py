@@ -90,6 +90,13 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
         base_url_override="acp://copilot",
         base_url_env_var="COPILOT_ACP_BASE_URL",
     ),
+    "claude-code": HermesOverlay(
+        # JarvisCopilot keeps its own loop, so the CLI shim returns chat-completion
+        # shaped responses — chat transport, not anthropic_messages.
+        transport="openai_chat",
+        auth_type="external_process",
+        base_url_override="claude-cli://local",
+    ),
     "github-copilot": HermesOverlay(
         transport="openai_chat",
         extra_env_vars=("COPILOT_GITHUB_TOKEN", "GH_TOKEN"),
@@ -377,6 +384,7 @@ _LABEL_OVERRIDES: Dict[str, str] = {
     "nous": "Nous Portal",
     "openai-codex": "OpenAI Codex",
     "copilot-acp": "GitHub Copilot ACP",
+    "claude-code": "Claude Code",
     "stepfun": "StepFun Step Plan",
     "xiaomi": "Xiaomi MiMo",
     "gmi": "GMI Cloud",
