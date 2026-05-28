@@ -276,9 +276,13 @@ ALIASES: Dict[str, str] = {
     "minimax-china": "minimax-cn",
     "minimax_cn": "minimax-cn",
 
-    # anthropic
+    # anthropic (API-key path)
     "claude": "anthropic",
-    "claude-code": "anthropic",
+
+    # claude-code (CLI / subscription path)
+    "claude-cli": "claude-code",
+    "claude-code-cli": "claude-code",
+    "claude-max": "claude-code",
 
     # github-copilot (models.dev ID)
     "copilot": "github-copilot",

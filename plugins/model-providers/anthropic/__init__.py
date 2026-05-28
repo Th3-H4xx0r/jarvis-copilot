@@ -41,7 +41,10 @@ class AnthropicProfile(ProviderProfile):
 
 anthropic = AnthropicProfile(
     name="anthropic",
-    aliases=("claude", "claude-oauth", "claude-code"),
+    # Note: "claude-code" / "claude-oauth" used to be aliases here, but the
+    # CLI-backed `claude-code` provider (plugins/model-providers/claude-code/)
+    # now owns those names. Keeping the plain "claude" alias for the API-key path.
+    aliases=("claude",),
     api_mode="anthropic_messages",
     env_vars=("ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"),
     base_url="https://api.anthropic.com",

@@ -1013,7 +1013,11 @@ _PROVIDER_ALIASES = {
     "minimax-global": "minimax-oauth",
     "minimax_oauth": "minimax-oauth",
     "claude": "anthropic",
-    "claude-code": "anthropic",
+    # claude-code / claude-cli / claude-max → the new CLI-backed Claude Code
+    # provider (uses your Claude subscription via the local `claude` CLI).
+    "claude-cli": "claude-code",
+    "claude-code-cli": "claude-code",
+    "claude-max": "claude-code",
     "deep-seek": "deepseek",
     "opencode": "opencode-zen",
     "zen": "opencode-zen",

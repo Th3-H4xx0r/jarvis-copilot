@@ -1,0 +1,5 @@
+name: claude-code-provider
+kind: model-provider
+version: 1.0.0
+description: Claude Code (local `claude` CLI — uses your Claude subscription)
+author: Pranav
