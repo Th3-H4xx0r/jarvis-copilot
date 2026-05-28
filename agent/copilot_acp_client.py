@@ -132,176 +132,21 @@ def _permission_denied(message_id: Any) -> dict[str, Any]:
     }
 
 
-def _format_messages_as_prompt(
-    messages: list[dict[str, Any]],
-    model: str | None = None,
-    tools: list[dict[str, Any]] | None = None,
-    tool_choice: Any = None,
-) -> str:
-    sections: list[str] = [
-        "You are being used as the active ACP agent backend for JarvisCopilot.",
-        "Use ACP capabilities to complete tasks.",
-        "IMPORTANT: If you take an action with a tool, you MUST output tool calls using <tool_call>{...}</tool_call> blocks with JSON exactly in OpenAI function-call shape.",
-        "If no tool is needed, answer normally.",
-    ]
-    if model:
-        sections.append(f"JarvisCopilot requested model hint: {model}")
+# Prompt format + tool-call parsing live in the shared external-CLI shim so the
+# Copilot ACP and Claude Code CLI clients stay byte-identical (tested once).
+# The Copilot-specific preamble is supplied via header_lines at the call site.
+from agent.external_cli_shim import (  # noqa: E402
+    format_messages_as_prompt as _format_messages_as_prompt,
+    render_message_content as _render_message_content,  # noqa: F401  (re-export)
+    extract_tool_calls_from_text as _extract_tool_calls_from_text,
+)
 
-    if isinstance(tools, list) and tools:
-        tool_specs: list[dict[str, Any]] = []
-        for t in tools:
-            if not isinstance(t, dict):
-                continue
-            fn = t.get("function") or {}
-            if not isinstance(fn, dict):
-                continue
-            name = fn.get("name")
-            if not isinstance(name, str) or not name.strip():
-                continue
-            tool_specs.append(
-                {
-                    "name": name.strip(),
-                    "description": fn.get("description", ""),
-                    "parameters": fn.get("parameters", {}),
-                }
-            )
-        if tool_specs:
-            sections.append(
-                "Available tools (OpenAI function schema). "
-                "When using a tool, emit ONLY <tool_call>{...}</tool_call> with one JSON object "
-                "containing id/type/function{name,arguments}. arguments must be a JSON string.\n"
-                + json.dumps(tool_specs, ensure_ascii=False)
-            )
-
-    if tool_choice is not None:
-        sections.append(f"Tool choice hint: {json.dumps(tool_choice, ensure_ascii=False)}")
-
-    transcript: list[str] = []
-    for message in messages:
-        if not isinstance(message, dict):
-            continue
-        role = str(message.get("role") or "unknown").strip().lower()
-        if role == "tool":
-            role = "tool"
-        elif role not in {"system", "user", "assistant"}:
-            role = "context"
-
-        content = message.get("content")
-        rendered = _render_message_content(content)
-        if not rendered:
-            continue
-
-        label = {
-            "system": "System",
-            "user": "User",
-            "assistant": "Assistant",
-            "tool": "Tool",
-            "context": "Context",
-        }.get(role, role.title())
-        transcript.append(f"{label}:\n{rendered}")
-
-    if transcript:
-        sections.append("Conversation transcript:\n\n" + "\n\n".join(transcript))
-
-    sections.append("Continue the conversation from the latest user request.")
-    return "\n\n".join(section.strip() for section in sections if section and section.strip())
-
-
-def _render_message_content(content: Any) -> str:
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, dict):
-        if "text" in content:
-            return str(content.get("text") or "").strip()
-        if "content" in content and isinstance(content.get("content"), str):
-            return str(content.get("content") or "").strip()
-        return json.dumps(content, ensure_ascii=True)
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-            elif isinstance(item, dict):
-                text = item.get("text")
-                if isinstance(text, str) and text.strip():
-                    parts.append(text.strip())
-        return "\n".join(parts).strip()
-    return str(content).strip()
-
-
-def _extract_tool_calls_from_text(text: str) -> tuple[list[SimpleNamespace], str]:
-    if not isinstance(text, str) or not text.strip():
-        return [], ""
-
-    extracted: list[SimpleNamespace] = []
-    consumed_spans: list[tuple[int, int]] = []
-
-    def _try_add_tool_call(raw_json: str) -> None:
-        try:
-            obj = json.loads(raw_json)
-        except Exception:
-            return
-        if not isinstance(obj, dict):
-            return
-        fn = obj.get("function")
-        if not isinstance(fn, dict):
-            return
-        fn_name = fn.get("name")
-        if not isinstance(fn_name, str) or not fn_name.strip():
-            return
-        fn_args = fn.get("arguments", "{}")
-        if not isinstance(fn_args, str):
-            fn_args = json.dumps(fn_args, ensure_ascii=False)
-        call_id = obj.get("id")
-        if not isinstance(call_id, str) or not call_id.strip():
-            call_id = f"acp_call_{len(extracted)+1}"
-
-        extracted.append(
-            SimpleNamespace(
-                id=call_id,
-                call_id=call_id,
-                response_item_id=None,
-                type="function",
-                function=SimpleNamespace(name=fn_name.strip(), arguments=fn_args),
-            )
-        )
-
-    for m in _TOOL_CALL_BLOCK_RE.finditer(text):
-        raw = m.group(1)
-        _try_add_tool_call(raw)
-        consumed_spans.append((m.start(), m.end()))
-
-    # Only try bare-JSON fallback when no XML blocks were found.
-    if not extracted:
-        for m in _TOOL_CALL_JSON_RE.finditer(text):
-            raw = m.group(0)
-            _try_add_tool_call(raw)
-            consumed_spans.append((m.start(), m.end()))
-
-    if not consumed_spans:
-        return extracted, text.strip()
-
-    consumed_spans.sort()
-    merged: list[tuple[int, int]] = []
-    for start, end in consumed_spans:
-        if not merged or start > merged[-1][1]:
-            merged.append((start, end))
-        else:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-
-    parts: list[str] = []
-    cursor = 0
-    for start, end in merged:
-        if cursor < start:
-            parts.append(text[cursor:start])
-        cursor = max(cursor, end)
-    if cursor < len(text):
-        parts.append(text[cursor:])
-
-    cleaned = "\n".join(p.strip() for p in parts if p and p.strip()).strip()
-    return extracted, cleaned
+_COPILOT_ACP_HEADER_LINES = [
+    "You are being used as the active ACP agent backend for JarvisCopilot.",
+    "Use ACP capabilities to complete tasks.",
+    "IMPORTANT: If you take an action with a tool, you MUST output tool calls using <tool_call>{...}</tool_call> blocks with JSON exactly in OpenAI function-call shape.",
+    "If no tool is needed, answer normally.",
+]
 
 
 
@@ -390,6 +235,7 @@ class CopilotACPClient:
             model=model,
             tools=tools,
             tool_choice=tool_choice,
+            header_lines=_COPILOT_ACP_HEADER_LINES,
         )
         # Normalise timeout: run_agent.py may pass an httpx.Timeout object
         # (used natively by the OpenAI SDK) rather than a plain float.
