@@ -64,9 +64,9 @@ _HEADER_LINES = [
     # inside HTML-comment markers (`<!-- jc:tool_result … -->`) so claude
     # treats them as metadata, not as a format to mimic. These rules MUST be
     # restated because claude has historically still echoed them otherwise.
-    "CRITICAL — anti-leakage rules:",
+    "CRITICAL — anti-leakage rules (do not reproduce internal context):",
     "  1. Lines beginning with `<!--` and ending with `-->` are INTERNAL "
-    "metadata (tool results, system markers). NEVER reproduce them in your "
+    "metadata (tool results, system markers). Do not reproduce them in your "
     "reply, in any form.",
     "  2. NEVER start a line of your reply with `<!--`, `<tool_result`, "
     "`<toolresult`, `<tool`, `[tool`, `Tool:`, `User:`, `Assistant:`, or "
