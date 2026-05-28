@@ -221,6 +221,22 @@ def test_model_mapping_passes_through_and_defaults():
     assert _map_model_to_cli(None) == "haiku"
 
 
+def test_model_mapping_falls_back_when_non_claude_model_passed():
+    """Regression: a subagent spawned by an aux/delegate config left over
+    from a previous provider (e.g. ``model=gpt-5.5`` from OpenAI Codex)
+    must NOT be passed straight to `claude --model gpt-5.5` — the CLI
+    rejects it with a confusing 'model may not exist' error. We fall back
+    to the default claude model instead."""
+    from agent.claude_code_client import _LOGGED_NON_CLAUDE_MODELS
+    _LOGGED_NON_CLAUDE_MODELS.clear()  # reset session de-dup
+    assert _map_model_to_cli("gpt-5.5") == "haiku"
+    assert _map_model_to_cli("gpt-5.5-mini") == "haiku"
+    assert _map_model_to_cli("kimi-k2") == "haiku"
+    # Claude variants stay untouched.
+    assert _map_model_to_cli("claude-sonnet-4-6") == "claude-sonnet-4-6"
+    assert _map_model_to_cli("sonnet") == "sonnet"
+
+
 def test_subprocess_env_scrubs_anthropic_credentials(monkeypatch):
     """Regression: the parent's Anthropic API credentials must NOT leak into
     the `claude` subprocess — if they did, the CLI would silently bill via API

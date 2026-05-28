@@ -67,13 +67,49 @@ _HEADER_LINES = [
 # aliases stay as aliases. Empty/unknown falls back to the haiku alias so the
 # silent default matches the provider profile's default_aux_model (cheap, fast).
 _DEFAULT_MODEL = "haiku"
+_CLI_ALIASES = {"opus", "sonnet", "haiku"}
+_LOGGED_NON_CLAUDE_MODELS: set[str] = set()
+
+
+def _looks_like_claude_model(name: str) -> bool:
+    """True when ``name`` is something the `claude --model` flag understands."""
+    n = (name or "").strip().lower()
+    if not n:
+        return False
+    if n in _CLI_ALIASES:
+        return True
+    # Anthropic model ids historically start with ``claude-``. Future
+    # families that don't would need to be added here; we accept the
+    # well-known prefix as the canonical signal.
+    return n.startswith("claude-")
 
 
 def _map_model_to_cli(model: str | None) -> str:
+    """Map a JarvisCopilot model id to the value passed via `claude --model`.
+
+    If the caller passes a model that doesn't look like a claude model
+    (e.g. ``gpt-5.5`` from a stale auxiliary / delegate-subagent config that
+    hasn't been re-pointed since the user switched the main provider to
+    claude-code), fall back to the default claude model rather than letting
+    the CLI reject the request. We log a single warning per session per bad
+    model so the user can fix the config without drowning in repeats.
+    """
     m = (model or "").strip()
     if not m:
         return _DEFAULT_MODEL
-    return m
+    if _looks_like_claude_model(m):
+        return m
+    if m not in _LOGGED_NON_CLAUDE_MODELS:
+        _LOGGED_NON_CLAUDE_MODELS.add(m)
+        logger.warning(
+            "claude-code: received non-claude model %r — falling back to %r. "
+            "This usually means an auxiliary or delegate-subagent config "
+            "still references the previous provider's model id. Re-run "
+            "`jarviscopilot model` to update, or set the relevant "
+            "`auxiliary.<task>.model` in config.yaml.",
+            m, _DEFAULT_MODEL,
+        )
+    return _DEFAULT_MODEL
 
 
 def _resolve_command() -> str:
