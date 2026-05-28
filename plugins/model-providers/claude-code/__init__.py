@@ -31,7 +31,10 @@ class ClaudeCodeProfile(ProviderProfile):
 
 claude_code = ClaudeCodeProfile(
     name="claude-code",
-    aliases=("claude-cli", "claude-code-cli", "claude-max"),
+    # "claude-oauth" used to be an anthropic alias before this provider existed.
+    # Forward it here so any persisted config that names it still resolves to a
+    # real provider (subscription-via-CLI is what "claude-oauth" effectively meant).
+    aliases=("claude-cli", "claude-code-cli", "claude-max", "claude-oauth"),
     display_name="Claude Code",
     description="Claude Code (local CLI — uses your Claude subscription)",
     signup_url="https://claude.com/claude-code",

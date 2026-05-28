@@ -216,8 +216,51 @@ def test_empty_stdout_with_nonzero_exit_is_surfaced():
 def test_model_mapping_passes_through_and_defaults():
     assert _map_model_to_cli("claude-opus-4-7") == "claude-opus-4-7"
     assert _map_model_to_cli("opus") == "opus"
-    assert _map_model_to_cli("") == "sonnet"
-    assert _map_model_to_cli(None) == "sonnet"
+    # Empty/None fall back to haiku — matches the profile's default_aux_model.
+    assert _map_model_to_cli("") == "haiku"
+    assert _map_model_to_cli(None) == "haiku"
+
+
+def test_subprocess_env_scrubs_anthropic_credentials(monkeypatch):
+    """Regression: the parent's Anthropic API credentials must NOT leak into
+    the `claude` subprocess — if they did, the CLI would silently bill via API
+    instead of the user's Max subscription (the bug this provider exists to fix).
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-leaked")
+    monkeypatch.setenv("ANTHROPIC_TOKEN", "tok-leaked")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "auth-leaked")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-leaked")
+    monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+    monkeypatch.setenv("CLAUDE_CODE_USE_VERTEX", "1")
+    monkeypatch.setenv("CLAUDECODE", "1")
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+
+    c = ClaudeCodeClient()
+    payload = dict(_TOOL_CALL_RESULT)
+    payload["result"] = "ok"
+    payload["stop_reason"] = "end_turn"
+    with mock.patch(
+        "agent.claude_code_client.subprocess.run",
+        return_value=_fake_run(json.dumps(payload)),
+    ) as run:
+        c.chat.completions.create(
+            model="claude-haiku-4-5", messages=[{"role": "user", "content": "x"}]
+        )
+    env = run.call_args.kwargs["env"]
+    for leaked in (
+        "ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN", "ANTHROPIC_AUTH_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
+    ):
+        assert leaked not in env, f"{leaked} leaked into claude subprocess env"
+
+
+def test_parse_claude_json_recovers_from_leading_log_lines():
+    from agent.claude_code_client import _parse_claude_json
+    assert _parse_claude_json('{"a":1}') == {"a": 1}
+    assert _parse_claude_json('WARN: auto-update available\n{"result":"hi"}') == {"result": "hi"}
+    assert _parse_claude_json('not json at all') is None
+    assert _parse_claude_json('') is None
 
 
 def test_norm_timeout_handles_httpx_timeout_shape():

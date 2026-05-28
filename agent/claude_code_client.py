@@ -38,9 +38,9 @@ _HEADER_LINES = [
 
 # `claude --model` accepts full ids (e.g. "claude-opus-4-7") and short aliases
 # ("opus"/"sonnet"/"haiku"). JarvisCopilot ids pass straight through; bare
-# aliases stay as aliases. Empty/unknown falls back to a safe default.
-_KNOWN_ALIASES = {"opus", "sonnet", "haiku"}
-_DEFAULT_MODEL = "sonnet"
+# aliases stay as aliases. Empty/unknown falls back to the haiku alias so the
+# silent default matches the provider profile's default_aux_model (cheap, fast).
+_DEFAULT_MODEL = "haiku"
 
 
 def _map_model_to_cli(model: str | None) -> str:
