@@ -593,7 +593,7 @@ def _provider_api_key_present(
     # var names and can check os.environ for a valid key.
     # Exclude known OAuth/token-flow providers — those are handled separately by
     # _provider_oauth_authenticated() and should not be short-circuited here.
-    _known_oauth = {"openai-codex", "copilot", "copilot-acp", "qwen-oauth", "nous", "anthropic"}
+    _known_oauth = {"openai-codex", "copilot", "copilot-acp", "claude-code", "qwen-oauth", "nous", "anthropic"}
     if provider not in _SUPPORTED_PROVIDER_SETUPS and provider not in _known_oauth:
         try:
             from jarviscopilot_cli.auth import get_auth_status as _gas
@@ -637,9 +637,19 @@ def _provider_oauth_authenticated(provider: str, hermes_home: "Path") -> bool:
     used by current JarvisCopilot runtime auth resolution.
     """
     provider = (provider or "").strip().lower()
-    provider = {"claude": "anthropic", "claude-code": "anthropic"}.get(provider, provider)
+    provider = {"claude": "anthropic"}.get(provider, provider)
     if not provider:
         return False
+
+    # claude-code uses its own CLI login; defer to get_external_process_provider_status
+    # via get_auth_status rather than the OAuth-credentials path used for the others.
+    if provider == "claude-code":
+        try:
+            from jarviscopilot_cli.auth import get_auth_status as _gas
+            status = _gas("claude-code")
+            return bool(isinstance(status, dict) and status.get("logged_in"))
+        except Exception:
+            return False
 
     _known_oauth_providers = {"openai-codex", "copilot", "copilot-acp", "qwen-oauth", "nous", "anthropic"}
     if provider not in _known_oauth_providers:

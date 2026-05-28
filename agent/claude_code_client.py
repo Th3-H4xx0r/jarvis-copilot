@@ -78,7 +78,50 @@ def _build_subprocess_env() -> dict[str, str]:
     # the child from auto-attaching to the parent's session/IDE state.
     env.pop("CLAUDE_CODE_ENTRYPOINT", None)
     env.pop("CLAUDECODE", None)
+    # Critical: scrub Anthropic API credentials from the subprocess env.
+    # If ANTHROPIC_API_KEY (or related) is set in the parent, the `claude` CLI
+    # will silently use API billing instead of the user's Max subscription —
+    # which is exactly the behaviour this provider exists to avoid.
+    for k in (
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_TOKEN",
+        "ANTHROPIC_AUTH_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+    ):
+        env.pop(k, None)
     return env
+
+
+def _parse_claude_json(stdout: str) -> Any | None:
+    """Robustly extract the single ``--output-format json`` object from stdout.
+
+    The CLI is documented to emit exactly one JSON object, but in practice it
+    may print log/warning lines (auto-update notices, etc.) before or after
+    that object. We:
+
+      1. Try a plain ``json.loads`` of the full stdout (the happy path).
+      2. Failing that, scan lines from the bottom and try each — the result
+         object is normally the last non-empty line.
+      3. Failing that, return None so the caller can surface the raw stdout.
+    """
+    text = (stdout or "").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    for line in reversed(text.splitlines()):
+        s = line.strip()
+        if not s or not s.startswith("{"):
+            continue
+        try:
+            return json.loads(s)
+        except Exception:
+            continue
+    return None
 
 
 def _norm_timeout(timeout: Any, default: float = _DEFAULT_TIMEOUT_SECONDS) -> float:
@@ -214,16 +257,19 @@ class ClaudeCodeClient:
                 f"Claude Code CLI produced no output. stderr: {stderr[:500]}"
             )
 
-        try:
-            data = json.loads(stdout)
-        except Exception as exc:
+        data = _parse_claude_json(stdout)
+        if data is None:
             raise RuntimeError(
                 f"Claude Code CLI returned non-JSON output: {stdout[:500]}"
-            ) from exc
+            )
 
-        if data.get("is_error"):
+        if isinstance(data, dict) and data.get("is_error"):
             msg = data.get("result") or data.get("error") or stderr or "unknown error"
             raise RuntimeError(f"Claude Code error: {msg}")
+        if not isinstance(data, dict):
+            raise RuntimeError(
+                f"Claude Code CLI returned unexpected JSON shape: {str(data)[:500]}"
+            )
 
         result_text = data.get("result") or ""
         tool_calls, cleaned = _extract_tool_calls_from_text(result_text)
