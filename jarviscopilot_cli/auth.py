@@ -5688,6 +5688,33 @@ def get_external_process_provider_status(provider_id: str) -> Dict[str, Any]:
             or "claude"
         )
         resolved_command = shutil.which(command)
+        # Probe `claude auth status` for the real login state — the CLI exposes
+        # this as JSON ({"loggedIn": bool, "subscriptionType": "max"|"pro", …}),
+        # so binary-present != logged-in. A 2s timeout keeps the WebUI card
+        # responsive even when claude itself is sluggish. Default to
+        # binary-present-means-logged-in (optimistic) and only override when
+        # the probe gives us a clean JSON answer.
+        logged_in = bool(resolved_command)
+        login_info: Dict[str, Any] = {}
+        if resolved_command:
+            try:
+                import subprocess as _sp
+                cp = _sp.run(
+                    [resolved_command, "auth", "status"],
+                    capture_output=True, text=True, timeout=2.0,
+                )
+                out = (cp.stdout or "").strip()
+                if out:
+                    try:
+                        login_info = json.loads(out) or {}
+                        # Authoritative answer from the CLI.
+                        logged_in = bool(login_info.get("loggedIn"))
+                    except Exception:
+                        # Non-JSON stdout — keep the optimistic default.
+                        pass
+            except Exception:
+                # Subprocess failure — keep the optimistic default.
+                pass
         return {
             "configured": bool(resolved_command),
             "provider": provider_id,
@@ -5696,7 +5723,9 @@ def get_external_process_provider_status(provider_id: str) -> Dict[str, Any]:
             "args": [],
             "resolved_command": resolved_command,
             "base_url": pconfig.inference_base_url,
-            "logged_in": bool(resolved_command),
+            "logged_in": logged_in,
+            "subscription_type": login_info.get("subscriptionType", ""),
+            "email": login_info.get("email", ""),
         }
 
     command = (

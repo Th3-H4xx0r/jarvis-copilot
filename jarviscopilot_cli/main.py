@@ -4550,18 +4550,23 @@ def _model_flow_copilot_acp(config, current_model=""):
 def _model_flow_claude_code(config, current_model=""):
     """Claude Code (local CLI) flow.
 
-    Unlike OAuth providers, there is no auth flow to drive here: login lives
-    entirely in the user's local ``claude`` CLI (via ``claude`` interactive
-    or ``claude setup-token``). We only:
+    Login lives entirely in the user's local ``claude`` CLI. We:
 
-      1. Verify the ``claude`` binary is present (resolve via shutil.which +
+      1. Verify the ``claude`` binary is present (resolved via shutil.which +
          HERMES_CLAUDE_CODE_COMMAND / CLAUDE_CLI_PATH env overrides).
-      2. Tell the user how to log in if it isn't.
-      3. Let them pick a model from the static fallback list.
-      4. Persist provider=claude-code + base_url=claude-cli://local +
+      2. Check ``claude auth status`` (JSON) for ``loggedIn``; if not, offer
+         to run ``claude auth login`` interactively right here so the user
+         doesn't have to leave the wizard.
+      3. Pull the live model catalog from Anthropic /v1/models via the CLI's
+         OAuth token so newly-released models appear automatically.
+      4. Let them pick a model.
+      5. Persist provider=claude-code + base_url=claude-cli://local +
          api_mode=chat_completions so subsequent requests route to
          ClaudeCodeClient.
     """
+    import json as _json
+    import subprocess
+
     from jarviscopilot_cli.auth import (
         PROVIDER_REGISTRY,
         _prompt_model_selection,
@@ -4571,7 +4576,7 @@ def _model_flow_claude_code(config, current_model=""):
         resolve_external_process_provider_credentials,
     )
     from jarviscopilot_cli.config import load_config, save_config
-    from jarviscopilot_cli.models import _PROVIDER_MODELS
+    from jarviscopilot_cli.models import provider_model_ids
 
     del config
 
@@ -4592,8 +4597,8 @@ def _model_flow_claude_code(config, current_model=""):
         print("  ⚠ Could not find the `claude` CLI on your PATH.")
         print()
         print("  Install Claude Code, then sign in:")
-        print("    $ claude            # interactive login (recommended)")
-        print("    $ claude setup-token  # long-lived token (alternative)")
+        print("    $ claude auth login    # interactive login (recommended)")
+        print("    $ claude setup-token   # long-lived token (alternative)")
         print()
         print("  If `claude` is installed elsewhere, point JarvisCopilot at it:")
         print("    $ export HERMES_CLAUDE_CODE_COMMAND=/path/to/claude")
@@ -4602,28 +4607,84 @@ def _model_flow_claude_code(config, current_model=""):
 
     print(f"  Command: {resolved_command}")
     print(f"  Backend marker: {effective_base}")
-    print(
-        "  Login lives in the `claude` CLI itself — if requests fail with an"
-    )
-    print("  auth error, run `claude` in a terminal and sign in.")
     print()
 
-    # Confirm the auth-layer resolver is happy too (same check the runtime
-    # uses to build client_kwargs); surfaces any HERMES_CLAUDE_CODE_COMMAND
-    # mismatch up front.
+    # ── Login state via `claude auth status` (JSON) ──────────────────────
+    def _check_login() -> tuple[bool, dict]:
+        try:
+            cp = subprocess.run(
+                [resolved_command, "auth", "status"],
+                capture_output=True, text=True, timeout=15,
+            )
+        except Exception:
+            return False, {}
+        out = (cp.stdout or "").strip()
+        if not out:
+            return False, {}
+        try:
+            data = _json.loads(out)
+        except Exception:
+            return False, {}
+        return bool(data.get("loggedIn")), data
+
+    logged_in, info = _check_login()
+
+    if not logged_in:
+        print("  ⚠ The `claude` CLI is installed but not signed in.")
+        print()
+        try:
+            ans = input(
+                "  Run `claude auth login` now to sign in? [Y/n] "
+            ).strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            ans = "n"
+        if ans in ("", "y", "yes"):
+            print()
+            try:
+                rc = subprocess.call([resolved_command, "auth", "login"])
+            except Exception as exc:
+                print(f"  Could not run `claude auth login`: {exc}")
+                return
+            print()
+            if rc != 0:
+                print(f"  `claude auth login` exited with code {rc}. Aborting.")
+                return
+            logged_in, info = _check_login()
+            if not logged_in:
+                print(
+                    "  Login didn't appear to complete. Re-run `jarviscopilot model` to retry."
+                )
+                return
+        else:
+            print()
+            print("  Aborted. Run `claude auth login` manually, then re-run")
+            print("  `jarviscopilot model` to finish selecting Claude Code.")
+            return
+
+    # Surface who we're signed in as, including subscription tier.
+    email = info.get("email", "")
+    sub = info.get("subscriptionType") or info.get("authMethod") or ""
+    if email or sub:
+        suffix = f" ({sub})" if sub else ""
+        print(f"  ✓ Signed in as {email}{suffix}")
+        print()
+
+    # Final sanity check: auth-layer resolver agrees we have a usable binary.
     try:
         resolve_external_process_provider_credentials(provider_id)
     except Exception as exc:
         print(f"  ⚠ {exc}")
         return
 
-    model_list = list(_PROVIDER_MODELS.get("claude-code", []))
-    if not model_list:
-        # Should never happen given models.py registration, but degrade safely.
-        model_list = [
-            "claude-opus-4-7", "claude-opus-4-6",
-            "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-4-5",
-        ]
+    # ── Dynamic model catalog ────────────────────────────────────────────
+    # provider_model_ids("claude-code") queries Anthropic /v1/models with the
+    # CLI's OAuth token so new releases appear without a JarvisCopilot version
+    # bump. Falls back to the curated static list if the live fetch fails.
+    model_list = provider_model_ids("claude-code") or [
+        "claude-opus-4-7", "claude-opus-4-6",
+        "claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-4-5",
+    ]
 
     selected = _prompt_model_selection(
         model_list,

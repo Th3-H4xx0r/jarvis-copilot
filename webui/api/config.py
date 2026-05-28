@@ -998,6 +998,17 @@ _PROVIDER_MODELS = {
         {"id": "claude-sonnet-4-5", "label": "Claude Sonnet 4.5"},
         {"id": "claude-haiku-4-5", "label": "Claude Haiku 4.5"},
     ],
+    "claude-code": [
+        # Static fallback only — the live picker calls
+        # jarviscopilot_cli.models.provider_model_ids("claude-code") which
+        # queries Anthropic /v1/models via the CLI's OAuth token so new
+        # models appear automatically without a JarvisCopilot release.
+        {"id": "claude-opus-4-7", "label": "Claude Opus 4.7"},
+        {"id": "claude-opus-4-6", "label": "Claude Opus 4.6"},
+        {"id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6"},
+        {"id": "claude-sonnet-4-5", "label": "Claude Sonnet 4.5"},
+        {"id": "claude-haiku-4-5", "label": "Claude Haiku 4.5"},
+    ],
     "openai": [
         {"id": "gpt-5.5",      "label": "GPT-5.5"},
         {"id": "gpt-5.5-mini", "label": "GPT-5.5 Mini"},

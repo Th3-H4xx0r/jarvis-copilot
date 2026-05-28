@@ -2206,8 +2206,14 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
         if normalized == "copilot-acp":
             return list(_PROVIDER_MODELS.get("copilot", []))
     if normalized == "claude-code":
-        # No live catalog endpoint — the user's CLI has its own model list and
-        # the JarvisCopilot picker uses the static fallback we registered above.
+        # Dynamic: query Anthropic /v1/models via the user's Claude Code OAuth
+        # token (resolved through ~/.claude/.credentials.json or keychain) so
+        # newly-released Claude models appear in the picker automatically — no
+        # JarvisCopilot release required. Falls back to the curated static list
+        # only when the token isn't resolvable (e.g. user not yet logged in).
+        live = _fetch_anthropic_models()
+        if live:
+            return live
         return list(_PROVIDER_MODELS.get("claude-code", []))
     if normalized == "nous":
         # Try live Nous Portal /models endpoint
