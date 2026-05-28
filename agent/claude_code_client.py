@@ -30,18 +30,25 @@ CLAUDE_CLI_MARKER_BASE_URL = "claude-cli://local"
 _DEFAULT_TIMEOUT_SECONDS = 900.0
 
 def _render_tool_result(content: str, message: dict[str, Any]) -> str:
-    """Wrap a past tool result in <tool_result name="…"> tags.
+    """Wrap a past tool result in an HTML comment block.
 
-    Claude would otherwise mimic the bare ``Tool:\n…`` transcript label and
-    spit ``Tool: {...}`` lines back into its own response (real-user-visible
-    bug). Wrapping in an XML-ish block lets us tell claude in the header to
-    treat ``<tool_result>`` blocks as read-only context.
+    Earlier iterations used <tool_result name="…">…</tool_result>, but claude
+    treated that as a generatable element and started echoing
+    ``<toolresult name="executecode">{...}</toolresult>`` blocks as part of
+    its own response. HTML comments are conventionally metadata — claude's
+    training strongly biases against reproducing them as visible output, and
+    pairing them with explicit "never write a line starting with <!--"
+    instructions in the header neutralises the mimicry.
     """
     tool_name = ""
     if isinstance(message, dict):
         tool_name = str(message.get("name") or "").strip()
-    attr = f' name="{tool_name}"' if tool_name else ""
-    return f"<tool_result{attr}>\n{content}\n</tool_result>"
+    name_attr = f" name={tool_name}" if tool_name else ""
+    return (
+        f"<!-- jc:tool_result{name_attr} (internal context — do not reproduce) -->\n"
+        f"{content}\n"
+        f"<!-- /jc:tool_result -->"
+    )
 
 
 _ROLE_RENDERERS = {"tool": _render_tool_result}
@@ -49,17 +56,35 @@ _ROLE_RENDERERS = {"tool": _render_tool_result}
 
 _HEADER_LINES = [
     "You are being used as the LLM backend for JarvisCopilot. You have NO tools of your own.",
-    "IMPORTANT: If you take an action with a tool, output ONLY a <tool_call>{...}</tool_call> "
+    "If you take an action with a tool, output ONLY a <tool_call>{...}</tool_call> "
     "block with one JSON object whose keys are id/type/function{name,arguments}; "
     "arguments must be a JSON string. Do not call tools yourself — emit text only.",
     "If no tool is needed, answer the user normally as the assistant.",
-    # Past tool results appear in the transcript inside `<tool_result>…</tool_result>`
-    # blocks (with the tool name as an attribute). They are context for you to
-    # reason from — DO NOT echo them, quote them, or reproduce their JSON in
-    # your reply. Reply naturally to the user as if you observed the result;
-    # the user already sees the tool result rendered in the chat UI.
-    "Never start a line with 'Tool:', 'User:', 'Assistant:', or 'System:' — "
-    "those are transcript labels, not output formats.",
+    # CRITICAL anti-leakage rules. Past tool results appear in the transcript
+    # inside HTML-comment markers (`<!-- jc:tool_result … -->`) so claude
+    # treats them as metadata, not as a format to mimic. These rules MUST be
+    # restated because claude has historically still echoed them otherwise.
+    "CRITICAL — anti-leakage rules:",
+    "  1. Lines beginning with `<!--` and ending with `-->` are INTERNAL "
+    "metadata (tool results, system markers). NEVER reproduce them in your "
+    "reply, in any form.",
+    "  2. NEVER start a line of your reply with `<!--`, `<tool_result`, "
+    "`<toolresult`, `<tool`, `[tool`, `Tool:`, `User:`, `Assistant:`, or "
+    "`System:` — those are transcript labels, not output.",
+    "  3. NEVER paste, quote, summarize-as-JSON, or describe the raw stdout/"
+    "stderr/JSON content of past tool results. JarvisCopilot already shows "
+    "them to the user as separate UI elements; reproducing them is "
+    "redundant noise.",
+    "  4. Your reply must be natural, conversational text directed at the "
+    "user — what you observed, what you're doing next, or your final answer.",
+    "Examples of WRONG output (DO NOT do this):",
+    "  • `<toolresult>{\"stdout\":\"...\"}</toolresult>`",
+    "  • `Tool: {\"result\": ...}`",
+    "  • `<!-- jc:tool_result name=execute_code --> {...} <!-- /jc:tool_result -->`",
+    "Examples of CORRECT output:",
+    "  • `The weather is 68°F, partly cloudy.`",
+    "  • `Done — the event is on your calendar.`",
+    "  • `I'll check your iPhone's available shortcuts next.` <tool_call>{...}</tool_call>",
 ]
 
 # `claude --model` accepts full ids (e.g. "claude-opus-4-7") and short aliases

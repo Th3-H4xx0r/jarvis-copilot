@@ -435,9 +435,11 @@ def test_stream_suppresses_thinking_deltas_so_chat_doesnt_show_internal_reasonin
         assert not d.reasoning
 
 
-def test_tool_result_renders_as_xml_block_not_bare_label():
-    """Past tool results in the prompt must be wrapped in <tool_result>
-    blocks so claude doesn't echo `Tool: {...}` lines back as its own text."""
+def test_tool_result_renders_as_html_comment_not_xml_or_label():
+    """Past tool results must be wrapped in HTML-comment markers (claude
+    treats those as non-reproducible metadata) — NOT as <tool_result> XML
+    (which claude learned to mimic and echo as <toolresult> in its replies)
+    and NOT as bare `Tool:` labels (same root cause)."""
     from agent.claude_code_client import _ROLE_RENDERERS, _render_tool_result
     from agent.external_cli_shim import format_messages_as_prompt
 
@@ -448,12 +450,35 @@ def test_tool_result_renders_as_xml_block_not_bare_label():
          "content": '{"linked":"morning-brief"}'},
     ]
     prompt = format_messages_as_prompt(msgs, role_renderers=_ROLE_RENDERERS)
-    assert "<tool_result name=\"skill_view\">" in prompt
-    assert "</tool_result>" in prompt
+    # New non-mimickable wrapper
+    assert "<!-- jc:tool_result name=skill_view" in prompt
+    assert "<!-- /jc:tool_result -->" in prompt
+    # The OLD wrappers must NOT appear (regression guard against returning to
+    # a format claude mimics).
+    assert "<tool_result name=" not in prompt
+    assert "<tool_result>" not in prompt
     assert "Tool:\n" not in prompt
     # Standalone helper round-trip
-    assert _render_tool_result("X", {"name": "foo"}) == '<tool_result name="foo">\nX\n</tool_result>'
-    assert _render_tool_result("X", {}) == "<tool_result>\nX\n</tool_result>"
+    assert _render_tool_result("X", {"name": "foo"}) == (
+        "<!-- jc:tool_result name=foo (internal context — do not reproduce) -->\n"
+        "X\n"
+        "<!-- /jc:tool_result -->"
+    )
+    assert _render_tool_result("X", {}) == (
+        "<!-- jc:tool_result (internal context — do not reproduce) -->\n"
+        "X\n"
+        "<!-- /jc:tool_result -->"
+    )
+
+
+def test_header_lines_include_anti_leakage_rules():
+    """The system header must explicitly tell claude not to start a line
+    with `<toolresult`, `<tool_result`, `Tool:`, etc. (regression guard
+    against weakening the prompt)."""
+    from agent.claude_code_client import _HEADER_LINES
+    blob = "\n".join(_HEADER_LINES).lower()
+    for marker in ("<toolresult", "<tool_result", "<!--", "tool:", "do not reproduce"):
+        assert marker in blob, f"missing anti-leakage marker {marker!r} in header"
 
 
 def test_stream_holds_back_partial_tool_call_open_across_chunks():
