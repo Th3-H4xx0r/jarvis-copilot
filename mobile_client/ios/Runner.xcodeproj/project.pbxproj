@@ -23,6 +23,7 @@
 		AABB000300000000DEAD0002 /* TorchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000300000000DEAD0001 /* TorchBridge.swift */; };
 		AABB000400000000DEAD0002 /* AppOpenBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000400000000DEAD0001 /* AppOpenBridge.swift */; };
 		AABB000500000000DEAD0002 /* SmsComposeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000500000000DEAD0001 /* SmsComposeBridge.swift */; };
+		AABB000600000000DEAD0002 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000600000000DEAD0001 /* WatchBridge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -78,6 +79,7 @@
 		AABB000300000000DEAD0001 /* TorchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorchBridge.swift; sourceTree = "<group>"; };
 		AABB000400000000DEAD0001 /* AppOpenBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOpenBridge.swift; sourceTree = "<group>"; };
 		AABB000500000000DEAD0001 /* SmsComposeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmsComposeBridge.swift; sourceTree = "<group>"; };
+		AABB000600000000DEAD0001 /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		DFCC8A70972FB8F17B6F8DEC /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -168,6 +170,7 @@
 				AABB000300000000DEAD0001 /* TorchBridge.swift */,
 				AABB000400000000DEAD0001 /* AppOpenBridge.swift */,
 				AABB000500000000DEAD0001 /* SmsComposeBridge.swift */,
+				AABB000600000000DEAD0001 /* WatchBridge.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -183,7 +186,6 @@
 				5157A86CF537A115EBDB1C54 /* Pods-RunnerTests.release.xcconfig */,
 				98C526103A7C1629238D1E05 /* Pods-RunnerTests.profile.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -431,6 +433,7 @@
 				AABB000300000000DEAD0002 /* TorchBridge.swift in Sources */,
 				AABB000400000000DEAD0002 /* AppOpenBridge.swift in Sources */,
 				AABB000500000000DEAD0002 /* SmsComposeBridge.swift in Sources */,
+				AABB000600000000DEAD0002 /* WatchBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -523,14 +526,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = VY5CNF8734;
+				DEVELOPMENT_TEAM = 62JUP2GJHV;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobileAndIOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -545,6 +548,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 62JUP2GJHV;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobile.RunnerTests;
@@ -563,6 +567,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 62JUP2GJHV;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobile.RunnerTests;
@@ -579,6 +584,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 62JUP2GJHV;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobile.RunnerTests;
@@ -706,14 +712,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = VY5CNF8734;
+				DEVELOPMENT_TEAM = 62JUP2GJHV;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobileAndIOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -729,14 +735,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = VY5CNF8734;
+				DEVELOPMENT_TEAM = 62JUP2GJHV;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobileAndIOS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
