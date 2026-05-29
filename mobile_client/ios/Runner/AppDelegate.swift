@@ -57,6 +57,11 @@ import AppIntents
 
         GeneratedPluginRegistrant.register(with: self)
 
+        // Activate the Apple Watch bridge here (not in attachFlutterController)
+        // so it's live even when iOS is background-launched by
+        // WCSession.sendMessage — the native relay needs no Flutter engine.
+        WatchBridge.shared.activate()
+
         // Push registration — APNs token comes back via
         // FlutterAppDelegate's didRegisterForRemoteNotificationsWithDeviceToken;
         // the FCM token is observed on the Dart side via firebase_messaging.
@@ -163,6 +168,26 @@ import AppIntents
                     "lastPush": d.double(forKey: "jc_last_push_ts"),
                     "lastPushStatus": d.string(forKey: "jc_last_push_status") ?? "",
                 ])
+            } else {
+                result(FlutterMethodNotImplemented)
+            }
+        }
+
+        // Apple Watch: Dart pushes the paired creds → UserDefaults (read by the
+        // native WatchBridge relay) and the login-state → the watch via WCSession
+        // application context. Mirrors the location channel above.
+        let watchCh = FlutterMethodChannel(
+            name: "jarviscopilot/watch",
+            binaryMessenger: controller.binaryMessenger
+        )
+        watchCh.setMethodCallHandler { call, result in
+            if call.method == "syncCredentials", let a = call.arguments as? [String: Any] {
+                let d = UserDefaults.standard
+                d.set((a["serverUrl"] as? String) ?? "", forKey: "jc_server_url")
+                d.set((a["cookie"] as? String) ?? "", forKey: "jc_cookie")
+                d.set((a["certSha256"] as? String) ?? "", forKey: "jc_cert_sha256")
+                WatchBridge.shared.pushLoginState((a["loggedIn"] as? Bool) ?? false)
+                result(true)
             } else {
                 result(FlutterMethodNotImplemented)
             }

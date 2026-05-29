@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../main.dart' as app;
 import '../services/android_accessibility.dart';
 import '../services/credentials.dart';
+import '../services/watch_sync.dart';
 import '../theme.dart';
 import 'pair_page.dart';
 import 'webview_page.dart';
@@ -85,6 +88,8 @@ class _SettingsPageState extends State<SettingsPage> {
     if (ok != true) return;
     await app.ws.stop();
     await Credentials.instance.clear();
+    // Tell the watch it's logged out (clears its creds, flips to setup screen).
+    unawaited(WatchSync.sync());
     if (!mounted) return;
     // MaterialApp only configures `home:`, no named routes — so we
     // pop everything and push a fresh PairPage manually.

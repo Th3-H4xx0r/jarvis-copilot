@@ -7,6 +7,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../main.dart' as app;
 import '../services/api_client.dart' show sha256OfCertPem;
 import '../services/credentials.dart';
+import '../services/watch_sync.dart';
 import '../theme.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/jc_logo.dart';
@@ -156,6 +157,8 @@ class _PairPageState extends State<PairPage> {
         app.api.notifyCredentialsChanged();
         unawaited(app.ws.start());
         unawaited(app.push.start());
+        // Hand the fresh creds + login-state to the Apple Watch bridge.
+        unawaited(WatchSync.sync());
         widget.onPaired?.call();
       } else {
         setState(() => _error = 'Pair failed: HTTP ${resp.statusCode}');

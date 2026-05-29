@@ -11,6 +11,7 @@ import 'services/background_location.dart';
 import 'services/credentials.dart';
 import 'services/invoke_runner.dart';
 import 'services/push_handler.dart';
+import 'services/watch_sync.dart';
 import 'services/ws_bridge.dart';
 import 'skills/registry.dart';
 import 'skills/common.dart' as common_skills;
@@ -100,6 +101,10 @@ class _JarvisCopilotAppState extends State<JarvisCopilotApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Sync paired creds + login-state to the native Apple Watch bridge once
+    // the platform channels are wired (post first frame — the native handler
+    // is registered in attachFlutterController, after main()).
+    WidgetsBinding.instance.addPostFrameCallback((_) => WatchSync.sync());
   }
 
   @override
@@ -116,6 +121,8 @@ class _JarvisCopilotAppState extends State<JarvisCopilotApp>
       // queued while we were backgrounded.
       ws.pokeReconnect();
       unawaited(push.drainNow());
+      // Refresh the watch's view of creds + login-state on every foreground.
+      unawaited(WatchSync.sync());
     }
   }
 
