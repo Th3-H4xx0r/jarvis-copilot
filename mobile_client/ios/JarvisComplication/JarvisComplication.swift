@@ -19,17 +19,16 @@ struct JarvisProvider: TimelineProvider {
 struct JarvisComplicationView: View {
     var entry: JarvisProvider.Entry
     var body: some View {
-        ZStack {
-            AccessoryWidgetBackground()
-            Image(systemName: "mic.fill")
-                .font(.system(size: 24, weight: .semibold))
-                .widgetAccentable()
-        }
-        .widgetURL(URL(string: "jarviswatch://listen"))
+        // watchOS 10+ REQUIRES widgets to declare a containerBackground;
+        // without it the complication fails to render (shows "!").
+        Image(systemName: "mic.fill")
+            .font(.system(size: 24, weight: .semibold))
+            .widgetAccentable()
+            .containerBackground(for: .widget) { AccessoryWidgetBackground() }
+            .widgetURL(URL(string: "jarviswatch://listen"))
     }
 }
 
-@main
 struct JarvisComplication: Widget {
     let kind = "JarvisComplication"
     var body: some WidgetConfiguration {
@@ -39,5 +38,12 @@ struct JarvisComplication: Widget {
         .configurationDisplayName("JARVIS")
         .description("Talk to JARVIS")
         .supportedFamilies([.accessoryCircular])
+    }
+}
+
+@main
+struct JarvisComplicationBundle: WidgetBundle {
+    var body: some Widget {
+        JarvisComplication()
     }
 }
