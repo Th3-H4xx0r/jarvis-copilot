@@ -1,5 +1,5 @@
 # firebase_messaging requires iOS 13+ and modular headers.
-platform :ios, '13.0'
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously and slows flutter build.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'

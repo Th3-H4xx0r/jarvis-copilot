@@ -68,6 +68,7 @@ final class WatchBridge: NSObject, WCSessionDelegate {
 
     private let stateLock = NSLock()
     private var lastLoggedIn = false
+    private var lastStreamPush = Date(timeIntervalSince1970: 0)
 
     func activate() {
         guard WCSession.isSupported() else { return }
@@ -86,6 +87,35 @@ final class WatchBridge: NSObject, WCSessionDelegate {
         let s = WCSession.default
         guard s.activationState == .activated else { return }
         try? s.updateApplicationContext(["loggedIn": loggedIn])
+    }
+
+    /// Push the partial answer to the watch as tokens stream in, so the reply
+    /// builds up live (like the web UI). Throttled (~3/sec) since
+    /// `updateApplicationContext` coalesces; the final full text still arrives
+    /// authoritatively via the sendMessage reply.
+    private func pushStreaming(_ text: String) {
+        let now = Date()
+        guard now.timeIntervalSince(lastStreamPush) > 0.3 else { return }
+        lastStreamPush = now
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated else { return }
+        stateLock.lock(); let li = lastLoggedIn; stateLock.unlock()
+        try? WCSession.default.updateApplicationContext(["loggedIn": li, "streamingText": text])
+    }
+
+    /// Live WCSession state for the phone-app "Watch Companion" screen.
+    func status() -> [String: Any] {
+        guard WCSession.isSupported() else {
+            return ["supported": false, "paired": false,
+                    "watchAppInstalled": false, "reachable": false, "activationState": 0]
+        }
+        let s = WCSession.default
+        return [
+            "supported": true,
+            "paired": s.isPaired,
+            "watchAppInstalled": s.isWatchAppInstalled,
+            "reachable": s.isReachable,
+            "activationState": s.activationState.rawValue,   // 0 notActivated, 1 inactive, 2 activated
+        ]
     }
 
     // MARK: WCSessionDelegate
@@ -123,10 +153,12 @@ final class WatchBridge: NSObject, WCSessionDelegate {
             return
         }
 
-        // Run the whole round-trip in one cancellable task that RETURNS its
-        // outcome (no mutable shared state / Sendable-capture footguns). The
-        // reply handler is then called exactly once, here.
-        let work = Task { () -> (reply: [String: Any], audio: Data?) in
+        // Run the whole round-trip in one cancellable task that RETURNS the
+        // reply dict. The reply handler is called exactly once, here. The
+        // JARVIS-voice clip is included IN the reply (capped) so it plays
+        // immediately on the watch; larger replies omit it and the watch
+        // speaks the text with its built-in voice.
+        let work = Task { () -> [String: Any] in
             let session = URLSession(configuration: .ephemeral,
                                      delegate: PinnedPoster(pinHex: pin), delegateQueue: nil)
             defer { session.finishTasksAndInvalidate() }
@@ -135,17 +167,32 @@ final class WatchBridge: NSObject, WCSessionDelegate {
                 let streamId = try await self.chatStart(session, base, cookie, sid, text)
                 let reply = try await self.streamReply(session, base, cookie, streamId)
                 guard !reply.isEmpty else {
-                    return (["ok": false, "error": "network", "detail": "empty"], nil)
+                    return ["ok": false, "error": "network", "detail": "empty"]
                 }
-                // Spoken reply is best-effort; nil audio just means text-only.
-                let audio = try? await self.synthesize(session, base, cookie, reply)
-                return (["ok": true, "replyText": reply], audio)
+                var out: [String: Any] = ["ok": true, "replyText": reply]
+                // The JARVIS-voice clip is too big for the (size-limited) reply
+                // payload, so it's delivered OUT-OF-BAND via `transferFile`; the
+                // watch plays it on receipt. `expectsClip` tells the watch a clip
+                // is coming (so it doesn't also speak with its built-in voice);
+                // `voiceDbg` surfaces what happened (shown on-watch while debugging).
+                do {
+                    let audio = try await self.synthesize(session, base, cookie, reply)
+                    let kb = audio.count / 1024
+                    self.sendVoiceClip(audio)
+                    out["expectsClip"] = true
+                    out["voiceDbg"] = "clip \(kb)KB → file"
+                } catch let e as RelayError {
+                    out["voiceDbg"] = e.detail
+                } catch {
+                    out["voiceDbg"] = "synth err"
+                }
+                return out
             } catch is CancellationError {
-                return (["ok": false, "error": "network", "detail": "expired"], nil)
+                return ["ok": false, "error": "network", "detail": "expired"]
             } catch let e as RelayError {
-                return (["ok": false, "error": "network", "detail": e.detail], nil)
+                return ["ok": false, "error": "network", "detail": e.detail]
             } catch {
-                return (["ok": false, "error": "network", "detail": "io"], nil)
+                return ["ok": false, "error": "network", "detail": "io"]
             }
         }
 
@@ -154,26 +201,10 @@ final class WatchBridge: NSObject, WCSessionDelegate {
         let bgId = await MainActor.run {
             UIApplication.shared.beginBackgroundTask(withName: "jcWatchRelay") { work.cancel() }
         }
-        let outcome = await work.value
-        replyHandler(outcome.reply)
-        if let audio = outcome.audio { transferAudio(audio) }
+        replyHandler(await work.value)
         if bgId != .invalid {
             await MainActor.run { UIApplication.shared.endBackgroundTask(bgId) }
         }
-    }
-
-    /// Write the MP3 to a temp file and queue it to the watch. `transferFile` is
-    /// system-managed (survives suspension), so we don't need to hold the file.
-    private func transferAudio(_ data: Data) {
-        guard WCSession.isSupported() else { return }
-        let s = WCSession.default
-        guard s.activationState == .activated else { return }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("jc_watch_reply_\(UUID().uuidString).mp3")
-        do {
-            try data.write(to: url)
-            s.transferFile(url, metadata: ["kind": "reply_audio"])
-        } catch { /* best-effort: the text reply already landed */ }
     }
 
     // MARK: HTTP (async; per-request timeouts; cancellation-aware)
@@ -223,22 +254,65 @@ final class WatchBridge: NSObject, WCSessionDelegate {
         guard var comps = URLComponents(string: base + "/api/chat/stream") else { throw RelayError(detail: "stream") }
         comps.queryItems = [URLQueryItem(name: "stream_id", value: streamId)]
         guard let url = comps.url else { throw RelayError(detail: "stream") }
-        // timeoutInterval resets on each received byte; the server heartbeats
-        // every ~5s, so a long turn won't trip this.
         var req = URLRequest(url: url, timeoutInterval: 120)
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         req.setValue(cookie, forHTTPHeaderField: "Cookie")
-        let (data, code) = try await httpData(session, req)
-        guard code == 200, let s = String(data: data, encoding: .utf8) else { throw RelayError(detail: "stream") }
-        let r = WatchRelay.accumulateSSE(s)
-        if r.errored { throw RelayError(detail: "stream") }
-        return r.text
+        // Consume the SSE INCREMENTALLY and return the instant the terminator
+        // arrives — do NOT use data(for:) which waits for the connection to
+        // close. The server keeps the stream open with heartbeats for minutes
+        // after the answer, which made the watch hang on "thinking". (The webui
+        // is fast for the same reason: it stops reading on stream_end.)
+        let (bytes, resp) = try await session.bytes(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw RelayError(detail: "stream") }
+        var text = ""
+        var currentEvent = ""
+        for try await line in bytes.lines {
+            if line.hasPrefix(":") { continue } // heartbeat comment
+            if line.hasPrefix("event:") {
+                currentEvent = String(line.dropFirst("event:".count)).trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("data:") {
+                let json = String(line.dropFirst("data:".count)).trimmingCharacters(in: .whitespaces)
+                guard let d = json.data(using: .utf8),
+                      let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
+                switch currentEvent {
+                case "token":
+                    if let t = obj["text"] as? String { text += t; pushStreaming(text) }
+                case "stream_end", "done": return text          // answer complete — stop reading now
+                case "apperror", "error", "cancel": throw RelayError(detail: "stream")
+                default: break
+                }
+            }
+        }
+        return text
     }
 
     private func synthesize(_ session: URLSession, _ base: String, _ cookie: String, _ text: String) async throws -> Data {
-        guard let url = URL(string: base + "/api/voice/synthesize") else { throw RelayError(detail: "synth") }
+        guard let url = URL(string: base + "/api/voice/synthesize") else { throw RelayError(detail: "synth: bad url") }
         let (data, code) = try await postJSON(session, url, cookie, ["text": text], accept: "audio/mpeg")
-        guard code == 200, !data.isEmpty else { throw RelayError(detail: "synth") }
+        guard code == 200 else { throw RelayError(detail: "synth HTTP \(code)") }
+        guard !data.isEmpty else { throw RelayError(detail: "synth empty") }
         return data
+    }
+
+    // MARK: voice-clip out-of-band delivery
+    /// Write the MP3 to a temp file and `transferFile` it to the watch (no
+    /// payload-size limit, unlike the sendMessage reply). The temp file is
+    /// removed in `didFinish` once the transfer completes.
+    private func sendVoiceClip(_ data: Data) {
+        guard WCSession.isSupported() else { return }
+        // Cancel any still-queued clips so a backlog (e.g. from earlier
+        // unreachable-watch sends) doesn't all deliver at once and play
+        // repeatedly — only the newest reply should play.
+        WCSession.default.outstandingFileTransfers.forEach { $0.cancel() }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jc_voice_\(UUID().uuidString).mp3")
+        do {
+            try data.write(to: url)
+            WCSession.default.transferFile(url, metadata: ["type": "voiceClip"])
+        } catch { try? FileManager.default.removeItem(at: url) }
+    }
+
+    func session(_ s: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error _: Error?) {
+        try? FileManager.default.removeItem(at: fileTransfer.file.fileURL)
     }
 }

@@ -43,4 +43,20 @@ class WatchSync {
       // else: Android / unsupported platform — nothing to sync to.
     }
   }
+
+  /// Live WCSession status for the "Watch Companion" screen. Keys:
+  /// supported, paired, watchAppInstalled, reachable (bool); activationState
+  /// (int: 0 notActivated, 1 inactive, 2 activated). Returns
+  /// `{supported:false}` on platforms without the channel (Android).
+  static Future<Map<String, dynamic>> getStatus() async {
+    try {
+      final r = await _channel.invokeMethod('getWatchStatus');
+      if (r is Map) return Map<String, dynamic>.from(r);
+    } on MissingPluginException {
+      // Android / unsupported platform.
+    } catch (_) {
+      // best-effort
+    }
+    return const {'supported': false};
+  }
 }

@@ -188,6 +188,8 @@ import AppIntents
                 d.set((a["certSha256"] as? String) ?? "", forKey: "jc_cert_sha256")
                 WatchBridge.shared.pushLoginState((a["loggedIn"] as? Bool) ?? false)
                 result(true)
+            } else if call.method == "getWatchStatus" {
+                result(WatchBridge.shared.status())
             } else {
                 result(FlutterMethodNotImplemented)
             }

@@ -8,6 +8,7 @@ import '../services/credentials.dart';
 import '../services/watch_sync.dart';
 import '../theme.dart';
 import 'pair_page.dart';
+import 'watch_companion_page.dart';
 import 'webview_page.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -22,6 +23,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _paused = false;
   bool _trackLocation = false;
   Map<String, dynamic> _locDiag = const {};
+  Map<String, dynamic> _watchStatus = const {};
 
   @override
   void initState() {
@@ -30,6 +32,22 @@ class _SettingsPageState extends State<SettingsPage> {
     _paused = app.runner.paused.value;
     _trackLocation = Credentials.instance.trackLocation;
     _loadLocDiag();
+    _loadWatchStatus();
+  }
+
+  Future<void> _loadWatchStatus() async {
+    final s = await WatchSync.getStatus();
+    if (mounted) setState(() => _watchStatus = s);
+  }
+
+  String _watchLabel() {
+    final s = _watchStatus;
+    if (s.isEmpty) return 'Checking…';
+    if (s['supported'] != true) return 'Not available on this device';
+    if (s['paired'] != true) return 'No Apple Watch paired';
+    if (s['watchAppInstalled'] != true) return 'Watch app not installed';
+    if (s['reachable'] == true) return 'Connected';
+    return 'Installed — not reachable';
   }
 
   Future<void> _loadLocDiag() async {
@@ -199,6 +217,18 @@ class _SettingsPageState extends State<SettingsPage> {
             title: const Text('Accessibility access'),
             subtitle: const Text('Enable typing, tapping, and app-control skills'),
             onTap: _openAccessibilitySettings,
+          ),
+          ListTile(
+            leading: const Icon(Icons.watch),
+            title: const Text('Apple Watch companion'),
+            subtitle: Text(_watchLabel()),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () async {
+              await Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const WatchCompanionPage(),
+              ));
+              _loadWatchStatus(); // refresh the label on return
+            },
           ),
           const Divider(),
           ListTile(
