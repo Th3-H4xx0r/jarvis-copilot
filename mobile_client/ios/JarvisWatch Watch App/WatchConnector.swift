@@ -29,6 +29,7 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     func ask(text: String) async -> Result<AskResult, AskError> {
         guard WCSession.isSupported() else { return .failure(.unreachable) }
         streamingText = ""   // clear last turn's live preview
+        AudioPlayer.shared.resetClips()  // drop any leftover clips from the previous reply
         return await withCheckedContinuation { cont in
             WCSession.default.sendMessage(["type": "ask", "text": text]) { reply in
                 cont.resume(returning: AskResult.from(reply))
@@ -57,6 +58,8 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     nonisolated func session(_ s: WCSession, didReceive file: WCSessionFile) {
         guard (file.metadata?["type"] as? String) == "voiceClip",
               let data = try? Data(contentsOf: file.fileURL), !data.isEmpty else { return }
-        Task { @MainActor in AudioPlayer.shared.play(data: data) }
+        // Reply audio arrives as one or more chunks (out-of-band transferFile);
+        // enqueue so they play sequentially in arrival order.
+        Task { @MainActor in AudioPlayer.shared.enqueueClip(data) }
     }
 }

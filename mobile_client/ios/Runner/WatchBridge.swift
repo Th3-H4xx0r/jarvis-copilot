@@ -170,22 +170,31 @@ final class WatchBridge: NSObject, WCSessionDelegate {
                     return ["ok": false, "error": "network", "detail": "empty"]
                 }
                 var out: [String: Any] = ["ok": true, "replyText": reply]
-                // The JARVIS-voice clip is delivered OUT-OF-BAND via `transferFile`
-                // (no payload-size limit, so length never forces built-in voice);
-                // the watch plays it on receipt. `expectsClip` tells the watch a clip
-                // is coming (so it doesn't also speak with its built-in voice);
-                // `voiceDbg` surfaces what happened (shown on-watch while debugging).
-                do {
-                    let audio = try await self.synthesize(session, base, cookie, reply)
-                    let kb = audio.count / 1024
-                    self.sendVoiceClip(audio)
-                    out["expectsClip"] = true
-                    out["voiceDbg"] = "clip \(kb)KB → file"
-                } catch let e as RelayError {
-                    out["voiceDbg"] = e.detail
-                } catch {
-                    out["voiceDbg"] = "synth err"
+                // Synthesize the reply in sentence-sized CHUNKS and stream each
+                // out-of-band via `transferFile`, in order. The watch plays them
+                // sequentially (AudioPlayer queue), so speech starts on the first
+                // chunk instead of after one giant synth — low latency even for a
+                // long brief. `expectsClip` (set once at least one chunk is sent)
+                // tells the watch not to also speak with its built-in voice; if
+                // every chunk fails, expectsClip stays false → built-in fallback.
+                let chunks = WatchBridge.splitForSpeech(reply)
+                var sentAny = false
+                var failDetail = ""
+                for (i, chunk) in chunks.enumerated() {
+                    do {
+                        let audio = try await self.synthesize(session, base, cookie, chunk)
+                        self.sendVoiceClip(audio, seq: i, isFirst: i == 0)
+                        sentAny = true
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch let e as RelayError {
+                        failDetail = e.detail
+                    } catch {
+                        failDetail = "synth err"
+                    }
                 }
+                out["expectsClip"] = sentAny
+                out["voiceDbg"] = sentAny ? "clips \(chunks.count) → file" : (failDetail.isEmpty ? "no audio" : failDetail)
                 return out
             } catch is CancellationError {
                 return ["ok": false, "error": "network", "detail": "expired"]
@@ -321,18 +330,45 @@ final class WatchBridge: NSObject, WCSessionDelegate {
     /// Write the MP3 to a temp file and `transferFile` it to the watch (no
     /// payload-size limit, unlike the sendMessage reply). The temp file is
     /// removed in `didFinish` once the transfer completes.
-    private func sendVoiceClip(_ data: Data) {
+    private func sendVoiceClip(_ data: Data, seq: Int = 0, isFirst: Bool = true) {
         guard WCSession.isSupported() else { return }
-        // Cancel any still-queued clips so a backlog (e.g. from earlier
-        // unreachable-watch sends) doesn't all deliver at once and play
-        // repeatedly — only the newest reply should play.
-        WCSession.default.outstandingFileTransfers.forEach { $0.cancel() }
+        // Only the FIRST chunk of a reply cancels still-queued transfers (stale
+        // clips from an earlier reply); later chunks of the SAME reply must NOT
+        // cancel their siblings, or only the first chunk would survive.
+        if isFirst {
+            WCSession.default.outstandingFileTransfers.forEach { $0.cancel() }
+        }
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("jc_voice_\(UUID().uuidString).mp3")
         do {
             try data.write(to: url)
-            WCSession.default.transferFile(url, metadata: ["type": "voiceClip"])
+            WCSession.default.transferFile(url, metadata: ["type": "voiceClip", "seq": seq])
         } catch { try? FileManager.default.removeItem(at: url) }
+    }
+
+    /// Split a reply into sentence-sized chunks for low-latency chunked TTS
+    /// (mirrors the server's _split_for_speech). Short replies return as one
+    /// chunk; long ones break at sentence boundaries near `target` chars.
+    static func splitForSpeech(_ text: String, target: Int = 280, hard: Int = 600) -> [String] {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { return [] }
+        if t.count <= hard { return [t] }
+        var chunks: [String] = []
+        var cur = ""
+        let chars = Array(t)
+        for (i, c) in chars.enumerated() {
+            cur.append(c)
+            let isEnd = (c == "." || c == "!" || c == "?")
+            let nextBreaks = (i + 1 >= chars.count) || chars[i + 1] == " " || chars[i + 1] == "\n"
+            if (isEnd && nextBreaks && cur.count >= target) || cur.count >= hard {
+                let piece = cur.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !piece.isEmpty { chunks.append(piece) }
+                cur = ""
+            }
+        }
+        let tail = cur.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty { chunks.append(tail) }
+        return chunks.isEmpty ? [t] : chunks
     }
 
     func session(_ s: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error _: Error?) {

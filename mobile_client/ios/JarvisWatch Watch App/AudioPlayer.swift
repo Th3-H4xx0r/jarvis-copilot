@@ -10,6 +10,7 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
     static let shared = AudioPlayer()
     private var player: AVAudioPlayer?
     private var calibrating = false   // true only while the silent volume loop owns `player`
+    private var clipQueue: [Data] = []  // pending reply-clip chunks, played in order
 
     func play(base64 string: String) {
         guard let data = Data(base64Encoded: string), !data.isEmpty else {
@@ -20,7 +21,31 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
 
     func play(data: Data) {
         calibrating = false           // a real reply clip takes over the player
+        clipQueue.removeAll()
         start(data: data, loop: false)
+    }
+
+    /// Enqueue one reply-clip chunk. Chunks play sequentially (the next starts
+    /// when the current finishes), so a long reply streamed as several clips
+    /// speaks continuously — and the first chunk starts immediately.
+    func enqueueClip(_ data: Data) {
+        if let p = player, p.isPlaying, !calibrating {
+            clipQueue.append(data)            // a chunk is already playing → queue after it
+        } else {
+            calibrating = false               // preempt the silent volume loop / idle
+            start(data: data, loop: false)
+        }
+    }
+
+    /// Clear queued + playing reply clips (called when a new ask begins) so a
+    /// previous reply's audio can't bleed into the new one. Leaves the silent
+    /// volume-calibration loop alone.
+    func resetClips() {
+        clipQueue.removeAll()
+        if let p = player, p.isPlaying, !calibrating {
+            p.stop()
+            player = nil
+        }
     }
 
     /// Keep the MEDIA volume route active while the Volume drawer is open so the
@@ -73,7 +98,14 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in self.player = nil }
+        Task { @MainActor in
+            self.player = nil
+            // Chain to the next queued reply-clip chunk, if any.
+            if !self.clipQueue.isEmpty {
+                let next = self.clipQueue.removeFirst()
+                self.start(data: next, loop: false)
+            }
+        }
     }
 
     // MARK: - Silent volume-calibration loop (in-memory 16-bit mono PCM WAV)
