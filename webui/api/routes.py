@@ -4408,6 +4408,12 @@ def handle_get(handler, parsed) -> bool:
         return _handle_code_memory_entries(handler, parsed)
     if parsed.path == "/api/code-memory/digest":
         return _handle_code_memory_digest(handler, parsed)
+
+    # ── Long-term memory (jarvis_memory) API (GET) ──
+    if parsed.path == "/api/jarvis-memory/stats":
+        return _handle_jarvis_memory_stats(handler)
+    if parsed.path == "/api/jarvis-memory/search":
+        return _handle_jarvis_memory_search(handler, parsed)
     if parsed.path == "/api/notify/targets":
         return _handle_notify_list(handler)
 
@@ -5383,6 +5389,8 @@ def handle_post(handler, parsed) -> bool:
         return _handle_code_memory_delete_entry(handler, body)
     if parsed.path == "/api/code-memory/update":
         return _handle_code_memory_update(handler, body)
+    if parsed.path == "/api/jarvis-memory/delete":
+        return _handle_jarvis_memory_delete(handler, body)
     if parsed.path == "/api/notify":
         return _handle_notify(handler, body)
 
@@ -10307,6 +10315,72 @@ def _code_mem_home():
     except ImportError:
         from pathlib import Path
         return Path.home() / ".jarviscopilot"
+
+
+def _jarvis_mem_store():
+    """Open the jarvis_memory store for the active profile (read/serve for the UI)."""
+    from plugins.memory.jarvis_memory.config import load_config
+    from plugins.memory.jarvis_memory.store import MemoryStore
+    cfg = load_config(str(_code_mem_home()))
+    return MemoryStore(cfg["db_path"], cfg["vault_dir"])
+
+
+def _handle_jarvis_memory_stats(handler):
+    try:
+        store = _jarvis_mem_store()
+    except Exception as e:
+        return j(handler, {"available": False, "error": str(e), "count": 0, "namespaces": []})
+    try:
+        ns = store.namespaces()
+        return j(handler, {"available": True, "count": sum(c for _, c in ns),
+                           "namespaces": [{"namespace": n, "count": c} for n, c in ns]})
+    finally:
+        store.close()
+
+
+def _handle_jarvis_memory_search(handler, parsed):
+    from urllib.parse import parse_qs
+    q = parse_qs(parsed.query or "")
+    query = (q.get("q", [""])[0] or "").strip()
+    ns = (q.get("ns", [""])[0] or "").strip()
+    try:
+        limit = max(1, min(200, int(q.get("limit", ["50"])[0])))
+    except ValueError:
+        limit = 50
+    try:
+        store = _jarvis_mem_store()
+    except Exception as e:
+        return j(handler, {"available": False, "error": str(e), "entries": []})
+    try:
+        if not ns:
+            nslist = store.namespaces()
+            ns = nslist[0][0] if nslist else "global"
+        if query:
+            ids = [cid for cid, _ in store.keyword_search(ns, query, limit)]
+            chunks = store.get_chunks(ids)
+        else:
+            chunks = store.recent_chunks(ns, limit)
+        entries = [{"id": c.id, "body": c.body, "source": c.source,
+                    "created_at": c.created_at, "score": c.score,
+                    "namespace": c.namespace, "tags": c.tags} for c in chunks]
+        return j(handler, {"available": True, "namespace": ns, "entries": entries})
+    finally:
+        store.close()
+
+
+def _handle_jarvis_memory_delete(handler, body):
+    try:
+        require(body, "id")
+    except ValueError as e:
+        return bad(handler, str(e))
+    try:
+        store = _jarvis_mem_store()
+    except Exception as e:
+        return bad(handler, str(e))
+    try:
+        return j(handler, {"ok": store.delete_chunk(body["id"])})
+    finally:
+        store.close()
 
 
 def _handle_code_memory_register(handler, body):

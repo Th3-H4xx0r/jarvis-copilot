@@ -261,6 +261,14 @@ class MemoryStore:
                 "SELECT COUNT(*) FROM chunks WHERE namespace=?", (namespace or GLOBAL_NS,)
             ).fetchone()[0]
 
+    def namespaces(self) -> List[Tuple[str, int]]:
+        """Return [(namespace, chunk_count)] descending by count (for the UI)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT namespace, COUNT(*) AS c FROM chunks GROUP BY namespace ORDER BY c DESC"
+            ).fetchall()
+        return [(r["namespace"], r["c"]) for r in rows]
+
     def kv_set(self, namespace, key, value):
         with self._lock:
             self._conn.execute(
