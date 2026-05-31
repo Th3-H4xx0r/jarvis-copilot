@@ -88,17 +88,19 @@ class OllamaEmbedder(Embedder):
         return self._dim
 
     def embed(self, texts: List[str]) -> List[List[float]]:
-        import requests  # lazy — only needed at runtime with Ollama
+        import json as _json
+        import urllib.request  # stdlib — no third-party dependency
 
         out: List[List[float]] = []
         for t in texts:
-            r = requests.post(
+            req = urllib.request.Request(
                 f"{self._url}/api/embeddings",
-                json={"model": self._model, "prompt": t or ""},
-                timeout=self._timeout,
+                data=_json.dumps({"model": self._model, "prompt": t or ""}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
             )
-            r.raise_for_status()
-            emb = r.json().get("embedding") or []
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                payload = _json.loads(resp.read().decode("utf-8"))
+            emb = payload.get("embedding") or []
             if emb and len(emb) != self._dim and not self._warned_dim:
                 # Do NOT mutate self._dim — that would change the signature and
                 # strand previously stored vectors. Warn once; fix the config.

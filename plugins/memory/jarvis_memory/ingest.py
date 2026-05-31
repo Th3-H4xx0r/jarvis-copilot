@@ -19,6 +19,32 @@ logger = logging.getLogger(__name__)
 
 DROP_THRESHOLD = 0.3  # openhuman default
 
+# Greetings / acknowledgements / generic assistant openers that carry no durable
+# value — dropped before storage. (A coarse stand-in until Phase-2 LLM triage.)
+_TRIVIAL_EXACT = {
+    "hi", "hello", "hey", "yo", "sup", "thanks", "thank you", "ty", "ok", "okay", "k",
+    "cool", "nice", "great", "awesome", "perfect", "got it", "sure", "yes", "yep",
+    "no", "nope", "yeah", "oh", "hmm", "huh", "done", "np", "no problem", "good",
+    "hi there", "hello there", "good morning", "good evening", "goodbye", "bye",
+}
+_TRIVIAL_PHRASES = (
+    "how can i help", "how may i help", "what can i do for you",
+    "is there anything else", "let me know if",
+)
+
+
+def is_trivial(body: str) -> bool:
+    t = re.sub(r"[^\w\s]", "", (body or "").lower()).strip()
+    t = re.sub(r"\s+", " ", t)
+    if not t:
+        return True
+    if t in _TRIVIAL_EXACT:
+        return True
+    # generic assistant openers ("Hi Pranav! How can I help?")
+    if any(p in t for p in _TRIVIAL_PHRASES) and len(t.split()) <= 9:
+        return True
+    return False
+
 
 def cheap_score(body: str, source: str = "chat") -> float:
     """Deterministic, no-LLM admission score in [0,1].
@@ -26,6 +52,8 @@ def cheap_score(body: str, source: str = "chat") -> float:
     Phase-1 subset of openhuman's signal blend: length + lexical diversity +
     a turn-interaction bias. Trivial utterances score below DROP_THRESHOLD.
     """
+    if is_trivial(body):
+        return 0.0
     words = re.findall(r"\w+", (body or "").lower())
     n = len(words)
     if n < 3:
@@ -57,9 +85,12 @@ def chunk_text(text: str, max_chars: int = 1500) -> List[str]:
 
 
 def ingest_turn(store: MemoryStore, embedder: Embedder, namespace: str,
-                user_content: str, assistant_content: str, source: str = "chat") -> List[str]:
+                user_content: str, assistant_content: str, source: str = "chat",
+                roles=("user", "assistant")) -> List[str]:
     candidates = []
-    for role, content in (("user", user_content or ""), ("assistant", assistant_content or "")):
+    by_role = {"user": user_content or "", "assistant": assistant_content or ""}
+    for role in roles:
+        content = by_role.get(role, "")
         for piece in chunk_text(content):
             sc = cheap_score(piece, source)
             if sc >= DROP_THRESHOLD:

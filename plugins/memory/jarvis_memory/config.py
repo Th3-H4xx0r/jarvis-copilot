@@ -13,6 +13,12 @@ DEFAULTS = {
     "min_relevance": 0.0,          # Phase-1 fusion uses raw fused score; keep permissive
     "max_context_chars": 2000,     # openhuman default
     "namespace": "global",
+    # Which roles to capture. Default user-only: the user supplies the durable
+    # facts; assistant turns are mostly echoes/derivable and add noise. Set to
+    # ["user", "assistant"] to capture both. (Proper fact-extraction that would
+    # let us safely keep both is Phase 2 — LLM triage.)
+    "capture_roles": ["user"],
+    "ollama_autostart": True,      # start a local Ollama server at runtime if down
 }
 
 

@@ -109,6 +109,40 @@ class JarvisMemoryProvider(MemoryProvider):
         except Exception as e:
             logger.warning("jarvis_memory save_config failed: %s", e)
 
+    def post_setup(self, hermes_home: str, config: dict) -> None:
+        """Called by `jarviscopilot memory setup` — provisions Ollama (install +
+        start + pull bge-m3), saves config, and activates the provider."""
+        print("\n  Setting up jarvis_memory (semantic long-term memory)…\n")
+        values = {"embedder": "ollama", "ollama_model": "bge-m3",
+                  "embed_dim": 1024, "recall_limit": 5}
+        try:
+            from .ollama_bootstrap import setup as ollama_setup
+            ok = ollama_setup(model="bge-m3", printer=lambda m: print(f"  {m}"))
+            if ok:
+                print("  ✓ Ollama ready (bge-m3 embeddings).")
+            else:
+                print("  ⚠ Ollama not fully provisioned — recall will run keyword-only\n"
+                      "    until Ollama + bge-m3 are available (or set embedder: fake).")
+        except Exception as e:
+            print(f"  ⚠ Ollama setup error: {e} — continuing with keyword-only recall.")
+        self.save_config(values, hermes_home)
+        # Activate this provider in config.yaml.
+        try:
+            import yaml
+            from pathlib import Path
+            cfgp = Path(hermes_home) / "config.yaml"
+            existing = {}
+            if cfgp.exists():
+                with open(cfgp, encoding="utf-8-sig") as f:
+                    existing = yaml.safe_load(f) or {}
+            existing.setdefault("memory", {})["provider"] = "jarvis_memory"
+            with open(cfgp, "w", encoding="utf-8") as f:
+                yaml.dump(existing, f, default_flow_style=False)
+            print("\n  ✓ jarvis_memory activated. Turns are captured automatically and\n"
+                  "    searchable in the webui 'Long-term Memory' panel.\n")
+        except Exception as e:
+            logger.warning("jarvis_memory activation failed: %s", e)
+
     def initialize(self, session_id: str, **kwargs) -> None:
         self._session_id = session_id
         hermes_home = kwargs.get("hermes_home") or "."
@@ -121,6 +155,8 @@ class JarvisMemoryProvider(MemoryProvider):
             # Gateway multi-user: scope by user so turns don't bleed across users.
             ns = f"user:{user_id}"
         self._namespace = ns
+        roles = cfg.get("capture_roles") or ["user"]
+        self._capture_roles = tuple(r for r in roles if r in ("user", "assistant")) or ("user",)
         self._store = MemoryStore(cfg["db_path"], cfg["vault_dir"])
         self._embedder = make_embedder(cfg)
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jarvis-mem")
@@ -128,6 +164,18 @@ class JarvisMemoryProvider(MemoryProvider):
         self._lock = threading.Lock()
         self._prefetch_lock = threading.Lock()
         self._prefetch_cache = ""
+        # Auto-start a local Ollama server (background, best-effort) so the
+        # default embedder works without manual setup. Never installs/pulls at
+        # runtime — that happens once in post_setup.
+        if (cfg.get("embedder") or "ollama").lower() == "ollama" and cfg.get("ollama_autostart", True):
+            self._pool.submit(self._ensure_ollama)
+
+    def _ensure_ollama(self):
+        try:
+            from .ollama_bootstrap import ensure_running
+            ensure_running(self._cfg.get("ollama_url", "http://localhost:11434"))
+        except Exception as e:
+            logger.debug("jarvis_memory ollama autostart skipped: %s", e)
 
     # -- capture --------------------------------------------------------------
     def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "") -> None:
@@ -141,7 +189,8 @@ class JarvisMemoryProvider(MemoryProvider):
     def _ingest_safe(self, user_content: str, assistant_content: str):
         try:
             return ingest_turn(self._store, self._embedder, self._namespace,
-                               user_content, assistant_content, source="chat")
+                               user_content, assistant_content, source="chat",
+                               roles=self._capture_roles)
         except Exception as e:
             logger.warning("jarvis_memory ingest failed: %s", e)
             return []

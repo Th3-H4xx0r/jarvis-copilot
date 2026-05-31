@@ -21,8 +21,9 @@ def test_provider_basic_contract(tmp_path):
 
 def test_capture_warm_then_prefetch_recalls(tmp_path):
     p = _provider(tmp_path)
-    p.sync_turn("how do I deploy the watch app?",
-                "Run deploy_both.sh from the mobile_client directory.", session_id="sess-1")
+    # Default capture is user-only, so put the recall target in the user turn.
+    p.sync_turn("the watch app deploys via deploy_both.sh from mobile_client",
+                "Got it.", session_id="sess-1")
     p._flush()
     # prefetch is hot-path-safe: it returns the block warmed by queue_prefetch,
     # never a synchronous embed. Warm it, then read.
