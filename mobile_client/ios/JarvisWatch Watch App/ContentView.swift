@@ -8,6 +8,7 @@ struct ContentView: View {
     @ObservedObject var connector: WatchConnector
     @StateObject private var vm: WatchViewModel
     @ObservedObject private var voice = VoiceStatus.shared
+    @ObservedObject private var audio = AudioPlayer.shared
     @State private var activeSheet: ActiveSheet?
     @State private var vol: Float = 0   // live system volume shown in the drawer
 
@@ -51,6 +52,12 @@ struct ContentView: View {
                 Text("Open JarvisCopilot on your iPhone to set up.")
                     .font(.footnote).multilineTextAlignment(.center).foregroundStyle(.secondary)
             }
+        } else if audio.isSpeaking {
+            // Audio is playing (chunked clips) → show the speaking screen with a
+            // STOP control + volume, even before the final reply text returns.
+            // When playback finishes, isSpeaking flips false and we fall through
+            // to the normal screen (the orb becomes tap-to-talk again).
+            speakingScreen
         } else {
             switch vm.state {
             case .idle, .listening:
@@ -91,6 +98,36 @@ struct ContentView: View {
                     orbButton(.error, size: 88)
                     Text(msg).font(.footnote).multilineTextAlignment(.center).foregroundStyle(.secondary)
                 }
+            }
+        }
+    }
+
+    // Best available reply text to show while speaking: the final answer once
+    // it's back, otherwise the live streaming preview.
+    private var currentAnswerText: String {
+        if case .answer(let t) = vm.state { return t }
+        return connector.streamingText
+    }
+
+    // Shown while audio is playing: a STOP button (tap to interrupt speech) +
+    // the reply text + the volume control. Tapping Stop ends playback and the
+    // screen reverts to the tap-to-talk orb.
+    private var speakingScreen: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                Button { audio.stopSpeaking() } label: {
+                    VStack(spacing: 4) {
+                        VoiceOrb(mode: .speaking, size: 64)
+                        Label("Stop", systemImage: "stop.fill").font(.caption2)
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.orange)
+                if !currentAnswerText.isEmpty {
+                    Text(currentAnswerText).font(.body)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                volumeButton.padding(.top, 4)
             }
         }
     }

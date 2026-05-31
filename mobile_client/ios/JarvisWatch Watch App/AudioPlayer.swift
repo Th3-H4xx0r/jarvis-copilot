@@ -6,8 +6,12 @@ import Foundation
 /// active for the Digital Crown WITHOUT interrupting a reply that's already
 /// speaking, and WITHOUT any audible tone.
 @MainActor
-final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
+final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
     static let shared = AudioPlayer()
+    /// True while a reply clip (or queued chunks) is playing — drives the watch
+    /// UI into the "speaking" screen the moment audio starts, instead of waiting
+    /// for the final reply text. Not set by the silent volume-calibration loop.
+    @Published var isSpeaking = false
     private var player: AVAudioPlayer?
     private var calibrating = false   // true only while the silent volume loop owns `player`
     private var clipQueue: [Data] = []  // pending reply-clip chunks, played in order
@@ -22,6 +26,7 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
     func play(data: Data) {
         calibrating = false           // a real reply clip takes over the player
         clipQueue.removeAll()
+        isSpeaking = true
         start(data: data, loop: false)
     }
 
@@ -29,6 +34,7 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
     /// when the current finishes), so a long reply streamed as several clips
     /// speaks continuously — and the first chunk starts immediately.
     func enqueueClip(_ data: Data) {
+        isSpeaking = true
         if let p = player, p.isPlaying, !calibrating {
             clipQueue.append(data)            // a chunk is already playing → queue after it
         } else {
@@ -42,10 +48,18 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
     /// volume-calibration loop alone.
     func resetClips() {
         clipQueue.removeAll()
+        isSpeaking = false
         if let p = player, p.isPlaying, !calibrating {
             p.stop()
             player = nil
         }
+    }
+
+    /// Stop the reply immediately — clears the queue + stops the current clip,
+    /// so the watch's "Stop" button can interrupt a long spoken reply. Leaves
+    /// the silent volume-calibration loop alone.
+    func stopSpeaking() {
+        resetClips()
     }
 
     /// Keep the MEDIA volume route active while the Volume drawer is open so the
@@ -104,6 +118,8 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
             if !self.clipQueue.isEmpty {
                 let next = self.clipQueue.removeFirst()
                 self.start(data: next, loop: false)
+            } else {
+                self.isSpeaking = false   // queue drained → speaking finished
             }
         }
     }
