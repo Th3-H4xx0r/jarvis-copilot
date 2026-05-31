@@ -113,13 +113,21 @@ class JarvisMemoryProvider(MemoryProvider):
         """Called by `jarviscopilot memory setup` — provisions Ollama (install +
         start + pull bge-m3), saves config, and activates the provider."""
         print("\n  Setting up jarvis_memory (semantic long-term memory)…\n")
+        extract_model = "llama3.2:3b"
         values = {"embedder": "ollama", "ollama_model": "bge-m3",
-                  "embed_dim": 1024, "recall_limit": 5}
+                  "embed_dim": 1024, "recall_limit": 5,
+                  "extract": "ollama", "extract_model": extract_model}
         try:
-            from .ollama_bootstrap import setup as ollama_setup
+            from .ollama_bootstrap import setup as ollama_setup, pull_model
             ok = ollama_setup(model="bge-m3", printer=lambda m: print(f"  {m}"))
             if ok:
                 print("  ✓ Ollama ready (bge-m3 embeddings).")
+                # Phase-2 fact extraction model (optional — degrades to raw capture).
+                if pull_model(extract_model, printer=lambda m: print(f"  {m}")):
+                    print(f"  ✓ Fact-extraction model ready ({extract_model}).")
+                else:
+                    print(f"  ⚠ Could not pull {extract_model}; memory will store raw turns "
+                          "until it's available (or set extract: off).")
             else:
                 print("  ⚠ Ollama not fully provisioned — recall will run keyword-only\n"
                       "    until Ollama + bge-m3 are available (or set embedder: fake).")
@@ -159,6 +167,9 @@ class JarvisMemoryProvider(MemoryProvider):
         self._capture_roles = tuple(r for r in roles if r in ("user", "assistant")) or ("user",)
         self._store = MemoryStore(cfg["db_path"], cfg["vault_dir"])
         self._embedder = make_embedder(cfg)
+        from .extract import make_extractor
+        self._extractor = make_extractor(cfg)  # None => Phase-1 raw capture
+        self._dedup_threshold = float(cfg.get("dedup_threshold", 0.92))
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jarvis-mem")
         self._pending: list = []
         self._lock = threading.Lock()
@@ -188,12 +199,48 @@ class JarvisMemoryProvider(MemoryProvider):
 
     def _ingest_safe(self, user_content: str, assistant_content: str):
         try:
+            if self._extractor is not None:
+                try:
+                    facts = self._extractor.extract(user_content, assistant_content)
+                except Exception as e:
+                    logger.warning("jarvis_memory extraction unavailable; raw-capture fallback: %s", e)
+                    return ingest_turn(self._store, self._embedder, self._namespace,
+                                       user_content, assistant_content, source="chat",
+                                       roles=self._capture_roles)
+                return self._store_facts(facts)  # extraction ran (possibly []): store distilled facts only
             return ingest_turn(self._store, self._embedder, self._namespace,
                                user_content, assistant_content, source="chat",
                                roles=self._capture_roles)
         except Exception as e:
             logger.warning("jarvis_memory ingest failed: %s", e)
             return []
+
+    def _store_facts(self, facts):
+        """Store distilled facts, skipping near-duplicates (vector dedup)."""
+        ids = []
+        for fact in facts or []:
+            fact = (fact or "").strip()
+            if not fact:
+                continue
+            emb = None
+            try:
+                emb = self._embedder.embed_one(fact)
+            except Exception:
+                pass
+            if emb:
+                try:
+                    hits = self._store.vector_search(self._namespace, emb, self._embedder.signature, limit=1)
+                    if hits and hits[0][1] >= self._dedup_threshold:
+                        continue  # already remembered
+                except Exception:
+                    pass
+            use_emb = emb if (emb and len(emb)) else None
+            ids.append(self._store.add_chunk(
+                self._namespace, fact, "fact:extracted", time.time(), 1.0, "fact",
+                embedding=use_emb, signature=self._embedder.signature if use_emb else None,
+                dim=self._embedder.dim if use_emb else None,
+            ))
+        return ids
 
     def _flush(self):
         """Drain pending background ingests (used by tests and shutdown)."""
