@@ -1,5 +1,6 @@
 from plugins.memory.jarvis_memory import JarvisMemoryProvider
 from plugins.memory.jarvis_memory.extract import (
+    AuxiliaryExtractor,
     FakeExtractor,
     OllamaFactExtractor,
     _parse_facts,
@@ -17,9 +18,47 @@ def test_parse_facts_from_messy_content():
 
 
 def test_make_extractor_defaults():
-    assert make_extractor({"embedder": "fake"}) is None          # off unless ollama
-    assert isinstance(make_extractor({"embedder": "ollama"}), OllamaFactExtractor)
+    assert make_extractor({"embedder": "fake"}) is None                  # off for the test embedder
+    assert isinstance(make_extractor({"embedder": "ollama"}), AuxiliaryExtractor)  # default = configured model
+    assert isinstance(make_extractor({"embedder": "ollama", "extract": "ollama"}), OllamaFactExtractor)
     assert make_extractor({"embedder": "ollama", "extract": "off"}) is None
+    assert isinstance(make_extractor({"extract": "model", "extract_model": "gpt-5.5"}), AuxiliaryExtractor)
+
+
+def test_auxiliary_extractor_uses_call_llm(monkeypatch):
+    from types import SimpleNamespace
+    import agent.auxiliary_client as auxc
+    captured = {}
+
+    def fake_call_llm(**kw):
+        captured.update(kw)
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content='["Pranav prefers dark mode", "Pranav lives in Mountain House"]'))])
+
+    monkeypatch.setattr(auxc, "call_llm", fake_call_llm)
+    facts = AuxiliaryExtractor(model="gpt-5.5").extract("I like dark mode and live in Mountain House", "")
+    assert facts == ["Pranav prefers dark mode", "Pranav lives in Mountain House"]
+    assert captured["model"] == "gpt-5.5" and captured["task"] == "memory_extraction"
+
+
+def test_sweep_transient_once(tmp_path):
+    import time
+    p = _prov(tmp_path, None)
+    s, ns = p._store, p._namespace
+    s.add_chunk(ns, "http://127.0.0.1:8765/healthz is reachable", "fact:extracted", time.time(), 1.0, "fact")
+    s.add_chunk(ns, "On Telegram", "fact:extracted", time.time(), 1.0, "fact")
+    s.add_chunk(ns, "Pranav lives in Mountain House, California", "fact:extracted", time.time(), 1.0, "fact")
+    s.add_chunk(ns, "498 E Marcello Ave note about home", "builtin:user", time.time(), 1.0, "builtin")
+    s.kv_delete("__sweep__", "transient_done")  # in case the bg sweep already flagged
+    before = s.count_chunks(ns)
+    p._sweep_transient_once()
+    assert s.count_chunks(ns) == before - 2  # only the 2 transient extracted removed
+    bodies = [c.body for c in s.recent_chunks(ns, 10)]
+    assert any("Mountain House" in b for b in bodies)   # good extracted fact kept
+    assert any("Marcello" in b for b in bodies)         # builtin kept
+    p._sweep_transient_once()                            # idempotent
+    assert s.count_chunks(ns) == before - 2
+    p.shutdown()
 
 
 def _prov(tmp_path, extractor, **over):

@@ -19,11 +19,12 @@ DEFAULTS = {
     # let us safely keep both is Phase 2 — LLM triage.)
     "capture_roles": ["user"],
     "ollama_autostart": True,      # start a local Ollama server at runtime if down
-    # Phase 2 — LLM fact extraction. None = auto (on when embedder is ollama).
-    # Distills turns into clean deduped facts instead of storing raw messages;
-    # falls back to raw capture if the extractor model is unavailable.
-    "extract": None,               # None|"ollama"|"off"
-    "extract_model": "llama3.2:3b",
+    # Phase 2 — LLM fact extraction. None = auto: "model" (configured main model,
+    # best quality) for real embedders, "off" for the test embedder. Distills
+    # turns into clean deduped facts instead of storing raw messages.
+    "extract": None,               # None|"model"|"ollama"|"off"
+    "extract_model": "",           # for "model": override id (blank = main model, e.g. gpt-5.5)
+    "extract_ollama_model": "llama3.2:3b",  # for "ollama": local chat model
     "dedup_threshold": 0.92,       # skip a new fact this similar to an existing one
     # When extraction is enabled but fails, do NOT fall back to storing the raw
     # user turn (that's the "raw chat in memory" noise). Set True to capture raw

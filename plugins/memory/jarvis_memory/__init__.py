@@ -110,29 +110,57 @@ class JarvisMemoryProvider(MemoryProvider):
             logger.warning("jarvis_memory save_config failed: %s", e)
 
     def post_setup(self, hermes_home: str, config: dict) -> None:
-        """Called by `jarviscopilot memory setup` — provisions Ollama (install +
-        start + pull bge-m3), saves config, and activates the provider."""
+        """Called by `jarviscopilot memory setup` — provisions Ollama embeddings,
+        lets the user choose the fact-extraction model, saves config, activates."""
         print("\n  Setting up jarvis_memory (semantic long-term memory)…\n")
-        extract_model = "llama3.2:3b"
-        values = {"embedder": "ollama", "ollama_model": "bge-m3",
-                  "embed_dim": 1024, "recall_limit": 5,
-                  "extract": "ollama", "extract_model": extract_model}
+        pull_model = None
         try:
-            from .ollama_bootstrap import setup as ollama_setup, pull_model
-            ok = ollama_setup(model="bge-m3", printer=lambda m: print(f"  {m}"))
-            if ok:
+            from .ollama_bootstrap import setup as ollama_setup, pull_model as _pull
+            pull_model = _pull
+            if ollama_setup(model="bge-m3", printer=lambda m: print(f"  {m}")):
                 print("  ✓ Ollama ready (bge-m3 embeddings).")
-                # Phase-2 fact extraction model (optional — degrades to raw capture).
-                if pull_model(extract_model, printer=lambda m: print(f"  {m}")):
-                    print(f"  ✓ Fact-extraction model ready ({extract_model}).")
-                else:
-                    print(f"  ⚠ Could not pull {extract_model}; memory will store raw turns "
-                          "until it's available (or set extract: off).")
             else:
-                print("  ⚠ Ollama not fully provisioned — recall will run keyword-only\n"
-                      "    until Ollama + bge-m3 are available (or set embedder: fake).")
+                print("  ⚠ Ollama not fully provisioned — recall will run keyword-only.")
         except Exception as e:
             print(f"  ⚠ Ollama setup error: {e} — continuing with keyword-only recall.")
+
+        def _ask(prompt, default=""):
+            try:
+                v = input(f"  {prompt}: ").strip()
+                return v or default
+            except Exception:
+                return default
+
+        print("\n  How should conversations be distilled into memory facts?")
+        print("    1) Your main model — best quality (e.g. gpt-5.5)   [recommended]")
+        print("    2) A specific model id")
+        print("    3) Local model via Ollama (private/offline)")
+        print("    4) Off — capture raw user turns only")
+        choice = _ask("Choose [1]", "1")
+
+        values = {"embedder": "ollama", "ollama_model": "bge-m3",
+                  "embed_dim": 1024, "recall_limit": 5}
+        if choice == "2":
+            mid = _ask("Model id (e.g. gpt-5.5, gpt-4o, claude-...)", "")
+            values["extract"] = "model"
+            values["extract_model"] = mid
+            print(f"  ✓ Extraction via configured model: {mid or 'auto (main model)'}")
+        elif choice == "3":
+            mid = _ask("Ollama model", "llama3.2:3b") or "llama3.2:3b"
+            values["extract"] = "ollama"
+            values["extract_ollama_model"] = mid
+            if pull_model and pull_model(mid, printer=lambda m: print(f"  {m}")):
+                print(f"  ✓ Local extraction model ready ({mid}).")
+            else:
+                print(f"  ⚠ Could not pull {mid}; run 'ollama pull {mid}' manually.")
+        elif choice == "4":
+            values["extract"] = "off"
+            print("  ✓ Extraction off — capturing user turns (trivial-filtered).")
+        else:
+            values["extract"] = "model"
+            values["extract_model"] = ""
+            print("  ✓ Extraction via your main model (auto-detected).")
+
         self.save_config(values, hermes_home)
         # Activate this provider in config.yaml.
         try:
@@ -186,6 +214,9 @@ class JarvisMemoryProvider(MemoryProvider):
         # (queued after ensure_ollama so embeddings are available).
         if self._migrate_builtin:
             self._pool.submit(self._migrate_safe, hermes_home)
+        # One-time cleanup of clearly-transient extracted memories (endpoints/
+        # ports/health-checks/fragments) created before the transient filter.
+        self._pool.submit(self._sweep_transient_once)
         # Proactive reflections: a periodic background tick (default on when
         # extraction is on). Observation-only; skips on battery / when offline.
         self._proactive_stop = threading.Event()
@@ -341,6 +372,24 @@ class JarvisMemoryProvider(MemoryProvider):
                 logger.info("jarvis_memory: migrated %d builtin memory entr(ies) into the store", n)
         except Exception as e:
             logger.debug("jarvis_memory builtin migration skipped: %s", e)
+
+    def _sweep_transient_once(self):
+        """Remove already-stored extracted memories that are clearly transient
+        (endpoints/ports/health-checks/fragments). One-time, kv-flagged."""
+        try:
+            if self._store.kv_get("__sweep__", "transient_done"):
+                return
+            from .extract import is_transient_fact
+            removed = 0
+            for ch in self._store.recent_chunks(self._namespace, 2000):
+                if ch.source == "fact:extracted" and is_transient_fact(ch.body):
+                    if self._store.delete_chunk(ch.id):
+                        removed += 1
+            self._store.kv_set("__sweep__", "transient_done", "1")
+            if removed:
+                logger.info("jarvis_memory: swept %d transient extracted memor(ies)", removed)
+        except Exception as e:
+            logger.debug("jarvis_memory transient sweep skipped: %s", e)
 
     def on_memory_write(self, action, target, content, metadata=None):
         """Mirror builtin MEMORY.md/USER.md writes — including self-learning

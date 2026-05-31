@@ -129,17 +129,61 @@ class OllamaFactExtractor(FactExtractor):
         return _parse_facts(content)
 
 
+class AuxiliaryExtractor(FactExtractor):
+    """Extract via the user's configured model (e.g. gpt-5.5) through the gateway's
+    auxiliary LLM client. Far better fact quality than a tiny local model, no extra
+    download. ``model``/``provider`` are optional overrides; blank = auto-detect
+    the main model. Works from background threads (same path as title generation)."""
+
+    def __init__(self, model: str = None, provider: str = None, timeout: float = 30.0):
+        self._model = model or None
+        self._provider = provider or None
+        self._timeout = timeout
+
+    def extract(self, user_text: str, assistant_text: str) -> List[str]:
+        from agent.auxiliary_client import call_llm  # lazy: heavy import, avoid at module load
+
+        user_block = f"User said: {user_text or ''}".strip()
+        if assistant_text:
+            user_block += f"\nAssistant said: {assistant_text}"
+        user_block += "\n\nJSON array of durable facts:"
+        resp = call_llm(
+            task="memory_extraction",          # reads auxiliary.memory_extraction.* if configured
+            provider=self._provider,
+            model=self._model,                  # explicit override, else auto-detect main model
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_block},
+            ],
+            max_tokens=512,
+            temperature=0.0,
+            timeout=self._timeout,
+        )
+        content = (resp.choices[0].message.content or "") if resp and resp.choices else ""
+        return _parse_facts(content)
+
+
 def make_extractor(cfg: dict):
-    """Return a FactExtractor or None (None = extraction disabled, raw capture)."""
+    """Return a FactExtractor or None (None = extraction disabled, raw capture).
+
+    Default backend = the configured main model (best quality) for real embedders;
+    'off' for the test/fake embedder. Override with the ``extract`` config:
+      - "model"  → AuxiliaryExtractor(model=extract_model or auto)
+      - "ollama" → OllamaFactExtractor(model=extract_ollama_model)
+      - "off"    → disabled
+    """
     kind = cfg.get("extract")
     if kind is None:
-        kind = "ollama" if (cfg.get("embedder") or "ollama").lower() == "ollama" else "off"
+        emb = (cfg.get("embedder") or "ollama").lower()
+        kind = "off" if emb == "fake" else "model"
     kind = str(kind).lower()
     if kind in ("off", "none", "false", "0"):
         return None
+    if kind in ("model", "aux", "configured", "main"):
+        return AuxiliaryExtractor(model=cfg.get("extract_model") or None)
     if kind == "ollama":
         return OllamaFactExtractor(
-            model=cfg.get("extract_model", "llama3.2:3b"),
+            model=cfg.get("extract_ollama_model", "llama3.2:3b"),
             url=cfg.get("ollama_url", "http://localhost:11434"),
         )
     return None
