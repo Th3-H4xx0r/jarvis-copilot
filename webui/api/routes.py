@@ -10349,8 +10349,7 @@ def _set_global_personality(name: str) -> None:
     across ALL sessions. Empty name clears it (back to default)."""
     try:
         import yaml
-        from jarviscopilot_constants import get_hermes_home
-        p = get_hermes_home() / "config.yaml"
+        p = _code_mem_home() / "config.yaml"  # active-profile config (what the agent reads)
         cfg = {}
         if p.exists():
             with open(p, encoding="utf-8-sig") as f:

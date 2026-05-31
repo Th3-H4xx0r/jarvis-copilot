@@ -1263,30 +1263,48 @@ def _ensure_piper_jarvis_voice() -> Path:
     return onnx_path
 
 
+def _hermes_config_path() -> Path:
+    """Path to the ACTIVE profile's config.yaml (what the agent actually reads).
+
+    Was hardcoded to ~/.jarviscopilot, so voice-engine/provider writes could land
+    in the wrong file under a non-default profile and never take effect — hence
+    'doesn't persist'. Use the profile-aware home like the rest of the webui."""
+    try:
+        from api.profiles import get_active_hermes_home  # type: ignore
+        return get_active_hermes_home() / "config.yaml"
+    except Exception:
+        return Path.home() / ".jarviscopilot" / "config.yaml"
+
+
 def _read_hermes_config() -> dict:
-    """Read ~/.jarviscopilot/config.yaml — returns {} on failure."""
+    """Read the active profile's config.yaml — returns {} on failure."""
     try:
         import yaml  # type: ignore
-        cfg_path = Path.home() / ".jarviscopilot" / "config.yaml"
+        cfg_path = _hermes_config_path()
         if not cfg_path.exists():
             return {}
-        with cfg_path.open("r", encoding="utf-8") as f:
+        with cfg_path.open("r", encoding="utf-8-sig") as f:
             return yaml.safe_load(f) or {}
     except Exception:
         return {}
 
 
 def _write_hermes_config(cfg: dict) -> None:
-    """Write ~/.jarviscopilot/config.yaml atomically. Preserves key order via
-    yaml.safe_dump(sort_keys=False) so the user's manual layout doesn't
-    get reshuffled on every save."""
+    """Write the active profile's config.yaml atomically, then reload the cached
+    config so the change takes effect immediately (no restart). Preserves key
+    order via sort_keys=False so the user's manual layout isn't reshuffled."""
     import yaml  # type: ignore
-    cfg_path = Path.home() / ".jarviscopilot" / "config.yaml"
+    cfg_path = _hermes_config_path()
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = cfg_path.with_suffix(cfg_path.suffix + ".tmp")
     with tmp_path.open("w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=True)
     tmp_path.replace(cfg_path)
+    try:
+        from api.config import reload_config  # type: ignore
+        reload_config()
+    except Exception:
+        pass
 
 
 def _voice_personality_tts(handler, body) -> bool:
