@@ -58,3 +58,14 @@ def test_ollama_bootstrap_predicates_are_graceful():
     # These must not raise regardless of whether ollama is installed locally.
     assert isinstance(ob.is_installed(), bool)
     assert isinstance(ob.has_model("definitely-not-a-real-model-xyz"), bool)
+
+
+def test_remote_ollama_url_never_spawns_local():
+    # Pointing at a remote Ollama must NEVER install/spawn a local server
+    # (the cause of Ollama relaunching on the user's laptop).
+    assert ob.is_local_url("http://localhost:11434") is True
+    assert ob.is_local_url("http://127.0.0.1:11434") is True
+    assert ob.is_local_url("http://100.67.63.15:11434") is False
+    # Unreachable remote: returns False immediately, no spawn.
+    assert ob.start_server("http://100.67.63.15:9", wait_secs=0.2) is False
+    assert ob.ensure_running("http://100.67.63.15:9") is False

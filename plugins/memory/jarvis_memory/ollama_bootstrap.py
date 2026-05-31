@@ -23,6 +23,20 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_URL = "http://localhost:11434"
 
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", ""}
+
+
+def is_local_url(url: str) -> bool:
+    """True only for a local Ollama. We must never try to install/spawn a server
+    for a REMOTE url (e.g. when the gateway points at an Ollama on another host)
+    — that's what caused Ollama to keep launching on the user's laptop."""
+    from urllib.parse import urlparse
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        host = ""
+    return host in _LOCAL_HOSTS
+
 
 def is_running(url: str = DEFAULT_URL, timeout: float = 1.5) -> bool:
     try:
@@ -61,6 +75,8 @@ def install(printer=logger.info) -> bool:
 def start_server(url: str = DEFAULT_URL, wait_secs: float = 12.0) -> bool:
     if is_running(url):
         return True
+    if not is_local_url(url):
+        return False  # remote Ollama — never spawn a local server
     if not is_installed():
         return False
     try:
@@ -101,7 +117,17 @@ def pull_model(model: str, printer=logger.info) -> bool:
 
 
 def setup(model: str = "bge-m3", url: str = DEFAULT_URL, printer=logger.info) -> bool:
-    """Full provisioning for setup time: install + start + pull."""
+    """Full provisioning for setup time: install + start + pull.
+
+    For a REMOTE url, never install/spawn locally — just verify reachability
+    (the model must be pulled on the server that runs Ollama)."""
+    if not is_local_url(url):
+        if is_running(url):
+            printer(f"Using remote Ollama at {url} (no local install).")
+            return True
+        printer(f"Remote Ollama at {url} is not reachable — start it on that host "
+                f"and pull '{model}' there.")
+        return False
     if not install(printer):
         return False
     if not start_server(url):
@@ -111,9 +137,12 @@ def setup(model: str = "bge-m3", url: str = DEFAULT_URL, printer=logger.info) ->
 
 
 def ensure_running(url: str = DEFAULT_URL) -> bool:
-    """Runtime: start an already-installed server if it's down. No install/pull."""
+    """Runtime: start an already-installed LOCAL server if it's down. Never
+    spawns for a remote url (just reports reachability). No install/pull."""
     if is_running(url):
         return True
+    if not is_local_url(url):
+        return False  # remote — can't/shouldn't start it here
     if is_installed():
         return start_server(url)
     return False
