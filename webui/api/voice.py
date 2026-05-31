@@ -365,10 +365,17 @@ def _voice_quality_turn(handler, body) -> bool:
     # immediately (the ack), drop tool segments, buffer any middle narration, and
     # emit only the LAST text segment (the final answer) at the end.
     def _emit_text(text: str) -> bool:
-        # Synthesize audio INLINE so the client receives text + audio together
-        # and can play immediately.
-        audio_b64 = _tts_to_base64(text)
-        return _emit({"type": "segment", "kind": "text", "text": text, "audio_base64": audio_b64})
+        # Split long answers (e.g. a full morning brief) into chunks: one giant
+        # TTS call can time out or exceed the provider's input limit and return
+        # NO audio (the "Speaking…" but silent bug). The client appends each
+        # segment's text and plays its audio sequentially, so chunking keeps the
+        # full transcript while making every chunk reliably synthesizable — and
+        # speech starts on the first chunk instead of after the whole synth.
+        for chunk in _split_for_speech(text):
+            audio_b64 = _tts_to_base64(chunk)
+            if not _emit({"type": "segment", "kind": "text", "text": chunk, "audio_base64": audio_b64}):
+                return False
+        return True
 
     first_text_emitted = False
     pending_final = None  # most-recent non-ack text segment (the final answer)
@@ -724,6 +731,45 @@ def _speakable(text: str) -> str:
     s = s.replace("•", " ").replace("→", " to ")
     s = _SPK_MULTI_NL.sub("\n\n", s)
     return s.strip()
+
+
+def _split_for_speech(text: str, target: int = 480, hard: int = 900) -> list:
+    """Split long spoken text into chunks each synthesizable quickly/reliably.
+
+    Prefers paragraph boundaries (so the client's join keeps the layout), then
+    groups sentences to ~target chars, hard-splitting any monster sentence. A
+    short text returns as a single chunk.
+    """
+    import re as _re
+    text = (text or "").strip()
+    if not text:
+        return []
+    if len(text) <= hard:
+        return [text]
+    out: list = []
+    for para in _re.split(r"\n\s*\n", text):
+        para = para.strip()
+        if not para:
+            continue
+        if len(para) <= hard:
+            out.append(para)
+            continue
+        cur = ""
+        for s in _re.split(r"(?<=[.!?])\s+", para):
+            s = s.strip()
+            if not s:
+                continue
+            if cur and len(cur) + 1 + len(s) > target:
+                out.append(cur)
+                cur = s
+            else:
+                cur = (cur + " " + s).strip() if cur else s
+            while len(cur) > hard:  # a single very long sentence
+                out.append(cur[:hard])
+                cur = cur[hard:].strip()
+        if cur:
+            out.append(cur)
+    return out or [text]
 
 
 def _tts_to_base64(text: str) -> str:

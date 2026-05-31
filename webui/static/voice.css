@@ -35,6 +35,9 @@ main.main.showing-voice #mainVoice { display: flex !important; }
   max-width: 720px;
   margin: 0 auto;
   box-sizing: border-box;
+  /* Safety net for short viewports: if the orb + transcript + controls still
+     exceed the height, let the whole panel scroll rather than clipping. */
+  overflow-y: auto;
 }
 
 /* ---- Orb container (canvas is sized inside JS) ---- */
@@ -81,6 +84,11 @@ main.main.showing-voice #mainVoice { display: flex !important; }
   width: 100%;
   max-width: 560px;
   min-height: 0;
+  /* Long replies (e.g. a full morning brief) scroll inside their own box so
+     the orb and controls stay visible — was unbounded + clipped before. */
+  max-height: 45vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .voice-transcript-row {
