@@ -251,6 +251,16 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
             logger.info("tool %s failed (%.2fs): %s", function_name, duration, result[:200])
         else:
             logger.info("tool %s completed (%.2fs, %d chars)", function_name, duration, len(result))
+        # TokenJuice: cheap deterministic compaction of verbose command output
+        # (failure-aware; guaranteed pass-through if it doesn't help). Runs as
+        # the first pass, before any downstream size-cap / persistence.
+        if isinstance(result, str):
+            try:
+                from agent.tool_output_compactor import compact_tool_output, is_compaction_enabled
+                if is_compaction_enabled():
+                    result = compact_tool_output(function_name, function_args, result, is_error=is_error)
+            except Exception:
+                pass
         results[index] = (function_name, function_args, result, duration, is_error, False)
         # Tear down worker-tid tracking.  Clear any interrupt bit we may
         # have set so the next task scheduled onto this recycled tid
