@@ -2,12 +2,14 @@ import AVFoundation
 import Foundation
 
 /// Plays the JARVIS-voice reply clip (MP3 delivered via WCSession `transferFile`)
-/// through the watch speaker. The Volume drawer plays a soft looping TEST TONE
-/// (not the reply) so the Digital Crown has active audio to adjust.
+/// through the watch speaker. The Volume drawer keeps the MEDIA volume route
+/// active for the Digital Crown WITHOUT interrupting a reply that's already
+/// speaking, and WITHOUT any audible tone.
 @MainActor
 final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
     static let shared = AudioPlayer()
     private var player: AVAudioPlayer?
+    private var calibrating = false   // true only while the silent volume loop owns `player`
 
     func play(base64 string: String) {
         guard let data = Data(base64Encoded: string), !data.isEmpty else {
@@ -17,15 +19,25 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     func play(data: Data) {
+        calibrating = false           // a real reply clip takes over the player
         start(data: data, loop: false)
     }
 
-    /// Loop a gentle test tone while the Volume drawer is open, so the Digital
-    /// Crown adjusts the MEDIA volume (it only does so while audio is playing).
+    /// Keep the MEDIA volume route active while the Volume drawer is open so the
+    /// Digital Crown adjusts media (not ring) volume.
+    /// - If a reply clip is already playing, IT is the active media — leave it
+    ///   alone (no interruption, no tone).
+    /// - Otherwise loop a SILENT buffer so the crown still has media to grab,
+    ///   with no audible beep.
     func beginVolumeCalibration() {
-        start(data: AudioPlayer.makeTone(), loop: true)
+        if let p = player, p.isPlaying, !calibrating { return }   // don't interrupt the reply
+        calibrating = true
+        start(data: AudioPlayer.makeSilentLoop(), loop: true)
     }
     func endVolumeCalibration() {
+        // Only stop the silent calibration loop — NEVER the speaking reply clip.
+        guard calibrating else { return }
+        calibrating = false
         player?.stop()
         player = nil
     }
@@ -64,31 +76,13 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
         Task { @MainActor in self.player = nil }
     }
 
-    // MARK: - Generated test tone (in-memory 16-bit mono PCM WAV)
-    /// A bell-like "ding" (bright fundamental + inharmonic partials, exponential
-    /// ring-out) followed by a short gap, so looping yields a gentle
-    /// "ding … ding …" similar to the watchOS volume-change sound.
-    private static func makeTone() -> Data {
-        let sr = 44_100.0
-        let ringDur = 0.5
-        let gapDur = 0.42
-        let f0 = 1046.5                                   // C6 — bright, bell-like
-        let partials: [(mult: Double, amp: Double)] = [(1.0, 1.0), (2.0, 0.5), (2.76, 0.28)]
-        let amp = 0.24
-        let ringN = Int(sr * ringDur)
-        let gapN = Int(sr * gapDur)
-        var pcm = Data(capacity: (ringN + gapN) * 2)
-        for i in 0..<ringN {
-            let t = Double(i) / sr
-            let env = exp(-t * 7.0)                       // exponential ring-out
-            var v = 0.0
-            for p in partials { v += sin(2.0 * Double.pi * f0 * p.mult * t) * p.amp }
-            v *= env * amp
-            var sample = Int16(max(-1.0, min(1.0, v)) * 32_767.0).littleEndian
-            withUnsafeBytes(of: &sample) { pcm.append(contentsOf: $0) }
-        }
-        pcm.append(Data(count: gapN * 2))                 // trailing silence between dings
-        return wav(pcm: pcm, sampleRate: Int(sr))
+    // MARK: - Silent volume-calibration loop (in-memory 16-bit mono PCM WAV)
+    /// A short SILENT buffer. Looping it keeps an AVAudioPlayer "playing" so the
+    /// Digital Crown adjusts the media-volume route — with no audible tone.
+    private static func makeSilentLoop() -> Data {
+        let sr = 44_100
+        let n = sr / 5                                    // 0.2s of silence
+        return wav(pcm: Data(count: n * 2), sampleRate: sr)   // all-zero PCM = silence
     }
 
     private static func wav(pcm: Data, sampleRate: Int) -> Data {
