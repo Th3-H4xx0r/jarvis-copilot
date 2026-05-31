@@ -54,7 +54,9 @@ def _unpack(blob: bytes) -> "np.ndarray":
 
 
 def _fts_or_query(query: str) -> str:
-    toks = re.findall(r"[A-Za-z0-9_]+", query or "")
+    # \w is Unicode-aware in Python 3 — keep accented/CJK tokens (the FTS table
+    # uses unicode61, which indexes them). Quoting neutralizes FTS operators.
+    toks = re.findall(r"\w+", query or "", flags=re.UNICODE)
     return " OR ".join(f'"{t}"' for t in toks)
 
 
@@ -117,20 +119,25 @@ class MemoryStore:
         with self._lock:
             exists = self._conn.execute("SELECT 1 FROM chunks WHERE id=?", (cid,)).fetchone()
             if exists is None:
+                content_path = str(path)
                 try:
                     path.write_text(body, encoding="utf-8")
                 except Exception as e:
                     logger.warning("jarvis_memory vault write failed for %s: %s", cid, e)
+                    content_path = ""  # don't claim a vault file that isn't there
                 self._conn.execute(
                     "INSERT INTO chunks(id,namespace,body,content_path,content_sha256,"
                     "source,created_at,score,tags) VALUES (?,?,?,?,?,?,?,?,?)",
-                    (cid, namespace, body, str(path), sha, source, created_at, score, tags),
+                    (cid, namespace, body, content_path, sha, source, created_at, score, tags),
                 )
-                if self._has_fts:
-                    self._conn.execute(
-                        "INSERT INTO chunks_fts(chunk_id, body) VALUES (?,?)", (cid, body)
-                    )
-            if embedding is not None and signature:
+            # Keep the FTS row consistent with chunks regardless of the exists
+            # guard: delete+insert repairs a missing/stale row and avoids dupes.
+            if self._has_fts:
+                self._conn.execute("DELETE FROM chunks_fts WHERE chunk_id=?", (cid,))
+                self._conn.execute(
+                    "INSERT INTO chunks_fts(chunk_id, body) VALUES (?,?)", (cid, body)
+                )
+            if embedding is not None and len(embedding) and signature:
                 self._conn.execute(
                     "INSERT OR REPLACE INTO vectors(chunk_id,namespace,embedding,model_signature,dim) "
                     "VALUES (?,?,?,?,?)",
@@ -187,7 +194,7 @@ class MemoryStore:
                     except sqlite3.OperationalError:
                         ids = []
             if not ids:
-                toks = re.findall(r"[A-Za-z0-9_]+", query or "")
+                toks = re.findall(r"\w+", query or "", flags=re.UNICODE)
                 if toks:
                     like = " OR ".join(["body LIKE ?"] * len(toks))
                     args = [ns] + [f"%{t}%" for t in toks] + [limit]
@@ -229,19 +236,29 @@ class MemoryStore:
 
     def delete_chunk(self, cid) -> bool:
         with self._lock:
+            row = self._conn.execute(
+                "SELECT content_path FROM chunks WHERE id=?", (cid,)
+            ).fetchone()
             cur = self._conn.execute("DELETE FROM chunks WHERE id=?", (cid,))
             self._conn.execute("DELETE FROM vectors WHERE chunk_id=?", (cid,))
             if self._has_fts:
                 self._conn.execute("DELETE FROM chunks_fts WHERE chunk_id=?", (cid,))
             self._conn.commit()
-            return cur.rowcount > 0
+            deleted = cur.rowcount > 0
+        # Remove the vault file too — "forget" must not leave plaintext on disk.
+        if deleted and row and row["content_path"]:
+            try:
+                Path(row["content_path"]).unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning("jarvis_memory vault unlink failed for %s: %s", cid, e)
+        return deleted
 
     def count_chunks(self, namespace=None) -> int:
         with self._lock:
             if namespace is None:
                 return self._conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
             return self._conn.execute(
-                "SELECT COUNT(*) FROM chunks WHERE namespace=?", (namespace,)
+                "SELECT COUNT(*) FROM chunks WHERE namespace=?", (namespace or GLOBAL_NS,)
             ).fetchone()[0]
 
     def kv_set(self, namespace, key, value):

@@ -3,6 +3,10 @@
 Phase 1 uses openhuman's no-graph fusion weights (vector 0.65 / keyword 0.35).
 The graph + episodic + freshness arms and the query-less recall blend arrive in
 Phase 3.
+
+Scoring note (bug-sweep M2): the vector arm uses ``max(cos, 0)`` so that "no
+semantic signal" maps to 0 (not 0.5), keeping both arms on a comparable [0,1]
+scale where 0 means "no match" — otherwise the fusion weights are meaningless.
 """
 from __future__ import annotations
 
@@ -28,11 +32,13 @@ class Hit:
 def hybrid_recall(store: MemoryStore, embedder: Embedder, query: str,
                   namespace: str = GLOBAL_NS, limit: int = 5,
                   min_relevance: float = 0.0) -> List[Hit]:
+    if not query or not query.strip():
+        return []
     vec_hits = {}
     try:
         qv = embedder.embed_one(query)
         for cid, cos in store.vector_search(namespace, qv, embedder.signature, limit * 4):
-            vec_hits[cid] = (cos + 1.0) / 2.0  # map [-1,1] -> [0,1]
+            vec_hits[cid] = max(cos, 0.0)  # no signal -> 0, not 0.5
     except Exception as e:
         logger.warning("jarvis_memory vector arm failed: %s", e)
     kw_hits = dict(store.keyword_search(namespace, query, limit * 4))

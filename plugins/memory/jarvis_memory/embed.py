@@ -63,7 +63,13 @@ class FakeEmbedder(Embedder):
 
 
 class OllamaEmbedder(Embedder):
-    """Local embeddings via an Ollama server (default backend)."""
+    """Local embeddings via an Ollama server (default backend).
+
+    The signature/dim are FROZEN at construction (from config). We never rewrite
+    them based on a single response: model_signature keys the stored vectors and
+    must stay stable for the life of the store, or previously written vectors
+    become unreachable (see bug-sweep C1).
+    """
 
     def __init__(self, url: str = "http://localhost:11434", model: str = "bge-m3",
                  dim: int = 1024, timeout: float = 30.0):
@@ -71,6 +77,7 @@ class OllamaEmbedder(Embedder):
         self._model = model
         self._dim = int(dim)
         self._timeout = timeout
+        self._warned_dim = False
 
     @property
     def signature(self) -> str:
@@ -92,8 +99,15 @@ class OllamaEmbedder(Embedder):
             )
             r.raise_for_status()
             emb = r.json().get("embedding") or []
-            if emb and len(emb) != self._dim:
-                self._dim = len(emb)
+            if emb and len(emb) != self._dim and not self._warned_dim:
+                # Do NOT mutate self._dim — that would change the signature and
+                # strand previously stored vectors. Warn once; fix the config.
+                logger.warning(
+                    "jarvis_memory: ollama model %s returned dim %d but configured "
+                    "embed_dim=%d; set plugins.jarvis_memory.embed_dim=%d to match",
+                    self._model, len(emb), self._dim, len(emb),
+                )
+                self._warned_dim = True
             out.append([float(x) for x in emb])
         return out
 

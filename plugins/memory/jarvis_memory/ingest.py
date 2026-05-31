@@ -28,12 +28,16 @@ def cheap_score(body: str, source: str = "chat") -> float:
     """
     words = re.findall(r"\w+", (body or "").lower())
     n = len(words)
-    if n < 4:
+    if n < 3:
         return 0.0
     uniq = len(set(words))
     length_sig = min(n / 40.0, 1.0)
     unique_sig = uniq / n
-    return max(0.0, min(1.0, 0.35 * length_sig + 0.25 * unique_sig + 0.3))
+    # Smaller constant than the original 0.3 so the blended signal can actually
+    # fall below DROP_THRESHOLD (the constant + threshold previously made the
+    # score-based drop a no-op). Real importance filtering arrives with the
+    # Phase-2 LLM triage band.
+    return max(0.0, min(1.0, 0.4 * length_sig + 0.35 * unique_sig + 0.1))
 
 
 def chunk_text(text: str, max_chars: int = 1500) -> List[str]:
@@ -63,16 +67,22 @@ def ingest_turn(store: MemoryStore, embedder: Embedder, namespace: str,
     if not candidates:
         return []
     try:
-        embs = embedder.embed([b for _, b, _ in candidates])
+        embs = list(embedder.embed([b for _, b, _ in candidates]))
     except Exception as e:
         logger.warning("jarvis_memory embed failed during ingest (storing without vectors): %s", e)
         embs = [None] * len(candidates)
+    # Never let a short/long embedder result silently drop chunks via zip().
+    if len(embs) != len(candidates):
+        logger.warning("jarvis_memory embedder returned %d vectors for %d inputs; padding",
+                       len(embs), len(candidates))
+        embs = (embs + [None] * len(candidates))[:len(candidates)]
     ids = []
     for (role, body, sc), emb in zip(candidates, embs):
+        use_emb = emb if (emb and len(emb)) else None  # skip empty/zero-length vectors
         ids.append(store.add_chunk(
             namespace=namespace or GLOBAL_NS, body=body, source=f"{source}:{role}",
             created_at=time.time(), score=sc, tags=role,
-            embedding=emb, signature=embedder.signature if emb else None,
-            dim=embedder.dim if emb else None,
+            embedding=use_emb, signature=embedder.signature if use_emb else None,
+            dim=embedder.dim if use_emb else None,
         ))
     return ids
