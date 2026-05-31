@@ -1138,7 +1138,14 @@
     } else if (t === 'transcript') {
       setTranscript(obj.text || '', 'user');
     } else if (t === 'assistant_text') {
-      setTranscript(obj.text || '', 'assistant');
+      // Accumulate streamed chunks instead of replacing, so the FULL reply
+      // stays on screen (audio plays each chunk in sequence). Reset at the
+      // start of each new assistant reply (flag cleared on end_turn).
+      if (!STATE._asstActive) { STATE._asstAccum = []; STATE._asstActive = true; }
+      if (obj.text) {
+        STATE._asstAccum.push(obj.text);
+        setTranscript(STATE._asstAccum.join(' '), 'assistant');
+      }
       setStatus('speaking');
     } else if (t === 'audio_meta') {
       // Format/sample-rate stashed by RealtimeWS already.
@@ -1154,6 +1161,8 @@
         if (STATE.player) STATE.player.playMp3Bytes(merged).catch(() => {});
       }
     } else if (t === 'end_turn') {
+      // Next assistant reply should start a fresh accumulation.
+      STATE._asstActive = false;
       // Resume listening for the next user utterance, but only when
       // any queued audio has finished playing.
       const wait = STATE.player ? Math.max(0, (STATE.player.queueEnd - STATE.player.ctx?.currentTime) * 1000) : 0;
