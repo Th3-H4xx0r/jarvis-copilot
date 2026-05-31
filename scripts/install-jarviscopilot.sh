@@ -320,6 +320,23 @@ UNITEOF
             else
                 warn "user jarviscopilot-gateway.service failed to restart -- run: jarviscopilot gateway restart"
             fi
+        else
+            # No gateway systemd unit — the gateway runs as a plain process.
+            # The stop-loop above killed it, so spawn a fresh one detached
+            # (mirrors `jarviscopilot restart`) — otherwise cron + messaging stay
+            # down until a manual restart. `--replace` makes this idempotent.
+            info "Starting gateway (no systemd unit, cron scheduler + messaging) ..."
+            GW_LOG="$HOME/.jarviscopilot/gateway.log"
+            mkdir -p "$HOME/.jarviscopilot" 2>/dev/null || true
+            setsid "$VENV_PY" -m jarviscopilot_cli.main gateway run --replace \
+                >>"$GW_LOG" 2>&1 </dev/null &
+            disown 2>/dev/null || true
+            sleep 2
+            if pgrep -f 'jarviscopilot_cli\.main +gateway +run' >/dev/null 2>&1; then
+                ok "Gateway started (cron scheduler + messaging). Logs: $GW_LOG"
+            else
+                warn "Gateway may not have started yet -- check $GW_LOG or run: jarviscopilot gateway run --replace"
+            fi
         fi
     fi
 fi
