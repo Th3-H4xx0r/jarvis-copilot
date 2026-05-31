@@ -3791,6 +3791,11 @@ def _run_agent_streaming(
             # (matches jarviscopilot CLI behavior — passes via ephemeral_system_prompt)
             _personality_prompt = None
             _pname = getattr(s, 'personality', None)
+            if not _pname:
+                # Fall back to the global active personality so it applies to
+                # ALL sessions (set via /api/personality/set -> agent.personality),
+                # not just the session it was chosen in.
+                _pname = (_cfg.get('agent', {}) or {}).get('personality') or None
             if _pname:
                 _agent_cfg = _cfg.get('agent', {})
                 _personalities = _agent_cfg.get('personalities', {})

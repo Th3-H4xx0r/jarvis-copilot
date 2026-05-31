@@ -5681,9 +5681,11 @@ async function loadPersonalityPicker(){
   def.value = ''; def.textContent = 'Default (JarvisCopilot)';
   sel.appendChild(def);
   let personalities = [];
+  let activeGlobal = '';
   try {
     const data = await api('/api/personalities');
     personalities = (data && data.personalities) || [];
+    activeGlobal = (data && data.active) || '';
   } catch (e) {
     personalities = [];
   }
@@ -5694,8 +5696,9 @@ async function loadPersonalityPicker(){
     opt.textContent = p.description ? `${p.name} — ${p.description}` : p.name;
     sel.appendChild(opt);
   }
-  // Pre-select the session's current personality if any.
-  const cur = (S && S.session && (S.session.personality || S.session.persona)) || '';
+  // Pre-select: the session's personality if set, else the global active one
+  // (personality is global — applies to all sessions).
+  const cur = (S && S.session && (S.session.personality || S.session.persona)) || activeGlobal || '';
   sel.value = cur;
   // Wire change once. Using a guarded sentinel so re-entries don't stack.
   if (!sel.dataset.boundChange) {

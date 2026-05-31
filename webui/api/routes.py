@@ -4174,7 +4174,10 @@ def handle_get(handler, parsed) -> bool:
                 elif isinstance(value, str):
                     desc = value[:80] + ("..." if len(value) > 80 else "")
                 personalities.append({"name": name, "description": desc})
-        return j(handler, {"personalities": personalities})
+        # The globally-active personality (applies to all sessions) so the
+        # picker can pre-select it even on a session that has none set.
+        active = (agent_cfg.get("personality") or "") if isinstance(agent_cfg, dict) else ""
+        return j(handler, {"personalities": personalities, "active": active})
 
     if parsed.path == "/api/git-info":
         qs = parse_qs(parsed.query)
@@ -4854,6 +4857,9 @@ def handle_post(handler, parsed) -> bool:
         with _get_session_agent_lock(sid):
             s.personality = name if name else None
             s.save()
+        # Persist globally so the personality applies to ALL sessions (current +
+        # future), not just this one — matches the settings copy ("every response").
+        _set_global_personality(name if name else "")
         return j(handler, {"ok": True, "personality": s.personality, "prompt": prompt})
 
     if parsed.path == "/api/session/toolsets":
@@ -10336,6 +10342,33 @@ def _code_mem_home():
     except ImportError:
         from pathlib import Path
         return Path.home() / ".jarviscopilot"
+
+
+def _set_global_personality(name: str) -> None:
+    """Persist the active persona to config.yaml agent.personality so it applies
+    across ALL sessions. Empty name clears it (back to default)."""
+    try:
+        import yaml
+        from jarviscopilot_constants import get_hermes_home
+        p = get_hermes_home() / "config.yaml"
+        cfg = {}
+        if p.exists():
+            with open(p, encoding="utf-8-sig") as f:
+                cfg = yaml.safe_load(f) or {}
+        cfg.setdefault("agent", {})
+        if name:
+            cfg["agent"]["personality"] = name
+        else:
+            cfg["agent"].pop("personality", None)
+        with open(p, "w", encoding="utf-8") as f:
+            yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+        try:
+            from api.config import reload_config
+            reload_config()
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"[webui] failed to persist global personality: {e}", flush=True)
 
 
 def _jarvis_mem_store():
