@@ -7,7 +7,6 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var connector: WatchConnector
     @StateObject private var vm: WatchViewModel
-    @StateObject private var speech = SpeechRecognizer()
     @ObservedObject private var voice = VoiceStatus.shared
     @State private var dictated = ""
     @State private var activeSheet: ActiveSheet?
@@ -46,7 +45,7 @@ struct ContentView: View {
         // go straight into dictation.
         .onOpenURL { url in
             if url.host == "listen" || url.path.contains("listen") {
-                startListening()
+                activeSheet = .dictation
             }
         }
     }
@@ -61,22 +60,10 @@ struct ContentView: View {
         } else {
             switch vm.state {
             case .idle, .listening:
-                if speech.isListening {
-                    // Live mic: started programmatically (no text box), auto-stops
-                    // when you stop talking. Tap to stop early.
-                    VStack(spacing: 10) {
-                        Button { speech.stop() } label: { VoiceOrb(mode: .speaking, size: 96) }
-                            .buttonStyle(.plain)
-                        Text(speech.transcript.isEmpty ? "Listening…" : speech.transcript)
-                            .font(.footnote).multilineTextAlignment(.center)
-                            .foregroundStyle(speech.transcript.isEmpty ? .secondary : .primary)
-                    }
-                } else {
-                    VStack(spacing: 12) {
-                        orbButton(.idle, size: 100)
-                        Text("Tap to talk").font(.footnote).foregroundStyle(.secondary)
-                        volumeButton
-                    }
+                VStack(spacing: 12) {
+                    orbButton(.idle, size: 100)
+                    Text("Tap to talk").font(.footnote).foregroundStyle(.secondary)
+                    volumeButton
                 }
             case .thinking:
                 if connector.streamingText.isEmpty {
@@ -115,29 +102,8 @@ struct ContentView: View {
     }
 
     private func orbButton(_ mode: VoiceOrb.Mode, size: CGFloat) -> some View {
-        Button { startListening() } label: { VoiceOrb(mode: mode, size: size) }
+        Button { activeSheet = .dictation } label: { VoiceOrb(mode: mode, size: size) }
             .buttonStyle(.plain)
-    }
-
-    /// Start the live mic immediately (no text box, no second tap). Auto-stops
-    /// when you stop talking, then submits. Falls back to the watchOS dictation
-    /// sheet only if mic/speech permission is denied or unavailable.
-    private func startListening() {
-        if speech.isListening { return }
-        func begin() {
-            speech.start { text in
-                let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !t.isEmpty else { return }
-                Task { await vm.submit(text: t) }
-            }
-        }
-        if SpeechRecognizer.isAuthorized {
-            begin()
-        } else {
-            SpeechRecognizer.requestPermission { ok in
-                if ok { begin() } else { activeSheet = .dictation }  // fallback: manual dictation
-            }
-        }
     }
 
     private var volumeButton: some View {
