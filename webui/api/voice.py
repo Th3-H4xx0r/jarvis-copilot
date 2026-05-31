@@ -583,7 +583,18 @@ def _pcm_to_transcript(pcm_bytes: bytes, sample_rate: int) -> str:
     try:
         result = transcribe(tmp_path)
         if isinstance(result, dict) and result.get("success"):
-            return str(result.get("transcript") or "").strip()
+            transcript = str(result.get("transcript") or "").strip()
+            # Drop whisper hallucinations (silence/noise artifacts like
+            # "Thank you for watching" or repetition loops) so a phantom
+            # transcript never triggers an agent turn — matters most for the
+            # short, noisy Apple-Watch relay clips.
+            try:
+                from agent.voice_hallucination import is_hallucinated_output
+                if transcript and is_hallucinated_output(transcript, mode="conversation"):
+                    transcript = ""
+            except Exception:
+                pass
+            return transcript
         return ""
     finally:
         try:
