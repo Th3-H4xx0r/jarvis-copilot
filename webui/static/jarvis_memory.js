@@ -1,9 +1,10 @@
-/* jarvis_memory.js — webui "Long-term Memory" panel for the jarvis_memory provider.
+/* jarvis_memory.js — webui "Long-term Memory" full-screen panel.
  *
- * Self-contained + self-registering: it clones the existing Code-Memory nav
- * button (so styling matches), injects a `jmemory` panel-view container, and
- * defines window.loadJarvisMemory. This avoids editing the large index.html /
- * panels.js beyond a single <script> include. Backed by /api/jarvis-memory/*.
+ * Self-registering: clones the Code-Memory nav button (matching styling),
+ * injects a MAIN-AREA view (#mainJmemory, a child of <main class="main">, like
+ * #mainCodememory) so hiding the sidebar (cm-fullwidth) shows it full-screen.
+ * Shows status (provider/model/info), search, insights, and a live memory-only
+ * log feed. Backed by /api/jarvis-memory/*.
  */
 (function () {
   "use strict";
@@ -23,24 +24,42 @@
     return Math.floor(d / 86400) + "d ago";
   }
 
+  // ── Panel container (in the MAIN area, not the sidebar) ──
   function ensurePanel() {
-    if (document.getElementById("panelJmemory")) return;
-    var anchor = document.getElementById("panelMemory");
-    if (!anchor || !anchor.parentNode) return;
+    if (document.getElementById("mainJmemory")) return;
+    var main = document.querySelector("main.main");
+    if (!main) return;
     var div = document.createElement("div");
-    div.className = "panel-view";
-    div.id = "panelJmemory";
+    div.id = "mainJmemory";
+    div.style.cssText = "display:none;flex-direction:column;height:100%;min-height:0;";
     div.innerHTML =
-      '<div class="panel-head"><span>Long-term memory</span>' +
-      '<span id="jmemStat" style="margin-left:auto;color:var(--muted);font-size:12px"></span></div>' +
-      '<div id="jmemBody" style="padding:14px;overflow:auto;height:100%;box-sizing:border-box"></div>';
-    anchor.insertAdjacentElement("afterend", div);
+      '<div class="cm-header"><div class="cm-header-title">Long-term memory</div></div>' +
+      '<div id="jmemBody" style="padding:16px;overflow:auto;flex:1 1 auto;min-height:0;box-sizing:border-box"></div>';
+    main.appendChild(div);
+  }
+
+  function showPanel() {
+    ensurePanel();
+    var chat = document.getElementById("mainChat");
+    if (chat) chat.style.display = "none";              // override the default-visible main view
+    var el = document.getElementById("mainJmemory");
+    if (el) el.style.display = "flex";
+    document.body.classList.add("cm-fullwidth");        // hide the chat sidebar -> full screen
+    document.querySelectorAll("[data-panel]").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.panel === "jmemory");
+    });
+  }
+
+  function hidePanel() {
+    var el = document.getElementById("mainJmemory");
+    if (el) el.style.display = "none";
+    var chat = document.getElementById("mainChat");
+    if (chat) chat.style.display = "";                  // restore (CSS decides the real view)
+    document.body.classList.remove("cm-fullwidth");
   }
 
   function injectNavButtons() {
-    var srcs = document.querySelectorAll('[data-panel="codememory"]');
-    srcs.forEach(function (src) {
-      // Skip if we've already inserted next to this one.
+    document.querySelectorAll('[data-panel="codememory"]').forEach(function (src) {
       if (src.nextElementSibling && src.nextElementSibling.getAttribute("data-panel") === "jmemory") return;
       var btn = src.cloneNode(true);
       btn.setAttribute("data-panel", "jmemory");
@@ -49,28 +68,29 @@
       if (btn.hasAttribute("data-label")) btn.setAttribute("data-label", "Memory+");
       btn.removeAttribute("data-i18n-title");
       btn.removeAttribute("onclick");
-      // A distinct sparkle-over-list icon so it isn't confused with Code Memory.
       btn.innerHTML =
         '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
         'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
         '<path d="M4 6h10"/><path d="M4 12h8"/><path d="M4 18h6"/>' +
         '<path d="M18 3l1.2 3.2L22.4 7l-3.2 1.2L18 11l-1.2-2.8L13.6 7l3.2-.8z"/></svg>';
       btn.onclick = function () {
-        ensurePanel();  // create the container BEFORE switchPanel activates it by id
-        try { if (typeof switchPanel === "function") switchPanel("jmemory", { fromRailClick: true }); } catch (e) {}
-        document.body.classList.add("cm-fullwidth");  // full-screen (hide chat sidebar)
-        // switchPanel only toggles .active on existing .panel-view nodes; ensure ours is shown.
-        var el = document.getElementById("panelJmemory");
-        if (el) {
-          document.querySelectorAll(".panel-view").forEach(function (p) { p.classList.remove("active"); });
-          el.classList.add("active");
-        }
+        showPanel();
         window.loadJarvisMemory();
       };
       src.insertAdjacentElement("afterend", btn);
     });
   }
 
+  function attachLeaveHandlers() {
+    // When any OTHER nav button is clicked, restore the chat view + sidebar.
+    document.querySelectorAll("[data-panel]").forEach(function (b) {
+      if (b.dataset.panel === "jmemory" || b._jmLeave) return;
+      b._jmLeave = true;
+      b.addEventListener("click", function () { hidePanel(); }, true);  // capture: before switchPanel
+    });
+  }
+
+  // ── Body sections ──
   function renderShell() {
     ensurePanel();
     var body = document.getElementById("jmemBody");
@@ -91,20 +111,39 @@
         '</div>';
       var q = document.getElementById("jmemQ");
       var t = null;
-      q.addEventListener("input", function () {
-        clearTimeout(t);
-        t = setTimeout(runSearch, 200);
-      });
+      q.addEventListener("input", function () { clearTimeout(t); t = setTimeout(runSearch, 200); });
       document.getElementById("jmemNs").addEventListener("change", runSearch);
     }
     return body;
   }
 
+  function _chip(label, val, danger) {
+    return '<span style="font-size:11px;padding:3px 9px;border:1px solid var(--border);border-radius:999px;' +
+      'color:' + (danger ? "var(--danger,#c33)" : "var(--muted)") + '">' +
+      esc(label) + ': <b style="color:var(--fg)">' + esc(val) + "</b></span>";
+  }
+
+  async function loadStatus() {
+    var el = document.getElementById("jmemStatus");
+    if (!el) return;
+    var d = {};
+    try { d = await fetch("api/jarvis-memory/status").then(function (r) { return r.json(); }); } catch (e) { return; }
+    if (!d || d.available === false) {
+      el.innerHTML = '<span style="color:var(--muted);font-size:12px">Memory not initialized yet.</span>';
+      return;
+    }
+    var html = _chip("Provider", "jarvis_memory");
+    html += _chip("Embedder", (d.embed_model || "?") + " · " + (d.embed_dim || "?") + "d");
+    html += _chip("Extraction", d.extract_model || d.extract || "?");
+    html += _chip("Ollama", d.ollama_running ? "up" : "down (" + (d.ollama_url || "") + ")", !d.ollama_running);
+    html += _chip("Memories", String(d.count != null ? d.count : "?"));
+    el.innerHTML = html;
+  }
+
   function rowHtml(e) {
     var meta = [e.source || "", e.namespace || "", ago(e.created_at)].filter(Boolean).join(" · ");
     return (
-      '<div class="jmem-item" data-id="' + esc(e.id) + '" ' +
-      'style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--card,var(--bg))">' +
+      '<div class="jmem-item" style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--card,var(--bg))">' +
       '<div style="white-space:pre-wrap;word-break:break-word">' + esc(e.body) + "</div>" +
       '<div style="display:flex;align-items:center;margin-top:6px;gap:10px">' +
       '<span style="color:var(--muted);font-size:11px">' + esc(meta) + "</span>" +
@@ -123,12 +162,8 @@
     list.innerHTML = '<div style="color:var(--muted);font-size:12px">Searching…</div>';
     var url = "api/jarvis-memory/search?limit=100&q=" + encodeURIComponent(q) + "&ns=" + encodeURIComponent(ns);
     var data;
-    try {
-      data = await fetch(url).then(function (r) { return r.json(); });
-    } catch (e) {
-      list.innerHTML = '<div style="color:var(--danger,#c33)">Failed to load memory.</div>';
-      return;
-    }
+    try { data = await fetch(url).then(function (r) { return r.json(); }); }
+    catch (e) { list.innerHTML = '<div style="color:var(--danger,#c33)">Failed to load memory.</div>'; return; }
     var entries = (data && data.entries) || [];
     if (!entries.length) {
       list.innerHTML = '<div style="color:var(--muted);font-size:13px">' +
@@ -146,18 +181,16 @@
           });
         } catch (e) {}
         runSearch();
-        loadStats();
+        loadStatus();
       });
     });
   }
 
   async function loadStats() {
-    var stat = document.getElementById("jmemStat");
     var sel = document.getElementById("jmemNs");
+    if (!sel) return;
     var data;
-    try {
-      data = await fetch("api/jarvis-memory/stats").then(function (r) { return r.json(); });
-    } catch (e) { return; }
+    try { data = await fetch("api/jarvis-memory/stats").then(function (r) { return r.json(); }); } catch (e) { return; }
     if (data && data.available === false) {
       var b = document.getElementById("jmemBody");
       if (b) {
@@ -169,8 +202,7 @@
       }
       return;
     }
-    if (stat && data) stat.textContent = (data.count || 0) + " memories";
-    if (sel && data && data.namespaces) {
+    if (data && data.namespaces) {
       var cur = sel.value;
       sel.innerHTML = data.namespaces
         .map(function (n) { return '<option value="' + esc(n.namespace) + '">' + esc(n.namespace) + " (" + n.count + ")</option>"; })
@@ -183,9 +215,7 @@
     var el = document.getElementById("jmemReflect");
     if (!el) return;
     var data = { reflections: [] };
-    try {
-      data = await fetch("api/jarvis-memory/reflections").then(function (r) { return r.json(); });
-    } catch (e) { return; }
+    try { data = await fetch("api/jarvis-memory/reflections").then(function (r) { return r.json(); }); } catch (e) { return; }
     var cards = (data && data.reflections) || [];
     var head =
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
@@ -193,8 +223,7 @@
       '<button id="jmemReflRefresh" style="margin-left:auto;font-size:11px;background:none;border:1px solid var(--border);' +
       'border-radius:6px;padding:2px 8px;color:var(--muted);cursor:pointer">Refresh</button></div>';
     var bodyHtml = cards.map(function (c) {
-      return '<div class="jmem-card" data-id="' + esc(c.id) + '" ' +
-        'style="padding:9px 11px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px;background:var(--card,var(--bg))">' +
+      return '<div style="padding:9px 11px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px;background:var(--card,var(--bg))">' +
         '<div style="display:flex;align-items:center;gap:8px">' +
         '<span style="font-weight:600">' + esc(c.title) + "</span>" +
         '<span style="font-size:10px;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:0 6px">' + esc(c.kind || "") + "</span>" +
@@ -224,29 +253,6 @@
     });
   }
 
-  function _chip(label, val, danger) {
-    return '<span style="font-size:11px;padding:3px 9px;border:1px solid var(--border);border-radius:999px;' +
-      'color:' + (danger ? "var(--danger,#c33)" : "var(--muted)") + '">' +
-      esc(label) + ': <b style="color:var(--fg)">' + esc(val) + "</b></span>";
-  }
-
-  async function loadStatus() {
-    var el = document.getElementById("jmemStatus");
-    if (!el) return;
-    var d = {};
-    try { d = await fetch("api/jarvis-memory/status").then(function (r) { return r.json(); }); } catch (e) { return; }
-    if (!d || d.available === false) {
-      el.innerHTML = '<span style="color:var(--muted);font-size:12px">Memory not initialized yet.</span>';
-      return;
-    }
-    var html = _chip("Provider", "jarvis_memory");
-    html += _chip("Embedder", (d.embed_model || "?") + " · " + (d.embed_dim || "?") + "d");
-    html += _chip("Extraction", d.extract_model || d.extract || "?");
-    html += _chip("Ollama", d.ollama_running ? "up" : "down (" + (d.ollama_url || "") + ")", !d.ollama_running);
-    html += _chip("Memories", String(d.count != null ? d.count : "?"));
-    el.innerHTML = html;
-  }
-
   var _logTimer = null;
 
   async function loadLogs() {
@@ -272,8 +278,8 @@
   function startLogPolling() {
     if (_logTimer) clearInterval(_logTimer);
     _logTimer = setInterval(function () {
-      var p = document.getElementById("panelJmemory");
-      if (!p || !p.classList.contains("active")) {  // stop when the panel is left
+      var el = document.getElementById("mainJmemory");
+      if (!el || el.style.display === "none") {  // stop when the panel is hidden
         clearInterval(_logTimer);
         _logTimer = null;
         return;
@@ -294,9 +300,9 @@
 
   function init() {
     injectNavButtons();
-    ensurePanel();  // create the panel container up-front so switchPanel can show it
-    // Re-inject/re-create if the nav/panels are re-rendered later (best-effort).
-    setTimeout(function () { injectNavButtons(); ensurePanel(); }, 1500);
+    ensurePanel();
+    attachLeaveHandlers();
+    setTimeout(function () { injectNavButtons(); ensurePanel(); attachLeaveHandlers(); }, 1500);
   }
 
   if (document.readyState === "loading") {
