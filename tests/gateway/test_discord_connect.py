@@ -905,3 +905,15 @@ async def test_safe_sync_detects_contexts_drift():
     fake_http.edit_global_command.assert_not_awaited()
     fake_http.delete_global_command.assert_awaited_once_with(999, 77)
     fake_http.upsert_global_command.assert_awaited_once_with(999, desired)
+
+
+def test_connect_missing_token_is_nonretryable_fatal():
+    """A missing bot token is a permanent config condition: connect() must mark
+    a non-retryable fatal error so the gateway disables Discord instead of
+    reconnecting (and ERROR-spamming) forever."""
+    adapter = DiscordAdapter(PlatformConfig(enabled=True, token=""))
+    ok = asyncio.run(adapter.connect())
+    assert ok is False
+    assert adapter.has_fatal_error is True
+    assert adapter.fatal_error_retryable is False
+    assert adapter.fatal_error_code == "discord_missing_token"

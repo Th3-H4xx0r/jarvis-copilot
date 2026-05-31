@@ -626,7 +626,14 @@ class DiscordAdapter(BasePlatformAdapter):
                 logger.warning("Opus codec not found — voice channel playback disabled")
 
         if not self.config.token:
-            logger.error("[%s] No bot token configured", self.name)
+            # A missing token is a permanent config condition, not a transient
+            # failure — mark it non-retryable so the gateway disables Discord
+            # instead of reconnecting (and ERROR-spamming) forever.
+            logger.warning(
+                "[%s] No bot token configured — Discord disabled "
+                "(set DISCORD_BOT_TOKEN to enable)", self.name,
+            )
+            self._set_fatal_error("discord_missing_token", "No bot token configured", retryable=False)
             return False
 
         try:

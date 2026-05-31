@@ -1221,7 +1221,7 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
         # Honour the wakeAgent gate as a silent signal — `wakeAgent: false`
         # means "nothing to report this tick", same as empty stdout.
         if not _parse_wake_gate(output):
-            logger.info(
+            logger.debug(
                 "Job '%s' (no_agent): wakeAgent=false gate — silent run", job_id
             )
             silent_doc = (
@@ -1234,7 +1234,7 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
             return True, silent_doc, SILENT_MARKER, None
 
         if not output.strip():
-            logger.info("Job '%s' (no_agent): empty stdout — silent run", job_id)
+            logger.debug("Job '%s' (no_agent): empty stdout — silent run", job_id)
             silent_doc = (
                 f"# Cron Job: {job_name}\n\n"
                 f"**Job ID:** {job_id}\n"
@@ -1879,7 +1879,7 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                 # empty-response guard below mark the run as a soft failure.
                 should_deliver = bool(deliver_content.strip())
                 if should_deliver and success and SILENT_MARKER in deliver_content.strip().upper():
-                    logger.info("Job '%s': agent returned %s — skipping delivery", job["id"], SILENT_MARKER)
+                    logger.debug("Job '%s': agent returned %s — skipping delivery", job["id"], SILENT_MARKER)
                     should_deliver = False
 
                 delivery_error = None

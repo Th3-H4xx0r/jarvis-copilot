@@ -361,14 +361,22 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
             # already consumed the stream — recover from what we collected rather
             # than failing the turn or paying for a second request.
             if collected_output_items:
-                logger.warning(
+                # Expected for the ChatGPT Codex backend (gpt-5.5): the SDK's
+                # stream state machine chokes but we already collected the items.
+                # DEBUG, not WARNING — this is a clean, reliable recovery that
+                # fires every request on that backend (was log spam).
+                logger.debug(
                     "Codex stream raised %s (%s); recovering from %d collected output item(s). %s",
                     type(exc).__name__, exc, len(collected_output_items), agent._client_log_context(),
                 )
-                return SimpleNamespace(output=list(collected_output_items), output_text="", status="completed")
+                # Populate output_text from streamed deltas so text-only callers
+                # (e.g. auxiliary title generation) get usable content and don't
+                # fall back to a local summary.
+                _assembled = "".join(agent._codex_streamed_text_parts or [])
+                return SimpleNamespace(output=list(collected_output_items), output_text=_assembled, status="completed")
             if agent._codex_streamed_text_parts and not has_tool_calls:
                 assembled = "".join(agent._codex_streamed_text_parts)
-                logger.warning(
+                logger.debug(
                     "Codex stream raised %s (%s); recovering from %d streamed text delta(s). %s",
                     type(exc).__name__, exc, len(agent._codex_streamed_text_parts), agent._client_log_context(),
                 )
