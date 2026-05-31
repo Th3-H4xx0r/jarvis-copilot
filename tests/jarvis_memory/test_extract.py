@@ -50,12 +50,47 @@ def test_extraction_empty_stores_nothing(tmp_path):
     p.shutdown()
 
 
-def test_extraction_failure_falls_back_to_raw_capture(tmp_path):
+def test_extraction_failure_skips_by_default(tmp_path):
+    # Default: a failed extraction must NOT dump the raw user turn into memory.
     p = _prov(tmp_path, FakeExtractor(raises=True))
     p.sync_turn("the watch app deploys via deploy_both.sh from mobile_client", "ok")
     p._flush()
-    assert p._store.count_chunks(p._namespace) == 1   # raw user turn captured as fallback
+    assert p._store.count_chunks(p._namespace) == 0   # no raw chat stored
+    p.shutdown()
+
+
+def test_extraction_failure_raw_capture_when_configured(tmp_path):
+    p = _prov(tmp_path, FakeExtractor(raises=True), extract_fallback_raw=True)
+    p.sync_turn("the watch app deploys via deploy_both.sh from mobile_client", "ok")
+    p._flush()
+    assert p._store.count_chunks(p._namespace) == 1
     assert "deploy_both.sh" in p._store.recent_chunks(p._namespace, 5)[0].body
+    p.shutdown()
+
+
+def test_on_memory_write_mirrors_builtin_into_store(tmp_path):
+    p = _prov(tmp_path, None)  # extractor irrelevant for this hook
+    p.on_memory_write("add", "memory",
+                      "When deploying the watch app, run deploy_both.sh from mobile_client",
+                      metadata={"write_origin": "retrospective"})
+    assert p._store.count_chunks(p._namespace) == 1
+    assert "deploy_both" in p._store.recent_chunks(p._namespace, 5)[0].body
+    p.on_memory_write("remove", "memory", "anything")  # ignored
+    assert p._store.count_chunks(p._namespace) == 1
+    p.shutdown()
+
+
+def test_migrate_builtin_memory(tmp_path):
+    mem_dir = tmp_path / "memories"
+    mem_dir.mkdir()
+    (mem_dir / "MEMORY.md").write_text("First lesson prefer X\n§\nSecond note env uses Y")
+    (mem_dir / "USER.md").write_text("Pranav prefers vim and dark mode")
+    p = _prov(tmp_path, None, migrate_builtin=False)  # don't race the bg submit
+    p._migrate_safe(str(tmp_path))
+    assert p._store.count_chunks(p._namespace) == 3  # 2 from MEMORY.md + 1 from USER.md
+    assert p._store.kv_get("__migrate__", "builtin_done") == "1"
+    p._migrate_safe(str(tmp_path))  # idempotent — flag short-circuits
+    assert p._store.count_chunks(p._namespace) == 3
     p.shutdown()
 
 

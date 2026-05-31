@@ -170,6 +170,8 @@ class JarvisMemoryProvider(MemoryProvider):
         from .extract import make_extractor
         self._extractor = make_extractor(cfg)  # None => Phase-1 raw capture
         self._dedup_threshold = float(cfg.get("dedup_threshold", 0.92))
+        self._extract_fallback_raw = bool(cfg.get("extract_fallback_raw", False))
+        self._migrate_builtin = bool(cfg.get("migrate_builtin", True))
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jarvis-mem")
         self._pending: list = []
         self._lock = threading.Lock()
@@ -180,6 +182,10 @@ class JarvisMemoryProvider(MemoryProvider):
         # runtime — that happens once in post_setup.
         if (cfg.get("embedder") or "ollama").lower() == "ollama" and cfg.get("ollama_autostart", True):
             self._pool.submit(self._ensure_ollama)
+        # One-time migration of the builtin MEMORY.md/USER.md into this store
+        # (queued after ensure_ollama so embeddings are available).
+        if self._migrate_builtin:
+            self._pool.submit(self._migrate_safe, hermes_home)
         # Proactive reflections: a periodic background tick (default on when
         # extraction is on). Observation-only; skips on battery / when offline.
         self._proactive_stop = threading.Event()
@@ -261,10 +267,16 @@ class JarvisMemoryProvider(MemoryProvider):
                 try:
                     facts = self._extractor.extract(user_content, assistant_content)
                 except Exception as e:
-                    logger.warning("jarvis_memory extraction unavailable; raw-capture fallback: %s", e)
-                    return ingest_turn(self._store, self._embedder, self._namespace,
-                                       user_content, assistant_content, source="chat",
-                                       roles=self._capture_roles)
+                    # Extraction enabled but failed. By default DON'T store the
+                    # raw user turn (that's the "raw chat in memory" noise) —
+                    # skip it. Set extract_fallback_raw=true to capture raw.
+                    if self._extract_fallback_raw:
+                        logger.warning("jarvis_memory extraction unavailable; raw-capture fallback: %s", e)
+                        return ingest_turn(self._store, self._embedder, self._namespace,
+                                           user_content, assistant_content, source="chat",
+                                           roles=self._capture_roles)
+                    logger.warning("jarvis_memory extraction unavailable; skipping turn (no raw capture): %s", e)
+                    return []
                 return self._store_facts(facts)  # extraction ran (possibly []): store distilled facts only
             return ingest_turn(self._store, self._embedder, self._namespace,
                                user_content, assistant_content, source="chat",
@@ -273,32 +285,68 @@ class JarvisMemoryProvider(MemoryProvider):
             logger.warning("jarvis_memory ingest failed: %s", e)
             return []
 
-    def _store_facts(self, facts):
-        """Store distilled facts, skipping near-duplicates (vector dedup)."""
-        ids = []
-        for fact in facts or []:
-            fact = (fact or "").strip()
-            if not fact:
-                continue
-            emb = None
+    def _store_fact(self, content, source="fact:extracted", tag="fact"):
+        """Store one fact, skipping near-duplicates (vector dedup). Returns id or None."""
+        content = (content or "").strip()
+        if not content:
+            return None
+        emb = None
+        try:
+            emb = self._embedder.embed_one(content)
+        except Exception:
+            pass
+        if emb:
             try:
-                emb = self._embedder.embed_one(fact)
+                hits = self._store.vector_search(self._namespace, emb, self._embedder.signature, limit=1)
+                if hits and hits[0][1] >= self._dedup_threshold:
+                    return None  # already remembered
             except Exception:
                 pass
-            if emb:
-                try:
-                    hits = self._store.vector_search(self._namespace, emb, self._embedder.signature, limit=1)
-                    if hits and hits[0][1] >= self._dedup_threshold:
-                        continue  # already remembered
-                except Exception:
-                    pass
-            use_emb = emb if (emb and len(emb)) else None
-            ids.append(self._store.add_chunk(
-                self._namespace, fact, "fact:extracted", time.time(), 1.0, "fact",
-                embedding=use_emb, signature=self._embedder.signature if use_emb else None,
-                dim=self._embedder.dim if use_emb else None,
-            ))
+        use_emb = emb if (emb and len(emb)) else None
+        return self._store.add_chunk(
+            self._namespace, content, source, time.time(), 1.0, tag,
+            embedding=use_emb, signature=self._embedder.signature if use_emb else None,
+            dim=self._embedder.dim if use_emb else None,
+        )
+
+    def _store_facts(self, facts):
+        ids = []
+        for fact in facts or []:
+            cid = self._store_fact(fact, source="fact:extracted", tag="fact")
+            if cid:
+                ids.append(cid)
         return ids
+
+    def _migrate_safe(self, hermes_home: str):
+        """One-time import of the builtin MEMORY.md/USER.md entries (incl. any
+        self-learning lessons already saved there) into the semantic store."""
+        try:
+            if self._store.kv_get("__migrate__", "builtin_done"):
+                return
+            from .migrate import read_builtin_entries
+            n = 0
+            for content, source in read_builtin_entries(hermes_home):
+                if self._store_fact(content, source=source, tag="builtin"):
+                    n += 1
+            self._store.kv_set("__migrate__", "builtin_done", "1")
+            if n:
+                logger.info("jarvis_memory: migrated %d builtin memory entr(ies) into the store", n)
+        except Exception as e:
+            logger.debug("jarvis_memory builtin migration skipped: %s", e)
+
+    def on_memory_write(self, action, target, content, metadata=None):
+        """Mirror builtin MEMORY.md/USER.md writes — including self-learning
+        lessons saved via memory(action='add', target='memory') — into the
+        semantic store so they're recallable here too."""
+        if action not in ("add", "replace"):
+            return
+        source = "builtin:user" if target == "user" else "builtin:memory"
+        origin = (metadata or {}).get("write_origin")
+        tag = "lesson" if origin in ("retrospective", "background_review") else "builtin"
+        try:
+            self._store_fact(content, source=source, tag=tag)
+        except Exception as e:
+            logger.debug("jarvis_memory on_memory_write failed: %s", e)
 
     def _flush(self):
         """Drain pending background ingests (used by tests and shutdown)."""

@@ -25,6 +25,12 @@ DEFAULTS = {
     "extract": None,               # None|"ollama"|"off"
     "extract_model": "llama3.2:3b",
     "dedup_threshold": 0.92,       # skip a new fact this similar to an existing one
+    # When extraction is enabled but fails, do NOT fall back to storing the raw
+    # user turn (that's the "raw chat in memory" noise). Set True to capture raw
+    # on failure instead of skipping.
+    "extract_fallback_raw": False,
+    # One-time migration of the builtin MEMORY.md/USER.md into this store.
+    "migrate_builtin": True,
     # Proactive reflections (observation cards). None = auto (on when extract on).
     "proactive": None,             # None|True|"off"
     "proactive_interval_min": 30,
