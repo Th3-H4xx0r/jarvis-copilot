@@ -1,0 +1,4 @@
+name: jarvis_memory
+version: 0.1.0
+description: "Semantic long-term memory — SQLite + markdown vault, pluggable embedder (Ollama bge-m3), hybrid vector+keyword recall, automatic capture. Phase 1 of the memory tree."
+hooks: []

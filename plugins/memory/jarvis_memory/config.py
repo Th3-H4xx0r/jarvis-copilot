@@ -1,0 +1,32 @@
+"""Config loader for jarvis_memory — defaults from the design spec, overridable
+via ``plugins.jarvis_memory`` in config.yaml."""
+from __future__ import annotations
+
+from pathlib import Path
+
+DEFAULTS = {
+    "embedder": "ollama",          # "ollama" | "fake" (cloud adapters in later phases)
+    "ollama_url": "http://localhost:11434",
+    "ollama_model": "bge-m3",
+    "embed_dim": 1024,
+    "recall_limit": 5,             # openhuman default
+    "min_relevance": 0.0,          # Phase-1 fusion uses raw fused score; keep permissive
+    "max_context_chars": 2000,     # openhuman default
+    "namespace": "global",
+}
+
+
+def load_config(hermes_home: str) -> dict:
+    """Merge DEFAULTS with config.yaml ``plugins.jarvis_memory`` and resolve paths."""
+    cfg = dict(DEFAULTS)
+    try:
+        from jarviscopilot_cli.config import load_config as _load, cfg_get
+        section = cfg_get(_load(), "plugins", "jarvis_memory") or {}
+        if isinstance(section, dict):
+            cfg.update({k: v for k, v in section.items() if v is not None})
+    except Exception:
+        pass
+    base = Path(hermes_home) / "memory"
+    cfg["db_path"] = str(cfg.get("db_path") or (base / "memory.db"))
+    cfg["vault_dir"] = str(cfg.get("vault_dir") or (base / "namespaces"))
+    return cfg
