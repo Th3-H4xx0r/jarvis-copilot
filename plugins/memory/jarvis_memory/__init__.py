@@ -191,6 +191,33 @@ class JarvisMemoryProvider(MemoryProvider):
             t = threading.Thread(target=self._proactive_loop, args=(hermes_home, interval),
                                  daemon=True, name="jarvis-mem-reflect")
             t.start()
+        # Auto-fetch: ingest configured external sources (folders, later MCP/email)
+        # into memory on a schedule. Only runs if sources are configured.
+        self._autofetch = None
+        try:
+            from .autofetch import AutoFetchScheduler, build_sources
+            sources = build_sources(cfg)
+            if sources:
+                self._autofetch = AutoFetchScheduler(sources, self._store, self._embedder, self._namespace)
+                self._pool.submit(self._autofetch_safe)  # initial pass (pick up existing files)
+                af_interval = max(5, int(cfg.get("autofetch_interval_min", 20))) * 60
+                threading.Thread(target=self._autofetch_loop, args=(af_interval,),
+                                 daemon=True, name="jarvis-mem-autofetch").start()
+        except Exception as e:
+            logger.debug("jarvis_memory autofetch setup skipped: %s", e)
+
+    def _autofetch_safe(self):
+        try:
+            if self._autofetch:
+                self._autofetch.run_once()
+        except Exception as e:
+            logger.debug("jarvis_memory autofetch run failed: %s", e)
+
+    def _autofetch_loop(self, interval: int):
+        while not self._proactive_stop.wait(interval):
+            if self._on_battery():
+                continue
+            self._autofetch_safe()
 
     @staticmethod
     def _on_battery() -> bool:

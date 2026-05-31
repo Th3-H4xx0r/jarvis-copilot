@@ -28,6 +28,11 @@ DEFAULTS = {
     # Proactive reflections (observation cards). None = auto (on when extract on).
     "proactive": None,             # None|True|"off"
     "proactive_interval_min": 30,
+    # Auto-fetch external sources into memory (empty = disabled). Folder paths
+    # whose text files are ingested incrementally. MCP/email sources plug into
+    # the same SyncSource ABC (see autofetch.py).
+    "autofetch_folders": [],
+    "autofetch_interval_min": 20,
 }
 
 
