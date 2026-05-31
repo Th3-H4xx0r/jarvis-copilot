@@ -8,11 +8,10 @@ struct ContentView: View {
     @ObservedObject var connector: WatchConnector
     @StateObject private var vm: WatchViewModel
     @ObservedObject private var voice = VoiceStatus.shared
-    @State private var dictated = ""
     @State private var activeSheet: ActiveSheet?
     @State private var vol: Float = 0   // live system volume shown in the drawer
 
-    enum ActiveSheet: Int, Identifiable { case dictation, volume; var id: Int { rawValue } }
+    enum ActiveSheet: Int, Identifiable { case volume; var id: Int { rawValue } }
 
     init(connector: WatchConnector) {
         self.connector = connector
@@ -37,17 +36,12 @@ struct ContentView: View {
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
-            case .dictation: dictationSheet
             case .volume: volumeSheet
             }
         }
-        // Launched from the watch-face complication (jarviswatch://listen) →
-        // go straight into dictation.
-        .onOpenURL { url in
-            if url.host == "listen" || url.path.contains("listen") {
-                activeSheet = .dictation
-            }
-        }
+        // The orb is a TextFieldLink, so dictation can't be opened
+        // programmatically; the complication (jarviswatch://listen) just brings
+        // the app forward to the orb — one tap to talk.
     }
 
     @ViewBuilder private var content: some View {
@@ -101,9 +95,19 @@ struct ContentView: View {
         }
     }
 
+    // The orb IS the dictation trigger: TextFieldLink (watchOS 9+) presents the
+    // system dictation UI directly on press — no separate text field to tap, no
+    // sheet. Native, on-device dictation auto-ends on silence and returns the
+    // text via onSubmit, which we send straight to the agent. (One tap → talk.)
     private func orbButton(_ mode: VoiceOrb.Mode, size: CGFloat) -> some View {
-        Button { activeSheet = .dictation } label: { VoiceOrb(mode: mode, size: size) }
-            .buttonStyle(.plain)
+        TextFieldLink(prompt: Text("Speak to JARVIS")) {
+            VoiceOrb(mode: mode, size: size)
+        } onSubmit: { text in
+            let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty else { return }
+            Task { await vm.submit(text: t) }
+        }
+        .buttonStyle(.plain)
     }
 
     private var volumeButton: some View {
@@ -112,19 +116,6 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
-    }
-
-    // Tapping the field brings up the watchOS dictation/scribble input.
-    private var dictationSheet: some View {
-        VStack(spacing: 10) {
-            Text("Speak to JARVIS").font(.headline)
-            TextField("Tap, then dictate…", text: $dictated)
-                .onSubmit { submit() }
-            Button("Ask") { submit() }
-                .buttonStyle(.borderedProminent)
-                .disabled(dictated.trimmingCharacters(in: .whitespaces).isEmpty)
-        }
-        .padding()
     }
 
     // Drawer: the last clip loops quietly while open so the Digital Crown adjusts
@@ -150,10 +141,4 @@ struct ContentView: View {
         }
     }
 
-    private func submit() {
-        let text = dictated
-        dictated = ""
-        activeSheet = nil
-        Task { await vm.submit(text: text) }
-    }
 }
