@@ -4414,6 +4414,8 @@ def handle_get(handler, parsed) -> bool:
         return _handle_jarvis_memory_stats(handler)
     if parsed.path == "/api/jarvis-memory/search":
         return _handle_jarvis_memory_search(handler, parsed)
+    if parsed.path == "/api/jarvis-memory/reflections":
+        return _handle_jarvis_memory_reflections(handler)
     if parsed.path == "/api/notify/targets":
         return _handle_notify_list(handler)
 
@@ -5391,6 +5393,10 @@ def handle_post(handler, parsed) -> bool:
         return _handle_code_memory_update(handler, body)
     if parsed.path == "/api/jarvis-memory/delete":
         return _handle_jarvis_memory_delete(handler, body)
+    if parsed.path == "/api/jarvis-memory/reflections/dismiss":
+        return _handle_jarvis_memory_reflection_dismiss(handler, body)
+    if parsed.path == "/api/jarvis-memory/reflections/run":
+        return _handle_jarvis_memory_reflection_run(handler)
     if parsed.path == "/api/notify":
         return _handle_notify(handler, body)
 
@@ -10366,6 +10372,48 @@ def _handle_jarvis_memory_search(handler, parsed):
         return j(handler, {"available": True, "namespace": ns, "entries": entries})
     finally:
         store.close()
+
+
+def _jarvis_reflect_store():
+    from pathlib import Path
+    from plugins.memory.jarvis_memory.proactive import ReflectionStore
+    return ReflectionStore(str(Path(_code_mem_home()) / "memory" / "reflections.db"))
+
+
+def _handle_jarvis_memory_reflections(handler):
+    try:
+        st = _jarvis_reflect_store()
+    except Exception as e:
+        return j(handler, {"available": False, "error": str(e), "reflections": []})
+    try:
+        return j(handler, {"available": True, "reflections": st.list(status="new", limit=50)})
+    finally:
+        st.close()
+
+
+def _handle_jarvis_memory_reflection_dismiss(handler, body):
+    try:
+        require(body, "id")
+    except ValueError as e:
+        return bad(handler, str(e))
+    try:
+        st = _jarvis_reflect_store()
+    except Exception as e:
+        return bad(handler, str(e))
+    try:
+        return j(handler, {"ok": st.dismiss(body["id"])})
+    finally:
+        st.close()
+
+
+def _handle_jarvis_memory_reflection_run(handler):
+    try:
+        import time as _t
+        from plugins.memory.jarvis_memory.proactive import run_tick
+        cards = run_tick(str(_code_mem_home()), _t.time())
+        return j(handler, {"ok": True, "new": cards})
+    except Exception as e:
+        return j(handler, {"ok": False, "error": str(e), "new": []})
 
 
 def _handle_jarvis_memory_delete(handler, body):

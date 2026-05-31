@@ -180,6 +180,37 @@ class JarvisMemoryProvider(MemoryProvider):
         # runtime — that happens once in post_setup.
         if (cfg.get("embedder") or "ollama").lower() == "ollama" and cfg.get("ollama_autostart", True):
             self._pool.submit(self._ensure_ollama)
+        # Proactive reflections: a periodic background tick (default on when
+        # extraction is on). Observation-only; skips on battery / when offline.
+        self._proactive_stop = threading.Event()
+        proactive = cfg.get("proactive")
+        if proactive is None:
+            proactive = self._extractor is not None
+        if proactive and str(proactive).lower() not in ("off", "false", "0"):
+            interval = max(5, int(cfg.get("proactive_interval_min", 30))) * 60
+            t = threading.Thread(target=self._proactive_loop, args=(hermes_home, interval),
+                                 daemon=True, name="jarvis-mem-reflect")
+            t.start()
+
+    @staticmethod
+    def _on_battery() -> bool:
+        try:
+            import psutil
+            b = psutil.sensors_battery()
+            return bool(b) and not b.power_plugged
+        except Exception:
+            return False
+
+    def _proactive_loop(self, hermes_home: str, interval: int):
+        import time as _t
+        from .proactive import run_tick
+        while not self._proactive_stop.wait(interval):  # wait first -> no tick at startup
+            try:
+                if self._on_battery():
+                    continue
+                run_tick(hermes_home, _t.time())
+            except Exception as e:
+                logger.debug("jarvis_memory proactive tick failed: %s", e)
 
     def _ensure_ollama(self):
         try:
@@ -339,6 +370,8 @@ class JarvisMemoryProvider(MemoryProvider):
 
     def shutdown(self) -> None:
         try:
+            if getattr(self, "_proactive_stop", None) is not None:
+                self._proactive_stop.set()
             self._flush()
             self._pool.shutdown(wait=True)
             self._store.close()

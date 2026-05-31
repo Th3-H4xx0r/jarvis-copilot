@@ -71,6 +71,7 @@
     if (!body.dataset.built) {
       body.dataset.built = "1";
       body.innerHTML =
+        '<div id="jmemReflect" style="margin-bottom:14px"></div>' +
         '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">' +
         '<input id="jmemQ" type="text" placeholder="Search your long-term memory…" ' +
         'style="flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">' +
@@ -166,9 +167,55 @@
     }
   }
 
+  async function loadReflections() {
+    var el = document.getElementById("jmemReflect");
+    if (!el) return;
+    var data = { reflections: [] };
+    try {
+      data = await fetch("api/jarvis-memory/reflections").then(function (r) { return r.json(); });
+    } catch (e) { return; }
+    var cards = (data && data.reflections) || [];
+    var head =
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+      '<span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Insights</span>' +
+      '<button id="jmemReflRefresh" style="margin-left:auto;font-size:11px;background:none;border:1px solid var(--border);' +
+      'border-radius:6px;padding:2px 8px;color:var(--muted);cursor:pointer">Refresh</button></div>';
+    var bodyHtml = cards.map(function (c) {
+      return '<div class="jmem-card" data-id="' + esc(c.id) + '" ' +
+        'style="padding:9px 11px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px;background:var(--card,var(--bg))">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-weight:600">' + esc(c.title) + "</span>" +
+        '<span style="font-size:10px;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:0 6px">' + esc(c.kind || "") + "</span>" +
+        '<button class="jmem-refl-dismiss" data-id="' + esc(c.id) + '" ' +
+        'style="margin-left:auto;font-size:11px;color:var(--muted);background:none;border:none;cursor:pointer">Dismiss</button></div>' +
+        (c.body ? '<div style="margin-top:4px;color:var(--muted);font-size:12px">' + esc(c.body) + "</div>" : "") +
+        "</div>";
+    }).join("");
+    el.innerHTML = head + (cards.length ? bodyHtml :
+      '<div style="font-size:12px;color:var(--muted)">No insights yet — they appear as Jarvis reviews your memory.</div>');
+    var refresh = document.getElementById("jmemReflRefresh");
+    if (refresh) refresh.addEventListener("click", async function () {
+      refresh.textContent = "Thinking…";
+      try { await fetch("api/jarvis-memory/reflections/run", { method: "POST" }); } catch (e) {}
+      await loadReflections();
+    });
+    el.querySelectorAll(".jmem-refl-dismiss").forEach(function (b) {
+      b.addEventListener("click", async function () {
+        try {
+          await fetch("api/jarvis-memory/reflections/dismiss", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: Number(b.getAttribute("data-id")) }),
+          });
+        } catch (e) {}
+        loadReflections();
+      });
+    });
+  }
+
   window.loadJarvisMemory = async function () {
     renderShell();
     await loadStats();
+    await loadReflections();
     await runSearch();
   };
 

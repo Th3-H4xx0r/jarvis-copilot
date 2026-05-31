@@ -25,6 +25,9 @@ DEFAULTS = {
     "extract": None,               # None|"ollama"|"off"
     "extract_model": "llama3.2:3b",
     "dedup_threshold": 0.92,       # skip a new fact this similar to an existing one
+    # Proactive reflections (observation cards). None = auto (on when extract on).
+    "proactive": None,             # None|True|"off"
+    "proactive_interval_min": 30,
 }
 
 
