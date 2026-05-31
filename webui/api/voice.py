@@ -377,24 +377,19 @@ def _voice_quality_turn(handler, body) -> bool:
                 return False
         return True
 
-    first_text_emitted = False
-    pending_final = None  # most-recent non-ack text segment (the final answer)
     try:
         for seg in _run_agent_turn_via_chat(session_id, transcript):
             if seg.get("kind") == "text":
                 text = (seg.get("text") or "").strip()
                 if not text:
                     continue
-                if not first_text_emitted:
-                    first_text_emitted = True
-                    if not _emit_text(text):
-                        return True
-                else:
-                    pending_final = text  # keep only the latest; middle narration is dropped
+                # Emit/synthesize each sentence-sized segment as it streams, so
+                # speech starts immediately and stays low-latency. The voice
+                # directive keeps the model to an ack + the answer (no step
+                # narration); tool segments are suppressed below either way.
+                if not _emit_text(text):
+                    return True
             # tool segments are intentionally suppressed in voice mode
-        # Flush the final answer if it's distinct from the ack we already sent.
-        if pending_final:
-            _emit_text(pending_final)
     except _VoiceAgentError as exc:
         _emit({"type": "error", "error": str(exc), "status": exc.status})
     except Exception as exc:
@@ -532,6 +527,14 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str):
             if event_type == "token":
                 if isinstance(data, dict):
                     current_text.append(str(data.get("text") or ""))
+                    # Stream by sentence: emit completed sentence(s) as soon as
+                    # they're written so the client can synthesize + speak them
+                    # immediately, rather than waiting for the whole answer.
+                    _joined = "".join(current_text)
+                    _emit_now, _remainder = _take_complete_sentences(_joined)
+                    if _emit_now:
+                        current_text = [_remainder] if _remainder else []
+                        yield {"kind": "text", "text": _emit_now}
             elif event_type == "tool":
                 # Flush any in-progress text segment first — that's what
                 # gives us the "ack before tool" cadence.
@@ -731,6 +734,28 @@ def _speakable(text: str) -> str:
     s = s.replace("•", " ").replace("→", " to ")
     s = _SPK_MULTI_NL.sub("\n\n", s)
     return s.strip()
+
+
+import re as _re_voice
+_SENTENCE_END = _re_voice.compile(r"[.!?](?:[\"')\]]+)?(?:\s|$)")
+
+
+def _take_complete_sentences(buf: str, min_len: int = 110):
+    """Return (text_to_speak_or_None, remainder).
+
+    Emits everything up to the last sentence terminator once the buffer holds at
+    least `min_len` chars, so voice can synthesize/speak a sentence group as it
+    streams (low latency) instead of waiting for the whole answer. Below min_len
+    we keep accumulating to avoid lots of tiny TTS calls.
+    """
+    if len(buf) < min_len:
+        return None, buf
+    matches = list(_SENTENCE_END.finditer(buf))
+    if not matches:
+        return None, buf
+    cut = matches[-1].end()
+    head = buf[:cut].strip()
+    return (head or None), buf[cut:]
 
 
 def _split_for_speech(text: str, target: int = 480, hard: int = 900) -> list:
