@@ -798,26 +798,39 @@ class _CodexCompletionsAdapter:
                 timeout_timer.daemon = True
                 timeout_timer.start()
             _check_cancelled()
-            with self._client.responses.stream(**resp_kwargs) as stream:
-                for _event in stream:
+            try:
+                with self._client.responses.stream(**resp_kwargs) as stream:
+                    for _event in stream:
+                        _check_cancelled()
+                        _etype = getattr(_event, "type", "")
+                        if _etype == "response.output_item.done":
+                            _done = getattr(_event, "item", None)
+                            if _done is not None:
+                                collected_output_items.append(_done)
+                        elif "output_text.delta" in _etype:
+                            _delta = getattr(_event, "delta", "")
+                            if _delta:
+                                collected_text_deltas.append(_delta)
+                        elif "function_call" in _etype:
+                            has_function_calls = True
                     _check_cancelled()
-                    _etype = getattr(_event, "type", "")
-                    if _etype == "response.output_item.done":
-                        _done = getattr(_event, "item", None)
-                        if _done is not None:
-                            collected_output_items.append(_done)
-                    elif "output_text.delta" in _etype:
-                        _delta = getattr(_event, "delta", "")
-                        if _delta:
-                            collected_text_deltas.append(_delta)
-                    elif "function_call" in _etype:
-                        has_function_calls = True
-                _check_cancelled()
-                final = stream.get_final_response()
+                    final = stream.get_final_response()
+            except (TypeError, AttributeError) as _sdk_exc:
+                # The ChatGPT Codex backend (gpt-5.5) trips the SDK's Responses
+                # state machine ("'NoneType' object is not iterable"). Recover
+                # from what we already streamed instead of failing the call
+                # (mirrors agent/codex_runtime.py).
+                if timed_out.is_set():
+                    raise
+                logger.debug(
+                    "Codex auxiliary stream raised %s; recovering from %d item(s)/%d delta(s)",
+                    type(_sdk_exc).__name__, len(collected_output_items), len(collected_text_deltas),
+                )
+                final = SimpleNamespace(output=None, usage=None)
 
-            # Backfill empty output from collected stream events
+            # Backfill empty/None output from collected stream events
             _output = getattr(final, "output", None)
-            if isinstance(_output, list) and not _output:
+            if not _output:  # None OR empty list
                 if collected_output_items:
                     final.output = list(collected_output_items)
                     logger.debug(
