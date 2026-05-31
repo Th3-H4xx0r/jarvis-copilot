@@ -43,7 +43,7 @@ def test_auxiliary_extractor_uses_call_llm(monkeypatch):
 
 def test_sweep_transient_once(tmp_path):
     import time
-    p = _prov(tmp_path, None)
+    p = _prov(tmp_path, None, sweep_transient=False)  # avoid racing the bg sweep
     s, ns = p._store, p._namespace
     s.add_chunk(ns, "http://127.0.0.1:8765/healthz is reachable", "fact:extracted", time.time(), 1.0, "fact")
     s.add_chunk(ns, "On Telegram", "fact:extracted", time.time(), 1.0, "fact")

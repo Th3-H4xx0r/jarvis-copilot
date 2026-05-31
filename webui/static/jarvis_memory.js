@@ -57,6 +57,7 @@
         '<path d="M18 3l1.2 3.2L22.4 7l-3.2 1.2L18 11l-1.2-2.8L13.6 7l3.2-.8z"/></svg>';
       btn.onclick = function () {
         try { if (typeof switchPanel === "function") switchPanel("jmemory", { fromRailClick: true }); } catch (e) {}
+        document.body.classList.add("cm-fullwidth");  // full-screen (hide chat sidebar)
         ensurePanel();
         window.loadJarvisMemory();
       };
@@ -71,12 +72,17 @@
     if (!body.dataset.built) {
       body.dataset.built = "1";
       body.innerHTML =
+        '<div id="jmemStatus" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>' +
         '<div id="jmemReflect" style="margin-bottom:14px"></div>' +
         '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">' +
         '<input id="jmemQ" type="text" placeholder="Search your long-term memory…" ' +
         'style="flex:1;min-width:200px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg)">' +
         '<select id="jmemNs" style="padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg)"></select>' +
-        '</div><div id="jmemList"></div>';
+        '</div><div id="jmemList"></div>' +
+        '<div style="margin-top:18px">' +
+        '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Memory activity (live)</div>' +
+        '<div id="jmemLogs" style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--card,var(--bg))"></div>' +
+        '</div>';
       var q = document.getElementById("jmemQ");
       var t = null;
       q.addEventListener("input", function () {
@@ -212,11 +218,72 @@
     });
   }
 
+  function _chip(label, val, danger) {
+    return '<span style="font-size:11px;padding:3px 9px;border:1px solid var(--border);border-radius:999px;' +
+      'color:' + (danger ? "var(--danger,#c33)" : "var(--muted)") + '">' +
+      esc(label) + ': <b style="color:var(--fg)">' + esc(val) + "</b></span>";
+  }
+
+  async function loadStatus() {
+    var el = document.getElementById("jmemStatus");
+    if (!el) return;
+    var d = {};
+    try { d = await fetch("api/jarvis-memory/status").then(function (r) { return r.json(); }); } catch (e) { return; }
+    if (!d || d.available === false) {
+      el.innerHTML = '<span style="color:var(--muted);font-size:12px">Memory not initialized yet.</span>';
+      return;
+    }
+    var html = _chip("Provider", "jarvis_memory");
+    html += _chip("Embedder", (d.embed_model || "?") + " · " + (d.embed_dim || "?") + "d");
+    html += _chip("Extraction", d.extract_model || d.extract || "?");
+    html += _chip("Ollama", d.ollama_running ? "up" : "down (" + (d.ollama_url || "") + ")", !d.ollama_running);
+    html += _chip("Memories", String(d.count != null ? d.count : "?"));
+    el.innerHTML = html;
+  }
+
+  var _logTimer = null;
+
+  async function loadLogs() {
+    var el = document.getElementById("jmemLogs");
+    if (!el) return;
+    var d = { logs: [] };
+    try { d = await fetch("api/jarvis-memory/logs").then(function (r) { return r.json(); }); } catch (e) { return; }
+    var logs = (d && d.logs) || [];
+    if (!logs.length) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:12px">No memory activity yet.</div>';
+      return;
+    }
+    el.innerHTML = logs.slice().reverse().map(function (l) {
+      var t = "";
+      try { t = new Date((l.ts || 0) * 1000).toLocaleTimeString(); } catch (e) {}
+      var warn = l.level === "WARNING" || l.level === "ERROR";
+      return '<div style="font-family:ui-monospace,monospace;font-size:11px;line-height:1.5;' +
+        'color:' + (warn ? "var(--danger,#c33)" : "var(--fg)") + '">' +
+        '<span style="opacity:.5">' + esc(t) + "</span> " + esc(l.msg) + "</div>";
+    }).join("");
+  }
+
+  function startLogPolling() {
+    if (_logTimer) clearInterval(_logTimer);
+    _logTimer = setInterval(function () {
+      var p = document.getElementById("panelJmemory");
+      if (!p || !p.classList.contains("active")) {  // stop when the panel is left
+        clearInterval(_logTimer);
+        _logTimer = null;
+        return;
+      }
+      loadLogs();
+    }, 3000);
+  }
+
   window.loadJarvisMemory = async function () {
     renderShell();
+    await loadStatus();
     await loadStats();
     await loadReflections();
     await runSearch();
+    await loadLogs();
+    startLogPolling();
   };
 
   function init() {

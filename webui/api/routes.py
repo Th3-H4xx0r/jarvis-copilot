@@ -4412,6 +4412,10 @@ def handle_get(handler, parsed) -> bool:
     # ── Long-term memory (jarvis_memory) API (GET) ──
     if parsed.path == "/api/jarvis-memory/stats":
         return _handle_jarvis_memory_stats(handler)
+    if parsed.path == "/api/jarvis-memory/status":
+        return _handle_jarvis_memory_status(handler)
+    if parsed.path == "/api/jarvis-memory/logs":
+        return _handle_jarvis_memory_logs(handler)
     if parsed.path == "/api/jarvis-memory/search":
         return _handle_jarvis_memory_search(handler, parsed)
     if parsed.path == "/api/jarvis-memory/reflections":
@@ -10342,6 +10346,23 @@ def _handle_jarvis_memory_stats(handler):
                            "namespaces": [{"namespace": n, "count": c} for n, c in ns]})
     finally:
         store.close()
+
+
+def _handle_jarvis_memory_status(handler):
+    try:
+        from plugins.memory.jarvis_memory.status import memory_status
+        return j(handler, memory_status(str(_code_mem_home())))
+    except Exception as e:
+        return j(handler, {"available": False, "error": str(e)})
+
+
+def _handle_jarvis_memory_logs(handler):
+    try:
+        from plugins.memory.jarvis_memory.mem_log import get_logs, install_handler
+        install_handler()
+        return j(handler, {"logs": get_logs(200)})
+    except Exception as e:
+        return j(handler, {"logs": [], "error": str(e)})
 
 
 def _handle_jarvis_memory_search(handler, parsed):

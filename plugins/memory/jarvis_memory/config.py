@@ -32,6 +32,8 @@ DEFAULTS = {
     "extract_fallback_raw": False,
     # One-time migration of the builtin MEMORY.md/USER.md into this store.
     "migrate_builtin": True,
+    # One-time sweep of pre-existing transient extracted memories.
+    "sweep_transient": True,
     # Proactive reflections (observation cards). None = auto (on when extract on).
     "proactive": None,             # None|True|"off"
     "proactive_interval_min": 30,

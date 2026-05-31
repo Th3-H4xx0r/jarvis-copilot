@@ -18,6 +18,7 @@ from agent.memory_provider import MemoryProvider
 from .config import load_config
 from .embed import make_embedder
 from .ingest import ingest_turn
+from .mem_log import install_handler, log_event
 from .recall import format_recall_block, hybrid_recall
 from .store import GLOBAL_NS, MemoryStore
 
@@ -181,6 +182,7 @@ class JarvisMemoryProvider(MemoryProvider):
 
     def initialize(self, session_id: str, **kwargs) -> None:
         self._session_id = session_id
+        install_handler()  # memory-only log ring for the webui panel (idempotent)
         hermes_home = kwargs.get("hermes_home") or "."
         cfg = load_config(hermes_home)
         cfg.update(kwargs.get("_config_override") or {})  # test hook
@@ -216,7 +218,8 @@ class JarvisMemoryProvider(MemoryProvider):
             self._pool.submit(self._migrate_safe, hermes_home)
         # One-time cleanup of clearly-transient extracted memories (endpoints/
         # ports/health-checks/fragments) created before the transient filter.
-        self._pool.submit(self._sweep_transient_once)
+        if cfg.get("sweep_transient", True):
+            self._pool.submit(self._sweep_transient_once)
         # Proactive reflections: a periodic background tick (default on when
         # extraction is on). Observation-only; skips on battery / when offline.
         self._proactive_stop = threading.Event()
@@ -312,6 +315,7 @@ class JarvisMemoryProvider(MemoryProvider):
                                            user_content, assistant_content, source="chat",
                                            roles=self._capture_roles)
                     logger.warning("jarvis_memory extraction unavailable; skipping turn (no raw capture): %s", e)
+                    log_event("skipped a turn — extraction model unavailable")
                     return []
                 return self._store_facts(facts)  # extraction ran (possibly []): store distilled facts only
             return ingest_turn(self._store, self._embedder, self._namespace,
@@ -354,6 +358,8 @@ class JarvisMemoryProvider(MemoryProvider):
             cid = self._store_fact(fact, source="fact:extracted", tag="fact")
             if cid:
                 ids.append(cid)
+        if ids:
+            log_event("captured %d fact(s): %s", len(ids), facts[0][:80] if facts else "")
         return ids
 
     def _migrate_safe(self, hermes_home: str):
@@ -401,7 +407,8 @@ class JarvisMemoryProvider(MemoryProvider):
         origin = (metadata or {}).get("write_origin")
         tag = "lesson" if origin in ("retrospective", "background_review") else "builtin"
         try:
-            self._store_fact(content, source=source, tag=tag)
+            if self._store_fact(content, source=source, tag=tag):
+                log_event("mirrored a builtin %s write (%s)", target, tag)
         except Exception as e:
             logger.debug("jarvis_memory on_memory_write failed: %s", e)
 

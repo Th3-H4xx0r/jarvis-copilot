@@ -111,6 +111,47 @@ class OllamaReflector(Reflector):
         return parse_cards((data.get("message") or {}).get("content", ""))
 
 
+class AuxiliaryReflector(Reflector):
+    """Reflect via the user's configured model (e.g. gpt-5.5) — same path as
+    fact extraction. Better than a weak local model and needs no Ollama."""
+
+    def __init__(self, model: str = None, provider: str = None, timeout: float = 30.0):
+        self._model = model or None
+        self._provider = provider or None
+        self._timeout = timeout
+
+    def reflect(self, report, recent_titles):
+        from agent.auxiliary_client import call_llm
+        user = f"Recent memory:\n{report}\n\nRecent cards (do not repeat):\n"
+        user += "\n".join(f"- {t}" for t in recent_titles) or "- (none)"
+        resp = call_llm(
+            task="memory_reflection",
+            provider=self._provider, model=self._model,
+            messages=[{"role": "system", "content": REFLECT_SYSTEM},
+                      {"role": "user", "content": user}],
+            max_tokens=600, temperature=0.2, timeout=self._timeout,
+        )
+        content = (resp.choices[0].message.content or "") if resp and resp.choices else ""
+        return parse_cards(content)
+
+
+def make_reflector(cfg: dict):
+    """Pick a reflector matching the extraction backend (configured model by
+    default; local Ollama or off as configured). Returns None when disabled."""
+    kind = cfg.get("extract")
+    if kind is None:
+        kind = "off" if (cfg.get("embedder") or "ollama").lower() == "fake" else "model"
+    kind = str(kind).lower()
+    if kind in ("off", "none", "false", "0"):
+        return None
+    if kind in ("model", "aux", "configured", "main"):
+        return AuxiliaryReflector(model=cfg.get("extract_model") or None)
+    if kind == "ollama":
+        return OllamaReflector(model=cfg.get("extract_ollama_model", "llama3.2:3b"),
+                               url=cfg.get("ollama_url", "http://localhost:11434"))
+    return None
+
+
 class ReflectionStore:
     def __init__(self, db_path):
         self.db_path = str(db_path)
@@ -242,18 +283,26 @@ def run_tick(hermes_home: str, now_ts: float) -> List[dict]:
     from . import ollama_bootstrap as ob
 
     cfg = load_config(hermes_home)
-    url = cfg.get("ollama_url", "http://localhost:11434")
-    if not ob.is_running(url):  # no local LLM -> skip silently
+    reflector = make_reflector(cfg)
+    if reflector is None:
+        return []
+    # Only a LOCAL Ollama reflector needs Ollama up; the configured-model
+    # reflector (call_llm) doesn't.
+    if isinstance(reflector, OllamaReflector) and not ob.is_running(
+            cfg.get("ollama_url", "http://localhost:11434")):
         return []
     mem = MemoryStore(cfg["db_path"], cfg["vault_dir"])
     rstore = ReflectionStore(str(Path(hermes_home) / "memory" / "reflections.db"))
     try:
-        engine = ProactiveEngine(
-            rstore, mem,
-            OllamaReflector(model=cfg.get("extract_model", "llama3.2:3b"), url=url),
-            namespace=cfg.get("namespace") or "global",
-        )
-        return engine.tick(now_ts)
+        engine = ProactiveEngine(rstore, mem, reflector, namespace=cfg.get("namespace") or "global")
+        cards = engine.tick(now_ts)
+        if cards:
+            try:
+                from .mem_log import log_event
+                log_event("generated %d insight card(s)", len(cards))
+            except Exception:
+                pass
+        return cards
     finally:
         mem.close()
         rstore.close()
