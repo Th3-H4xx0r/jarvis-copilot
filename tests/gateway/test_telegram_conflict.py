@@ -64,6 +64,18 @@ async def test_connect_rejects_same_host_token_lock(monkeypatch):
     assert "already in use" in adapter.fatal_error_message
 
 
+def test_connect_missing_token_is_nonretryable_fatal():
+    """A missing bot token is a permanent config condition: connect() must mark
+    a non-retryable fatal error so the gateway disables Telegram instead of
+    reconnecting (and ERROR-spamming) forever."""
+    adapter = TelegramAdapter(PlatformConfig(enabled=True, token=""))
+    ok = asyncio.run(adapter.connect())
+    assert ok is False
+    assert adapter.has_fatal_error is True
+    assert adapter.fatal_error_retryable is False
+    assert adapter.fatal_error_code == "telegram_missing_token"
+
+
 @pytest.mark.asyncio
 async def test_polling_conflict_retries_before_fatal(monkeypatch):
     """A single 409 should trigger a retry, not an immediate fatal error."""

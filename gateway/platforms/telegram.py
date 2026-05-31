@@ -1340,9 +1340,16 @@ class TelegramAdapter(BasePlatformAdapter):
             return False
         
         if not self.config.token:
-            logger.error("[%s] No bot token configured", self.name)
+            # Missing token is a permanent config condition, not a transient
+            # failure — mark it non-retryable so the gateway disables Telegram
+            # instead of reconnecting (and ERROR-spamming) forever.
+            logger.warning(
+                "[%s] No bot token configured — Telegram disabled "
+                "(set TELEGRAM_BOT_TOKEN to enable)", self.name,
+            )
+            self._set_fatal_error("telegram_missing_token", "No bot token configured", retryable=False)
             return False
-        
+
         try:
             if not self._acquire_platform_lock('telegram-bot-token', self.config.token, 'Telegram bot token'):
                 return False
