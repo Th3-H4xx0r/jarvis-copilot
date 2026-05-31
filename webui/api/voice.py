@@ -419,12 +419,17 @@ _VOICE_TURN_TIMEOUT_SECONDS = 180.0
 # will be read aloud so it answers tersely in plain speech. Only voice turns go
 # through _run_agent_turn_via_chat, so this never affects the text chat tab.
 _VOICE_REPLY_DIRECTIVE = (
-    "[Voice mode — your reply is read aloud by text-to-speech. Answer in at most "
-    "one or two short, natural spoken sentences. Plain speech only: no markdown, "
-    "asterisks, bullet points, headers, code blocks, or raw URLs. Speak only a "
-    "brief acknowledgement when you begin and a brief final answer or confirmation "
-    "when you finish. Do NOT narrate intermediate steps, tool use, or your plan — "
-    "stay silent while working and just give the final result.]\n\n"
+    "[Voice mode — your reply is read aloud by text-to-speech. Use plain spoken "
+    "language only: no markdown, asterisks, bullet points, numbered lists, headers, "
+    "code blocks, emoji, or raw URLs — say names, numbers, and values in words and "
+    "organize anything long as flowing spoken paragraphs, not lists. Give only a "
+    "brief acknowledgement when you begin and your answer when you finish; do NOT "
+    "narrate intermediate steps, tool use, or your plan — stay silent while working. "
+    "Keep ordinary answers to one or two short sentences. BUT when the user asks for "
+    "a briefing, summary, rundown, the news, a report, or otherwise wants the full "
+    "detail (e.g. a morning brief), speak the COMPLETE answer at its natural length — "
+    "do not truncate or over-shorten it — while still obeying the plain-speech rules "
+    "above.]\n\n"
 )
 
 
