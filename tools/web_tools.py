@@ -1016,9 +1016,21 @@ async def web_extract_tool(
                 url = result.get('url', 'Unknown URL')
                 title = result.get('title', '')
                 raw_content = result.get('raw_content', '') or result.get('content', '')
-                
+
                 if not raw_content:
                     return result, None, "no_content"
+
+                # Indirect prompt-injection screening: fetched web pages are
+                # untrusted. If the content looks like it carries injected
+                # instructions, annotate it so the summarizer/model treats it as
+                # data, not commands. Non-blocking (annotation only).
+                try:
+                    from security.injection import screen_untrusted
+                    raw_content, _flagged = screen_untrusted(raw_content, source=f"web page {url}")
+                    if _flagged:
+                        logger.warning("possible prompt-injection in fetched content from %s", url)
+                except Exception:
+                    pass
                 
                 original_size = len(raw_content)
                 
