@@ -56,9 +56,15 @@
         '<path d="M4 6h10"/><path d="M4 12h8"/><path d="M4 18h6"/>' +
         '<path d="M18 3l1.2 3.2L22.4 7l-3.2 1.2L18 11l-1.2-2.8L13.6 7l3.2-.8z"/></svg>';
       btn.onclick = function () {
+        ensurePanel();  // create the container BEFORE switchPanel activates it by id
         try { if (typeof switchPanel === "function") switchPanel("jmemory", { fromRailClick: true }); } catch (e) {}
         document.body.classList.add("cm-fullwidth");  // full-screen (hide chat sidebar)
-        ensurePanel();
+        // switchPanel only toggles .active on existing .panel-view nodes; ensure ours is shown.
+        var el = document.getElementById("panelJmemory");
+        if (el) {
+          document.querySelectorAll(".panel-view").forEach(function (p) { p.classList.remove("active"); });
+          el.classList.add("active");
+        }
         window.loadJarvisMemory();
       };
       src.insertAdjacentElement("afterend", btn);
@@ -288,8 +294,9 @@
 
   function init() {
     injectNavButtons();
-    // Re-inject if the nav is re-rendered later (best-effort, cheap).
-    setTimeout(injectNavButtons, 1500);
+    ensurePanel();  // create the panel container up-front so switchPanel can show it
+    // Re-inject/re-create if the nav/panels are re-rendered later (best-effort).
+    setTimeout(function () { injectNavButtons(); ensurePanel(); }, 1500);
   }
 
   if (document.readyState === "loading") {
