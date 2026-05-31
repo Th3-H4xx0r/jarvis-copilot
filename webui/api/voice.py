@@ -358,30 +358,36 @@ def _voice_quality_turn(handler, body) -> bool:
         _emit({"type": "done", "reason": "no_speech"})
         return True
 
+    # Voice mode shows/speaks only the acknowledgement and the final answer — no
+    # in-between step narration or per-tool activity. The text generator flushes
+    # a segment at each tool boundary, so the shape is: ack (before the first
+    # tool) → tools → final (after the last tool). We emit the FIRST text segment
+    # immediately (the ack), drop tool segments, buffer any middle narration, and
+    # emit only the LAST text segment (the final answer) at the end.
+    def _emit_text(text: str) -> bool:
+        # Synthesize audio INLINE so the client receives text + audio together
+        # and can play immediately.
+        audio_b64 = _tts_to_base64(text)
+        return _emit({"type": "segment", "kind": "text", "text": text, "audio_base64": audio_b64})
+
+    first_text_emitted = False
+    pending_final = None  # most-recent non-ack text segment (the final answer)
     try:
         for seg in _run_agent_turn_via_chat(session_id, transcript):
             if seg.get("kind") == "text":
                 text = (seg.get("text") or "").strip()
                 if not text:
                     continue
-                # Synthesize audio INLINE so the client receives text + audio
-                # together and can play immediately. This adds TTS latency to
-                # the per-segment write but avoids a second HTTP round-trip
-                # which would cost more in total.
-                audio_b64 = _tts_to_base64(text)
-                if not _emit({
-                    "type": "segment", "kind": "text",
-                    "text": text, "audio_base64": audio_b64,
-                }):
-                    return True
-            elif seg.get("kind") == "tool":
-                if not _emit({
-                    "type": "segment", "kind": "tool",
-                    "name": seg.get("name", ""),
-                    "status": seg.get("status", "started"),
-                    "preview": seg.get("preview", ""),
-                }):
-                    return True
+                if not first_text_emitted:
+                    first_text_emitted = True
+                    if not _emit_text(text):
+                        return True
+                else:
+                    pending_final = text  # keep only the latest; middle narration is dropped
+            # tool segments are intentionally suppressed in voice mode
+        # Flush the final answer if it's distinct from the ack we already sent.
+        if pending_final:
+            _emit_text(pending_final)
     except _VoiceAgentError as exc:
         _emit({"type": "error", "error": str(exc), "status": exc.status})
     except Exception as exc:
