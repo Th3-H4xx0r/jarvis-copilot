@@ -155,9 +155,9 @@ final class WatchBridge: NSObject, WCSessionDelegate {
 
         // Run the whole round-trip in one cancellable task that RETURNS the
         // reply dict. The reply handler is called exactly once, here. The
-        // JARVIS-voice clip is included IN the reply (capped) so it plays
-        // immediately on the watch; larger replies omit it and the watch
-        // speaks the text with its built-in voice.
+        // JARVIS-voice clip is ALWAYS synthesized (any length) and delivered
+        // out-of-band via transferFile; the watch's built-in voice is only a
+        // last-resort fallback if every synth attempt fails.
         let work = Task { () -> [String: Any] in
             let session = URLSession(configuration: .ephemeral,
                                      delegate: PinnedPoster(pinHex: pin), delegateQueue: nil)
@@ -170,9 +170,9 @@ final class WatchBridge: NSObject, WCSessionDelegate {
                     return ["ok": false, "error": "network", "detail": "empty"]
                 }
                 var out: [String: Any] = ["ok": true, "replyText": reply]
-                // The JARVIS-voice clip is too big for the (size-limited) reply
-                // payload, so it's delivered OUT-OF-BAND via `transferFile`; the
-                // watch plays it on receipt. `expectsClip` tells the watch a clip
+                // The JARVIS-voice clip is delivered OUT-OF-BAND via `transferFile`
+                // (no payload-size limit, so length never forces built-in voice);
+                // the watch plays it on receipt. `expectsClip` tells the watch a clip
                 // is coming (so it doesn't also speak with its built-in voice);
                 // `voiceDbg` surfaces what happened (shown on-watch while debugging).
                 do {
@@ -239,7 +239,10 @@ final class WatchBridge: NSObject, WCSessionDelegate {
     private func chatStart(_ session: URLSession, _ base: String, _ cookie: String,
                            _ sid: String, _ text: String) async throws -> String {
         guard let url = URL(string: base + "/api/chat/start") else { throw RelayError(detail: "chat_start") }
-        let (data, code) = try await postJSON(session, url, cookie, ["session_id": sid, "message": text])
+        // `voice: true` tells the server this is a spoken turn so it prepends
+        // the voice-reply directive (terse, ack-only, no step narration) — the
+        // same shape phone/web voice gets.
+        let (data, code) = try await postJSON(session, url, cookie, ["session_id": sid, "message": text, "voice": true])
         guard code == 200,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let streamId = obj["stream_id"] as? String, !streamId.isEmpty else {
@@ -288,10 +291,30 @@ final class WatchBridge: NSObject, WCSessionDelegate {
 
     private func synthesize(_ session: URLSession, _ base: String, _ cookie: String, _ text: String) async throws -> Data {
         guard let url = URL(string: base + "/api/voice/synthesize") else { throw RelayError(detail: "synth: bad url") }
-        let (data, code) = try await postJSON(session, url, cookie, ["text": text], accept: "audio/mpeg")
-        guard code == 200 else { throw RelayError(detail: "synth HTTP \(code)") }
-        guard !data.isEmpty else { throw RelayError(detail: "synth empty") }
-        return data
+        // ALWAYS use the JARVIS voice regardless of reply length — the clip is
+        // delivered out-of-band via transferFile (no payload-size cap), so there's
+        // no length gate. Retry a few times so a transient TTS hiccup doesn't drop
+        // us to the watch's built-in voice; built-in is the LAST resort only after
+        // every attempt fails.
+        var lastDetail = "synth"
+        for attempt in 0..<3 {
+            do {
+                let (data, code) = try await postJSON(session, url, cookie, ["text": text], accept: "audio/mpeg")
+                guard code == 200 else { lastDetail = "synth HTTP \(code)"; throw RelayError(detail: lastDetail) }
+                guard !data.isEmpty else { lastDetail = "synth empty"; throw RelayError(detail: lastDetail) }
+                return data
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let e as RelayError {
+                lastDetail = e.detail
+            } catch {
+                lastDetail = "synth io"
+            }
+            if attempt < 2 {
+                try? await Task.sleep(nanoseconds: 600_000_000)  // 0.6s backoff
+            }
+        }
+        throw RelayError(detail: lastDetail)
     }
 
     // MARK: voice-clip out-of-band delivery

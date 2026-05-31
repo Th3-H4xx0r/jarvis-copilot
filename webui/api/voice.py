@@ -415,9 +415,10 @@ _VOICE_TURN_TIMEOUT_SECONDS = 180.0
 _VOICE_REPLY_DIRECTIVE = (
     "[Voice mode — your reply is read aloud by text-to-speech. Answer in at most "
     "one or two short, natural spoken sentences. Plain speech only: no markdown, "
-    "asterisks, bullet points, headers, code blocks, or raw URLs. Do not narrate "
-    "your plan or your steps — just do the task and give the brief answer or "
-    "confirmation.]\n\n"
+    "asterisks, bullet points, headers, code blocks, or raw URLs. Speak only a "
+    "brief acknowledgement when you begin and a brief final answer or confirmation "
+    "when you finish. Do NOT narrate intermediate steps, tool use, or your plan — "
+    "stay silent while working and just give the final result.]\n\n"
 )
 
 

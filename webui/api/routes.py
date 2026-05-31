@@ -8344,6 +8344,17 @@ def _handle_chat_start(handler, body, diag=None):
         msg = str(body.get("message", "")).strip()
         if not msg:
             return bad(handler, "message is required")
+        # Voice clients (e.g. the Apple Watch) relay straight to chat/start and
+        # bypass the web voice path that prepends the spoken-reply directive.
+        # Honor a `voice` flag here so they get the same terse, ack-only,
+        # no-step-narration behavior as phone/web voice.
+        if body.get("voice"):
+            try:
+                from api.voice import _VOICE_REPLY_DIRECTIVE
+                if not msg.startswith("[Voice mode"):
+                    msg = _VOICE_REPLY_DIRECTIVE + msg
+            except Exception:
+                pass
         diag.stage("normalize_attachments") if diag else None
         attachments = _normalize_chat_attachments(body.get("attachments") or [])[:20]
         diag.stage("resolve_workspace") if diag else None
