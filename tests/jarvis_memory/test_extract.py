@@ -3,6 +3,7 @@ from plugins.memory.jarvis_memory.extract import (
     FakeExtractor,
     OllamaFactExtractor,
     _parse_facts,
+    is_transient_fact,
     make_extractor,
 )
 
@@ -77,6 +78,52 @@ def test_on_memory_write_mirrors_builtin_into_store(tmp_path):
     assert "deploy_both" in p._store.recent_chunks(p._namespace, 5)[0].body
     p.on_memory_write("remove", "memory", "anything")  # ignored
     assert p._store.count_chunks(p._namespace) == 1
+    p.shutdown()
+
+
+def test_is_transient_fact():
+    assert is_transient_fact("http://127.0.0.1:8765/healthz are reachable")
+    assert is_transient_fact("On Telegram")
+    assert is_transient_fact("The rating server stopped listening on port 8765")
+    assert is_transient_fact("")
+    assert not is_transient_fact("Pranav prefers a small set of 5-6 Spotify playlists")
+    assert not is_transient_fact("Pranav lives in Mountain House, California")
+
+
+def test_extraction_is_user_only_by_default(tmp_path):
+    fe = FakeExtractor(facts=["Pranav prefers dark mode"])
+    p = _prov(tmp_path, fe)  # capture_roles defaults to user-only
+    p.sync_turn("I like dark mode", "Done — the server is now running on port 8765.")
+    p._flush()
+    # The assistant's transient narration must NOT be fed to the extractor.
+    assert fe.calls[-1] == ("I like dark mode", "")
+    p.shutdown()
+
+
+def test_extraction_sees_assistant_when_configured(tmp_path):
+    fe = FakeExtractor(facts=["some durable fact here"])
+    p = _prov(tmp_path, fe, capture_roles=["user", "assistant"])
+    p.sync_turn("hi there friend", "some assistant content here")
+    p._flush()
+    assert fe.calls[-1] == ("hi there friend", "some assistant content here")
+    p.shutdown()
+
+
+def test_store_facts_drops_transient_junk(tmp_path):
+    fe = FakeExtractor(facts=[
+        "http://127.0.0.1:8765/healthz is reachable",
+        "On Telegram",
+        "The rating server stopped listening on port 8765",
+        "Pranav prefers a small set of 5-6 Spotify playlists",
+    ])
+    p = _prov(tmp_path, fe)
+    p.sync_turn("set up my spotify automation the way I like it", "ok")
+    p._flush()
+    bodies = [c.body for c in p._store.recent_chunks(p._namespace, 10)]
+    assert any("5-6 Spotify" in b for b in bodies)        # durable fact kept
+    assert not any("healthz" in b for b in bodies)        # endpoint dropped
+    assert not any(b == "On Telegram" for b in bodies)    # fragment dropped
+    assert not any("stopped listening" in b for b in bodies)  # transient status dropped
     p.shutdown()
 
 

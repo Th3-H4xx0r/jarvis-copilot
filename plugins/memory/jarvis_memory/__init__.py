@@ -265,7 +265,12 @@ class JarvisMemoryProvider(MemoryProvider):
         try:
             if self._extractor is not None:
                 try:
-                    facts = self._extractor.extract(user_content, assistant_content)
+                    # Only feed the assistant's turn to extraction when assistant
+                    # capture is enabled — otherwise the model distills the agent's
+                    # transient operational narration ("server stopped", "form
+                    # loads") into junk "facts". Default is user-only.
+                    asst_for_extract = assistant_content if "assistant" in self._capture_roles else ""
+                    facts = self._extractor.extract(user_content, asst_for_extract)
                 except Exception as e:
                     # Extraction enabled but failed. By default DON'T store the
                     # raw user turn (that's the "raw chat in memory" noise) —
@@ -310,8 +315,11 @@ class JarvisMemoryProvider(MemoryProvider):
         )
 
     def _store_facts(self, facts):
+        from .extract import is_transient_fact
         ids = []
         for fact in facts or []:
+            if is_transient_fact(fact):  # drop endpoints/ports/health-checks/fragments
+                continue
             cid = self._store_fact(fact, source="fact:extracted", tag="fact")
             if cid:
                 ids.append(cid)
