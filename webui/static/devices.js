@@ -505,11 +505,14 @@ function _openPairModal(code, expiresAt) {
   _closePairModal();
   const wrap = document.createElement('div');
   wrap.id = 'pair-modal';
-  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(4px)';
+  // Center + allow the overlay itself to scroll on short viewports (padding so
+  // the card never touches the edges). align-items:flex-start keeps the top of
+  // a tall card reachable instead of clipping it above the fold.
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-start;justify-content:center;z-index:9999;backdrop-filter:blur(4px);overflow-y:auto;padding:20px 0';
   wrap.addEventListener('click', ev => { if (ev.target === wrap) _cancelPair(); });
   wrap.innerHTML = `
-    <div style="background:var(--card-bg,#14203a);border:1px solid var(--border,rgba(255,255,255,.08));border-radius:18px;padding:28px;max-width:420px;width:calc(100% - 32px);box-shadow:0 20px 60px rgba(0,0,0,.45);position:relative">
-      <button onclick="_cancelPair()" style="position:absolute;top:12px;right:12px;background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;width:28px;height:28px;border-radius:8px">×</button>
+    <div style="background:var(--card-bg,#14203a);border:1px solid var(--border,rgba(255,255,255,.08));border-radius:18px;padding:28px;max-width:420px;width:calc(100% - 32px);box-shadow:0 20px 60px rgba(0,0,0,.45);position:relative;max-height:calc(100vh - 40px);overflow-y:auto;margin:auto">
+      <button onclick="_cancelPair()" style="position:sticky;top:0;float:right;background:var(--card-bg,#14203a);border:none;color:var(--muted);font-size:22px;cursor:pointer;width:28px;height:28px;border-radius:8px;z-index:1">×</button>
       <div style="text-align:center">
         <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(145deg,#f0b341,#e0552b);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;color:#fff;margin:0 auto 14px">JC</div>
         <h2 style="font-size:18px;margin-bottom:8px">Pair a new device</h2>
