@@ -77,10 +77,9 @@ flutter:
   # assets:
   #   - assets/   # uncomment when you add files under mobile_client/assets/
 
-  # App-wide bundled font (Inter). Drop the .ttf files into assets/fonts/
-  # (see assets/fonts/README.md for exact filenames + download link), then
-  # `flutter pub get`. Bundling — not runtime-fetching — is what makes the font
-  # actually render on every device, online or off.
+  # App-wide bundled font (Inter, OFL). The 4 static ttf weights live in
+  # assets/fonts/ (extracted from the official rsms/inter release). Bundling —
+  # not runtime-fetching — is what makes it render on every device, offline too.
   fonts:
     - family: Inter
       fonts:

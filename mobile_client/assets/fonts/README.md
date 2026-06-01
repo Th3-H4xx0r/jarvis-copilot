@@ -1,23 +1,18 @@
 # Bundled font — Inter
 
-The app uses **Inter** as its app-wide font (declared in `pubspec.yaml` under
-`flutter: fonts:` and applied via `JcTheme.fontFamily`).
-
-Drop these four `.ttf` files into THIS folder (`mobile_client/assets/fonts/`):
+The app's font is **Inter** (OFL license), bundled here as four static weights:
 
 - `Inter-Regular.ttf`   (weight 400)
 - `Inter-Medium.ttf`    (weight 500)
 - `Inter-SemiBold.ttf`  (weight 600)
 - `Inter-Bold.ttf`      (weight 700)
 
-Get them from the official release (free, OFL license):
-https://github.com/rsms/inter/releases  → download `Inter-*.zip` →
-`extras/ttf/Inter-Regular.ttf` etc. (or fonts.google.com/specimen/Inter).
+These are committed and declared in `pubspec.yaml` (`flutter: fonts:`) and applied
+app-wide via `JcTheme.fontFamily` / `textTheme.apply(fontFamily: 'Inter')`. No
+runtime fetch — they render on every device, online or off.
 
-Then run:
+Source: extracted from the official release at
+https://github.com/rsms/inter/releases (`extras/ttf/Inter-*.ttf`).
 
-    cd mobile_client && flutter pub get && ./scripts/deploy_both.sh
-
-Until the files are present the build still works — Flutter just falls back to
-the system font for the missing weights. Once they're in, the whole app renders
-in Inter, online or offline.
+To update Inter later: download a newer release, replace these four files
+(keep the names), `flutter pub get`, rebuild.
