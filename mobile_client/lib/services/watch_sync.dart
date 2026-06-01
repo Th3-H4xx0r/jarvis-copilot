@@ -34,6 +34,11 @@ class WatchSync {
         'serverUrl': c.serverUrl ?? '',
         'cookie': c.cookie ?? '',
         'certSha256': (c.certFingerprint ?? '').toLowerCase(),
+        // Mirror the CF Access service token so the phone-side WatchBridge can
+        // add CF-Access headers to its relay requests — otherwise a tunnel-
+        // fronted server 302s them and the watch shows "cannot reach".
+        'cfClientId': c.cfClientId ?? '',
+        'cfClientSecret': c.cfClientSecret ?? '',
         'loggedIn': c.isPaired,
       });
     } on MissingPluginException {

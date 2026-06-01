@@ -222,13 +222,30 @@ final class WatchBridge: NSObject, WCSessionDelegate {
         return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
+    /// Stamp the session cookie AND (when configured) the Cloudflare Access
+    /// service-token headers onto a request. The watch relays through this
+    /// phone-side native HTTP path; if the server is behind a CF tunnel, every
+    /// request needs these headers or Access 302-redirects it → the watch shows
+    /// "cannot reach". The token is mirrored into UserDefaults by the Dart side
+    /// (WatchSync) under jc_cf_client_id / jc_cf_client_secret.
+    private func authHeaders(_ req: inout URLRequest, _ cookie: String) {
+        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        let d = UserDefaults.standard
+        let cfId = (d.string(forKey: "jc_cf_client_id") ?? "").trimmingCharacters(in: .whitespaces)
+        let cfSecret = (d.string(forKey: "jc_cf_client_secret") ?? "").trimmingCharacters(in: .whitespaces)
+        if !cfId.isEmpty && !cfSecret.isEmpty {
+            req.setValue(cfId, forHTTPHeaderField: "CF-Access-Client-Id")
+            req.setValue(cfSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
+        }
+    }
+
     private func postJSON(_ session: URLSession, _ url: URL, _ cookie: String,
                           _ body: [String: Any], accept: String = "application/json") async throws -> (Data, Int) {
         var req = URLRequest(url: url, timeoutInterval: 30)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(accept, forHTTPHeaderField: "Accept")
-        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        authHeaders(&req, cookie)
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return try await httpData(session, req)
     }
@@ -268,7 +285,7 @@ final class WatchBridge: NSObject, WCSessionDelegate {
         guard let url = comps.url else { throw RelayError(detail: "stream") }
         var req = URLRequest(url: url, timeoutInterval: 120)
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        authHeaders(&req, cookie)
         // Consume the SSE INCREMENTALLY and return the instant the terminator
         // arrives — do NOT use data(for:) which waits for the connection to
         // close. The server keeps the stream open with heartbeats for minutes

@@ -186,6 +186,10 @@ import AppIntents
                 d.set((a["serverUrl"] as? String) ?? "", forKey: "jc_server_url")
                 d.set((a["cookie"] as? String) ?? "", forKey: "jc_cookie")
                 d.set((a["certSha256"] as? String) ?? "", forKey: "jc_cert_sha256")
+                // CF Access service token → read by WatchBridge.authHeaders so the
+                // watch relay clears Cloudflare Access on a tunnel-fronted server.
+                d.set((a["cfClientId"] as? String) ?? "", forKey: "jc_cf_client_id")
+                d.set((a["cfClientSecret"] as? String) ?? "", forKey: "jc_cf_client_secret")
                 WatchBridge.shared.pushLoginState((a["loggedIn"] as? Bool) ?? false)
                 result(true)
             } else if call.method == "getWatchStatus" {
