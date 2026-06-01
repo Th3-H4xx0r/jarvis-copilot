@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme.dart';
 
-/// Primary CTA — gold→amber gradient, matches the webui "primary" button.
+/// Primary CTA — iridescent brand gradient with white foreground.
 class GradientButton extends StatelessWidget {
   const GradientButton({
     super.key,
@@ -31,16 +31,16 @@ class GradientButton extends StatelessWidget {
             height: 16,
             child: CircularProgressIndicator(
               strokeWidth: 2.2,
-              color: Colors.black,
+              color: Colors.white,
             ),
           )
         else if (icon != null)
-          Icon(icon, size: 18, color: Colors.black),
+          Icon(icon, size: 18, color: Colors.white),
         if (icon != null || busy) const SizedBox(width: 8),
         Text(
           label,
           style: const TextStyle(
-              fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black),
+              fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white),
         ),
       ],
     );
@@ -56,7 +56,7 @@ class GradientButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x66E0552B),
+                color: Color(0x668A7CFF),
                 blurRadius: 16,
                 offset: Offset(0, 4),
               ),

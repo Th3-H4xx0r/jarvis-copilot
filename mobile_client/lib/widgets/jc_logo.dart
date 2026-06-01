@@ -18,7 +18,7 @@ class JcLogo extends StatelessWidget {
         borderRadius: BorderRadius.circular(size * 0.25),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x66E0552B),
+            color: Color(0x668A7CFF),
             blurRadius: 18,
             offset: Offset(0, 6),
           ),
