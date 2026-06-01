@@ -35,7 +35,7 @@ struct JarvisWidgetView: View {
                     .font(.system(size: 22, weight: .semibold))
             }
             .widgetAccentable()
-            .containerBackground(for: .widget) { Color.clear }
+            .jcContainerBackground(Color.clear)
             .widgetURL(URL(string: "jarviscopilot://voice"))
         default:
             // Home Screen systemSmall: gradient tile with the mic, on-brand.
@@ -54,8 +54,22 @@ struct JarvisWidgetView: View {
                         .foregroundStyle(.white.opacity(0.95))
                 }
             }
-            .containerBackground(for: .widget) { Color.black }
+            .jcContainerBackground(Color.black)
             .widgetURL(URL(string: "jarviscopilot://voice"))
+        }
+    }
+}
+
+extension View {
+    /// `containerBackground(for: .widget)` is iOS 17+. On 16 it's a no-op (the
+    /// widget still renders), so gate it on availability to keep the iOS-16
+    /// deployment target building.
+    @ViewBuilder
+    func jcContainerBackground<S: ShapeStyle>(_ style: S) -> some View {
+        if #available(iOS 17.0, *) {
+            self.containerBackground(style, for: .widget)
+        } else {
+            self
         }
     }
 }
