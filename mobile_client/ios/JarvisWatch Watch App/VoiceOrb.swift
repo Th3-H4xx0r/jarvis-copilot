@@ -91,11 +91,13 @@ struct VoiceOrb: View {
             // a clear, calm breathing pulse + visibly flowing ribbons (no whirl)
             reactive = 0.10 + 0.22 * pulse; spinSpeed = 0.11; energy = 0.58; unduRate = 0.55
         case .idle:
-            reactive = 0.05 * breath; spinSpeed = 0.03; energy = 0.40; unduRate = 0.16
+            // lively idle: a gentle breathing pulse + clearly flowing/reshaping
+            // ribbons + moderate drift (alive, but not a fast whirl).
+            reactive = 0.06 + 0.13 * pulse; spinSpeed = 0.13; energy = 0.42; unduRate = 0.65
         case .error:
             reactive = 0.0; spinSpeed = 0.02; energy = 0.34; unduRate = 0.08
         }
-        let wander = 0.10 * sin(t * 0.05) + 0.06 * sin(t * 0.09 + 2.1)
+        let wander = 0.16 * sin(t * 0.13) + 0.10 * sin(t * 0.22 + 2.1)
         let gt = t * spinSpeed + wander
         let undu = t * unduRate
         let scale = 1.0 + 0.025 * breath + 0.30 * reactive
@@ -151,9 +153,9 @@ struct VoiceOrb: View {
     private static func build(_ s: (Double, Double, Double, Double, Double, Double),
                               c: CGPoint, rs: CGFloat, gt: Double, undu: Double, t: Double) -> Built {
         let amp = s.0, k = s.1, phase = s.2
-        let rx = s.3 + 0.11 * sin(t * 0.030 + phase)
-        let ry = s.4 + 0.09 * sin(t * 0.024 + phase * 1.7 + 1.0)
-        let rz = s.5 + 0.07 * sin(t * 0.019 + phase * 0.7 + 2.0)
+        let rx = s.3 + 0.16 * sin(t * 0.11 + phase)
+        let ry = s.4 + 0.13 * sin(t * 0.090 + phase * 1.7 + 1.0)
+        let rz = s.5 + 0.11 * sin(t * 0.070 + phase * 0.7 + 2.0)
         let cx = cos(rx), sx = sin(rx), cy = cos(ry), sy = sin(ry), cz = cos(rz), sz = sin(rz)
         var pts = [CGPoint](); pts.reserveCapacity(m)
         var depth = [Double](); depth.reserveCapacity(m)

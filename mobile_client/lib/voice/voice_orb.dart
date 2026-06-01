@@ -139,6 +139,7 @@ class _OrbPainter extends CustomPainter {
 
     final breath = 0.5 + 0.5 * math.sin(t * 0.9);
     final talk = 0.5 + 0.5 * math.sin(t * 3.4);
+    final pulse = 0.5 + 0.5 * math.sin(t * 1.7); // breathing for non-mic states
 
     // Baseline per-state liveliness (brightness/glow) — independent of mic level.
     double energy;
@@ -154,13 +155,12 @@ class _OrbPainter extends CustomPainter {
       case VoiceState.error:
         energy = 0.34 + 0.08 * breath;
       case VoiceState.idle:
-        energy = 0.34 + 0.12 * breath;
+        energy = 0.42 + 0.12 * breath;
     }
 
     // REACTIVE drive (0..1): how much the orb should swell/bloom *right now*.
-    // Your voice (listening) drives it directly; the assistant's voice
-    // (speaking) animates a softer pulse. This — NOT the spin — is the headline
-    // "I hear you" feedback: the orb expands and brightens, it doesn't whirl.
+    // Your voice (listening) drives it directly; other states use a slow time
+    // pulse so the orb always breathes and never looks frozen.
     final double reactive;
     switch (state) {
       case VoiceState.listening:
@@ -169,34 +169,44 @@ class _OrbPainter extends CustomPainter {
         reactive = 1 - math.exp(-5.0 * amp);
       case VoiceState.speaking:
         reactive = 0.30 + 0.45 * talk;
+      case VoiceState.thinking:
+        reactive = 0.10 + 0.22 * pulse;
+      case VoiceState.idle:
+        reactive = 0.06 + 0.14 * pulse;
       default:
-        reactive = 0.0;
+        reactive = 0.05 + 0.10 * pulse;
     }
 
-    // Spin stays calm — a gentle drift PLUS a slow multi-frequency wander so the
-    // rotation eases up and down (and even reverses slightly) instead of a
-    // uniform whirl. The wander is the main source of organic idle motion.
-    final double spinSpeed;
+    // Spin stays gentle; the lively "moving around" comes from undulation
+    // (ribbons flowing) + wander (organic sway) + the breathing pulse — never a
+    // fast whirl.
+    final double spinSpeed, unduRate;
     switch (state) {
       case VoiceState.thinking:
-        spinSpeed = 0.15;
+        spinSpeed = 0.14;
+        unduRate = 0.55;
       case VoiceState.speaking:
         spinSpeed = 0.12;
+        unduRate = 0.55;
       case VoiceState.listening:
-        spinSpeed = 0.10;
+        spinSpeed = 0.11;
+        unduRate = 0.34 + 0.28 * reactive;
+      case VoiceState.idle:
+        spinSpeed = 0.13;
+        unduRate = 0.65;
       default:
-        spinSpeed = 0.07;
+        spinSpeed = 0.11;
+        unduRate = 0.50;
     }
-    final wander = 0.18 * math.sin(t * 0.075) + 0.12 * math.sin(t * 0.117 + 2.1);
-    final gt = t * spinSpeed + wander; // global spin (calm + organic sway)
+    final wander = 0.20 * math.sin(t * 0.13) + 0.12 * math.sin(t * 0.22 + 2.1);
+    final gt = t * spinSpeed + wander; // gentle drift + organic sway
 
-    // Expansion is the headline reaction: up to ~+34% radius on loud input,
-    // eased by the (quick-release) envelope so it throbs with speech.
+    // Expansion: strong on loud voice (listening), a gentle breath otherwise.
     final scale = 1.0 + 0.025 * breath + 0.34 * reactive;
     final rs = R * 0.53 * scale; // projected sphere radius
     final bright =
         (0.80 + 0.28 * energy + 0.36 * reactive).clamp(0.0, 1.45).toDouble();
-    final undu = t * (0.32 + 0.25 * reactive); // silk flow, a touch livelier
+    final undu = t * unduRate; // silk flow
 
     // Build + depth-sort (back → front) so additive light stacks correctly.
     final built = [for (final s in _strands) _build(s, c, rs, gt, undu)]
@@ -300,9 +310,9 @@ class _OrbPainter extends CustomPainter {
   /// (seeded off `phase`) so the bands keep slowly reshaping — organic "random"
   /// idle motion rather than a static, uniformly-spinning cage.
   _Built _build(_Strand s, Offset c, double rs, double gt, double undu) {
-    final rx = s.rx + 0.16 * math.sin(t * 0.050 + s.phase);
-    final ry = s.ry + 0.14 * math.sin(t * 0.041 + s.phase * 1.7 + 1.0);
-    final rz = s.rz + 0.11 * math.sin(t * 0.033 + s.phase * 0.7 + 2.0);
+    final rx = s.rx + 0.16 * math.sin(t * 0.11 + s.phase);
+    final ry = s.ry + 0.14 * math.sin(t * 0.090 + s.phase * 1.7 + 1.0);
+    final rz = s.rz + 0.11 * math.sin(t * 0.070 + s.phase * 0.7 + 2.0);
     final cx = math.cos(rx), sx = math.sin(rx);
     final cy = math.cos(ry), sy = math.sin(ry);
     final cz = math.cos(rz), sz = math.sin(rz);
