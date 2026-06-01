@@ -4,6 +4,9 @@ import SwiftUI
 /// The single watch screen, built around the animated VoiceOrb. Tap the orb to
 /// talk; it reflects idle / thinking / speaking / error states. A Volume drawer
 /// hosts the watchOS volume control (which can't be set programmatically).
+///
+/// Styling mirrors the mobile voice screen: ambient near-black backdrop, the
+/// glass-ribbon orb, and the Inter typeface throughout.
 struct ContentView: View {
     @ObservedObject var connector: WatchConnector
     @StateObject private var vm: WatchViewModel
@@ -32,7 +35,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            JcWatch.background
             content.padding(.horizontal, 6)
         }
         .sheet(item: $activeSheet) { sheet in
@@ -50,7 +53,8 @@ struct ContentView: View {
             VStack(spacing: 12) {
                 VoiceOrb(mode: .error, size: 78)
                 Text("Open JarvisCopilot on your iPhone to set up.")
-                    .font(.footnote).multilineTextAlignment(.center).foregroundStyle(.secondary)
+                    .font(.inter(13)).multilineTextAlignment(.center)
+                    .foregroundStyle(JcWatch.muted)
             }
         } else if audio.isSpeaking {
             // Audio is playing (chunked clips) → show the speaking screen with a
@@ -61,34 +65,40 @@ struct ContentView: View {
         } else {
             switch vm.state {
             case .idle, .listening:
-                VStack(spacing: 12) {
-                    orbButton(.idle, size: 100)
-                    Text("Tap to talk").font(.footnote).foregroundStyle(.secondary)
+                VStack(spacing: 14) {
+                    orbButton(.idle, size: 104)
+                    Text("Tap to talk")
+                        .font(.inter(14, .medium)).foregroundStyle(JcWatch.muted)
                     volumeButton
                 }
             case .thinking:
                 if connector.streamingText.isEmpty {
-                    VStack(spacing: 14) {
-                        VoiceOrb(mode: .thinking, size: 100)
-                        Text("Thinking…").font(.footnote).foregroundStyle(.secondary)
+                    VStack(spacing: 16) {
+                        VoiceOrb(mode: .thinking, size: 104)
+                        Text("Thinking…")
+                            .font(.inter(14, .medium)).foregroundStyle(JcWatch.muted)
                     }
                 } else {
                     // Live answer building up as tokens stream from the phone.
                     ScrollView {
                         VStack(spacing: 8) {
-                            VoiceOrb(mode: .thinking, size: 40)
-                            Text(connector.streamingText).font(.body)
+                            VoiceOrb(mode: .thinking, size: 44)
+                            Text(connector.streamingText)
+                                .font(.inter(15)).foregroundStyle(JcWatch.text)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
             case .answer(let text):
                 ScrollView {
-                    VStack(spacing: 8) {
-                        orbButton(.speaking, size: 46)
-                        Text(text).font(.body).frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(spacing: 10) {
+                        orbButton(.speaking, size: 50)
+                        Text(text)
+                            .font(.inter(16, .semibold)).foregroundStyle(JcWatch.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         if !voice.note.isEmpty {
-                            Text(voice.note).font(.caption2).foregroundStyle(.secondary)
+                            Text(voice.note)
+                                .font(.inter(11)).foregroundStyle(JcWatch.muted)
                         }
                         volumeButton.padding(.top, 4)
                     }
@@ -96,7 +106,8 @@ struct ContentView: View {
             case .error(let msg):
                 VStack(spacing: 12) {
                     orbButton(.error, size: 88)
-                    Text(msg).font(.footnote).multilineTextAlignment(.center).foregroundStyle(.secondary)
+                    Text(msg).font(.inter(13)).multilineTextAlignment(.center)
+                        .foregroundStyle(JcWatch.muted)
                 }
             }
         }
@@ -114,17 +125,18 @@ struct ContentView: View {
     // screen reverts to the tap-to-talk orb.
     private var speakingScreen: some View {
         ScrollView {
-            VStack(spacing: 8) {
+            VStack(spacing: 10) {
                 Button { audio.stopSpeaking() } label: {
                     VStack(spacing: 4) {
-                        VoiceOrb(mode: .speaking, size: 64)
-                        Label("Stop", systemImage: "stop.fill").font(.caption2)
+                        VoiceOrb(mode: .speaking, size: 70)
+                        Label("Stop", systemImage: "stop.fill").font(.inter(12, .medium))
                     }
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.orange)
+                .foregroundStyle(JcWatch.text)
                 if !currentAnswerText.isEmpty {
-                    Text(currentAnswerText).font(.body)
+                    Text(currentAnswerText)
+                        .font(.inter(16, .semibold)).foregroundStyle(JcWatch.text)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 volumeButton.padding(.top, 4)
@@ -149,10 +161,10 @@ struct ContentView: View {
 
     private var volumeButton: some View {
         Button { activeSheet = .volume } label: {
-            Label("Volume", systemImage: "speaker.wave.2.fill").font(.caption2)
+            Label("Volume", systemImage: "speaker.wave.2.fill").font(.inter(12, .medium))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(JcWatch.muted)
     }
 
     // Drawer: the last clip loops quietly while open so the Digital Crown adjusts
@@ -160,9 +172,10 @@ struct ContentView: View {
     private var volumeSheet: some View {
         VStack(spacing: 6) {
             VolumeSlider().frame(width: 86, height: 86)
-            Text("Volume \(Int(vol * 100))%").font(.caption).foregroundStyle(.orange)
-            Text("Turn the Digital Crown").font(.caption2)
-                .multilineTextAlignment(.center).foregroundStyle(.secondary)
+            Text("Volume \(Int(vol * 100))%")
+                .font(.inter(13, .medium)).foregroundStyle(JcWatch.text)
+            Text("Turn the Digital Crown").font(.inter(11))
+                .multilineTextAlignment(.center).foregroundStyle(JcWatch.muted)
             Button("Done") { activeSheet = nil }.buttonStyle(.bordered)
         }
         .padding()
