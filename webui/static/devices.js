@@ -228,15 +228,22 @@ function _pairUrl() {
 }
 
 function _pairDeepLink(code) {
-  // jarviscopilot://pair?server=<urlencoded>&code=<code>
-  // The mobile app registers this scheme and pre-fills its Pair page. Kept SHORT
-  // so the tiny QR encoder (~84-byte cap) can render it — the CF Access service
-  // token does NOT fit here (id+secret are >100 bytes), so a tunnel-first device
-  // enters it manually in the app's "Cloudflare service token" field instead.
+  // jarviscopilot://pair?server=<urlencoded>&code=<code>[&cf_id=…&cf_secret=…]
+  // The mobile app registers this scheme and pre-fills its Pair page. The CF
+  // Access service token (when present) is included so a single scan carries
+  // everything the device needs — the real qrcode-generator lib auto-sizes the
+  // QR to any version, so the ~170-byte payload fits fine (the old hand-rolled
+  // encoder capped at v5/84 bytes, which is why this used to be split out).
   const loc = window.location;
   const serverUrl = loc.protocol + '//' + loc.host;
-  return 'jarviscopilot://pair?server=' + encodeURIComponent(serverUrl) +
-         '&code=' + encodeURIComponent(code);
+  let link = 'jarviscopilot://pair?server=' + encodeURIComponent(serverUrl) +
+             '&code=' + encodeURIComponent(code);
+  const cf = _devicesPairCfAccess;
+  if (cf && cf.client_id && cf.client_secret) {
+    link += '&cf_id=' + encodeURIComponent(cf.client_id) +
+            '&cf_secret=' + encodeURIComponent(cf.client_secret);
+  }
+  return link;
 }
 
 // Lazy-load the battle-tested qrcode-generator lib (MIT) from jsdelivr — the
@@ -263,18 +270,34 @@ function _loadQrLib() {
 // we just hide the QR area rather than blocking pairing.
 function _renderQrInto(targetId, text, opts) {
   opts = opts || {};
-  const size = opts.size || 200;
+  const size = opts.size || 280;        // displayed px (square)
+  const bg = opts.bg || '#ffffff';
   _loadQrLib().then((qrcode) => {
     const el = document.getElementById(targetId);
     if (!el) return;
-    const qr = qrcode(0, 'M');        // type 0 = auto-pick smallest version
+    // EC level 'L' = max data capacity / fewest modules for our ~170-byte
+    // payload, so the QR stays as coarse (easy to scan) as possible. type 0
+    // auto-picks the smallest version that fits.
+    const qr = qrcode(0, 'L');
     qr.addData(text);
     qr.make();
     const count = qr.getModuleCount();
-    const cell = Math.max(2, Math.floor(size / (count + 8)));
-    el.innerHTML = qr.createSvgTag({ cellSize: cell, margin: cell * 2 });
-    const svg = el.querySelector('svg');
-    if (svg) { svg.style.background = opts.bg || '#fff'; svg.style.borderRadius = '8px'; }
+    const margin = 4;                   // quiet zone in modules (spec: >=4)
+    const total = count + margin * 2;
+    // Build the SVG ourselves so we can scale it to a FIXED display size via a
+    // viewBox — the lib's integer cellSize would otherwise shrink a dense QR.
+    let rects = '';
+    for (let r = 0; r < count; r++) {
+      for (let c = 0; c < count; c++) {
+        if (qr.isDark(r, c)) {
+          rects += '<rect x="' + (c + margin) + '" y="' + (r + margin) + '" width="1.02" height="1.02" fill="#0a0e1a"/>';
+        }
+      }
+    }
+    el.innerHTML =
+      '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + total + ' ' + total + '" ' +
+      'shape-rendering="crispEdges" style="background:' + bg + ';border-radius:8px" ' +
+      'xmlns="http://www.w3.org/2000/svg">' + rects + '</svg>';
   }).catch(() => {
     const el = document.getElementById(targetId);
     if (el) el.innerHTML = '<div style="font-size:11px;color:var(--muted)">QR unavailable — use the URL + code below.</div>';
@@ -333,7 +356,7 @@ function _openPairModal(code, expiresAt) {
         <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(145deg,#f0b341,#e0552b);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;color:#fff;margin:0 auto 14px">JC</div>
         <h2 style="font-size:18px;margin-bottom:8px">Pair a new device</h2>
         <p style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.5">Scan with the JarvisCopilot mobile app:</p>
-        <div id="pair-qr" style="display:flex;justify-content:center;align-items:center;min-height:188px;margin-bottom:14px;color:var(--muted);font-size:12px">Generating QR…</div>
+        <div id="pair-qr" style="display:flex;justify-content:center;align-items:center;min-height:280px;margin-bottom:14px;color:var(--muted);font-size:12px">Generating QR…</div>
         <p style="color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.5">Or open this URL on a browser:</p>
         <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:8px 12px;margin-bottom:14px;font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all;text-align:center">${_devEsc(_pairUrl())}</div>
         <p style="color:var(--muted);font-size:13px;margin-bottom:8px">Then enter this code:</p>
@@ -348,7 +371,7 @@ function _openPairModal(code, expiresAt) {
     <style>@keyframes pair-spin{to{transform:rotate(360deg)}}</style>`;
   document.body.appendChild(wrap);
   _devicesPairModalEl = wrap;
-  _renderQrInto('pair-qr', _pairDeepLink(code), { size: 188, bg: '#ffffff' });
+  _renderQrInto('pair-qr', _pairDeepLink(code), { size: 280, bg: '#ffffff' });
   _updatePairCountdown(expiresAt);
 }
 
