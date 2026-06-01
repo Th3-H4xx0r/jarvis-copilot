@@ -29,41 +29,42 @@ extension VoiceStateLabel on VoiceState {
   /// [inner, mid, outer, rim] palette per state, matching voice.js.
   List<Color> get palette {
     switch (this) {
+      // Ref-blue family for the glass orb — bright cyan/blue ribbons with a
+      // violet accent. [inner=highlight, mid=core, outer=dark, rim=accent].
       case VoiceState.idle:
         return const [
-          Color(0xFFCFE8FF),
-          Color(0xFF8A7CFF),
-          Color(0xFF12162E),
-          Color(0xFFA9C2FF),
+          Color(0xFF8FD8FF),
+          Color(0xFF3A86FF),
+          Color(0xFF0A1430),
+          Color(0xFF7C5CFF),
         ];
-      // Iridescent family — [inner, mid, outer, rim].
       case VoiceState.connecting:
         return const [
-          Color(0xFFCBA8FF),
-          Color(0xFF8A7CFF),
-          Color(0xFF1A1340),
-          Color(0xFFB9A8FF),
+          Color(0xFF9FC2FF),
+          Color(0xFF5C7CFF),
+          Color(0xFF0A1230),
+          Color(0xFF8C6CFF),
         ];
       case VoiceState.listening:
         return const [
-          Color(0xFFAFF6F0),
-          Color(0xFF46E0E0),
-          Color(0xFF0B2E36),
-          Color(0xFF8FE8FF),
+          Color(0xFFAFF0FF),
+          Color(0xFF2FB8FF),
+          Color(0xFF071A2E),
+          Color(0xFF6FD0FF),
         ];
       case VoiceState.thinking:
         return const [
-          Color(0xFFD8C2FF),
-          Color(0xFF8A7CFF),
-          Color(0xFF1A1340),
-          Color(0xFFCBB6FF),
+          Color(0xFFBFA8FF),
+          Color(0xFF6A5CFF),
+          Color(0xFF0E0E2E),
+          Color(0xFF9C8CFF),
         ];
       case VoiceState.speaking:
         return const [
-          Color(0xFFFFC2EC),
-          Color(0xFFFF6FD8),
-          Color(0xFF3A0E2E),
-          Color(0xFFFFB0E4),
+          Color(0xFF9FE0FF),
+          Color(0xFF3A86FF),
+          Color(0xFF081634),
+          Color(0xFF7C5CFF),
         ];
       case VoiceState.error:
         return const [

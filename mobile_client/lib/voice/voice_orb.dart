@@ -5,21 +5,20 @@ import 'package:flutter/material.dart';
 
 import 'voice_state.dart';
 
-/// Liquid iridescent voice orb — a soft, glowing gradient blob whose surface
-/// gently morphs (wobbling blob outline + drifting internal colour swirls),
-/// brightening and swelling with [amplitude]. Replaces the old particle-dot
-/// sphere with the frosted "liquid" look from the design references.
+/// Voice orb — a dark translucent glass sphere with bright flowing light
+/// ribbons swirling inside it (ref: the blue "Voice Assessment" orb). Instead
+/// of an opaque blob, the body is mostly transparent/dark; the energy comes
+/// from layered glowing arcs that orbit in 3D and brighten/quicken with
+/// [amplitude]. Colours come from [state]'s palette.
 class VoiceOrb extends StatefulWidget {
   const VoiceOrb({
     super.key,
     required this.state,
     required this.amplitude,
-    this.size = 240,
+    this.size = 250,
   });
 
   final VoiceState state;
-
-  /// 0..1 — mic RMS while listening, playback envelope while speaking.
   final ValueListenable<double> amplitude;
   final double size;
 
@@ -31,7 +30,7 @@ class _VoiceOrbState extends State<VoiceOrb>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 20),
+    duration: const Duration(seconds: 16),
   )..repeat();
 
   @override
@@ -47,22 +46,20 @@ class _VoiceOrbState extends State<VoiceOrb>
       height: widget.size,
       child: AnimatedBuilder(
         animation: Listenable.merge([_ctrl, widget.amplitude]),
-        builder: (context, _) {
-          return CustomPaint(
-            painter: _LiquidOrbPainter(
-              t: _ctrl.value * 20,
-              amp: widget.amplitude.value.clamp(0.0, 1.0).toDouble(),
-              state: widget.state,
-            ),
-          );
-        },
+        builder: (context, _) => CustomPaint(
+          painter: _OrbPainter(
+            t: _ctrl.value * 16,
+            amp: widget.amplitude.value.clamp(0.0, 1.0).toDouble(),
+            state: widget.state,
+          ),
+        ),
       ),
     );
   }
 }
 
-class _LiquidOrbPainter extends CustomPainter {
-  _LiquidOrbPainter({required this.t, required this.amp, required this.state});
+class _OrbPainter extends CustomPainter {
+  _OrbPainter({required this.t, required this.amp, required this.state});
 
   final double t;
   final double amp;
@@ -71,153 +68,172 @@ class _LiquidOrbPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
-    final scale = size.shortestSide / 2;
+    final R = size.shortestSide / 2;
     final pal = state.palette; // [inner, mid, outer, rim]
-    final inner = pal[0], mid = pal[1], rim = pal[3];
+    final bright = pal[0];     // brightest (ribbon highlight)
+    final core = pal[1];       // main colour
+    final accent = pal[3];     // secondary tint
 
-    final pulsing = state == VoiceState.thinking ||
-        state == VoiceState.connecting ||
-        state == VoiceState.idle;
-    // Breathe when idle/thinking; swell with the voice when listening/speaking.
-    final swell = pulsing
-        ? 0.92 + 0.05 * math.sin(t * 2.4)
-        : 1 + 0.18 * amp;
-    final baseR = scale * 0.74 * swell;
+    final speed = (state == VoiceState.listening ||
+            state == VoiceState.speaking)
+        ? 1.0 + 1.6 * amp
+        : 0.8;
+    final energy = (state == VoiceState.listening ||
+            state == VoiceState.speaking)
+        ? 0.55 + 0.45 * amp
+        : 0.5 + 0.08 * math.sin(t * 2.2);
 
-    // 1. Outer atmospheric glow.
-    final glowR = scale * (0.98 + 0.05 * amp);
+    // 1. Outer atmospheric glow halo.
     canvas.drawCircle(
       center,
-      glowR,
+      R * (0.98 + 0.04 * amp),
       Paint()
         ..shader = RadialGradient(
           colors: [
-            mid.withValues(alpha: 0.30 + 0.25 * amp),
-            mid.withValues(alpha: 0.10),
-            const Color(0x00000000),
+            core.withValues(alpha: 0.0),
+            core.withValues(alpha: 0.18 + 0.18 * energy),
+            core.withValues(alpha: 0.0),
           ],
-          stops: const [0.0, 0.55, 1.0],
-        ).createShader(Rect.fromCircle(center: center, radius: glowR)),
+          stops: const [0.55, 0.82, 1.0],
+        ).createShader(Rect.fromCircle(center: center, radius: R)),
     );
 
-    // 2. The liquid blob — a wobbling closed path so the rim isn't a perfect
-    //    circle (organic "blob" silhouette).
-    final blob = _blobPath(center, baseR, t, amp);
-
-    // Body fill: a soft radial iridescent gradient, off-centre so it reads as a
-    // lit 3D sphere. The light point drifts slowly.
-    final lightAngle = t * 0.4;
-    final lightOffset = Offset(
-      center.dx + math.cos(lightAngle) * baseR * 0.28,
-      center.dy + math.sin(lightAngle * 0.7) * baseR * 0.28,
-    );
-    canvas.drawPath(
-      blob,
+    // 2. Dark glass sphere body — translucent, darker at centre so the ribbons
+    //    read as light INSIDE a globe (not a solid disc).
+    final sphereR = R * 0.84;
+    canvas.drawCircle(
+      center,
+      sphereR,
       Paint()
         ..shader = RadialGradient(
-          center: Alignment(
-            (lightOffset.dx - center.dx) / baseR,
-            (lightOffset.dy - center.dy) / baseR,
-          ),
-          radius: 1.1,
           colors: [
-            Color.lerp(inner, Colors.white, 0.25)!,
-            inner,
-            mid,
-            Color.lerp(pal[2], mid, 0.4)!,
+            const Color(0xFF05060E).withValues(alpha: 0.92),
+            core.withValues(alpha: 0.10),
+            core.withValues(alpha: 0.18),
           ],
-          stops: const [0.0, 0.35, 0.7, 1.0],
-        ).createShader(Rect.fromCircle(center: center, radius: baseR)),
+          stops: const [0.30, 0.80, 1.0],
+        ).createShader(Rect.fromCircle(center: center, radius: sphereR)),
     );
 
-    // 3. Internal colour swirls — three drifting translucent blobs (additive)
-    //    give the "liquid marble" movement. Clipped to the body.
+    // 3. Flowing light ribbons — several 3D-rotated rings drawn as additive
+    //    glowing bands. Each ring tilts on a different axis so they interlace
+    //    like the reference's swirling threads. Clipped to the sphere.
     canvas.save();
-    canvas.clipPath(blob);
+    canvas.clipPath(Path()..addOval(Rect.fromCircle(center: center, radius: sphereR)));
     canvas.saveLayer(
-      Rect.fromCircle(center: center, radius: baseR),
+      Rect.fromCircle(center: center, radius: sphereR),
       Paint()..blendMode = BlendMode.plus,
     );
-    final swirls = [
-      (rim, 0.0, 0.42, 0.55),
-      (inner, 2.1, 0.55, 0.40),
-      (Color.lerp(mid, rim, 0.5)!, 4.2, 0.35, 0.6),
+
+    final rings = <_RingSpec>[
+      _RingSpec(tiltX: 0.9, tiltZ: 0.2, phase: 0.0, color: bright, rr: 0.92),
+      _RingSpec(tiltX: -0.5, tiltZ: 1.1, phase: 1.7, color: core, rr: 0.80),
+      _RingSpec(tiltX: 0.3, tiltZ: -0.8, phase: 3.4, color: accent, rr: 0.86),
+      _RingSpec(tiltX: 1.3, tiltZ: 0.6, phase: 5.0, color: bright, rr: 0.70),
     ];
-    for (final (c, ph, rr, sp) in swirls) {
-      final a = t * sp + ph;
-      final pos = Offset(
-        center.dx + math.cos(a) * baseR * 0.4,
-        center.dy + math.sin(a * 1.3) * baseR * 0.4,
-      );
-      final br = baseR * rr * (0.9 + 0.1 * math.sin(t * 1.7 + ph));
-      canvas.drawCircle(
-        pos,
-        br,
-        Paint()
-          ..shader = RadialGradient(
-            colors: [c.withValues(alpha: 0.55), const Color(0x00000000)],
-          ).createShader(Rect.fromCircle(center: pos, radius: br)),
-      );
+    for (final ring in rings) {
+      _drawRibbon(canvas, center, sphereR * ring.rr, ring, energy, speed);
     }
     canvas.restore();
     canvas.restore();
 
-    // 4. Glassy rim highlight — a bright thin arc at the top-left for the
-    //    frosted-glass sheen.
-    final rimPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = scale * 0.03
-      ..shader = SweepGradient(
-        startAngle: math.pi * 0.9,
-        endAngle: math.pi * 1.9,
-        colors: [
-          const Color(0x00FFFFFF),
-          Colors.white.withValues(alpha: 0.5),
-          const Color(0x00FFFFFF),
-        ],
-        stops: const [0.0, 0.5, 1.0],
-      ).createShader(Rect.fromCircle(center: center, radius: baseR));
-    canvas.drawPath(blob, rimPaint);
-
-    // 5. Bright specular dot for the glassy bubble look.
-    final spec = Offset(
-      center.dx - baseR * 0.34,
-      center.dy - baseR * 0.40,
+    // 4. Glassy rim + top sheen for the bubble look.
+    canvas.drawCircle(
+      center,
+      sphereR,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = R * 0.012
+        ..shader = SweepGradient(
+          startAngle: math.pi * 0.85,
+          endAngle: math.pi * 2.1,
+          colors: [
+            const Color(0x00FFFFFF),
+            Colors.white.withValues(alpha: 0.35),
+            accent.withValues(alpha: 0.25),
+            const Color(0x00FFFFFF),
+          ],
+          stops: const [0.0, 0.25, 0.6, 1.0],
+        ).createShader(Rect.fromCircle(center: center, radius: sphereR)),
     );
+    final spec = Offset(center.dx - sphereR * 0.30, center.dy - sphereR * 0.42);
     canvas.drawCircle(
       spec,
-      baseR * 0.16,
+      sphereR * 0.22,
       Paint()
         ..shader = RadialGradient(
-          colors: [Colors.white.withValues(alpha: 0.7), const Color(0x00FFFFFF)],
-        ).createShader(Rect.fromCircle(center: spec, radius: baseR * 0.16)),
+          colors: [Colors.white.withValues(alpha: 0.22), const Color(0x00FFFFFF)],
+        ).createShader(Rect.fromCircle(center: spec, radius: sphereR * 0.22)),
     );
   }
 
-  /// A closed wobbling blob path (sum of two low-frequency sines around the
-  /// circle) so the silhouette breathes organically instead of a fixed circle.
-  Path _blobPath(Offset c, double r, double t, double amp) {
-    const pts = 72;
-    final path = Path();
-    final wob = 0.04 + 0.05 * amp; // wobble depth grows with voice
-    for (var i = 0; i <= pts; i++) {
-      final a = (i / pts) * math.pi * 2;
-      final rad = r *
-          (1 +
-              wob * math.sin(a * 3 + t * 1.6) +
-              wob * 0.6 * math.sin(a * 5 - t * 1.1));
-      final p = Offset(c.dx + math.cos(a) * rad, c.dy + math.sin(a) * rad);
-      if (i == 0) {
-        path.moveTo(p.dx, p.dy);
-      } else {
-        path.lineTo(p.dx, p.dy);
-      }
+  /// Draws one tilted ring as a glowing ribbon: sample points around a circle,
+  /// rotate into 3D (tilt + spin), project to 2D, stroke with depth-faded alpha
+  /// and a soft blur so it reads as light, not a hard line.
+  void _drawRibbon(Canvas canvas, Offset c, double r, _RingSpec ring,
+      double energy, double speed) {
+    const n = 96;
+    final spin = t * 0.6 * speed + ring.phase;
+    final cosT = math.cos(ring.tiltX), sinT = math.sin(ring.tiltX);
+    final cosZ = math.cos(ring.tiltZ), sinZ = math.sin(ring.tiltZ);
+
+    // Build the projected points with their depth (z), so we can fade the back.
+    final pts = <Offset>[];
+    final depths = <double>[];
+    for (var i = 0; i <= n; i++) {
+      final a = (i / n) * math.pi * 2 + spin;
+      var x = math.cos(a) * r;
+      var y = math.sin(a) * r;
+      var z = 0.0;
+      // tilt around X
+      final y1 = y * cosT - z * sinT;
+      final z1 = y * sinT + z * cosT;
+      // tilt around Z
+      final x2 = x * cosZ - y1 * sinZ;
+      final y2 = x * sinZ + y1 * cosZ;
+      pts.add(Offset(c.dx + x2, c.dy + y2));
+      depths.add((z1 / r + 1) / 2); // 0 back .. 1 front
     }
-    path.close();
-    return path;
+
+    final glow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+    final crisp = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    for (var i = 0; i < n; i++) {
+      final d = (depths[i] + depths[i + 1]) / 2;
+      // Front of the ring is bright; back fades — gives the 3D weave.
+      final aGlow = (0.05 + 0.45 * d) * energy;
+      final aCrisp = (0.10 + 0.7 * d) * energy;
+      final w = (1.5 + 3.5 * d);
+      glow
+        ..color = ring.color.withValues(alpha: aGlow.clamp(0.0, 1.0))
+        ..strokeWidth = w * 2.2;
+      crisp
+        ..color = Color.lerp(ring.color, Colors.white, 0.35 * d)!
+            .withValues(alpha: aCrisp.clamp(0.0, 1.0))
+        ..strokeWidth = w;
+      canvas.drawLine(pts[i], pts[i + 1], glow);
+      canvas.drawLine(pts[i], pts[i + 1], crisp);
+    }
   }
 
   @override
-  bool shouldRepaint(covariant _LiquidOrbPainter old) =>
+  bool shouldRepaint(covariant _OrbPainter old) =>
       old.t != t || old.amp != amp || old.state != state;
+}
+
+class _RingSpec {
+  const _RingSpec({
+    required this.tiltX,
+    required this.tiltZ,
+    required this.phase,
+    required this.color,
+    required this.rr,
+  });
+  final double tiltX, tiltZ, phase, rr;
+  final Color color;
 }

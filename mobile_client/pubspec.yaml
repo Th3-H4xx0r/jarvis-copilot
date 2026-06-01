@@ -12,10 +12,6 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.6
 
-  # ── Typography ───────────────────────────────────────────────
-  # App-wide geometric sans (Inter). Fetched + cached at runtime so we don't
-  # commit font binaries; applied via JcTheme.build().
-  google_fonts: ^6.2.1
 
   # ── Networking ────────────────────────────────────────────────
   # dio for HTTP with a custom IOHttpClientAdapter that supports cert
@@ -80,3 +76,19 @@ flutter:
   uses-material-design: true
   # assets:
   #   - assets/   # uncomment when you add files under mobile_client/assets/
+
+  # App-wide bundled font (Inter). Drop the .ttf files into assets/fonts/
+  # (see assets/fonts/README.md for exact filenames + download link), then
+  # `flutter pub get`. Bundling — not runtime-fetching — is what makes the font
+  # actually render on every device, online or off.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700

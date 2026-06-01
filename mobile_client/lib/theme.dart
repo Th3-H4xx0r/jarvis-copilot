@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 /// JarvisCopilot mobile theme — "dark glass + iridescent".
 ///
@@ -46,29 +45,31 @@ class JcTheme {
     colors: [cyan, accent, accentAlt],
   );
 
-  /// App-wide geometric sans = Inter (via google_fonts, runtime-fetched +
-  /// cached), with tuned sizes/weights/tracking layered on top.
-  static TextTheme _textTheme(TextTheme base) {
-    final inter = GoogleFonts.interTextTheme(base).apply(
-      bodyColor: text,
-      displayColor: text,
-    );
-    return inter.copyWith(
-      displaySmall: inter.displaySmall?.copyWith(fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: -0.5),
-      titleLarge: inter.titleLarge?.copyWith(fontSize: 20, fontWeight: FontWeight.w600, letterSpacing: -0.2),
-      titleMedium: inter.titleMedium?.copyWith(fontSize: 16, fontWeight: FontWeight.w600),
-      bodyLarge: inter.bodyLarge?.copyWith(fontSize: 15, fontWeight: FontWeight.w400, height: 1.45),
-      bodyMedium: inter.bodyMedium?.copyWith(fontSize: 14, fontWeight: FontWeight.w400, height: 1.45),
-      labelLarge: inter.labelLarge?.copyWith(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.2),
-      bodySmall: inter.bodySmall?.copyWith(fontSize: 12, fontWeight: FontWeight.w500, color: muted),
-    );
-  }
+  /// App-wide geometric sans = Inter, BUNDLED as an asset (see assets/fonts/ +
+  /// pubspec `fonts:`). Bundling (not runtime-fetching) is what actually makes
+  /// it render — google_fonts silently falls back to the system font if it
+  /// can't fetch over the network. `fontFamily` is set on the ThemeData below;
+  /// here we just tune sizes/weights/tracking.
+  static const String fontFamily = 'Inter';
+
+  static TextTheme _textTheme(TextTheme base) => base.copyWith(
+        displaySmall: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: -0.5, color: text),
+        titleLarge: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, letterSpacing: -0.2, color: text),
+        titleMedium: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: text),
+        bodyLarge: const TextStyle(fontSize: 15, fontWeight: FontWeight.w400, height: 1.45, color: text),
+        bodyMedium: const TextStyle(fontSize: 14, fontWeight: FontWeight.w400, height: 1.45, color: text),
+        labelLarge: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.2),
+        bodySmall: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: muted),
+      );
 
   static ThemeData build() {
     final base = ThemeData.dark(useMaterial3: true);
     return base.copyWith(
       scaffoldBackgroundColor: bg,
-      textTheme: _textTheme(base.textTheme),
+      // Apply Inter to the whole text theme (copyWith has no fontFamily param;
+      // .apply propagates the family to every text style).
+      textTheme: _textTheme(base.textTheme).apply(fontFamily: fontFamily),
+      primaryTextTheme: base.primaryTextTheme.apply(fontFamily: fontFamily),
       colorScheme: const ColorScheme.dark(
         primary: accent,
         secondary: cyan,
@@ -77,13 +78,14 @@ class JcTheme {
         onSurface: text,
         error: danger,
       ),
-      appBarTheme: AppBarTheme(
+      appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
         foregroundColor: text,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: true,
-        titleTextStyle: GoogleFonts.inter(
+        titleTextStyle: TextStyle(
+          fontFamily: fontFamily,
           fontSize: 17,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.2,
