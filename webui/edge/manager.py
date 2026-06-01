@@ -328,15 +328,43 @@ class EdgeManager:
                 health_detail = str(exc)
         checks.append({"name": "nginx_healthz", "ok": health_ok, "detail": health_detail})
 
-        # 3. each route's app target reachable
+        # 2b. END-TO-END: replicate cloudflared's EXACT request — GET / to nginx
+        #     with Host: <route fqdn> — which hits the route server block and its
+        #     proxy_pass to the app (NOT the catch-all /healthz). This is what a
+        #     502 "Host Error" actually exercises. Any 2xx/3xx/4xx from nginx
+        #     means the chain works (the app answered); a 502 here means nginx
+        #     couldn't reach the app upstream.
+        domain = (s.get("domain") or "").strip().lower()
+        for sub in (routes or {}):
+            fqdn = domain if sub == "@" else f"{sub}.{domain}"
+            e2e_ok, e2e_detail = False, "could not reach nginx"
+            if listening:
+                try:
+                    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                    conn.request("GET", "/", headers={"Host": fqdn})
+                    resp = conn.getresponse()
+                    resp.read(200)
+                    # nginx reached the app for anything that isn't a gateway error.
+                    e2e_ok = resp.status not in (502, 503, 504)
+                    e2e_detail = (f"nginx→app returned HTTP {resp.status} (chain works)"
+                                  if e2e_ok else
+                                  f"nginx returned HTTP {resp.status} — its upstream "
+                                  f"{(routes or {}).get(sub)} failed. Is that app serving HTTP on that exact addr? "
+                                  f"Check the nginx log below for the connect() error.")
+                    conn.close()
+                except Exception as exc:
+                    e2e_detail = f"{exc} (this is the real failure cloudflared hits)"
+            checks.append({"name": f"end_to_end:{fqdn}", "ok": e2e_ok, "detail": e2e_detail})
+
+        # 3. each route's app target reachable (parse optional http(s):// prefix)
         for sub, target in routes.items():
-            host, _, tp = target.rpartition(":")
+            _scheme, host, tp = config_render._parse_target(target)
             ok = tp.isdigit() and tcp_ok(host or "127.0.0.1", int(tp))
             checks.append({
                 "name": f"route:{sub} → {target}",
                 "ok": ok,
                 "detail": ("app is accepting connections" if ok
-                           else f"nothing accepting on {target} — is that app running on this host?"),
+                           else f"nothing accepting on {host}:{tp} — is that app running on this host?"),
             })
 
         # 4. cloudflared running (the public side)

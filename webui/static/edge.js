@@ -190,13 +190,14 @@
       help('How do I fill these in?', steps([
         '<b>Domain</b>: the root domain you’ve added to Cloudflare, e.g. <code>example.com</code>. Your nameservers must already point at Cloudflare.',
         '<b>Routes</b>: one per line, <code>subdomain=127.0.0.1:port</code>. e.g. <code>jarvis=127.0.0.1:8787</code> serves the WebUI at <code>jarvis.example.com</code>. Use <code>@</code> for the bare domain. Targets must be loopback (127.0.0.1) — nginx is the only thing that reaches your apps.',
+        '<b>HTTPS apps</b>: if the app serves its own TLS (the JarvisCopilot WebUI does — you reach it at <code>https://…:8787</code>), prefix the target with <code>https://</code>, e.g. <code>jarvis=https://127.0.0.1:8787</code>. Otherwise nginx speaks plain HTTP to a TLS port and you get a 502.',
         '<b>Tunnel token</b>: in the Cloudflare dashboard go to <b>Zero Trust → Networks → Tunnels → Create a tunnel</b> (choose <i>Cloudflared</i>). After naming it, the install screen shows a command containing <code>--token eyJ…</code>. Copy just that long token string and paste it here.',
       ])) +
       help('IMPORTANT: a token tunnel needs Public Hostnames added in Cloudflare', steps([
         'A <b>token-based</b> tunnel (the kind you have) does NOT use this page’s local ingress config — it pulls its routing from the Cloudflare dashboard. So even with everything green here, nothing reaches your apps until you add a <b>Public Hostname</b> there. (That’s why your “hostname routes” page is empty.)',
         'In the dashboard: <b>Zero Trust → Networks → Tunnels → your tunnel → Configure → Public Hostname → Add a public hostname</b>. (Use the <b>Public Hostnames</b> tab, NOT “Hostname routes”.)',
         'Set <b>Subdomain</b> = <code>jarvis</code>, <b>Domain</b> = your domain, leave Path blank.',
-        'Set <b>Service</b> = Type <code>HTTP</code>, URL <code>localhost:' + (st.nginx_listen_port || 8788) + '</code> (this points at the nginx that this page runs). Save.',
+        'Set <b>Service</b> = Type <code>HTTP</code>, URL <code>127.0.0.1:' + (st.nginx_listen_port || 8788) + '</code> (use the explicit IPv4 address, NOT <code>localhost</code> — localhost can resolve to IPv6 ::1 and 502). This points at the nginx this page runs. Save.',
         'Repeat for each route you added above. Cloudflare auto-creates the DNS record. Then the tunnel actually serves <code>jarvis.example.com</code>.',
       ])) +
 

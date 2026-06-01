@@ -160,11 +160,23 @@ def stop(name: str) -> ProcStatus:
 
 
 def tail_log(name: str, lines: int = 100) -> str:
+    parts: list[str] = []
     p = _logfile(name)
-    if not p.exists():
-        return ""
-    try:
-        data = p.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return ""
-    return "\n".join(data[-lines:])
+    if p.exists():
+        try:
+            parts.extend(p.read_text(encoding="utf-8", errors="replace").splitlines())
+        except OSError:
+            pass
+    # nginx may also have written to a separate error file before stderr logging
+    # took over (or on older configs) — merge it so upstream/502 errors show up.
+    if name == "nginx":
+        err = state._edge_dir() / "nginx_error.log"
+        if err.exists():
+            try:
+                lines_err = err.read_text(encoding="utf-8", errors="replace").splitlines()
+                if lines_err:
+                    parts.append("--- nginx_error.log ---")
+                    parts.extend(lines_err)
+            except OSError:
+                pass
+    return "\n".join(parts[-lines:])
