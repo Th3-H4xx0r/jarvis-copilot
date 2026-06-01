@@ -228,22 +228,15 @@ function _pairUrl() {
 }
 
 function _pairDeepLink(code) {
-  // jarviscopilot://pair?server=<urlencoded>&code=<code>[&cf_id=…&cf_secret=…]
-  // The mobile app registers this scheme and pre-fills its Pair page. When the
-  // server is behind a Cloudflare tunnel, the CF service token is appended so a
-  // tunnel-first device can send CF-Access headers on its pair/claim request
-  // (the token can't arrive only in the claim response — that request must
-  // already clear Access at the edge).
+  // jarviscopilot://pair?server=<urlencoded>&code=<code>
+  // The mobile app registers this scheme and pre-fills its Pair page. Kept SHORT
+  // so the tiny QR encoder (~84-byte cap) can render it — the CF Access service
+  // token does NOT fit here (id+secret are >100 bytes), so a tunnel-first device
+  // enters it manually in the app's "Cloudflare service token" field instead.
   const loc = window.location;
   const serverUrl = loc.protocol + '//' + loc.host;
-  let link = 'jarviscopilot://pair?server=' + encodeURIComponent(serverUrl) +
+  return 'jarviscopilot://pair?server=' + encodeURIComponent(serverUrl) +
          '&code=' + encodeURIComponent(code);
-  const cf = _devicesPairCfAccess;
-  if (cf && cf.client_id && cf.client_secret) {
-    link += '&cf_id=' + encodeURIComponent(cf.client_id) +
-            '&cf_secret=' + encodeURIComponent(cf.client_secret);
-  }
-  return link;
 }
 
 // Tiny QR generator (numeric-byte mode, alphanumeric input). Adapted
@@ -473,6 +466,40 @@ function _rsEncode(data, ecLen) {
   return buf.slice(data.length);
 }
 
+// When the server is behind a Cloudflare tunnel, the device must send the CF
+// Access service token on its pair request (it 302s to SSO otherwise). The token
+// is too big for the QR, so show it here for the user to paste into the device's
+// "Cloudflare service token" field. Empty string when no token is configured.
+function _pairCfTokenBlock() {
+  const cf = _devicesPairCfAccess;
+  if (!cf || !cf.client_id || !cf.client_secret) return '';
+  const fld = (label, val) =>
+    `<div style="margin-bottom:6px">
+       <div style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">${label}</div>
+       <div style="display:flex;gap:6px;align-items:center">
+         <code style="flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:7px 10px;font-size:11px;word-break:break-all;text-align:left">${_devEsc(val)}</code>
+         <button type="button" onclick="_pairCopy(this,'${_devEsc(val).replace(/'/g, "\\'")}')" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:var(--text,#fff);font-size:11px;padding:7px 10px;cursor:pointer;white-space:nowrap">Copy</button>
+       </div>
+     </div>`;
+  return `
+    <div style="background:rgba(240,179,65,.06);border:1px solid rgba(240,179,65,.25);border-radius:12px;padding:12px;margin-bottom:14px;text-align:left">
+      <div style="font-size:12px;font-weight:600;color:#f0b341;margin-bottom:8px">Cloudflare Access — paste into the device’s “service token” field</div>
+      <div style="color:var(--muted);font-size:11px;line-height:1.5;margin-bottom:10px">This server is behind a Cloudflare tunnel, so the device needs these to connect (it can’t do browser login). Enter them in the app’s pair screen before pairing.</div>
+      ${fld('Client ID', cf.client_id)}
+      ${fld('Client Secret', cf.client_secret)}
+    </div>`;
+}
+
+// expose a copy helper for the inline buttons
+window._pairCopy = function (btn, val) {
+  try {
+    navigator.clipboard.writeText(val);
+    const old = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  } catch (e) { /* clipboard blocked — user can select the code manually */ }
+};
+
 function _openPairModal(code, expiresAt) {
   _closePairModal();
   const wrap = document.createElement('div');
@@ -491,6 +518,7 @@ function _openPairModal(code, expiresAt) {
         <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:8px 12px;margin-bottom:14px;font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all;text-align:center">${_devEsc(_pairUrl())}</div>
         <p style="color:var(--muted);font-size:13px;margin-bottom:8px">Then enter this code:</p>
         <div id="pair-code-display" style="font-family:ui-monospace,Menlo,monospace;font-size:32px;font-weight:800;letter-spacing:6px;color:#f0b341;background:rgba(240,179,65,.08);border:1px dashed rgba(240,179,65,.3);border-radius:12px;padding:14px;margin-bottom:14px">${_devEsc(code)}</div>
+        ${_pairCfTokenBlock()}
         <div id="pair-status" style="font-size:13px;color:var(--muted);min-height:22px">
           <span style="display:inline-block;width:10px;height:10px;border:2px solid #f0b341;border-top-color:transparent;border-radius:50%;animation:pair-spin .9s linear infinite;margin-right:6px;vertical-align:-1px"></span>
           Waiting for device... <span id="pair-countdown"></span>

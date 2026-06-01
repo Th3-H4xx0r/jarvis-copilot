@@ -32,6 +32,8 @@ class _PairPageState extends State<PairPage> {
   final _serverCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
+  final _cfIdCtrl = TextEditingController();
+  final _cfSecretCtrl = TextEditingController();
   bool _busy = false;
   String? _error;
   bool _showScanner = false;
@@ -58,23 +60,47 @@ class _PairPageState extends State<PairPage> {
     _serverCtrl.dispose();
     _codeCtrl.dispose();
     _nameCtrl.dispose();
+    _cfIdCtrl.dispose();
+    _cfSecretCtrl.dispose();
     super.dispose();
   }
 
+  // MobileScanner streams detections continuously; guard so we only act once.
+  bool _scanHandled = false;
+
   void _handleScan(BarcodeCapture cap) {
+    if (_scanHandled) return;
     if (cap.barcodes.isEmpty) return;
-    final raw = cap.barcodes.first.rawValue ?? '';
+    final raw = (cap.barcodes.first.rawValue ?? '').trim();
     if (raw.isEmpty) return;
+
+    // Be tolerant of QR content. Accept, in order:
+    //  1. jarviscopilot://pair?server=…&code=…[&cf_id=…&cf_secret=…]  (deep link)
+    //  2. https://host[:port]/pair  → use as the server URL (strip /pair)
+    //  3. a bare https://host[:port] → use directly as the server URL
+    String? server, code, cfId, cfSecret;
     final uri = Uri.tryParse(raw);
-    if (uri == null || uri.scheme != 'jarviscopilot' || uri.host != 'pair') {
-      setState(() => _error = 'Unrecognised QR (need jarviscopilot://pair URL)');
+    if (uri != null && uri.scheme == 'jarviscopilot' && uri.host == 'pair') {
+      server = uri.queryParameters['server'];
+      code = uri.queryParameters['code'];
+      cfId = uri.queryParameters['cf_id'];
+      cfSecret = uri.queryParameters['cf_secret'];
+    } else if (uri != null && (uri.scheme == 'https' || uri.scheme == 'http')) {
+      // A plain server/pair URL. Keep scheme+authority, drop the /pair path.
+      server = '${uri.scheme}://${uri.authority}';
+    } else {
+      // Not something we recognise — tell the user but keep the camera open
+      // (don't set _scanHandled) so they can try a different code.
+      setState(() => _error = 'Unrecognised QR. Expected a JarvisCopilot pair link or server URL.');
       return;
     }
+
+    _scanHandled = true;
     setState(() {
-      _serverCtrl.text = uri.queryParameters['server'] ?? '';
-      _codeCtrl.text = uri.queryParameters['code'] ?? '';
-      _scannedCfId = uri.queryParameters['cf_id'];
-      _scannedCfSecret = uri.queryParameters['cf_secret'];
+      if (server != null && server.isNotEmpty) _serverCtrl.text = server;
+      if (code != null && code.isNotEmpty) _codeCtrl.text = code;
+      _scannedCfId = cfId;
+      _scannedCfSecret = cfSecret;
       _showScanner = false;
       _error = null;
     });
@@ -132,13 +158,14 @@ class _PairPageState extends State<PairPage> {
         certFingerprint: fp,
         deviceName: name,
       );
-      // Apply a CF Access token from the QR (if any) BEFORE the claim POST so
-      // the request carries CF-Access headers and clears the edge. Tunnel-first
-      // pairing would otherwise 403 before the server's claim response (which
-      // also carries the token) is ever seen.
-      if ((_scannedCfId?.isNotEmpty ?? false) &&
-          (_scannedCfSecret?.isNotEmpty ?? false)) {
-        await Credentials.instance.saveCfToken(_scannedCfId, _scannedCfSecret);
+      // Apply a CF Access token BEFORE the claim POST so the request carries
+      // CF-Access headers and clears the edge — otherwise a tunnel-fronted
+      // server 302-redirects the claim to the SSO login. Prefer what the user
+      // typed into the fields; fall back to anything carried by the QR.
+      final cfId = _cfIdCtrl.text.trim().isNotEmpty ? _cfIdCtrl.text.trim() : _scannedCfId;
+      final cfSecret = _cfSecretCtrl.text.trim().isNotEmpty ? _cfSecretCtrl.text.trim() : _scannedCfSecret;
+      if ((cfId?.isNotEmpty ?? false) && (cfSecret?.isNotEmpty ?? false)) {
+        await Credentials.instance.saveCfToken(cfId, cfSecret);
       }
       app.api.notifyCredentialsChanged();
 
@@ -206,7 +233,7 @@ class _PairPageState extends State<PairPage> {
               right: 16,
               child: GradientButton(
                 label: 'Cancel',
-                onPressed: () => setState(() => _showScanner = false),
+                onPressed: () => setState(() { _scanHandled = false; _showScanner = false; }),
                 full: true,
               ),
             ),
@@ -247,7 +274,7 @@ class _PairPageState extends State<PairPage> {
                     side: const BorderSide(color: JcTheme.border),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
-                  onPressed: () => setState(() => _showScanner = true),
+                  onPressed: () => setState(() { _scanHandled = false; _showScanner = true; }),
                 ),
               ),
               const SizedBox(height: 24),
@@ -279,6 +306,37 @@ class _PairPageState extends State<PairPage> {
                 decoration: const InputDecoration(
                   labelText: 'Device name',
                   hintText: 'My iPhone',
+                ),
+              ),
+              // Cloudflare Access service token (only needed when the server is
+              // behind a CF tunnel). Paste the values shown on the server's pair
+              // popup — otherwise the claim 302-redirects to the SSO login.
+              Theme(
+                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  title: const Text('Behind a Cloudflare tunnel? (service token)',
+                      style: TextStyle(fontSize: 13, color: JcTheme.muted)),
+                  children: [
+                    TextField(
+                      controller: _cfIdCtrl,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        labelText: 'CF Access Client ID',
+                        hintText: 'xxxxxxxx.access',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _cfSecretCtrl,
+                      obscureText: true,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        labelText: 'CF Access Client Secret',
+                      ),
+                    ),
+                  ],
                 ),
               ),
               if (_pendingFingerprint != null && _pendingFingerprint!.isNotEmpty)

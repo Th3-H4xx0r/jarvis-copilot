@@ -131,6 +131,15 @@ button.secondary:hover{background:rgba(255,255,255,.10)}
     <label for="device">Device name</label>
     <input id="device" class="field" maxlength="48" autocomplete="off">
 
+    <details style="margin:6px 0 4px">
+      <summary style="cursor:pointer;font-size:12px;color:#9aa3c7">Behind a Cloudflare tunnel? (service token)</summary>
+      <p class="hint" style="margin:8px 0">If the server is exposed via Cloudflare Access, paste the service token shown on the server's pair popup — otherwise pairing is redirected to a login page (HTTP 302).</p>
+      <label for="cf_id">CF Access Client ID</label>
+      <input id="cf_id" class="field" placeholder="xxxxxxxx.access" autocomplete="off" spellcheck="false">
+      <label for="cf_secret">CF Access Client Secret</label>
+      <input id="cf_secret" class="field" type="password" autocomplete="off" spellcheck="false">
+    </details>
+
     <button id="submit">Pair</button>
     <button id="cancel" class="secondary">Cancel</button>
     <div id="msg" class="msg"></div>
@@ -198,6 +207,8 @@ $('submit').addEventListener('click', async () => {
   const server = $('server').value.trim();
   const code = codeInputs.map(e => e.value).join('');
   const device = $('device').value.trim();
+  const cfId = $('cf_id') ? $('cf_id').value.trim() : '';
+  const cfSecret = $('cf_secret') ? $('cf_secret').value.trim() : '';
   const msg = $('msg');
 
   if (!server || server.indexOf('://') < 0) {
@@ -216,7 +227,7 @@ $('submit').addEventListener('click', async () => {
   msg.innerHTML = '<span class="spinner"></span>Contacting server…';
 
   try {
-    const result = await window.pywebview.api.try_pair(server, code, device);
+    const result = await window.pywebview.api.try_pair(server, code, device, cfId, cfSecret);
     if (result.ok) {
       pendingCookie = result.cookie;
       pendingFingerprint = result.fingerprint;
@@ -300,17 +311,30 @@ class _PairAPI:
             "device_name": creds.device_name or socket.gethostname(),
         }
 
-    def try_pair(self, server_url: str, code: str, device_name: str) -> dict:
+    def try_pair(self, server_url: str, code: str, device_name: str,
+                 cf_client_id: str = "", cf_client_secret: str = "") -> dict:
         """Step 1 of pairing: claim the code, capture the cert fingerprint.
 
         Returns ``{ok, fingerprint, cookie}`` on success or
         ``{ok:false, error}`` on failure. Credentials are NOT persisted
         yet — that waits for ``confirm_and_save``.
+
+        When the server is behind a Cloudflare tunnel, the CF service token
+        entered in the dialog is sent on the claim request so it clears Access
+        at the edge (otherwise the claim 302-redirects to the SSO login). The
+        token is also remembered so confirm_and_save persists it.
         """
         url = _normalize_url(server_url)
         code = _normalize_code(code)
+        cf_client_id = (cf_client_id or "").strip()
+        cf_client_secret = (cf_client_secret or "").strip()
+        # Remember the operator-entered token (used by confirm_and_save). The
+        # claim RESPONSE may also carry one; that overrides below if present.
+        self._pending_cf_id = cf_client_id
+        self._pending_cf_secret = cf_client_secret
         try:
-            client = HttpClient(url, expected_fingerprint="")
+            client = HttpClient(url, expected_fingerprint="",
+                                cf_client_id=cf_client_id, cf_client_secret=cf_client_secret)
             resp, fingerprint = client.post_json(
                 "/api/auth/pair/claim",
                 {"code": code, "name": device_name or socket.gethostname()},
@@ -323,16 +347,13 @@ class _PairAPI:
             err = (resp.json().get("error") if resp.body else "") or f"HTTP {resp.status}"
             return {"ok": False, "error": str(err)}
 
-        # If the server is behind a Cloudflare tunnel, the claim response carries
-        # a CF Access service token. Stash it for confirm_and_save to persist
-        # (the JS bridge's confirm_and_save signature doesn't carry it).
+        # If the server returned a CF Access service token in the claim response,
+        # prefer it (authoritative) — otherwise keep whatever the operator typed
+        # into the dialog (set above). Never clear an operator-entered token.
         cf = resp.json().get("cf_access") if resp.body else None
-        if isinstance(cf, dict):
-            self._pending_cf_id = str(cf.get("client_id") or "")
-            self._pending_cf_secret = str(cf.get("client_secret") or "")
-        else:
-            self._pending_cf_id = ""
-            self._pending_cf_secret = ""
+        if isinstance(cf, dict) and cf.get("client_id") and cf.get("client_secret"):
+            self._pending_cf_id = str(cf.get("client_id"))
+            self._pending_cf_secret = str(cf.get("client_secret"))
 
         return {"ok": True, "fingerprint": fingerprint, "cookie": resp.cookie}
 
