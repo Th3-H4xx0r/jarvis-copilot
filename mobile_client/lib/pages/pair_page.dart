@@ -62,11 +62,23 @@ class _PairPageState extends State<PairPage> {
     _nameCtrl.dispose();
     _cfIdCtrl.dispose();
     _cfSecretCtrl.dispose();
+    _scannerController?.dispose();
     super.dispose();
   }
 
   // MobileScanner streams detections continuously; guard so we only act once.
   bool _scanHandled = false;
+  MobileScannerController? _scannerController;
+
+  void _closeScanner() {
+    final c = _scannerController;
+    _scannerController = null;
+    if (c != null) {
+      c.stop();
+      c.dispose();
+    }
+    if (mounted) setState(() { _scanHandled = false; _showScanner = false; });
+  }
 
   void _handleScan(BarcodeCapture cap) {
     if (_scanHandled) return;
@@ -96,14 +108,13 @@ class _PairPageState extends State<PairPage> {
     }
 
     _scanHandled = true;
-    setState(() {
-      if (server != null && server.isNotEmpty) _serverCtrl.text = server;
-      if (code != null && code.isNotEmpty) _codeCtrl.text = code;
-      _scannedCfId = cfId;
-      _scannedCfSecret = cfSecret;
-      _showScanner = false;
-      _error = null;
-    });
+    if (server != null && server.isNotEmpty) _serverCtrl.text = server;
+    if (code != null && code.isNotEmpty) _codeCtrl.text = code;
+    _scannedCfId = cfId;
+    _scannedCfSecret = cfSecret;
+    _error = null;
+    // Stop + dispose the camera and leave the scanner (also calls setState).
+    _closeScanner();
   }
 
   /// Step 1: Open a TLS socket directly, capture the leaf cert fingerprint,
@@ -226,14 +237,35 @@ class _PairPageState extends State<PairPage> {
         appBar: AppBar(title: const Text('Scan QR'), backgroundColor: JcTheme.bg),
         body: Stack(
           children: [
-            MobileScanner(onDetect: _handleScan),
+            // Use an explicit controller scoped to the QR formats we care about.
+            // In mobile_scanner 7.x the implicit controller can show the camera
+            // preview but fail to stream detections; an owned controller with
+            // formats:[qrCode] + autoStart is the reliable path.
+            MobileScanner(
+              controller: _scannerController ??= MobileScannerController(
+                formats: const [BarcodeFormat.qrCode],
+                detectionSpeed: DetectionSpeed.normal,
+              ),
+              onDetect: _handleScan,
+              errorBuilder: (context, error) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    'Camera error: ${error.errorCode.name}.\n'
+                    'Grant camera permission, or type the code below instead.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: JcTheme.muted),
+                  ),
+                ),
+              ),
+            ),
             Positioned(
               bottom: 24,
               left: 16,
               right: 16,
               child: GradientButton(
                 label: 'Cancel',
-                onPressed: () => setState(() { _scanHandled = false; _showScanner = false; }),
+                onPressed: _closeScanner,
                 full: true,
               ),
             ),
@@ -274,7 +306,11 @@ class _PairPageState extends State<PairPage> {
                     side: const BorderSide(color: JcTheme.border),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
-                  onPressed: () => setState(() { _scanHandled = false; _showScanner = true; }),
+                  onPressed: () => setState(() {
+                    _scanHandled = false;
+                    _scannerController = null; // a fresh one is built in build()
+                    _showScanner = true;
+                  }),
                 ),
               ),
               const SizedBox(height: 24),
@@ -319,6 +355,16 @@ class _PairPageState extends State<PairPage> {
                   title: const Text('Behind a Cloudflare tunnel? (service token)',
                       style: TextStyle(fontSize: 13, color: JcTheme.muted)),
                   children: [
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 10),
+                      child: Text(
+                        'Paste the token from the server\'s pair popup. Still getting '
+                        'a login redirect (302)? The token must also be allowed in '
+                        'your Cloudflare Access policy: Zero Trust → Access → '
+                        'Applications → your app → Policies → Include → Service Token.',
+                        style: TextStyle(fontSize: 11, color: JcTheme.muted, height: 1.4),
+                      ),
+                    ),
                     TextField(
                       controller: _cfIdCtrl,
                       autocorrect: false,

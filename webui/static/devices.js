@@ -485,6 +485,7 @@ function _pairCfTokenBlock() {
     <div style="background:rgba(240,179,65,.06);border:1px solid rgba(240,179,65,.25);border-radius:12px;padding:12px;margin-bottom:14px;text-align:left">
       <div style="font-size:12px;font-weight:600;color:#f0b341;margin-bottom:8px">Cloudflare Access — paste into the device’s “service token” field</div>
       <div style="color:var(--muted);font-size:11px;line-height:1.5;margin-bottom:10px">This server is behind a Cloudflare tunnel, so the device needs these to connect (it can’t do browser login). Enter them in the app’s pair screen before pairing.</div>
+      <div style="color:#f0b341;font-size:11px;line-height:1.5;margin-bottom:10px">⚠ One-time setup: this token must also be <b>allowed</b> in your Access policy, or pairing gets redirected to login (HTTP 302). In Cloudflare: <b>Zero Trust → Access → Applications →</b> your app <b>→ Policies →</b> add an <b>Include → Service Token →</b> this token.</div>
       ${fld('Client ID', cf.client_id)}
       ${fld('Client Secret', cf.client_secret)}
     </div>`;
