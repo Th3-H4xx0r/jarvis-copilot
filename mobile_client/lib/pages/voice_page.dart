@@ -6,7 +6,6 @@ import '../theme.dart';
 import '../voice/voice_controller.dart';
 import '../voice/voice_orb.dart';
 import '../voice/voice_state.dart';
-import '../widgets/glass.dart';
 
 /// Native voice screen — a recreation of the webui voice experience:
 /// a state-coloured orb, live transcript, and two modes (push-to-talk
@@ -167,11 +166,16 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
           ),
         ],
       ),
-      body: SafeArea(
-        child: ListenableBuilder(
-          listenable: _c,
-          builder: (context, _) => _buildBody(),
-        ),
+      body: Stack(
+        children: [
+          const Positioned.fill(child: _AmbientBackground()),
+          SafeArea(
+            child: ListenableBuilder(
+              listenable: _c,
+              builder: (context, _) => _buildBody(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -205,27 +209,29 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: JcTheme.muted,
+                      color: Color(0xFFB8C0CE),
                       fontSize: 15,
                       fontWeight: FontWeight.w500,
                       height: 1.4,
                     ),
                   ),
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 30),
                 VoiceOrb(state: _c.state, amplitude: _c.amplitude, size: 248),
-                const SizedBox(height: 32),
-                // AI response — large, centred, unboxed (the focal text).
+                const SizedBox(height: 38),
+                // AI response — large, bold, centred, unboxed (the focal text).
                 if (reply.isNotEmpty)
                   Text(
                     reply,
                     textAlign: TextAlign.center,
+                    maxLines: 6,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: JcTheme.text,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w600,
-                      height: 1.35,
-                      letterSpacing: -0.2,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w700,
+                      height: 1.3,
+                      letterSpacing: -0.4,
                     ),
                   )
                 else
@@ -327,7 +333,10 @@ class _Controls extends StatelessWidget {
     } else if (active && speakingOrThinking) {
       right = _GhostCircle(icon: Icons.stop_rounded, onTap: c.interrupt);
     } else {
-      right = const _GhostCircle(icon: Icons.bookmark_border_rounded, onTap: null);
+      // Idle placeholder: a disabled "Done" check — the same glyph this slot
+      // turns into once the mic is on and listening — so the icon doesn't jump
+      // from an unrelated bookmark to a check when a turn starts.
+      right = const _GhostCircle(icon: Icons.check_rounded, onTap: null);
     }
 
     return Padding(
@@ -344,8 +353,8 @@ class _Controls extends StatelessWidget {
   }
 }
 
-/// The big central mic button — gradient ring + filled mic. Turns to a stop
-/// glyph (red ring) while a session is running.
+/// The big central mic button — a glossy solid-blue circle inside a faint ring,
+/// matching the reference. Shows a stop glyph while a session is running.
 class _MicButton extends StatelessWidget {
   const _MicButton({required this.active, required this.onTap});
   final bool active;
@@ -356,33 +365,100 @@ class _MicButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 78,
-        height: 78,
+        width: 88,
+        height: 88,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: iridescentGradient(),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF3A86FF).withValues(alpha: 0.5),
-              blurRadius: 28,
-              spreadRadius: 2,
-            ),
-          ],
+          border: Border.all(color: const Color(0x2EFFFFFF), width: 1.2),
         ),
         child: Center(
           child: Container(
-            width: 64,
-            height: 64,
+            width: 66,
+            height: 66,
             decoration: const BoxDecoration(
               shape: BoxShape.circle,
-              color: Color(0xFF0B0E1C),
+              gradient: RadialGradient(
+                center: Alignment(-0.3, -0.4),
+                radius: 1.05,
+                colors: [Color(0xFF6FB0FF), Color(0xFF2E6BFF), Color(0xFF1E57DC)],
+                stops: [0.0, 0.55, 1.0],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x662E6BFF),
+                  blurRadius: 28,
+                  spreadRadius: 1,
+                ),
+              ],
             ),
             child: Icon(
               active ? Icons.stop_rounded : Icons.mic_rounded,
               color: Colors.white,
-              size: 30,
+              size: 28,
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Ambient near-black backdrop with faint aurora glows — matches the reference
+/// (cool teal/blue washes up top, a warm hint low-left). Painted behind the
+/// transparent app bar so the whole screen reads as one dark scene.
+class _AmbientBackground extends StatelessWidget {
+  const _AmbientBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return const IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF0A0C12), Color(0xFF050608)],
+          ),
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+                top: -50, left: -40, child: _Glow(Color(0xFF1EA89C), 300, 0.10)),
+            Positioned(
+                top: 30, right: -80, child: _Glow(Color(0xFF2E6BFF), 320, 0.06)),
+            Positioned(
+                bottom: -30,
+                left: -60,
+                child: _Glow(Color(0xFFB0703A), 280, 0.05)),
+            Positioned(
+                bottom: 60,
+                right: -50,
+                child: _Glow(Color(0xFF3A6BFF), 280, 0.06)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Glow extends StatelessWidget {
+  const _Glow(this.color, this.size, this.opacity);
+  final Color color;
+  final double size;
+  final double opacity;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [
+            color.withValues(alpha: opacity),
+            color.withValues(alpha: 0.0),
+          ],
         ),
       ),
     );
