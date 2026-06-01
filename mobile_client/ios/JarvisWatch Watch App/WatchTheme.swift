@@ -28,8 +28,18 @@ enum JcWatch {
 }
 
 extension Font {
-    /// App typeface = Inter (registered at launch in JarvisWatchApp).
+    /// App typeface = Inter (registered at launch in JarvisWatchApp). Inter's
+    /// Medium/SemiBold ship under their OWN family names ("Inter Medium" etc.),
+    /// so `.custom("Inter").weight(.medium)` would silently fall back to Regular.
+    /// Reference each face by its exact PostScript name instead.
     static func inter(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .custom("Inter", size: size).weight(weight)
+        let face: String
+        switch weight {
+        case .bold, .heavy, .black: face = "Inter-Bold"
+        case .semibold: face = "Inter-SemiBold"
+        case .medium: face = "Inter-Medium"
+        default: face = "Inter-Regular"
+        }
+        return .custom(face, size: size)
     }
 }

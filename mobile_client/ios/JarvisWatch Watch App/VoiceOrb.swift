@@ -4,27 +4,29 @@ import SwiftUI
 /// ribbons sweeping around a dark hollow interior, plus a soft fresnel rim. A
 /// SwiftUI-Canvas port of the mobile orb so the watch matches the phone.
 ///
-/// Each ribbon is a wavy loop on a unit sphere, tilted in 3D and orthographically
-/// projected, drawn as a filled band whose half-width grows toward the viewer
-/// (depth) so it reads as a folding sheet. Ribbons are drawn back-to-front and
-/// composited additively (.plusLighter) on the dark backdrop. The tilts drift on
-/// slow, incommensurate sinusoids for organic motion; `mode` sets palette + pace.
-///
-/// No mic amplitude on the watch (dictation, not streaming), so reactivity is
-/// time-driven: speaking pulses, thinking churns, idle slowly wanders.
+/// Performance note (watchOS): per-shape Canvas blur filters
+/// (`drawLayer { addFilter(.blur) }`) are far too expensive here — they tanked
+/// the frame rate (jerky "fast spinning") and stalled the orb while the phone
+/// streamed a reply ("freezes while thinking"). So this draws everything CRISP
+/// and cheap (gradient + fills + strokes, additive) and softens with ONE
+/// view-level `.blur` pass. Motion is gentle and time-driven per state.
 struct VoiceOrb: View {
     enum Mode: Equatable { case idle, thinking, speaking, error }
     var mode: Mode
     var size: CGFloat = 96
 
+    // Elapsed time from first appearance → small, monotonic `t` exactly like the
+    // mobile Stopwatch (not the huge absolute reference date).
+    @State private var start = Date()
+
     var body: some View {
         TimelineView(.animation) { tl in
             Canvas { context, sz in
                 var ctx = context
-                Self.draw(&ctx, size: sz, mode: mode,
-                          t: tl.date.timeIntervalSinceReferenceDate)
+                Self.draw(&ctx, size: sz, mode: mode, t: tl.date.timeIntervalSince(start))
             }
             .frame(width: size, height: size)
+            .blur(radius: size * 0.012) // light softening only — keep definition
         }
     }
 
@@ -60,7 +62,7 @@ struct VoiceOrb: View {
     // MARK: ribbon model
 
     private struct Built { var pts: [CGPoint]; var depth: [Double]; var meanFront: Double }
-    private static let m = 64
+    private static let m = 48 // points per loop (kept low for watch perf)
     // (amp, k, phase, rx, ry, rz)
     private static let strands: [(Double, Double, Double, Double, Double, Double)] = [
         (0.20, 2, 0.0, 0.55, 0.30, 0.15),
@@ -75,25 +77,26 @@ struct VoiceOrb: View {
         let c = CGPoint(x: sz.width / 2, y: sz.height / 2)
         let (hi, core, accent) = palette(mode)
 
-        let breath = 0.5 + 0.5 * sin(t * 0.9)
-        let talk = 0.5 + 0.5 * sin(t * 3.4)
-        var reactive = 0.0, spinSpeed = 0.07, energy = 0.34
+        let breath = 0.5 + 0.5 * sin(t * 0.8)
+        let talk = 0.5 + 0.5 * sin(t * 3.0)
+        // Gentle, slow motion — the watch reads "alive", not "spinning".
+        var reactive = 0.0, spinSpeed = 0.03, energy = 0.34
         switch mode {
-        case .speaking: reactive = 0.30 + 0.40 * talk; spinSpeed = 0.12; energy = 0.55
-        case .thinking: reactive = 0.12; spinSpeed = 0.15; energy = 0.58
-        case .idle: reactive = 0.05 * breath; spinSpeed = 0.07; energy = 0.40
-        case .error: reactive = 0.0; spinSpeed = 0.05; energy = 0.34
+        case .speaking: reactive = 0.28 + 0.40 * talk; spinSpeed = 0.05; energy = 0.55
+        case .thinking: reactive = 0.12; spinSpeed = 0.07; energy = 0.58
+        case .idle: reactive = 0.05 * breath; spinSpeed = 0.03; energy = 0.40
+        case .error: reactive = 0.0; spinSpeed = 0.02; energy = 0.34
         }
-        let wander = 0.18 * sin(t * 0.075) + 0.12 * sin(t * 0.117 + 2.1)
+        let wander = 0.10 * sin(t * 0.05) + 0.06 * sin(t * 0.09 + 2.1)
         let gt = t * spinSpeed + wander
-        let undu = t * (0.32 + 0.25 * reactive)
+        let undu = t * (0.12 + 0.15 * reactive)
         let scale = 1.0 + 0.025 * breath + 0.30 * reactive
-        let rs = R * 0.46 * scale
-        let bright = min(0.80 + 0.28 * energy + 0.34 * reactive, 1.45)
+        let rs = R * 0.50 * scale
+        let bright = min(0.85 + 0.28 * energy + 0.34 * reactive, 1.5)
 
         ctx.blendMode = .plusLighter // everything glows additively on the dark bg
 
-        // halo
+        // halo (cheap radial gradient — alpha fades to 0)
         let haloR = rs * (1.5 + 0.25 * reactive)
         ctx.fill(
             Path(ellipseIn: CGRect(x: c.x - haloR, y: c.y - haloR, width: haloR * 2, height: haloR * 2)),
@@ -105,47 +108,44 @@ struct VoiceOrb: View {
                 ]),
                 center: c, startRadius: 0, endRadius: haloR))
 
-        // ribbons, back → front
+        // ribbons, back → front (filled band + bright edge; the view-level blur
+        // softens them — no expensive per-shape Canvas blur).
         var built = strands.map { build($0, c: c, rs: rs, gt: gt, undu: undu, t: t) }
         built.sort { $0.meanFront < $1.meanFront }
 
         let sheetCol = RGB.mix(core, hi, 0.4)
         let edgeCol = RGB.mix(hi, white, 0.5)
-        let halfBase = rs * 0.17 * (1.0 + 0.40 * reactive)
+        let halfBase = rs * 0.20 * (1.0 + 0.40 * reactive)
 
         for b in built {
             let band = ribbonPath(b, halfBase: halfBase)
-            // translucent sheet (soft via a single blurred layer — keeps the
-            // watch render light vs the phone's multi-pass glow).
-            ctx.drawLayer { l in
-                l.addFilter(.blur(radius: rs * 0.05))
-                l.fill(band, with: .color(sheetCol.opacity(min((0.26 + 0.18 * b.meanFront) * bright, 0.72))))
-            }
+            // translucent sheet (the broad ribbon body)
+            ctx.fill(band, with: .color(sheetCol.opacity(min((0.26 + 0.18 * b.meanFront) * bright, 0.72))))
             // bright edge — front brighter than the part seen through the glass.
             let (front, back) = edgePaths(b)
-            ctx.stroke(back, with: .color(edgeCol.opacity(min(0.22 * bright, 0.5))),
-                       lineWidth: rs * 0.014)
-            ctx.stroke(front, with: .color(edgeCol.opacity(min(0.55 * bright, 0.85))),
-                       lineWidth: rs * 0.018)
+            ctx.stroke(back, with: .color(edgeCol.opacity(min(0.26 * bright, 0.5))),
+                       lineWidth: rs * 0.026)
+            ctx.stroke(front, with: .color(edgeCol.opacity(min(0.65 * bright, 0.9))),
+                       lineWidth: rs * 0.040)
         }
 
-        // fresnel rim
+        // fresnel rim — layered strokes fake a soft glow without a blur filter:
+        // a wide faint halo-ring under a bright thin ring.
         let rimCol = RGB.mix(core, white, 0.5)
-        ctx.drawLayer { l in
-            l.addFilter(.blur(radius: rs * 0.05))
-            l.stroke(
-                Path(ellipseIn: CGRect(x: c.x - rs, y: c.y - rs, width: rs * 2, height: rs * 2)),
-                with: .color(rimCol.opacity(min(0.42 * bright, 0.7))), lineWidth: rs * 0.035)
-        }
+        let rimRect = CGRect(x: c.x - rs, y: c.y - rs, width: rs * 2, height: rs * 2)
+        ctx.stroke(Path(ellipseIn: rimRect),
+                   with: .color(rimCol.opacity(min(0.20 * bright, 0.4))), lineWidth: rs * 0.12)
+        ctx.stroke(Path(ellipseIn: rimRect),
+                   with: .color(rimCol.opacity(min(0.55 * bright, 0.8))), lineWidth: rs * 0.045)
     }
 
-    /// Wavy loop on a unit sphere → 3D tilt (with slow per-ribbon wander) → project.
+    /// Wavy loop on a unit sphere → 3D tilt (slow per-ribbon wander) → project.
     private static func build(_ s: (Double, Double, Double, Double, Double, Double),
                               c: CGPoint, rs: CGFloat, gt: Double, undu: Double, t: Double) -> Built {
         let amp = s.0, k = s.1, phase = s.2
-        let rx = s.3 + 0.16 * sin(t * 0.050 + phase)
-        let ry = s.4 + 0.14 * sin(t * 0.041 + phase * 1.7 + 1.0)
-        let rz = s.5 + 0.11 * sin(t * 0.033 + phase * 0.7 + 2.0)
+        let rx = s.3 + 0.11 * sin(t * 0.030 + phase)
+        let ry = s.4 + 0.09 * sin(t * 0.024 + phase * 1.7 + 1.0)
+        let rz = s.5 + 0.07 * sin(t * 0.019 + phase * 0.7 + 2.0)
         let cx = cos(rx), sx = sin(rx), cy = cos(ry), sy = sin(ry), cz = cos(rz), sz = sin(rz)
         var pts = [CGPoint](); pts.reserveCapacity(m)
         var depth = [Double](); depth.reserveCapacity(m)
