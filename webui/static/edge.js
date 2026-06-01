@@ -63,7 +63,13 @@
 
   function injectNavButtons() {
     document.querySelectorAll('[data-panel="codememory"]').forEach(function (src) {
-      if (src.nextElementSibling && src.nextElementSibling.getAttribute("data-panel") === "edge") return;
+      // Idempotent guard: scope to THIS rail (src's parent) and bail if an edge
+      // button already exists in it. The immediate-sibling check used before was
+      // fragile — jarvis_memory.js inserts its own button after codememory too,
+      // so once it wedged in between, our guard stopped seeing ours and we got a
+      // duplicate on every re-run. (#duplicate-cloud-tab)
+      var rail = src.parentElement;
+      if (!rail || rail.querySelector('[data-panel="edge"]')) return;
       var btn = src.cloneNode(true);
       btn.setAttribute("data-panel", "edge");
       btn.setAttribute("data-tooltip", "Cloudflare");
@@ -76,7 +82,9 @@
         'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
         '<path d="M17.5 19a4.5 4.5 0 1 0 0-9 6 6 0 0 0-11.6-1.5A4 4 0 0 0 6.5 19z"/></svg>';
       btn.onclick = function () { showPanel(); loadEdge(); };
-      src.insertAdjacentElement("afterend", btn);
+      // Append at the end of the rail (after jmemory if present) so we never sit
+      // between codememory and jmemory and break jarvis_memory's adjacency guard.
+      rail.appendChild(btn);
     });
   }
 
@@ -175,7 +183,13 @@
         '<b>Domain</b>: the root domain you’ve added to Cloudflare, e.g. <code>example.com</code>. Your nameservers must already point at Cloudflare.',
         '<b>Routes</b>: one per line, <code>subdomain=127.0.0.1:port</code>. e.g. <code>jarvis=127.0.0.1:8787</code> serves the WebUI at <code>jarvis.example.com</code>. Use <code>@</code> for the bare domain. Targets must be loopback (127.0.0.1) — nginx is the only thing that reaches your apps.',
         '<b>Tunnel token</b>: in the Cloudflare dashboard go to <b>Zero Trust → Networks → Tunnels → Create a tunnel</b> (choose <i>Cloudflared</i>). After naming it, the install screen shows a command containing <code>--token eyJ…</code>. Copy just that long token string and paste it here.',
-        'In that same tunnel, add a <b>Public Hostname</b> for each route pointing at <code>http://localhost:' + (st.nginx_listen_port || 8788) + '</code> (nginx), or let this page manage it — then click <b>Save configuration</b>.',
+      ])) +
+      help('IMPORTANT: a token tunnel needs Public Hostnames added in Cloudflare', steps([
+        'A <b>token-based</b> tunnel (the kind you have) does NOT use this page’s local ingress config — it pulls its routing from the Cloudflare dashboard. So even with everything green here, nothing reaches your apps until you add a <b>Public Hostname</b> there. (That’s why your “hostname routes” page is empty.)',
+        'In the dashboard: <b>Zero Trust → Networks → Tunnels → your tunnel → Configure → Public Hostname → Add a public hostname</b>. (Use the <b>Public Hostnames</b> tab, NOT “Hostname routes”.)',
+        'Set <b>Subdomain</b> = <code>jarvis</code>, <b>Domain</b> = your domain, leave Path blank.',
+        'Set <b>Service</b> = Type <code>HTTP</code>, URL <code>localhost:' + (st.nginx_listen_port || 8788) + '</code> (this points at the nginx that this page runs). Save.',
+        'Repeat for each route you added above. Cloudflare auto-creates the DNS record. Then the tunnel actually serves <code>jarvis.example.com</code>.',
       ])) +
 
       '<h3>Cloudflare Access service token (for native apps)</h3>' +
@@ -218,11 +232,14 @@
       (live ? "Disable tunnel" : "Enable tunnel") + '</button></div>' +
       (!live && !pf.ok ? '<div class="edge-note" style="color:#d29922;margin-top:4px">Resolve all preflight checks before enabling.</div>' : '') +
 
-      help('Last step: lock it to only you', steps([
+      help('Last step: lock it to only you (Cloudflare Access)', steps([
         'The tunnel by itself is reachable by anyone who knows the URL — <b>Cloudflare Access</b> is what restricts it to you.',
-        'In the dashboard: <b>Zero Trust → Access → Applications → Add an application → Self-hosted</b>. Set the domain to your route(s), e.g. <code>jarvis.example.com</code>.',
-        'Add a policy: action <b>Allow</b>, rule <b>Emails</b> → your email. Anyone else gets Cloudflare’s login wall and is denied.',
-        'Remember to also <b>include</b> the service token (above) in this policy so your native apps get through.',
+        '<b>Zero Trust → Access → Applications → Add an application</b>. Pick the <b>Self-hosted and private</b> tab, then the <b>Public DNS</b> option (your app is a public hostname served by the tunnel), and click <b>Continue</b>.',
+        '<b>Destinations</b>: add a public hostname destination = your route, e.g. <code>jarvis.example.com</code> (the same hostname you added as a Public Hostname on the tunnel).',
+        '<b>Policies</b>: create a policy → Action <b>Allow</b> → add an <b>Include</b> rule, selector <b>Emails</b>, value <i>your email</i>. This is what makes it “only me”.',
+        'Add a SECOND <b>Include</b> rule in that same policy: selector <b>Service Token</b> → choose the token you created above. Without this, your phone/desktop apps get blocked by Access.',
+        '<b>Sources</b>: leave as the default identity provider (e.g. One-time PIN to your email) unless you’ve set up Google/GitHub login. Save the application.',
+        'Now anyone hitting <code>jarvis.example.com</code> gets Cloudflare’s login wall; only your email (in a browser) or your service token (native apps) gets through.',
       ]));
 
     // ── wire handlers ──
