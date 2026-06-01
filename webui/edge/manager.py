@@ -252,6 +252,80 @@ class EdgeManager:
         """
         return state.get_cf_service_token()
 
+    def diagnose(self) -> Dict[str, Any]:
+        """Self-test the routing chain from INSIDE the container (where loopback
+        works), since the operator usually can't shell in.
+
+        Checks, in order: nginx listening on its loopback port → nginx /healthz
+        responds → each route's app target accepts a connection. Returns a list
+        of {name, ok, detail} so the UI can show exactly where the chain breaks.
+        """
+        import socket
+        import http.client
+
+        s = state.load_settings()
+        port = int(s.get("nginx_listen_port", 8788))
+        routes = s.get("routes") or {}
+        checks: List[Dict[str, Any]] = []
+
+        def tcp_ok(host: str, p: int, timeout: float = 2.0) -> bool:
+            try:
+                with socket.create_connection((host, p), timeout=timeout):
+                    return True
+            except OSError:
+                return False
+
+        # 1. nginx process + listener
+        ng_running = supervisor.proc_status("nginx").running
+        listening = tcp_ok("127.0.0.1", port)
+        checks.append({
+            "name": "nginx_listening",
+            "ok": ng_running and listening,
+            "detail": (f"127.0.0.1:{port} accepting connections" if listening
+                       else f"nothing accepting on 127.0.0.1:{port}"
+                       + ("" if ng_running else " (nginx process not running — Start it)")),
+        })
+
+        # 2. nginx /healthz answers (proves nginx itself is serving)
+        health_ok, health_detail = False, "could not reach nginx /healthz"
+        if listening:
+            try:
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+                conn.request("GET", "/healthz")
+                resp = conn.getresponse()
+                body = resp.read(200).decode("utf-8", "replace").strip()
+                health_ok = resp.status == 200
+                health_detail = f"HTTP {resp.status}: {body}" if health_ok else f"HTTP {resp.status}"
+                conn.close()
+            except Exception as exc:
+                health_detail = str(exc)
+        checks.append({"name": "nginx_healthz", "ok": health_ok, "detail": health_detail})
+
+        # 3. each route's app target reachable
+        for sub, target in routes.items():
+            host, _, tp = target.rpartition(":")
+            ok = tp.isdigit() and tcp_ok(host or "127.0.0.1", int(tp))
+            checks.append({
+                "name": f"route:{sub} → {target}",
+                "ok": ok,
+                "detail": ("app is accepting connections" if ok
+                           else f"nothing accepting on {target} — is that app running on this host?"),
+            })
+
+        # 4. cloudflared running (the public side)
+        cf = supervisor.proc_status("cloudflared").running
+        checks.append({
+            "name": "cloudflared_running",
+            "ok": cf,
+            "detail": "tunnel connector is up" if cf else "cloudflared not running — Start it",
+        })
+
+        hint = ("All green here means the in-container chain works. If "
+                "jarvis.<domain> still fails, the issue is on Cloudflare's side: "
+                "confirm the Public Hostname points at http://localhost:" + str(port)
+                + " and that Access isn't blocking you.")
+        return {"ok": all(c["ok"] for c in checks), "checks": checks, "hint": hint}
+
     def logs(self, name: str, lines: int = 100) -> Dict[str, Any]:
         if name not in ("cloudflared", "nginx"):
             return {"ok": False, "error": "unknown process"}

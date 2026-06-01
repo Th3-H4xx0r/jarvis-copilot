@@ -4382,3 +4382,11 @@ html.mini-voice main.main::before{
   font-family:'SF Mono',ui-monospace,monospace;
 }
 #mainEdge .edge-help-body b{color:var(--text);font-weight:650;}
+
+/* Cloudflare panel — log viewer (#mainEdge) */
+#mainEdge .edge-log{
+  margin:4px 0 0;padding:8px 10px;background:var(--code-bg);
+  border:1px solid var(--border);border-radius:var(--radius-md);
+  font-family:'SF Mono',ui-monospace,monospace;font-size:11.5px;line-height:1.45;
+  color:var(--text);max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;
+}

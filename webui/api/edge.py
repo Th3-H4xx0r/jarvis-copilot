@@ -28,6 +28,8 @@ def handle_edge_get(handler, parsed) -> bool:
     try:
         if path == "/api/edge/status":
             return j(handler, _mgr().status())
+        if path == "/api/edge/diagnose":
+            return j(handler, _mgr().diagnose())
         if path == "/api/edge/logs":
             from urllib.parse import parse_qs
             qs = parse_qs(parsed.query or "")

@@ -240,6 +240,15 @@
       (live ? "Disable tunnel" : "Enable tunnel") + '</button></div>' +
       (!live && !pf.ok ? '<div class="edge-note" style="color:#d29922;margin-top:4px">Resolve all preflight checks before enabling.</div>' : '') +
 
+      '<h3>Check &amp; fix</h3>' +
+      '<div class="edge-note">Tests the whole chain from inside this server (nginx listening → /healthz → each app → cloudflared) and tells you what to fix. Note: don’t test <code>hermes:8788</code> in a browser — nginx binds <b>127.0.0.1 only</b> on purpose, so only this in-container check (or the public <code>https://' + (Object.keys(st.routes || {})[0] || "jarvis") + '.' + esc(st.domain || "yourdomain") + '</code> via the tunnel) is valid.</div>' +
+      '<div style="display:flex;gap:8px;margin-top:6px">' +
+      '<button type="button" id="edgeDiag">Run check</button>' +
+      '<button type="button" id="edgeLogsBtn" class="edge-row-install">View logs</button>' +
+      '</div>' +
+      '<div id="edgeDiagOut" style="margin-top:8px"></div>' +
+      '<div id="edgeLogsOut"></div>' +
+
       help('Last step: lock it to only you (Cloudflare Access)', steps([
         'The tunnel by itself is reachable by anyone who knows the URL — <b>Cloudflare Access</b> is what restricts it to you.',
         '<b>Zero Trust → Access → Applications → Add an application</b>. Pick the <b>Self-hosted and private</b> tab, then the <b>Public DNS</b> option (your app is a public hostname served by the tunnel), and click <b>Continue</b>.',
@@ -321,6 +330,48 @@
     }
     wireSvc("data-svc-start", "/api/edge/service/start");
     wireSvc("data-svc-stop", "/api/edge/service/stop");
+
+    // Check & fix: run the in-container diagnostic and render each check + fix.
+    var diagBtn = document.getElementById("edgeDiag");
+    if (diagBtn) diagBtn.onclick = async function () {
+      diagBtn.disabled = true; diagBtn.textContent = "Checking…";
+      var out = document.getElementById("edgeDiagOut");
+      try {
+        var r = await api("/api/edge/diagnose");
+        var html = (r.checks || []).map(function (c) {
+          return '<div class="edge-check">' + dot(c.ok) + '<strong>' + esc(c.name) + '</strong>' +
+            (c.detail ? ' <span style="opacity:.75">— ' + esc(c.detail) + '</span>' : '') + '</div>';
+        }).join("");
+        var banner = r.ok
+          ? '<div class="edge-note" style="color:#3fb950">All checks passed — the in-container chain is healthy.</div>'
+          : '<div class="edge-note" style="color:#f85149">Some checks failed — see the fix on each red line above.</div>';
+        out.innerHTML = banner + html + (r.hint ? '<div class="edge-note" style="margin-top:6px">' + esc(r.hint) + '</div>' : "");
+      } catch (e) {
+        out.innerHTML = '<div class="edge-note" style="color:#f85149">Check failed: ' + esc(e.message || e) + '</div>';
+      }
+      diagBtn.disabled = false; diagBtn.textContent = "Run check";
+    };
+
+    // Logs viewer: tail nginx + cloudflared logs (most useful when a check fails).
+    var logsBtn = document.getElementById("edgeLogsBtn");
+    if (logsBtn) logsBtn.onclick = async function () {
+      var out = document.getElementById("edgeLogsOut");
+      if (out.dataset.open === "1") { out.innerHTML = ""; out.dataset.open = "0"; return; }
+      out.dataset.open = "1";
+      out.innerHTML = '<div class="edge-note">Loading logs…</div>';
+      try {
+        var both = await Promise.all([
+          api("/api/edge/logs?name=nginx&lines=60"),
+          api("/api/edge/logs?name=cloudflared&lines=60"),
+        ]);
+        out.innerHTML = both.map(function (r) {
+          return '<div style="margin-top:8px"><strong style="font-size:12px">' + esc(r.name) + '</strong>' +
+            '<pre class="edge-log">' + esc(r.log || "(empty)") + '</pre></div>';
+        }).join("");
+      } catch (e) {
+        out.innerHTML = '<div class="edge-note" style="color:#f85149">Could not load logs: ' + esc(e.message || e) + '</div>';
+      }
+    };
   }
 
   window.loadEdge = loadEdge;
