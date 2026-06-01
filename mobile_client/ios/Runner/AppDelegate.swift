@@ -238,6 +238,11 @@ import AppIntents
         switch url.host {
         case "shortcut-result", "shortcut-error":
             forwardShortcutCallback(url)
+        case "voice":
+            // Lock Screen / Home Screen widget tap → open Voice + start a turn,
+            // reusing the same path as the Siri StartVoiceIntent.
+            UserDefaults.standard.set(true, forKey: "jc_pending_voice")
+            fireStartVoiceIfPending()
         default:
             forwardPairDeepLink(url)
         }
