@@ -293,6 +293,8 @@
       try {
         var r = await jpost("/api/edge/configure", payload);
         if (r && r.ok === false) alert(r.error || "Save failed");
+        else if (r && r.reload_error) alert("Saved, but nginx reload failed:\n" + r.reload_error);
+        else if (r && r.nginx_reloaded) alert("Saved — nginx reloaded with the new config.");
       } catch (e) { alert(e.message || e); }
       loadEdge();
     };

@@ -146,7 +146,30 @@ class EdgeManager:
             # file too so no dead secret lingers on disk.
             if "cf_service_client_id" in updates and not updates.get("cf_service_client_id"):
                 state.set_cf_service_secret("")
-            return {"ok": True, "settings": state.public_settings(), "_raw": new_settings}
+
+            # Apply-on-save: if routing changed AND nginx is already running, it
+            # would otherwise keep serving its OLD rendered config (the classic
+            # "I changed the route but it still 502s" footgun). Re-render and
+            # reload nginx so Save actually takes effect — no manual Stop/Start.
+            reloaded = False
+            reload_error = ""
+            routing_changed = any(k in updates for k in ("domain", "routes", "nginx_listen_port"))
+            if routing_changed and supervisor.proc_status("nginx").running:
+                try:
+                    self._write_configs()
+                    ok_t, out = supervisor.test_nginx(str(self._nginx_conf()))
+                    if not ok_t:
+                        reload_error = "new config failed nginx -t; kept the old one running: " + out
+                    else:
+                        supervisor.reload_nginx(str(self._nginx_conf()))
+                        reloaded = True
+                except Exception as exc:
+                    reload_error = str(exc)
+            result = {"ok": True, "settings": state.public_settings(), "_raw": new_settings,
+                      "nginx_reloaded": reloaded}
+            if reload_error:
+                result["reload_error"] = reload_error
+            return result
 
     def _write_configs(self) -> None:
         s = state.load_settings()

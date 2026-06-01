@@ -107,6 +107,30 @@ def start_nginx(conf_path: str) -> ProcStatus:
     return _spawn("nginx", argv)
 
 
+def reload_nginx(conf_path: str) -> ProcStatus:
+    """Apply a new nginx config to the running process without a full restart.
+
+    `nginx -s reload` (same -c/-p) sends SIGHUP so workers pick up the new config
+    gracefully. If reload fails (or nginx isn't actually running), fall back to a
+    stop + fresh start so a config change always takes effect.
+    """
+    path = installer._which("nginx")
+    if not path:
+        raise RuntimeError("nginx is not installed")
+    prefix = str(state._edge_dir())
+    cur = proc_status("nginx")
+    if cur.running:
+        out = subprocess.run(
+            [path, "-c", conf_path, "-p", prefix, "-s", "reload"],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+        if out.returncode == 0:
+            return cur
+    # Reload didn't work (or wasn't running) — do a clean restart.
+    stop("nginx")
+    return start_nginx(conf_path)
+
+
 def test_nginx(conf_path: str) -> tuple[bool, str]:
     """Run ``nginx -t`` to validate a config before (re)starting. (ok, output)."""
     path = installer._which("nginx")
