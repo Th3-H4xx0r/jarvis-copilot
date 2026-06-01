@@ -24,8 +24,7 @@
   }
 
   function dot(ok) {
-    return '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle;background:' +
-      (ok ? "#3fb950" : "#f85149") + '"></span>';
+    return '<span class="edge-dot" style="background:' + (ok ? "#3fb950" : "#f85149") + '"></span>';
   }
 
   // ── Panel container (MAIN area, like jarvis_memory) ──
@@ -91,9 +90,9 @@
 
   // ── Render ──
   function row(label, ok, detail) {
-    return '<div style="padding:3px 0;font-size:13px">' + dot(ok) +
+    return '<div class="edge-check">' + dot(ok) +
       '<strong>' + esc(label) + '</strong>' +
-      (detail ? ' <span style="color:var(--muted,#8b949e)">— ' + esc(detail) + '</span>' : '') + '</div>';
+      (detail ? ' <span style="opacity:.7">— ' + esc(detail) + '</span>' : '') + '</div>';
   }
 
   async function loadEdge() {
@@ -117,45 +116,47 @@
 
     function toolRow(name) {
       var t = tools[name] || {};
-      return '<div style="display:flex;align-items:center;gap:8px;padding:2px 0">' + dot(!!t.installed) +
+      return '<div class="edge-row-install" style="display:flex;align-items:center;gap:8px;padding:3px 0">' + dot(!!t.installed) +
         '<strong>' + name + '</strong>' +
-        '<span style="color:var(--muted,#8b949e);font-size:12px">' + esc(t.version || (t.installed ? "installed" : "not installed")) + '</span>' +
-        (t.installed ? '' : '<button data-install="' + name + '" style="margin-left:auto;font-size:12px">Install</button>') +
+        '<span style="opacity:.7;font-size:12px">' + esc(t.version || (t.installed ? "installed" : "not installed")) + '</span>' +
+        (t.installed ? '' : '<button type="button" data-install="' + name + '" style="margin-left:auto;font-size:12px">Install</button>') +
         '</div>';
     }
 
     body.innerHTML =
-      '<h3 style="font-size:13px;margin:0 0 4px">Tooling</h3>' +
+      '<h3>Tooling</h3>' +
       toolRow("cloudflared") + toolRow("nginx") +
 
-      '<h3 style="font-size:13px;margin:14px 0 4px">Configuration</h3>' +
-      '<label style="font-size:12px">Domain</label>' +
-      '<input id="edgeDomain" type="text" value="' + esc(st.domain || "") + '" placeholder="example.com" style="width:100%">' +
-      '<label style="font-size:12px;display:block;margin-top:6px">Routes (one per line: <code>sub=127.0.0.1:port</code>, use <code>@</code> for apex)</label>' +
-      '<textarea id="edgeRoutes" rows="4" placeholder="jarvis=127.0.0.1:8787" style="width:100%;font-family:monospace;font-size:12px">' + esc(routesText) + '</textarea>' +
-      '<label style="font-size:12px;display:block;margin-top:6px">Tunnel token</label>' +
-      '<input id="edgeToken" type="password" placeholder="' + (st.has_token ? "saved (" + esc(st.token_masked) + ")" : "paste cloudflared tunnel token") + '" style="width:100%">' +
+      '<h3>Configuration</h3>' +
+      '<label>Domain</label>' +
+      '<input id="edgeDomain" type="text" value="' + esc(st.domain || "") + '" placeholder="example.com">' +
+      '<label>Routes (one per line: <code>sub=127.0.0.1:port</code>, use <code>@</code> for apex)</label>' +
+      '<textarea id="edgeRoutes" rows="4" placeholder="jarvis=127.0.0.1:8787">' + esc(routesText) + '</textarea>' +
+      '<label>Tunnel token</label>' +
+      '<input id="edgeToken" type="password" placeholder="' + (st.has_token ? "saved (" + esc(st.token_masked) + ")" : "paste cloudflared tunnel token") + '">' +
 
-      '<h3 style="font-size:13px;margin:14px 0 4px">Cloudflare Access service token (for native apps)</h3>' +
-      '<div style="font-size:12px;color:var(--muted,#8b949e);margin-bottom:4px">Mobile/desktop apps can\'t do browser SSO. Create a service token in Zero Trust → Access → Service Auth, paste it here, and it\'s delivered to each device when it pairs.</div>' +
-      '<label style="font-size:12px">Client ID</label>' +
-      '<input id="edgeCfId" type="text" value="' + esc(st.cf_service_client_id || "") + '" placeholder="xxxxxxxx.access" style="width:100%">' +
-      '<label style="font-size:12px;display:block;margin-top:6px">Client Secret</label>' +
-      '<input id="edgeCfSecret" type="password" placeholder="' + (st.has_cf_service_token ? "saved (" + esc(st.cf_service_secret_masked) + ")" : "paste service token secret") + '" style="width:100%">' +
+      '<h3>Cloudflare Access service token (for native apps)</h3>' +
+      '<div class="edge-note">Mobile/desktop apps can\'t do browser SSO. Create a service token in Zero Trust → Access → Service Auth, paste it here, and it\'s delivered to each device when it pairs.</div>' +
+      '<label>Client ID</label>' +
+      '<input id="edgeCfId" type="text" value="' + esc(st.cf_service_client_id || "") + '" placeholder="xxxxxxxx.access">' +
+      '<label>Client Secret</label>' +
+      '<input id="edgeCfSecret" type="password" placeholder="' + (st.has_cf_service_token ? "saved (" + esc(st.cf_service_secret_masked) + ")" : "paste service token secret") + '">' +
 
-      '<button id="edgeSave" style="margin-top:8px">Save configuration</button>' +
+      '<div style="margin-top:12px"><button type="button" id="edgeSave">Save configuration</button></div>' +
 
-      '<h3 style="font-size:13px;margin:14px 0 4px">Safety preflight</h3>' +
+      '<h3>Safety preflight</h3>' +
       (pf.checks || []).map(function (c) { return row(c.name, c.ok, c.detail); }).join("") +
 
-      '<h3 style="font-size:13px;margin:14px 0 4px">Status</h3>' +
+      '<h3>Status</h3>' +
       row("cloudflared", (procs.cloudflared || {}).running, (procs.cloudflared || {}).running ? "pid " + procs.cloudflared.pid : "stopped") +
       row("nginx", (procs.nginx || {}).running, (procs.nginx || {}).running ? "pid " + procs.nginx.pid : "stopped") +
-      '<button id="edgeToggle" style="margin-top:8px' + (live ? ";background:#f85149;color:#fff" : "") + '"' + (!live && !pf.ok ? " disabled" : "") + '>' +
-      (live ? "Disable tunnel" : "Enable tunnel") + '</button>' +
-      (!live && !pf.ok ? '<div style="font-size:12px;color:#d29922;margin-top:4px">Resolve all preflight checks before enabling.</div>' : '') +
+      '<div style="margin-top:12px"><button type="button" id="edgeToggle"' +
+      (live ? ' style="background:#f85149;color:#fff;border-color:#f85149"' : '') +
+      (!live && !pf.ok ? " disabled" : "") + '>' +
+      (live ? "Disable tunnel" : "Enable tunnel") + '</button></div>' +
+      (!live && !pf.ok ? '<div class="edge-note" style="color:#d29922;margin-top:4px">Resolve all preflight checks before enabling.</div>' : '') +
 
-      '<div style="font-size:12px;color:var(--muted,#8b949e);margin-top:14px;border-top:1px solid var(--border,#30363d);padding-top:8px">' +
+      '<div class="edge-note" style="margin-top:16px;border-top:1px solid var(--border);padding-top:10px">' +
       'Lock this down: in the Cloudflare Zero Trust dashboard, create an Access application for your domain that allows ONLY your email. ' +
       'The tunnel does not restrict who can reach it — Access does.</div>';
 
@@ -163,7 +164,14 @@
     body.querySelectorAll("[data-install]").forEach(function (b) {
       b.onclick = async function () {
         b.disabled = true; b.textContent = "Installing…";
-        try { await jpost("/api/edge/install", { tool: b.getAttribute("data-install") }); } catch (e) { alert(e.message || e); }
+        try {
+          var r = await jpost("/api/edge/install", { tool: b.getAttribute("data-install") });
+          if (r && r.ok === false) {
+            alert("Install failed: " + (r.error || "unknown error"));
+          }
+        } catch (e) {
+          alert("Install failed: " + (e.message || e));
+        }
         loadEdge();
       };
     });

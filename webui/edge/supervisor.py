@@ -63,20 +63,30 @@ def proc_status(name: str) -> ProcStatus:
 
 
 def _spawn(name: str, argv: List[str]) -> ProcStatus:
-    """Start *argv* detached (new session) with stdout/stderr to the log file."""
+    """Start *argv* detached with stdout/stderr to the log file. Cross-platform:
+    POSIX uses a new session (setsid); Windows uses a detached process group."""
     cur = proc_status(name)
     if cur.running:
         return cur
     log = open(_logfile(name), "ab", buffering=0)
-    # start_new_session=True == setsid: detach from the WebUI's process group so
-    # it is not killed when the request thread / parent exits.
-    proc = subprocess.Popen(
-        argv,
+    # Augment PATH so the child (cloudflared/nginx) can find sibling tools even
+    # when the WebUI was spawned with a minimal environment.
+    env = dict(os.environ)
+    env["PATH"] = installer._augmented_path()
+    kwargs = dict(
         stdout=log,
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
-        start_new_session=True,
+        env=env,
     )
+    if os.name == "nt":
+        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP — survive parent exit.
+        kwargs["creationflags"] = 0x00000008 | 0x00000200
+    else:
+        # start_new_session=True == setsid: detach from the WebUI's process
+        # group so it is not killed when the request thread / parent exits.
+        kwargs["start_new_session"] = True
+    proc = subprocess.Popen(argv, **kwargs)
     _pidfile(name).write_text(str(proc.pid), encoding="utf-8")
     return ProcStatus(name=name, running=True, pid=proc.pid)
 
@@ -88,7 +98,13 @@ def start_nginx(conf_path: str) -> ProcStatus:
     # -p gives nginx a prefix dir for its temp/log files inside the edge dir so
     # it does not need write access to the system nginx prefix.
     prefix = str(state._edge_dir())
-    return _spawn("nginx", [path, "-c", conf_path, "-p", prefix, "-g", "daemon off;"])
+    argv = [path, "-c", conf_path, "-p", prefix]
+    # `daemon off;` keeps nginx in the foreground so our pidfile/Popen handle
+    # tracks the real process. Windows nginx has no daemon mode (always
+    # foreground), so the flag is POSIX-only.
+    if os.name != "nt":
+        argv += ["-g", "daemon off;"]
+    return _spawn("nginx", argv)
 
 
 def test_nginx(conf_path: str) -> tuple[bool, str]:
@@ -122,13 +138,18 @@ def start_cloudflared(conf_path: str, token: str) -> ProcStatus:
 def stop(name: str) -> ProcStatus:
     pid = _read_pid(name)
     if _alive(pid):
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-        except OSError:
+        if os.name == "nt":
+            # No process groups / SIGTERM on Windows — taskkill the tree.
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                           capture_output=True, check=False)
+        else:
             try:
-                os.kill(pid, signal.SIGTERM)
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
             except OSError:
-                pass
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    pass
     p = _pidfile(name)
     if p.exists():
         try:

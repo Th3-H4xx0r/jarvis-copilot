@@ -101,7 +101,13 @@ class EdgeManager:
     # ── operations ─────────────────────────────────────────────────────────────
     def install(self, tool: str) -> Dict[str, Any]:
         with self._lock:
-            st = installer.install(tool)
+            try:
+                st = installer.install(tool)
+            except Exception as exc:
+                # Surface the reason (no package manager, sudo needed, download
+                # failed, …) to the UI instead of a generic 500 — the operator
+                # may only be able to debug this through the web panel.
+                return {"ok": False, "error": str(exc), "tool": installer.status(tool).__dict__}
             return {"ok": st.installed, "tool": st.__dict__}
 
     def configure(self, body: Dict[str, Any]) -> Dict[str, Any]:

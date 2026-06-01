@@ -4310,3 +4310,54 @@ html.mini-voice main.main::before{
   width:100%;
   background:linear-gradient(180deg, rgba(255,138,0,0.18), transparent);
 }
+
+/* ── Cloudflare Tunnel panel (#mainEdge) ──────────────────────────────────
+   Scoped because the app has no global input/button base — bare elements
+   would otherwise render with browser defaults (white inputs, OS buttons). */
+#mainEdge{color:var(--text);}
+#edgeBody{color:var(--text);}
+#mainEdge h3{
+  font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted);margin:18px 0 8px;
+}
+#mainEdge h3:first-child{margin-top:0;}
+#mainEdge label{
+  display:block;font-size:0.72rem;font-weight:600;color:var(--muted);
+  margin:8px 0 4px;letter-spacing:.02em;
+}
+#mainEdge label code,#mainEdge .edge-note code{
+  background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.85em;
+}
+#mainEdge input[type="text"],
+#mainEdge input[type="password"],
+#mainEdge textarea{
+  width:100%;box-sizing:border-box;background:var(--input-bg);color:var(--text);
+  border:1px solid var(--border);border-radius:var(--radius-md);
+  padding:8px 12px;font-size:13px;font-family:inherit;
+  transition:border-color .15s,box-shadow .15s;
+}
+#mainEdge textarea{font-family:'SF Mono',ui-monospace,monospace;line-height:1.5;resize:vertical;}
+#mainEdge input::placeholder,#mainEdge textarea::placeholder{color:var(--muted);opacity:.6;}
+#mainEdge input:focus,#mainEdge textarea:focus{
+  border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg);outline:none;
+}
+#mainEdge button{
+  background:var(--accent-bg-strong);color:var(--accent-text);
+  border:1px solid var(--accent);border-radius:var(--radius-md);
+  padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;
+  transition:background .12s,opacity .12s;
+}
+#mainEdge button:hover{background:var(--accent-bg);}
+#mainEdge button:disabled{opacity:.5;cursor:not-allowed;}
+/* Secondary (Install) + destructive (Disable) variants set via inline bg keep
+   their color but inherit the shared shape above. */
+#mainEdge .edge-row-install button{
+  background:none;color:var(--text);border-color:var(--border2);font-weight:500;
+}
+#mainEdge .edge-row-install button:hover{background:var(--hover-bg);}
+#mainEdge .edge-note{font-size:0.78rem;color:var(--muted);line-height:1.5;margin-bottom:4px;}
+#mainEdge .edge-check{padding:3px 0;font-size:13px;color:var(--text);}
+#mainEdge .edge-dot{
+  display:inline-block;width:9px;height:9px;border-radius:50%;
+  margin-right:7px;vertical-align:middle;
+}
