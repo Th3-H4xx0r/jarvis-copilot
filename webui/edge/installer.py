@@ -91,9 +91,37 @@ def _run(argv: List[str], timeout: int = 600) -> subprocess.CompletedProcess:
     # toolchain even when our parent process has a minimal environment.
     env = dict(os.environ)
     env["PATH"] = _augmented_path()
-    return subprocess.run(
-        argv, capture_output=True, text=True, timeout=timeout, check=False, env=env
-    )
+    try:
+        return subprocess.run(
+            argv, capture_output=True, text=True, timeout=timeout, check=False, env=env
+        )
+    except FileNotFoundError as exc:
+        # A command in argv (e.g. `sudo` on a minimal container) doesn't exist —
+        # turn it into a clean non-zero result instead of crashing the install.
+        return subprocess.CompletedProcess(argv, 127, "", f"{argv[0]}: {exc.strerror}")
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(argv, 124, "", f"{argv[0]}: timed out")
+
+
+def _is_root() -> bool:
+    try:
+        return os.geteuid() == 0  # POSIX only
+    except AttributeError:
+        return False  # Windows
+
+
+def _sudo(argv: List[str]) -> List[str]:
+    """Prefix *argv* with non-interactive sudo only when needed + available.
+
+    - Already root (common in containers / the hermes server)  → no sudo.
+    - Non-root and `sudo` exists                               → `sudo -n …`.
+    - Non-root and no `sudo` (minimal container)               → run as-is; it
+      will fail with a permission error that we surface, not a missing-`sudo`
+      crash.
+    """
+    if _is_root() or not _has("sudo"):
+        return argv
+    return ["sudo", "-n", *argv]
 
 
 def _has(cmd: str) -> bool:
@@ -152,18 +180,18 @@ def install(name: str) -> ToolStatus:
             _attempt("choco install", ["choco", "install", "-y", "nginx"])
     else:  # Linux package managers (nginx)
         if _has("apt-get"):
-            _run(["sudo", "-n", "apt-get", "update"])
-            _attempt("apt-get install", ["sudo", "-n", "apt-get", "install", "-y", "nginx"])
+            _run(_sudo(["apt-get", "update"]))
+            _attempt("apt-get install", _sudo(["apt-get", "install", "-y", "nginx"]))
         elif _has("dnf"):
-            _attempt("dnf install", ["sudo", "-n", "dnf", "install", "-y", "nginx"])
+            _attempt("dnf install", _sudo(["dnf", "install", "-y", "nginx"]))
         elif _has("yum"):
-            _attempt("yum install", ["sudo", "-n", "yum", "install", "-y", "nginx"])
+            _attempt("yum install", _sudo(["yum", "install", "-y", "nginx"]))
         elif _has("pacman"):
-            _attempt("pacman -S", ["sudo", "-n", "pacman", "-S", "--noconfirm", "nginx"])
+            _attempt("pacman -S", _sudo(["pacman", "-S", "--noconfirm", "nginx"]))
         elif _has("zypper"):
-            _attempt("zypper install", ["sudo", "-n", "zypper", "--non-interactive", "install", "nginx"])
+            _attempt("zypper install", _sudo(["zypper", "--non-interactive", "install", "nginx"]))
         elif _has("apk"):
-            _attempt("apk add", ["sudo", "-n", "apk", "add", "nginx"])
+            _attempt("apk add", _sudo(["apk", "add", "nginx"]))
 
     after = status(name)
     if after.installed:
