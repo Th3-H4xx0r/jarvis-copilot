@@ -157,11 +157,21 @@ http {{
 
 {blocks}
 
-    # Catch-all: drop connections for any host we did not explicitly route.
+    # Catch-all for any host we did not explicitly route. Returns a plain 404
+    # (NOT 444/connection-drop) so the listener is demonstrably reachable —
+    # health checks and `curl localhost:{listen_port}` get a real response
+    # instead of looking dead. It still exposes no app: unknown hosts get 404,
+    # and /healthz always answers 200 so you can confirm nginx is up.
     server {{
         listen 127.0.0.1:{listen_port} default_server;
         server_name _;
-        return 444;
+        location = /healthz {{
+            add_header Content-Type text/plain;
+            return 200 "jarviscopilot-edge nginx ok\\n";
+        }}
+        location / {{
+            return 404 "No route for this host. Add it as a Public Hostname on your Cloudflare tunnel pointing at this nginx.\\n";
+        }}
     }}
 }}
 """

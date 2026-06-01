@@ -446,6 +446,19 @@ def main() -> None:
         # Recovery is best-effort; never block server startup.
         print(f"[recovery] startup recovery failed: {exc}", flush=True)
 
+    # ── Edge tunnel auto-start ───────────────────────────────────────────
+    # If the operator left the Cloudflare tunnel enabled, re-launch nginx +
+    # cloudflared (process state doesn't survive a server restart). Best-effort.
+    try:
+        from edge import get_manager as _edge_mgr
+        _edge_res = _edge_mgr().autostart_if_enabled()
+        if _edge_res.get("started"):
+            print(f"[edge] Auto-started: {', '.join(_edge_res['started'])}", flush=True)
+        elif not _edge_res.get("ok"):
+            print(f"[edge] Auto-start skipped: {_edge_res.get('error')}", flush=True)
+    except Exception as exc:
+        print(f"[edge] Auto-start failed: {exc}", flush=True)
+
     within_container = False
     # Check for the "/.within_container" file to determine if we're running inside a container; this file is created in the Dockerfile
     try:

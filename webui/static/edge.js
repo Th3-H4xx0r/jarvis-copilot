@@ -43,8 +43,16 @@
 
   function showPanel() {
     ensurePanel();
-    var chat = document.getElementById("mainChat");
-    if (chat) chat.style.display = "none";
+    // Hide EVERY other main-area view, not just chat — Code Memory / Long-term
+    // Memory inject their own #mainCodememory/#mainJmemory full-screen views,
+    // and leaving them visible bleeds their header into ours (#glitch). Hide all
+    // siblings of #mainEdge, then show ours.
+    var main = document.querySelector("main.main");
+    if (main) {
+      Array.prototype.forEach.call(main.children, function (c) {
+        if (c.id !== "mainEdge") c.style.display = "none";
+      });
+    }
     var el = document.getElementById("mainEdge");
     if (el) el.style.display = "flex";
     document.body.classList.add("cm-fullwidth");

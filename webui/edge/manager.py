@@ -179,6 +179,37 @@ class EdgeManager:
             state.save_settings({"enabled": False})
             return {"ok": True, "status": self.status()}
 
+    def autostart_if_enabled(self) -> Dict[str, Any]:
+        """Re-launch nginx + cloudflared on server startup if the tunnel was
+        left enabled (settings.enabled) and they aren't already running.
+
+        Process state lives in pidfiles, not across reboots, so without this the
+        tunnel silently stays down after a server restart. Best-effort: never
+        raises (startup must not be blocked).
+        """
+        with self._lock:
+            s = state.load_settings()
+            if not s.get("enabled"):
+                return {"ok": True, "skipped": "not enabled"}
+            started = []
+            try:
+                ok_routes, _ = config_render.validate_routes(s.get("domain", ""), s.get("routes", {}))
+                if not ok_routes:
+                    return {"ok": False, "error": "routes invalid; not autostarting"}
+                self._write_configs()
+                if not supervisor.proc_status("nginx").running:
+                    ok, out = supervisor.test_nginx(str(self._nginx_conf()))
+                    if not ok:
+                        return {"ok": False, "error": "nginx config test failed", "detail": out}
+                    supervisor.start_nginx(str(self._nginx_conf()))
+                    started.append("nginx")
+                if state.has_token() and not supervisor.proc_status("cloudflared").running:
+                    supervisor.start_cloudflared(str(self._cloudflared_conf()), state.get_token())
+                    started.append("cloudflared")
+            except Exception as exc:
+                return {"ok": False, "error": str(exc), "started": started}
+            return {"ok": True, "started": started}
+
     def start_service(self, name: str) -> Dict[str, Any]:
         """Start a single service (nginx or cloudflared) from the UI.
 
