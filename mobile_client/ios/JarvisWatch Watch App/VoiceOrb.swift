@@ -79,17 +79,25 @@ struct VoiceOrb: View {
 
         let breath = 0.5 + 0.5 * sin(t * 0.8)
         let talk = 0.5 + 0.5 * sin(t * 3.0)
-        // Gentle, slow motion — the watch reads "alive", not "spinning".
-        var reactive = 0.0, spinSpeed = 0.03, energy = 0.34
+        // "Alive" comes from a PULSE (breathing) + UNDULATION (ribbons flowing),
+        // with only a gentle spin — so it reads as working, never whirling. A
+        // CONSTANT reactive looks frozen, so thinking/speaking oscillate it.
+        let pulse = 0.5 + 0.5 * sin(t * 1.7) // ~3.7s breathing cycle
+        var reactive = 0.0, spinSpeed = 0.03, energy = 0.34, unduRate = 0.14
         switch mode {
-        case .speaking: reactive = 0.28 + 0.40 * talk; spinSpeed = 0.05; energy = 0.55
-        case .thinking: reactive = 0.12; spinSpeed = 0.07; energy = 0.58
-        case .idle: reactive = 0.05 * breath; spinSpeed = 0.03; energy = 0.40
-        case .error: reactive = 0.0; spinSpeed = 0.02; energy = 0.34
+        case .speaking:
+            reactive = 0.24 + 0.34 * talk; spinSpeed = 0.06; energy = 0.55; unduRate = 0.55
+        case .thinking:
+            // a clear, calm breathing pulse + visibly flowing ribbons (no whirl)
+            reactive = 0.10 + 0.22 * pulse; spinSpeed = 0.11; energy = 0.58; unduRate = 0.55
+        case .idle:
+            reactive = 0.05 * breath; spinSpeed = 0.03; energy = 0.40; unduRate = 0.16
+        case .error:
+            reactive = 0.0; spinSpeed = 0.02; energy = 0.34; unduRate = 0.08
         }
         let wander = 0.10 * sin(t * 0.05) + 0.06 * sin(t * 0.09 + 2.1)
         let gt = t * spinSpeed + wander
-        let undu = t * (0.12 + 0.15 * reactive)
+        let undu = t * unduRate
         let scale = 1.0 + 0.025 * breath + 0.30 * reactive
         let rs = R * 0.50 * scale
         let bright = min(0.85 + 0.28 * energy + 0.34 * reactive, 1.5)
