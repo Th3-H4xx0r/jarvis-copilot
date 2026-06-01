@@ -110,6 +110,10 @@ class _PairPageState extends State<PairPage> {
     _scanHandled = true;
     if (server != null && server.isNotEmpty) _serverCtrl.text = server;
     if (code != null && code.isNotEmpty) _codeCtrl.text = code;
+    // Populate the VISIBLE CF token fields too (not just the internal vars) so
+    // the user can see they came through — and so the form reflects reality.
+    if (cfId != null && cfId.isNotEmpty) _cfIdCtrl.text = cfId;
+    if (cfSecret != null && cfSecret.isNotEmpty) _cfSecretCtrl.text = cfSecret;
     _scannedCfId = cfId;
     _scannedCfSecret = cfSecret;
     _error = null;
@@ -350,6 +354,11 @@ class _PairPageState extends State<PairPage> {
               Theme(
                 data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                 child: ExpansionTile(
+                  // Re-key when CF values are present so the tile rebuilds with
+                  // initiallyExpanded=true — otherwise a scanned token stays
+                  // hidden inside the collapsed section and looks "not copied".
+                  key: ValueKey(_cfIdCtrl.text.isNotEmpty || _cfSecretCtrl.text.isNotEmpty),
+                  initiallyExpanded: _cfIdCtrl.text.isNotEmpty || _cfSecretCtrl.text.isNotEmpty,
                   tilePadding: EdgeInsets.zero,
                   childrenPadding: const EdgeInsets.only(bottom: 8),
                   title: const Text('Behind a Cloudflare tunnel? (service token)',
