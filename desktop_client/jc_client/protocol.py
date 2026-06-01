@@ -170,16 +170,23 @@ class HttpClient:
         """
         full_path = self._prefix + path
         payload = json.dumps(body).encode("utf-8")
-        req = (
-            f"POST {full_path} HTTP/1.1\r\n"
-            f"Host: {self._host}:{self._port}\r\n"
-            f"User-Agent: jc-client/0.1\r\n"
-            f"Content-Type: application/json\r\n"
-            f"Content-Length: {len(payload)}\r\n"
-            f"Accept: application/json\r\n"
-            f"X-Requested-With: jc-client\r\n"
-            f"Connection: close\r\n\r\n"
-        ).encode("ascii") + payload
+        lines = [
+            f"POST {full_path} HTTP/1.1",
+            f"Host: {self._host}:{self._port}",
+            "User-Agent: jc-client/0.1",
+            "Content-Type: application/json",
+            f"Content-Length: {len(payload)}",
+            "Accept: application/json",
+            "X-Requested-With: jc-client",
+        ]
+        # CF-Access service-token headers MUST go on the pair-claim POST too —
+        # this is the first request to a tunnel-fronted server, so without them
+        # Cloudflare Access 302-redirects it to the SSO login before it ever
+        # reaches the origin. (post_json is separate from request_json, which is
+        # why it needs its own copy of these header lines.)
+        lines.extend(self._cf_header_lines())
+        lines.append("Connection: close")
+        req = ("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + payload
 
         sock, observed = self._connect()
         try:
