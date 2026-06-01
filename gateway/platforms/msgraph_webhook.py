@@ -7,6 +7,7 @@ import hmac
 import ipaddress
 import json
 import logging
+import os
 from collections import deque
 from hashlib import sha1
 from typing import Any, Awaitable, Callable, Dict, Optional
@@ -29,9 +30,22 @@ from gateway.platforms.base import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HOST = "0.0.0.0"
+# Bind to loopback by default. A public bind (0.0.0.0) combined with an
+# unconfigured clientState would let anyone POST forged Graph notifications and
+# drive the agent — so non-loopback exposure requires an explicit host AND a
+# configured clientState (enforced in connect()). Override via MSGRAPH_WEBHOOK_HOST.
+DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8646
 DEFAULT_WEBHOOK_PATH = "/msgraph/webhook"
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "ip6-localhost", "ip6-loopback"})
+
+
+def _is_loopback_host(host: str) -> bool:
+    """True when *host* only accepts connections from the local machine."""
+    if not host:
+        return False
+    return host.strip().lower() in _LOOPBACK_HOSTS
 DEFAULT_MAX_SEEN_RECEIPTS = 5000
 NotificationScheduler = Callable[[Dict[str, Any], MessageEvent], Awaitable[None] | None]
 
@@ -47,7 +61,7 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
     def __init__(self, config: PlatformConfig):
         super().__init__(config, Platform.MSGRAPH_WEBHOOK)
         extra = config.extra or {}
-        self._host: str = str(extra.get("host", DEFAULT_HOST))
+        self._host: str = str(extra.get("host") or os.getenv("MSGRAPH_WEBHOOK_HOST", DEFAULT_HOST))
         self._port: int = int(extra.get("port", DEFAULT_PORT))
         self._webhook_path: str = self._normalize_path(
             extra.get("webhook_path", DEFAULT_WEBHOOK_PATH)
@@ -133,6 +147,18 @@ class MSGraphWebhookAdapter(BasePlatformAdapter):
         self._notification_scheduler = scheduler
 
     async def connect(self) -> bool:
+        # Safety rail (mirrors webhook.py): a non-loopback bind with no
+        # clientState secret is an unauthenticated agent trigger open to the
+        # internet. Refuse to start rather than expose it. Configure
+        # `client_state` (openssl rand -hex 32) to bind publicly.
+        if not _is_loopback_host(self._host) and not self._client_state:
+            raise ValueError(
+                f"[msgraph_webhook] Refusing to bind non-loopback host "
+                f"{self._host!r} without a 'client_state' secret — an "
+                f"unauthenticated webhook would let anyone drive the agent. "
+                f"Set 'client_state' (e.g. `openssl rand -hex 32`) or bind to 127.0.0.1."
+            )
+
         app = web.Application()
         app.router.add_get(self._health_path, self._handle_health)
         app.router.add_get(self._webhook_path, self._handle_validation)

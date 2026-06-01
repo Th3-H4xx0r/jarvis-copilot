@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import socket as _socket
 import time
 from typing import Any, Dict, List, Optional
@@ -41,7 +42,11 @@ from gateway.platforms.wecom_crypto import WXBizMsgCrypt, WeComCryptoError
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HOST = "0.0.0.0"
+# Bind to loopback by default; override via WECOM_CALLBACK_HOST. (Inbound
+# callbacks are signature-verified via WXBizMsgCrypt, so a public bind is
+# authenticated — but defaulting to localhost matches the other webhook
+# adapters and avoids unintended exposure behind a tunnel.)
+DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8645
 DEFAULT_PATH = "/wecom/callback"
 ACCESS_TOKEN_TTL_SECONDS = 7200
@@ -56,7 +61,7 @@ class WecomCallbackAdapter(BasePlatformAdapter):
     def __init__(self, config: PlatformConfig):
         super().__init__(config, Platform.WECOM_CALLBACK)
         extra = config.extra or {}
-        self._host = str(extra.get("host") or DEFAULT_HOST)
+        self._host = str(extra.get("host") or os.getenv("WECOM_CALLBACK_HOST", DEFAULT_HOST))
         self._port = int(extra.get("port") or DEFAULT_PORT)
         self._path = str(extra.get("path") or DEFAULT_PATH)
         self._apps: List[Dict[str, Any]] = self._normalize_apps(extra)
