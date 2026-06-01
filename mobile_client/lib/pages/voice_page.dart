@@ -6,6 +6,8 @@ import '../theme.dart';
 import '../voice/voice_controller.dart';
 import '../voice/voice_orb.dart';
 import '../voice/voice_state.dart';
+import '../voice/voice_waveform.dart';
+import '../widgets/glass.dart';
 
 /// Native voice screen — a recreation of the webui voice experience:
 /// a state-coloured orb, live transcript, and two modes (push-to-talk
@@ -146,8 +148,10 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: JcTheme.bg,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Voice'),
+        backgroundColor: Colors.transparent,
         actions: [
           ValueListenableBuilder<bool>(
             valueListenable: app.wake.enabled,
@@ -157,17 +161,19 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
                   : 'Enable "Hey Jarvis" wake word',
               icon: Icon(
                 on ? Icons.hearing : Icons.hearing_disabled,
-                color: on ? JcTheme.accent : JcTheme.muted,
+                color: on ? JcTheme.cyan : JcTheme.muted,
               ),
               onPressed: _toggleWake,
             ),
           ),
         ],
       ),
-      body: SafeArea(
-        child: ListenableBuilder(
-          listenable: _c,
-          builder: (context, _) => _buildBody(),
+      body: AppBackground(
+        child: SafeArea(
+          child: ListenableBuilder(
+            listenable: _c,
+            builder: (context, _) => _buildBody(),
+          ),
         ),
       ),
     );
@@ -191,16 +197,30 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
                 VoiceOrb(
                   state: _c.state,
                   amplitude: _c.amplitude,
-                  size: 260,
+                  size: 240,
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  (_c.toolStatus ?? _c.state.label).toUpperCase(),
-                  style: TextStyle(
-                    color: _stateColor(_c.state),
-                    fontSize: 11,
-                    letterSpacing: 1.8,
-                    fontWeight: FontWeight.w700,
+                const SizedBox(height: 4),
+                // Reactive waveform ribbon under the orb (ref Siri-style).
+                VoiceWaveform(
+                  state: _c.state,
+                  amplitude: _c.amplitude,
+                  height: 84,
+                ),
+                const SizedBox(height: 8),
+                // State label in a frosted-glass pill.
+                GlassCard(
+                  blur: false,
+                  radius: 999,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                  child: Text(
+                    (_c.toolStatus ?? _c.state.label).toUpperCase(),
+                    style: TextStyle(
+                      color: _stateColor(_c.state),
+                      fontSize: 11,
+                      letterSpacing: 1.8,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 18),
@@ -238,12 +258,12 @@ String _plainSpeech(String text) {
 Color _stateColor(VoiceState s) {
   switch (s) {
     case VoiceState.listening:
-      return const Color(0xFF9CE8FF);
+      return JcTheme.cyan;
     case VoiceState.thinking:
     case VoiceState.connecting:
-      return const Color(0xFFCDA1FF);
+      return JcTheme.accent;
     case VoiceState.speaking:
-      return const Color(0xFFFFD9A8);
+      return JcTheme.accentAlt;
     case VoiceState.error:
       return JcTheme.danger;
     case VoiceState.idle:

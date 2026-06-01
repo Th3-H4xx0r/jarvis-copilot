@@ -31,45 +31,46 @@ extension VoiceStateLabel on VoiceState {
     switch (this) {
       case VoiceState.idle:
         return const [
-          Color(0xFFCFD9FF),
-          Color(0xFF6080FF),
-          Color(0xFF10204A),
-          Color(0xFFA9BCFF),
+          Color(0xFFCFE8FF),
+          Color(0xFF8A7CFF),
+          Color(0xFF12162E),
+          Color(0xFFA9C2FF),
         ];
+      // Iridescent family — [inner, mid, outer, rim].
       case VoiceState.connecting:
         return const [
-          Color(0xFFE0C2FF),
-          Color(0xFFA263FF),
-          Color(0xFF3A1080),
-          Color(0xFFCDA1FF),
+          Color(0xFFCBA8FF),
+          Color(0xFF8A7CFF),
+          Color(0xFF1A1340),
+          Color(0xFFB9A8FF),
         ];
       case VoiceState.listening:
         return const [
-          Color(0xFF9CE8FF),
-          Color(0xFF3AA7FF),
-          Color(0xFF1147B8),
-          Color(0xFF9CE8FF),
+          Color(0xFFAFF6F0),
+          Color(0xFF46E0E0),
+          Color(0xFF0B2E36),
+          Color(0xFF8FE8FF),
         ];
       case VoiceState.thinking:
         return const [
-          Color(0xFFE0C2FF),
-          Color(0xFFA263FF),
-          Color(0xFF3A1080),
-          Color(0xFFCDA1FF),
+          Color(0xFFD8C2FF),
+          Color(0xFF8A7CFF),
+          Color(0xFF1A1340),
+          Color(0xFFCBB6FF),
         ];
       case VoiceState.speaking:
         return const [
-          Color(0xFFFFD9A8),
-          Color(0xFFFF8A3A),
-          Color(0xFF7A2D00),
-          Color(0xFFFFD9A8),
+          Color(0xFFFFC2EC),
+          Color(0xFFFF6FD8),
+          Color(0xFF3A0E2E),
+          Color(0xFFFFB0E4),
         ];
       case VoiceState.error:
         return const [
-          Color(0xFFFF9090),
-          Color(0xFFFF3030),
-          Color(0xFF6E0000),
-          Color(0xFFFF8080),
+          Color(0xFFFFB0BA),
+          Color(0xFFFF6B7E),
+          Color(0xFF4A0A12),
+          Color(0xFFFF9AA6),
         ];
     }
   }
