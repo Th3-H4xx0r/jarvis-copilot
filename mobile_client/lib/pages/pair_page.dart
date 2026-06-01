@@ -359,9 +359,10 @@ class _PairPageState extends State<PairPage> {
                       padding: EdgeInsets.only(bottom: 10),
                       child: Text(
                         'Paste the token from the server\'s pair popup. Still getting '
-                        'a login redirect (302)? The token must also be allowed in '
-                        'your Cloudflare Access policy: Zero Trust → Access → '
-                        'Applications → your app → Policies → Include → Service Token.',
+                        'a login redirect (302)? Your Cloudflare Access policy needs '
+                        'Action = Service Auth (NOT "Allow" — Allow still requires a '
+                        'browser login): Zero Trust → Access → Applications → your app '
+                        '→ Policies → add a Service Auth policy → Include → Service Token.',
                         style: TextStyle(fontSize: 11, color: JcTheme.muted, height: 1.4),
                       ),
                     ),

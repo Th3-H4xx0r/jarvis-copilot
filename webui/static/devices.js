@@ -239,232 +239,48 @@ function _pairDeepLink(code) {
          '&code=' + encodeURIComponent(code);
 }
 
-// Tiny QR generator (numeric-byte mode, alphanumeric input). Adapted
-// from qrcodegen MIT-licensed reference; trimmed to the minimum we need
-// to render a 21×21 to 41×41 module bitmap for short URLs. ~3KB minified.
-// Kept inline so we don't ship a CDN dependency just for the pair modal.
-function _renderQRSvg(text, opts) {
+// Lazy-load the battle-tested qrcode-generator lib (MIT) from jsdelivr — the
+// app's CSP already allows cdn.jsdelivr.net (prism/xterm load from there). The
+// previous hand-rolled encoder produced QR codes that looked right but didn't
+// decode on a real scanner (v5 alignment/timing edge cases), so we delegate to
+// a proven implementation. Returns a promise resolving to the `qrcode` global.
+let _qrLibPromise = null;
+function _loadQrLib() {
+  if (window.qrcode) return Promise.resolve(window.qrcode);
+  if (_qrLibPromise) return _qrLibPromise;
+  _qrLibPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
+    s.onload = () => window.qrcode ? resolve(window.qrcode) : reject(new Error('qrcode global missing'));
+    s.onerror = () => reject(new Error('failed to load QR library'));
+    document.head.appendChild(s);
+  });
+  return _qrLibPromise;
+}
+
+// Render the QR into the element with id `targetId` once the lib loads. The
+// URL + pairing code shown alongside are the reliable fallback, so on failure
+// we just hide the QR area rather than blocking pairing.
+function _renderQrInto(targetId, text, opts) {
   opts = opts || {};
   const size = opts.size || 200;
-  const bg = opts.bg || '#ffffff';
-  const fg = opts.fg || '#000000';
-  let modules;
-  try {
-    modules = _qrEncode(text);
-  } catch (e) {
-    return '<div style="font-size:11px;color:#ff7a8a">QR encode failed: ' + _devEsc(e.message) + '</div>';
-  }
-  const n = modules.length;
-  const cell = size / n;
-  let rects = '';
-  for (let y = 0; y < n; y++) {
-    for (let x = 0; x < n; x++) {
-      if (modules[y][x]) {
-        rects += `<rect x="${(x * cell).toFixed(2)}" y="${(y * cell).toFixed(2)}" width="${cell.toFixed(2)}" height="${cell.toFixed(2)}" fill="${fg}"/>`;
-      }
-    }
-  }
-  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" style="background:${bg};border-radius:8px;padding:8px;box-sizing:content-box" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;
+  _loadQrLib().then((qrcode) => {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    const qr = qrcode(0, 'M');        // type 0 = auto-pick smallest version
+    qr.addData(text);
+    qr.make();
+    const count = qr.getModuleCount();
+    const cell = Math.max(2, Math.floor(size / (count + 8)));
+    el.innerHTML = qr.createSvgTag({ cellSize: cell, margin: cell * 2 });
+    const svg = el.querySelector('svg');
+    if (svg) { svg.style.background = opts.bg || '#fff'; svg.style.borderRadius = '8px'; }
+  }).catch(() => {
+    const el = document.getElementById(targetId);
+    if (el) el.innerHTML = '<div style="font-size:11px;color:var(--muted)">QR unavailable — use the URL + code below.</div>';
+  });
 }
 
-// Minimal QR encoder — byte mode, EC level M, smallest version that fits.
-// Returns a 2D array of 0/1 modules. Sufficient for the deep-link URLs
-// we generate (≤ ~80 chars, fits in version 5).
-//
-// We deliberately cap supported versions at v1..v5 because v6+ requires
-// block interleaving in Reed-Solomon, which this single-block
-// implementation doesn't do. The pair deep-link is always short enough
-// to stay within v5 capacity (84 bytes at EC-M).
-function _qrEncode(text) {
-  const bytes = new TextEncoder().encode(text);
-  // Byte-mode capacity (in payload bytes) at EC level M for v1..v5.
-  // Source: ISO/IEC 18004 Table 7.
-  const cap = [14, 26, 42, 62, 84];
-  let version = -1;
-  for (let v = 0; v < cap.length; v++) {
-    if (bytes.length <= cap[v]) { version = v + 1; break; }
-  }
-  if (version < 0) throw new Error('payload too long (>' + cap[cap.length - 1] + ' bytes)');
-  // Build data bit-stream: mode indicator (4 bits = 0100), char count
-  // (8 bits at v1..v9), then bytes.
-  const bitsArr = [];
-  const pushBits = (val, n) => {
-    for (let i = n - 1; i >= 0; i--) bitsArr.push((val >> i) & 1);
-  };
-  pushBits(0b0100, 4);
-  pushBits(bytes.length, 8);
-  for (const b of bytes) pushBits(b, 8);
-  // Data codeword counts at EC-M, v1..v5 (single-block, no interleaving).
-  // dataCw + ecCw == total codewords per ISO/IEC 18004 Table 9.
-  const dataCw = [16, 28, 44, 64, 86][version - 1];
-  const ecCw   = [10, 16, 26, 36, 48][version - 1];
-  const totalCw = dataCw + ecCw;
-  const maxBits = dataCw * 8;
-  if (bitsArr.length > maxBits) throw new Error('payload too long after framing');
-  // Terminator + pad to byte boundary, then alternate pad bytes.
-  for (let i = 0; i < 4 && bitsArr.length < maxBits; i++) bitsArr.push(0);
-  while (bitsArr.length % 8) bitsArr.push(0);
-  const padBytes = [0xEC, 0x11];
-  let pi = 0;
-  while (bitsArr.length / 8 < dataCw) { pushBits(padBytes[pi % 2], 8); pi++; }
-  // Pack to bytes.
-  const data = new Uint8Array(dataCw);
-  for (let i = 0; i < dataCw; i++) {
-    let b = 0;
-    for (let j = 0; j < 8; j++) b = (b << 1) | bitsArr[i * 8 + j];
-    data[i] = b;
-  }
-  // RS over GF(256).
-  const ec = _rsEncode(data, ecCw);
-  const finalCw = new Uint8Array(totalCw);
-  finalCw.set(data, 0);
-  finalCw.set(ec, dataCw);
-  // Build module grid.
-  const n = 17 + version * 4;
-  const M = Array.from({length: n}, () => new Array(n).fill(null));
-  const reserve = Array.from({length: n}, () => new Array(n).fill(false));
-  const placeFinder = (r, c) => {
-    for (let dy = -1; dy <= 7; dy++) {
-      for (let dx = -1; dx <= 7; dx++) {
-        const y = r + dy, x = c + dx;
-        if (y < 0 || y >= n || x < 0 || x >= n) continue;
-        const onBorder = dy === -1 || dy === 7 || dx === -1 || dx === 7;
-        const onOuter = dy === 0 || dy === 6 || dx === 0 || dx === 6;
-        const onInner = dy >= 2 && dy <= 4 && dx >= 2 && dx <= 4;
-        let v;
-        if (onBorder) v = 0;
-        else if (onOuter || onInner) v = 1;
-        else v = 0;
-        M[y][x] = v;
-        reserve[y][x] = true;
-      }
-    }
-  };
-  placeFinder(0, 0);
-  placeFinder(0, n - 7);
-  placeFinder(n - 7, 0);
-  // Timing patterns.
-  for (let i = 8; i < n - 8; i++) {
-    if (M[6][i] === null) { M[6][i] = (i % 2 === 0) ? 1 : 0; reserve[6][i] = true; }
-    if (M[i][6] === null) { M[i][6] = (i % 2 === 0) ? 1 : 0; reserve[i][6] = true; }
-  }
-  // Alignment patterns (v2..v10).
-  const alignCenters = [
-    [], [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34],
-    [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50],
-  ][version];
-  if (alignCenters) {
-    for (const r of alignCenters) {
-      for (const c of alignCenters) {
-        if (reserve[r][c]) continue;
-        for (let dy = -2; dy <= 2; dy++) {
-          for (let dx = -2; dx <= 2; dx++) {
-            const y = r + dy, x = c + dx;
-            const onOuter = dy === -2 || dy === 2 || dx === -2 || dx === 2;
-            const center = dy === 0 && dx === 0;
-            M[y][x] = (onOuter || center) ? 1 : 0;
-            reserve[y][x] = true;
-          }
-        }
-      }
-    }
-  }
-  // Dark module + format-info reservation.
-  M[n - 8][8] = 1; reserve[n - 8][8] = true;
-  const reserveFormat = () => {
-    for (let i = 0; i < 9; i++) { if (M[8][i] === null) { M[8][i] = 0; reserve[8][i] = true; } }
-    for (let i = 0; i < 8; i++) { if (M[i][8] === null) { M[i][8] = 0; reserve[i][8] = true; } }
-    for (let i = 0; i < 8; i++) { if (M[8][n - 1 - i] === null) { M[8][n - 1 - i] = 0; reserve[8][n - 1 - i] = true; } }
-    for (let i = 0; i < 7; i++) { if (M[n - 1 - i][8] === null) { M[n - 1 - i][8] = 0; reserve[n - 1 - i][8] = true; } }
-  };
-  reserveFormat();
-  // Place data bits (interleaved bytes, column pairs right→left, zig-zag).
-  let bitIdx = 0;
-  let upward = true;
-  for (let colRight = n - 1; colRight > 0; colRight -= 2) {
-    if (colRight === 6) colRight = 5;
-    for (let i = 0; i < n; i++) {
-      const y = upward ? (n - 1 - i) : i;
-      for (let j = 0; j < 2; j++) {
-        const x = colRight - j;
-        if (M[y][x] !== null) continue;
-        let bit = 0;
-        if (bitIdx < finalCw.length * 8) {
-          const byteIdx = bitIdx >> 3;
-          const bitOff = 7 - (bitIdx & 7);
-          bit = (finalCw[byteIdx] >> bitOff) & 1;
-          bitIdx++;
-        }
-        // Mask pattern 0: (y+x) % 2 === 0
-        if ((y + x) % 2 === 0) bit ^= 1;
-        M[y][x] = bit;
-      }
-    }
-    upward = !upward;
-  }
-  // Format info — EC-M (0b00) + mask 0 (0b000) = 5 bits: 00000.
-  // BCH(15,5) generator: 0b10100110111. Then XOR'd with 0b101010000010010.
-  const fmtBits = (() => {
-    const fmt = 0b00000; // EC-M(00) + mask(000)
-    let bch = fmt << 10;
-    const gen = 0b10100110111;
-    for (let i = 14; i >= 10; i--) {
-      if ((bch >> i) & 1) bch ^= gen << (i - 10);
-    }
-    return ((fmt << 10) | bch) ^ 0b101010000010010;
-  })();
-  const getFmtBit = (i) => (fmtBits >> i) & 1;
-  for (let i = 0; i <= 5; i++) M[8][i] = getFmtBit(i);
-  M[8][7] = getFmtBit(6);
-  M[8][8] = getFmtBit(7);
-  M[7][8] = getFmtBit(8);
-  for (let i = 9; i < 15; i++) M[14 - i][8] = getFmtBit(i);
-  for (let i = 0; i < 7; i++) M[n - 1 - i][8] = getFmtBit(i);
-  M[n - 8][8] = 1;
-  for (let i = 7; i < 15; i++) M[8][n - 15 + i] = getFmtBit(i);
-  return M;
-}
-
-// Reed-Solomon encode over GF(256), polynomial 0x11d.
-function _rsEncode(data, ecLen) {
-  // Build log/antilog tables once and cache.
-  if (!_rsEncode._gfReady) {
-    const log = new Uint8Array(256), exp = new Uint8Array(512);
-    let x = 1;
-    for (let i = 0; i < 255; i++) {
-      exp[i] = x;
-      log[x] = i;
-      x = (x << 1) ^ (x & 0x80 ? 0x11d : 0);
-      x &= 0xff;
-    }
-    for (let i = 255; i < 512; i++) exp[i] = exp[i - 255];
-    _rsEncode._log = log;
-    _rsEncode._exp = exp;
-    _rsEncode._gfReady = true;
-  }
-  const log = _rsEncode._log, exp = _rsEncode._exp;
-  // Generator polynomial of degree ecLen.
-  let gen = [1];
-  for (let i = 0; i < ecLen; i++) {
-    const next = new Array(gen.length + 1).fill(0);
-    for (let j = 0; j < gen.length; j++) {
-      next[j] ^= gen[j];
-      if (gen[j] !== 0) next[j + 1] ^= exp[(log[gen[j]] + i) % 255];
-    }
-    gen = next;
-  }
-  const buf = new Uint8Array(data.length + ecLen);
-  buf.set(data, 0);
-  for (let i = 0; i < data.length; i++) {
-    const coef = buf[i];
-    if (coef === 0) continue;
-    const lc = log[coef];
-    for (let j = 0; j < gen.length; j++) {
-      if (gen[j] !== 0) buf[i + j] ^= exp[(log[gen[j]] + lc) % 255];
-    }
-  }
-  return buf.slice(data.length);
-}
 
 // When the server is behind a Cloudflare tunnel, the device must send the CF
 // Access service token on its pair request (it 302s to SSO otherwise). The token
@@ -485,7 +301,7 @@ function _pairCfTokenBlock() {
     <div style="background:rgba(240,179,65,.06);border:1px solid rgba(240,179,65,.25);border-radius:12px;padding:12px;margin-bottom:14px;text-align:left">
       <div style="font-size:12px;font-weight:600;color:#f0b341;margin-bottom:8px">Cloudflare Access — paste into the device’s “service token” field</div>
       <div style="color:var(--muted);font-size:11px;line-height:1.5;margin-bottom:10px">This server is behind a Cloudflare tunnel, so the device needs these to connect (it can’t do browser login). Enter them in the app’s pair screen before pairing.</div>
-      <div style="color:#f0b341;font-size:11px;line-height:1.5;margin-bottom:10px">⚠ One-time setup: this token must also be <b>allowed</b> in your Access policy, or pairing gets redirected to login (HTTP 302). In Cloudflare: <b>Zero Trust → Access → Applications →</b> your app <b>→ Policies →</b> add an <b>Include → Service Token →</b> this token.</div>
+      <div style="color:#f0b341;font-size:11px;line-height:1.5;margin-bottom:10px">⚠ One-time setup: add this token to your Access policy, or pairing gets redirected to login (HTTP 302). In Cloudflare: <b>Zero Trust → Access → Applications →</b> your app <b>→ Policies → add a policy →</b> set <b>Action = Service Auth</b> (NOT “Allow” — an Allow policy still demands a browser login, so the token alone gives a 302) and rule <b>Include → Service Token →</b> this token.</div>
       ${fld('Client ID', cf.client_id)}
       ${fld('Client Secret', cf.client_secret)}
     </div>`;
@@ -517,7 +333,7 @@ function _openPairModal(code, expiresAt) {
         <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(145deg,#f0b341,#e0552b);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;color:#fff;margin:0 auto 14px">JC</div>
         <h2 style="font-size:18px;margin-bottom:8px">Pair a new device</h2>
         <p style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.5">Scan with the JarvisCopilot mobile app:</p>
-        <div style="display:flex;justify-content:center;margin-bottom:14px">${_renderQRSvg(_pairDeepLink(code), {size: 188, bg: '#ffffff', fg: '#0a0e1a'})}</div>
+        <div id="pair-qr" style="display:flex;justify-content:center;align-items:center;min-height:188px;margin-bottom:14px;color:var(--muted);font-size:12px">Generating QR…</div>
         <p style="color:var(--muted);font-size:12px;margin-bottom:10px;line-height:1.5">Or open this URL on a browser:</p>
         <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:8px 12px;margin-bottom:14px;font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all;text-align:center">${_devEsc(_pairUrl())}</div>
         <p style="color:var(--muted);font-size:13px;margin-bottom:8px">Then enter this code:</p>
@@ -532,6 +348,7 @@ function _openPairModal(code, expiresAt) {
     <style>@keyframes pair-spin{to{transform:rotate(360deg)}}</style>`;
   document.body.appendChild(wrap);
   _devicesPairModalEl = wrap;
+  _renderQrInto('pair-qr', _pairDeepLink(code), { size: 188, bg: '#ffffff' });
   _updatePairCountdown(expiresAt);
 }
 

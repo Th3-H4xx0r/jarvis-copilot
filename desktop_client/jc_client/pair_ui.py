@@ -134,7 +134,7 @@ button.secondary:hover{background:rgba(255,255,255,.10)}
     <details style="margin:6px 0 4px">
       <summary style="cursor:pointer;font-size:12px;color:#9aa3c7">Behind a Cloudflare tunnel? (service token)</summary>
       <p class="hint" style="margin:8px 0">If the server is exposed via Cloudflare Access, paste the service token shown on the server's pair popup — otherwise pairing is redirected to a login page (HTTP 302).</p>
-      <p class="hint" style="margin:8px 0">Still getting 302 with the token filled in? The token must also be <b>allowed in your Access policy</b>: Cloudflare → Zero Trust → Access → Applications → your app → Policies → add <b>Include → Service Token</b> → this token.</p>
+      <p class="hint" style="margin:8px 0">Still getting 302 with the token filled in? Your Access policy needs <b>Action = Service Auth</b> (NOT “Allow” — an Allow policy still requires a browser login). Cloudflare → Zero Trust → Access → Applications → your app → Policies → add a policy with Action <b>Service Auth</b> and rule <b>Include → Service Token</b> → this token.</p>
       <label for="cf_id">CF Access Client ID</label>
       <input id="cf_id" class="field" placeholder="xxxxxxxx.access" autocomplete="off" spellcheck="false">
       <label for="cf_secret">CF Access Client Secret</label>
