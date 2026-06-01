@@ -142,8 +142,11 @@ class _GlassNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).padding.bottom;
+    // Sit low — just a small clearance above the home indicator (a fraction of
+    // the safe-area inset, not the whole thing) so the bar aligns near the
+    // bottom edge instead of floating with a big gap beneath it.
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 0, 16, 10 + bottomInset),
+      padding: EdgeInsets.fromLTRB(16, 0, 16, 6 + bottomInset * 0.3),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(26),
         child: BackdropFilter(
