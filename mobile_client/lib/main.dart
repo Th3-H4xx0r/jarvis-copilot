@@ -132,6 +132,12 @@ class _JarvisCopilotAppState extends State<JarvisCopilotApp>
       title: 'JarvisCopilot',
       debugShowCheckedModeBanner: false,
       theme: JcTheme.build(),
+      // Tap anywhere outside a text field to dismiss the keyboard.
+      builder: (context, child) => GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+        child: child,
+      ),
       home: const _Boot(),
     );
   }

@@ -110,7 +110,6 @@ class _NavShellState extends State<NavShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBody: true,
       backgroundColor: JcTheme.bg,
       body: AppBackground(
         child: SafeArea(
@@ -150,9 +149,9 @@ class _GlassNavBar extends StatelessWidget {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
           child: Container(
-            height: 64,
+            height: 68,
             decoration: BoxDecoration(
-              color: const Color(0xCC0E0E18),
+              color: const Color(0xF20E0E18),
               borderRadius: BorderRadius.circular(26),
               border: Border.all(color: JcTheme.glassBorder, width: 1),
               boxShadow: [
@@ -178,45 +177,50 @@ class _GlassNavBar extends StatelessWidget {
   Widget _item(int i) {
     final active = i == index;
     final (outline, filled, label) = tabs[i];
-    final icon = Icon(active ? filled : outline,
-        size: 22, color: active ? Colors.white : JcTheme.muted);
+    // Icon-only — the active tab is a fixed-size gradient circle with a glow,
+    // and a tiny label underneath. No expanding pill (that overflowed a 5-tab
+    // row). Fixed 44px badge keeps every slot identical width.
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(22),
         onTap: () => onTap(i),
-        child: Center(
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOut,
-            padding: EdgeInsets.symmetric(horizontal: active ? 16 : 12, vertical: 8),
-            decoration: BoxDecoration(
-              gradient: active ? iridescentGradient() : null,
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: active
-                  ? [
-                      BoxShadow(
-                        color: const Color(0xFF8A7CFF).withValues(alpha: 0.4),
-                        blurRadius: 16,
-                      ),
-                    ]
-                  : null,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              width: 44,
+              height: 32,
+              decoration: BoxDecoration(
+                gradient: active ? iridescentGradient() : null,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: active
+                    ? [
+                        BoxShadow(
+                          color: const Color(0xFF8A7CFF).withValues(alpha: 0.45),
+                          blurRadius: 16,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Icon(active ? filled : outline,
+                  size: 21, color: active ? Colors.white : JcTheme.muted),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                icon,
-                if (active) ...[
-                  const SizedBox(width: 7),
-                  Text(label,
-                      style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white)),
-                ],
-              ],
+            const SizedBox(height: 3),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: active ? Colors.white : JcTheme.muted,
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

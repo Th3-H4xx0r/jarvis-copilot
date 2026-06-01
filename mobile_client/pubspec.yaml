@@ -12,6 +12,11 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.6
 
+  # ── Typography ───────────────────────────────────────────────
+  # App-wide geometric sans (Inter). Fetched + cached at runtime so we don't
+  # commit font binaries; applied via JcTheme.build().
+  google_fonts: ^6.2.1
+
   # ── Networking ────────────────────────────────────────────────
   # dio for HTTP with a custom IOHttpClientAdapter that supports cert
   # pinning. web_socket_channel + the IOWebSocketChannel transport gives

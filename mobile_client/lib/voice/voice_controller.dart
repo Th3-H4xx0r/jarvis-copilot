@@ -40,7 +40,9 @@ class VoiceController extends ChangeNotifier {
 
   // ── Public reactive state ─────────────────────────────────────
   VoiceState state = VoiceState.idle;
-  VoiceMode mode = VoiceMode.quality;
+  // Realtime-only for now (push-to-talk hidden in the UI). The quality-mode
+  // code paths remain in the controller but are no longer user-selectable.
+  VoiceMode mode = VoiceMode.realtime;
   final ValueNotifier<double> amplitude = ValueNotifier(0);
   String userTranscript = '';
   String assistantText = '';

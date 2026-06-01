@@ -178,33 +178,38 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   }
 
   Widget _buildBody() {
+    final caption = _captionFor(_c.state);
     return Column(
       children: [
-        const SizedBox(height: 8),
-        _ModeToggle(
-          mode: _c.mode,
-          enabled: !_c.active,
-          onChanged: _c.setMode,
-        ),
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Column(
               children: [
-                const SizedBox(height: 10),
+                const SizedBox(height: 24),
+                // Soft prompt above the orb (ref: "Go ahead, I'm listening…").
+                Text(
+                  caption,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: JcTheme.muted,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 24),
                 VoiceOrb(
                   state: _c.state,
                   amplitude: _c.amplitude,
-                  size: 240,
+                  size: 250,
                 ),
-                const SizedBox(height: 4),
-                // Reactive waveform ribbon under the orb (ref Siri-style).
+                const SizedBox(height: 10),
                 VoiceWaveform(
                   state: _c.state,
                   amplitude: _c.amplitude,
-                  height: 84,
+                  height: 72,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 16),
                 // State label in a frosted-glass pill.
                 GlassCard(
                   blur: false,
@@ -253,6 +258,24 @@ String _plainSpeech(String text) {
   return s.trim();
 }
 
+/// Soft conversational prompt shown above the orb, per state.
+String _captionFor(VoiceState s) {
+  switch (s) {
+    case VoiceState.idle:
+      return 'Tap the mic to start talking';
+    case VoiceState.connecting:
+      return 'Connecting…';
+    case VoiceState.listening:
+      return "Go ahead, I'm listening…";
+    case VoiceState.thinking:
+      return 'Thinking it through…';
+    case VoiceState.speaking:
+      return 'Speaking…';
+    case VoiceState.error:
+      return 'Something went wrong — tap to retry';
+  }
+}
+
 Color _stateColor(VoiceState s) {
   switch (s) {
     case VoiceState.listening:
@@ -268,66 +291,6 @@ Color _stateColor(VoiceState s) {
       return JcTheme.muted;
   }
 }
-
-class _ModeToggle extends StatelessWidget {
-  const _ModeToggle({
-    required this.mode,
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  final VoiceMode mode;
-  final bool enabled;
-  final ValueChanged<VoiceMode> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget seg(VoiceMode m, String label) {
-      final active = m == mode;
-      return Expanded(
-        child: GestureDetector(
-          onTap: enabled && !active ? () => onChanged(m) : null,
-          child: Container(
-            margin: const EdgeInsets.all(2),
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: BoxDecoration(
-              color: active ? JcTheme.accent.withValues(alpha: 0.16) : null,
-              borderRadius: BorderRadius.circular(7),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              label,
-              style: TextStyle(
-                color: active ? JcTheme.accent : JcTheme.muted,
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Opacity(
-      opacity: enabled ? 1 : 0.5,
-      child: Container(
-        width: 240,
-        decoration: BoxDecoration(
-          color: JcTheme.surface,
-          border: Border.all(color: JcTheme.border),
-          borderRadius: BorderRadius.circular(9),
-        ),
-        child: Row(
-          children: [
-            seg(VoiceMode.quality, 'Push-to-talk'),
-            seg(VoiceMode.realtime, 'Realtime'),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _TranscriptRow extends StatelessWidget {
   const _TranscriptRow({required this.text, required this.role});
   final String text;

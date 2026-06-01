@@ -79,9 +79,11 @@ class _WavePainter extends CustomPainter {
     // with amplitude so it visibly reacts to the voice.
     final reactive = state == VoiceState.listening ||
         state == VoiceState.speaking;
+    // Boost sensitivity: a gentle curve (sqrt) lifts quiet speech, and a higher
+    // ceiling makes loud speech swing wide. Reactive states are far more lively.
     final env = reactive
-        ? math.max(0.12, amp)
-        : 0.18 + 0.06 * math.sin(t * 2.0);
+        ? math.max(0.18, math.sqrt(amp) * 1.35).clamp(0.0, 1.4)
+        : 0.16 + 0.05 * math.sin(t * 2.0);
 
     for (final (color, ampScale, freqScale, phase) in bands) {
       final paint = Paint()
@@ -90,7 +92,8 @@ class _WavePainter extends CustomPainter {
         ..strokeCap = StrokeCap.round
         ..color = color.withValues(alpha: 0.85);
       final path = Path();
-      const steps = 64;
+      // Fewer steps = cheaper repaint (was 64) — smoother on device.
+      const steps = 44;
       for (var i = 0; i <= steps; i++) {
         final x = size.width * i / steps;
         final nx = i / steps;

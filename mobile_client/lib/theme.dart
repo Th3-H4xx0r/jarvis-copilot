@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 /// JarvisCopilot mobile theme — "dark glass + iridescent".
 ///
@@ -14,11 +15,15 @@ class JcTheme {
   static const Color bg = Color(0xFF070710);
   static const Color bgTop = Color(0xFF0E0E18);
 
-  // Glass surfaces
+  // Glass surfaces — translucent, ONLY for elements layered over the gradient
+  // backdrop (cards, nav bar, pills). Use GlassCard / glassFill explicitly.
   static const Color glassFill = Color(0x14FFFFFF);      // white @ ~8%
   static const Color glassBorder = Color(0x1AFFFFFF);    // white @ ~10%
-  static const Color surface = Color(0x14FFFFFF);        // legacy alias → glass
-  static const Color surfaceAlt = Color(0x1FFFFFFF);     // slightly stronger
+  // SOLID surfaces — for backgrounds that must be opaque (drawers, dialogs,
+  // bottom sheets, message bubbles). These were briefly aliased to glass during
+  // the revamp, which made drawers/dialogs bleed the content behind them.
+  static const Color surface = Color(0xFF14141F);        // solid panel
+  static const Color surfaceAlt = Color(0xFF1C1C2A);     // solid, slightly lighter
   static const Color border = glassBorder;
 
   // Text
@@ -41,17 +46,23 @@ class JcTheme {
     colors: [cyan, accent, accentAlt],
   );
 
-  /// Geometric-sans *feel* via tuned weights + tight tracking on the system
-  /// font (no bundled binary — keeps app size down, native on iOS).
-  static TextTheme _textTheme(TextTheme base) => base.copyWith(
-        displaySmall: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: -0.5, color: text),
-        titleLarge: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, letterSpacing: -0.2, color: text),
-        titleMedium: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: text),
-        bodyLarge: const TextStyle(fontSize: 15, fontWeight: FontWeight.w400, height: 1.45, color: text),
-        bodyMedium: const TextStyle(fontSize: 14, fontWeight: FontWeight.w400, height: 1.45, color: text),
-        labelLarge: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.2),
-        bodySmall: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: muted),
-      );
+  /// App-wide geometric sans = Inter (via google_fonts, runtime-fetched +
+  /// cached), with tuned sizes/weights/tracking layered on top.
+  static TextTheme _textTheme(TextTheme base) {
+    final inter = GoogleFonts.interTextTheme(base).apply(
+      bodyColor: text,
+      displayColor: text,
+    );
+    return inter.copyWith(
+      displaySmall: inter.displaySmall?.copyWith(fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: -0.5),
+      titleLarge: inter.titleLarge?.copyWith(fontSize: 20, fontWeight: FontWeight.w600, letterSpacing: -0.2),
+      titleMedium: inter.titleMedium?.copyWith(fontSize: 16, fontWeight: FontWeight.w600),
+      bodyLarge: inter.bodyLarge?.copyWith(fontSize: 15, fontWeight: FontWeight.w400, height: 1.45),
+      bodyMedium: inter.bodyMedium?.copyWith(fontSize: 14, fontWeight: FontWeight.w400, height: 1.45),
+      labelLarge: inter.labelLarge?.copyWith(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.2),
+      bodySmall: inter.bodySmall?.copyWith(fontSize: 12, fontWeight: FontWeight.w500, color: muted),
+    );
+  }
 
   static ThemeData build() {
     final base = ThemeData.dark(useMaterial3: true);
@@ -66,13 +77,13 @@ class JcTheme {
         onSurface: text,
         error: danger,
       ),
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         foregroundColor: text,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: true,
-        titleTextStyle: TextStyle(
+        titleTextStyle: GoogleFonts.inter(
           fontSize: 17,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.2,
