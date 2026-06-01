@@ -123,6 +123,23 @@
         '</div>';
     }
 
+    // A status line with a per-service Start/Stop button.
+    function serviceRow(name, proc, tool) {
+      var running = !!proc.running;
+      var detail = running ? "running (pid " + proc.pid + ")" : "stopped";
+      var btn;
+      if (running) {
+        btn = '<button type="button" data-svc-stop="' + name + '" style="margin-left:auto;font-size:12px;background:#f85149;color:#fff;border-color:#f85149">Stop</button>';
+      } else if (!tool.installed) {
+        btn = '<button type="button" disabled style="margin-left:auto;font-size:12px" title="Install ' + name + ' first">Start</button>';
+      } else {
+        btn = '<button type="button" data-svc-start="' + name + '" style="margin-left:auto;font-size:12px">Start</button>';
+      }
+      return '<div class="edge-row-install" style="display:flex;align-items:center;gap:8px;padding:3px 0">' +
+        dot(running) + '<strong>' + name + '</strong>' +
+        '<span style="opacity:.7;font-size:12px">' + esc(detail) + '</span>' + btn + '</div>';
+    }
+
     // Collapsible step-by-step help. `body` is a sequence of HTML strings/<li>s.
     function help(summary, stepsHtml) {
       return '<details class="edge-help"><summary>ⓘ ' + esc(summary) + '</summary>' +
@@ -178,7 +195,12 @@
 
       '<h3>Safety preflight</h3>' +
       '<div class="edge-note">All checks must be green before the tunnel can be enabled. Each line says what to fix.</div>' +
-      (pf.checks || []).map(function (c) { return row(c.name, c.ok, c.detail); }).join("") +
+      (pf.checks || []).map(function (c) {
+        return row(c.name, c.ok, c.detail) +
+          (c.ackable
+            ? '<div style="margin:2px 0 8px 16px"><button type="button" id="edgeAck" style="font-size:12px">I understand — my origin isn’t publicly exposed (container/firewall)</button></div>'
+            : "");
+      }).join("") +
       help('What do these checks mean?', steps([
         '<b>origin_bound_to_loopback</b>: the WebUI should bind <code>127.0.0.1</code> so only nginx can reach it. Set <code>HERMES_WEBUI_HOST=127.0.0.1</code> and restart (skip if WebUI + nginx share one container).',
         '<b>forwarded_host_csrf_fix</b>: confirms the server only trusts proxy headers from nginx — green means you’re patched.',
@@ -187,8 +209,9 @@
       ])) +
 
       '<h3>Status</h3>' +
-      row("cloudflared", (procs.cloudflared || {}).running, (procs.cloudflared || {}).running ? "pid " + procs.cloudflared.pid : "stopped") +
-      row("nginx", (procs.nginx || {}).running, (procs.nginx || {}).running ? "pid " + procs.nginx.pid : "stopped") +
+      '<div class="edge-note">Start or stop each service individually. "Enable tunnel" below starts both at once (after preflight passes).</div>' +
+      serviceRow("nginx", procs.nginx || {}, tools.nginx || {}) +
+      serviceRow("cloudflared", procs.cloudflared || {}, tools.cloudflared || {}) +
       '<div style="margin-top:12px"><button type="button" id="edgeToggle"' +
       (live ? ' style="background:#f85149;color:#fff;border-color:#f85149"' : '') +
       (!live && !pf.ok ? " disabled" : "") + '>' +
@@ -248,6 +271,31 @@
       } catch (e) { alert(e.message || e); }
       loadEdge();
     };
+
+    // Acknowledge non-loopback origin (container/firewall) — clears the gate.
+    var ack = document.getElementById("edgeAck");
+    if (ack) ack.onclick = async function () {
+      ack.disabled = true;
+      try { await jpost("/api/edge/configure", { loopback_ack: true }); }
+      catch (e) { alert(e.message || e); }
+      loadEdge();
+    };
+
+    // Per-service Start / Stop.
+    function wireSvc(attr, endpoint) {
+      body.querySelectorAll("[" + attr + "]").forEach(function (b) {
+        b.onclick = async function () {
+          b.disabled = true; b.textContent = "…";
+          try {
+            var r = await jpost(endpoint, { name: b.getAttribute(attr) });
+            if (r && r.ok === false) alert((r.error || "failed") + (r.detail ? "\n" + r.detail : ""));
+          } catch (e) { alert(e.message || e); }
+          loadEdge();
+        };
+      });
+    }
+    wireSvc("data-svc-start", "/api/edge/service/start");
+    wireSvc("data-svc-stop", "/api/edge/service/stop");
   }
 
   window.loadEdge = loadEdge;

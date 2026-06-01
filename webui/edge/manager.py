@@ -35,14 +35,25 @@ class EdgeManager:
         """Return {ok, checks:[{name, ok, detail}]}. ok=False blocks 'enable'."""
         checks: List[Dict[str, Any]] = []
 
-        # 1. WebUI must be bound to loopback so nginx is the only ingress.
+        # 1. WebUI must be bound to loopback so nginx is the only ingress — OR
+        #    the operator has acknowledged the origin is otherwise protected
+        #    (e.g. a container with no published ports / a host firewall).
         host = (os.getenv("HERMES_WEBUI_HOST") or "127.0.0.1").strip().lower()
         loopback = host in ("127.0.0.1", "::1", "localhost")
+        acked = bool(state.load_settings().get("loopback_ack"))
+        if loopback:
+            detail = f"HERMES_WEBUI_HOST={host}"
+        elif acked:
+            detail = f"HERMES_WEBUI_HOST={host} — acknowledged as protected (container/firewall)"
+        else:
+            detail = (f"HERMES_WEBUI_HOST={host} — bind to 127.0.0.1 so only nginx can reach "
+                      "the WebUI, or acknowledge it's protected by your container/firewall")
         checks.append({
             "name": "origin_bound_to_loopback",
-            "ok": loopback,
-            "detail": f"HERMES_WEBUI_HOST={host}"
-            + ("" if loopback else " — bind to 127.0.0.1 so only nginx can reach the WebUI"),
+            "ok": loopback or acked,
+            "detail": detail,
+            # let the UI offer a one-click ack only when this is the blocker
+            "ackable": (not loopback) and (not acked),
         })
 
         # 2. The forwarded-host CSRF fix must be present in routes.py (the proxy
@@ -166,6 +177,41 @@ class EdgeManager:
             supervisor.stop("cloudflared")
             supervisor.stop("nginx")
             state.save_settings({"enabled": False})
+            return {"ok": True, "status": self.status()}
+
+    def start_service(self, name: str) -> Dict[str, Any]:
+        """Start a single service (nginx or cloudflared) from the UI.
+
+        Renders fresh configs first. nginx is config-tested before start;
+        cloudflared requires a token. Routes must be valid for either.
+        """
+        if name not in ("nginx", "cloudflared"):
+            return {"ok": False, "error": "unknown service"}
+        with self._lock:
+            s = state.load_settings()
+            ok_routes, msg = config_render.validate_routes(s.get("domain", ""), s.get("routes", {}))
+            if not ok_routes:
+                return {"ok": False, "error": msg}
+            self._write_configs()
+            try:
+                if name == "nginx":
+                    ok, out = supervisor.test_nginx(str(self._nginx_conf()))
+                    if not ok:
+                        return {"ok": False, "error": "nginx config test failed", "detail": out}
+                    supervisor.start_nginx(str(self._nginx_conf()))
+                else:
+                    if not state.has_token():
+                        return {"ok": False, "error": "paste the cloudflared tunnel token first"}
+                    supervisor.start_cloudflared(str(self._cloudflared_conf()), state.get_token())
+            except Exception as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, "status": self.status()}
+
+    def stop_service(self, name: str) -> Dict[str, Any]:
+        if name not in ("nginx", "cloudflared"):
+            return {"ok": False, "error": "unknown service"}
+        with self._lock:
+            supervisor.stop(name)
             return {"ok": True, "status": self.status()}
 
     def cf_service_token_for_pairing(self) -> Dict[str, str]:

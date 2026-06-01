@@ -27,6 +27,10 @@ _DEFAULTS: Dict[str, Any] = {
     "webui_port": 8787,
     "nginx_listen_port": 8788,   # nginx fronts the apps; cloudflared points here
     "trust_forwarded_host": True,  # nginx strips+resets these, so safe to honor
+    # Operator acknowledged the origin is protected even though it's not bound to
+    # loopback (e.g. a container with no published ports, or a host firewall).
+    # Satisfies the origin_bound_to_loopback preflight check.
+    "loopback_ack": False,
     # Cloudflare Access service token. Native clients (mobile/desktop) send these
     # as CF-Access-Client-Id / CF-Access-Client-Secret to clear Access at the edge
     # non-interactively. Delivered to devices via the pairing payload. The secret

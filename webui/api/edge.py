@@ -56,6 +56,10 @@ def handle_edge_post(handler, parsed, body: Dict[str, Any]) -> bool:
             return j(handler, _mgr().enable())
         if path == "/api/edge/disable":
             return j(handler, _mgr().disable())
+        if path == "/api/edge/service/start":
+            return j(handler, _mgr().start_service((body.get("name") or "").strip()))
+        if path == "/api/edge/service/stop":
+            return j(handler, _mgr().stop_service((body.get("name") or "").strip()))
     except Exception as exc:
         logger.exception("edge POST %s failed", path)
         return j(handler, {"ok": False, "error": str(exc)}, status=500)
