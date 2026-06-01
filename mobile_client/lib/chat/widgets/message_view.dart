@@ -99,7 +99,7 @@ class _AssistantTurn extends StatelessWidget {
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
-                color: Colors.black,
+                color: Colors.white,
               ),
             ),
           ),

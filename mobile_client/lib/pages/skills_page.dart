@@ -44,7 +44,7 @@ class _SkillsPageState extends State<SkillsPage> {
     final all = SkillRegistry.instance.all();
     return Scaffold(
       backgroundColor: JcTheme.bg,
-      appBar: AppBar(title: const Text('Skills')),
+      appBar: AppBar(title: const Text('Skills'), backgroundColor: Colors.transparent),
       body: ListView.builder(
         itemCount: all.length,
         itemBuilder: (_, i) {

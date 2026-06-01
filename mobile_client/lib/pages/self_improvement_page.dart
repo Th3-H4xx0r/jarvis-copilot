@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api/self_improvement.dart';
 import '../main.dart' as app;
 import '../theme.dart';
+import '../widgets/glass.dart';
 
 /// Shows what the agent has been learning on its own: skills auto-created or
 /// patched, memory updated, and rejected/failed attempts — sourced from the
@@ -79,7 +80,7 @@ class _SelfImprovementPageState extends State<SelfImprovementPage> {
           ),
         ],
       ),
-      body: _loading
+      body: AppBackground(child: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(
@@ -172,7 +173,7 @@ class _SelfImprovementPageState extends State<SelfImprovementPage> {
                           );
                         },
                       ),
-                    ),
+                    )),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/watch_sync.dart';
 import '../theme.dart';
+import '../widgets/glass.dart';
 
 /// Shows the live Apple Watch companion connection status (from WCSession on
 /// the iOS side) and explains what each state means.
@@ -81,7 +82,7 @@ class _WatchCompanionPageState extends State<WatchCompanionPage> {
           ),
         ],
       ),
-      body: _loading
+      body: AppBackground(child: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               children: [
@@ -129,7 +130,7 @@ class _WatchCompanionPageState extends State<WatchCompanionPage> {
                   ),
                 ),
               ],
-            ),
+            )),
     );
   }
 

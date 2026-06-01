@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../main.dart' as app;
 import '../theme.dart';
+import '../widgets/glass.dart';
 
 class LogsPage extends StatefulWidget {
   const LogsPage({super.key});
@@ -22,7 +23,7 @@ class _LogsPageState extends State<LogsPage> {
           IconButton(icon: const Icon(Icons.refresh), onPressed: () => setState(() {})),
         ],
       ),
-      body: log.isEmpty
+      body: AppBackground(child: log.isEmpty
           ? const Center(
               child: Text(
                 'No invocations yet.',
@@ -58,7 +59,7 @@ class _LogsPageState extends State<LogsPage> {
                   ),
                 );
               },
-            ),
+            )),
     );
   }
 }

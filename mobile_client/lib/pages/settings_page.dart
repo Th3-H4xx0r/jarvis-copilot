@@ -7,6 +7,7 @@ import '../services/android_accessibility.dart';
 import '../services/credentials.dart';
 import '../services/watch_sync.dart';
 import '../theme.dart';
+import '../widgets/glass.dart';
 import 'pair_page.dart';
 import 'watch_companion_page.dart';
 import 'webview_page.dart';
@@ -133,7 +134,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return Scaffold(
       backgroundColor: JcTheme.bg,
       appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
+      body: AppBackground(child: ListView(
         children: [
           ListTile(
             title: const Text('Server'),
@@ -237,7 +238,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: _unpair,
           ),
         ],
-      ),
+      )),
     );
   }
 }

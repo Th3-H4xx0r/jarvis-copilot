@@ -168,12 +168,10 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
           ),
         ],
       ),
-      body: AppBackground(
-        child: SafeArea(
-          child: ListenableBuilder(
-            listenable: _c,
-            builder: (context, _) => _buildBody(),
-          ),
+      body: SafeArea(
+        child: ListenableBuilder(
+          listenable: _c,
+          builder: (context, _) => _buildBody(),
         ),
       ),
     );
@@ -515,7 +513,7 @@ class _PrimaryButton extends StatelessWidget {
                 ? null
                 : const [
                     BoxShadow(
-                      color: Color(0x55E0552B),
+                      color: Color(0x558A7CFF),
                       blurRadius: 18,
                       offset: Offset(0, 6),
                     ),
@@ -530,16 +528,16 @@ class _PrimaryButton extends StatelessWidget {
                   height: 18,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation(Colors.black),
+                    valueColor: AlwaysStoppedAnimation(Colors.white),
                   ),
                 )
               else
-                Icon(icon, size: 20, color: danger ? JcTheme.danger : Colors.black),
+                Icon(icon, size: 20, color: danger ? JcTheme.danger : Colors.white),
               const SizedBox(width: 8),
               Text(
                 label,
                 style: TextStyle(
-                  color: danger ? JcTheme.danger : Colors.black,
+                  color: danger ? JcTheme.danger : Colors.white,
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
                 ),

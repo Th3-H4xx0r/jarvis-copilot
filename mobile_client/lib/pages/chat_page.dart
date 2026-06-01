@@ -87,8 +87,9 @@ class _ChatPageState extends State<ChatPage> {
       backgroundColor: JcTheme.bg,
       drawer: SessionsDrawer(controller: _c),
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
         leading: IconButton(
-          icon: const Icon(Icons.menu),
+          icon: const Icon(Icons.menu_rounded),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         title: ListenableBuilder(
@@ -166,7 +167,7 @@ class _EmptyState extends StatelessWidget {
               style: TextStyle(
                 fontSize: 30,
                 fontWeight: FontWeight.w800,
-                color: Colors.black,
+                color: Colors.white,
               ),
             ),
           ),
@@ -295,7 +296,7 @@ class _SendButton extends StatelessWidget {
         ),
         child: Icon(
           streaming ? Icons.stop : Icons.arrow_upward,
-          color: streaming ? JcTheme.danger : Colors.black,
+          color: streaming ? JcTheme.danger : Colors.white,
           size: 22,
         ),
       ),
