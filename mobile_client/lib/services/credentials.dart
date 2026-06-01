@@ -28,6 +28,11 @@ class Credentials {
   String? certFingerprint;
   String? deviceName;
   String? deviceId;
+  // Cloudflare Access service token (for tunnel exposure). Sent as
+  // CF-Access-Client-Id / CF-Access-Client-Secret to clear Access at the edge.
+  // Empty when not behind a tunnel — headers are then simply not added.
+  String? cfClientId;
+  String? cfClientSecret;
   bool allowShell = false;
   // Opt-in background location history + connection keep-alive.
   bool trackLocation = false;
@@ -42,6 +47,8 @@ class Credentials {
     certFingerprint = await _store.read(key: 'cert_fingerprint');
     deviceName = await _store.read(key: 'device_name');
     deviceId = await _store.read(key: 'device_id');
+    cfClientId = await _store.read(key: 'cf_client_id');
+    cfClientSecret = await _store.read(key: 'cf_client_secret');
     allowShell = (await _store.read(key: 'allow_shell')) == '1';
     trackLocation = (await _store.read(key: 'track_location')) == '1';
     final raw = await _store.read(key: 'skills_disabled');
@@ -70,6 +77,32 @@ class Credentials {
     await _store.write(key: 'cookie', value: cookie);
     await _store.write(key: 'cert_fingerprint', value: certFingerprint);
     await _store.write(key: 'device_name', value: deviceName);
+  }
+
+  /// Persist (or clear, when both empty) the Cloudflare Access service token.
+  Future<void> saveCfToken(String? clientId, String? clientSecret) async {
+    cfClientId = (clientId?.isNotEmpty ?? false) ? clientId : null;
+    cfClientSecret = (clientSecret?.isNotEmpty ?? false) ? clientSecret : null;
+    if (cfClientId != null) {
+      await _store.write(key: 'cf_client_id', value: cfClientId!);
+    } else {
+      await _store.delete(key: 'cf_client_id');
+    }
+    if (cfClientSecret != null) {
+      await _store.write(key: 'cf_client_secret', value: cfClientSecret!);
+    } else {
+      await _store.delete(key: 'cf_client_secret');
+    }
+  }
+
+  /// Cloudflare Access headers to attach to every request, or empty when the
+  /// service token isn't configured (local / non-tunnel use).
+  Map<String, String> get cfAccessHeaders {
+    final id = cfClientId, secret = cfClientSecret;
+    if (id != null && id.isNotEmpty && secret != null && secret.isNotEmpty) {
+      return {'CF-Access-Client-Id': id, 'CF-Access-Client-Secret': secret};
+    }
+    return const {};
   }
 
   Future<void> savePushToken(String token) async {
@@ -106,6 +139,8 @@ class Credentials {
     certFingerprint = null;
     deviceName = null;
     deviceId = null;
+    cfClientId = null;
+    cfClientSecret = null;
     pushToken = null;
     skillsDisabled = {};
     await _store.deleteAll();

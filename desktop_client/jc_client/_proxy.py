@@ -53,10 +53,15 @@ def _split_server_url(url: str):
     return host, port, p.scheme, (p.path or "").rstrip("/")
 
 
-def build_upstream_head(command, path, headers, cookie, host, port, is_ws):
+def build_upstream_head(command, path, headers, cookie, host, port, is_ws,
+                        cf_client_id="", cf_client_secret=""):
     """Reconstruct the upstream request head: rewrite Host, inject the session
     Cookie, drop hop-by-hop headers, and force Connection: close (or re-add the
-    WebSocket upgrade headers). Returns bytes (no body)."""
+    WebSocket upgrade headers). Returns bytes (no body).
+
+    When a Cloudflare Access service token is configured, the CF-Access headers
+    are added so the proxied request clears Access at the edge (the orb HUD / TUI
+    relay to the gateway through this proxy once behind a tunnel)."""
     lines = [f"{command} {path} HTTP/1.1"]
     for key in headers.keys():
         if key.lower() in _DROP_HEADERS:
@@ -70,6 +75,9 @@ def build_upstream_head(command, path, headers, cookie, host, port, is_ws):
     # "hermes_session=hermes_session=…" and the webui would bounce us to /pair.
     cookie_header = cookie if cookie.lower().startswith("hermes_session=") else f"hermes_session={cookie}"
     lines.append(f"Cookie: {cookie_header}")
+    if cf_client_id and cf_client_secret:
+        lines.append(f"CF-Access-Client-Id: {cf_client_id}")
+        lines.append(f"CF-Access-Client-Secret: {cf_client_secret}")
     if is_ws:
         lines.append("Connection: Upgrade")
         lines.append("Upgrade: websocket")
@@ -116,6 +124,8 @@ class _ProxyHandler(BaseHTTPRequestHandler):
         try:
             up.sendall(build_upstream_head(
                 self.command, path, self.headers, proxy.cookie, proxy.host, proxy.port, is_ws,
+                cf_client_id=getattr(proxy, "cf_client_id", ""),
+                cf_client_secret=getattr(proxy, "cf_client_secret", ""),
             ) + body)
             if is_ws:
                 self._relay(up)
@@ -189,10 +199,13 @@ class _ProxyHandler(BaseHTTPRequestHandler):
 class PinnedProxy:
     """Localhost HTTP/WS reverse proxy → the pinned-TLS gateway."""
 
-    def __init__(self, server_url: str, fingerprint: str, cookie: str):
+    def __init__(self, server_url: str, fingerprint: str, cookie: str,
+                 cf_client_id: str = "", cf_client_secret: str = ""):
         self.host, self.port, self.scheme, self.prefix = _split_server_url(server_url)
         self.fingerprint = fingerprint
         self.cookie = cookie
+        self.cf_client_id = cf_client_id
+        self.cf_client_secret = cf_client_secret
         self._httpd = None
         self._thread = None
 

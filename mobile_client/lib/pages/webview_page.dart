@@ -109,7 +109,16 @@ class _WebViewPageState extends State<WebViewPage> {
                     return const Center(child: CircularProgressIndicator());
                   }
                   return InAppWebView(
-                    initialUrlRequest: URLRequest(url: WebUri.uri(_uri)),
+                    // CF-Access headers on the top-level load let Cloudflare
+                    // validate the service token and set its CF_Authorization
+                    // cookie, which the webview then sends on all subresource
+                    // requests. Empty (no headers) when not behind a tunnel.
+                    initialUrlRequest: URLRequest(
+                      url: WebUri.uri(_uri),
+                      headers: Credentials.instance.cfAccessHeaders.isEmpty
+                          ? null
+                          : Credentials.instance.cfAccessHeaders,
+                    ),
                     initialSettings: InAppWebViewSettings(
                       transparentBackground: true,
                       javaScriptEnabled: true,

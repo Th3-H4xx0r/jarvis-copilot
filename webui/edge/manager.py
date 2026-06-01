@@ -105,9 +105,15 @@ class EdgeManager:
             return {"ok": st.installed, "tool": st.__dict__}
 
     def configure(self, body: Dict[str, Any]) -> Dict[str, Any]:
-        """Persist settings + token. Validates routes before saving."""
+        """Persist settings + secrets. Validates routes before saving.
+
+        Secret fields (``token``, ``cf_service_client_secret``) are written to
+        their 0600 files, NOT the settings json. ``cf_service_client_id`` is a
+        non-secret settings field.
+        """
         with self._lock:
-            updates = {k: v for k, v in body.items() if k != "token"}
+            _SECRET_KEYS = {"token", "cf_service_client_secret"}
+            updates = {k: v for k, v in body.items() if k not in _SECRET_KEYS}
             if "domain" in updates or "routes" in updates:
                 domain = updates.get("domain", state.load_settings().get("domain", ""))
                 routes = updates.get("routes", state.load_settings().get("routes", {}))
@@ -117,6 +123,12 @@ class EdgeManager:
             new_settings = state.save_settings(updates)
             if "token" in body:
                 state.set_token(body.get("token") or "")
+            if "cf_service_client_secret" in body:
+                state.set_cf_service_secret(body.get("cf_service_client_secret") or "")
+            # Clearing the client id disables the token — drop the orphan secret
+            # file too so no dead secret lingers on disk.
+            if "cf_service_client_id" in updates and not updates.get("cf_service_client_id"):
+                state.set_cf_service_secret("")
             return {"ok": True, "settings": state.public_settings(), "_raw": new_settings}
 
     def _write_configs(self) -> None:
@@ -149,6 +161,13 @@ class EdgeManager:
             supervisor.stop("nginx")
             state.save_settings({"enabled": False})
             return {"ok": True, "status": self.status()}
+
+    def cf_service_token_for_pairing(self) -> Dict[str, str]:
+        """Return {client_id, client_secret} to embed in a pairing payload.
+
+        Both empty when unconfigured — pairing then omits the field.
+        """
+        return state.get_cf_service_token()
 
     def logs(self, name: str, lines: int = 100) -> Dict[str, Any]:
         if name not in ("cloudflared", "nginx"):

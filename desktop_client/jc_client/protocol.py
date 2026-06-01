@@ -130,11 +130,23 @@ class HttpClient:
     so a pinned host that's been swapped never sees our bytes.
     """
 
-    def __init__(self, server_url: str, cookie: str = "", expected_fingerprint: str = ""):
+    def __init__(self, server_url: str, cookie: str = "", expected_fingerprint: str = "",
+                 cf_client_id: str = "", cf_client_secret: str = ""):
         self.server_url = server_url
         self.cookie = cookie
         self.expected_fingerprint = expected_fingerprint
+        self.cf_client_id = cf_client_id
+        self.cf_client_secret = cf_client_secret
         self._host, self._port, self._scheme, self._prefix = _split_url(server_url)
+
+    def _cf_header_lines(self) -> list[str]:
+        """CF-Access service-token header lines, or [] when not configured."""
+        if self.cf_client_id and self.cf_client_secret:
+            return [
+                f"CF-Access-Client-Id: {self.cf_client_id}",
+                f"CF-Access-Client-Secret: {self.cf_client_secret}",
+            ]
+        return []
 
     def _connect(self) -> tuple[socket.socket, str]:
         """Open TCP + TLS, verify fingerprint, return (sock, observed_fingerprint)."""
@@ -202,6 +214,7 @@ class HttpClient:
         ]
         if self.cookie:
             lines.append(f"Cookie: {self.cookie}")
+        lines.extend(self._cf_header_lines())
         if body is not None:
             lines.append("Content-Type: application/json")
             lines.append(f"Content-Length: {len(payload)}")
@@ -236,6 +249,7 @@ class HttpClient:
         ]
         if self.cookie:
             lines.append(f"Cookie: {self.cookie}")
+        lines.extend(self._cf_header_lines())
         lines.append("Connection: close")
         req = ("\r\n".join(lines) + "\r\n\r\n").encode("ascii")
         sock, _ = self._connect()
@@ -327,10 +341,13 @@ class WsConnection:
     socket writes); the reader is single-threaded (the daemon's main loop).
     """
 
-    def __init__(self, server_url: str, cookie: str, expected_fingerprint: str = ""):
+    def __init__(self, server_url: str, cookie: str, expected_fingerprint: str = "",
+                 cf_client_id: str = "", cf_client_secret: str = ""):
         self.server_url = server_url
         self.cookie = cookie
         self.expected_fingerprint = expected_fingerprint
+        self.cf_client_id = cf_client_id
+        self.cf_client_secret = cf_client_secret
         self._host, self._port, self._scheme, self._prefix = _split_url(server_url)
         self._sock: Optional[socket.socket] = None
         self._conn: Optional[WSConnection] = None
@@ -361,6 +378,9 @@ class WsConnection:
         ]
         if self.cookie:
             extra.append(("Cookie", self.cookie))
+        if self.cf_client_id and self.cf_client_secret:
+            extra.append(("CF-Access-Client-Id", self.cf_client_id))
+            extra.append(("CF-Access-Client-Secret", self.cf_client_secret))
         sock.sendall(
             ws.send(
                 Request(

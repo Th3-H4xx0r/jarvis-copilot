@@ -323,6 +323,17 @@ class _PairAPI:
             err = (resp.json().get("error") if resp.body else "") or f"HTTP {resp.status}"
             return {"ok": False, "error": str(err)}
 
+        # If the server is behind a Cloudflare tunnel, the claim response carries
+        # a CF Access service token. Stash it for confirm_and_save to persist
+        # (the JS bridge's confirm_and_save signature doesn't carry it).
+        cf = resp.json().get("cf_access") if resp.body else None
+        if isinstance(cf, dict):
+            self._pending_cf_id = str(cf.get("client_id") or "")
+            self._pending_cf_secret = str(cf.get("client_secret") or "")
+        else:
+            self._pending_cf_id = ""
+            self._pending_cf_secret = ""
+
         return {"ok": True, "fingerprint": fingerprint, "cookie": resp.cookie}
 
     def confirm_and_save(
@@ -334,9 +345,16 @@ class _PairAPI:
         creds.device_name = (device_name or "").strip() or socket.gethostname()
         creds.cookie = cookie
         creds.cert_fingerprint = fingerprint
+        # CF Access service token captured during try_pair (empty if not tunneled).
+        creds.cf_client_id = getattr(self, "_pending_cf_id", "") or ""
+        creds.cf_client_secret = getattr(self, "_pending_cf_secret", "") or ""
         if not creds.device_id:
             creds.device_id = uuid.uuid4().hex
         credentials.save(creds)
+        # Clear the pending CF token so a later re-pair on this instance can't
+        # silently persist a stale token.
+        self._pending_cf_id = ""
+        self._pending_cf_secret = ""
         self.result = creds
         log.info("paired with %s as %s", creds.server_url, creds.device_name)
         return {"ok": True}

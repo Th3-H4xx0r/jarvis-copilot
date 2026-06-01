@@ -160,6 +160,8 @@ class Service:
             server_url=creds.server_url,
             cookie=creds.cookie,
             expected_fingerprint=creds.cert_fingerprint,
+            cf_client_id=creds.cf_client_id,
+            cf_client_secret=creds.cf_client_secret,
         )
         ws.connect()
         self._ws = ws

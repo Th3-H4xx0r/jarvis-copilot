@@ -88,7 +88,8 @@ def run_tui() -> int:
     if not entry:
         return 1
 
-    proxy = PinnedProxy(creds.server_url, creds.cert_fingerprint, creds.cookie)
+    proxy = PinnedProxy(creds.server_url, creds.cert_fingerprint, creds.cookie,
+                        cf_client_id=creds.cf_client_id, cf_client_secret=creds.cf_client_secret)
     port = proxy.start()
     env = {**os.environ, "HERMES_TUI_GATEWAY_URL": gateway_attach_url(port)}
     try:

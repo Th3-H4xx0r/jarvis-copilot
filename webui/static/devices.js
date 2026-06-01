@@ -13,6 +13,9 @@ let _devicesPollTimer = null;
 let _devicesPairModalEl = null;
 let _devicesPairPollTimer = null;
 let _devicesPairCurrentCode = null;
+// CF Access service token for the current pairing session (when tunneled), so
+// the QR/deep-link can carry it to a tunnel-first device. Cleared between runs.
+let _devicesPairCfAccess = null;
 const _DEVICES_LIVE_REFRESH_MS = 10000;
 
 function _devEsc(s) {
@@ -210,6 +213,7 @@ async function startPairingFromUI() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const info = await res.json();
     _devicesPairCurrentCode = info.code;
+    _devicesPairCfAccess = (info.cf_access && info.cf_access.client_id) ? info.cf_access : null;
     _openPairModal(info.code, info.expires_at);
     _startPairPolling(info.code);
   } catch (e) {
@@ -224,12 +228,22 @@ function _pairUrl() {
 }
 
 function _pairDeepLink(code) {
-  // jarviscopilot://pair?server=<urlencoded>&code=<code>
-  // The mobile app registers this scheme and pre-fills its Pair page.
+  // jarviscopilot://pair?server=<urlencoded>&code=<code>[&cf_id=…&cf_secret=…]
+  // The mobile app registers this scheme and pre-fills its Pair page. When the
+  // server is behind a Cloudflare tunnel, the CF service token is appended so a
+  // tunnel-first device can send CF-Access headers on its pair/claim request
+  // (the token can't arrive only in the claim response — that request must
+  // already clear Access at the edge).
   const loc = window.location;
   const serverUrl = loc.protocol + '//' + loc.host;
-  return 'jarviscopilot://pair?server=' + encodeURIComponent(serverUrl) +
+  let link = 'jarviscopilot://pair?server=' + encodeURIComponent(serverUrl) +
          '&code=' + encodeURIComponent(code);
+  const cf = _devicesPairCfAccess;
+  if (cf && cf.client_id && cf.client_secret) {
+    link += '&cf_id=' + encodeURIComponent(cf.client_id) +
+            '&cf_secret=' + encodeURIComponent(cf.client_secret);
+  }
+  return link;
 }
 
 // Tiny QR generator (numeric-byte mode, alphanumeric input). Adapted

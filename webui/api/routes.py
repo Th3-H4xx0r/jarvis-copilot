@@ -6212,6 +6212,22 @@ def handle_post(handler, parsed) -> bool:
         ttl = int(body.get("ttl") or 600)
         label = (body.get("label") or "").strip() or None
         info = create_pairing_code(label=label, ttl=ttl)
+        # If behind a Cloudflare tunnel, surface the service token here (this
+        # endpoint is authed — the browser is already past Access) so the QR /
+        # deep-link can carry it. A tunnel-first device then sends the CF
+        # headers on its pair/claim request, breaking the chicken-and-egg where
+        # the token would otherwise only arrive *in* the claim response.
+        try:
+            from edge import get_manager
+            cf = get_manager().cf_service_token_for_pairing()
+            if cf.get("client_id") and cf.get("client_secret"):
+                info = dict(info)
+                info["cf_access"] = {
+                    "client_id": cf["client_id"],
+                    "client_secret": cf["client_secret"],
+                }
+        except Exception:
+            logger.debug("CF service token unavailable for pair/start", exc_info=True)
         return j(handler, info)
 
     if parsed.path == "/api/devices/pair/cancel":
@@ -6253,13 +6269,28 @@ def handle_post(handler, parsed) -> bool:
         if not cookie_val:
             _record_login_attempt(client_ip)
             return bad(handler, "Invalid or expired pairing code", 401)
+        # If a Cloudflare Access service token is configured for the tunnel,
+        # hand it to the freshly-paired device so its native (non-browser)
+        # requests can clear Access at the edge. Omitted when unconfigured, so
+        # local / non-tunnel pairing is unchanged.
+        resp_payload = {"ok": True}
+        try:
+            from edge import get_manager  # webui/ is on sys.path
+            cf = get_manager().cf_service_token_for_pairing()
+            if cf.get("client_id") and cf.get("client_secret"):
+                resp_payload["cf_access"] = {
+                    "client_id": cf["client_id"],
+                    "client_secret": cf["client_secret"],
+                }
+        except Exception:
+            logger.debug("CF service token unavailable for pairing payload", exc_info=True)
         handler.send_response(200)
         handler.send_header("Content-Type", "application/json")
         handler.send_header("Cache-Control", "no-store")
         _security_headers(handler)
         set_auth_cookie(handler, cookie_val)
         handler.end_headers()
-        handler.wfile.write(json.dumps({"ok": True}).encode())
+        handler.wfile.write(json.dumps(resp_payload).encode())
         return True
 
     if parsed.path == "/api/auth/logout":

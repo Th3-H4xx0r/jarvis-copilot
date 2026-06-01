@@ -142,6 +142,8 @@ class ApiClient {
       if (cookie != null && cookie.isNotEmpty) {
         req.headers.set('Cookie', cookie);
       }
+      Credentials.instance.cfAccessHeaders
+          .forEach((k, v) => req.headers.set(k, v));
       if (headers != null) {
         headers.forEach((k, v) => req.headers.set(k, v));
       }
@@ -176,6 +178,8 @@ class ApiClient {
       if (cookie != null && cookie.isNotEmpty) {
         req.headers.set('Cookie', cookie);
       }
+      Credentials.instance.cfAccessHeaders
+          .forEach((k, v) => req.headers.set(k, v));
       req.headers
         ..set('Content-Type', 'application/json')
         ..set('Accept', 'application/x-ndjson');
@@ -225,6 +229,8 @@ class ApiClient {
       if (cookie != null && cookie.isNotEmpty) {
         req.headers.set('Cookie', cookie);
       }
+      Credentials.instance.cfAccessHeaders
+          .forEach((k, v) => req.headers.set(k, v));
       req.headers.set('Accept', 'text/event-stream');
       headers?.forEach((k, v) => req.headers.set(k, v));
       final resp = await req.close();
@@ -294,6 +300,10 @@ class _AuthInterceptor extends Interceptor {
     if (c != null && c.isNotEmpty) {
       options.headers['Cookie'] = c;
     }
+    // Cloudflare Access service token (no-op when not behind a tunnel).
+    Credentials.instance.cfAccessHeaders.forEach((k, v) {
+      options.headers[k] = v;
+    });
     options.headers['User-Agent'] ??= 'jc-mobile/0.1';
     options.headers['X-Requested-With'] ??= 'jc-mobile';
     super.onRequest(options, handler);

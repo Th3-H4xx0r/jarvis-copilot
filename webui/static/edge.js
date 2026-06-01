@@ -135,6 +135,14 @@
       '<textarea id="edgeRoutes" rows="4" placeholder="jarvis=127.0.0.1:8787" style="width:100%;font-family:monospace;font-size:12px">' + esc(routesText) + '</textarea>' +
       '<label style="font-size:12px;display:block;margin-top:6px">Tunnel token</label>' +
       '<input id="edgeToken" type="password" placeholder="' + (st.has_token ? "saved (" + esc(st.token_masked) + ")" : "paste cloudflared tunnel token") + '" style="width:100%">' +
+
+      '<h3 style="font-size:13px;margin:14px 0 4px">Cloudflare Access service token (for native apps)</h3>' +
+      '<div style="font-size:12px;color:var(--muted,#8b949e);margin-bottom:4px">Mobile/desktop apps can\'t do browser SSO. Create a service token in Zero Trust → Access → Service Auth, paste it here, and it\'s delivered to each device when it pairs.</div>' +
+      '<label style="font-size:12px">Client ID</label>' +
+      '<input id="edgeCfId" type="text" value="' + esc(st.cf_service_client_id || "") + '" placeholder="xxxxxxxx.access" style="width:100%">' +
+      '<label style="font-size:12px;display:block;margin-top:6px">Client Secret</label>' +
+      '<input id="edgeCfSecret" type="password" placeholder="' + (st.has_cf_service_token ? "saved (" + esc(st.cf_service_secret_masked) + ")" : "paste service token secret") + '" style="width:100%">' +
+
       '<button id="edgeSave" style="margin-top:8px">Save configuration</button>' +
 
       '<h3 style="font-size:13px;margin:14px 0 4px">Safety preflight</h3>' +
@@ -171,6 +179,9 @@
       var payload = { domain: document.getElementById("edgeDomain").value.trim(), routes: routes };
       var tok = document.getElementById("edgeToken").value.trim();
       if (tok) payload.token = tok;
+      payload.cf_service_client_id = document.getElementById("edgeCfId").value.trim();
+      var cfSecret = document.getElementById("edgeCfSecret").value.trim();
+      if (cfSecret) payload.cf_service_client_secret = cfSecret;
       try {
         var r = await jpost("/api/edge/configure", payload);
         if (r && r.ok === false) alert(r.error || "Save failed");

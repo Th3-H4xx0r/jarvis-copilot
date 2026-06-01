@@ -186,6 +186,9 @@ class WsBridge {
       ..set('Sec-WebSocket-Protocol', '')
       ..set('Cookie', cookie)
       ..set('User-Agent', 'jc-mobile/0.1');
+    // Cloudflare Access service token (no-op when not behind a tunnel).
+    Credentials.instance.cfAccessHeaders
+        .forEach((k, v) => req.headers.set(k, v));
     final resp = await req.close();
     if (resp.statusCode != HttpStatus.switchingProtocols) {
       throw StateError('WS handshake failed: HTTP ${resp.statusCode}');

@@ -27,7 +27,16 @@ _DEFAULTS: Dict[str, Any] = {
     "webui_port": 8787,
     "nginx_listen_port": 8788,   # nginx fronts the apps; cloudflared points here
     "trust_forwarded_host": True,  # nginx strips+resets these, so safe to honor
+    # Cloudflare Access service token. Native clients (mobile/desktop) send these
+    # as CF-Access-Client-Id / CF-Access-Client-Secret to clear Access at the edge
+    # non-interactively. Delivered to devices via the pairing payload. The secret
+    # is stored in the 0600 token file (NOT here); only the id lives in settings.
+    "cf_service_client_id": "",
 }
+
+# The CF service-token SECRET is a credential — store it alongside the tunnel
+# token in a 0600 file, never in the plaintext settings json.
+_CF_SECRET_FILENAME = "cf_service_token"  # nosec - filename, not a secret
 
 _TOKEN_FILENAME = "cloudflared_token"  # nosec - filename, not a secret
 _SETTINGS_FILENAME = "edge.json"
@@ -55,6 +64,58 @@ def _settings_path() -> Path:
 
 def _token_path() -> Path:
     return _edge_dir() / _TOKEN_FILENAME
+
+
+def _cf_secret_path() -> Path:
+    return _edge_dir() / _CF_SECRET_FILENAME
+
+
+def _write_secret_file(path: Path, value: str) -> None:
+    """Write *value* to *path* at 0600 (empty clears it). umask-safe."""
+    value = (value or "").strip()
+    if not value:
+        if path.exists():
+            path.unlink()
+        return
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, value.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+
+
+def _read_secret_file(path: Path) -> str:
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def set_cf_service_secret(secret: str) -> None:
+    """Persist the Cloudflare Access service-token SECRET at 0600."""
+    with _LOCK:
+        _write_secret_file(_cf_secret_path(), secret)
+
+
+def get_cf_service_secret() -> str:
+    with _LOCK:
+        return _read_secret_file(_cf_secret_path())
+
+
+def get_cf_service_token() -> Dict[str, str]:
+    """Return {client_id, client_secret} for the configured CF service token.
+
+    Both empty when unconfigured — callers (pairing) then omit the fields so
+    clients behave exactly as before a tunnel was set up.
+    """
+    with _LOCK:
+        return {
+            "client_id": (load_settings().get("cf_service_client_id") or "").strip(),
+            "client_secret": get_cf_service_secret(),
+        }
 
 
 def load_settings() -> Dict[str, Any]:
@@ -139,10 +200,14 @@ def _mask(token: str) -> str:
 
 
 def public_settings() -> Dict[str, Any]:
-    """Settings safe to send to the UI: token is masked, never raw."""
+    """Settings safe to send to the UI: secrets masked, never raw."""
     data = load_settings()
     tok = get_token()
     data = dict(data)
     data["has_token"] = bool(tok)
     data["token_masked"] = _mask(tok)
+    # Cloudflare Access service token: report presence + masked secret only.
+    cf_secret = get_cf_service_secret()
+    data["has_cf_service_token"] = bool(data.get("cf_service_client_id") and cf_secret)
+    data["cf_service_secret_masked"] = _mask(cf_secret)
     return data

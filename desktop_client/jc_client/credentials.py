@@ -31,6 +31,7 @@ log = logging.getLogger(__name__)
 _CONFIG_FILE = state_dir() / "config.yaml"
 _KEYRING_SERVICE = "jarviscopilot-client"
 _KEYRING_USER = "session"
+_KEYRING_CF_USER = "cf_service_secret"
 
 
 @dataclass
@@ -40,6 +41,12 @@ class Credentials:
     device_id: str = ""
     device_name: str = ""
     cookie: str = ""                  # session cookie value (hermes_session=...)
+    # Cloudflare Access service token (when the server is behind a CF tunnel).
+    # Sent as CF-Access-Client-Id / CF-Access-Client-Secret to clear Access at
+    # the edge. Empty when not tunneled — headers are then simply omitted.
+    # The secret rides keyring alongside the cookie; the id is non-secret config.
+    cf_client_id: str = ""
+    cf_client_secret: str = ""
     # Local skill allow-list. None = allow everything registered.
     skills_disabled: list[str] = field(default_factory=list)
     # Off by default — flipping to True opens the run_shell skill.
@@ -100,6 +107,30 @@ def _try_keyring_delete() -> None:
         keyring.delete_password(_KEYRING_SERVICE, _KEYRING_USER)
     except Exception:
         pass
+    try:
+        import keyring  # type: ignore
+        keyring.delete_password(_KEYRING_SERVICE, _KEYRING_CF_USER)
+    except Exception:
+        pass
+
+
+def _try_keyring_get_user(user: str) -> Optional[str]:
+    try:
+        import keyring  # type: ignore
+        return keyring.get_password(_KEYRING_SERVICE, user)
+    except Exception as exc:
+        log.debug("keyring get(%s) failed: %s", user, exc)
+        return None
+
+
+def _try_keyring_set_user(user: str, value: str) -> bool:
+    try:
+        import keyring  # type: ignore
+        keyring.set_password(_KEYRING_SERVICE, user, value)
+        return True
+    except Exception as exc:
+        log.debug("keyring set(%s) failed: %s", user, exc)
+        return False
 
 
 def load() -> Credentials:
@@ -126,14 +157,17 @@ def load() -> Credentials:
         log.warning("Could not read %s: %s", _CONFIG_FILE, exc)
         return Credentials()
 
-    # Pull cookie from keyring first; the in-file copy is a fallback.
+    # Pull secrets from keyring first; the in-file copy is a fallback.
     cookie = _try_keyring_get() or data.get("cookie", "")
+    cf_secret = _try_keyring_get_user(_KEYRING_CF_USER) or data.get("cf_client_secret", "")
     return Credentials(
         server_url=data.get("server_url", ""),
         cert_fingerprint=data.get("cert_fingerprint", ""),
         device_id=data.get("device_id", ""),
         device_name=data.get("device_name", ""),
         cookie=cookie,
+        cf_client_id=data.get("cf_client_id", ""),
+        cf_client_secret=cf_secret,
         skills_disabled=list(data.get("skills_disabled", []) or []),
         allow_shell=bool(data.get("allow_shell", False)),
         notify_target=data.get("notify_target", ""),
@@ -145,10 +179,16 @@ def save(creds: Credentials) -> None:
     """Persist non-secret fields to the config file and stash the cookie
     in keyring (with file fallback when keyring is unavailable)."""
     in_keyring = _try_keyring_set(creds.cookie) if creds.cookie else False
+    cf_in_keyring = (
+        _try_keyring_set_user(_KEYRING_CF_USER, creds.cf_client_secret)
+        if creds.cf_client_secret else False
+    )
     payload = asdict(creds)
     if in_keyring:
         # Don't duplicate the secret to disk when keyring took it.
         payload.pop("cookie", None)
+    if cf_in_keyring:
+        payload.pop("cf_client_secret", None)
     _atomic_write(_CONFIG_FILE, json.dumps(payload, indent=2, sort_keys=True))
 
 

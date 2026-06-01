@@ -182,6 +182,11 @@ def _pair_headless(url: str, code: str, name: str | None) -> int:
     creds.device_name = name
     creds.cookie = resp.cookie
     creds.cert_fingerprint = fingerprint
+    # Capture the Cloudflare Access service token if the tunnel returned one.
+    cf = resp.json().get("cf_access") if resp.body else None
+    if isinstance(cf, dict):
+        creds.cf_client_id = str(cf.get("client_id") or "")
+        creds.cf_client_secret = str(cf.get("client_secret") or "")
     if not creds.device_id:
         import uuid
         creds.device_id = uuid.uuid4().hex
@@ -674,7 +679,8 @@ def cmd_notify(args) -> int:
             print("not paired — run `jc-client pair`", file=sys.stderr)
             return 1
         return 0
-    http = HttpClient(creds.server_url, cookie=creds.cookie, expected_fingerprint=creds.cert_fingerprint)
+    http = HttpClient(creds.server_url, cookie=creds.cookie, expected_fingerprint=creds.cert_fingerprint,
+                      cf_client_id=creds.cf_client_id, cf_client_secret=creds.cf_client_secret)
     if args.list:
         try:
             data = http.request_json("GET", "/api/notify/targets").json()

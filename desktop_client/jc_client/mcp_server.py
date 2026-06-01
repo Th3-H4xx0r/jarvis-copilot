@@ -88,7 +88,9 @@ def _query_memory(query: str = "") -> str:
         if not creds.paired:
             return "error: not paired"
         data = HttpClient(creds.server_url, cookie=creds.cookie,
-                          expected_fingerprint=creds.cert_fingerprint
+                          expected_fingerprint=creds.cert_fingerprint,
+                          cf_client_id=creds.cf_client_id,
+                          cf_client_secret=creds.cf_client_secret
                           ).request_json("GET", "/api/memory").json()
         text = ((data.get("memory", "") or "") + "\n\n" + (data.get("user", "") or "")).strip()
         if query:

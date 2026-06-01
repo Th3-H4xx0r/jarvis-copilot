@@ -45,7 +45,8 @@ def _http() -> HttpClient:
     creds = credentials.load()
     if not creds.paired:
         raise NotPaired("not paired — run `jc-client pair`")
-    return HttpClient(creds.server_url, cookie=creds.cookie, expected_fingerprint=creds.cert_fingerprint)
+    return HttpClient(creds.server_url, cookie=creds.cookie, expected_fingerprint=creds.cert_fingerprint,
+                      cf_client_id=creds.cf_client_id, cf_client_secret=creds.cf_client_secret)
 
 
 def register(slug, name, root, remote=""):

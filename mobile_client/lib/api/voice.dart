@@ -72,6 +72,9 @@ class VoiceApi {
       ..set('Sec-WebSocket-Key', key)
       ..set('Sec-WebSocket-Version', '13')
       ..set('Cookie', Credentials.instance.cookie ?? '');
+    // Cloudflare Access service token (no-op when not behind a tunnel).
+    Credentials.instance.cfAccessHeaders
+        .forEach((k, v) => req.headers.set(k, v));
     final resp = await req.close();
     if (resp.statusCode != HttpStatus.switchingProtocols) {
       throw StateError('Voice WS handshake failed: HTTP ${resp.statusCode}');

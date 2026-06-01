@@ -36,6 +36,10 @@ class _PairPageState extends State<PairPage> {
   String? _error;
   bool _showScanner = false;
   String? _pendingFingerprint;
+  // CF Access service token carried in the QR/deep-link (tunnel-first pairing).
+  // Applied to Credentials BEFORE the claim POST so the request clears Access.
+  String? _scannedCfId;
+  String? _scannedCfSecret;
 
   @override
   void initState() {
@@ -69,6 +73,8 @@ class _PairPageState extends State<PairPage> {
     setState(() {
       _serverCtrl.text = uri.queryParameters['server'] ?? '';
       _codeCtrl.text = uri.queryParameters['code'] ?? '';
+      _scannedCfId = uri.queryParameters['cf_id'];
+      _scannedCfSecret = uri.queryParameters['cf_secret'];
       _showScanner = false;
       _error = null;
     });
@@ -126,6 +132,14 @@ class _PairPageState extends State<PairPage> {
         certFingerprint: fp,
         deviceName: name,
       );
+      // Apply a CF Access token from the QR (if any) BEFORE the claim POST so
+      // the request carries CF-Access headers and clears the edge. Tunnel-first
+      // pairing would otherwise 403 before the server's claim response (which
+      // also carries the token) is ever seen.
+      if ((_scannedCfId?.isNotEmpty ?? false) &&
+          (_scannedCfSecret?.isNotEmpty ?? false)) {
+        await Credentials.instance.saveCfToken(_scannedCfId, _scannedCfSecret);
+      }
       app.api.notifyCredentialsChanged();
 
       final resp = await app.api.postJson(
@@ -153,6 +167,14 @@ class _PairPageState extends State<PairPage> {
           cookie: cookieVal,
           certFingerprint: fp,
           deviceName: name,
+        );
+        // If the server is behind a Cloudflare tunnel it returns a CF Access
+        // service token in the claim response — persist it so native requests
+        // clear Access at the edge. Absent → cleared (local/non-tunnel).
+        final cf = (data['cf_access'] is Map) ? data['cf_access'] as Map : null;
+        await Credentials.instance.saveCfToken(
+          cf?['client_id']?.toString(),
+          cf?['client_secret']?.toString(),
         );
         app.api.notifyCredentialsChanged();
         unawaited(app.ws.start());
