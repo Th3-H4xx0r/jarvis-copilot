@@ -236,6 +236,10 @@ class EdgeManager:
                     supervisor.start_cloudflared(str(self._cloudflared_conf()), state.get_token())
             except Exception as exc:
                 return {"ok": False, "error": str(exc)}
+            # Mark the tunnel "enabled" so it auto-starts after a server restart.
+            # Starting EITHER service via the UI counts as intent-to-run; without
+            # this, per-service Start didn't set enabled and autostart was skipped.
+            state.save_settings({"enabled": True})
             return {"ok": True, "status": self.status()}
 
     def stop_service(self, name: str) -> Dict[str, Any]:
@@ -243,6 +247,11 @@ class EdgeManager:
             return {"ok": False, "error": "unknown service"}
         with self._lock:
             supervisor.stop(name)
+            # If BOTH services are now stopped, clear the enabled flag so we don't
+            # auto-resurrect a tunnel the operator deliberately took fully down.
+            other = "cloudflared" if name == "nginx" else "nginx"
+            if not supervisor.proc_status(other).running:
+                state.save_settings({"enabled": False})
             return {"ok": True, "status": self.status()}
 
     def cf_service_token_for_pairing(self) -> Dict[str, str]:
@@ -275,7 +284,7 @@ class EdgeManager:
             except OSError:
                 return False
 
-        # 1. nginx process + listener
+        # 1. nginx process + listener (IPv4)
         ng_running = supervisor.proc_status("nginx").running
         listening = tcp_ok("127.0.0.1", port)
         checks.append({
@@ -284,6 +293,24 @@ class EdgeManager:
             "detail": (f"127.0.0.1:{port} accepting connections" if listening
                        else f"nothing accepting on 127.0.0.1:{port}"
                        + ("" if ng_running else " (nginx process not running — Start it)")),
+        })
+
+        # 1b. nginx must ALSO answer on the IPv6 loopback. cloudflared's service
+        #     URL uses "localhost", which often resolves to ::1 first — if nginx
+        #     only bound 127.0.0.1 the tunnel 502s ("Host Error") even though the
+        #     IPv4 check above is green. This check catches that mismatch.
+        v6 = tcp_ok("::1", port)
+        # localhost as cloudflared actually resolves it (whichever family wins)
+        try:
+            lh = tcp_ok("localhost", port)
+        except OSError:
+            lh = False
+        checks.append({
+            "name": "nginx_localhost_ipv6",
+            "ok": (v6 or lh),
+            "detail": (f"localhost:{port} reachable (cloudflared uses this)" if (v6 or lh)
+                       else f"[::1]:{port} refused — cloudflared connects to localhost (often IPv6) "
+                            f"and will 502. Restart nginx so it binds the new [::1] listener."),
         })
 
         # 2. nginx /healthz answers (proves nginx itself is serving)

@@ -87,6 +87,12 @@ def render_nginx(settings: Dict[str, Any]) -> str:
         server_blocks.append(
             f"""    server {{
         listen 127.0.0.1:{listen_port};
+        # Also listen on IPv6 loopback: cloudflared's service URL uses
+        # "localhost", which on many systems resolves to ::1 (IPv6) FIRST. If
+        # nginx only bound 127.0.0.1, cloudflared would hit [::1]:{listen_port},
+        # get connection-refused, and return 502 — exactly the "Host Error" bad
+        # gateway. Binding both keeps "localhost" working however it resolves.
+        listen [::1]:{listen_port};
         server_name {fqdn};
 
         # --- security headers (every response) ---
@@ -164,6 +170,7 @@ http {{
     # and /healthz always answers 200 so you can confirm nginx is up.
     server {{
         listen 127.0.0.1:{listen_port} default_server;
+        listen [::1]:{listen_port} default_server;
         server_name _;
         location = /healthz {{
             add_header Content-Type text/plain;
