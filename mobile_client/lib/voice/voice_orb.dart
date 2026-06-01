@@ -139,34 +139,67 @@ class _OrbPainter extends CustomPainter {
     final breath = 0.5 + 0.5 * math.sin(t * 0.9);
     final talk = 0.5 + 0.5 * math.sin(t * 3.4);
 
+    // Baseline per-state liveliness (brightness/glow) — independent of mic level.
     double energy;
     switch (state) {
       case VoiceState.listening:
-        energy = (0.42 + 0.58 * amp).clamp(0.0, 1.0).toDouble();
+        energy = 0.46;
       case VoiceState.speaking:
-        energy = (0.58 + 0.30 * talk).clamp(0.0, 1.0).toDouble();
+        energy = 0.55 + 0.20 * talk;
       case VoiceState.thinking:
-        energy = 0.55 + 0.12 * breath;
+        energy = 0.58 + 0.10 * breath;
       case VoiceState.connecting:
-        energy = 0.40 + 0.14 * breath;
+        energy = 0.40 + 0.12 * breath;
       case VoiceState.error:
         energy = 0.34 + 0.08 * breath;
       case VoiceState.idle:
-        energy = 0.34 + 0.14 * breath;
+        energy = 0.34 + 0.12 * breath;
     }
 
-    final scale = 1.0 + 0.02 * breath + 0.03 * energy + amp * 0.04;
-    final rs = R * 0.60 * scale; // projected sphere radius
-    final bright = (0.82 + 0.34 * energy).clamp(0.0, 1.3).toDouble();
-    final gt = t * (0.12 + 0.45 * energy); // global spin
-    final undu = t * 0.30; // ribbon undulation
+    // REACTIVE drive (0..1): how much the orb should swell/bloom *right now*.
+    // Your voice (listening) drives it directly; the assistant's voice
+    // (speaking) animates a softer pulse. This — NOT the spin — is the headline
+    // "I hear you" feedback: the orb expands and brightens, it doesn't whirl.
+    final double reactive;
+    switch (state) {
+      case VoiceState.listening:
+        // Saturating curve: even moderate speech gives a clear swell (mic level
+        // reads low), while loud input still tops out gracefully near 1.
+        reactive = 1 - math.exp(-3.2 * amp);
+      case VoiceState.speaking:
+        reactive = 0.28 + 0.42 * talk;
+      default:
+        reactive = 0.0;
+    }
+
+    // Spin stays calm and near-constant — a gentle drift, never ramped by volume.
+    final double spinSpeed;
+    switch (state) {
+      case VoiceState.thinking:
+        spinSpeed = 0.15;
+      case VoiceState.speaking:
+        spinSpeed = 0.12;
+      case VoiceState.listening:
+        spinSpeed = 0.10;
+      default:
+        spinSpeed = 0.08;
+    }
+    final gt = t * spinSpeed; // global spin (calm)
+
+    // Expansion is the main reaction: up to ~+24% radius on loud input, eased by
+    // the amplitude envelope so it swells and settles rather than jittering.
+    final scale = 1.0 + 0.022 * breath + 0.24 * reactive;
+    final rs = R * 0.56 * scale; // projected sphere radius
+    final bright =
+        (0.80 + 0.28 * energy + 0.30 * reactive).clamp(0.0, 1.4).toDouble();
+    final undu = t * (0.28 + 0.20 * reactive); // silk flow, a touch livelier
 
     // Build + depth-sort (back → front) so additive light stacks correctly.
     final built = [for (final s in _strands) _build(s, c, rs, gt, undu)]
       ..sort((a, b) => a.meanFront.compareTo(b.meanFront));
 
-    // ── Outer halo glow ───────────────────────────────────────────────
-    final haloR = rs * 1.7;
+    // ── Outer halo glow (blooms outward with your voice) ──────────────
+    final haloR = rs * (1.55 + 0.22 * reactive);
     canvas.drawCircle(
       c,
       haloR,
@@ -185,7 +218,7 @@ class _OrbPainter extends CustomPainter {
     // ── Ribbons ───────────────────────────────────────────────────────
     final sheetCol = Color.lerp(core, hi, 0.4)!;
     final edgeCol = Color.lerp(hi, Colors.white, 0.5)!;
-    final halfBase = rs * 0.17 * (1.0 + 0.10 * amp);
+    final halfBase = rs * 0.17 * (1.0 + 0.30 * reactive);
     for (final b in built) {
       final band = _ribbonPath(b, halfBase);
 
