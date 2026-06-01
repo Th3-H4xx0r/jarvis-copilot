@@ -61,9 +61,10 @@ class _VoiceOrbState extends State<VoiceOrb>
     super.dispose();
   }
 
-  // One-pole envelope: fast attack, slow release, frame-rate independent.
+  // One-pole envelope: fast attack, quickish release so the orb throbs with the
+  // rhythm of speech (rises on a syllable, drops between) rather than holding.
   double _smooth(double target, double dt) {
-    const attack = 0.06, release = 0.28; // seconds
+    const attack = 0.05, release = 0.16; // seconds
     final tau = target > _amp ? attack : release;
     final k = 1 - math.exp(-dt / math.max(tau, 1e-3));
     _amp += (target - _amp) * k.clamp(0.0, 1.0);
@@ -163,16 +164,18 @@ class _OrbPainter extends CustomPainter {
     final double reactive;
     switch (state) {
       case VoiceState.listening:
-        // Saturating curve: even moderate speech gives a clear swell (mic level
-        // reads low), while loud input still tops out gracefully near 1.
-        reactive = 1 - math.exp(-3.2 * amp);
+        // Steep saturating curve: even quiet speech gives a clear swell (mic
+        // level reads low), while loud input still tops out gracefully near 1.
+        reactive = 1 - math.exp(-5.0 * amp);
       case VoiceState.speaking:
-        reactive = 0.28 + 0.42 * talk;
+        reactive = 0.30 + 0.45 * talk;
       default:
         reactive = 0.0;
     }
 
-    // Spin stays calm and near-constant — a gentle drift, never ramped by volume.
+    // Spin stays calm — a gentle drift PLUS a slow multi-frequency wander so the
+    // rotation eases up and down (and even reverses slightly) instead of a
+    // uniform whirl. The wander is the main source of organic idle motion.
     final double spinSpeed;
     switch (state) {
       case VoiceState.thinking:
@@ -182,24 +185,25 @@ class _OrbPainter extends CustomPainter {
       case VoiceState.listening:
         spinSpeed = 0.10;
       default:
-        spinSpeed = 0.08;
+        spinSpeed = 0.07;
     }
-    final gt = t * spinSpeed; // global spin (calm)
+    final wander = 0.18 * math.sin(t * 0.075) + 0.12 * math.sin(t * 0.117 + 2.1);
+    final gt = t * spinSpeed + wander; // global spin (calm + organic sway)
 
-    // Expansion is the main reaction: up to ~+24% radius on loud input, eased by
-    // the amplitude envelope so it swells and settles rather than jittering.
-    final scale = 1.0 + 0.022 * breath + 0.24 * reactive;
-    final rs = R * 0.56 * scale; // projected sphere radius
+    // Expansion is the headline reaction: up to ~+34% radius on loud input,
+    // eased by the (quick-release) envelope so it throbs with speech.
+    final scale = 1.0 + 0.025 * breath + 0.34 * reactive;
+    final rs = R * 0.53 * scale; // projected sphere radius
     final bright =
-        (0.80 + 0.28 * energy + 0.30 * reactive).clamp(0.0, 1.4).toDouble();
-    final undu = t * (0.28 + 0.20 * reactive); // silk flow, a touch livelier
+        (0.80 + 0.28 * energy + 0.36 * reactive).clamp(0.0, 1.45).toDouble();
+    final undu = t * (0.32 + 0.25 * reactive); // silk flow, a touch livelier
 
     // Build + depth-sort (back → front) so additive light stacks correctly.
     final built = [for (final s in _strands) _build(s, c, rs, gt, undu)]
       ..sort((a, b) => a.meanFront.compareTo(b.meanFront));
 
     // ── Outer halo glow (blooms outward with your voice) ──────────────
-    final haloR = rs * (1.55 + 0.22 * reactive);
+    final haloR = rs * (1.50 + 0.30 * reactive);
     canvas.drawCircle(
       c,
       haloR,
@@ -218,7 +222,7 @@ class _OrbPainter extends CustomPainter {
     // ── Ribbons ───────────────────────────────────────────────────────
     final sheetCol = Color.lerp(core, hi, 0.4)!;
     final edgeCol = Color.lerp(hi, Colors.white, 0.5)!;
-    final halfBase = rs * 0.17 * (1.0 + 0.30 * reactive);
+    final halfBase = rs * 0.17 * (1.0 + 0.45 * reactive);
     for (final b in built) {
       final band = _ribbonPath(b, halfBase);
 
@@ -292,10 +296,16 @@ class _OrbPainter extends CustomPainter {
   }
 
   /// Generate one ribbon: wavy loop on a unit sphere → 3D tilt → ortho project.
+  /// Each ribbon's tilt also drifts on its own slow, incommensurate sinusoids
+  /// (seeded off `phase`) so the bands keep slowly reshaping — organic "random"
+  /// idle motion rather than a static, uniformly-spinning cage.
   _Built _build(_Strand s, Offset c, double rs, double gt, double undu) {
-    final cx = math.cos(s.rx), sx = math.sin(s.rx);
-    final cy = math.cos(s.ry), sy = math.sin(s.ry);
-    final cz = math.cos(s.rz), sz = math.sin(s.rz);
+    final rx = s.rx + 0.16 * math.sin(t * 0.050 + s.phase);
+    final ry = s.ry + 0.14 * math.sin(t * 0.041 + s.phase * 1.7 + 1.0);
+    final rz = s.rz + 0.11 * math.sin(t * 0.033 + s.phase * 0.7 + 2.0);
+    final cx = math.cos(rx), sx = math.sin(rx);
+    final cy = math.cos(ry), sy = math.sin(ry);
+    final cz = math.cos(rz), sz = math.sin(rz);
     final pts = <Offset>[];
     final depth = <double>[];
     var sumFront = 0.0;
