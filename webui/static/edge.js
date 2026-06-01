@@ -123,29 +123,68 @@
         '</div>';
     }
 
+    // Collapsible step-by-step help. `body` is a sequence of HTML strings/<li>s.
+    function help(summary, stepsHtml) {
+      return '<details class="edge-help"><summary>ⓘ ' + esc(summary) + '</summary>' +
+        '<div class="edge-help-body">' + stepsHtml + '</div></details>';
+    }
+    function steps(arr) { return '<ol>' + arr.map(function (s) { return '<li>' + s + '</li>'; }).join('') + '</ol>'; }
+
     body.innerHTML =
+      help('What does this page do? Start here', steps([
+        'Cloudflare <b>Tunnel</b> exposes this server to the internet without opening any ports — <code>cloudflared</code> dials out to Cloudflare, and traffic comes back down that connection.',
+        '<b>nginx</b> sits in front and routes each subdomain to the right local app, strips spoofable headers, and adds security headers.',
+        'Cloudflare <b>Access</b> (set up in your Cloudflare dashboard) makes sure only <i>you</i> can reach it.',
+        'Do it in order: <b>Install</b> the two tools → fill in <b>Configuration</b> → fix any red <b>Safety preflight</b> item → <b>Enable tunnel</b>.',
+      ])) +
+
       '<h3>Tooling</h3>' +
+      '<div class="edge-note">Both tools run on this server. Click Install; if it fails the reason is shown (e.g. you may need to install nginx manually on a locked-down host).</div>' +
       toolRow("cloudflared") + toolRow("nginx") +
+      help('Install isn’t working?', steps([
+        'The server installs via its package manager (apt/dnf/brew/…) or, for cloudflared, a direct download. It needs either root or passwordless <code>sudo</code>.',
+        'On a minimal/root container with no package manager, install nginx yourself (e.g. <code>apk add nginx</code> / <code>apt-get install nginx</code>) then click the refresh — the dot turns green once it’s on PATH.',
+        'cloudflared has no dependencies — if the download is blocked, grab the binary from Cloudflare’s GitHub releases and drop it in <code>~/.local/bin</code>.',
+      ])) +
 
       '<h3>Configuration</h3>' +
-      '<label>Domain</label>' +
+      '<label class="has-tooltip has-tooltip--bottom-right" data-tooltip="The root domain you added to Cloudflare">Domain</label>' +
       '<input id="edgeDomain" type="text" value="' + esc(st.domain || "") + '" placeholder="example.com">' +
-      '<label>Routes (one per line: <code>sub=127.0.0.1:port</code>, use <code>@</code> for apex)</label>' +
+      '<label class="has-tooltip has-tooltip--bottom-right" data-tooltip="Map each hostname to a local app port">Routes (one per line: <code>sub=127.0.0.1:port</code>, use <code>@</code> for apex)</label>' +
       '<textarea id="edgeRoutes" rows="4" placeholder="jarvis=127.0.0.1:8787">' + esc(routesText) + '</textarea>' +
-      '<label>Tunnel token</label>' +
+      '<label class="has-tooltip has-tooltip--bottom-right" data-tooltip="From: Cloudflare dashboard → Zero Trust → Networks → Tunnels">Tunnel token</label>' +
       '<input id="edgeToken" type="password" placeholder="' + (st.has_token ? "saved (" + esc(st.token_masked) + ")" : "paste cloudflared tunnel token") + '">' +
+      help('How do I fill these in?', steps([
+        '<b>Domain</b>: the root domain you’ve added to Cloudflare, e.g. <code>example.com</code>. Your nameservers must already point at Cloudflare.',
+        '<b>Routes</b>: one per line, <code>subdomain=127.0.0.1:port</code>. e.g. <code>jarvis=127.0.0.1:8787</code> serves the WebUI at <code>jarvis.example.com</code>. Use <code>@</code> for the bare domain. Targets must be loopback (127.0.0.1) — nginx is the only thing that reaches your apps.',
+        '<b>Tunnel token</b>: in the Cloudflare dashboard go to <b>Zero Trust → Networks → Tunnels → Create a tunnel</b> (choose <i>Cloudflared</i>). After naming it, the install screen shows a command containing <code>--token eyJ…</code>. Copy just that long token string and paste it here.',
+        'In that same tunnel, add a <b>Public Hostname</b> for each route pointing at <code>http://localhost:' + (st.nginx_listen_port || 8788) + '</code> (nginx), or let this page manage it — then click <b>Save configuration</b>.',
+      ])) +
 
       '<h3>Cloudflare Access service token (for native apps)</h3>' +
-      '<div class="edge-note">Mobile/desktop apps can\'t do browser SSO. Create a service token in Zero Trust → Access → Service Auth, paste it here, and it\'s delivered to each device when it pairs.</div>' +
-      '<label>Client ID</label>' +
+      '<div class="edge-note">Mobile/desktop apps can\'t do browser SSO. Create a service token, paste it here, and it\'s delivered to each device when it pairs.</div>' +
+      '<label class="has-tooltip has-tooltip--bottom-right" data-tooltip="Zero Trust → Access → Service Auth → Service Tokens">Client ID</label>' +
       '<input id="edgeCfId" type="text" value="' + esc(st.cf_service_client_id || "") + '" placeholder="xxxxxxxx.access">' +
-      '<label>Client Secret</label>' +
+      '<label class="has-tooltip has-tooltip--bottom-right" data-tooltip="Shown only once when you create the token — copy it then">Client Secret</label>' +
       '<input id="edgeCfSecret" type="password" placeholder="' + (st.has_cf_service_token ? "saved (" + esc(st.cf_service_secret_masked) + ")" : "paste service token secret") + '">' +
+      help('How do I create a service token?', steps([
+        'In the Cloudflare dashboard: <b>Zero Trust → Access → Service Auth → Service Tokens → Create Service Token</b>.',
+        'Name it (e.g. "jarvis-devices") and create it. Cloudflare shows a <b>Client ID</b> and <b>Client Secret</b> — the secret is shown <i>only once</i>, so copy both now.',
+        'Paste them above and <b>Save</b>. Then edit your Access application’s policy to <b>include</b> this service token (so it’s allowed through).',
+        'When a phone/desktop pairs, the token is handed to it automatically (it’s also embedded in the pairing QR) so the app can authenticate without a browser login.',
+      ])) +
 
       '<div style="margin-top:12px"><button type="button" id="edgeSave">Save configuration</button></div>' +
 
       '<h3>Safety preflight</h3>' +
+      '<div class="edge-note">All checks must be green before the tunnel can be enabled. Each line says what to fix.</div>' +
       (pf.checks || []).map(function (c) { return row(c.name, c.ok, c.detail); }).join("") +
+      help('What do these checks mean?', steps([
+        '<b>origin_bound_to_loopback</b>: the WebUI should bind <code>127.0.0.1</code> so only nginx can reach it. Set <code>HERMES_WEBUI_HOST=127.0.0.1</code> and restart (skip if WebUI + nginx share one container).',
+        '<b>forwarded_host_csrf_fix</b>: confirms the server only trusts proxy headers from nginx — green means you’re patched.',
+        '<b>routes_valid</b>: your Domain + Routes above parse and point at loopback targets.',
+        '<b>tunnel_token_set</b>: a cloudflared tunnel token is saved.',
+      ])) +
 
       '<h3>Status</h3>' +
       row("cloudflared", (procs.cloudflared || {}).running, (procs.cloudflared || {}).running ? "pid " + procs.cloudflared.pid : "stopped") +
@@ -156,9 +195,12 @@
       (live ? "Disable tunnel" : "Enable tunnel") + '</button></div>' +
       (!live && !pf.ok ? '<div class="edge-note" style="color:#d29922;margin-top:4px">Resolve all preflight checks before enabling.</div>' : '') +
 
-      '<div class="edge-note" style="margin-top:16px;border-top:1px solid var(--border);padding-top:10px">' +
-      'Lock this down: in the Cloudflare Zero Trust dashboard, create an Access application for your domain that allows ONLY your email. ' +
-      'The tunnel does not restrict who can reach it — Access does.</div>';
+      help('Last step: lock it to only you', steps([
+        'The tunnel by itself is reachable by anyone who knows the URL — <b>Cloudflare Access</b> is what restricts it to you.',
+        'In the dashboard: <b>Zero Trust → Access → Applications → Add an application → Self-hosted</b>. Set the domain to your route(s), e.g. <code>jarvis.example.com</code>.',
+        'Add a policy: action <b>Allow</b>, rule <b>Emails</b> → your email. Anyone else gets Cloudflare’s login wall and is denied.',
+        'Remember to also <b>include</b> the service token (above) in this policy so your native apps get through.',
+      ]));
 
     // ── wire handlers ──
     body.querySelectorAll("[data-install]").forEach(function (b) {

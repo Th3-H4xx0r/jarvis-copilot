@@ -4361,3 +4361,24 @@ html.mini-voice main.main::before{
   display:inline-block;width:9px;height:9px;border-radius:50%;
   margin-right:7px;vertical-align:middle;
 }
+
+/* Cloudflare panel — collapsible step-by-step help blocks (#mainEdge) */
+#mainEdge .edge-help{
+  margin:8px 0 4px;border:1px solid var(--border);border-radius:var(--radius-md);
+  background:var(--surface-subtle);overflow:hidden;
+}
+#mainEdge .edge-help>summary{
+  cursor:pointer;list-style:none;user-select:none;
+  padding:7px 12px;font-size:0.78rem;font-weight:600;color:var(--accent-text);
+}
+#mainEdge .edge-help>summary::-webkit-details-marker{display:none;}
+#mainEdge .edge-help>summary:hover{background:var(--surface-subtle-hover);}
+#mainEdge .edge-help[open]>summary{border-bottom:1px solid var(--border);}
+#mainEdge .edge-help-body{padding:10px 14px 12px;font-size:0.82rem;line-height:1.6;color:var(--text);}
+#mainEdge .edge-help-body ol{margin:0;padding-left:20px;}
+#mainEdge .edge-help-body li{margin:5px 0;}
+#mainEdge .edge-help-body code{
+  background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.85em;
+  font-family:'SF Mono',ui-monospace,monospace;
+}
+#mainEdge .edge-help-body b{color:var(--text);font-weight:650;}
