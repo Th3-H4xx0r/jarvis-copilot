@@ -1251,18 +1251,27 @@ def _check_csrf(handler) -> bool:
     origin_value = m.group(0).rstrip('/').lower()
     if origin_value in _allowed_public_origins():
         return True
-    # Allow same-origin: check Host, X-Forwarded-Host (reverse proxy), and
-    # X-Real-Host against the origin. Reverse proxies (Caddy, nginx) set
-    # X-Forwarded-Host to the client's original Host header.
-    allowed_hosts = [
-        h.strip()
-        for h in [
-            host,
-            handler.headers.get("X-Forwarded-Host", ""),
-            handler.headers.get("X-Real-Host", ""),
-        ]
-        if h.strip()
-    ]
+    # Allow same-origin against the real connection Host header.
+    #
+    # SECURITY: X-Forwarded-Host / X-Real-Host are client-controllable and must
+    # NOT be trusted by default. Behind a Cloudflare tunnel every request appears
+    # to originate from localhost, so honoring a forged X-Forwarded-Host would let
+    # any internet origin pass the same-origin check (CSRF bypass). When the WebUI
+    # genuinely sits behind a trusted reverse proxy that rewrites these headers,
+    # the operator opts in with HERMES_WEBUI_TRUST_FORWARDED_HOST=1 (the nginx
+    # vhost rendered by webui/edge strips inbound forwarded headers first, so this
+    # is only ever set when a vetted proxy is in front). Public origins should be
+    # whitelisted explicitly via HERMES_WEBUI_ALLOWED_ORIGINS instead.
+    allowed_hosts = [host.strip()] if host.strip() else []
+    if os.getenv("HERMES_WEBUI_TRUST_FORWARDED_HOST", "").strip().lower() in ("1", "true", "yes"):
+        allowed_hosts.extend(
+            h.strip()
+            for h in [
+                handler.headers.get("X-Forwarded-Host", ""),
+                handler.headers.get("X-Real-Host", ""),
+            ]
+            if h.strip()
+        )
     for allowed in allowed_hosts:
         allowed_name, allowed_port = _normalize_host_port(allowed)
         if origin_name == allowed_name and _ports_match(origin_scheme, origin_port, allowed_port):
@@ -3410,6 +3419,11 @@ def _serve_manifest(handler) -> bool:
 def handle_get(handler, parsed) -> bool:
     """Handle all GET routes. Returns True if handled, False for 404."""
 
+    if parsed.path.startswith("/api/edge/"):
+        from api.edge import handle_edge_get
+        if handle_edge_get(handler, parsed):
+            return True
+
     if parsed.path.startswith("/session/static/"):
         # Strip the leading "/session" so _serve_static() sees a path that
         # starts with "/static/" (its required prefix). _serve_static enforces
@@ -4595,6 +4609,12 @@ def handle_post(handler, parsed) -> bool:
         from api.session_recovery import repair_safe_session_recovery
         result = repair_safe_session_recovery(SESSION_DIR, state_db_path=_active_state_db_path())
         return j(handler, result, status=200 if result.get("clean") else 409)
+
+    if parsed.path.startswith("/api/edge/"):
+        from api.edge import handle_edge_post
+        if handle_edge_post(handler, parsed, body):
+            return True
+        # Unknown edge POST endpoint — fall through to default 404
 
     if parsed.path.startswith("/api/kanban/"):
         from api.kanban_bridge import handle_kanban_post
