@@ -6,7 +6,6 @@ import '../theme.dart';
 import '../voice/voice_controller.dart';
 import '../voice/voice_orb.dart';
 import '../voice/voice_state.dart';
-import '../voice/voice_waveform.dart';
 import '../widgets/glass.dart';
 
 /// Native voice screen — a recreation of the webui voice experience:
@@ -178,67 +177,75 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   }
 
   Widget _buildBody() {
-    final caption = _captionFor(_c.state);
+    // Top line: what the USER said (once they've spoken), else the soft prompt.
+    final topLine = _c.userTranscript.isNotEmpty
+        ? _c.userTranscript
+        : _captionFor(_c.state);
+    // Big centred text below the orb = the AI's reply (clean, unboxed).
+    final reply = _c.error != null
+        ? _c.error!
+        : _plainSpeech(_c.assistantText);
+
     return Column(
       children: [
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const SizedBox(height: 24),
-                // Soft prompt above the orb (ref: "Go ahead, I'm listening…").
-                Text(
-                  caption,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: JcTheme.muted,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                VoiceOrb(
-                  state: _c.state,
-                  amplitude: _c.amplitude,
-                  size: 250,
-                ),
-                const SizedBox(height: 10),
-                VoiceWaveform(
-                  state: _c.state,
-                  amplitude: _c.amplitude,
-                  height: 72,
-                ),
-                const SizedBox(height: 16),
-                // State label in a frosted-glass pill.
-                GlassCard(
-                  blur: false,
-                  radius: 999,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                const Spacer(flex: 2),
+                // User-spoken text / prompt — quiet, single line up top.
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
                   child: Text(
-                    (_c.toolStatus ?? _c.state.label).toUpperCase(),
-                    style: TextStyle(
-                      color: _stateColor(_c.state),
-                      fontSize: 11,
-                      letterSpacing: 1.8,
-                      fontWeight: FontWeight.w700,
+                    topLine,
+                    key: ValueKey(topLine),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: JcTheme.muted,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      height: 1.4,
                     ),
                   ),
                 ),
-                const SizedBox(height: 18),
-                if (_c.userTranscript.isNotEmpty)
-                  _TranscriptRow(text: _c.userTranscript, role: 'user'),
-                if (_c.assistantText.isNotEmpty)
-                  _TranscriptRow(
-                      text: _plainSpeech(_c.assistantText), role: 'assistant'),
-                if (_c.error != null) _ErrorBanner(message: _c.error!),
+                const SizedBox(height: 28),
+                VoiceOrb(state: _c.state, amplitude: _c.amplitude, size: 248),
+                const SizedBox(height: 32),
+                // AI response — large, centred, unboxed (the focal text).
+                if (reply.isNotEmpty)
+                  Text(
+                    reply,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: JcTheme.text,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                      letterSpacing: -0.2,
+                    ),
+                  )
+                else
+                  // Before any reply, echo the state subtly where the reply goes.
+                  Text(
+                    _c.state.label,
+                    style: TextStyle(
+                      color: _stateColor(_c.state),
+                      fontSize: 13,
+                      letterSpacing: 1.6,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                const Spacer(flex: 3),
               ],
             ),
           ),
         ),
         _Controls(controller: _c, onPrimary: _onPrimary),
-        SizedBox(height: 8 + MediaQuery.of(context).viewPadding.bottom),
+        SizedBox(height: 12 + MediaQuery.of(context).viewPadding.bottom),
       ],
     );
   }
@@ -291,78 +298,6 @@ Color _stateColor(VoiceState s) {
       return JcTheme.muted;
   }
 }
-class _TranscriptRow extends StatelessWidget {
-  const _TranscriptRow({required this.text, required this.role});
-  final String text;
-  final String role;
-
-  @override
-  Widget build(BuildContext context) {
-    final isUser = role == 'user';
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: isUser
-            ? Colors.white.withValues(alpha: 0.05)
-            : JcTheme.blue.withValues(alpha: 0.08),
-        border: Border.all(
-          color: isUser
-              ? Colors.white.withValues(alpha: 0.08)
-              : JcTheme.blue.withValues(alpha: 0.20),
-        ),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            isUser ? 'You' : 'JarvisCopilot',
-            style: TextStyle(
-              color: isUser ? JcTheme.muted : JcTheme.blue,
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.4,
-            ),
-          ),
-          const SizedBox(height: 4),
-          SelectableText(
-            text,
-            style: const TextStyle(
-              color: JcTheme.text,
-              fontSize: 14,
-              height: 1.4,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.message});
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: JcTheme.danger.withValues(alpha: 0.08),
-        border: Border.all(color: JcTheme.danger.withValues(alpha: 0.30)),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        message,
-        style: const TextStyle(color: JcTheme.danger, fontSize: 13),
-      ),
-    );
-  }
-}
-
 class _Controls extends StatelessWidget {
   const _Controls({required this.controller, required this.onPrimary});
 
@@ -372,140 +307,81 @@ class _Controls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = controller;
-    final thinking = c.state == VoiceState.thinking ||
-        c.state == VoiceState.connecting;
+    final active = c.active;
+    final speakingOrThinking = c.state == VoiceState.speaking ||
+        c.state == VoiceState.thinking;
 
-    // Primary button label.
-    String label;
-    IconData icon;
-    if (c.mode == VoiceMode.quality) {
-      if (c.state == VoiceState.listening) {
-        label = 'Stop & send';
-        icon = Icons.send;
-      } else {
-        label = 'Tap to talk';
-        icon = Icons.mic;
-      }
+    // Left ghost button: Mute (only while a session is live).
+    final left = active
+        ? _GhostCircle(
+            icon: c.muted ? Icons.mic_off : Icons.mic_none,
+            highlighted: c.muted,
+            onTap: c.toggleMute,
+          )
+        : const _GhostCircle(icon: Icons.mic_none, onTap: null);
+
+    // Right ghost button: Done (while listening) / Interrupt (while speaking).
+    Widget right;
+    if (active && c.state == VoiceState.listening) {
+      right = _GhostCircle(icon: Icons.check_rounded, onTap: c.finishSpeaking);
+    } else if (active && speakingOrThinking) {
+      right = _GhostCircle(icon: Icons.stop_rounded, onTap: c.interrupt);
     } else {
-      label = c.active ? 'Stop' : 'Start';
-      icon = c.active ? Icons.stop : Icons.graphic_eq;
+      right = const _GhostCircle(icon: Icons.bookmark_border_rounded, onTap: null);
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(36, 4, 36, 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _PrimaryButton(
-                label: label,
-                icon: icon,
-                busy: thinking && c.mode == VoiceMode.quality,
-                danger: c.mode == VoiceMode.realtime && c.active,
-                onTap: thinking && c.mode == VoiceMode.quality
-                    ? null
-                    : onPrimary,
-              ),
-              // Realtime secondary controls.
-              if (c.mode == VoiceMode.realtime && c.active) ...[
-                const SizedBox(width: 10),
-                if (c.state == VoiceState.listening)
-                  _SecondaryButton(
-                    label: 'Done',
-                    onTap: c.finishSpeaking,
-                  )
-                else if (c.state == VoiceState.speaking ||
-                    c.state == VoiceState.thinking)
-                  _SecondaryButton(
-                    label: 'Interrupt',
-                    onTap: c.interrupt,
-                  ),
-                const SizedBox(width: 10),
-                _SecondaryButton(
-                  label: c.muted ? 'Unmute' : 'Mute',
-                  active: c.muted,
-                  onTap: c.toggleMute,
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            c.mode == VoiceMode.quality
-                ? 'Tap to record, tap again to send.'
-                : 'Speak naturally — it listens and replies continuously.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: JcTheme.muted, fontSize: 11.5),
-          ),
+          left,
+          _MicButton(active: active, onTap: onPrimary),
+          right,
         ],
       ),
     );
   }
 }
 
-class _PrimaryButton extends StatelessWidget {
-  const _PrimaryButton({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-    this.busy = false,
-    this.danger = false,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback? onTap;
-  final bool busy;
-  final bool danger;
+/// The big central mic button — gradient ring + filled mic. Turns to a stop
+/// glyph (red ring) while a session is running.
+class _MicButton extends StatelessWidget {
+  const _MicButton({required this.active, required this.onTap});
+  final bool active;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: Opacity(
-        opacity: onTap == null && !busy ? 0.6 : 1,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          decoration: BoxDecoration(
-            gradient: danger ? null : JcTheme.brandGradient,
-            color: danger ? JcTheme.surfaceAlt : null,
-            border: danger ? Border.all(color: JcTheme.danger) : null,
-            borderRadius: BorderRadius.circular(999),
-            boxShadow: danger
-                ? null
-                : const [
-                    BoxShadow(
-                      color: Color(0x558A7CFF),
-                      blurRadius: 18,
-                      offset: Offset(0, 6),
-                    ),
-                  ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (busy)
-                const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation(Colors.white),
-                  ),
-                )
-              else
-                Icon(icon, size: 20, color: danger ? JcTheme.danger : Colors.white),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color: danger ? JcTheme.danger : Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
+      child: Container(
+        width: 78,
+        height: 78,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: iridescentGradient(),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF3A86FF).withValues(alpha: 0.5),
+              blurRadius: 28,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: Center(
+          child: Container(
+            width: 64,
+            height: 64,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color(0xFF0B0E1C),
+            ),
+            child: Icon(
+              active ? Icons.stop_rounded : Icons.mic_rounded,
+              color: Colors.white,
+              size: 30,
+            ),
           ),
         ),
       ),
@@ -513,37 +389,29 @@ class _PrimaryButton extends StatelessWidget {
   }
 }
 
-class _SecondaryButton extends StatelessWidget {
-  const _SecondaryButton({
-    required this.label,
-    required this.onTap,
-    this.active = false,
-  });
-
-  final String label;
-  final VoidCallback onTap;
-  final bool active;
+/// A small frosted ghost circle for the side actions.
+class _GhostCircle extends StatelessWidget {
+  const _GhostCircle({required this.icon, this.onTap, this.highlighted = false});
+  final IconData icon;
+  final VoidCallback? onTap;
+  final bool highlighted;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: active ? JcTheme.accent.withValues(alpha: 0.14) : JcTheme.surface,
-          border: Border.all(
-            color: active ? JcTheme.accent : JcTheme.border,
+    return Opacity(
+      opacity: onTap == null ? 0.4 : 1,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: highlighted ? JcTheme.accent.withValues(alpha: 0.18) : JcTheme.glassFill,
+            border: Border.all(color: JcTheme.glassBorder),
           ),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: active ? JcTheme.accent : JcTheme.text,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
+          child: Icon(icon,
+              color: highlighted ? JcTheme.accent : JcTheme.text, size: 22),
         ),
       ),
     );

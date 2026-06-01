@@ -63,11 +63,16 @@ class JcTheme {
       );
 
   static ThemeData build() {
-    final base = ThemeData.dark(useMaterial3: true);
+    // Build the base WITH fontFamily so Inter is the true default everywhere
+    // (the constructor's fontFamily flows into every text style, including
+    // Material widgets that don't read our textTheme overrides directly).
+    final base = ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      fontFamily: fontFamily,
+    );
     return base.copyWith(
       scaffoldBackgroundColor: bg,
-      // Apply Inter to the whole text theme (copyWith has no fontFamily param;
-      // .apply propagates the family to every text style).
       textTheme: _textTheme(base.textTheme).apply(fontFamily: fontFamily),
       primaryTextTheme: base.primaryTextTheme.apply(fontFamily: fontFamily),
       colorScheme: const ColorScheme.dark(

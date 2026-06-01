@@ -5,17 +5,16 @@ import 'package:flutter/material.dart';
 
 import 'voice_state.dart';
 
-/// Voice orb — a dark translucent glass sphere with bright flowing light
-/// ribbons swirling inside it (ref: the blue "Voice Assessment" orb). Instead
-/// of an opaque blob, the body is mostly transparent/dark; the energy comes
-/// from layered glowing arcs that orbit in 3D and brighten/quicken with
-/// [amplitude]. Colours come from [state]'s palette.
+/// Voice orb — a dark glass bubble with soft, flowing light FILAMENTS curling
+/// inside it (ref: the blue "Voice Assessment" orb). The energy is wispy curved
+/// strands (a few smooth Bézier ribbons that drift and breathe), not hard
+/// orbital rings — so it reads as flowing light rather than a gyroscope.
 class VoiceOrb extends StatefulWidget {
   const VoiceOrb({
     super.key,
     required this.state,
     required this.amplitude,
-    this.size = 250,
+    this.size = 248,
   });
 
   final VoiceState state;
@@ -30,7 +29,7 @@ class _VoiceOrbState extends State<VoiceOrb>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 16),
+    duration: const Duration(seconds: 18),
   )..repeat();
 
   @override
@@ -48,7 +47,7 @@ class _VoiceOrbState extends State<VoiceOrb>
         animation: Listenable.merge([_ctrl, widget.amplitude]),
         builder: (context, _) => CustomPaint(
           painter: _OrbPainter(
-            t: _ctrl.value * 16,
+            t: _ctrl.value * 2 * math.pi,
             amp: widget.amplitude.value.clamp(0.0, 1.0).toDouble(),
             state: widget.state,
           ),
@@ -67,158 +66,150 @@ class _OrbPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero);
+    final c = size.center(Offset.zero);
     final R = size.shortestSide / 2;
-    final pal = state.palette; // [inner, mid, outer, rim]
-    final bright = pal[0];     // brightest (ribbon highlight)
-    final core = pal[1];       // main colour
-    final accent = pal[3];     // secondary tint
+    final pal = state.palette; // [highlight, core, dark, accent]
+    final hi = pal[0], core = pal[1], accent = pal[3];
 
-    final speed = (state == VoiceState.listening ||
-            state == VoiceState.speaking)
-        ? 1.0 + 1.6 * amp
-        : 0.8;
-    final energy = (state == VoiceState.listening ||
-            state == VoiceState.speaking)
-        ? 0.55 + 0.45 * amp
-        : 0.5 + 0.08 * math.sin(t * 2.2);
+    final reactive =
+        state == VoiceState.listening || state == VoiceState.speaking;
+    final energy = reactive ? (0.55 + 0.45 * amp) : (0.55 + 0.07 * math.sin(t));
+    final speed = reactive ? (0.6 + 1.0 * amp) : 0.45;
 
-    // 1. Outer atmospheric glow halo.
+    final sphereR = R * 0.82;
+
+    // 1. Outer glow halo.
     canvas.drawCircle(
-      center,
-      R * (0.98 + 0.04 * amp),
+      c,
+      R,
       Paint()
         ..shader = RadialGradient(
           colors: [
-            core.withValues(alpha: 0.0),
-            core.withValues(alpha: 0.18 + 0.18 * energy),
-            core.withValues(alpha: 0.0),
+            const Color(0x00000000),
+            core.withValues(alpha: 0.10 + 0.16 * energy),
+            const Color(0x00000000),
           ],
-          stops: const [0.55, 0.82, 1.0],
-        ).createShader(Rect.fromCircle(center: center, radius: R)),
+          stops: const [0.6, 0.85, 1.0],
+        ).createShader(Rect.fromCircle(center: c, radius: R)),
     );
 
-    // 2. Dark glass sphere body — translucent, darker at centre so the ribbons
-    //    read as light INSIDE a globe (not a solid disc).
-    final sphereR = R * 0.84;
+    // 2. Dark glass bubble body (translucent, darkest at centre).
     canvas.drawCircle(
-      center,
+      c,
       sphereR,
       Paint()
         ..shader = RadialGradient(
           colors: [
-            const Color(0xFF05060E).withValues(alpha: 0.92),
-            core.withValues(alpha: 0.10),
-            core.withValues(alpha: 0.18),
+            const Color(0xFF04060F).withValues(alpha: 0.94),
+            const Color(0xFF04060F).withValues(alpha: 0.72),
+            core.withValues(alpha: 0.16),
+            core.withValues(alpha: 0.30),
           ],
-          stops: const [0.30, 0.80, 1.0],
-        ).createShader(Rect.fromCircle(center: center, radius: sphereR)),
+          stops: const [0.0, 0.45, 0.85, 1.0],
+        ).createShader(Rect.fromCircle(center: c, radius: sphereR)),
     );
 
-    // 3. Flowing light ribbons — several 3D-rotated rings drawn as additive
-    //    glowing bands. Each ring tilts on a different axis so they interlace
-    //    like the reference's swirling threads. Clipped to the sphere.
+    // 3. Flowing light filaments — clipped to the bubble, additive so overlaps
+    //    bloom. Each strand is a smooth curve whose control points orbit slowly
+    //    on Lissajous paths, giving the organic "sweeping forms" of the ref.
     canvas.save();
-    canvas.clipPath(Path()..addOval(Rect.fromCircle(center: center, radius: sphereR)));
+    canvas.clipPath(Path()..addOval(Rect.fromCircle(center: c, radius: sphereR)));
     canvas.saveLayer(
-      Rect.fromCircle(center: center, radius: sphereR),
+      Rect.fromCircle(center: c, radius: sphereR),
       Paint()..blendMode = BlendMode.plus,
     );
 
-    final rings = <_RingSpec>[
-      _RingSpec(tiltX: 0.9, tiltZ: 0.2, phase: 0.0, color: bright, rr: 0.92),
-      _RingSpec(tiltX: -0.5, tiltZ: 1.1, phase: 1.7, color: core, rr: 0.80),
-      _RingSpec(tiltX: 0.3, tiltZ: -0.8, phase: 3.4, color: accent, rr: 0.86),
-      _RingSpec(tiltX: 1.3, tiltZ: 0.6, phase: 5.0, color: bright, rr: 0.70),
+    final strands = <_Strand>[
+      _Strand(color: hi, phase: 0.0, fx: 1.0, fy: 1.0, amp: 0.62, width: 3.2),
+      _Strand(color: core, phase: 1.9, fx: 1.0, fy: 1.0, amp: 0.55, width: 2.6),
+      _Strand(color: accent, phase: 3.5, fx: 1.0, fy: 1.0, amp: 0.48, width: 2.2),
+      _Strand(color: hi, phase: 5.1, fx: 1.0, fy: 1.0, amp: 0.40, width: 1.8),
+      _Strand(color: core, phase: 2.6, fx: 1.0, fy: 1.0, amp: 0.34, width: 1.6),
     ];
-    for (final ring in rings) {
-      _drawRibbon(canvas, center, sphereR * ring.rr, ring, energy, speed);
+    for (final s in strands) {
+      _drawStrand(canvas, c, sphereR, s, energy, speed);
     }
     canvas.restore();
     canvas.restore();
 
-    // 4. Glassy rim + top sheen for the bubble look.
+    // 4. Glass rim + top sheen + specular dot.
     canvas.drawCircle(
-      center,
+      c,
       sphereR,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = R * 0.012
+        ..strokeWidth = R * 0.013
         ..shader = SweepGradient(
           startAngle: math.pi * 0.85,
           endAngle: math.pi * 2.1,
           colors: [
             const Color(0x00FFFFFF),
-            Colors.white.withValues(alpha: 0.35),
-            accent.withValues(alpha: 0.25),
+            Colors.white.withValues(alpha: 0.30),
+            accent.withValues(alpha: 0.22),
             const Color(0x00FFFFFF),
           ],
-          stops: const [0.0, 0.25, 0.6, 1.0],
-        ).createShader(Rect.fromCircle(center: center, radius: sphereR)),
+          stops: const [0.0, 0.22, 0.6, 1.0],
+        ).createShader(Rect.fromCircle(center: c, radius: sphereR)),
     );
-    final spec = Offset(center.dx - sphereR * 0.30, center.dy - sphereR * 0.42);
+    final spec = Offset(c.dx - sphereR * 0.32, c.dy - sphereR * 0.44);
     canvas.drawCircle(
       spec,
-      sphereR * 0.22,
+      sphereR * 0.20,
       Paint()
         ..shader = RadialGradient(
-          colors: [Colors.white.withValues(alpha: 0.22), const Color(0x00FFFFFF)],
-        ).createShader(Rect.fromCircle(center: spec, radius: sphereR * 0.22)),
+          colors: [Colors.white.withValues(alpha: 0.20), const Color(0x00FFFFFF)],
+        ).createShader(Rect.fromCircle(center: spec, radius: sphereR * 0.20)),
     );
   }
 
-  /// Draws one tilted ring as a glowing ribbon: sample points around a circle,
-  /// rotate into 3D (tilt + spin), project to 2D, stroke with depth-faded alpha
-  /// and a soft blur so it reads as light, not a hard line.
-  void _drawRibbon(Canvas canvas, Offset c, double r, _RingSpec ring,
-      double energy, double speed) {
-    const n = 96;
-    final spin = t * 0.6 * speed + ring.phase;
-    final cosT = math.cos(ring.tiltX), sinT = math.sin(ring.tiltX);
-    final cosZ = math.cos(ring.tiltZ), sinZ = math.sin(ring.tiltZ);
+  /// One flowing filament: sample a smooth closed-ish curve whose shape is a
+  /// rotating ellipse warped by two sine terms, then stroke it twice (a wide
+  /// soft glow + a thin bright core) so it looks like light, not a line.
+  void _drawStrand(Canvas canvas, Offset c, double R, _Strand s, double energy,
+      double speed) {
+    const n = 120;
+    final rot = t * speed * 0.5 + s.phase;
+    final cosR = math.cos(rot), sinR = math.sin(rot);
 
-    // Build the projected points with their depth (z), so we can fade the back.
     final pts = <Offset>[];
-    final depths = <double>[];
     for (var i = 0; i <= n; i++) {
-      final a = (i / n) * math.pi * 2 + spin;
-      var x = math.cos(a) * r;
-      var y = math.sin(a) * r;
-      var z = 0.0;
-      // tilt around X
-      final y1 = y * cosT - z * sinT;
-      final z1 = y * sinT + z * cosT;
-      // tilt around Z
-      final x2 = x * cosZ - y1 * sinZ;
-      final y2 = x * sinZ + y1 * cosZ;
-      pts.add(Offset(c.dx + x2, c.dy + y2));
-      depths.add((z1 / r + 1) / 2); // 0 back .. 1 front
+      final u = (i / n) * 2 * math.pi;
+      // Base ellipse + flowing warp (the "sweeping forms").
+      final rx = R * s.amp * (1 + 0.28 * math.sin(u * 2 + t * 1.3 + s.phase));
+      final ry = R * s.amp * 0.62 * (1 + 0.30 * math.sin(u * 3 - t * 1.1));
+      var x = math.cos(u) * rx;
+      var y = math.sin(u) * ry;
+      // Rotate the whole strand.
+      final xr = x * cosR - y * sinR;
+      final yr = x * sinR + y * cosR;
+      // A little wobble so strands don't look perfectly geometric.
+      final wob = 1 + 0.05 * math.sin(u * 5 + t * 1.7 + s.phase);
+      pts.add(Offset(c.dx + xr * wob, c.dy + yr * wob));
+    }
+
+    final path = Path()..moveTo(pts.first.dx, pts.first.dy);
+    for (var i = 1; i < pts.length; i++) {
+      path.lineTo(pts[i].dx, pts[i].dy);
     }
 
     final glow = Paint()
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-    final crisp = Paint()
+      ..strokeJoin = StrokeJoin.round
+      ..color = s.color.withValues(alpha: (0.20 * energy).clamp(0.0, 1.0))
+      ..strokeWidth = s.width * 3.0
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
+    final coreP = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = Color.lerp(s.color, Colors.white, 0.45)!
+          .withValues(alpha: (0.55 * energy).clamp(0.0, 1.0))
+      ..strokeWidth = s.width
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 0.6);
 
-    for (var i = 0; i < n; i++) {
-      final d = (depths[i] + depths[i + 1]) / 2;
-      // Front of the ring is bright; back fades — gives the 3D weave.
-      final aGlow = (0.05 + 0.45 * d) * energy;
-      final aCrisp = (0.10 + 0.7 * d) * energy;
-      final w = (1.5 + 3.5 * d);
-      glow
-        ..color = ring.color.withValues(alpha: aGlow.clamp(0.0, 1.0))
-        ..strokeWidth = w * 2.2;
-      crisp
-        ..color = Color.lerp(ring.color, Colors.white, 0.35 * d)!
-            .withValues(alpha: aCrisp.clamp(0.0, 1.0))
-        ..strokeWidth = w;
-      canvas.drawLine(pts[i], pts[i + 1], glow);
-      canvas.drawLine(pts[i], pts[i + 1], crisp);
-    }
+    canvas.drawPath(path, glow);
+    canvas.drawPath(path, coreP);
   }
 
   @override
@@ -226,14 +217,15 @@ class _OrbPainter extends CustomPainter {
       old.t != t || old.amp != amp || old.state != state;
 }
 
-class _RingSpec {
-  const _RingSpec({
-    required this.tiltX,
-    required this.tiltZ,
-    required this.phase,
+class _Strand {
+  const _Strand({
     required this.color,
-    required this.rr,
+    required this.phase,
+    required this.fx,
+    required this.fy,
+    required this.amp,
+    required this.width,
   });
-  final double tiltX, tiltZ, phase, rr;
   final Color color;
+  final double phase, fx, fy, amp, width;
 }
