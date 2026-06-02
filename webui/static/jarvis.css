@@ -103,8 +103,7 @@
 :root.dark[data-skin="jarvis"] .tool-card,
 :root.dark[data-skin="jarvis"] .reasoning-card,
 :root.dark[data-skin="jarvis"] .thinking,
-:root.dark[data-skin="jarvis"] .queue-card-inner,
-:root.dark[data-skin="jarvis"] .approval-card{
+:root.dark[data-skin="jarvis"] .queue-card-inner{
   background:rgba(22,24,36,0.50);
   -webkit-backdrop-filter:blur(18px) saturate(1.2);
   backdrop-filter:blur(18px) saturate(1.2);
