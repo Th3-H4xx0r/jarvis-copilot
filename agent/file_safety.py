@@ -135,6 +135,21 @@ def is_write_denied(path: str) -> bool:
     return False
 
 
+# Common secret-bearing project-local environment file basenames. Blocked
+# anywhere on disk (not just under HERMES_HOME) — .env files routinely hold API
+# keys / DB passwords. `.env.example` is intentionally NOT listed (documented
+# shape). Upstream security parity.
+_BLOCKED_PROJECT_ENV_BASENAMES: set[str] = {
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.production",
+    ".env.test",
+    ".env.staging",
+    ".envrc",
+}
+
+
 def get_read_block_error(path: str) -> Optional[str]:
     """Return an error message when a read targets a denied JarvisCopilot path.
 
@@ -175,6 +190,15 @@ def get_read_block_error(path: str) -> Optional[str]:
     """
     resolved = Path(path).expanduser().resolve()
 
+    # Project-local environment files anywhere on disk are secret carriers.
+    if resolved.name in _BLOCKED_PROJECT_ENV_BASENAMES:
+        return (
+            f"Access denied: {path} is an environment file that may contain "
+            "secrets and cannot be read directly. If you need the file "
+            "structure, read .env.example instead. (Defense-in-depth — not a "
+            "security boundary; the terminal tool can still bypass.)"
+        )
+
     # Resolve BOTH the active HERMES_HOME (profile-aware) AND the global
     # JarvisCopilot root so credential stores at <root>/auth.json etc. are also
     # blocked when running under a profile (HERMES_HOME points at
@@ -214,6 +238,7 @@ def get_read_block_error(path: str) -> Optional[str]:
         ".anthropic_oauth.json",
         ".env",
         "webhook_subscriptions.json",
+        "bws_cache.json",
     )
     for hd in hermes_dirs:
         for name in credential_file_names:
