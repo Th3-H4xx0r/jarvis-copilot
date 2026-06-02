@@ -6,6 +6,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../services/api_client.dart' show sha256HexBytes;
 import '../services/credentials.dart';
 import '../theme.dart';
+import '../widgets/glass.dart';
 
 /// Generic webview wrapper.
 ///
@@ -89,18 +90,26 @@ class _WebViewPageState extends State<WebViewPage> {
       },
       child: Scaffold(
         backgroundColor: JcTheme.bg,
+        extendBodyBehindAppBar: widget.showAppBar,
         appBar: widget.showAppBar
-            ? AppBar(
-                title: Text(widget.title),
-                leading: IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: _onPopHandler,
-                ),
+            ? glassAppBar(
+                context,
+                title: widget.title,
+                back: true,
+                onBack: _onPopHandler,
               )
             : null,
         body: Column(
           children: [
-            if (_loading) LinearProgressIndicator(value: _progress),
+            // Reserve space for the glass appbar if visible.
+            if (widget.showAppBar)
+              SizedBox(height: MediaQuery.of(context).padding.top + kToolbarHeight),
+            if (_loading)
+              LinearProgressIndicator(
+                value: _progress,
+                backgroundColor: JcTheme.glassFill,
+                valueColor: const AlwaysStoppedAnimation<Color>(JcTheme.primaryBlue),
+              ),
             Expanded(
               child: FutureBuilder<void>(
                 future: _seedFuture,

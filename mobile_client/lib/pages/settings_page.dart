@@ -113,117 +113,108 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JcTheme.bg,
-      appBar: AppBar(title: const Text('Settings')),
+      backgroundColor: Colors.transparent,
+      extendBodyBehindAppBar: true,
+      appBar: glassAppBar(context, title: 'Settings', back: true),
       body: AppBackground(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-          children: [
-            // ── Connection summary card (gradient hero, ref "Want more") ──
-            _ConnectionCard(
-              server: Credentials.instance.serverUrl ?? '—',
-              device: Credentials.instance.deviceName ?? '—',
-            ),
-            const SizedBox(height: 26),
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            children: [
+              // ── Connection summary card (gradient hero, blue accent) ──
+              _ConnectionCard(
+                server: Credentials.instance.serverUrl ?? '—',
+                device: Credentials.instance.deviceName ?? '—',
+              ),
+              const SizedBox(height: 26),
 
-            // ── Assistant toggles ──
-            _sectionLabel('Assistant'),
-            _SettingsGroup(children: [
-              _SwitchRow(
-                icon: Icons.my_location_rounded,
-                title: 'Track my location',
-                subtitle: 'Background location history for the assistant. '
-                    'Needs "Always"; uses battery.',
-                value: _trackLocation,
-                onChanged: _toggleTrackLocation,
-              ),
-              _SwitchRow(
-                icon: Icons.pause_circle_outline_rounded,
-                title: 'Pause skill execution',
-                subtitle: 'Server invokes return "paused" until off.',
-                value: _paused,
-                onChanged: (v) {
-                  setState(() => _paused = v);
-                  app.runner.paused.value = v;
-                },
-              ),
-              _SwitchRow(
-                icon: Icons.terminal_rounded,
-                title: 'Allow shell skill',
-                subtitle: 'Opt-in for the (Android-only) shell skill.',
-                value: _allowShell,
-                onChanged: (v) {
-                  setState(() => _allowShell = v);
-                  Credentials.instance.saveAllowShell(v);
-                },
-                last: true,
-              ),
-            ]),
-            const SizedBox(height: 26),
+              // ── Assistant toggles ──
+              glassSectionLabel('Assistant'),
+              GlassGroup(children: [
+                _SwitchRow(
+                  icon: Icons.my_location_rounded,
+                  title: 'Track my location',
+                  subtitle: 'Background location history for the assistant. '
+                      'Needs "Always"; uses battery.',
+                  value: _trackLocation,
+                  onChanged: _toggleTrackLocation,
+                ),
+                _SwitchRow(
+                  icon: Icons.pause_circle_outline_rounded,
+                  title: 'Pause skill execution',
+                  subtitle: 'Server invokes return "paused" until off.',
+                  value: _paused,
+                  onChanged: (v) {
+                    setState(() => _paused = v);
+                    app.runner.paused.value = v;
+                  },
+                ),
+                _SwitchRow(
+                  icon: Icons.terminal_rounded,
+                  title: 'Allow shell skill',
+                  subtitle: 'Opt-in for the (Android-only) shell skill.',
+                  value: _allowShell,
+                  onChanged: (v) {
+                    setState(() => _allowShell = v);
+                    Credentials.instance.saveAllowShell(v);
+                  },
+                  last: true,
+                ),
+              ]),
+              const SizedBox(height: 26),
 
-            // ── Navigation rows ──
-            _sectionLabel('More'),
-            _SettingsGroup(children: [
-              _NavRow(
-                icon: Icons.tune_rounded,
-                title: 'Server settings',
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const WebViewPage(
-                    title: 'Server settings',
-                    path: '/?panel=settings',
-                  ),
-                )),
-              ),
-              _NavRow(
-                icon: Icons.accessibility_new_rounded,
-                title: 'Accessibility access',
-                onTap: _openAccessibilitySettings,
-              ),
-              _NavRow(
-                icon: Icons.watch_rounded,
-                title: 'Apple Watch companion',
-                subtitle: _watchLabel(),
-                onTap: () async {
-                  await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const WatchCompanionPage(),
-                  ));
-                  _loadWatchStatus();
-                },
-                last: true,
-              ),
-            ]),
-            const SizedBox(height: 26),
+              // ── Navigation rows ──
+              glassSectionLabel('More'),
+              GlassGroup(children: [
+                GlassRow(
+                  icon: Icons.tune_rounded,
+                  title: 'Server settings',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const WebViewPage(
+                      title: 'Server settings',
+                      path: '/?panel=settings',
+                    ),
+                  )),
+                ),
+                GlassRow(
+                  icon: Icons.accessibility_new_rounded,
+                  title: 'Accessibility access',
+                  onTap: _openAccessibilitySettings,
+                ),
+                GlassRow(
+                  icon: Icons.watch_rounded,
+                  title: 'Apple Watch companion',
+                  subtitle: _watchLabel(),
+                  onTap: () async {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const WatchCompanionPage(),
+                    ));
+                    _loadWatchStatus();
+                  },
+                  last: true,
+                ),
+              ]),
+              const SizedBox(height: 26),
 
-            // ── Danger ──
-            _SettingsGroup(children: [
-              _NavRow(
-                icon: Icons.logout_rounded,
-                title: 'Unpair this device',
-                danger: true,
-                onTap: _unpair,
-                last: true,
-              ),
-            ]),
-          ],
+              // ── Danger ──
+              GlassGroup(children: [
+                GlassRow(
+                  icon: Icons.logout_rounded,
+                  title: 'Unpair this device',
+                  danger: true,
+                  onTap: _unpair,
+                  last: true,
+                ),
+              ]),
+            ],
+          ),
         ),
       ),
     );
   }
-
-  Widget _sectionLabel(String text) => Padding(
-        padding: const EdgeInsets.only(left: 4, bottom: 10),
-        child: Text(
-          text,
-          style: const TextStyle(
-            color: JcTheme.text,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      );
 }
 
-/// Gradient hero card summarising the paired connection.
+/// Gradient hero card summarising the paired connection — blue accent.
 class _ConnectionCard extends StatelessWidget {
   const _ConnectionCard({required this.server, required this.device});
   final String server, device;
@@ -236,10 +227,17 @@ class _ConnectionCard extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF1A2452), Color(0xFF101428)],
+          colors: [Color(0xFF15224A), Color(0xFF0C1020)],
         ),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: JcTheme.glassBorder),
+        boxShadow: [
+          BoxShadow(
+            color: JcTheme.primaryBlue.withValues(alpha: 0.18),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -248,7 +246,13 @@ class _ConnectionCard extends StatelessWidget {
             height: 48,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: iridescentGradient(),
+              gradient: blueGradient(),
+              boxShadow: [
+                BoxShadow(
+                  color: JcTheme.primaryBlue.withValues(alpha: 0.4),
+                  blurRadius: 16,
+                ),
+              ],
             ),
             child: const Icon(Icons.check_rounded, color: Colors.white, size: 26),
           ),
@@ -283,81 +287,7 @@ class _ConnectionCard extends StatelessWidget {
   }
 }
 
-/// A rounded grouped container (like iOS inset-grouped lists).
-class _SettingsGroup extends StatelessWidget {
-  const _SettingsGroup({required this.children});
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: JcTheme.glassFill,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: JcTheme.glassBorder),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
-    );
-  }
-}
-
-Widget _circleIcon(IconData icon, {Color? color}) => Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: (color ?? JcTheme.text).withValues(alpha: 0.10),
-        border: Border.all(color: JcTheme.glassBorder),
-      ),
-      child: Icon(icon, size: 20, color: color ?? JcTheme.text),
-    );
-
-/// A tappable nav row with a circular icon + chevron.
-class _NavRow extends StatelessWidget {
-  const _NavRow({
-    required this.icon,
-    required this.title,
-    this.subtitle,
-    this.onTap,
-    this.last = false,
-    this.danger = false,
-  });
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final VoidCallback? onTap;
-  final bool last, danger;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = danger ? JcTheme.danger : JcTheme.text;
-    return Column(
-      children: [
-        ListTile(
-          onTap: onTap,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-          leading: _circleIcon(icon, color: danger ? JcTheme.danger : null),
-          title: Text(title,
-              style: TextStyle(
-                  color: color, fontSize: 15, fontWeight: FontWeight.w600)),
-          subtitle: subtitle == null
-              ? null
-              : Text(subtitle!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: JcTheme.muted, fontSize: 12)),
-          trailing: Icon(Icons.chevron_right_rounded,
-              color: JcTheme.muted.withValues(alpha: 0.7)),
-        ),
-        if (!last)
-          const Divider(height: 1, indent: 68, color: JcTheme.glassBorder),
-      ],
-    );
-  }
-}
-
-/// A toggle row with a circular icon (matches _NavRow styling).
+/// A toggle row styled to match GlassRow — circular icon chip + Switch.
 class _SwitchRow extends StatelessWidget {
   const _SwitchRow({
     required this.icon,
@@ -382,7 +312,7 @@ class _SwitchRow extends StatelessWidget {
           value: value,
           onChanged: onChanged,
           activeThumbColor: Colors.white,
-          activeTrackColor: JcTheme.accent,
+          activeTrackColor: JcTheme.primaryBlue,
           contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
           secondary: _circleIcon(icon),
           title: Text(title,
@@ -398,4 +328,15 @@ class _SwitchRow extends StatelessWidget {
       ],
     );
   }
+
+  static Widget _circleIcon(IconData icon) => Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: JcTheme.glassFill,
+          border: Border.all(color: JcTheme.glassBorder),
+        ),
+        child: Icon(icon, size: 20, color: JcTheme.text),
+      );
 }

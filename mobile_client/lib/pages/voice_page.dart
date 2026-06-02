@@ -6,6 +6,7 @@ import '../theme.dart';
 import '../voice/voice_controller.dart';
 import '../voice/voice_orb.dart';
 import '../voice/voice_state.dart';
+import '../widgets/glass.dart';
 
 /// Native voice screen — a recreation of the webui voice experience:
 /// a state-coloured orb, live transcript, and two modes (push-to-talk
@@ -145,37 +146,33 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JcTheme.bg,
+      backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Voice'),
         backgroundColor: Colors.transparent,
+        centerTitle: true,
         actions: [
-          ValueListenableBuilder<bool>(
-            valueListenable: app.wake.enabled,
-            builder: (_, on, __) => IconButton(
-              tooltip: on
-                  ? 'Wake word on ("Hey Jarvis") — foreground only'
-                  : 'Enable "Hey Jarvis" wake word',
-              icon: Icon(
-                on ? Icons.hearing : Icons.hearing_disabled,
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: ValueListenableBuilder<bool>(
+              valueListenable: app.wake.enabled,
+              builder: (_, on, __) => GlassIconButton(
+                icon: on ? Icons.hearing : Icons.hearing_disabled,
                 color: on ? JcTheme.cyan : JcTheme.muted,
+                onTap: _toggleWake,
               ),
-              onPressed: _toggleWake,
             ),
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          const Positioned.fill(child: _AmbientBackground()),
-          SafeArea(
-            child: ListenableBuilder(
-              listenable: _c,
-              builder: (context, _) => _buildBody(),
-            ),
+      body: AppBackground(
+        child: SafeArea(
+          child: ListenableBuilder(
+            listenable: _c,
+            builder: (context, _) => _buildBody(),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -397,68 +394,6 @@ class _MicButton extends StatelessWidget {
               size: 28,
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Ambient near-black backdrop with faint aurora glows — matches the reference
-/// (cool teal/blue washes up top, a warm hint low-left). Painted behind the
-/// transparent app bar so the whole screen reads as one dark scene.
-class _AmbientBackground extends StatelessWidget {
-  const _AmbientBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    return const IgnorePointer(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF0A0C12), Color(0xFF050608)],
-          ),
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-                top: -50, left: -40, child: _Glow(Color(0xFF1EA89C), 300, 0.10)),
-            Positioned(
-                top: 30, right: -80, child: _Glow(Color(0xFF2E6BFF), 320, 0.06)),
-            Positioned(
-                bottom: -30,
-                left: -60,
-                child: _Glow(Color(0xFFB0703A), 280, 0.05)),
-            Positioned(
-                bottom: 60,
-                right: -50,
-                child: _Glow(Color(0xFF3A6BFF), 280, 0.06)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Glow extends StatelessWidget {
-  const _Glow(this.color, this.size, this.opacity);
-  final Color color;
-  final double size;
-  final double opacity;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RadialGradient(
-          colors: [
-            color.withValues(alpha: opacity),
-            color.withValues(alpha: 0.0),
-          ],
         ),
       ),
     );

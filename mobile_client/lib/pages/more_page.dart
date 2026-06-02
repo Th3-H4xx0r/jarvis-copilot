@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import '../widgets/glass.dart';
 import 'logs_page.dart';
 import 'self_improvement_page.dart';
 import 'settings_page.dart';
@@ -30,55 +31,66 @@ class MorePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: JcTheme.bg,
-      appBar: AppBar(title: const Text('More')),
-      body: GridView.builder(
-        padding: const EdgeInsets.all(12),
-        itemCount: _tiles.length,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 0.95,
-        ),
-        itemBuilder: (_, i) {
-          final t = _tiles[i];
-          return InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: () {
-              final r = t.target;
-              if (r is _WebRoute) {
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => WebViewPage(title: r.title, path: r.path),
-                ));
-              } else if (r is _NativeRoute) {
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => r.page,
-                ));
-              }
-            },
-            child: Container(
-              decoration: BoxDecoration(
-                color: JcTheme.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: JcTheme.border),
-              ),
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(t.icon, color: JcTheme.accent, size: 28),
-                  const SizedBox(height: 10),
-                  Text(
-                    t.label,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
+      backgroundColor: Colors.transparent,
+      extendBodyBehindAppBar: true,
+      appBar: glassAppBar(context, title: 'More', back: false),
+      body: AppBackground(
+        child: SafeArea(
+          child: GridView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            itemCount: _tiles.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 0.95,
             ),
-          );
-        },
+            itemBuilder: (_, i) {
+              final t = _tiles[i];
+              return GlassCard(
+                radius: 22,
+                padding: const EdgeInsets.all(10),
+                onTap: () {
+                  final r = t.target;
+                  if (r is _WebRoute) {
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => WebViewPage(title: r.title, path: r.path),
+                    ));
+                  } else if (r is _NativeRoute) {
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => r.page,
+                    ));
+                  }
+                },
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: JcTheme.glassFill,
+                        border: Border.all(color: JcTheme.glassBorder),
+                      ),
+                      child: Icon(t.icon, color: JcTheme.primaryBlue, size: 24),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      t.label,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: JcTheme.text,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
       ),
     );
   }

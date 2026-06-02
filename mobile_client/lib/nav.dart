@@ -111,12 +111,11 @@ class _NavShellState extends State<NavShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: JcTheme.bg,
-      body: AppBackground(
-        child: SafeArea(
-          bottom: false,
-          child: IndexedStack(index: _index, children: _pages),
-        ),
-      ),
+      // Each page owns its own AppBackground (transparent Scaffold +
+      // extendBodyBehindAppBar) so the aurora runs behind the bar on every
+      // screen — tabs and pushed routes alike. (No extendBody: it would let the
+      // chat composer slide under the floating nav pill.)
+      body: IndexedStack(index: _index, children: _pages),
       bottomNavigationBar: _GlassNavBar(
         index: _index,
         tabs: _tabs,
@@ -198,12 +197,12 @@ class _GlassNavBar extends StatelessWidget {
               width: 44,
               height: 32,
               decoration: BoxDecoration(
-                gradient: active ? iridescentGradient() : null,
+                gradient: active ? blueGradient() : null,
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: active
                     ? [
                         BoxShadow(
-                          color: const Color(0xFF8A7CFF).withValues(alpha: 0.45),
+                          color: JcTheme.primaryBlue.withValues(alpha: 0.45),
                           blurRadius: 16,
                         ),
                       ]

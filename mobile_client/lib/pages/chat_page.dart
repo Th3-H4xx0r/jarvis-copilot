@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../chat/chat_controller.dart';
@@ -5,6 +7,7 @@ import '../chat/widgets/message_view.dart';
 import '../chat/widgets/sessions_drawer.dart';
 import '../main.dart' as app;
 import '../theme.dart';
+import '../widgets/glass.dart';
 
 /// Native chat screen — a from-scratch recreation of the webui chat
 /// interface (sessions sidebar, streaming markdown replies, tool cards,
@@ -84,13 +87,21 @@ class _ChatPageState extends State<ChatPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: JcTheme.bg,
+      backgroundColor: Colors.transparent,
+      extendBodyBehindAppBar: true,
       drawer: SessionsDrawer(controller: _c),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        leading: IconButton(
-          icon: const Icon(Icons.menu_rounded),
-          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: true,
+        leadingWidth: 60,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 16),
+          child: GlassIconButton(
+            icon: Icons.menu_rounded,
+            onTap: () => _scaffoldKey.currentState?.openDrawer(),
+          ),
         ),
         title: ListenableBuilder(
           listenable: _c,
@@ -98,33 +109,42 @@ class _ChatPageState extends State<ChatPage> {
             _c.sessionTitle,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: JcTheme.text,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         actions: [
-          IconButton(
-            tooltip: 'New chat',
-            icon: const Icon(Icons.edit_square),
-            onPressed: () {
-              _composer.clear();
-              _c.startNewSession();
-            },
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: GlassIconButton(
+              icon: Icons.edit_square,
+              onTap: () {
+                _composer.clear();
+                _c.startNewSession();
+              },
+            ),
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListenableBuilder(
-              listenable: _c,
-              builder: (context, _) => _buildBody(),
+      body: AppBackground(
+        child: Column(
+          children: [
+            Expanded(
+              child: ListenableBuilder(
+                listenable: _c,
+                builder: (context, _) => _buildBody(),
+              ),
             ),
-          ),
-          _Composer(
-            controller: _composer,
-            chat: _c,
-            onSend: _send,
-          ),
-        ],
+            _Composer(
+              controller: _composer,
+              chat: _c,
+              onSend: _send,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -157,8 +177,8 @@ class _EmptyState extends StatelessWidget {
           Container(
             width: 64,
             height: 64,
-            decoration: const BoxDecoration(
-              gradient: JcTheme.brandGradient,
+            decoration: BoxDecoration(
+              gradient: blueGradient(),
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
@@ -204,67 +224,65 @@ class _Composer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: JcTheme.bg,
-        border: Border(top: BorderSide(color: JcTheme.border)),
-      ),
-      padding: EdgeInsets.fromLTRB(
-        10,
-        8,
-        10,
-        8 + MediaQuery.of(context).viewPadding.bottom,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 140),
-              child: TextField(
-                controller: controller,
-                minLines: 1,
-                maxLines: 6,
-                textInputAction: TextInputAction.newline,
-                keyboardType: TextInputType.multiline,
-                style: const TextStyle(color: JcTheme.text, fontSize: 15),
-                decoration: InputDecoration(
-                  hintText: 'Message JarvisCopilot…',
-                  hintStyle: const TextStyle(color: JcTheme.muted),
-                  filled: true,
-                  fillColor: JcTheme.surfaceAlt,
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 11),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(22),
-                    borderSide: const BorderSide(color: JcTheme.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(22),
-                    borderSide: const BorderSide(color: JcTheme.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(22),
-                    borderSide:
-                        const BorderSide(color: JcTheme.accent, width: 1.3),
+    final bottomPad = MediaQuery.of(context).viewPadding.bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(12, 8, 12, 8 + bottomPad),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(26),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            decoration: BoxDecoration(
+              color: JcTheme.glassFill,
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(color: JcTheme.glassBorder),
+            ),
+            padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 140),
+                    child: TextField(
+                      controller: controller,
+                      minLines: 1,
+                      maxLines: 6,
+                      textInputAction: TextInputAction.newline,
+                      keyboardType: TextInputType.multiline,
+                      style: const TextStyle(color: JcTheme.text, fontSize: 15),
+                      decoration: const InputDecoration(
+                        hintText: 'Message JarvisCopilot…',
+                        hintStyle: TextStyle(color: JcTheme.muted),
+                        filled: true,
+                        fillColor: Colors.transparent,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 0,
+                          vertical: 10,
+                        ),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                // Only the send/stop button reacts to streaming state — keep
+                // the TextField out of the rebuild path so streamed tokens
+                // don't churn the keyboard/cursor.
+                ListenableBuilder(
+                  listenable: chat,
+                  builder: (context, _) => _SendButton(
+                    streaming: chat.streaming,
+                    onSend: onSend,
+                    onStop: chat.cancel,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 8),
-          // Only the send/stop button reacts to streaming state — keep
-          // the TextField out of the rebuild path so streamed tokens
-          // don't churn the keyboard/cursor.
-          ListenableBuilder(
-            listenable: chat,
-            builder: (context, _) => _SendButton(
-              streaming: chat.streaming,
-              onSend: onSend,
-              onStop: chat.cancel,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -289,14 +307,25 @@ class _SendButton extends StatelessWidget {
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          gradient: streaming ? null : JcTheme.brandGradient,
-          color: streaming ? JcTheme.surfaceAlt : null,
+          gradient: streaming ? null : blueGradient(),
+          color: streaming ? JcTheme.glassFill : null,
           shape: BoxShape.circle,
-          border: streaming ? Border.all(color: JcTheme.border) : null,
+          border: streaming
+              ? Border.all(color: JcTheme.glassBorder)
+              : null,
+          boxShadow: streaming
+              ? null
+              : [
+                  BoxShadow(
+                    color: JcTheme.primaryBlue.withValues(alpha: 0.4),
+                    blurRadius: 24,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
         ),
         child: Icon(
           streaming ? Icons.stop : Icons.arrow_upward,
-          color: streaming ? JcTheme.danger : Colors.white,
+          color: streaming ? JcTheme.muted : Colors.white,
           size: 22,
         ),
       ),

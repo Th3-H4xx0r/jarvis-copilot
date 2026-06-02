@@ -1,7 +1,10 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme.dart';
+import '../../widgets/glass.dart';
 import '../../widgets/markdown_stream.dart';
 import '../chat_models.dart';
 import 'reasoning_card.dart';
@@ -31,42 +34,45 @@ class _UserBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     return Align(
       alignment: Alignment.centerRight,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(48, 6, 4, 6),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: JcTheme.accent.withValues(alpha: 0.16),
-          border: Border.all(color: JcTheme.accent.withValues(alpha: 0.30)),
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(14),
-            topRight: Radius.circular(14),
-            bottomLeft: Radius.circular(14),
-            bottomRight: Radius.circular(4),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            SelectableText(
-              message.plainText,
-              style: const TextStyle(
-                color: JcTheme.text,
-                fontSize: 14,
-                height: 1.4,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(48, 6, 4, 6),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(19),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
+              decoration: BoxDecoration(
+                color: JcTheme.surfaceAlt.withValues(alpha: 0.60),
+                border: Border.all(color: JcTheme.glassBorder),
+                borderRadius: BorderRadius.circular(19),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  SelectableText(
+                    message.plainText,
+                    style: const TextStyle(
+                      color: JcTheme.text,
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
+                  ),
+                  if (message.attachments.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Wrap(
+                        spacing: 6,
+                        children: [
+                          for (final a in message.attachments)
+                            _AttachmentChip(name: a),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ),
-            if (message.attachments.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Wrap(
-                  spacing: 6,
-                  children: [
-                    for (final a in message.attachments)
-                      _AttachmentChip(name: a),
-                  ],
-                ),
-              ),
-          ],
+          ),
         ),
       ),
     );
@@ -117,9 +123,15 @@ class _AssistantTurn extends StatelessWidget {
     ));
 
     if (message.reasoning.trim().isNotEmpty) {
-      children.add(ReasoningCard(
-        text: message.reasoning,
-        active: message.streaming && message.plainText.isEmpty,
+      children.add(GlassCard(
+        padding: EdgeInsets.zero,
+        radius: 14,
+        blur: true,
+        borderColor: JcTheme.primaryBlue.withValues(alpha: 0.20),
+        child: ReasoningCard(
+          text: message.reasoning,
+          active: message.streaming && message.plainText.isEmpty,
+        ),
       ));
     }
 
@@ -133,7 +145,12 @@ class _AssistantTurn extends StatelessWidget {
               : MarkdownStream(text: block.text),
         ));
       } else if (block is ToolBlock) {
-        children.add(ToolCard(tool: block.tool));
+        children.add(GlassCard(
+          padding: EdgeInsets.zero,
+          radius: 12,
+          blur: false,
+          child: ToolCard(tool: block.tool),
+        ));
       }
     }
 
@@ -194,9 +211,9 @@ class _AttachmentChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: JcTheme.bg.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: JcTheme.border),
+        color: JcTheme.glassFill,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: JcTheme.glassBorder),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

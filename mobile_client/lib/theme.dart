@@ -35,6 +35,10 @@ class JcTheme {
   static const Color accentAlt = Color(0xFFFF6FD8);      // pink
   static const Color cyan = Color(0xFF46E0E0);
   static const Color blue = Color(0xFF7CB9FF);
+  // Primary action blue (the reference's CTA colour: mic / send / get-pro).
+  static const Color primaryBlue = Color(0xFF2E6BFF);
+  static const Color primaryBlueLo = Color(0xFF1E57DC);
+  static const Color primaryBlueHi = Color(0xFF6FB0FF);
   static const Color success = Color(0xFF5BE5A0);
   static const Color danger = Color(0xFFFF6B7E);
 

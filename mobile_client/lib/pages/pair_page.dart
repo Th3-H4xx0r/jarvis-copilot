@@ -9,7 +9,7 @@ import '../services/api_client.dart' show sha256OfCertPem;
 import '../services/credentials.dart';
 import '../services/watch_sync.dart';
 import '../theme.dart';
-import '../widgets/gradient_button.dart';
+import '../widgets/glass.dart';
 import '../widgets/jc_logo.dart';
 
 /// First-run pair page. Three entry vectors:
@@ -234,11 +234,40 @@ class _PairPageState extends State<PairPage> {
     }
   }
 
+  /// Frosted input field decoration (matches the spec: glassFill, rounded ~14,
+  /// glassBorder, focused border primaryBlue).
+  InputDecoration _inputDecoration({required String label, String? hint}) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      filled: true,
+      fillColor: JcTheme.glassFill,
+      labelStyle: const TextStyle(color: JcTheme.muted),
+      hintStyle: const TextStyle(color: JcTheme.muted),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: JcTheme.glassBorder),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: JcTheme.glassBorder),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: JcTheme.primaryBlue, width: 1.4),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Scanner screen — full-screen camera with glass app bar.
     if (_showScanner) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Scan QR'), backgroundColor: JcTheme.bg),
+        backgroundColor: Colors.transparent,
+        extendBodyBehindAppBar: true,
+        appBar: glassAppBar(context, title: 'Scan QR', back: true, onBack: _closeScanner),
         body: Stack(
           children: [
             // Use an explicit controller scoped to the QR formats we care about.
@@ -264,13 +293,12 @@ class _PairPageState extends State<PairPage> {
               ),
             ),
             Positioned(
-              bottom: 24,
-              left: 16,
-              right: 16,
-              child: GradientButton(
+              bottom: 48,
+              left: 24,
+              right: 24,
+              child: _BlueButton(
                 label: 'Cancel',
                 onPressed: _closeScanner,
-                full: true,
               ),
             ),
           ],
@@ -278,169 +306,206 @@ class _PairPageState extends State<PairPage> {
       );
     }
 
+    // Main pairing form — THE SCREEN PATTERN.
     return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 12),
-              const Center(child: JcLogo(size: 80)),
-              const SizedBox(height: 20),
-              const Text(
-                'Pair with JarvisCopilot',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Open the Devices tab on your server\nand tap "+ Pair new device".',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: JcTheme.muted, height: 1.5),
-              ),
-              const SizedBox(height: 28),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('Scan QR code'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: JcTheme.text,
-                    side: const BorderSide(color: JcTheme.border),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+      backgroundColor: Colors.transparent,
+      extendBodyBehindAppBar: true,
+      appBar: glassAppBar(context, title: 'Pair device', back: false),
+      body: AppBackground(
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 12),
+                const Center(child: JcLogo(size: 80)),
+                const SizedBox(height: 20),
+                const Text(
+                  'Pair with JarvisCopilot',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: JcTheme.text,
                   ),
-                  onPressed: () => setState(() {
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Open the Devices tab on your server\nand tap "+ Pair new device".',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: JcTheme.muted, height: 1.5),
+                ),
+                const SizedBox(height: 28),
+
+                // QR scan CTA — frosted glass button.
+                GlassCard(
+                  padding: EdgeInsets.zero,
+                  onTap: () => setState(() {
                     _scanHandled = false;
                     _scannerController = null; // a fresh one is built in build()
                     _showScanner = true;
                   }),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Divider(),
-              const SizedBox(height: 24),
-              const Text('Or enter manually:', style: TextStyle(color: JcTheme.muted)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _serverCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Server URL',
-                  hintText: 'https://1.2.3.4:8787',
-                ),
-                keyboardType: TextInputType.url,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _codeCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Pairing code',
-                  hintText: 'ABC-DEF',
-                ),
-                style: const TextStyle(letterSpacing: 4, fontFamily: 'monospace'),
-                textCapitalization: TextCapitalization.characters,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Device name',
-                  hintText: 'My iPhone',
-                ),
-              ),
-              // Cloudflare Access service token (only needed when the server is
-              // behind a CF tunnel). Paste the values shown on the server's pair
-              // popup — otherwise the claim 302-redirects to the SSO login.
-              Theme(
-                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                child: ExpansionTile(
-                  // Re-key when CF values are present so the tile rebuilds with
-                  // initiallyExpanded=true — otherwise a scanned token stays
-                  // hidden inside the collapsed section and looks "not copied".
-                  key: ValueKey(_cfIdCtrl.text.isNotEmpty || _cfSecretCtrl.text.isNotEmpty),
-                  initiallyExpanded: _cfIdCtrl.text.isNotEmpty || _cfSecretCtrl.text.isNotEmpty,
-                  tilePadding: EdgeInsets.zero,
-                  childrenPadding: const EdgeInsets.only(bottom: 8),
-                  title: const Text('Behind a Cloudflare tunnel? (service token)',
-                      style: TextStyle(fontSize: 13, color: JcTheme.muted)),
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 10),
-                      child: Text(
-                        'Paste the token from the server\'s pair popup. Still getting '
-                        'a login redirect (302)? Your Cloudflare Access policy needs '
-                        'Action = Service Auth (NOT "Allow" — Allow still requires a '
-                        'browser login): Zero Trust → Access → Applications → your app '
-                        '→ Policies → add a Service Auth policy → Include → Service Token.',
-                        style: TextStyle(fontSize: 11, color: JcTheme.muted, height: 1.4),
-                      ),
-                    ),
-                    TextField(
-                      controller: _cfIdCtrl,
-                      autocorrect: false,
-                      decoration: const InputDecoration(
-                        labelText: 'CF Access Client ID',
-                        hintText: 'xxxxxxxx.access',
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _cfSecretCtrl,
-                      obscureText: true,
-                      autocorrect: false,
-                      decoration: const InputDecoration(
-                        labelText: 'CF Access Client Secret',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (_pendingFingerprint != null && _pendingFingerprint!.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 20),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: JcTheme.surfaceAlt,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: JcTheme.border),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Text('TLS certificate fingerprint:',
-                            style: TextStyle(fontSize: 11, color: JcTheme.muted)),
-                        const SizedBox(height: 6),
-                        SelectableText(
-                          _formatFingerprint(_pendingFingerprint!),
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 11,
-                            color: JcTheme.accent,
+                        Icon(Icons.qr_code_scanner, color: JcTheme.primaryBlueHi, size: 22),
+                        SizedBox(width: 10),
+                        Text(
+                          'Scan QR code',
+                          style: TextStyle(
+                            color: JcTheme.text,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
                           ),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Compare with `jarviscopilot status` on the server.',
-                          style: TextStyle(fontSize: 11, color: JcTheme.muted),
                         ),
                       ],
                     ),
                   ),
                 ),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: Text(_error!, style: const TextStyle(color: JcTheme.danger)),
+
+                const SizedBox(height: 24),
+                const Row(
+                  children: [
+                    Expanded(child: Divider(color: JcTheme.glassBorder)),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('or enter manually',
+                          style: TextStyle(fontSize: 12, color: JcTheme.muted)),
+                    ),
+                    Expanded(child: Divider(color: JcTheme.glassBorder)),
+                  ],
                 ),
-              const SizedBox(height: 24),
-              GradientButton(
-                label: 'Pair',
-                busy: _busy,
-                onPressed: _busy ? null : _submit,
-                full: true,
-              ),
-            ],
+                const SizedBox(height: 20),
+
+                // Manual entry fields.
+                TextField(
+                  controller: _serverCtrl,
+                  decoration: _inputDecoration(label: 'Server URL', hint: 'https://1.2.3.4:8787'),
+                  keyboardType: TextInputType.url,
+                  style: const TextStyle(color: JcTheme.text),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _codeCtrl,
+                  decoration: _inputDecoration(label: 'Pairing code', hint: 'ABC-DEF'),
+                  style: const TextStyle(
+                    letterSpacing: 4,
+                    fontFamily: 'monospace',
+                    color: JcTheme.text,
+                  ),
+                  textCapitalization: TextCapitalization.characters,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _nameCtrl,
+                  decoration: _inputDecoration(label: 'Device name', hint: 'My iPhone'),
+                  style: const TextStyle(color: JcTheme.text),
+                ),
+
+                // Cloudflare Access service token (only needed when the server is
+                // behind a CF tunnel). Paste the values shown on the server's pair
+                // popup — otherwise the claim 302-redirects to the SSO login.
+                Theme(
+                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    // Re-key when CF values are present so the tile rebuilds with
+                    // initiallyExpanded=true — otherwise a scanned token stays
+                    // hidden inside the collapsed section and looks "not copied".
+                    key: ValueKey(_cfIdCtrl.text.isNotEmpty || _cfSecretCtrl.text.isNotEmpty),
+                    initiallyExpanded: _cfIdCtrl.text.isNotEmpty || _cfSecretCtrl.text.isNotEmpty,
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: const EdgeInsets.only(bottom: 8),
+                    title: const Text(
+                      'Behind a Cloudflare tunnel? (service token)',
+                      style: TextStyle(fontSize: 13, color: JcTheme.muted),
+                    ),
+                    iconColor: JcTheme.muted,
+                    collapsedIconColor: JcTheme.muted,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          'Paste the token from the server\'s pair popup. Still getting '
+                          'a login redirect (302)? Your Cloudflare Access policy needs '
+                          'Action = Service Auth (NOT "Allow" — Allow still requires a '
+                          'browser login): Zero Trust → Access → Applications → your app '
+                          '→ Policies → add a Service Auth policy → Include → Service Token.',
+                          style: TextStyle(fontSize: 11, color: JcTheme.muted, height: 1.4),
+                        ),
+                      ),
+                      TextField(
+                        controller: _cfIdCtrl,
+                        autocorrect: false,
+                        decoration: _inputDecoration(
+                          label: 'CF Access Client ID',
+                          hint: 'xxxxxxxx.access',
+                        ),
+                        style: const TextStyle(color: JcTheme.text),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _cfSecretCtrl,
+                        obscureText: true,
+                        autocorrect: false,
+                        decoration: _inputDecoration(label: 'CF Access Client Secret'),
+                        style: const TextStyle(color: JcTheme.text),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // TLS cert fingerprint card (frosted).
+                if (_pendingFingerprint != null && _pendingFingerprint!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 20),
+                    child: GlassCard(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('TLS certificate fingerprint:',
+                              style: TextStyle(fontSize: 11, color: JcTheme.muted)),
+                          const SizedBox(height: 6),
+                          SelectableText(
+                            _formatFingerprint(_pendingFingerprint!),
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              color: JcTheme.accent,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Compare with `jarviscopilot status` on the server.',
+                            style: TextStyle(fontSize: 11, color: JcTheme.muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Error banner.
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Text(_error!, style: const TextStyle(color: JcTheme.danger)),
+                  ),
+
+                const SizedBox(height: 24),
+
+                // Blue primary CTA — Pair button.
+                _BlueButton(
+                  label: 'Pair',
+                  busy: _busy,
+                  onPressed: _busy ? null : _submit,
+                ),
+
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
         ),
       ),
@@ -455,5 +520,72 @@ class _PairPageState extends State<PairPage> {
       if (i + 2 < h.length) out.write((i + 2) % 16 == 0 ? '\n' : ' ');
     }
     return out.toString();
+  }
+}
+
+/// Blue primary CTA pill button (blueGradient + glow), replacing GradientButton.
+class _BlueButton extends StatelessWidget {
+  const _BlueButton({
+    required this.label,
+    this.onPressed,
+    this.busy = false,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onPressed == null && !busy;
+    return Opacity(
+      opacity: disabled ? 0.5 : 1,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(22),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: busy ? null : onPressed,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 15),
+            decoration: BoxDecoration(
+              gradient: blueGradient(),
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: [
+                BoxShadow(
+                  color: JcTheme.primaryBlue.withValues(alpha: 0.4),
+                  blurRadius: 24,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (busy)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white),
+                  )
+                else
+                  const SizedBox.shrink(),
+                if (busy) const SizedBox(width: 10),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

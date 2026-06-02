@@ -24,6 +24,18 @@ LinearGradient iridescentGradient({
 }) =>
     LinearGradient(begin: begin, end: end, colors: kIridescent);
 
+/// Primary CTA gradient — a glossy blue (the reference's mic / send / get-pro
+/// colour). Use [JcTheme.primaryBlue] for single-colour blue.
+LinearGradient blueGradient({
+  AlignmentGeometry begin = const Alignment(-0.3, -0.6),
+  AlignmentGeometry end = Alignment.bottomRight,
+}) =>
+    LinearGradient(begin: begin, end: end, colors: const [
+      JcTheme.primaryBlueHi,
+      JcTheme.primaryBlue,
+      JcTheme.primaryBlueLo,
+    ]);
+
 /// A frosted-glass container: translucent fill + hairline border + optional
 /// backdrop blur.
 class GlassCard extends StatelessWidget {
@@ -171,8 +183,10 @@ class GlassButton extends StatelessWidget {
   }
 }
 
-/// The app's signature backdrop: a dark vertical gradient with two faint
-/// iridescent glows in the corners. Use as the Scaffold background.
+/// The app's signature backdrop (matches the design reference + voice screen):
+/// a near-black gradient with faint aurora glows — cool teal/blue up top, a warm
+/// hint low-left. Use as EVERY screen's background; pair with a transparent
+/// Scaffold so it shows through.
 class AppBackground extends StatelessWidget {
   const AppBackground({super.key, required this.child});
   final Widget child;
@@ -184,37 +198,205 @@ class AppBackground extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [JcTheme.bgTop, JcTheme.bg],
+          colors: [Color(0xFF0A0C12), Color(0xFF050608)],
         ),
       ),
       child: Stack(
         children: [
-          Positioned(
-            top: -120,
-            right: -100,
-            child: _glow(const Color(0xFF8A7CFF), 320),
-          ),
-          Positioned(
-            bottom: -140,
-            left: -120,
-            child: _glow(const Color(0xFF46E0E0), 300),
-          ),
+          Positioned(top: -60, left: -50, child: _glow(const Color(0xFF1EA89C), 340, 0.12)),
+          Positioned(top: 20, right: -90, child: _glow(const Color(0xFF2E6BFF), 360, 0.08)),
+          Positioned(bottom: -40, left: -70, child: _glow(const Color(0xFFB0703A), 300, 0.05)),
+          Positioned(bottom: 80, right: -60, child: _glow(const Color(0xFF3A6BFF), 300, 0.06)),
           child,
         ],
       ),
     );
   }
 
-  Widget _glow(Color c, double d) => IgnorePointer(
+  Widget _glow(Color c, double d, double a) => IgnorePointer(
         child: Container(
           width: d,
           height: d,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: RadialGradient(
-              colors: [c.withValues(alpha: 0.16), c.withValues(alpha: 0.0)],
+              colors: [c.withValues(alpha: a), c.withValues(alpha: 0.0)],
             ),
           ),
         ),
+      );
+}
+
+/// A circular frosted icon button — the reference's back / action chips. 40px
+/// translucent circle + hairline border + thin-line icon.
+class GlassIconButton extends StatelessWidget {
+  const GlassIconButton({
+    super.key,
+    required this.icon,
+    this.onTap,
+    this.size = 40,
+    this.iconSize = 20,
+    this.color,
+  });
+
+  final IconData icon;
+  final VoidCallback? onTap;
+  final double size;
+  final double iconSize;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: JcTheme.glassFill,
+            border: Border.all(color: JcTheme.glassBorder),
+          ),
+          child: Icon(icon, size: iconSize, color: color ?? JcTheme.text),
+        ),
+      ),
+    );
+  }
+}
+
+/// A frosted AppBar matching the reference: transparent, centred title, a
+/// circular [GlassIconButton] back chip, optional trailing chip.
+PreferredSizeWidget glassAppBar(
+  BuildContext context, {
+  required String title,
+  bool back = true,
+  VoidCallback? onBack,
+  Widget? trailing,
+}) {
+  return AppBar(
+    backgroundColor: Colors.transparent,
+    elevation: 0,
+    scrolledUnderElevation: 0,
+    centerTitle: true,
+    titleSpacing: 0,
+    leadingWidth: back ? 60 : 0,
+    leading: back
+        ? Padding(
+            padding: const EdgeInsets.only(left: 16),
+            child: GlassIconButton(
+              icon: Icons.chevron_left_rounded,
+              iconSize: 24,
+              onTap: onBack ?? () => Navigator.of(context).maybePop(),
+            ),
+          )
+        : null,
+    title: Text(title,
+        style: const TextStyle(
+            color: JcTheme.text, fontSize: 18, fontWeight: FontWeight.w700)),
+    actions: [
+      if (trailing != null) Padding(padding: const EdgeInsets.only(right: 16), child: trailing),
+    ],
+  );
+}
+
+/// A bold section heading (the reference's "Extra features").
+Widget glassSectionLabel(String text) => Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+      child: Text(text,
+          style: const TextStyle(
+              color: JcTheme.text, fontSize: 18, fontWeight: FontWeight.w700)),
+    );
+
+/// A rounded frosted container that groups [GlassRow]s (iOS inset-list style).
+class GlassGroup extends StatelessWidget {
+  const GlassGroup({super.key, required this.children, this.blur = true});
+  final List<Widget> children;
+  final bool blur;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = BorderRadius.circular(22);
+    Widget content = DecoratedBox(
+      decoration: BoxDecoration(
+        color: JcTheme.glassFill,
+        borderRadius: r,
+        border: Border.all(color: JcTheme.glassBorder),
+      ),
+      child: Column(children: children),
+    );
+    if (blur) {
+      content = ClipRRect(
+        borderRadius: r,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: content,
+        ),
+      );
+    }
+    return content;
+  }
+}
+
+/// A tappable list row: circular frosted icon + title (+ subtitle) + chevron.
+class GlassRow extends StatelessWidget {
+  const GlassRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.onTap,
+    this.trailing,
+    this.last = false,
+    this.danger = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final VoidCallback? onTap;
+  final Widget? trailing;
+  final bool last;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? JcTheme.danger : JcTheme.text;
+    return Column(
+      children: [
+        ListTile(
+          onTap: onTap,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          leading: _circleIcon(icon, color: danger ? JcTheme.danger : null),
+          title: Text(title,
+              style: TextStyle(color: color, fontSize: 15, fontWeight: FontWeight.w600)),
+          subtitle: subtitle == null
+              ? null
+              : Text(subtitle!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: JcTheme.muted, fontSize: 12)),
+          trailing: trailing ??
+              Icon(Icons.chevron_right_rounded,
+                  color: JcTheme.muted.withValues(alpha: 0.7)),
+        ),
+        if (!last)
+          const Divider(height: 1, indent: 68, color: JcTheme.glassBorder),
+      ],
+    );
+  }
+
+  static Widget _circleIcon(IconData icon, {Color? color}) => Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: (color ?? JcTheme.text).withValues(alpha: 0.10),
+          border: Border.all(color: JcTheme.glassBorder),
+        ),
+        child: Icon(icon, size: 20, color: color ?? JcTheme.text),
       );
 }
