@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import WatchConnectivity
+import WatchKit
 
 /// The watch's WCSession client. Sends one dictated turn at a time, receives
 /// the login-state (pushed by the phone via application context), and plays the
@@ -12,6 +13,8 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     @Published var loggedIn: Bool = true
     /// The partial answer pushed by the phone as tokens stream in (live preview).
     @Published var streamingText: String = ""
+    /// Last agent-haptic command id we acted on (dedupe applicationContext repeats).
+    private var lastHapticNonce: Int = 0
 
     override init() {
         super.init()
@@ -47,9 +50,20 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     nonisolated func session(_ s: WCSession, didReceiveApplicationContext ctx: [String: Any]) {
         let v = ctx["loggedIn"] as? Bool
         let streaming = ctx["streamingText"] as? String
+        let hapticNonce = ctx["hapticNonce"] as? Int
+        let hapticCount = ctx["hapticCount"] as? Int
         Task { @MainActor in
             if let v { self.loggedIn = v }
             if let streaming { self.streamingText = streaming }
+            // Agent → watch haptic command (deduped by nonce so we buzz once).
+            if let nonce = hapticNonce, nonce != self.lastHapticNonce {
+                self.lastHapticNonce = nonce
+                let n = max(1, min(hapticCount ?? 3, 10))
+                for i in 0..<n {
+                    WKInterfaceDevice.current().play(.notification)
+                    if i < n - 1 { try? await Task.sleep(nanoseconds: 600_000_000) }
+                }
+            }
         }
     }
 

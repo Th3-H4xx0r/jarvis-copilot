@@ -194,6 +194,16 @@ import AppIntents
                 result(true)
             } else if call.method == "getWatchStatus" {
                 result(WatchBridge.shared.status())
+            } else if call.method == "sendHaptic" {
+                let a = call.arguments as? [String: Any]
+                WatchBridge.shared.sendHaptic(count: (a?["count"] as? Int) ?? 3)
+                result(true)
+            } else if call.method == "sendClip",
+                      let a = call.arguments as? [String: Any],
+                      let b64 = a["audioBase64"] as? String,
+                      let data = Data(base64Encoded: b64) {
+                WatchBridge.shared.sendClip(data)
+                result(true)
             } else {
                 result(FlutterMethodNotImplemented)
             }

@@ -118,6 +118,36 @@ final class WatchBridge: NSObject, WCSessionDelegate {
         ]
     }
 
+    /// Agent → watch: pulse the watch haptic `count` times. Delivered via
+    /// applicationContext (a bumped nonce makes the watch act on it); the watch
+    /// plays WKInterfaceDevice haptics in a loop. Best-effort (needs the watch
+    /// paired + app installed).
+    func sendHaptic(count: Int) {
+        guard WCSession.isSupported() else { return }
+        let s = WCSession.default
+        guard s.activationState == .activated else { return }
+        stateLock.lock(); let loggedIn = lastLoggedIn; stateLock.unlock()
+        var ctx = s.applicationContext
+        ctx["loggedIn"] = loggedIn
+        ctx["hapticNonce"] = Int(Date().timeIntervalSince1970 * 1000)
+        ctx["hapticCount"] = max(1, min(count, 10))
+        try? s.updateApplicationContext(ctx)
+    }
+
+    /// Agent → watch: play an audio clip (e.g. a JARVIS-voice TTS clip) on the
+    /// watch. Reuses the same out-of-band transferFile path the reply audio uses
+    /// (metadata type "voiceClip"), so the watch enqueues + plays it.
+    func sendClip(_ data: Data) {
+        guard WCSession.isSupported(),
+              WCSession.default.activationState == .activated else { return }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jc_watch_clip_\(Int(Date().timeIntervalSince1970 * 1000)).m4a")
+        do {
+            try data.write(to: url)
+            WCSession.default.transferFile(url, metadata: ["type": "voiceClip"])
+        } catch {}
+    }
+
     // MARK: WCSessionDelegate
     func session(_ s: WCSession, activationDidCompleteWith _: WCSessionActivationState, error _: Error?) {
         // Flush the latest login-state once activation completes.

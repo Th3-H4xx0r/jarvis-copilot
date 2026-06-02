@@ -64,4 +64,20 @@ class WatchSync {
     }
     return const {'supported': false};
   }
+
+  /// Agent → watch: pulse the watch haptic `count` times (best-effort; iOS only,
+  /// needs the watch paired + app installed). No-op on Android.
+  static Future<void> sendHapticToWatch(int count) async {
+    try {
+      await _channel.invokeMethod('sendHaptic', {'count': count});
+    } catch (_) {/* best-effort */}
+  }
+
+  /// Agent → watch: play an audio clip (base64) on the watch — e.g. a
+  /// JARVIS-voice clip. Best-effort; iOS only. No-op on Android.
+  static Future<void> sendClipToWatch(String audioBase64) async {
+    try {
+      await _channel.invokeMethod('sendClip', {'audioBase64': audioBase64});
+    } catch (_) {/* best-effort */}
+  }
 }

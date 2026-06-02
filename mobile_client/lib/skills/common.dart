@@ -26,6 +26,7 @@ import 'dart:typed_data';
 import 'registry.dart';
 import 'android.dart' as android_skills;
 import 'ios.dart' as ios_skills;
+import '../services/watch_sync.dart';
 
 /// Returns every Tier-1 skill plus any platform-specific ones for the
 /// current OS. The InvokeRunner filters disabled skills before
@@ -263,15 +264,29 @@ final List<SkillEntry> _common = [
           'description': 'Alternating wait/vibrate ms; overrides duration_ms.',
         },
         'repeat': {'type': 'integer', 'minimum': 1, 'maximum': 20},
+        'target': {
+          'type': 'string',
+          'enum': ['phone', 'watch', 'both'],
+          'description':
+              'Where to vibrate (default phone). watch/both pulses the Apple '
+              'Watch haptic (iOS, repeat = pulse count).',
+        },
       },
     },
     run: (args) async {
-      if (!(await Vibration.hasVibrator())) {
-        return {'vibrated': false, 'reason': 'no vibrator'};
-      }
       final repeat = (args['repeat'] is num)
           ? (args['repeat'] as num).toInt().clamp(1, 20)
           : 1;
+      final target = (args['target'] ?? 'phone').toString();
+      if (Platform.isIOS && (target == 'watch' || target == 'both')) {
+        await WatchSync.sendHapticToWatch(repeat.clamp(1, 10));
+        if (target == 'watch') {
+          return {'vibrated': true, 'target': 'watch', 'count': repeat.clamp(1, 10)};
+        }
+      }
+      if (!(await Vibration.hasVibrator())) {
+        return {'vibrated': false, 'reason': 'no vibrator'};
+      }
       final raw = args['pattern'];
       if (raw is List && raw.isNotEmpty) {
         final pattern = raw
@@ -408,6 +423,13 @@ final List<SkillEntry> _common = [
         'audio_base64': {'type': 'string'},
         'url': {'type': 'string'},
         'volume': {'type': 'number', 'minimum': 0, 'maximum': 1},
+        'target': {
+          'type': 'string',
+          'enum': ['phone', 'watch', 'both'],
+          'description':
+              'Where to play (default phone). watch/both plays on the Apple '
+              'Watch (iOS; needs audio_base64, not url).',
+        },
       },
     },
     run: (args) async {
@@ -416,6 +438,12 @@ final List<SkillEntry> _common = [
       final vol = (args['volume'] is num)
           ? (args['volume'] as num).toDouble().clamp(0.0, 1.0)
           : 1.0;
+      final target = (args['target'] ?? 'phone').toString();
+      if (Platform.isIOS && (target == 'watch' || target == 'both') && b64.isNotEmpty) {
+        await WatchSync.sendClipToWatch(
+            b64.contains(',') ? b64.split(',').last : b64);
+        if (target == 'watch') return {'played': true, 'target': 'watch'};
+      }
       try {
         await _clipPlayer.setVolume(vol);
         if (b64.isNotEmpty) {
