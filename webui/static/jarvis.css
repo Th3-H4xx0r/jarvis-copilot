@@ -1,0 +1,148 @@
+/* ============================================================================
+   JARVIS skin — frosted-glass + ambient-aurora + blue accent.
+   Matches the JarvisCopilot mobile app. Loaded LAST so it composes over
+   style.css. Everything is scoped to :root[data-skin="jarvis"] so the other
+   skins/themes are completely unaffected (selecting another skin reverts).
+   The look is dark-first: the heavy glass/aurora live under .dark[data-skin].
+   ============================================================================ */
+
+/* ── Inter (bundled; same family as mobile/watch) ─────────────────────────── */
+@font-face{font-family:'Inter';font-style:normal;font-weight:400;font-display:swap;
+  src:url('vendor/inter/Inter-Regular.ttf') format('truetype');}
+@font-face{font-family:'Inter';font-style:normal;font-weight:500;font-display:swap;
+  src:url('vendor/inter/Inter-Medium.ttf') format('truetype');}
+@font-face{font-family:'Inter';font-style:normal;font-weight:600;font-display:swap;
+  src:url('vendor/inter/Inter-SemiBold.ttf') format('truetype');}
+@font-face{font-family:'Inter';font-style:normal;font-weight:700;font-display:swap;
+  src:url('vendor/inter/Inter-Bold.ttf') format('truetype');}
+
+/* ── Blue accent (applies in any theme when the jarvis skin is active) ─────── */
+:root[data-skin="jarvis"]{
+  --accent:#2E6BFF;
+  --accent-hover:#1E57DC;
+  --accent-text:#6FB0FF;
+  --accent-bg:rgba(46,107,255,0.10);
+  --accent-bg-strong:rgba(46,107,255,0.20);
+  --blue:#6FB0FF;
+  --font-ui:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --radius-sm:8px;--radius-md:12px;--radius-card:16px;--radius-lg:18px;
+}
+
+/* ── Dark palette → mobile (near-black + translucent glass surfaces) ───────── */
+:root.dark[data-skin="jarvis"]{
+  --bg:#07070F;
+  --sidebar:rgba(16,18,28,0.66);
+  --surface:rgba(24,26,38,0.80);
+  --surface-1:rgba(24,26,38,0.80);
+  --surface-2:rgba(32,35,50,0.86);
+  --topbar-bg:rgba(12,14,22,0.62);
+  --main-bg:rgba(7,7,15,0.50);
+  --code-bg:rgba(10,12,20,0.66);
+  --pre-text:#E7ECF6;
+  --text:#EDF0F8;
+  --strong:#FFFFFF;
+  --em:#D5DBE8;
+  --muted:#8A93A8;
+  --border:rgba(255,255,255,0.10);
+  --border2:rgba(255,255,255,0.14);
+  --border-subtle:rgba(255,255,255,0.06);
+  --border-muted:rgba(255,255,255,0.12);
+  --hover-bg:rgba(255,255,255,0.06);
+  --surface-subtle:rgba(255,255,255,0.03);
+  --surface-subtle-hover:rgba(255,255,255,0.06);
+  --input-bg:rgba(255,255,255,0.05);
+  --shadow:0 10px 30px rgba(0,0,0,0.45);
+}
+
+/* ── Ambient aurora backdrop (fixed, behind everything) ───────────────────── */
+:root.dark[data-skin="jarvis"] body{
+  background:#07070F;
+}
+:root.dark[data-skin="jarvis"] body::before{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(60% 50% at 12% 0%,   rgba(30,168,156,0.16), transparent 70%),
+    radial-gradient(55% 45% at 92% 8%,    rgba(46,107,255,0.14), transparent 70%),
+    radial-gradient(45% 40% at 8% 100%,   rgba(176,112,58,0.06), transparent 70%),
+    radial-gradient(55% 50% at 100% 100%, rgba(58,107,255,0.10), transparent 72%),
+    linear-gradient(180deg,#0A0C12 0%,#050608 100%);
+}
+/* keep the app shell above the aurora */
+:root.dark[data-skin="jarvis"] .layout,
+:root.dark[data-skin="jarvis"] .app-titlebar{position:relative;z-index:1;}
+
+/* ── Frosted glass on the real top-level surfaces only (perf) ──────────────── */
+:root.dark[data-skin="jarvis"] .app-titlebar,
+:root.dark[data-skin="jarvis"] .sidebar,
+:root.dark[data-skin="jarvis"] .side-menu,
+:root.dark[data-skin="jarvis"] .panel-view,
+:root.dark[data-skin="jarvis"] .composer-box{
+  -webkit-backdrop-filter:blur(20px) saturate(1.1);
+  backdrop-filter:blur(20px) saturate(1.1);
+  border-color:var(--border);
+}
+:root.dark[data-skin="jarvis"] .sidebar{border-right:1px solid var(--border);}
+:root.dark[data-skin="jarvis"] .app-titlebar{border-bottom:1px solid var(--border);}
+
+/* Dropdowns/modals must read clearly → near-opaque dark (no bleed). */
+:root.dark[data-skin="jarvis"] .kanban-modal,
+:root.dark[data-skin="jarvis"] .cmd-dropdown,
+:root.dark[data-skin="jarvis"] .model-dropdown,
+:root.dark[data-skin="jarvis"] .profile-dropdown,
+:root.dark[data-skin="jarvis"] .ws-dropdown,
+:root.dark[data-skin="jarvis"] .reasoning-dropdown,
+:root.dark[data-skin="jarvis"] .toolsets-dropdown{
+  background:rgba(18,20,30,0.94);border:1px solid var(--border);border-radius:14px;
+  box-shadow:0 24px 60px rgba(0,0,0,0.55);
+}
+
+/* ── Composer (chat input) → frosted rounded pill + blue send ─────────────── */
+:root.dark[data-skin="jarvis"] .composer-box{
+  background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:22px;
+}
+:root.dark[data-skin="jarvis"] .composer-box:focus-within{
+  border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg-strong);
+}
+
+/* ── Primary buttons → blue gradient pill w/ soft glow ────────────────────── */
+:root[data-skin="jarvis"] .btn-primary,
+:root[data-skin="jarvis"] button.primary,
+:root[data-skin="jarvis"] .btn.primary,
+:root[data-skin="jarvis"] .send-btn:not(.stop):not(.interrupt):not(.steer),
+:root[data-skin="jarvis"] .composer-send,
+:root[data-skin="jarvis"] .voice-ptt-btn{
+  background:linear-gradient(135deg,#6FB0FF 0%,#2E6BFF 55%,#1E57DC 100%) !important;
+  border:none !important;color:#fff !important;border-radius:var(--radius-pill);
+  box-shadow:0 6px 22px rgba(46,107,255,0.40);
+}
+:root[data-skin="jarvis"] .btn-primary:hover,
+:root[data-skin="jarvis"] .send-btn:hover,
+:root[data-skin="jarvis"] .composer-send:hover{filter:brightness(1.06);}
+
+/* ── Card / panel rounding to match mobile ────────────────────────────────── */
+:root.dark[data-skin="jarvis"] .card,
+:root.dark[data-skin="jarvis"] .panel{border-radius:var(--radius-card);}
+
+/* ── Inputs → frosted ───────────────────────────────────────────────────── */
+:root.dark[data-skin="jarvis"] input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):not([type=submit]):not([type=button]),
+:root.dark[data-skin="jarvis"] textarea,
+:root.dark[data-skin="jarvis"] select{
+  background:var(--input-bg);border:1px solid var(--border);border-radius:12px;color:var(--text);
+}
+:root.dark[data-skin="jarvis"] input:focus,
+:root.dark[data-skin="jarvis"] textarea:focus,
+:root.dark[data-skin="jarvis"] select:focus{
+  border-color:var(--accent);outline:none;box-shadow:0 0 0 3px var(--accent-bg);
+}
+
+/* ── Accessibility / performance fallbacks ────────────────────────────────── */
+@media (prefers-reduced-transparency:reduce){
+  :root.dark[data-skin="jarvis"] .app-titlebar,
+  :root.dark[data-skin="jarvis"] .sidebar,
+  :root.dark[data-skin="jarvis"] .side-menu,
+  :root.dark[data-skin="jarvis"] .panel-view,
+  :root.dark[data-skin="jarvis"] .composer-box{
+    -webkit-backdrop-filter:none;backdrop-filter:none;background:#12141E;
+  }
+  :root.dark[data-skin="jarvis"] body::before{display:none;}
+}

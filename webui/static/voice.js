@@ -136,6 +136,14 @@
       this.target = 0;          // raw input amplitude (set externally)
       this.state = 'idle';
       this.particles = [];
+      // Glass-ribbon orb (matches mobile/watch): wavy loops on a sphere.
+      // [amp, k, phase, rx, ry, rz]
+      this._strands = [
+        [0.20, 2, 0.0, 0.55, 0.30, 0.15],
+        [0.26, 2, 2.1, 0.72, 0.58, 0.10],
+        [0.18, 1, 4.2, 0.42, 0.85, 0.22],
+      ];
+      this._t0 = 0;
       this.running = false;
       this._rafId = 0;
       this._resize = this._resize.bind(this);
@@ -164,7 +172,8 @@
     }
 
     _resize() {
-      const rect = this.canvas.parentElement.getBoundingClientRect();
+      const parent = this.canvas.parentElement || this.canvas;
+      const rect = parent.getBoundingClientRect();
       // Logical size: clamp inside the wrap, square aspect.
       const side = Math.max(120, Math.min(rect.width, rect.height, 360));
       this.w = side;
@@ -200,96 +209,144 @@
       this._rafId = 0;
     }
 
+    // Per-state palette [highlight, core, accent] — matches mobile/watch orb.
+    _palette() {
+      switch (this.state) {
+        case 'listening': return { hi: '#AFF0FF', core: '#2FB8FF', accent: '#6FD0FF' };
+        case 'thinking':  return { hi: '#BFA8FF', core: '#6A5CFF', accent: '#9C8CFF' };
+        case 'speaking':  return { hi: '#9FE0FF', core: '#3A86FF', accent: '#7C5CFF' };
+        case 'error':     return { hi: '#FFB0BA', core: '#FF6B7E', accent: '#FF9AA6' };
+        default:          return { hi: '#8FD8FF', core: '#3A86FF', accent: '#7C5CFF' };
+      }
+    }
+
+    // Wavy loop on a unit sphere → 3D tilt (+ slow wander) → ortho project.
+    _buildStrand(s, rs, gt, undu, t) {
+      const amp = s[0], k = s[1], phase = s[2];
+      const rx = s[3] + 0.16 * Math.sin(t * 0.11 + phase);
+      const ry = s[4] + 0.14 * Math.sin(t * 0.090 + phase * 1.7 + 1.0);
+      const rz = s[5] + 0.11 * Math.sin(t * 0.070 + phase * 0.7 + 2.0);
+      const cx = Math.cos(rx), sx = Math.sin(rx), cy = Math.cos(ry), sy = Math.sin(ry), cz = Math.cos(rz), sz = Math.sin(rz);
+      const M = 80, pts = new Array(M), depth = new Array(M); let sumF = 0;
+      for (let i = 0; i < M; i++) {
+        const u = i / M * 2 * Math.PI;
+        const theta = Math.PI / 2 + amp * Math.sin(k * u + phase + undu);
+        const phi = u + gt;
+        let x = Math.sin(theta) * Math.cos(phi), y = Math.sin(theta) * Math.sin(phi), z = Math.cos(theta);
+        const y1 = y * cx - z * sx, z1 = y * sx + z * cx; y = y1; z = z1;          // Rx
+        const x1 = x * cy + z * sy, z2 = -x * sy + z * cy; x = x1; z = z2;         // Ry
+        const x2 = x * cz - y * sz, y2 = x * sz + y * cz; x = x2; y = y2;          // Rz
+        pts[i] = { x: rs * x, y: -rs * y }; depth[i] = z; sumF += (z + 1) / 2;
+      }
+      return { pts, depth, meanFront: sumF / M };
+    }
+
+    // Filled band: offset the centerline ± a depth-scaled half-width.
+    _ribbonPath(b, halfBase) {
+      const n = b.pts.length, left = [], right = [];
+      for (let i = 0; i < n; i++) {
+        const p = b.pts[i], pp = b.pts[(i - 1 + n) % n], pn = b.pts[(i + 1) % n];
+        let tx = pn.x - pp.x, ty = pn.y - pp.y; const len = Math.hypot(tx, ty) || 1; tx /= len; ty /= len;
+        const nx = -ty, ny = tx; const hw = halfBase * (0.35 + 0.75 * ((b.depth[i] + 1) / 2));
+        left.push([p.x + nx * hw, p.y + ny * hw]); right.push([p.x - nx * hw, p.y - ny * hw]);
+      }
+      const path = new Path2D(); path.moveTo(left[0][0], left[0][1]);
+      for (let i = 1; i < n; i++) path.lineTo(left[i][0], left[i][1]);
+      for (let i = n - 1; i >= 0; i--) path.lineTo(right[i][0], right[i][1]);
+      path.closePath(); return path;
+    }
+
+    // Split centerline into front (z≥0) / back polylines for depth shading.
+    _edgePaths(b) {
+      const n = b.pts.length, front = new Path2D(), back = new Path2D();
+      let fOpen = false, bOpen = false;
+      for (let i = 0; i <= n; i++) {
+        const idx = i % n, p = b.pts[idx];
+        if (b.depth[idx] >= -0.05) {
+          if (!fOpen) { front.moveTo(p.x, p.y); fOpen = true; } else front.lineTo(p.x, p.y);
+          bOpen = false;
+        } else {
+          if (!bOpen) { back.moveTo(p.x, p.y); bOpen = true; } else back.lineTo(p.x, p.y);
+          fOpen = false;
+        }
+      }
+      return { front, back };
+    }
+
     _tick() {
       if (!this.running) return;
       this._rafId = requestAnimationFrame(this._tick);
-      this.t += 1 / 60;
-      // Smooth amplitude towards target (snappier on rise, gentler on fall)
-      const rise = 0.30, fall = 0.06;
-      const k = this.target > this.amp ? rise : fall;
-      this.amp = this.amp + (this.target - this.amp) * k;
+      const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+      if (!this._t0) this._t0 = now;
+      const t = now - this._t0;
+      // smooth amplitude (fast attack / quick release)
+      const k = this.target > this.amp ? 0.30 : 0.16;
+      this.amp += (this.target - this.amp) * k;
 
-      const ctx = this.ctx;
-      const W = this.canvas.width, H = this.canvas.height;
+      const ctx = this.ctx, W = this.canvas.width, H = this.canvas.height;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, W, H);
       ctx.save();
       ctx.translate(W / 2, H / 2);
-      const scale = Math.min(W, H) / 2;
+      const R = Math.min(W, H) / 2;
+      const pal = this._palette();
 
-      const [c0, c1, c2, ringC] = this._stateColors();
+      const breath = 0.5 + 0.5 * Math.sin(t * 0.9);
+      const talk = 0.5 + 0.5 * Math.sin(t * 3.4);
+      const pulse = 0.5 + 0.5 * Math.sin(t * 1.7);
+      let reactive = 0, spin = 0.05, energy = 0.34, unduRate = 0.55;
+      switch (this.state) {
+        case 'listening': reactive = 1 - Math.exp(-5 * this.amp); spin = 0.10; energy = 0.46; unduRate = 0.34 + 0.28 * reactive; break;
+        case 'speaking':  reactive = 0.30 + 0.45 * talk; spin = 0.12; energy = 0.55; break;
+        case 'thinking':  reactive = 0.10 + 0.22 * pulse; spin = 0.14; energy = 0.58; break;
+        default:          reactive = 0.06 + 0.13 * pulse; spin = 0.13; energy = 0.42; break; // idle, lively
+      }
+      const wander = 0.20 * Math.sin(t * 0.13) + 0.12 * Math.sin(t * 0.22 + 2.1);
+      const gt = t * spin + wander;
+      const undu = t * unduRate;
+      const scale = 1 + 0.025 * breath + 0.34 * reactive;
+      const rs = R * 0.56 * scale;
+      const bright = Math.min(0.80 + 0.28 * energy + 0.36 * reactive, 1.45);
 
-      // Background radial gradient (cool/warm core glow)
-      const bgRad = scale * 0.95;
-      const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, bgRad);
-      grad.addColorStop(0, this._withAlpha(c0, 0.22));
-      grad.addColorStop(0.45, this._withAlpha(c1, 0.10));
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grad;
-      ctx.beginPath(); ctx.arc(0, 0, bgRad, 0, Math.PI * 2); ctx.fill();
-
-      // Outer chrome rings — two counter-rotating
-      ctx.lineWidth = Math.max(1, scale * 0.012);
-      ctx.strokeStyle = this._withAlpha(ringC, 0.30);
-      this._chromeRing(ctx, scale * 0.86, this.t * 0.3, 18);
-      ctx.strokeStyle = this._withAlpha(ringC, 0.18);
-      this._chromeRing(ctx, scale * 0.78, -this.t * 0.2, 24);
-
-      // Particle sphere, additive blending
       ctx.globalCompositeOperation = 'lighter';
-      const rotY = this.t * 0.5;
-      const rotX = Math.sin(this.t * 0.18) * 0.28;
-      const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
-      const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
-      const pulse = this.state === 'thinking'
-        ? (0.85 + 0.15 * Math.sin(this.t * 4.2))
-        : 1.0;
-      const ampBoost = this.state === 'listening' || this.state === 'speaking'
-        ? this.amp
-        : 0;
-      const baseR = scale * 0.50 * pulse * (1 + 0.12 * ampBoost);
 
-      for (let i = 0; i < this.particles.length; i++) {
-        const p = this.particles[i];
-        // Rotate y, then x
-        let x = p.x * cosY - p.z * sinY;
-        let z = p.x * sinY + p.z * cosY;
-        let y = p.y * cosX - z * sinX;
-        z = p.y * sinX + z * cosX;
-        // Slight per-particle radial wobble
-        const wobble = 1 + 0.04 * Math.sin(this.t * 1.8 + p.phase);
-        const px = x * baseR * wobble;
-        const py = y * baseR * wobble;
-        // Depth-cued alpha and size
-        const depth = (z + 1) / 2;        // 0..1
-        const a = 0.10 + depth * 0.75;
-        const rad = (scale * 0.006) + depth * scale * 0.014;
-        const cMix = depth < 0.5
-          ? this._lerpColor(c2, c1, depth * 2)
-          : this._lerpColor(c1, c0, (depth - 0.5) * 2);
-        ctx.fillStyle = this._withAlpha(cMix, a);
-        ctx.beginPath(); ctx.arc(px, py, rad, 0, Math.PI * 2); ctx.fill();
+      // halo (additive radial gradient)
+      const haloR = rs * (1.5 + 0.30 * reactive);
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, haloR);
+      halo.addColorStop(0, this._withAlpha(pal.core, 0.20 * bright));
+      halo.addColorStop(0.55, this._withAlpha(pal.accent, 0.08 * bright));
+      halo.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(0, 0, haloR, 0, Math.PI * 2); ctx.fill();
+
+      // ribbons, back → front
+      const built = this._strands.map(s => this._buildStrand(s, rs, gt, undu, t));
+      built.sort((a, b) => a.meanFront - b.meanFront);
+      const halfBase = rs * 0.17 * (1 + 0.45 * reactive);
+      const sheetCol = this._lerpColor(pal.core, pal.hi, 0.4);
+      const edgeCol = this._lerpColor(pal.hi, '#ffffff', 0.5);
+      const supportsFilter = ('filter' in ctx);
+      for (const b of built) {
+        const band = this._ribbonPath(b, halfBase);
+        ctx.save();
+        if (supportsFilter) ctx.filter = `blur(${(rs * 0.05).toFixed(1)}px)`;
+        ctx.fillStyle = this._withAlpha(sheetCol, Math.min((0.26 + 0.18 * b.meanFront) * bright, 0.72));
+        ctx.fill(band);
+        ctx.restore();
+        const eg = this._edgePaths(b);
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = this._withAlpha(edgeCol, Math.min(0.22 * bright, 0.5));
+        ctx.lineWidth = rs * 0.014; ctx.stroke(eg.back);
+        ctx.strokeStyle = this._withAlpha(edgeCol, Math.min(0.55 * bright, 0.85));
+        ctx.lineWidth = rs * 0.020; ctx.stroke(eg.front);
       }
 
-      // Spike rim — radial spikes driven by amplitude
-      if (this.state === 'listening' || this.state === 'speaking') {
-        const SPIKES = 96;
-        const spikeBase = baseR + scale * 0.025;
-        const spikeMax = scale * 0.18 * Math.max(0.15, this.amp);
-        ctx.lineWidth = Math.max(1, scale * 0.006);
-        ctx.strokeStyle = this._withAlpha(c0, 0.6);
-        ctx.beginPath();
-        for (let i = 0; i < SPIKES; i++) {
-          const a = (i / SPIKES) * Math.PI * 2;
-          const n = 0.5 + 0.5 * Math.sin(this.t * 5 + i * 0.6);
-          const len = spikeMax * n;
-          const x1 = Math.cos(a) * spikeBase;
-          const y1 = Math.sin(a) * spikeBase;
-          const x2 = Math.cos(a) * (spikeBase + len);
-          const y2 = Math.sin(a) * (spikeBase + len);
-          ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
-        }
-        ctx.stroke();
-      }
+      // fresnel rim
+      ctx.save();
+      if (supportsFilter) ctx.filter = `blur(${(rs * 0.04).toFixed(1)}px)`;
+      ctx.strokeStyle = this._withAlpha(this._lerpColor(pal.core, '#ffffff', 0.5), Math.min(0.45 * bright, 0.7));
+      ctx.lineWidth = rs * 0.03;
+      ctx.beginPath(); ctx.arc(0, 0, rs, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
 
       ctx.globalCompositeOperation = 'source-over';
       ctx.restore();
@@ -579,15 +636,8 @@
   // the real canvas's context with the wrong type before WebGLRenderer claims
   // it.
   function createVoiceOrb(canvas) {
-    let ok = false;
-    try {
-      const probe = document.createElement('canvas');
-      ok = !!(window.THREE && (probe.getContext('webgl2') || probe.getContext('webgl')));
-    } catch (e) { ok = false; }
-    if (ok) {
-      try { return new VoiceOrbGL(canvas); }
-      catch (e) { console.warn('[voice] WebGL orb failed, falling back to Canvas-2D:', e); }
-    }
+    // Always use the Canvas-2D glass-ribbon orb so the WebUI matches the
+    // mobile/watch orb exactly. (VoiceOrbGL is kept above but no longer used.)
     return new VoiceOrbCanvas2D(canvas);
   }
 
