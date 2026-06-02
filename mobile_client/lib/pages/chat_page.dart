@@ -130,20 +130,23 @@ class _ChatPageState extends State<ChatPage> {
         ],
       ),
       body: AppBackground(
-        child: Column(
-          children: [
-            Expanded(
-              child: ListenableBuilder(
-                listenable: _c,
-                builder: (context, _) => _buildBody(),
+        child: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              Expanded(
+                child: ListenableBuilder(
+                  listenable: _c,
+                  builder: (context, _) => _buildBody(),
+                ),
               ),
-            ),
-            _Composer(
-              controller: _composer,
-              chat: _c,
-              onSend: _send,
-            ),
-          ],
+              _Composer(
+                controller: _composer,
+                chat: _c,
+                onSend: _send,
+              ),
+            ],
+          ),
         ),
       ),
     );
