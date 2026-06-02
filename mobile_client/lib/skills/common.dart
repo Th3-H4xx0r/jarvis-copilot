@@ -17,6 +17,11 @@ import 'package:record/record.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vibration/vibration.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:timezone/timezone.dart' as tz;
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'dart:typed_data';
 
 import 'registry.dart';
 import 'android.dart' as android_skills;
@@ -49,6 +54,35 @@ Future<void> _ensureNotifications() async {
     const InitializationSettings(android: androidInit, iOS: iosInit),
   );
   _notificationsInited = true;
+}
+
+/// Shared local-notification helper (also used by the connection monitor).
+Future<void> showLocalNotification(String title, String body) async {
+  await _ensureNotifications();
+  const androidDetails = AndroidNotificationDetails(
+    'jc_skill_channel', 'JarvisCopilot',
+    importance: Importance.high, priority: Priority.high,
+  );
+  const iosDetails = DarwinNotificationDetails();
+  await _localNotifications.show(
+    DateTime.now().millisecondsSinceEpoch.remainder(1 << 31),
+    title, body,
+    const NotificationDetails(android: androidDetails, iOS: iosDetails),
+  );
+}
+
+/// One audio player reused for agent-played clips (JARVIS voice, etc.).
+final AudioPlayer _clipPlayer = AudioPlayer();
+
+/// Lazily init the timezone DB + local zone (needed for scheduled alarms).
+bool _tzReady = false;
+Future<void> _ensureTz() async {
+  if (_tzReady) return;
+  tzdata.initializeTimeZones();
+  try {
+    tz.setLocalLocation(tz.getLocation(await FlutterTimezone.getLocalTimezone()));
+  } catch (_) {/* fall back to the default (UTC) if lookup fails */}
+  _tzReady = true;
 }
 
 final FlutterTts _tts = FlutterTts();
@@ -213,23 +247,56 @@ final List<SkillEntry> _common = [
   ),
   SkillEntry(
     name: 'vibrate',
-    description: 'Vibrate the device briefly.',
+    description:
+        'Vibrate the device. Pass duration_ms for a single buzz (up to 30s), OR '
+        'a pattern of alternating wait/vibrate millisecond steps '
+        '(e.g. [0,500,250,500] = buzz 500, pause 250, buzz 500). Optional repeat '
+        'loops the buzz/pattern. Use a long duration or a repeated pattern for an '
+        'insistent, alarm-style haptic.',
     inputSchema: {
       'type': 'object',
       'properties': {
-        'duration_ms': {'type': 'integer', 'minimum': 1, 'maximum': 5000},
+        'duration_ms': {'type': 'integer', 'minimum': 1, 'maximum': 30000},
+        'pattern': {
+          'type': 'array',
+          'items': {'type': 'integer'},
+          'description': 'Alternating wait/vibrate ms; overrides duration_ms.',
+        },
+        'repeat': {'type': 'integer', 'minimum': 1, 'maximum': 20},
       },
     },
     run: (args) async {
-      final d = (args['duration_ms'] is num)
-          ? (args['duration_ms'] as num).toInt()
-          : 300;
-      final has = await Vibration.hasVibrator();
-      if (has) {
-        await Vibration.vibrate(duration: d.clamp(1, 5000));
-        return {'vibrated': true, 'duration_ms': d};
+      if (!(await Vibration.hasVibrator())) {
+        return {'vibrated': false, 'reason': 'no vibrator'};
       }
-      return {'vibrated': false, 'reason': 'no vibrator'};
+      final repeat = (args['repeat'] is num)
+          ? (args['repeat'] as num).toInt().clamp(1, 20)
+          : 1;
+      final raw = args['pattern'];
+      if (raw is List && raw.isNotEmpty) {
+        final pattern = raw
+            .map((e) => (e is num ? e.toInt() : 0).clamp(0, 30000))
+            .toList();
+        final total = pattern.fold<int>(0, (a, b) => a + b);
+        for (var i = 0; i < repeat; i++) {
+          await Vibration.vibrate(pattern: pattern);
+          if (repeat > 1 && i < repeat - 1) {
+            await Future.delayed(Duration(milliseconds: total + 100));
+          }
+        }
+        return {'vibrated': true, 'pattern': pattern, 'repeat': repeat};
+      }
+      final dur = ((args['duration_ms'] is num)
+              ? (args['duration_ms'] as num).toInt()
+              : 300)
+          .clamp(1, 30000);
+      for (var i = 0; i < repeat; i++) {
+        await Vibration.vibrate(duration: dur);
+        if (repeat > 1 && i < repeat - 1) {
+          await Future.delayed(Duration(milliseconds: dur + 150));
+        }
+      }
+      return {'vibrated': true, 'duration_ms': dur, 'repeat': repeat};
     },
   ),
   SkillEntry(
@@ -326,6 +393,114 @@ final List<SkillEntry> _common = [
       }
       final r = await _tts.speak(text);
       return {'ok': r == 1};
+    },
+  ),
+  SkillEntry(
+    name: 'play_audio',
+    description:
+        'Play an audio clip through this device\'s speaker — e.g. a '
+        'server-generated JARVIS-voice TTS clip. Pass audio_base64 (raw bytes; '
+        'mp3/wav/m4a/etc.) OR a url. Prefer this over text_to_speech when you '
+        'want the real JARVIS voice instead of the phone\'s built-in synthesizer.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'audio_base64': {'type': 'string'},
+        'url': {'type': 'string'},
+        'volume': {'type': 'number', 'minimum': 0, 'maximum': 1},
+      },
+    },
+    run: (args) async {
+      final b64 = (args['audio_base64'] ?? '').toString();
+      final url = (args['url'] ?? '').toString();
+      final vol = (args['volume'] is num)
+          ? (args['volume'] as num).toDouble().clamp(0.0, 1.0)
+          : 1.0;
+      try {
+        await _clipPlayer.setVolume(vol);
+        if (b64.isNotEmpty) {
+          // iOS: BytesSource is unreliable → write a temp file and play that.
+          final bytes =
+              base64Decode(b64.contains(',') ? b64.split(',').last : b64);
+          final dir = await getTemporaryDirectory();
+          final f = File(
+              '${dir.path}/jc_clip_${DateTime.now().millisecondsSinceEpoch}.audio');
+          await f.writeAsBytes(bytes, flush: true);
+          await _clipPlayer.play(DeviceFileSource(f.path));
+          return {'played': true, 'bytes': bytes.length};
+        }
+        if (url.isNotEmpty) {
+          await _clipPlayer.play(UrlSource(url));
+          return {'played': true, 'url': url};
+        }
+        return {'played': false, 'error': 'audio_base64 or url required'};
+      } catch (e) {
+        return {'played': false, 'error': e.toString()};
+      }
+    },
+  ),
+  SkillEntry(
+    name: 'set_alarm',
+    description:
+        'Schedule an on-device alarm: a local notification with an alarm sound + '
+        'vibration that fires at the given time even if the app is closed. Give '
+        'the time as 24h hour (+minute) for the next occurrence, OR in_minutes '
+        'from now. Optional label. Note: it respects the OS Silent / '
+        'Do-Not-Disturb settings (iOS has no public API for a true Clock alarm).',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'hour': {'type': 'integer', 'minimum': 0, 'maximum': 23},
+        'minute': {'type': 'integer', 'minimum': 0, 'maximum': 59},
+        'in_minutes': {'type': 'integer', 'minimum': 1, 'maximum': 1440},
+        'label': {'type': 'string'},
+      },
+    },
+    run: (args) async {
+      await _ensureTz();
+      await _ensureNotifications();
+      final label = (args['label'] ?? 'Alarm').toString();
+      final now = tz.TZDateTime.now(tz.local);
+      tz.TZDateTime when;
+      if (args['in_minutes'] is num) {
+        when = now.add(Duration(minutes: (args['in_minutes'] as num).toInt()));
+      } else if (args['hour'] is num) {
+        final h = (args['hour'] as num).toInt();
+        final m = (args['minute'] is num) ? (args['minute'] as num).toInt() : 0;
+        when = tz.TZDateTime(tz.local, now.year, now.month, now.day, h, m);
+        if (!when.isAfter(now)) when = when.add(const Duration(days: 1));
+      } else {
+        return {'scheduled': false, 'error': 'hour or in_minutes required'};
+      }
+      final id = when.millisecondsSinceEpoch.remainder(1 << 31);
+      final androidDetails = AndroidNotificationDetails(
+        'jc_alarm_channel',
+        'JarvisCopilot Alarms',
+        channelDescription: 'Scheduled alarms',
+        importance: Importance.max,
+        priority: Priority.max,
+        category: AndroidNotificationCategory.alarm,
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+        playSound: true,
+        enableVibration: true,
+        vibrationPattern:
+            Int64List.fromList(const [0, 600, 300, 600, 300, 600]),
+      );
+      const iosDetails = DarwinNotificationDetails(
+        presentSound: true,
+        interruptionLevel: InterruptionLevel.timeSensitive,
+      );
+      await _localNotifications.zonedSchedule(
+        id,
+        label,
+        'JARVIS alarm',
+        when,
+        NotificationDetails(android: androidDetails, iOS: iosDetails),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      return {'scheduled': true, 'at': when.toIso8601String(), 'id': id};
     },
   ),
   SkillEntry(

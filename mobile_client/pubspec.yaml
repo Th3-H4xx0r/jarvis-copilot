@@ -35,7 +35,9 @@ dependencies:
   device_info_plus: ^9.1.2     # device_info skill
   battery_plus: ^5.0.3         # battery_level
   vibration: ^2.0.0            # vibrate
-  flutter_local_notifications: ^17.0.0  # notify skill
+  flutter_local_notifications: ^17.0.0  # notify skill + set_alarm scheduling
+  timezone: ^0.9.2             # set_alarm zonedSchedule (TZDateTime)
+  flutter_timezone: ^1.0.8     # resolve the device's local timezone for alarms
   geolocator: ^11.0.0          # get_location
   image_picker: ^1.0.7         # take_photo, pick_photo
   flutter_tts: ^4.0.2          # text_to_speech

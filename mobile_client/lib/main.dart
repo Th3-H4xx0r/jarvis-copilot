@@ -10,6 +10,7 @@ import 'services/api_client.dart';
 import 'services/background_location.dart';
 import 'services/credentials.dart';
 import 'services/invoke_runner.dart';
+import 'services/connection_monitor.dart';
 import 'services/push_handler.dart';
 import 'services/watch_sync.dart';
 import 'services/ws_bridge.dart';
@@ -27,6 +28,7 @@ late final InvokeRunner runner;
 late final PushHandler push;
 late final WakeService wake;
 late final BackgroundLocation location;
+late final ConnectionMonitor connectionMonitor;
 
 /// Latched request to "open the Voice tab and start realtime" — fired by
 /// the Siri App Intent and the wake word. NavShell switches to the Voice
@@ -78,6 +80,9 @@ Future<void> main() async {
   ws.attachRunner(runner);
   unawaited(ws.start());
   unawaited(push.start());
+
+  // Notify the user when the bridge drops / restores its server connection.
+  connectionMonitor = ConnectionMonitor(ws.connected)..start();
 
   // Siri "Talk to JarvisCopilot" intent → native fires this → open Voice.
   const MethodChannel('jarviscopilot/intents').setMethodCallHandler((call) async {

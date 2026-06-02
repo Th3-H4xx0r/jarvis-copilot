@@ -237,4 +237,46 @@ final List<SkillEntry> iosSkills = [
       }
     },
   ),
+  SkillEntry(
+    name: 'create_shortcut',
+    platform: 'ios',
+    description:
+        "Create an iOS Shortcut. iOS has NO API to author Shortcuts silently, so "
+        "this opens the Shortcuts app: with no args it opens a blank new-shortcut "
+        "editor; with import_url (a hosted .shortcut file / iCloud share link) it "
+        "opens the import-confirm screen so the user taps Add. To RUN an existing "
+        "Shortcut afterwards, use run_shortcut.",
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'import_url': {
+          'type': 'string',
+          'description': 'URL of a hosted .shortcut file or iCloud share link to import.',
+        },
+        'name': {'type': 'string', 'description': 'Suggested name when importing.'},
+      },
+    },
+    run: (args) async {
+      if (!Platform.isIOS) throw StateError('iOS only');
+      final importUrl = (args['import_url'] ?? '').toString();
+      final name = (args['name'] ?? '').toString();
+      final Uri uri = importUrl.isNotEmpty
+          ? Uri(
+              scheme: 'shortcuts',
+              host: 'x-callback-url',
+              path: '/import-shortcut',
+              queryParameters: {
+                'url': importUrl,
+                if (name.isNotEmpty) 'name': name,
+              },
+            )
+          : Uri(scheme: 'shortcuts', host: 'create-shortcut');
+      final opened = await launchUrl(uri);
+      return {
+        'opened': opened,
+        'mode': importUrl.isNotEmpty ? 'import' : 'create',
+        if (!opened) 'error': 'Could not open Shortcuts (is it installed?)',
+      };
+    },
+  ),
 ];
