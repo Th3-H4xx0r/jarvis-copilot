@@ -7,6 +7,8 @@ import '../chat/widgets/message_view.dart';
 import '../chat/widgets/sessions_drawer.dart';
 import '../main.dart' as app;
 import '../theme.dart';
+import '../voice/voice_orb.dart';
+import '../voice/voice_state.dart';
 import '../widgets/glass.dart';
 
 /// Native chat screen — a from-scratch recreation of the webui chat
@@ -78,6 +80,14 @@ class _ChatPageState extends State<ChatPage> {
   void _send() {
     final text = _composer.text;
     if (text.trim().isEmpty || _c.streaming) return;
+    _composer.clear();
+    _c.send(text);
+    FocusScope.of(context).unfocus();
+  }
+
+  // A starter chip on the empty state: send it straight away.
+  void _onSuggestion(String text) {
+    if (_c.streaming) return;
     _composer.clear();
     _c.send(text);
     FocusScope.of(context).unfocus();
@@ -157,7 +167,7 @@ class _ChatPageState extends State<ChatPage> {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     }
     if (_c.messages.isEmpty) {
-      return const _EmptyState();
+      return _EmptyState(onSuggestion: _onSuggestion);
     }
     return ListView.builder(
       controller: _scroll,
@@ -168,47 +178,97 @@ class _ChatPageState extends State<ChatPage> {
   }
 }
 
+/// New-chat welcome screen: the brand orb hero, a gradient greeting, a frosted
+/// blurb, and a few tappable starter chips that kick off a conversation.
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  const _EmptyState({required this.onSuggestion});
+
+  final ValueChanged<String> onSuggestion;
+
+  static const _suggestions = [
+    "What can you do?",
+    "Summarize my day",
+    "Check my devices",
+    "Run a skill",
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              gradient: blueGradient(),
-              shape: BoxShape.circle,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight: MediaQuery.of(context).size.height * 0.62,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const VoiceOrb(
+              state: VoiceState.idle,
+              amplitude: AlwaysStoppedAnimation(0.0),
+              size: 156,
             ),
-            alignment: Alignment.center,
-            child: const Text(
-              'J',
+            const SizedBox(height: 24),
+            const GradientText(
+              'Hello, I’m JARVIS',
+              textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 30,
+                fontSize: 28,
                 fontWeight: FontWeight.w800,
-                color: Colors.white,
+                letterSpacing: -0.5,
+                height: 1.15,
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'How can I help?',
-            style: TextStyle(
-              color: JcTheme.text,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
+            const SizedBox(height: 12),
+            const Text(
+              'Your intelligent copilot — ask anything, or run a skill on your devices.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: JcTheme.muted, fontSize: 14, height: 1.4),
             ),
+            const SizedBox(height: 26),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final s in _suggestions)
+                  _SuggestionChip(label: s, onTap: () => onSuggestion(s)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A frosted starter-prompt pill.
+class _SuggestionChip extends StatelessWidget {
+  const _SuggestionChip({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+          decoration: BoxDecoration(
+            color: JcTheme.glassFill,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: JcTheme.glassBorder),
           ),
-          const SizedBox(height: 6),
-          const Text(
-            'Ask anything, or run a skill on your devices.',
-            style: TextStyle(color: JcTheme.muted, fontSize: 13),
+          child: Text(
+            label,
+            style: const TextStyle(
+                color: JcTheme.text, fontSize: 13, fontWeight: FontWeight.w600),
           ),
-        ],
+        ),
       ),
     );
   }
