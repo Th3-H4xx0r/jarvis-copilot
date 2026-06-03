@@ -7,11 +7,13 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../api/devices.dart';
 import '../api/sessions.dart';
 import '../api/voice.dart';
 import '../main.dart' as app; // for ws.connected (Live Activity footer)
 import '../services/api_client.dart';
 import 'audio_queue.dart';
+import 'device_icon.dart';
 import 'voice_state.dart';
 
 /// Drives the native voice screen. Owns the mic, the FSM, the audio
@@ -109,10 +111,17 @@ class VoiceController extends ChangeNotifier {
   // trailing-throttle so we don't flood iOS's Live Activity update budget —
   // flooding made the island flicker and get stuck on a stale state (e.g.
   // showing "Listening" after Stop because the final "idle" update was dropped).
-  String _laState = '', _laTranscript = '', _laActivity = '';
+  String _laState = '', _laTranscript = '', _laActivity = '', _laDevices = '';
   bool _laConnected = true, _laSent = false;
   DateTime _lastLAPush = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _laTimer;
+
+  // Online connected devices shown in the Live Activity strip (icon kinds, e.g.
+  // ["laptop","phone"]). Pulled from the server's /api/devices, refreshed lazily
+  // (≤ every 15s while the activity is live) so it isn't fetched on every push.
+  List<String> _deviceKinds = const [];
+  DateTime _devicesAt = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _devicesFetching = false;
 
   void _onConnChanged() => _pushLiveActivity();
 
@@ -125,12 +134,16 @@ class VoiceController extends ChangeNotifier {
     final transcript = _firstLine(userTranscript);
     final activity = _outputLine();
     final connected = _liveConnected();
+    _maybeRefreshDevices(); // keeps _deviceKinds current; re-pushes if it changes
+    final devices = _deviceKinds;
+    final devicesKey = devices.join(',');
     // Nothing new on screen → don't churn the activity.
     if (_laSent &&
         s == _laState &&
         transcript == _laTranscript &&
         activity == _laActivity &&
-        connected == _laConnected) {
+        connected == _laConnected &&
+        devicesKey == _laDevices) {
       _laTimer?.cancel();
       _laTimer = null;
       return;
@@ -141,6 +154,7 @@ class VoiceController extends ChangeNotifier {
       _laTranscript = transcript;
       _laActivity = activity;
       _laConnected = connected;
+      _laDevices = devicesKey;
       _laSent = true;
       _lastLAPush = DateTime.now();
       LiveActivity.update(
@@ -148,6 +162,7 @@ class VoiceController extends ChangeNotifier {
         transcript: transcript,
         activity: activity,
         connected: connected,
+        devices: devices,
       );
     }
 
@@ -162,6 +177,31 @@ class VoiceController extends ChangeNotifier {
       // Trailing edge: re-run after the window so the LATEST state is sent.
       _laTimer ??= Timer(Duration(milliseconds: 450 - sinceMs), _pushLiveActivity);
     }
+  }
+
+  /// Refresh the online-device list (for the Live Activity strip) at most once
+  /// every 15s. Fire-and-forget: on success it updates [_deviceKinds] and
+  /// re-pushes so the new icons land. Failures keep the last-known list.
+  void _maybeRefreshDevices() {
+    if (_devicesFetching) return;
+    if (DateTime.now().difference(_devicesAt).inSeconds < 15) return;
+    _devicesFetching = true;
+    () async {
+      try {
+        final list = await DevicesApi(app.api).list();
+        final kinds = <String>[
+          for (final d in list)
+            if (d['online'] == true) deviceIconKind(d),
+        ];
+        _deviceKinds = kinds.take(6).toList(growable: false); // strip + 4KB cap
+        _devicesAt = DateTime.now();
+        _pushLiveActivity();
+      } catch (_) {
+        _devicesAt = DateTime.now(); // back off on error too
+      } finally {
+        _devicesFetching = false;
+      }
+    }();
   }
 
   /// JARVIS's side of the line — a reply snippet or tool status (the user's
@@ -943,12 +983,14 @@ class LiveActivity {
     String transcript = '',
     String activity = '',
     required bool connected,
+    List<String> devices = const [],
   }) =>
       unawaited(_ch.invokeMethod<void>('update', {
         'state': state,
         'transcript': transcript,
         'activity': activity,
         'connected': connected,
+        'devices': devices,
       }).catchError((_) {}));
   static void end() =>
       unawaited(_ch.invokeMethod<void>('end').catchError((_) {}));

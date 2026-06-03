@@ -187,52 +187,37 @@ struct JarvisOrb: View {
     }
 }
 
-/// State-coloured audio waveform — the signature graphic. Animates with voice
-/// activity on iOS 17+ (variable-colour); dim/static when idle or thinking.
-@available(iOS 16.2, *)
-struct JarvisWaveform: View {
-    let state: String
-    var body: some View {
-        let c = jcStateColor(state)
-        let active = state == "listening" || state == "speaking"
-        let base = Image(systemName: "waveform")
-            .font(.system(size: 22, weight: .semibold))
-            .foregroundStyle(c)
-            .shadow(color: c.opacity(0.55), radius: 5)
-        return Group {
-            if active, #available(iOS 17.0, *) {
-                base.symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeating)
-            } else {
-                base.opacity(active ? 1 : 0.4)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-/// Devices strip: phone + watch icons (online lit with a green glow, offline
-/// dimmed) + an online count. Phone is always present/online.
+/// Devices strip: a CENTERED row of icons, one per ONLINE connected device
+/// (laptop / phone / desktop / watch / …), each lit with a green glow. No count.
 @available(iOS 16.2, *)
 struct JarvisDevices: View {
     let st: JarvisActivityAttributes.ContentState
     var body: some View {
-        let total = 1 + (st.watchPresent ? 1 : 0)
-        let online = min(total, 1 + (st.watchOnline ? 1 : 0))
-        HStack(spacing: 9) {
-            Text("DEVICES").font(.system(size: 9, weight: .bold)).tracking(0.8)
-                .foregroundStyle(.white.opacity(0.4))
-            icon("iphone", true)
-            if st.watchPresent { icon("applewatch", st.watchOnline) }
-            Spacer()
-            (Text("\(online)").bold().foregroundColor(.green)
-             + Text(" of \(total) online").foregroundColor(.white.opacity(0.55)))
-                .font(.system(size: 11, weight: .medium))
+        // Always show at least this phone, even before the device list loads.
+        let kinds = st.devices.isEmpty ? ["phone"] : st.devices
+        HStack(spacing: 16) {
+            ForEach(Array(kinds.enumerated()), id: \.offset) { _, kind in
+                Image(systemName: jcDeviceSymbol(kind))
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .shadow(color: Color.green.opacity(0.6), radius: 3)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
-    private func icon(_ name: String, _ online: Bool) -> some View {
-        Image(systemName: name).font(.system(size: 13))
-            .foregroundStyle(online ? Color.white : Color.white.opacity(0.28))
-            .shadow(color: online ? Color.green.opacity(0.7) : .clear, radius: 3)
+}
+
+/// Maps a normalized device kind (set in voice_controller's `_deviceIconKind`,
+/// plus "watch" folded in natively) to an SF Symbol.
+func jcDeviceSymbol(_ kind: String) -> String {
+    switch kind {
+    case "laptop": return "laptopcomputer"
+    case "phone": return "iphone"
+    case "desktop": return "desktopcomputer"
+    case "watch": return "applewatch"
+    case "tablet": return "ipad"
+    case "web": return "globe"
+    default: return "display"
     }
 }
 
@@ -267,7 +252,7 @@ struct JarvisConvo: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 10).padding(.horizontal, 12)
+        .padding(.vertical, 8).padding(.horizontal, 12)
         .background(RoundedRectangle(cornerRadius: 14).fill(c.opacity(0.12)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(c.opacity(0.24), lineWidth: 1))
     }
@@ -294,32 +279,38 @@ struct JarvisLiveActivity: Widget {
         } dynamicIsland: { context in
             let st = context.state
             return DynamicIsland {
+                // Header left-aligned: orb + JARVIS/Connected sit together on the
+                // leading side (a little padding off the orb), state pill trailing.
                 DynamicIslandExpandedRegion(.leading) {
-                    JarvisOrb(state: st.state, size: 46).padding(.leading, 4)
-                }
-                DynamicIslandExpandedRegion(.center) {
-                    VStack(spacing: 2) {
-                        Text("JARVIS").font(.system(size: 15, weight: .heavy))
-                            .foregroundStyle(.white)
-                        HStack(spacing: 4) {
-                            Circle().fill(st.connected ? Color.green : Color.gray)
-                                .frame(width: 5, height: 5)
-                            Text(st.connected ? "Connected" : "Offline")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.5))
+                    HStack(spacing: 9) {
+                        JarvisOrb(state: st.state, size: 42)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("JARVIS").font(.system(size: 15, weight: .heavy))
+                                .foregroundStyle(.white)
+                            HStack(spacing: 4) {
+                                Circle().fill(st.connected ? Color.green : Color.gray)
+                                    .frame(width: 5, height: 5)
+                                Text(st.connected ? "Connected" : "Offline")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.5))
+                            }
                         }
                     }
+                    .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     jcStatePill(st.state).padding(.trailing, 4)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(spacing: 7) {
-                        JarvisWaveform(state: st.state)
+                    // Both the expanded island AND the lock-screen banner are
+                    // height-capped by the system, so the waveform is dropped from
+                    // both (it pushed the conversation + devices past the cap and
+                    // clipped them). State is already conveyed by the trailing pill
+                    // + the animating orb, so the freed room goes to the content.
+                    VStack(spacing: 6) {
                         JarvisConvo(st: st)
                         JarvisDevices(st: st)
                     }
-                    .padding(.top, 1)
                 }
             } compactLeading: {
                 JarvisOrb(state: st.state, size: 24)
@@ -341,7 +332,10 @@ struct JarvisLiveActivity: Widget {
 struct JarvisLockScreen: View {
     let st: JarvisActivityAttributes.ContentState
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
+        // No waveform here: the lock-screen banner is height-capped too, and a
+        // two-row conversation was pushing the devices strip off the bottom. The
+        // pill already shows state, so the room goes to the conversation + devices.
+        VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 12) {
                 JarvisOrb(state: st.state, size: 44)
                 VStack(alignment: .leading, spacing: 3) {
@@ -357,11 +351,10 @@ struct JarvisLockScreen: View {
                 Spacer()
                 jcStatePill(st.state)
             }
-            JarvisWaveform(state: st.state)
             JarvisConvo(st: st)
             JarvisDevices(st: st)
         }
-        .padding(16)
+        .padding(.horizontal, 16).padding(.vertical, 13)
     }
 }
 

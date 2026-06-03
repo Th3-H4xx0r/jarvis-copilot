@@ -18,10 +18,11 @@ struct JarvisActivityAttributes: ActivityAttributes {
         var activity: String = ""
         /// Server link status (drives the Connected / Offline footer).
         var connected: Bool = true
-        /// Apple Watch paired + app installed (shown in the devices strip).
-        var watchPresent: Bool = false
-        /// Apple Watch currently reachable.
-        var watchOnline: Bool = false
+        /// Icon kinds for every ONLINE connected device, rendered as a centered
+        /// strip — e.g. ["laptop","phone","watch"]. Sourced from the server's
+        /// /api/devices (online only); the Apple Watch is folded in natively from
+        /// WCSession since it relays through the phone rather than the server.
+        var devices: [String] = []
     }
     var title: String = "JARVIS"
 }

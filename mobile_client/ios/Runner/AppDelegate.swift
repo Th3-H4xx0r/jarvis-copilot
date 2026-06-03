@@ -480,22 +480,30 @@ import AppIntents
 @available(iOS 16.2, *)
 enum LiveActivityManager {
     private static func contentState(_ args: [String: Any]) -> JarvisActivityAttributes.ContentState {
-        var s = JarvisActivityAttributes.ContentState(
+        // Online devices come from Dart (the server's /api/devices list). The
+        // Apple Watch relays through the phone — it isn't a server-paired device —
+        // so fold it in here from WCSession. Gate on paired + app installed, NOT
+        // isReachable (which flaps off whenever the watch screen is down, so the
+        // watch would almost never appear).
+        var devices = (args["devices"] as? [String]) ?? []
+        if WCSession.isSupported() {
+            let wc = WCSession.default
+            if wc.activationState == .activated,
+               wc.isPaired, wc.isWatchAppInstalled,
+               !devices.contains("watch") {
+                devices.append("watch")
+            }
+        }
+        // Safety clamp on strip width / payload (Dart already caps server devices
+        // at 6; the watch can add one).
+        if devices.count > 8 { devices = Array(devices.prefix(8)) }
+        return JarvisActivityAttributes.ContentState(
             state: (args["state"] as? String) ?? "idle",
             transcript: (args["transcript"] as? String) ?? "",
             activity: (args["activity"] as? String) ?? "",
-            connected: (args["connected"] as? Bool) ?? true
+            connected: (args["connected"] as? Bool) ?? true,
+            devices: devices
         )
-        // Devices strip: phone is implicit; add the watch from WCSession.
-        if WCSession.isSupported() {
-            let wc = WCSession.default
-            if wc.activationState == .activated {
-                s.watchPresent = wc.isPaired && wc.isWatchAppInstalled
-                // Online implies present, so the count can never read "2 of 1".
-                s.watchOnline = s.watchPresent && wc.isReachable
-            }
-        }
-        return s
     }
 
     /// Create the activity on the first ACTIVE state, or update the running one.
