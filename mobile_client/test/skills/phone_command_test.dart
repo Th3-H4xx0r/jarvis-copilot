@@ -1,0 +1,60 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:jarviscopilot_mobile/skills/phone_command.dart';
+
+void main() {
+  group('phoneActionAwaitsResult', () {
+    test('open_app / open_url are launch-type (do not await)', () {
+      expect(phoneActionAwaitsResult('open_app'), isFalse);
+      expect(phoneActionAwaitsResult('open_url'), isFalse);
+    });
+    test('get / set / media / scene / capabilities await a result', () {
+      for (final a in ['get', 'set', 'media', 'scene', 'capabilities']) {
+        expect(phoneActionAwaitsResult(a), isTrue, reason: a);
+      }
+    });
+    test('unknown action defaults to awaiting (safer)', () {
+      expect(phoneActionAwaitsResult('something_new'), isTrue);
+    });
+  });
+
+  group('buildPhoneCommand', () {
+    test('keeps action + provided params, drops nulls/empties/internal keys', () {
+      final cmd = buildPhoneCommand({
+        'action': 'open_app',
+        'app': 'Spotify',
+        'url': null,
+        'value': '',
+        'timeout_seconds': 30, // internal, must be dropped
+      });
+      expect(cmd, {'action': 'open_app', 'app': 'Spotify'});
+    });
+    test('preserves non-string values like numbers and bools', () {
+      final cmd = buildPhoneCommand({
+        'action': 'set',
+        'setting': 'brightness',
+        'value': 0.5,
+      });
+      expect(cmd, {'action': 'set', 'setting': 'brightness', 'value': 0.5});
+    });
+    test('throws when action missing', () {
+      expect(() => buildPhoneCommand({'app': 'Spotify'}), throwsArgumentError);
+    });
+  });
+
+  group('parsePhoneOutput', () {
+    test('parses a JSON object output', () {
+      expect(parsePhoneOutput('{"ok":true,"result":"opened Spotify"}'),
+          {'ok': true, 'result': 'opened Spotify'});
+    });
+    test('wraps non-JSON text as a raw result', () {
+      expect(parsePhoneOutput('73%'), {'ok': true, 'result': '73%'});
+    });
+    test('empty output -> ok with empty result', () {
+      expect(parsePhoneOutput(''), {'ok': true, 'result': ''});
+      expect(parsePhoneOutput(null), {'ok': true, 'result': ''});
+    });
+    test('a JSON non-object (array/number) is treated as raw text', () {
+      expect(parsePhoneOutput('[1,2]'), {'ok': true, 'result': '[1,2]'});
+    });
+  });
+}

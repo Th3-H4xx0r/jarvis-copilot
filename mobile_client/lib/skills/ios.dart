@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'phone_command.dart';
 import 'registry.dart';
 
 /// iOS-only skills.
@@ -33,6 +35,27 @@ final Map<String, Completer<Map<String, dynamic>>> _shortcutWaiters = {};
 int _shortcutRidSeq = 0;
 bool _shortcutHandlerWired = false;
 
+// Cached capabilities manifest from the dispatcher's `capabilities` query, so
+// the LLM needn't re-run the visible bounce mid-conversation. Cleared by a
+// forced refresh (refresh:true). `_phoneCapsInflight` coalesces concurrent
+// discovery so two callers don't both trigger a visible Shortcuts bounce.
+Map<String, dynamic>? _phoneCapsCache;
+Future<Map<String, dynamic>>? _phoneCapsInflight;
+
+/// Run the dispatcher's `capabilities` query and cache a COPY of a valid result
+/// (a copy so a caller mutating the returned map can't corrupt the cache).
+Future<Map<String, dynamic>> _fetchPhoneCapabilities() async {
+  final res = await _runShortcut('JarvisCopilot Runner',
+      input: '{"action":"capabilities"}', timeout: 30);
+  if (res['ran'] == false) return res; // could not open Shortcuts
+  if (res.containsKey('note')) return res; // timed out
+  final parsed = parsePhoneOutput(res['result'] as String?);
+  if (parsed['ok'] == true && parsed.containsKey('capabilities')) {
+    _phoneCapsCache = Map<String, dynamic>.from(parsed);
+  }
+  return parsed;
+}
+
 void _ensureShortcutResultHandler() {
   if (_shortcutHandlerWired) return;
   _shortcutHandlerWired = true;
@@ -49,6 +72,65 @@ void _ensureShortcutResultHandler() {
       waiter.complete({'ran': false, 'error': (args['error'] ?? 'shortcut failed').toString()});
     }
   });
+}
+
+/// Run a named Shortcut via x-callback-url.
+///
+/// [awaitResult] true  → include x-success/x-error, wait up to [timeout]s, and
+///                       return {ran:true, result:…} (or {ran:false,error}/timeout note).
+/// [awaitResult] false → "launch" mode: omit the callbacks so iOS leaves the
+///                       user in whatever app the Shortcut opens; return
+///                       {ran:true, launched:<bool>} immediately.
+Future<Map<String, dynamic>> _runShortcut(
+  String name, {
+  String input = '',
+  int timeout = 90,
+  bool awaitResult = true,
+}) async {
+  _ensureShortcutResultHandler();
+  final rid = 'sc${_shortcutRidSeq++}_${DateTime.now().millisecondsSinceEpoch}';
+
+  // rid in the PATH (not a query) so Shortcuts can cleanly append its own
+  // `?result=…` / `?errorMessage=…` callback without a double-query.
+  final query = <String, String>{
+    'name': name,
+    if (input.isNotEmpty) 'input': 'text',
+    if (input.isNotEmpty) 'text': input,
+  };
+  Completer<Map<String, dynamic>>? completer;
+  if (awaitResult) {
+    completer = Completer<Map<String, dynamic>>();
+    _shortcutWaiters[rid] = completer;
+    query['x-success'] = 'jarviscopilot://shortcut-result/$rid';
+    query['x-error'] = 'jarviscopilot://shortcut-error/$rid';
+    query['x-cancel'] = 'jarviscopilot://shortcut-error/$rid';
+  }
+
+  final uri = Uri(
+      scheme: 'shortcuts',
+      host: 'x-callback-url',
+      path: '/run-shortcut',
+      queryParameters: query);
+  final launched = await launchUrl(uri);
+
+  if (!awaitResult) {
+    return {'ran': launched, 'launched': launched};
+  }
+  if (!launched) {
+    _shortcutWaiters.remove(rid);
+    return {'ran': false, 'error': 'Could not open Shortcuts (is it installed?)'};
+  }
+  try {
+    return await completer!.future.timeout(Duration(seconds: timeout));
+  } on TimeoutException {
+    _shortcutWaiters.remove(rid);
+    return {
+      'ran': true,
+      'result': null,
+      'note': 'Launched but no result within ${timeout}s — the Shortcut may '
+          'still be running, awaiting input, or produces no output.',
+    };
+  }
 }
 
 final List<SkillEntry> iosSkills = [
@@ -142,51 +224,12 @@ final List<SkillEntry> iosSkills = [
     run: (args) async {
       if (!Platform.isIOS) throw StateError('iOS only');
       final name = (args['name'] ?? '').toString();
-      final input = (args['input'] ?? '').toString();
       if (name.isEmpty) throw ArgumentError('name required');
+      final input = (args['input'] ?? '').toString();
       final timeout = (args['timeout_seconds'] is num)
           ? (args['timeout_seconds'] as num).toInt()
           : 90;
-
-      _ensureShortcutResultHandler();
-      final rid = 'sc${_shortcutRidSeq++}_${DateTime.now().millisecondsSinceEpoch}';
-      final completer = Completer<Map<String, dynamic>>();
-      _shortcutWaiters[rid] = completer;
-
-      // x-callback-url: Shortcuts re-opens us at x-success with the
-      // shortcut's output appended as `result` (x-error → errorMessage).
-      final uri = Uri(
-        scheme: 'shortcuts',
-        host: 'x-callback-url',
-        path: '/run-shortcut',
-        queryParameters: {
-          'name': name,
-          if (input.isNotEmpty) 'input': 'text',
-          if (input.isNotEmpty) 'text': input,
-          // rid in the PATH (not a query) so Shortcuts can cleanly append
-          // its own `?result=…` / `?errorMessage=…` without a double-query.
-          'x-success': 'jarviscopilot://shortcut-result/$rid',
-          'x-error': 'jarviscopilot://shortcut-error/$rid',
-          'x-cancel': 'jarviscopilot://shortcut-error/$rid',
-        },
-      );
-      final launched = await launchUrl(uri);
-      if (!launched) {
-        _shortcutWaiters.remove(rid);
-        return {'ran': false, 'error': 'Could not open Shortcuts (is it installed?)'};
-      }
-      try {
-        return await completer.future.timeout(Duration(seconds: timeout));
-      } on TimeoutException {
-        _shortcutWaiters.remove(rid);
-        return {
-          'ran': true,
-          'result': null,
-          'note':
-              'Launched but no result within ${timeout}s — the Shortcut may still '
-              'be running, awaiting input, or produces no output.',
-        };
-      }
+      return _runShortcut(name, input: input, timeout: timeout);
     },
   ),
   SkillEntry(
@@ -277,6 +320,79 @@ final List<SkillEntry> iosSkills = [
         'mode': importUrl.isNotEmpty ? 'import' : 'create',
         if (!opened) 'error': 'Could not open Shortcuts (is it installed?)',
       };
+    },
+  ),
+  SkillEntry(
+    name: 'phone_control',
+    platform: 'ios',
+    description: phoneControlDescription,
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'action': {'type': 'string'},
+        'app': {'type': 'string'},
+        'url': {'type': 'string'},
+        'setting': {'type': 'string'},
+        'value': {},
+        'op': {'type': 'string'},
+        'what': {'type': 'string'},
+        'name': {'type': 'string'},
+        'timeout_seconds': {'type': 'integer', 'minimum': 5, 'maximum': 120},
+      },
+      'required': ['action'],
+    },
+    run: (args) async {
+      if (!Platform.isIOS) throw StateError('iOS only');
+      final command = buildPhoneCommand(Map<String, dynamic>.from(args));
+      final action = command['action'] as String;
+      final awaits = phoneActionAwaitsResult(action);
+      final timeout = (args['timeout_seconds'] is num)
+          ? (args['timeout_seconds'] as num).toInt()
+          : 30;
+      final res = await _runShortcut(
+        'JarvisCopilot Runner',
+        input: jsonEncode(command),
+        timeout: timeout,
+        awaitResult: awaits,
+      );
+      // Launch-type: pass the raw {ran,launched} through unchanged.
+      if (!awaits) return res;
+      // Await-type: surface transport failures, else parse the dispatcher's
+      // textual output (which lives in res['result']).
+      if (res['ran'] == false) return res; // could not open Shortcuts
+      if (res.containsKey('note')) return res; // timed out
+      return parsePhoneOutput(res['result'] as String?);
+    },
+  ),
+  SkillEntry(
+    name: 'phone_capabilities',
+    platform: 'ios',
+    description:
+        'Discover what the "JarvisCopilot Runner" Shortcut on this iPhone can do '
+        '(the live verb list for phone_control, including any the user added). '
+        'Cached after first call; pass {"refresh": true} to re-query.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'refresh': {'type': 'boolean'},
+      },
+    },
+    run: (args) async {
+      if (!Platform.isIOS) throw StateError('iOS only');
+      final refresh = args['refresh'] == true;
+      if (!refresh) {
+        if (_phoneCapsCache != null) {
+          return {..._phoneCapsCache!, 'cached': true};
+        }
+        if (_phoneCapsInflight != null) return _phoneCapsInflight!;
+      }
+      final future = _fetchPhoneCapabilities();
+      if (!refresh) _phoneCapsInflight = future;
+      try {
+        return await future;
+      } finally {
+        if (identical(_phoneCapsInflight, future)) _phoneCapsInflight = null;
+      }
     },
   ),
 ];
