@@ -100,6 +100,7 @@ const MethodChannel _torchChannel = MethodChannel('jarviscopilot/torch');
 final List<SkillEntry> _common = [
   SkillEntry(
     name: 'open_url',
+    requiresForeground: true,
     description: 'Open a URL in the default browser on this device.',
     inputSchema: {
       'type': 'object',

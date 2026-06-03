@@ -114,6 +114,7 @@ final List<SkillEntry> iosSkills = [
   SkillEntry(
     name: 'open_app',
     platform: 'ios',
+    requiresForeground: true,
     description:
         'Open another iOS app by name (twitter, instagram, slack, …) or by URL scheme. '
         'Limited by iOS sandbox to apps that register a URL scheme.',
@@ -140,6 +141,7 @@ final List<SkillEntry> iosSkills = [
   SkillEntry(
     name: 'send_sms',
     platform: 'ios',
+    requiresForeground: true,
     description:
         'Send a text via the iOS Messages composer, pre-filled with the recipient '
         'and body. ALWAYS confirm the recipient AND the exact wording with the '
@@ -169,6 +171,7 @@ final List<SkillEntry> iosSkills = [
   SkillEntry(
     name: 'run_shortcut',
     platform: 'ios',
+    requiresForeground: true,
     description:
         "Run an iOS Shortcut by name and return its text output. Shortcuts are "
         "the main way to control an iPhone: a Shortcut can toggle settings "
@@ -262,6 +265,7 @@ final List<SkillEntry> iosSkills = [
   SkillEntry(
     name: 'create_shortcut',
     platform: 'ios',
+    requiresForeground: true,
     description:
         "Create an iOS Shortcut. iOS has NO API to author Shortcuts silently, so "
         "this opens the Shortcuts app: with no args it opens a blank new-shortcut "
@@ -304,6 +308,7 @@ final List<SkillEntry> iosSkills = [
   SkillEntry(
     name: 'phone_control',
     platform: 'ios',
+    requiresForeground: true,
     description: phoneControlDescription,
     inputSchema: {
       'type': 'object',

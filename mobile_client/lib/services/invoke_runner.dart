@@ -2,9 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../skills/action_banner.dart';
+import '../skills/common.dart' show showLocalNotification;
 import '../skills/registry.dart';
 import 'api_client.dart';
+import 'app_lifecycle.dart';
 import 'credentials.dart';
+import 'pending_actions.dart';
 import 'ws_bridge.dart';
 
 /// Result envelope returned by [InvokeRunner.run].
@@ -48,6 +52,24 @@ class InvokeRunner {
     if (entry == null) {
       _append(InvokeLog(skillName, args, error: 'unknown skill'));
       return InvokeResult.err('unknown skill: $skillName');
+    }
+    // A foreground-required action (openURL / launch an app) can't run while the
+    // app is backgrounded — iOS refuses it. The app stays alive in the
+    // background (audio/location modes), so instead of failing we DEFER: stash
+    // the action, post a LOCAL notification, and run it when the user taps (the
+    // app foregrounds → main.dart drains PendingActions). This needs no remote
+    // push, so it works regardless of FCM/APNs delivery.
+    if (shouldDeferToForeground(
+        requiresForeground: entry.requiresForeground,
+        isForeground: AppLifecycle.isForeground)) {
+      PendingActions.instance.add(skillName, args);
+      unawaited(
+          showLocalNotification(actionBannerTitle(skillName, args), 'Tap to run'));
+      _append(InvokeLog(skillName, args, result: 'deferred to foreground'));
+      return InvokeResult.ok({
+        'queued': true,
+        'note': 'Sent to your phone — tap the notification to run it.',
+      });
     }
     try {
       final result = await entry.run(args);

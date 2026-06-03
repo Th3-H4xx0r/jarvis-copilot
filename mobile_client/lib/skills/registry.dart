@@ -13,6 +13,7 @@ class SkillEntry {
     required this.run,
     this.platform = 'any', // "any", "ios", "android"
     this.requiresOptIn = false,
+    this.requiresForeground = false,
   });
 
   final String name;
@@ -21,6 +22,12 @@ class SkillEntry {
   final SkillRunner run;
   final String platform;
   final bool requiresOptIn;
+
+  /// True for skills that open an app / URL / system UI — they can only run
+  /// while the app is in the FOREGROUND (iOS blocks openURL from the
+  /// background). When backgrounded, the invoke runner defers these and posts a
+  /// local notification instead. See [shouldDeferToForeground].
+  final bool requiresForeground;
 
   Map<String, dynamic> toManifest() => {
         'name': name,

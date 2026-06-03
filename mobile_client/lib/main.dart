@@ -7,9 +7,11 @@ import 'package:flutter/services.dart';
 import 'nav.dart';
 import 'pages/pair_page.dart';
 import 'services/api_client.dart';
+import 'services/app_lifecycle.dart';
 import 'services/background_location.dart';
 import 'services/credentials.dart';
 import 'services/invoke_runner.dart';
+import 'services/pending_actions.dart';
 import 'services/connection_monitor.dart';
 import 'services/push_handler.dart';
 import 'services/watch_sync.dart';
@@ -73,6 +75,17 @@ Future<void> _pullPendingVoice(MethodChannel channel) async {
     } catch (_) {
       return;
     }
+  }
+}
+
+/// Run foreground-required actions that were deferred while the app was
+/// backgrounded (a tapped "tap to run" notification, or a manual reopen,
+/// foregrounds the app and lands here). The runner now executes them directly
+/// because [AppLifecycle.isForeground] is true — no re-defer loop.
+Future<void> _runPendingForegroundActions() async {
+  if (PendingActions.instance.isEmpty) return;
+  for (final a in PendingActions.instance.drainFresh()) {
+    await runner.run(a.skill, a.args);
   }
 }
 
@@ -153,6 +166,11 @@ class _JarvisCopilotAppState extends State<JarvisCopilotApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Seed the foreground flag from the real initial state — covers a
+    // background launch (location/audio) where main() ran but we're not actually
+    // in front, so an early invoke is correctly deferred rather than run headless.
+    final st = WidgetsBinding.instance.lifecycleState;
+    if (st != null) AppLifecycle.isForeground = st == AppLifecycleState.resumed;
     // Sync paired creds + login-state to the native Apple Watch bridge once
     // the platform channels are wired (post first frame — the native handler
     // is registered in attachFlutterController, after main()).
@@ -170,6 +188,10 @@ class _JarvisCopilotAppState extends State<JarvisCopilotApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Keep the app-wide foreground flag current — the invoke runner uses it to
+    // decide whether a foreground-required action (openURL/launch) can run now
+    // or must be deferred to a notification tap.
+    AppLifecycle.isForeground = state == AppLifecycleState.resumed;
     if (state == AppLifecycleState.resumed) {
       // Coming back to the foreground: re-open the live bridge immediately
       // (don't wait out the backoff) and flush any commands the server
@@ -183,6 +205,9 @@ class _JarvisCopilotAppState extends State<JarvisCopilotApp>
       // native `startVoice` nudge can be missed mid-resume — so PULL the pending
       // flag on every resume. If set, this opens Voice + starts a turn.
       unawaited(_pullPendingVoice(const MethodChannel('jarviscopilot/intents')));
+      // Run any foreground-required actions we deferred while backgrounded (the
+      // user tapped the "tap to run" notification, or just reopened the app).
+      unawaited(_runPendingForegroundActions());
     }
   }
 
