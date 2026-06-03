@@ -144,6 +144,11 @@ class JarvisCopilotApp extends StatefulWidget {
 
 class _JarvisCopilotAppState extends State<JarvisCopilotApp>
     with WidgetsBindingObserver {
+  // Set true once the first frame is rendered (the home route is up). Used to
+  // swallow OS-initiated route pushes that arrive AFTER boot — see
+  // [didPushRouteInformation].
+  bool _booted = false;
+
   @override
   void initState() {
     super.initState();
@@ -151,7 +156,10 @@ class _JarvisCopilotAppState extends State<JarvisCopilotApp>
     // Sync paired creds + login-state to the native Apple Watch bridge once
     // the platform channels are wired (post first frame — the native handler
     // is registered in attachFlutterController, after main()).
-    WidgetsBinding.instance.addPostFrameCallback((_) => WatchSync.sync());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _booted = true;
+      WatchSync.sync();
+    });
   }
 
   @override
@@ -176,6 +184,32 @@ class _JarvisCopilotAppState extends State<JarvisCopilotApp>
       // flag on every resume. If set, this opens Voice + starts a turn.
       unawaited(_pullPendingVoice(const MethodChannel('jarviscopilot/intents')));
     }
+  }
+
+  // Swallow OS-initiated route pushes once the app has booted.
+  //
+  // The iOS deep link behind the Dynamic Island / Lock-screen widget
+  // (`jarviscopilot://voice`) is delivered to us TWICE: once natively, via
+  // AppDelegate.handleIncomingURL → the pending-voice flag (the correct path,
+  // which switches to the Voice tab), and AGAIN by the engine through
+  // SystemChannels.navigation as a route push. That second delivery made the
+  // root Navigator push a whole SECOND NavShell on top of the first — the
+  // duplicate Voice screen (with a back arrow) that stacked on a Dynamic Island
+  // tap. This app routes every real deep link through its own MethodChannels and
+  // uses `home:` with no OS-driven named routes, so nothing legitimate arrives
+  // on this channel — returning true swallows the redundant push. The framework
+  // stops at the first observer that returns true (see
+  // WidgetsBinding.handlePushRouteInformation), and this observer is registered
+  // before MaterialApp's, so it wins. Guarded by `_booted` so the initial route
+  // is never affected.
+  //
+  // INVARIANT: this is safe ONLY because the app has no Navigator-driven routing
+  // (no named routes / go_router / Router / universal links). If that changes,
+  // revisit — this would swallow those OS-driven pushes too.
+  @override
+  Future<bool> didPushRouteInformation(RouteInformation routeInformation) async {
+    if (_booted) return true;
+    return super.didPushRouteInformation(routeInformation);
   }
 
   @override
