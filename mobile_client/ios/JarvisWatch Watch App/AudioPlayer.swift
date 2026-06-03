@@ -13,7 +13,12 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
     /// UI into the "speaking" screen the moment audio starts, instead of waiting
     /// for the final reply text. Not set by the silent volume-calibration loop.
     @Published var isSpeaking = false
+    /// 0…1 playback position of the current reply clip — drives the watch's
+    /// karaoke word highlight. Reset to 0 when a clip starts, set to 1 when it
+    /// finishes.
+    @Published var playbackProgress: Double = 0
     private var player: AVAudioPlayer?
+    private var progressTimer: Timer?  // polls the clip position for the highlight
     private var calibrating = false   // true only while the silent volume loop owns `player`
     private var clipQueue: [Data] = []  // pending reply-clip chunks, played in order
 
@@ -50,10 +55,31 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
     func resetClips() {
         clipQueue.removeAll()
         isSpeaking = false
+        stopProgressPolling(completed: false)
+        playbackProgress = 0
         if let p = player, p.isPlaying, !calibrating {
             p.stop()
             player = nil
         }
+    }
+
+    // MARK: - Karaoke playback-position polling
+    private func startProgressPolling() {
+        progressTimer?.invalidate()
+        playbackProgress = 0
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, let p = self.player, p.isPlaying, !self.calibrating,
+                      p.duration > 0 else { return }
+                self.playbackProgress = min(1.0, p.currentTime / p.duration)
+            }
+        }
+    }
+
+    private func stopProgressPolling(completed: Bool) {
+        progressTimer?.invalidate()
+        progressTimer = nil
+        if completed { playbackProgress = 1.0 }  // light up the whole reply
     }
 
     /// Stop the reply immediately — clears the queue + stops the current clip,
@@ -104,6 +130,7 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
                     p.prepareToPlay()
                     p.play()
                     self.player = p
+                    if !loop { self.startProgressPolling() }
                     VoiceStatus.shared.set("")   // clean on success
                 } catch {
                     VoiceStatus.shared.set("🔇 \(error.localizedDescription)")
@@ -118,9 +145,10 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
             // Chain to the next queued reply-clip chunk, if any.
             if !self.clipQueue.isEmpty {
                 let next = self.clipQueue.removeFirst()
-                self.start(data: next, loop: false)
+                self.start(data: next, loop: false)  // restarts polling for the next chunk
             } else {
                 self.isSpeaking = false   // queue drained → speaking finished
+                self.stopProgressPolling(completed: true)
             }
         }
     }

@@ -22,6 +22,10 @@
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		A4C07784E3E862801FEF3413 /* JarvisWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60C6FEAE5ACA341C52405B1B /* JarvisWidget.swift */; };
 		AABB000100000000DEAD0002 /* ShortcutsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000100000000DEAD0001 /* ShortcutsBridge.swift */; };
+		AABB001000000000DEAD0002 /* VoiceLaunchIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB001000000000DEAD0001 /* VoiceLaunchIntent.swift */; };
+		AABB001300000000DEAD0002 /* JarvisActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB001300000000DEAD0001 /* JarvisActivityAttributes.swift */; };
+		AABB001400000000DEAD0002 /* JarvisActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB001300000000DEAD0001 /* JarvisActivityAttributes.swift */; };
+		AABB001100000000DEAD0002 /* VoiceLaunchIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB001000000000DEAD0001 /* VoiceLaunchIntent.swift */; };
 		AABB000200000000DEAD0002 /* HealthKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000200000000DEAD0001 /* HealthKitBridge.swift */; };
 		AABB000300000000DEAD0002 /* TorchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000300000000DEAD0001 /* TorchBridge.swift */; };
 		AABB000400000000DEAD0002 /* AppOpenBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000400000000DEAD0001 /* AppOpenBridge.swift */; };
@@ -135,13 +139,15 @@
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		98C526103A7C1629238D1E05 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		AABB000100000000DEAD0001 /* ShortcutsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsBridge.swift; sourceTree = "<group>"; };
+		AABB001000000000DEAD0001 /* VoiceLaunchIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLaunchIntent.swift; sourceTree = "<group>"; };
+		AABB001300000000DEAD0001 /* JarvisActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisActivityAttributes.swift; sourceTree = "<group>"; };
 		AABB000200000000DEAD0001 /* HealthKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitBridge.swift; sourceTree = "<group>"; };
 		AABB000300000000DEAD0001 /* TorchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorchBridge.swift; sourceTree = "<group>"; };
 		AABB000400000000DEAD0001 /* AppOpenBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOpenBridge.swift; sourceTree = "<group>"; };
 		AABB000500000000DEAD0001 /* SmsComposeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmsComposeBridge.swift; sourceTree = "<group>"; };
 		AABB000600000000DEAD0001 /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		B023BD16D7B98D0C9DAAB0FA /* JarvisComplication.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JarvisComplication.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		D30EFB4296A937AF88901A58 /* JarvisWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = JarvisWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D30EFB4296A937AF88901A58 /* JarvisWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JarvisWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DF6F37B7649E7947A285A798 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = Info.plist; path = JarvisWidget/Info.plist; sourceTree = "<group>"; };
 		DFCC8A70972FB8F17B6F8DEC /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		EBEC93C0A648BD84C7CE30C7 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -287,6 +293,8 @@
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				AABB000100000000DEAD0001 /* ShortcutsBridge.swift */,
+				AABB001000000000DEAD0001 /* VoiceLaunchIntent.swift */,
+				AABB001300000000DEAD0001 /* JarvisActivityAttributes.swift */,
 				AABB000200000000DEAD0001 /* HealthKitBridge.swift */,
 				AABB000300000000DEAD0001 /* TorchBridge.swift */,
 				AABB000400000000DEAD0001 /* AppOpenBridge.swift */,
@@ -686,6 +694,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
+				AABB001000000000DEAD0002 /* VoiceLaunchIntent.swift in Sources */,
+				AABB001300000000DEAD0002 /* JarvisActivityAttributes.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 				AABB000100000000DEAD0002 /* ShortcutsBridge.swift in Sources */,
@@ -702,6 +712,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A4C07784E3E862801FEF3413 /* JarvisWidget.swift in Sources */,
+				AABB001100000000DEAD0002 /* VoiceLaunchIntent.swift in Sources */,
+				AABB001400000000DEAD0002 /* JarvisActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -845,7 +857,7 @@
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 62JUP2GJHV;
+				DEVELOPMENT_TEAM = 2JM8M26322;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -874,6 +886,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = 62JUP2GJHV;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -895,6 +908,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 62JUP2GJHV;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobile.RunnerTests;
@@ -913,6 +927,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 62JUP2GJHV;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobile.RunnerTests;
@@ -929,6 +944,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 62JUP2GJHV;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jarviscopilot.jarviscopilotMobile.RunnerTests;
@@ -1235,7 +1251,7 @@
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 62JUP2GJHV;
+				DEVELOPMENT_TEAM = 2JM8M26322;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -1295,7 +1311,7 @@
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 62JUP2GJHV;
+				DEVELOPMENT_TEAM = 2JM8M26322;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -1326,6 +1342,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = 62JUP2GJHV;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1348,6 +1365,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = 62JUP2GJHV;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

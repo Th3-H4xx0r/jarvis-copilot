@@ -44,6 +44,28 @@ void requestVoiceLaunch() {
   voiceLaunchRequested.value = true;
 }
 
+/// Pull the native "pending voice launch" flag (an atomic read+clear on the
+/// native side) and, if set, open Voice + start a turn. Retries briefly: on a
+/// COLD launch this can run before the native handler is registered (which
+/// surfaces as [MissingPluginException]), so we wait and try again until we get
+/// a definitive answer. This is the authoritative consume — the native
+/// `startVoice` nudge alone is unreliable on cold launch (it can fire before
+/// Dart's handler exists), which is why a tapped widget/Control could open the
+/// app without reaching the Voice screen.
+Future<void> _pullPendingVoice(MethodChannel channel) async {
+  for (var attempt = 0; attempt < 12; attempt++) {
+    try {
+      final pending = await channel.invokeMethod<bool>('consumePendingVoice');
+      if (pending == true) requestVoiceLaunch();
+      return; // got a definitive answer (true or false)
+    } on MissingPluginException {
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    } catch (_) {
+      return;
+    }
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Lock to portrait — the dark, content-heavy layouts don't benefit
@@ -84,11 +106,21 @@ Future<void> main() async {
   // Notify the user when the bridge drops / restores its server connection.
   connectionMonitor = ConnectionMonitor(ws.connected)..start();
 
-  // Siri "Talk to JarvisCopilot" intent → native fires this → open Voice.
-  const MethodChannel('jarviscopilot/intents').setMethodCallHandler((call) async {
-    if (call.method == 'startVoice') requestVoiceLaunch();
+  // Siri intent / Control Center / Lock-screen widget → native sets a pending
+  // flag and nudges us via `startVoice`. We PULL the flag from native (on the
+  // nudge AND once at startup) rather than trusting the nudge alone, so a cold
+  // launch that races ahead of this handler still reaches the Voice screen.
+  const intentsChannel = MethodChannel('jarviscopilot/intents');
+  intentsChannel.setMethodCallHandler((call) async {
+    // Fire the pull as a SEPARATE top-level future — do NOT await it inside the
+    // handler. Making an outgoing call (consumePendingVoice) on the same channel
+    // while handling an incoming one (startVoice) can stall on a warm resume,
+    // which is why cold launch (top-level startup pull) worked but a
+    // backgrounded app brought forward by the widget/Control didn't.
+    if (call.method == 'startVoice') unawaited(_pullPendingVoice(intentsChannel));
     return null;
   });
+  unawaited(_pullPendingVoice(intentsChannel));
 
   runApp(const JarvisCopilotApp());
 }
@@ -128,6 +160,11 @@ class _JarvisCopilotAppState extends State<JarvisCopilotApp>
       unawaited(push.drainNow());
       // Refresh the watch's view of creds + login-state on every foreground.
       unawaited(WatchSync.sync());
+      // A backgrounded app brought forward by the Lock-screen widget / Control
+      // Center button / Siri has no startup pull (main() already ran), and the
+      // native `startVoice` nudge can be missed mid-resume — so PULL the pending
+      // flag on every resume. If set, this opens Voice + starts a turn.
+      unawaited(_pullPendingVoice(const MethodChannel('jarviscopilot/intents')));
     }
   }
 

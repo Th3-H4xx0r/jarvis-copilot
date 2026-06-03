@@ -77,3 +77,4 @@ hermes_cli/scripts/
 docs/superpowers/*
 # Claude Code project scaffolding
 .claude/
+.superpowers/

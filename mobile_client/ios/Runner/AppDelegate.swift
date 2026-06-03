@@ -3,6 +3,8 @@ import UIKit
 import UserNotifications
 import CoreLocation
 import CryptoKit
+import ActivityKit
+import WatchConnectivity
 #if canImport(AppIntents)
 import AppIntents
 #endif
@@ -215,12 +217,45 @@ import AppIntents
             name: "jarviscopilot/intents",
             binaryMessenger: controller.binaryMessenger
         )
+        // Dart's authoritative consume of the pending-voice flag (atomic
+        // read+clear). Pulling from Dart closes the cold-launch race where the
+        // `startVoice` nudge can fire before Dart is ready to hear it — so a
+        // tapped widget/Control reliably reaches the Voice screen.
+        intentsChannel?.setMethodCallHandler { (call, result) in
+            if call.method == "consumePendingVoice" {
+                let pending = UserDefaults.standard.bool(forKey: "jc_pending_voice")
+                UserDefaults.standard.set(false, forKey: "jc_pending_voice")
+                result(pending)
+            } else {
+                result(FlutterMethodNotImplemented)
+            }
+        }
         NotificationCenter.default.removeObserver(
             self, name: Notification.Name("jcStartVoice"), object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(fireStartVoiceIfPending),
             name: Notification.Name("jcStartVoice"), object: nil)
         fireStartVoiceIfPending()
+
+        // Live Activity (Dynamic Island) start/stop, driven from Dart.
+        let liveActivityChannel = FlutterMethodChannel(
+            name: "jarviscopilot/liveactivity",
+            binaryMessenger: controller.binaryMessenger
+        )
+        liveActivityChannel.setMethodCallHandler { (call, result) in
+            if #available(iOS 16.2, *) {
+                switch call.method {
+                case "update":
+                    LiveActivityManager.update((call.arguments as? [String: Any]) ?? [:])
+                    result(true)
+                case "end":
+                    LiveActivityManager.end(); result(true)
+                default: result(FlutterMethodNotImplemented)
+                }
+            } else {
+                result(false)  // Live Activities need iOS 16.2+
+            }
+        }
 
         if let pending = pendingDeepLink {
             pendingDeepLink = nil
@@ -408,7 +443,10 @@ import AppIntents
     @objc func fireStartVoiceIfPending() {
         guard UserDefaults.standard.bool(forKey: "jc_pending_voice") else { return }
         guard let ch = intentsChannel else { return } // retried on next activate
-        UserDefaults.standard.set(false, forKey: "jc_pending_voice")
+        // Nudge only — DON'T clear the flag here. Dart consumes it via
+        // `consumePendingVoice`; if this nudge is lost on a cold launch (Dart's
+        // handler not registered yet), the surviving flag lets Dart's startup
+        // pull still pick it up.
         ch.invokeMethod("startVoice", arguments: nil)
     }
 
@@ -431,6 +469,61 @@ import AppIntents
         super.application(application,
                           didReceiveRemoteNotification: userInfo,
                           fetchCompletionHandler: completionHandler)
+    }
+}
+
+// ── Live Activity (Dynamic Island) ───────────────────────────────
+//
+// Starts/ends the minimal JARVIS Live Activity (rendered by JarvisLiveActivity
+// in the JarvisWidget extension). Started while a voice session is active so the
+// Dynamic Island shows "JARVIS"; ended when it stops.
+@available(iOS 16.2, *)
+enum LiveActivityManager {
+    private static func contentState(_ args: [String: Any]) -> JarvisActivityAttributes.ContentState {
+        var s = JarvisActivityAttributes.ContentState(
+            state: (args["state"] as? String) ?? "idle",
+            transcript: (args["transcript"] as? String) ?? "",
+            activity: (args["activity"] as? String) ?? "",
+            connected: (args["connected"] as? Bool) ?? true
+        )
+        // Devices strip: phone is implicit; add the watch from WCSession.
+        if WCSession.isSupported() {
+            let wc = WCSession.default
+            if wc.activationState == .activated {
+                s.watchPresent = wc.isPaired && wc.isWatchAppInstalled
+                // Online implies present, so the count can never read "2 of 1".
+                s.watchOnline = s.watchPresent && wc.isReachable
+            }
+        }
+        return s
+    }
+
+    /// Create the activity on the first ACTIVE state, or update the running one.
+    /// Persists after a session (the app pushes an "idle" update on stop) —
+    /// never auto-ends here, so it lingers as a tap-to-talk launcher.
+    static func update(_ args: [String: Any]) {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        let state = contentState(args)
+        let content = ActivityContent(state: state, staleDate: nil)
+        if let existing = Activity<JarvisActivityAttributes>.activities.first {
+            Task { await existing.update(content) }
+        } else if state.state != "idle" {
+            // Only spin one up when something is actually happening.
+            do {
+                _ = try Activity.request(
+                    attributes: JarvisActivityAttributes(title: "JARVIS"), content: content)
+            } catch {
+                print("[LiveActivity] start failed: \(error)")
+            }
+        }
+    }
+
+    static func end() {
+        Task {
+            for activity in Activity<JarvisActivityAttributes>.activities {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+        }
     }
 }
 

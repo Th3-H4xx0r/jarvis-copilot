@@ -90,6 +90,8 @@
 	<string>Used so JarvisCopilot can pick or attach photos at your request.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Used for the local voice-to-text fallback when the server is unreachable.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

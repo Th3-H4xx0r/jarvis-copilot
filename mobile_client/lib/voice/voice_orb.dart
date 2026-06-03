@@ -138,7 +138,7 @@ class _OrbPainter extends CustomPainter {
     final hi = pal[0], core = pal[1], accent = pal[3];
 
     final breath = 0.5 + 0.5 * math.sin(t * 0.9);
-    final talk = 0.5 + 0.5 * math.sin(t * 3.4);
+    final talk = 0.5 + 0.5 * math.sin(t * 2.4); // slow speaking breath (not a flicker)
     final pulse = 0.5 + 0.5 * math.sin(t * 1.7); // breathing for non-mic states
 
     // Baseline per-state liveliness (brightness/glow) — independent of mic level.
@@ -177,32 +177,39 @@ class _OrbPainter extends CustomPainter {
         reactive = 0.05 + 0.10 * pulse;
     }
 
-    // Spin stays gentle; the lively "moving around" comes from undulation
-    // (ribbons flowing) + wander (organic sway) + the breathing pulse — never a
-    // fast whirl.
+    // Motion model: a SUBTLE continuous spin animates idle / thinking /
+    // speaking. While LISTENING the orb must NOT spin — it only pulses in
+    // size, reactive to your voice (see `reactive`/`scale` below). Speaking
+    // keeps its gentle spin AND pulses in size with the `talk` breath. Spin
+    // here is deliberately low so it reads as a slow drift, never a whirl.
     final double spinSpeed, unduRate;
     switch (state) {
       case VoiceState.thinking:
-        spinSpeed = 0.14;
-        unduRate = 0.55;
+        spinSpeed = 0.08;
+        unduRate = 0.34;
       case VoiceState.speaking:
-        spinSpeed = 0.12;
-        unduRate = 0.55;
+        spinSpeed = 0.07;
+        unduRate = 0.30;
       case VoiceState.listening:
-        spinSpeed = 0.11;
-        unduRate = 0.34 + 0.28 * reactive;
+        spinSpeed = 0.0; // no spin — only the size pulses with your voice
+        unduRate = 0.10; // faint shimmer so the ribbons aren't dead-frozen
       case VoiceState.idle:
-        spinSpeed = 0.13;
-        unduRate = 0.65;
-      default:
-        spinSpeed = 0.11;
-        unduRate = 0.50;
+        spinSpeed = 0.07;
+        unduRate = 0.32;
+      case VoiceState.connecting:
+        spinSpeed = 0.06;
+        unduRate = 0.28;
+      case VoiceState.error:
+        spinSpeed = 0.05;
+        unduRate = 0.24;
     }
     final wander = 0.20 * math.sin(t * 0.13) + 0.12 * math.sin(t * 0.22 + 2.1);
     final gt = t * spinSpeed + wander; // gentle drift + organic sway
 
-    // Expansion: strong on loud voice (listening), a gentle breath otherwise.
-    final scale = 1.0 + 0.025 * breath + 0.34 * reactive;
+    // Expansion: this is the PULSE. It swells strongly with your voice while
+    // listening (reactive = mic) and breathes with `talk` while speaking; a
+    // gentle idle breath otherwise.
+    final scale = 1.0 + 0.025 * breath + 0.40 * reactive;
     final rs = R * 0.53 * scale; // projected sphere radius
     final bright =
         (0.80 + 0.28 * energy + 0.36 * reactive).clamp(0.0, 1.45).toDouble();

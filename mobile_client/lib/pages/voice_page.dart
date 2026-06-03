@@ -20,6 +20,7 @@ class VoicePage extends StatefulWidget {
 
 class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   late final VoiceController _c = VoiceController(app.api);
+  final _replyScroll = ScrollController(); // auto-scrolls the reply as it speaks
   bool _waitingForSettings = false;
 
   @override
@@ -40,6 +41,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     app.voiceLaunchRequested.removeListener(_onVoiceLaunch);
     _c.removeListener(_manageWake);
     _c.dispose();
+    _replyScroll.dispose();
     super.dispose();
   }
 
@@ -182,10 +184,11 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     final topLine = _c.userTranscript.isNotEmpty
         ? _c.userTranscript
         : _captionFor(_c.state);
-    // Big centred text below the orb = the AI's reply (clean, unboxed).
-    final reply = _c.error != null
-        ? _c.error!
-        : _plainSpeech(_c.assistantText);
+    // Big centred text below the orb = the AI's reply (clean, unboxed). While
+    // speaking, words light up (white) as they're voiced; the rest stay grey.
+    final isError = _c.error != null;
+    final reply = isError ? _c.error! : _c.assistantText;
+    final spokenWords = isError ? 1 << 30 : _c.spokenWords;
 
     return Column(
       children: [
@@ -195,7 +198,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Spacer(flex: 2),
+                const Spacer(flex: 3),
                 // User-spoken text / prompt — quiet, single line up top.
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 250),
@@ -215,34 +218,34 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 30),
                 VoiceOrb(state: _c.state, amplitude: _c.amplitude, size: 248),
-                const SizedBox(height: 38),
-                // AI response — large, bold, centred, unboxed (the focal text).
-                if (reply.isNotEmpty)
-                  Text(
-                    reply,
-                    textAlign: TextAlign.center,
-                    maxLines: 6,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: JcTheme.text,
-                      fontSize: 26,
-                      fontWeight: FontWeight.w700,
-                      height: 1.3,
-                      letterSpacing: -0.4,
-                    ),
-                  )
-                else
-                  // Before any reply, echo the state subtly where the reply goes.
-                  Text(
-                    _c.state.label,
-                    style: TextStyle(
-                      color: _stateColor(_c.state),
-                      fontSize: 13,
-                      letterSpacing: 1.6,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                const Spacer(flex: 3),
+                const SizedBox(height: 30),
+                // AI response — centred, unboxed, SCROLLABLE (long replies
+                // aren't truncated) with word-by-word karaoke highlighting and
+                // auto-scroll synced to the spoken audio.
+                Expanded(
+                  flex: 6,
+                  child: reply.isNotEmpty
+                      ? _KaraokeReply(
+                          text: reply,
+                          spokenWords: spokenWords,
+                          controller: _replyScroll,
+                        )
+                      // Before any reply, echo the state subtly where the
+                      // reply goes.
+                      : Align(
+                          alignment: Alignment.topCenter,
+                          child: Text(
+                            _c.state.label,
+                            style: TextStyle(
+                              color: _stateColor(_c.state),
+                              fontSize: 13,
+                              letterSpacing: 1.6,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                ),
+                const Spacer(flex: 1),
               ],
             ),
           ),
@@ -252,20 +255,6 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
       ],
     );
   }
-}
-
-/// Strip markdown so the transcript bubble reads like clean speech —
-/// matches what the server now synthesizes (see voice.py `_speakable`).
-String _plainSpeech(String text) {
-  var s = text.replaceAll(RegExp(r'```[\s\S]*?```'), ' ');
-  s = s.replaceAllMapped(RegExp(r'\[([^\]]+)\]\([^)]*\)'), (m) => m[1]!);
-  s = s.replaceAllMapped(RegExp(r'`([^`]+)`'), (m) => m[1]!);
-  s = s.replaceAll(RegExp(r'^\s{0,3}#{1,6}\s*', multiLine: true), '');
-  s = s.replaceAll(RegExp(r'^\s{0,3}>\s?', multiLine: true), '');
-  s = s.replaceAll(RegExp(r'^\s{0,3}[-*+]\s+', multiLine: true), '');
-  s = s.replaceAll(RegExp(r'\*\*|\*|__|_|~~|`'), '');
-  s = s.replaceAll(RegExp(r'\n{3,}'), '\n\n');
-  return s.trim();
 }
 
 /// Soft conversational prompt shown above the orb, per state.
@@ -425,6 +414,137 @@ class _GhostCircle extends StatelessWidget {
               color: highlighted ? JcTheme.accent : JcTheme.text, size: 22),
         ),
       ),
+    );
+  }
+}
+
+/// The assistant's reply, rendered word-by-word: words already spoken are
+/// white, the rest grey. Scrolls itself so the current word stays in view as
+/// the audio plays. [spokenWords] is how many leading words to light up.
+class _KaraokeReply extends StatefulWidget {
+  const _KaraokeReply({
+    required this.text,
+    required this.spokenWords,
+    required this.controller,
+  });
+
+  final String text;
+  final int spokenWords;
+  final ScrollController controller;
+
+  @override
+  State<_KaraokeReply> createState() => _KaraokeReplyState();
+}
+
+class _KaraokeReplyState extends State<_KaraokeReply> {
+  static final RegExp _word = RegExp(r'\S+');
+  static const _style = TextStyle(
+    fontSize: 22,
+    fontWeight: FontWeight.w500,
+    height: 1.4,
+    letterSpacing: -0.2,
+  );
+
+  // A zero-size marker placed at the current spoken position INSIDE the real
+  // paragraph. We scroll using its actual laid-out position (via its
+  // RenderBox), not a re-measuring TextPainter — a separate painter never
+  // matches the rendered paragraph's geometry exactly, so its estimate drifts
+  // further off with each line and walks the active word off-screen.
+  final GlobalKey _cursorKey = GlobalKey();
+
+  int _lastScrolled = -1;
+  String? _cText;
+  List<List<int>> _ranges = const []; // [start, end] char range per word
+
+  @override
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _follow());
+    return SingleChildScrollView(
+      controller: widget.controller,
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text.rich(
+          TextSpan(children: _spans()),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+
+  // Tokenize once per text change → list of [start, end] word ranges.
+  void _ensureRanges() {
+    if (_cText == widget.text) return;
+    _cText = widget.text;
+    _ranges = [
+      for (final m in _word.allMatches(widget.text)) [m.start, m.end]
+    ];
+  }
+
+  // One span per word (coloured by spoken/unspoken); whitespace passes through.
+  // A zero-size keyed marker is injected at the spoken/unspoken boundary so we
+  // can scroll to the word being voiced right now.
+  List<InlineSpan> _spans() {
+    _ensureRanges();
+    final spoken = _style.copyWith(color: JcTheme.text);
+    final unspoken = _style.copyWith(color: JcTheme.muted);
+    final cursor = widget.spokenWords.clamp(0, _ranges.length);
+    final marker = WidgetSpan(
+      alignment: PlaceholderAlignment.middle,
+      child: SizedBox.shrink(key: _cursorKey),
+    );
+    final out = <InlineSpan>[];
+    var last = 0;
+    for (var i = 0; i < _ranges.length; i++) {
+      final s = _ranges[i][0], e = _ranges[i][1];
+      if (s > last) out.add(TextSpan(text: widget.text.substring(last, s)));
+      if (i == cursor) out.add(marker);
+      out.add(TextSpan(
+        text: widget.text.substring(s, e),
+        style: i < widget.spokenWords ? spoken : unspoken,
+      ));
+      last = e;
+    }
+    if (last < widget.text.length) {
+      out.add(TextSpan(text: widget.text.substring(last), style: unspoken));
+    }
+    if (cursor >= _ranges.length) out.add(marker); // whole reply spoken
+    return out;
+  }
+
+  // Keep the current word comfortably in view. Uses the marker's REAL position
+  // in the viewport, and only scrolls when it drifts out of a band — so it
+  // never re-centres on every word (jittery) and never lets the active word
+  // leave the screen.
+  void _follow() {
+    final n = widget.spokenWords;
+    if (n == _lastScrolled || !widget.controller.hasClients) return;
+    final reset = n <= 0 || n < _lastScrolled; // new reply / rewound → top
+    _lastScrolled = n;
+
+    final ctx = _cursorKey.currentContext;
+    final markerBox = ctx?.findRenderObject();
+    final viewBox = Scrollable.maybeOf(ctx ?? context)?.context.findRenderObject();
+    if (markerBox is! RenderBox || viewBox is! RenderBox) return;
+
+    final pos = widget.controller.position;
+    final h = viewBox.size.height;
+    // Marker's y within the visible viewport (0 = top, h = bottom).
+    final y = markerBox.localToGlobal(Offset.zero, ancestor: viewBox).dy;
+
+    final double target;
+    if (reset) {
+      target = (pos.pixels + y).clamp(0.0, pos.maxScrollExtent);
+    } else if (y >= h * 0.25 && y <= h * 0.7) {
+      return; // still comfortably visible — don't scroll
+    } else {
+      target = (pos.pixels + (y - h * 0.4)).clamp(0.0, pos.maxScrollExtent);
+    }
+    if ((target - pos.pixels).abs() < 4) return;
+    widget.controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOut,
     );
   }
 }

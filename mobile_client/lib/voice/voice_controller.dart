@@ -2,13 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show PlatformException;
+import 'package:flutter/services.dart' show MethodChannel, PlatformException;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../api/sessions.dart';
 import '../api/voice.dart';
+import '../main.dart' as app; // for ws.connected (Live Activity footer)
 import '../services/api_client.dart';
 import 'audio_queue.dart';
 import 'voice_state.dart';
@@ -30,7 +31,13 @@ class VoiceController extends ChangeNotifier {
       onIdle: _onPlaybackIdle,
       onPlaybackStart: _onPlaybackStart,
       onAmplitude: (a) => amplitude.value = a,
+      onClipStart: _onClipStart,
+      onPosition: _onClipPosition,
     );
+    // Keep the Live Activity's Connected/Offline footer live.
+    try {
+      app.ws.connected.addListener(_onConnChanged);
+    } catch (_) {}
   }
 
   final VoiceApi _voice;
@@ -45,10 +52,19 @@ class VoiceController extends ChangeNotifier {
   VoiceMode mode = VoiceMode.realtime;
   final ValueNotifier<double> amplitude = ValueNotifier(0);
   String userTranscript = '';
-  String assistantText = '';
+  String assistantText = ''; // plain (markdown-stripped) reply, joined segments
   String? toolStatus; // e.g. "Running search_web"
   String? error;
   bool muted = false;
+
+  // ── Karaoke highlight ─────────────────────────────────────────
+  // Number of leading whitespace-delimited words of [assistantText] that have
+  // been spoken so far. The voice screen colours these white and the rest
+  // grey, advancing word-by-word as each TTS clip plays. See [_Seg].
+  int spokenWords = 0;
+  final List<_Seg> _segs = []; // reply segments, in arrival order
+  int _totalWords = 0; // running word count across all segments
+  int _curSeg = -1; // index of the segment whose clip is currently playing
 
   bool get active => state != VoiceState.idle && state != VoiceState.error;
 
@@ -84,7 +100,95 @@ class VoiceController extends ChangeNotifier {
 
   void _set(VoiceState s) {
     state = s;
+    _pushLiveActivity();
     notifyListeners();
+  }
+
+  // ── Live Activity (Dynamic Island) ────────────────────────────
+  // Latest DESIRED content + last SENT content. We dedupe (skip no-change) and
+  // trailing-throttle so we don't flood iOS's Live Activity update budget —
+  // flooding made the island flicker and get stuck on a stale state (e.g.
+  // showing "Listening" after Stop because the final "idle" update was dropped).
+  String _laState = '', _laTranscript = '', _laActivity = '';
+  bool _laConnected = true, _laSent = false;
+  DateTime _lastLAPush = DateTime.fromMillisecondsSinceEpoch(0);
+  Timer? _laTimer;
+
+  void _onConnChanged() => _pushLiveActivity();
+
+  /// Recompute the desired Live Activity content and flush it (deduped +
+  /// throttled). Called on every state change and on connection changes.
+  void _pushLiveActivity() {
+    final s = state == VoiceState.connecting ? 'thinking' : state.name;
+    // Bound the transcript — a long monologue could blow the Live Activity's
+    // ~4 KB ContentState budget and make iOS silently reject the update.
+    final transcript = _firstLine(userTranscript);
+    final activity = _outputLine();
+    final connected = _liveConnected();
+    // Nothing new on screen → don't churn the activity.
+    if (_laSent &&
+        s == _laState &&
+        transcript == _laTranscript &&
+        activity == _laActivity &&
+        connected == _laConnected) {
+      _laTimer?.cancel();
+      _laTimer = null;
+      return;
+    }
+    void send() {
+      _laTimer = null;
+      _laState = s;
+      _laTranscript = transcript;
+      _laActivity = activity;
+      _laConnected = connected;
+      _laSent = true;
+      _lastLAPush = DateTime.now();
+      LiveActivity.update(
+        state: s,
+        transcript: transcript,
+        activity: activity,
+        connected: connected,
+      );
+    }
+
+    // Terminal/resting states bypass the throttle so the Live Activity never
+    // sticks on a stale state (e.g. showing "Listening" after Stop).
+    final terminal = state == VoiceState.idle || state == VoiceState.error;
+    final sinceMs = DateTime.now().difference(_lastLAPush).inMilliseconds;
+    if (terminal || sinceMs >= 450) {
+      _laTimer?.cancel();
+      send();
+    } else {
+      // Trailing edge: re-run after the window so the LATEST state is sent.
+      _laTimer ??= Timer(Duration(milliseconds: 450 - sinceMs), _pushLiveActivity);
+    }
+  }
+
+  /// JARVIS's side of the line — a reply snippet or tool status (the user's
+  /// spoken text is sent separately as `transcript`). Empty when there's
+  /// nothing to show (the state label covers "Listening"/"Thinking").
+  String _outputLine() {
+    if (error != null) return error!;
+    if (toolStatus != null && toolStatus!.isNotEmpty) return toolStatus!;
+    if (state == VoiceState.speaking && assistantText.isNotEmpty) {
+      return _firstLine(assistantText);
+    }
+    return '';
+  }
+
+  String _firstLine(String s) {
+    final t = s.trim();
+    final nl = t.indexOf('\n');
+    final line = nl >= 0 ? t.substring(0, nl) : t;
+    return line.length > 120 ? '${line.substring(0, 120)}…' : line;
+  }
+
+  bool _liveConnected() {
+    try {
+      return app.ws.connected.value;
+    } catch (_) {
+      return true;
+    }
   }
 
   void setMode(VoiceMode m) {
@@ -148,7 +252,7 @@ class VoiceController extends ChangeNotifier {
   Future<void> _startQuality() async {
     error = null;
     userTranscript = '';
-    assistantText = '';
+    _resetSpeech();
     toolStatus = null;
     await _audio.stop();
     _pcm.clear();
@@ -201,6 +305,7 @@ class VoiceController extends ChangeNotifier {
     switch (type) {
       case 'transcript':
         userTranscript = (ev['text'] ?? '').toString();
+        _pushLiveActivity();
         notifyListeners();
         break;
       case 'segment':
@@ -212,13 +317,14 @@ class VoiceController extends ChangeNotifier {
           if (state != VoiceState.speaking) _set(VoiceState.thinking);
         } else if (kind == 'text') {
           final text = (ev['text'] ?? '').toString();
-          if (text.isNotEmpty) {
-            assistantText =
-                assistantText.isEmpty ? text : '$assistantText\n\n$text';
-          }
+          if (text.isNotEmpty) _appendSpeech(text);
           final audioB64 = (ev['audio_base64'] ?? '').toString();
           if (audioB64.isNotEmpty) {
-            _audio.enqueueMp3(base64.decode(audioB64));
+            // Pair this clip with the segment just appended (quality mode
+            // hands text + audio together, so it's the last one).
+            final tag = _segs.isEmpty ? null : _segs.length - 1;
+            if (tag != null) _segs[tag].audioAssigned = true;
+            _audio.enqueueMp3(base64.decode(audioB64), tag: tag);
             _set(VoiceState.speaking);
           }
           notifyListeners();
@@ -230,6 +336,7 @@ class VoiceController extends ChangeNotifier {
       case 'done':
         toolStatus = null;
         if (!_audio.isBusy && state != VoiceState.error) {
+          _finalizeSpoken();
           _set(VoiceState.idle);
         }
         break;
@@ -242,7 +349,7 @@ class VoiceController extends ChangeNotifier {
   Future<void> _startRealtime() async {
     error = null;
     userTranscript = '';
-    assistantText = '';
+    _resetSpeech();
     toolStatus = null;
     _spoke = false;
     _silenceMs = 0;
@@ -317,6 +424,10 @@ class VoiceController extends ChangeNotifier {
     _sendJson({'type': 'end_turn'});
     _resetVad();
     amplitude.value = 0;
+    // A new user turn begins → clear the previous reply + its highlight so the
+    // incoming reply starts fresh (within one realtime session segments would
+    // otherwise accumulate across turns). See [_resetSpeech].
+    _resetSpeech();
     _set(VoiceState.thinking);
   }
 
@@ -362,6 +473,7 @@ class VoiceController extends ChangeNotifier {
           break;
         case 'transcript':
           userTranscript = (msg['text'] ?? '').toString();
+          _pushLiveActivity(); // show your line on the island while listening
           notifyListeners();
           break;
         case 'assistant_text':
@@ -370,9 +482,7 @@ class VoiceController extends ChangeNotifier {
           // us to "speaking"). This keeps the orb from saying "listening"
           // while the reply is mid-flight.
           _resumeTimer?.cancel();
-          final t = (msg['text'] ?? '').toString();
-          assistantText =
-              assistantText.isEmpty ? t : '$assistantText\n\n$t';
+          _appendSpeech((msg['text'] ?? '').toString());
           toolStatus = null;
           if (state != VoiceState.speaking) _set(VoiceState.thinking);
           break;
@@ -412,14 +522,25 @@ class VoiceController extends ChangeNotifier {
   void _flushSegment() {
     debugPrint(
         '[voice] flushSegment format=$_inFormat pcm=${_segPcm.length} mp3=${_segMp3.length}');
+    // Pair this clip with the most recent text segment that doesn't yet have
+    // audio, so the karaoke highlight can time its words against the clip.
+    int? tag;
+    for (var i = _segs.length - 1; i >= 0; i--) {
+      if (!_segs[i].audioAssigned) {
+        _segs[i].audioAssigned = true;
+        tag = i;
+        break;
+      }
+    }
     if (_inFormat == 'mp3') {
       if (_segMp3.isNotEmpty) {
-        _audio.enqueueMp3(Uint8List.fromList(_segMp3));
+        _audio.enqueueMp3(Uint8List.fromList(_segMp3), tag: tag);
         _segMp3.clear();
       }
     } else {
       if (_segPcm.isNotEmpty) {
-        _audio.enqueuePcm(Uint8List.fromList(_segPcm), sampleRate: _inRate);
+        _audio.enqueuePcm(Uint8List.fromList(_segPcm),
+            sampleRate: _inRate, tag: tag);
         _segPcm.clear();
       }
     }
@@ -450,6 +571,7 @@ class VoiceController extends ChangeNotifier {
       if (state == VoiceState.speaking) _set(VoiceState.thinking);
       _scheduleResumeListening();
     } else if (mode == VoiceMode.quality && state == VoiceState.speaking) {
+      _finalizeSpoken();
       _set(VoiceState.idle);
     }
   }
@@ -459,10 +581,88 @@ class VoiceController extends ChangeNotifier {
     _resumeTimer = Timer(const Duration(milliseconds: _resumeGraceMs), () {
       if (mode != VoiceMode.realtime || !active) return;
       if (_audio.isBusy) return; // a trailing segment is playing
+      _finalizeSpoken(); // reply's done — light up any unspoken tail
       _resetVad();
       amplitude.value = 0;
       _set(VoiceState.listening);
     });
+  }
+
+  // ── Karaoke highlight ─────────────────────────────────────────
+  /// Clear all reply + highlight state at the start of a new turn.
+  void _resetSpeech() {
+    assistantText = '';
+    spokenWords = 0;
+    _segs.clear();
+    _totalWords = 0;
+    _curSeg = -1;
+  }
+
+  /// Append a chunk of assistant reply text as a new segment. The raw text is
+  /// markdown-stripped (so it matches the spoken audio) and split into words;
+  /// [assistantText] is rebuilt as the joined plain reply.
+  void _appendSpeech(String raw) {
+    final t = _plainSpeech(raw).trim();
+    if (t.isEmpty) return;
+    final seg = _Seg(t, _totalWords);
+    _totalWords += seg.words.length;
+    _segs.add(seg);
+    assistantText = _segs.map((s) => s.text).join('\n\n');
+    notifyListeners();
+  }
+
+  /// A segment's TTS clip began — schedule its words across the clip duration
+  /// and mark everything before it fully spoken.
+  void _onClipStart(int? tag, Duration dur) {
+    if (tag == null || tag < 0 || tag >= _segs.length) return;
+    for (var i = 0; i < tag; i++) {
+      _segs[i].localSpoken = _segs[i].words.length;
+    }
+    _curSeg = tag;
+    final seg = _segs[tag];
+    var ms = dur.inMilliseconds;
+    if (ms <= 0) ms = seg.words.length * 300; // MP3 dur unknown → ~200 wpm est
+    seg.schedule(ms);
+    seg.localSpoken = 0;
+    _recomputeSpoken();
+  }
+
+  /// Advance the highlight to match the current clip's playback position.
+  void _onClipPosition(int? tag, Duration pos) {
+    if (tag == null || tag != _curSeg || tag < 0 || tag >= _segs.length) return;
+    final seg = _segs[tag];
+    // Drop a stale position event left over from the previous (outgoing) clip:
+    // it would read near that clip's end and, since advance() is monotonic,
+    // would jump this segment straight to its last word.
+    if (pos.inMilliseconds > seg.durMs + 300) return;
+    seg.advance(pos.inMilliseconds);
+    _recomputeSpoken();
+  }
+
+  void _recomputeSpoken() {
+    var n = 0;
+    for (var i = 0; i < _segs.length; i++) {
+      if (i < _curSeg) {
+        n += _segs[i].words.length;
+      } else if (i == _curSeg) {
+        n += _segs[i].localSpoken;
+        break;
+      } else {
+        break;
+      }
+    }
+    if (n != spokenWords) {
+      spokenWords = n;
+      notifyListeners();
+    }
+  }
+
+  /// Reply finished — light up any words the position stream didn't reach.
+  void _finalizeSpoken() {
+    if (spokenWords != _totalWords) {
+      spokenWords = _totalWords;
+      notifyListeners();
+    }
   }
 
   // ── Shared helpers ────────────────────────────────────────────
@@ -622,6 +822,11 @@ class VoiceController extends ChangeNotifier {
     await _closeWs();
     await _audio.stop();
     _resetVad();
+    // Keep the reply on screen after Stop — DON'T erase it and DON'T finalize.
+    // Freezing it exactly where it stopped (partial highlight, same scroll
+    // position) is honest about how far it got and doesn't jump the view. It's
+    // cleared when the next turn starts (_startRealtime/_startQuality →
+    // _resetSpeech).
     amplitude.value = 0;
     if (state != VoiceState.error) _set(VoiceState.idle);
   }
@@ -629,6 +834,10 @@ class VoiceController extends ChangeNotifier {
   @override
   void dispose() {
     _resumeTimer?.cancel();
+    _laTimer?.cancel();
+    try {
+      app.ws.connected.removeListener(_onConnChanged);
+    } catch (_) {}
     _teardownMic();
     _closeWs();
     _audio.dispose();
@@ -643,4 +852,104 @@ int? _asInt(Object? v) {
   if (v is int) return v;
   if (v is double) return v.round();
   return int.tryParse(v.toString());
+}
+
+/// One spoken segment of the reply — a sentence-ish chunk that has its own TTS
+/// clip. Owns its word tokens and a duration-proportional schedule used to
+/// advance the karaoke highlight as the clip plays. Because the schedule is
+/// rebuilt from each clip's measured duration, the highlight re-syncs to real
+/// audio at every segment boundary (drift can't accumulate).
+class _Seg {
+  _Seg(this.text, this.wordOffset) : words = _wordTokens(text);
+
+  final String text; // plain (markdown-stripped) display text
+  final int wordOffset; // global index of this segment's first word
+  final List<String> words; // whitespace-delimited tokens
+  bool audioAssigned = false; // a clip has been paired to this segment
+  int durMs = 0; // this segment's clip duration (set by schedule)
+  List<double> _starts = const []; // per-word start time (ms) within the clip
+  int localSpoken = 0; // words spoken so far within this segment
+
+  /// Spread [words] across a clip of [clipMs]. Each word's weight = its length
+  /// plus extra for trailing punctuation (a natural pause), so longer words
+  /// and clause/sentence breaks take proportionally more time.
+  void schedule(int clipMs) {
+    durMs = clipMs;
+    final n = words.length;
+    if (n == 0) {
+      _starts = const [];
+      return;
+    }
+    final weights = List<double>.filled(n, 0);
+    var total = 0.0;
+    for (var i = 0; i < n; i++) {
+      final w = words[i];
+      var wt = w.length.toDouble() + 1.0;
+      final last = w.isNotEmpty ? w[w.length - 1] : '';
+      if ('.!?'.contains(last)) {
+        wt += 6.0; // sentence end → long pause
+      } else if (',;:'.contains(last)) {
+        wt += 3.0; // clause break → short pause
+      }
+      weights[i] = wt;
+      total += wt;
+    }
+    _starts = List<double>.filled(n, 0);
+    var cum = 0.0;
+    for (var i = 0; i < n; i++) {
+      _starts[i] = total > 0 ? (cum / total) * durMs : 0;
+      cum += weights[i];
+    }
+  }
+
+  /// Move the highlight forward to whatever word the clip is up to at [posMs].
+  /// Monotonic — it never steps backward on a jittery position report.
+  void advance(int posMs) {
+    var k = localSpoken;
+    while (k < _starts.length && _starts[k] <= posMs) {
+      k++;
+    }
+    if (k > localSpoken) localSpoken = k;
+  }
+}
+
+final RegExp _wordRe = RegExp(r'\S+');
+List<String> _wordTokens(String s) =>
+    _wordRe.allMatches(s).map((m) => m.group(0)!).toList();
+
+/// Strip markdown so the reply reads like clean speech — matches what the
+/// server synthesizes (see voice.py `_speakable`). Kept here (not the page) so
+/// the displayed text and the word schedule tokenize identically.
+String _plainSpeech(String text) {
+  var s = text.replaceAll(RegExp(r'```[\s\S]*?```'), ' ');
+  s = s.replaceAllMapped(RegExp(r'\[([^\]]+)\]\([^)]*\)'), (m) => m[1]!);
+  s = s.replaceAllMapped(RegExp(r'`([^`]+)`'), (m) => m[1]!);
+  s = s.replaceAll(RegExp(r'^\s{0,3}#{1,6}\s*', multiLine: true), '');
+  s = s.replaceAll(RegExp(r'^\s{0,3}>\s?', multiLine: true), '');
+  s = s.replaceAll(RegExp(r'^\s{0,3}[-*+]\s+', multiLine: true), '');
+  s = s.replaceAll(RegExp(r'\*\*|\*|__|_|~~|`'), '');
+  s = s.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+  return s.trim();
+}
+
+/// Drives the iOS Dynamic Island / Lock Screen Live Activity. No-op on Android
+/// and pre-16.2 iOS — the native handler returns false / the channel isn't
+/// registered, and the error is swallowed. The activity is created on the first
+/// active [update] and persists (resting at idle) until dismissed.
+class LiveActivity {
+  static const _ch = MethodChannel('jarviscopilot/liveactivity');
+  static void update({
+    required String state,
+    String transcript = '',
+    String activity = '',
+    required bool connected,
+  }) =>
+      unawaited(_ch.invokeMethod<void>('update', {
+        'state': state,
+        'transcript': transcript,
+        'activity': activity,
+        'connected': connected,
+      }).catchError((_) {}));
+  static void end() =>
+      unawaited(_ch.invokeMethod<void>('end').catchError((_) {}));
 }
