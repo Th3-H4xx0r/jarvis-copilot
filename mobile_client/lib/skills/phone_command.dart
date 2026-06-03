@@ -53,10 +53,6 @@ String encodeQueryWithPercent20(Map<String, String> params) => params.entries
 /// which keeps the dispatcher extensible.
 String? nativeRedirectSkill(Map<String, dynamic> command) {
   switch ((command['action'] ?? '').toString()) {
-    case 'open_app':
-      return 'open_app';
-    case 'open_url':
-      return 'open_url';
     case 'flashlight':
       return 'flashlight_on / flashlight_off';
     case 'get':
@@ -90,14 +86,14 @@ Map<String, dynamic> parsePhoneOutput(String? raw) {
 /// the dedicated native skills — so the LLM doesn't route common requests (open
 /// app, battery, flashlight…) through the optional Shortcut.
 const String phoneControlDescription =
-    'Change iOS settings that apps cannot change directly, via the OPTIONAL '
-    '"JarvisCopilot Runner" Shortcut. Use ONLY for: set{setting,value} where '
-    'setting = brightness|volume|wifi|bluetooth|cellular|focus|low_power|'
-    'orientation (brightness/volume are 0–1); and scene{name} to run a HomeKit '
-    'scene. For ANYTHING ELSE use the dedicated native skills instead — they need '
-    'NO Shortcut and NO setup: open_app/open_url, battery_level, get_location, '
-    'clipboard_read/clipboard_write, flashlight_on/flashlight_off, vibrate, '
-    'notify, set_alarm, play_audio, text_to_speech, make_call, send_sms. Returns '
-    '{ok:true,result:…} or {ok:false,error:…}; if the Shortcut is not installed '
-    'you get an error (it is optional). Call phone_capabilities for the live verb '
-    'list. Each run briefly flashes through the Shortcuts app.';
+    'Control iOS via the "JarvisCopilot Runner" Shortcut. Set `action` to the verb '
+    'DIRECTLY and pass its value:\n'
+    '• brightness / volume → value: 0.0–1.0   e.g. {"action":"brightness","value":0.3}\n'
+    '• wifi / bluetooth / focus → value: 1 (on) or 0 (off)\n'
+    '• open_app → app: the app name (e.g. "Spotify")\n'
+    '• open_url → url: a URL\n'
+    '• alarm → time: e.g. "7:00 AM"\n'
+    'For battery, location, clipboard, flashlight, vibrate, notify, calls, texts, '
+    'etc. use the dedicated NATIVE skills instead (they need no Shortcut). Returns '
+    '{ok:…}; an error means the Shortcut is not installed (it is optional). Each '
+    'run briefly flashes through the Shortcuts app.';

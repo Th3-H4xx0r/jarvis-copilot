@@ -66,10 +66,9 @@ void main() {
   });
 
   group('nativeRedirectSkill', () {
-    test('open_app / open_url redirect to the native skill', () {
-      expect(nativeRedirectSkill({'action': 'open_app', 'app': 'Spotify'}),
-          'open_app');
-      expect(nativeRedirectSkill({'action': 'open_url', 'url': 'x'}), 'open_url');
+    test('open_app / open_url route to the Shortcut now (not redirected)', () {
+      expect(nativeRedirectSkill({'action': 'open_app', 'app': 'Spotify'}), isNull);
+      expect(nativeRedirectSkill({'action': 'open_url', 'url': 'x'}), isNull);
     });
     test('get battery/location/clipboard redirect to native skills', () {
       expect(nativeRedirectSkill({'action': 'get', 'what': 'battery'}),
