@@ -163,8 +163,10 @@ final List<SkillEntry> iosSkills = [
     name: 'send_sms',
     platform: 'ios',
     description:
-        'Open the iOS Messages composer pre-filled with the recipient and body. '
-        'iOS requires the user to tap Send — this is not a silent send.',
+        'Send a text via the iOS Messages composer, pre-filled with the recipient '
+        'and body. ALWAYS confirm the recipient AND the exact wording with the '
+        'user in chat BEFORE invoking this. iOS then also requires the user to tap '
+        'Send in the composer — never a silent send — so texting is double-gated.',
     inputSchema: {
       'type': 'object',
       'properties': {
