@@ -45,6 +45,34 @@ String encodeQueryWithPercent20(Map<String, String> params) => params.entries
         '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
     .join('&');
 
+/// If `command` targets something the app already does NATIVELY, return the name
+/// of the native skill to use instead — so phone_control can refuse and redirect
+/// rather than bounce the OPTIONAL Shortcut (the LLM can't be relied on to pick
+/// the native skill from descriptions alone). Returns null for genuinely
+/// Shortcut-only actions (set / scene / media / now_playing / user-added verbs),
+/// which keeps the dispatcher extensible.
+String? nativeRedirectSkill(Map<String, dynamic> command) {
+  switch ((command['action'] ?? '').toString()) {
+    case 'open_app':
+      return 'open_app';
+    case 'open_url':
+      return 'open_url';
+    case 'flashlight':
+      return 'flashlight_on / flashlight_off';
+    case 'get':
+      switch ((command['what'] ?? '').toString()) {
+        case 'battery':
+          return 'battery_level';
+        case 'location':
+          return 'get_location';
+        case 'clipboard':
+          return 'clipboard_read';
+      }
+      return null;
+  }
+  return null;
+}
+
 /// Parse the Shortcut's textual output. A JSON object is returned as-is; any
 /// other text (or null/empty) is wrapped as `{ok:true, result:<raw>}`.
 Map<String, dynamic> parsePhoneOutput(String? raw) {

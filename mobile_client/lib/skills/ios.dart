@@ -343,6 +343,19 @@ final List<SkillEntry> iosSkills = [
     run: (args) async {
       if (!Platform.isIOS) throw StateError('iOS only');
       final command = buildPhoneCommand(Map<String, dynamic>.from(args));
+      // Refuse anything with a native equivalent so we never bounce the optional
+      // Shortcut for open_app/battery/flashlight/etc. — point JARVIS at the
+      // native skill instead.
+      final native = nativeRedirectSkill(command);
+      if (native != null) {
+        return {
+          'ok': false,
+          'error': "phone_control is only for iOS-locked settings (brightness, "
+              "volume, wifi, bluetooth, cellular, focus, low_power, orientation, "
+              "HomeKit scenes). Use the native '$native' skill for this — it "
+              "needs no Shortcut and no setup.",
+        };
+      }
       final action = command['action'] as String;
       final awaits = phoneActionAwaitsResult(action);
       final timeout = (args['timeout_seconds'] is num)

@@ -65,6 +65,35 @@ void main() {
     });
   });
 
+  group('nativeRedirectSkill', () {
+    test('open_app / open_url redirect to the native skill', () {
+      expect(nativeRedirectSkill({'action': 'open_app', 'app': 'Spotify'}),
+          'open_app');
+      expect(nativeRedirectSkill({'action': 'open_url', 'url': 'x'}), 'open_url');
+    });
+    test('get battery/location/clipboard redirect to native skills', () {
+      expect(nativeRedirectSkill({'action': 'get', 'what': 'battery'}),
+          'battery_level');
+      expect(nativeRedirectSkill({'action': 'get', 'what': 'location'}),
+          'get_location');
+      expect(nativeRedirectSkill({'action': 'get', 'what': 'clipboard'}),
+          'clipboard_read');
+    });
+    test('flashlight redirects to the native flashlight skill', () {
+      expect(nativeRedirectSkill({'action': 'flashlight'}), contains('flashlight'));
+    });
+    test('Shortcut-only actions return null (no redirect)', () {
+      expect(
+          nativeRedirectSkill(
+              {'action': 'set', 'setting': 'brightness', 'value': 0.5}),
+          isNull);
+      expect(nativeRedirectSkill({'action': 'scene', 'name': 'Movie Night'}),
+          isNull);
+      expect(nativeRedirectSkill({'action': 'get', 'what': 'now_playing'}), isNull);
+      expect(nativeRedirectSkill({'action': 'custom_verb'}), isNull);
+    });
+  });
+
   group('parsePhoneOutput', () {
     test('parses a JSON object output', () {
       expect(parsePhoneOutput('{"ok":true,"result":"opened Spotify"}'),
