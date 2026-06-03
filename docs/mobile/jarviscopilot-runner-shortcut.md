@@ -1,81 +1,75 @@
-# "JarvisCopilot Runner" Shortcut (OPTIONAL)
+# "JarvisCopilot Runner" Shortcut — build + install
 
-**You probably don't need this.** Most phone control is already built into the app as
-native device skills that need **zero setup**: `open_app` / `open_url`, `battery_level`,
-`get_location`, `clipboard_read` / `clipboard_write`, `flashlight_on` / `flashlight_off`,
-`vibrate`, `notify`, `set_alarm`, `play_audio`, `text_to_speech`, `make_call`,
-`send_sms`. Just ask JARVIS — no Shortcut involved.
+## The iOS reality (read this first)
 
-This Shortcut is **only** for the handful of things iOS won't let any app change directly:
+Since **iOS 15**, the Shortcuts app refuses to import any Shortcut that isn't **digitally
+signed by Apple**. There is no "Allow Untrusted Shortcuts" toggle anymore, and importing a
+raw `.shortcut` file fails with *"Importing unsigned shortcut files is not supported."* So
+an app **cannot** ship or generate an installable Shortcut.
 
-- **System toggles:** brightness, volume, Wi-Fi, Bluetooth, Cellular, Focus, Low Power,
-  orientation lock.
-- **HomeKit scenes.**
+The only way to get a signed Shortcut is to **build it once in the Shortcuts editor**, then
+**Share → Copy iCloud Link** — Apple signs it on iCloud. That signed link installs in **one
+tap** on any device, with no Mac and no toggles. That link is what the app's "Set up phone
+control" button will open.
 
-If you never need those, skip this entirely. The `phone_control` skill simply returns an
-error when the Shortcut isn't installed.
+> **You build it once (on the phone, ~5–10 min). After that it's one tap forever.**
 
-## Easiest install: a one-tap iCloud link (recommended)
+## What goes through this Shortcut (vs native)
 
-Building a Shortcut by hand is tedious, and importing an unsigned file requires enabling
-"Allow Untrusted Shortcuts" + AirDrop. The low-friction path is a **signed iCloud link**,
-which installs in **one tap** with no settings changes:
+Native device skills already handle most things with **zero setup** — `battery_level`,
+`get_location`, `clipboard_read/write`, `flashlight_on/off`, `vibrate`, `notify`,
+`text_to_speech`, `make_call`, `send_sms`. Leave those native.
 
-1. Build the Shortcut once (steps below) on any iPhone.
-2. In Shortcuts: the Shortcut's **⋯ → Share → Copy iCloud Link**. You get a
-   `https://www.icloud.com/shortcuts/…` URL.
-3. Open that link on any device → **Add Shortcut** (one tap). Done — no "Allow Untrusted",
-   no AirDrop. Re-installs and new devices are one tap forever.
+This Shortcut is for the rest: **open_app, set_alarm, and iOS-locked settings** —
+brightness, volume, Wi-Fi, Bluetooth, Cellular, Focus, Low Power, orientation, and HomeKit
+scenes.
 
-The app's `create_shortcut(import_url: <that link>)` skill opens this link directly, so a
-future "Set up phone control" button can drive the one-tap add.
-
-> Name it exactly **`JarvisCopilot Runner`** — `phone_control` calls it by that name.
-
-## What it does
+## How it works
 
 JARVIS sends a JSON command as the Shortcut's text input, e.g.
-`{"action":"set","setting":"brightness","value":0.5}`. The Shortcut reads `action`,
-dispatches, performs the native action, and **Stop and Output**s a JSON result
-`{"ok":true,"result":"…"}` that x-callback returns to JARVIS. (Every run briefly flashes
-through the Shortcuts app — unavoidable on iOS.)
+`{"action":"set","setting":"brightness","value":0.3}`. The Shortcut reads `action`,
+dispatches to the matching branch, does the native action, and **Stop and Output**s a JSON
+result `{"ok":true,"result":"…"}`. (Each run briefly flashes through the Shortcuts app —
+unavoidable on iOS.)
 
-## Build steps (Shortcuts editor)
+## Build it (Shortcuts editor — start small, expand later)
 
-1. **New Shortcut** → name it `JarvisCopilot Runner`. First run from a URL → tap **Allow**.
-2. **Get Dictionary from Input** → **Get Dictionary Value** `action` → variable `Action`.
-3. **If `Action` is `capabilities`** → **Stop and Output** verbatim (keep in sync as you add verbs):
+1. **Shortcuts → ➕ New Shortcut**, rename it exactly **`JarvisCopilot Runner`**.
+2. Add **Get Dictionary from Input** (it auto-uses the Shortcut Input).
+3. Add **Get Dictionary Value** → type **Value**, Key **`action`**. (This is the requested verb.)
 
-   ```json
-   {"ok":true,"version":1,"capabilities":[
-     {"action":"set","params":["setting","value"],"desc":"brightness|volume|wifi|bluetooth|cellular|focus|low_power|orientation (brightness/volume 0–1)"},
-     {"action":"scene","params":["name"],"desc":"Run a HomeKit scene by name"}
-   ]}
-   ```
+Now add one **If** block per verb you want (search "If", set the condition to the
+**Dictionary Value** from step 3, **is**, and the verb text). Start with these two:
 
-4. **Otherwise If `Action` is `set`** → Get `setting` + `value` → nested If on `setting`:
-   *Set Brightness / Set Volume / Set Wi-Fi / Set Bluetooth / Set Cellular Data /
-   Set Focus / Set Low Power Mode / Set Orientation Lock* using `value` (brightness/volume
-   are 0–1). **Stop and Output** `{"ok":true,"result":"set <setting>"}`.
+**`set` (locked settings — the main reason for this Shortcut):**
+- **If** Dictionary Value **is** `set`
+  - **Get Dictionary Value** Key `setting`  → (the setting name)
+  - **Get Dictionary Value** Key `value`     → (the value, 0–1 for brightness/volume)
+  - nested **If** `setting` **is** `brightness` → **Set Brightness** to the `value` variable
+  - (repeat the nested If for `volume` → Set Volume, `wifi` → Set Wi-Fi, `focus` → Set Focus,
+    `low_power` → Set Low Power Mode, `orientation` → Set Orientation Lock, …)
+  - **Stop and Output** Text `{"ok":true,"result":"done"}`
 
-5. **Otherwise If `Action` is `scene`** → Get `name` → branch per HomeKit scene you want
-   (If `name` is "Movie Night" → *Run Home Scene: Movie Night*). **Stop and Output**
-   `{"ok":true,"result":"ran <name>"}`.
+**`open_app`:**
+- **If** Dictionary Value **is** `open_app`
+  - **Get Dictionary Value** Key `app`
+  - **Open App** (pick the app) — *or* for dynamic-by-name, **Open URL** with the `app`
+    variable followed by `://` (covers apps with a URL scheme)
+  - **Stop and Output** `{"ok":true,"result":"opened"}`
 
-6. **Final fallback** → **Stop and Output** `{"ok":false,"error":"unknown action"}`.
+Add more later the same way: `scene` → **Run Home Scene**; `alarm` → **Create Alarm**;
+a `capabilities` branch that **Stop and Output**s a JSON list of your verbs (so JARVIS can
+auto-discover them).
 
-## Adding a new verb later
+## Publish for one-tap reuse
 
-Add a top-level `If Action is <verb>` branch (+ its `Stop and Output`), and add a matching
-entry to the **capabilities** JSON in step 3. No app rebuild — next time JARVIS calls
-`phone_capabilities` (or `{"refresh":true}`) it discovers the new verb.
+Once it works: the Shortcut's **⋯ → Share → Copy iCloud Link**. (If prompted, enable
+**Private Sharing** in Settings → Shortcuts.) That `https://www.icloud.com/shortcuts/…`
+link installs in one tap and is what the app's "Set up phone control" button opens.
 
-## Permissions
-
-The first time a branch touches HomeKit or a restricted toggle, iOS prompts — grant it.
-
-## Quick test (after installing)
+## Test
 
 "Set my brightness to 30%" → `phone_control({action:"set",setting:"brightness",value:0.3})`.
-"Run my Movie Night scene" → `phone_control({action:"scene",name:"Movie Night"})`.
-(For "open Spotify" / "battery" / "flashlight", no Shortcut is used — those are native.)
+(If 30% comes out far too dim, Set Brightness wants a percentage — multiply the value by 100
+in the Shortcut, or have brightness sent as 30.)
+"Open Spotify" → `phone_control({action:"open_app",app:"Spotify"})`.
