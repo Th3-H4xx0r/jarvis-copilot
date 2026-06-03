@@ -57,16 +57,19 @@ Map<String, dynamic> parsePhoneOutput(String? raw) {
   return {'ok': true, 'result': text};
 }
 
-/// Documented v1 vocabulary baked into the phone_control tool description, so the
-/// LLM can act without a discovery round-trip for the stable core verbs.
+/// Description baked into the phone_control tool. Deliberately SCOPED to only the
+/// iOS settings apps can't change directly, and it redirects everything else to
+/// the dedicated native skills — so the LLM doesn't route common requests (open
+/// app, battery, flashlight…) through the optional Shortcut.
 const String phoneControlDescription =
-    'Control this iPhone via the "JarvisCopilot Runner" Shortcut (must be '
-    'installed — see setup). Pass an `action` plus params. Core verbs: '
-    'open_app{app} / open_url{url} (open an app or URL — you then stay in that '
-    'app, no value returned); set{setting,value} where setting is '
-    'brightness|volume|low_power|wifi|bluetooth|cellular|focus|flashlight|'
-    'orientation_lock; media{op} op=play|pause|next|previous; '
-    'get{what} what=battery|clipboard|location|now_playing; scene{name} runs a '
-    'HomeKit scene. Returns {ok:true,result:…} or {ok:false,error:…}. The user '
-    'can add verbs to the Shortcut — call phone_capabilities to discover the '
-    'live full list. Every run briefly flashes through the Shortcuts app.';
+    'Change iOS settings that apps cannot change directly, via the OPTIONAL '
+    '"JarvisCopilot Runner" Shortcut. Use ONLY for: set{setting,value} where '
+    'setting = brightness|volume|wifi|bluetooth|cellular|focus|low_power|'
+    'orientation (brightness/volume are 0–1); and scene{name} to run a HomeKit '
+    'scene. For ANYTHING ELSE use the dedicated native skills instead — they need '
+    'NO Shortcut and NO setup: open_app/open_url, battery_level, get_location, '
+    'clipboard_read/clipboard_write, flashlight_on/flashlight_off, vibrate, '
+    'notify, set_alarm, play_audio, text_to_speech, make_call, send_sms. Returns '
+    '{ok:true,result:…} or {ok:false,error:…}; if the Shortcut is not installed '
+    'you get an error (it is optional). Call phone_capabilities for the live verb '
+    'list. Each run briefly flashes through the Shortcuts app.';
