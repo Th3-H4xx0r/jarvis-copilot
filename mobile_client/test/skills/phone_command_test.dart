@@ -41,6 +41,30 @@ void main() {
     });
   });
 
+  group('encodeQueryWithPercent20', () {
+    test('encodes spaces as %20, never +', () {
+      final qs = encodeQueryWithPercent20({'name': 'JarvisCopilot Runner'});
+      expect(qs, 'name=JarvisCopilot%20Runner');
+      expect(qs.contains('+'), isFalse);
+    });
+    test('percent-encodes JSON values and joins with &', () {
+      final qs = encodeQueryWithPercent20({
+        'name': 'JarvisCopilot Runner',
+        'text': '{"action":"open_app","app":"Spotify"}',
+      });
+      expect(qs.startsWith('name=JarvisCopilot%20Runner&text='), isTrue);
+      expect(qs.contains('%7B'), isTrue); // { encoded
+      expect(qs.contains('%22'), isTrue); // " encoded
+      expect(qs.contains('+'), isFalse);
+    });
+    test('round-trips through Uri.parse preserving %20', () {
+      final qs = encodeQueryWithPercent20({'name': 'A B'});
+      final uri = Uri.parse('shortcuts://x-callback-url/run-shortcut?$qs');
+      expect(uri.toString().contains('A%20B'), isTrue);
+      expect(uri.queryParameters['name'], 'A B'); // decodes back to a space
+    });
+  });
+
   group('parsePhoneOutput', () {
     test('parses a JSON object output', () {
       expect(parsePhoneOutput('{"ok":true,"result":"opened Spotify"}'),

@@ -92,7 +92,7 @@ Future<Map<String, dynamic>> _runShortcut(
 
   // rid in the PATH (not a query) so Shortcuts can cleanly append its own
   // `?result=…` / `?errorMessage=…` callback without a double-query.
-  final query = <String, String>{
+  final params = <String, String>{
     'name': name,
     if (input.isNotEmpty) 'input': 'text',
     if (input.isNotEmpty) 'text': input,
@@ -101,16 +101,15 @@ Future<Map<String, dynamic>> _runShortcut(
   if (awaitResult) {
     completer = Completer<Map<String, dynamic>>();
     _shortcutWaiters[rid] = completer;
-    query['x-success'] = 'jarviscopilot://shortcut-result/$rid';
-    query['x-error'] = 'jarviscopilot://shortcut-error/$rid';
-    query['x-cancel'] = 'jarviscopilot://shortcut-error/$rid';
+    params['x-success'] = 'jarviscopilot://shortcut-result/$rid';
+    params['x-error'] = 'jarviscopilot://shortcut-error/$rid';
+    params['x-cancel'] = 'jarviscopilot://shortcut-error/$rid';
   }
 
-  final uri = Uri(
-      scheme: 'shortcuts',
-      host: 'x-callback-url',
-      path: '/run-shortcut',
-      queryParameters: query);
+  // Build with %20 for spaces (NOT `+`) — see encodeQueryWithPercent20: a
+  // Shortcut name like "JarvisCopilot Runner" must not become "…+Runner".
+  final uri = Uri.parse(
+      'shortcuts://x-callback-url/run-shortcut?${encodeQueryWithPercent20(params)}');
   final launched = await launchUrl(uri);
 
   if (!awaitResult) {

@@ -33,6 +33,18 @@ Map<String, dynamic> buildPhoneCommand(Map<String, dynamic> args) {
   return out;
 }
 
+/// Encode a query-parameter map as `key=value&…`, percent-encoding each part so
+/// **spaces become `%20`**.
+///
+/// We can't use `Uri(queryParameters: …)` / `Uri.encodeQueryComponent`: those
+/// emit `+` for spaces (application/x-www-form-urlencoded), and the iOS Shortcuts
+/// app treats `+` as a LITERAL plus — so a name like "JarvisCopilot Runner"
+/// arrives as "JarvisCopilot+Runner" and the Shortcut isn't found.
+String encodeQueryWithPercent20(Map<String, String> params) => params.entries
+    .map((e) =>
+        '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+    .join('&');
+
 /// Parse the Shortcut's textual output. A JSON object is returned as-is; any
 /// other text (or null/empty) is wrapped as `{ok:true, result:<raw>}`.
 Map<String, dynamic> parsePhoneOutput(String? raw) {
