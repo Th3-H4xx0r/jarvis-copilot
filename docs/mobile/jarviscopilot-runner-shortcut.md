@@ -1,75 +1,93 @@
-# "JarvisCopilot Runner" Shortcut — build + install
+# Phone-control Shortcuts — build + install
 
-## The iOS reality (read this first)
+JARVIS changes **iOS-locked settings** (brightness, volume, Wi-Fi, Bluetooth, Focus) and
+opens URLs through a small set of **per-verb Shortcuts**. This doc covers why it's per-verb,
+how they're generated/signed, and how to install them.
+
+## The iOS reality
 
 Since **iOS 15**, the Shortcuts app refuses to import any Shortcut that isn't **digitally
-signed by Apple**. There is no "Allow Untrusted Shortcuts" toggle anymore, and importing a
-raw `.shortcut` file fails with *"Importing unsigned shortcut files is not supported."* So
-an app **cannot** ship or generate an installable Shortcut.
+signed by Apple** — there's no "Allow Untrusted Shortcuts" toggle, and a raw `.shortcut`
+file fails with *"Importing unsigned shortcut files is not supported."*
 
-The only way to get a signed Shortcut is to **build it once in the Shortcuts editor**, then
-**Share → Copy iCloud Link** — Apple signs it on iCloud. That signed link installs in **one
-tap** on any device, with no Mac and no toggles. That link is what the app's "Set up phone
-control" button will open.
+You do **not** need the editor or an iCloud link. On a Mac, the `shortcuts` CLI signs a
+generated plist locally:
 
-> **You build it once (on the phone, ~5–10 min). After that it's one tap forever.**
+```
+shortcuts sign --mode people-who-know-me --input X.unsigned.shortcut --output "JC Foo.shortcut"
+```
 
-## What goes through this Shortcut (vs native)
+The signed file imports in one tap (AirDrop → **Add Shortcut**). The shortcut **name comes
+from the filename**, so it must match `verbShortcutNames` in
+`mobile_client/lib/skills/phone_command.dart`.
 
-Native device skills already handle most things with **zero setup** — `battery_level`,
-`get_location`, `clipboard_read/write`, `flashlight_on/off`, `vibrate`, `notify`,
-`text_to_speech`, `make_call`, `send_sms`. Leave those native.
+## Why per-verb, not one JSON dispatcher (hard-won)
 
-This Shortcut is for the rest: **open_app, set_alarm, and iOS-locked settings** —
-brightness, volume, Wi-Fi, Bluetooth, Cellular, Focus, Low Power, orientation, and HomeKit
-scenes.
+A single "JarvisCopilot Runner" that parsed a JSON command and branched on the verb was
+built and tested exhaustively on-device. It does **not** work, because two iOS Shortcuts
+primitives are unreliable for this:
 
-## How it works
+- **`Get Dictionary from Input`** returns an **empty dictionary** for a multi-key JSON
+  payload delivered via x-callback `input=text`. (A single-key payload sometimes parsed; the
+  two-key `{"action":…,"value":…}` consistently came back empty — verified by showing the
+  parsed dict on screen: `dict=[]` with the raw input intact.)
+- the **`If`** action would **not branch** on the verb string, even when fed a clean value
+  from `Split Text` (so a list-based single shortcut failed too).
 
-JARVIS sends a JSON command as the Shortcut's text input, e.g.
-`{"action":"set","setting":"brightness","value":0.3}`. The Shortcut reads `action`,
-dispatches to the matching branch, does the native action, and **Stop and Output**s a JSON
-result `{"ok":true,"result":"…"}`. (Each run briefly flashes through the Shortcuts app —
-unavoidable on iOS.)
+What *is* rock-solid (each verified on-device): x-callback text **input delivery**, **`Get
+Numbers from Input`**, and the **`Set …` actions fed a real number**. So each verb is its
+own Shortcut built from only those:
 
-## Build it (Shortcuts editor — start small, expand later)
+```
+raw text input  ->  Get Numbers from Input  ->  the one action
+```
 
-1. **Shortcuts → ➕ New Shortcut**, rename it exactly **`JarvisCopilot Runner`**.
-2. Add **Get Dictionary from Input** (it auto-uses the Shortcut Input).
-3. Add **Get Dictionary Value** → type **Value**, Key **`action`**. (This is the requested verb.)
+No dictionary, no key lookup, no conditional, no value coercion. (Coercing the value to
+`WFStringContentItem` was an earlier red herring — it turns the number into a string and
+`Set Brightness` silently ignores it. A *number* is required.)
 
-Now add one **If** block per verb you want (search "If", set the condition to the
-**Dictionary Value** from step 3, **is**, and the verb text). Start with these two:
+## The verbs / Shortcuts
 
-**`set` (locked settings — the main reason for this Shortcut):**
-- **If** Dictionary Value **is** `set`
-  - **Get Dictionary Value** Key `setting`  → (the setting name)
-  - **Get Dictionary Value** Key `value`     → (the value, 0–1 for brightness/volume)
-  - nested **If** `setting` **is** `brightness` → **Set Brightness** to the `value` variable
-  - (repeat the nested If for `volume` → Set Volume, `wifi` → Set Wi-Fi, `focus` → Set Focus,
-    `low_power` → Set Low Power Mode, `orientation` → Set Orientation Lock, …)
-  - **Stop and Output** Text `{"ok":true,"result":"done"}`
+| Verb (phone_control `action`) | Shortcut name | Raw input the app sends | Action |
+|---|---|---|---|
+| `brightness` | `JC Brightness` | `0.0`–`1.0` (e.g. `0.3`) | Set Brightness |
+| `volume`     | `JC Volume`     | `0.0`–`1.0`             | Set Volume |
+| `wifi`       | `JC WiFi`       | `1` / `0`               | Set Wi-Fi |
+| `bluetooth`  | `JC Bluetooth`  | `1` / `0`               | Set Bluetooth |
+| `focus`      | `JC Focus`      | `1` / `0`               | Set Do Not Disturb |
+| `open_url`   | `JC Open URL`   | a URL (e.g. `spotify://`) | Open URLs |
 
-**`open_app`:**
-- **If** Dictionary Value **is** `open_app`
-  - **Get Dictionary Value** Key `app`
-  - **Open App** (pick the app) — *or* for dynamic-by-name, **Open URL** with the `app`
-    variable followed by `://` (covers apps with a URL scheme)
-  - **Stop and Output** `{"ok":true,"result":"opened"}`
+Everything else stays **native, zero-setup**: `battery_level`, `get_location`,
+`clipboard_read/write`, `flashlight_on/off`, `vibrate`, `notify`, `text_to_speech`,
+`make_call`, `send_sms`, `open_app`, `set_alarm`. `phone_control` refuses those and points
+JARVIS at the native skill (`nativeRedirectSkill`).
 
-Add more later the same way: `scene` → **Run Home Scene**; `alarm` → **Create Alarm**;
-a `capabilities` branch that **Stop and Output**s a JSON list of your verbs (so JARVIS can
-auto-discover them).
+## Regenerate + sign (macOS)
 
-## Publish for one-tap reuse
+```
+python3 tools/gen_phone_shortcuts.py          # -> /tmp/jcskills/*.unsigned.shortcut
+for f in /tmp/jcskills/*.unsigned.shortcut; do
+  name="$(basename "${f%.unsigned.shortcut}")"
+  plutil -convert binary1 "$f"
+  shortcuts sign --mode people-who-know-me --input "$f" \
+    --output "$HOME/Downloads/${name}.shortcut"
+done
+```
 
-Once it works: the Shortcut's **⋯ → Share → Copy iCloud Link**. (If prompted, enable
-**Private Sharing** in Settings → Shortcuts.) That `https://www.icloud.com/shortcuts/…`
-link installs in one tap and is what the app's "Set up phone control" button opens.
+## Install
 
-## Test
+AirDrop the six `~/Downloads/JC *.shortcut` files to the phone and tap **Add Shortcut** for
+each. (To open an app, JARVIS uses `open_url` with the app's URL scheme, e.g. `spotify://`.)
 
-"Set my brightness to 30%" → `phone_control({action:"set",setting:"brightness",value:0.3})`.
-(If 30% comes out far too dim, Set Brightness wants a percentage — multiply the value by 100
-in the Shortcut, or have brightness sent as 30.)
-"Open Spotify" → `phone_control({action:"open_app",app:"Spotify"})`.
+## Test (through JARVIS)
+
+- "set my brightness to 30%" → `phone_control({action:"brightness",value:0.3})` → `JC Brightness` input `0.3`
+- "turn off wifi" → `phone_control({action:"wifi",value:0})` → `JC WiFi` input `0`
+- "open spotify" → `phone_control({action:"open_url",url:"spotify://"})` → `JC Open URL`
+
+Each run briefly flashes through the Shortcuts app (unavoidable on iOS) and applies the
+setting immediately. `phone_control` passes an `x-success` callback
+(`jarviscopilot://shortcut-result/<rid>`) so iOS **returns to JarvisCopilot** as soon as the
+shortcut finishes — the verbs emit no output, so the result is empty, but the round-trip is
+what brings the app back to the foreground (the earlier "hang" was the broken dispatcher
+never completing, not the await).

@@ -1,25 +1,32 @@
 import 'dart:convert';
 
-/// Pure helpers for the `phone_control` dispatcher command protocol. Kept free
-/// of Flutter/platform dependencies so they can be unit-tested without a device.
+/// Pure helpers for the `phone_control` per-verb Shortcut protocol. Kept free of
+/// Flutter/platform dependencies so they can be unit-tested without a device.
 ///
-/// See docs/superpowers/specs/2026-06-03-dynamic-shortcuts-dispatcher-design.md.
+/// Architecture (see docs/mobile/jarviscopilot-runner-shortcut.md): each iOS-
+/// locked setting maps to its OWN tiny "JC <Verb>" Shortcut that takes the value
+/// as PLAIN TEXT input and runs one action. We deliberately do NOT use a single
+/// JSON dispatcher: iOS `Get Dictionary from Input` won't reliably parse a multi-
+/// key payload, and the `If` action won't reliably branch on a verb — both were
+/// proven flaky on-device. Per-verb shortcuts use only bulletproof primitives
+/// (text input → `Get Numbers from Input` → the action), so there is no
+/// dictionary, no key lookup, no conditional, and no value coercion anywhere.
 
-/// Verbs whose final action switches apps (so iOS leaves the user there and we
-/// don't wait for an x-callback result). Everything else returns a value.
-const Set<String> _launchActions = {'open_app', 'open_url'};
+/// The verbs phone_control drives, each to a same-named "JC <Verb>" Shortcut.
+const Map<String, String> verbShortcutNames = {
+  'brightness': 'JC Brightness',
+  'volume': 'JC Volume',
+  'wifi': 'JC WiFi',
+  'bluetooth': 'JC Bluetooth',
+  'focus': 'JC Focus',
+  'open_url': 'JC Open URL',
+};
 
-/// Skill args consumed by the Dart layer that must NOT be forwarded to the
-/// Shortcut as part of the JSON command.
+/// Skill args consumed by the Dart layer that must NOT be forwarded.
 const Set<String> _internalKeys = {'timeout_seconds'};
 
-/// True if `action` should wait for and parse the Shortcut's result. Unknown
-/// actions default to true (safer: a user-added verb that returns a value still
-/// gets its result back).
-bool phoneActionAwaitsResult(String action) => !_launchActions.contains(action);
-
-/// Build the JSON command map sent to the dispatcher: `action` (required) plus
-/// any provided params, dropping nulls, empty strings, and internal-only keys.
+/// Build the command map from skill args: `action` (required) plus any provided
+/// params, dropping nulls, empty strings, and internal-only keys.
 Map<String, dynamic> buildPhoneCommand(Map<String, dynamic> args) {
   final action = (args['action'] ?? '').toString();
   if (action.isEmpty) throw ArgumentError('action required');
@@ -33,28 +40,66 @@ Map<String, dynamic> buildPhoneCommand(Map<String, dynamic> args) {
   return out;
 }
 
+/// Normalize a verb's value into the RAW TEXT the matching Shortcut expects.
+///
+/// - wifi/bluetooth/focus → "1" / "0" (accepts on/off/true/false/yes/no).
+/// - brightness/volume    → a 0.0–1.0 decimal; a percentage (30 or "30%") is
+///   divided by 100, and the result is clamped to [0, 1].
+/// - open_url             → the URL, passed through unchanged.
+String rawValueForVerb(String action, Map<String, dynamic> command) {
+  if (action == 'open_url') return (command['url'] ?? '').toString();
+  final v = command['value'];
+  if (action == 'wifi' || action == 'bluetooth' || action == 'focus') {
+    final s = v.toString().toLowerCase().trim();
+    if (['1', 'on', 'true', 'yes', 'enable', 'enabled'].contains(s)) return '1';
+    if (['0', 'off', 'false', 'no', 'disable', 'disabled'].contains(s)) {
+      return '0';
+    }
+    return s;
+  }
+  // brightness / volume: 0.0–1.0, but tolerate a percentage.
+  final raw = v.toString().trim();
+  final isPct = raw.endsWith('%');
+  final n = double.tryParse(raw.replaceAll('%', '').trim());
+  if (n == null) return raw;
+  var d = (isPct || n > 1) ? n / 100.0 : n;
+  if (d < 0) d = 0;
+  if (d > 1) d = 1;
+  return d.toString();
+}
+
+/// Resolve a phone_control command to the per-verb Shortcut name + its raw text
+/// input. Returns null if the verb has no Shortcut (caller errors / redirects).
+({String name, String input})? phoneShortcutFor(Map<String, dynamic> command) {
+  final action = (command['action'] ?? '').toString();
+  final name = verbShortcutNames[action];
+  if (name == null) return null;
+  return (name: name, input: rawValueForVerb(action, command));
+}
+
 /// Encode a query-parameter map as `key=value&…`, percent-encoding each part so
 /// **spaces become `%20`**.
 ///
 /// We can't use `Uri(queryParameters: …)` / `Uri.encodeQueryComponent`: those
 /// emit `+` for spaces (application/x-www-form-urlencoded), and the iOS Shortcuts
-/// app treats `+` as a LITERAL plus — so a name like "JarvisCopilot Runner"
-/// arrives as "JarvisCopilot+Runner" and the Shortcut isn't found.
+/// app treats `+` as a LITERAL plus — so a name like "JC Brightness" arrives as
+/// "JC+Brightness" and the Shortcut isn't found.
 String encodeQueryWithPercent20(Map<String, String> params) => params.entries
     .map((e) =>
         '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
     .join('&');
 
 /// If `command` targets something the app already does NATIVELY, return the name
-/// of the native skill to use instead — so phone_control can refuse and redirect
-/// rather than bounce the OPTIONAL Shortcut (the LLM can't be relied on to pick
-/// the native skill from descriptions alone). Returns null for genuinely
-/// Shortcut-only actions (set / scene / media / now_playing / user-added verbs),
-/// which keeps the dispatcher extensible.
+/// of the native skill to use instead — so phone_control refuses and redirects
+/// rather than bounce a Shortcut for it. Returns null for genuine Shortcut verbs.
 String? nativeRedirectSkill(Map<String, dynamic> command) {
   switch ((command['action'] ?? '').toString()) {
     case 'flashlight':
       return 'flashlight_on / flashlight_off';
+    case 'open_app':
+      return 'open_app';
+    case 'alarm':
+      return 'set_alarm';
     case 'get':
       switch ((command['what'] ?? '').toString()) {
         case 'battery':
@@ -69,8 +114,9 @@ String? nativeRedirectSkill(Map<String, dynamic> command) {
   return null;
 }
 
-/// Parse the Shortcut's textual output. A JSON object is returned as-is; any
-/// other text (or null/empty) is wrapped as `{ok:true, result:<raw>}`.
+/// Parse a Shortcut's textual output. A JSON object is returned as-is; any other
+/// text (or null/empty) is wrapped as `{ok:true, result:<raw>}`. Retained for
+/// any verb that returns output; the setting verbs are fire-and-forget.
 Map<String, dynamic> parsePhoneOutput(String? raw) {
   final text = (raw ?? '').trim();
   if (text.isEmpty) return {'ok': true, 'result': ''};
@@ -81,19 +127,16 @@ Map<String, dynamic> parsePhoneOutput(String? raw) {
   return {'ok': true, 'result': text};
 }
 
-/// Description baked into the phone_control tool. Deliberately SCOPED to only the
-/// iOS settings apps can't change directly, and it redirects everything else to
-/// the dedicated native skills — so the LLM doesn't route common requests (open
-/// app, battery, flashlight…) through the optional Shortcut.
+/// Description baked into the phone_control tool. Scoped to the iOS settings apps
+/// can't change directly; everything else redirects to dedicated native skills.
 const String phoneControlDescription =
-    'Control iOS via the "JarvisCopilot Runner" Shortcut. Set `action` to the verb '
-    'DIRECTLY and pass its value:\n'
-    '• brightness / volume → value: 0.0–1.0   e.g. {"action":"brightness","value":0.3}\n'
+    'Control iOS-locked settings via the per-verb "JC …" Shortcuts. Set `action` '
+    'to the verb and pass its value:\n'
+    '• brightness / volume → value: 0.0–1.0 (a percent like 30 is fine)   e.g. {"action":"brightness","value":0.3}\n'
     '• wifi / bluetooth / focus → value: 1 (on) or 0 (off)\n'
-    '• open_app → app: the app name (e.g. "Spotify")\n'
-    '• open_url → url: a URL\n'
-    '• alarm → time: e.g. "7:00 AM"\n'
+    '• open_url → url: a URL (to open an app, pass its URL scheme, e.g. "spotify://")\n'
     'For battery, location, clipboard, flashlight, vibrate, notify, calls, texts, '
-    'etc. use the dedicated NATIVE skills instead (they need no Shortcut). Returns '
-    '{ok:…}; an error means the Shortcut is not installed (it is optional). Each '
-    'run briefly flashes through the Shortcuts app.';
+    'opening an app by name, and alarms, use the dedicated NATIVE skills instead '
+    '(they need no Shortcut). Each verb runs a tiny "JC <Verb>" Shortcut (one-time '
+    'install); an error means that Shortcut is not installed. Each run briefly '
+    'flashes through the Shortcuts app and changes the setting immediately.';

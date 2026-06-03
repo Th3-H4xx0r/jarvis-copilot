@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -34,27 +33,6 @@ const MethodChannel _smsChannel = MethodChannel('jarviscopilot/sms');
 final Map<String, Completer<Map<String, dynamic>>> _shortcutWaiters = {};
 int _shortcutRidSeq = 0;
 bool _shortcutHandlerWired = false;
-
-// Cached capabilities manifest from the dispatcher's `capabilities` query, so
-// the LLM needn't re-run the visible bounce mid-conversation. Cleared by a
-// forced refresh (refresh:true). `_phoneCapsInflight` coalesces concurrent
-// discovery so two callers don't both trigger a visible Shortcuts bounce.
-Map<String, dynamic>? _phoneCapsCache;
-Future<Map<String, dynamic>>? _phoneCapsInflight;
-
-/// Run the dispatcher's `capabilities` query and cache a COPY of a valid result
-/// (a copy so a caller mutating the returned map can't corrupt the cache).
-Future<Map<String, dynamic>> _fetchPhoneCapabilities() async {
-  final res = await _runShortcut('JarvisCopilot Runner',
-      input: '{"action":"capabilities"}', timeout: 30);
-  if (res['ran'] == false) return res; // could not open Shortcuts
-  if (res.containsKey('note')) return res; // timed out
-  final parsed = parsePhoneOutput(res['result'] as String?);
-  if (parsed['ok'] == true && parsed.containsKey('capabilities')) {
-    _phoneCapsCache = Map<String, dynamic>.from(parsed);
-  }
-  return parsed;
-}
 
 void _ensureShortcutResultHandler() {
   if (_shortcutHandlerWired) return;
@@ -107,7 +85,7 @@ Future<Map<String, dynamic>> _runShortcut(
   }
 
   // Build with %20 for spaces (NOT `+`) — see encodeQueryWithPercent20: a
-  // Shortcut name like "JarvisCopilot Runner" must not become "…+Runner".
+  // Shortcut name like "JC Brightness" must not become "JC+Brightness".
   final uri = Uri.parse(
       'shortcuts://x-callback-url/run-shortcut?${encodeQueryWithPercent20(params)}');
   final launched = await launchUrl(uri);
@@ -199,9 +177,9 @@ final List<SkillEntry> iosSkills = [
         "messages, open apps or URLs, run SSH/HTTP requests, and more. Pass the "
         "exact Shortcut name (case-sensitive) and optional text 'input'. Returns "
         "{ran:true, result:<the shortcut's output text>} or {ran:false, error}. "
-        "If the Shortcut produces no output you may get an empty result. Use the "
-        "'JarvisCopilot Runner' Shortcut (see setup) as a general dispatcher when "
-        "no specific Shortcut exists for the task.",
+        "If the Shortcut produces no output you may get an empty result. To change "
+        "iOS-locked settings (brightness, volume, wifi, bluetooth, focus) prefer "
+        "the phone_control skill, which drives the per-verb 'JC …' Shortcuts.",
     inputSchema: {
       'type': 'object',
       'properties': {
@@ -345,68 +323,71 @@ final List<SkillEntry> iosSkills = [
     run: (args) async {
       if (!Platform.isIOS) throw StateError('iOS only');
       final command = buildPhoneCommand(Map<String, dynamic>.from(args));
-      // Refuse anything with a native equivalent so we never bounce the optional
-      // Shortcut for open_app/battery/flashlight/etc. — point JARVIS at the
-      // native skill instead.
+      // Refuse anything with a native equivalent so we never bounce a Shortcut
+      // for open_app/battery/flashlight/alarm/etc. — point JARVIS at the native
+      // skill instead.
       final native = nativeRedirectSkill(command);
       if (native != null) {
         return {
           'ok': false,
           'error': "phone_control is only for iOS-locked settings (brightness, "
-              "volume, wifi, bluetooth, cellular, focus, low_power, orientation, "
-              "HomeKit scenes). Use the native '$native' skill for this — it "
-              "needs no Shortcut and no setup.",
+              "volume, wifi, bluetooth, focus) and open_url. Use the native "
+              "'$native' skill for this — it needs no Shortcut and no setup.",
         };
       }
-      final action = command['action'] as String;
-      final awaits = phoneActionAwaitsResult(action);
+      final target = phoneShortcutFor(command);
+      if (target == null) {
+        return {
+          'ok': false,
+          'error': "Unsupported verb '${command['action']}'. phone_control "
+              "handles: ${verbShortcutNames.keys.join(', ')}.",
+        };
+      }
+      // Await the x-success callback so iOS bounces BACK to JarvisCopilot after
+      // the setting changes (instead of stranding the user in Shortcuts). The
+      // verb shortcuts emit no output and finish in ~1s, so the callback fires
+      // immediately — the old "hang" was the broken dispatcher never completing,
+      // not the await itself.
       final timeout = (args['timeout_seconds'] is num)
           ? (args['timeout_seconds'] as num).toInt()
           : 30;
-      final res = await _runShortcut(
-        'JarvisCopilot Runner',
-        input: jsonEncode(command),
-        timeout: timeout,
-        awaitResult: awaits,
-      );
-      // Launch-type: pass the raw {ran,launched} through unchanged.
-      if (!awaits) return res;
-      // Await-type: surface transport failures, else parse the dispatcher's
-      // textual output (which lives in res['result']).
-      if (res['ran'] == false) return res; // could not open Shortcuts
-      if (res.containsKey('note')) return res; // timed out
-      return parsePhoneOutput(res['result'] as String?);
+      final res = await _runShortcut(target.name,
+          input: target.input, timeout: timeout, awaitResult: true);
+      if (res['ran'] == false) {
+        return {
+          'ok': false,
+          'shortcut': target.name,
+          'value': target.input,
+          'error': "Could not run '${target.name}'. Make sure that Shortcut is "
+              "installed (one-time setup).",
+        };
+      }
+      return {
+        'ok': true,
+        'shortcut': target.name,
+        'value': target.input,
+        if (res.containsKey('note')) 'note': res['note'],
+      };
     },
   ),
   SkillEntry(
     name: 'phone_capabilities',
     platform: 'ios',
     description:
-        'Discover what the "JarvisCopilot Runner" Shortcut on this iPhone can do '
-        '(the live verb list for phone_control, including any the user added). '
-        'Cached after first call; pass {"refresh": true} to re-query.',
-    inputSchema: {
-      'type': 'object',
-      'properties': {
-        'refresh': {'type': 'boolean'},
-      },
-    },
+        'List the iOS-locked settings phone_control can change on this iPhone '
+        '(each backed by a one-time "JC <Verb>" Shortcut). Static — no Shortcut '
+        'bounce.',
+    inputSchema: {'type': 'object'},
     run: (args) async {
       if (!Platform.isIOS) throw StateError('iOS only');
-      final refresh = args['refresh'] == true;
-      if (!refresh) {
-        if (_phoneCapsCache != null) {
-          return {..._phoneCapsCache!, 'cached': true};
-        }
-        if (_phoneCapsInflight != null) return _phoneCapsInflight!;
-      }
-      final future = _fetchPhoneCapabilities();
-      if (!refresh) _phoneCapsInflight = future;
-      try {
-        return await future;
-      } finally {
-        if (identical(_phoneCapsInflight, future)) _phoneCapsInflight = null;
-      }
+      return {
+        'ok': true,
+        'verbs': verbShortcutNames.keys.toList(),
+        'shortcuts': verbShortcutNames,
+        'note': 'Each verb runs the matching "JC <Verb>" Shortcut. brightness/'
+            'volume take 0.0–1.0; wifi/bluetooth/focus take 1/0; open_url takes '
+            'a URL. If a verb errors, that Shortcut is not installed.',
+      };
     },
   ),
 ];
