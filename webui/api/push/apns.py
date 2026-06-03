@@ -112,12 +112,41 @@ def _get_jwt(cfg: dict) -> str:
         return tok
 
 
-def send_apns(push_token: str, payload: dict, *, timeout: float = 10.0) -> dict:
-    """POST a silent push to APNs HTTP/2.
+def _build_apns_body(payload: dict, alert: Optional[dict]) -> dict:
+    """APS body. With an alert -> visible (banner) push; without -> silent."""
+    aps: dict = {}
+    if alert:
+        aps["alert"] = {"title": alert.get("title", ""), "body": alert.get("body", "")}
+        aps["sound"] = "default"
+    else:
+        # content-available:1 + no alert = silent / background push.
+        aps["content-available"] = 1
+    # Custom envelope: read in didReceiveRemoteNotification for a SILENT push;
+    # for a visible (alert) push it rides along and is available on tap.
+    return {"aps": aps, "jarviscopilot": payload or {}}
 
-    ``payload`` is merged into the data envelope; APS keys are added by us
-    so the push qualifies as a "background notification" that wakes the
-    app for ~30s without a banner.
+
+def _apns_headers(cfg: dict, jwt: str, *, alert: bool) -> dict:
+    return {
+        "authorization": f"bearer {jwt}",
+        "apns-topic": cfg["topic"],
+        # 'alert' push shows a banner + can launch the app on tap; 'background'
+        # is silent. Visible pushes use priority 10; silent ones MUST use 5.
+        "apns-push-type": "alert" if alert else "background",
+        "apns-priority": "10" if alert else "5",
+        # Visible push survives ~1h so a later tap still finds it; silent expires now.
+        "apns-expiration": str(int(time.time()) + 3600) if alert else "0",
+        "content-type": "application/json",
+    }
+
+
+def send_apns(push_token: str, payload: dict, *, timeout: float = 10.0,
+              alert: Optional[dict] = None) -> dict:
+    """POST a push to APNs HTTP/2.
+
+    ``payload`` is merged into the data envelope. With ``alert`` (title/body)
+    it's a VISIBLE, tappable banner; without, a silent "background notification"
+    that wakes the app for ~30s with no banner.
     """
     if not _KEY_FILE.exists():
         return {"ok": False, "error": "APNs auth key not configured"}
@@ -133,26 +162,11 @@ def send_apns(push_token: str, payload: dict, *, timeout: float = 10.0) -> dict:
         logger.warning("APNs JWT sign failed: %s", exc)
         return {"ok": False, "error": f"APNs JWT: {exc}"}
 
-    body = {
-        "aps": {
-            # content-available:1 + no alert = silent / background push.
-            "content-available": 1,
-        },
-        # Custom envelope the app reads in didReceiveRemoteNotification.
-        "jarviscopilot": payload or {},
-    }
+    body = _build_apns_body(payload, alert)
     use_sandbox = bool(cfg.get("use_sandbox"))
     host = "api.sandbox.push.apple.com" if use_sandbox else "api.push.apple.com"
     url = f"https://{host}/3/device/{push_token}"
-    headers = {
-        "authorization": f"bearer {jwt}",
-        "apns-topic": cfg["topic"],
-        "apns-push-type": "background",
-        # priority 5 is REQUIRED for silent / content-available pushes.
-        "apns-priority": "5",
-        "apns-expiration": "0",
-        "content-type": "application/json",
-    }
+    headers = _apns_headers(cfg, jwt, alert=bool(alert))
     import httpx
     try:
         with httpx.Client(http2=True, timeout=timeout) as client:

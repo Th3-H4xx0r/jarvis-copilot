@@ -34,15 +34,16 @@ logger = logging.getLogger(__name__)
 
 
 def send(push_kind: str, push_token: str, payload: dict,
-         *, timeout: float = 10.0) -> dict:
-    """Dispatch to the right backend. Returns ``{"ok": bool, "error"?: str}``."""
+         *, timeout: float = 10.0, alert: Optional[dict] = None) -> dict:
+    """Dispatch to the right backend. ``alert`` (title/body) makes it a visible,
+    tappable push; omit for a silent background wake. Returns ``{"ok": bool, ...}``."""
     if not push_token:
         return {"ok": False, "error": "no push token"}
     kind = (push_kind or "").lower().strip()
     if kind in ("fcm", "android"):
-        return send_fcm(push_token, payload, timeout=timeout)
+        return send_fcm(push_token, payload, timeout=timeout, alert=alert)
     if kind in ("apns", "ios"):
-        return send_apns(push_token, payload, timeout=timeout)
+        return send_apns(push_token, payload, timeout=timeout, alert=alert)
     return {"ok": False, "error": f"unknown push kind: {push_kind!r}"}
 
 

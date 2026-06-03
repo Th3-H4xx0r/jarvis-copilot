@@ -6111,7 +6111,13 @@ def handle_post(handler, parsed) -> bool:
         device = find_device_by_session(cookie_val or "")
         if not device:
             return j(handler, {"error": "no matching device for session"}, status=401)
-        queue_items = take_mobile_queue(device["id"])
+        # Default True: a missing flag (older client) is treated as a foreground
+        # poll so nothing is silently withheld. Be liberal in what we accept as
+        # "background" so a non-bool ("false"/0/null) can't sneak foreground-
+        # required invokes to a background isolate.
+        _fg = body.get("foreground", True)
+        include_foreground = _fg not in (False, "false", "False", 0, "0", None)
+        queue_items = take_mobile_queue(device["id"], include_foreground=include_foreground)
         return j(handler, {"invokes": queue_items, "ts": time.time()})
 
     # ── Mobile client: post a skill result ──

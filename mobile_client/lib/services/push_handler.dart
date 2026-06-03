@@ -11,6 +11,7 @@ import '../skills/registry.dart';
 import 'api_client.dart';
 import 'credentials.dart';
 import 'invoke_runner.dart';
+import 'poll_body.dart';
 import 'ws_bridge.dart';
 
 /// Push registration + background-wake handler.
@@ -111,10 +112,13 @@ class PushHandler {
   /// the app comes back to the foreground.
   Future<void> drainNow() => _drainQueue();
 
-  /// Pull queued invokes from the server, execute them, post results.
+  /// Pull queued invokes from the server, execute them, post results. This is
+  /// the FOREGROUND drain (app is in front, e.g. resumed or a notification tap),
+  /// so it asks for foreground-required invokes too.
   Future<void> _drainQueue() async {
     try {
-      final pollResp = await api.postJson('/api/devices/mobile/poll', const {});
+      final pollResp =
+          await api.postJson('/api/devices/mobile/poll', pollBody(foreground: true));
       final body = pollResp.data;
       if (body is! Map) return;
       final invokes = (body['invokes'] as List?) ?? const [];
@@ -174,7 +178,11 @@ Future<void> _backgroundMessageHandler(RemoteMessage msg) async {
   // which the server surfaces back to the agent — strictly better than
   // the previous no-op that only worked when the user opened the app.
   try {
-    final pollResp = await bgApi.postJson('/api/devices/mobile/poll', const {});
+    // BACKGROUND drain: ask the server to WITHHOLD foreground-required invokes
+    // (they can't run headless — they wait for the visible-push tap to bring
+    // the app forward).
+    final pollResp = await bgApi.postJson(
+        '/api/devices/mobile/poll', pollBody(foreground: false));
     final body = pollResp.data;
     if (body is! Map) return;
     final invokes = (body['invokes'] as List?) ?? const [];
@@ -186,6 +194,12 @@ Future<void> _backgroundMessageHandler(RemoteMessage msg) async {
           ? Map<String, dynamic>.from(raw['args'] as Map)
           : <String, dynamic>{};
       if (callId.isEmpty || skill.isEmpty) continue;
+      // Defense-in-depth: a foreground-required action (openURL / a Shortcut)
+      // can't run in this background isolate. The server already withholds them
+      // from a foreground:false poll, but if one ever slips through, skip it so
+      // we never fire a doomed headless openURL — it waits for the visible-push
+      // tap to bring the app forward.
+      if (raw['requires_foreground'] == true) continue;
       final r = await bgRunner.run(skill, args);
       try {
         await bgApi.postJson('/api/devices/mobile/result', {

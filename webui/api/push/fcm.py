@@ -134,12 +134,30 @@ def _get_access_token(timeout: float) -> tuple[str, str]:
         return token, _token_cache["project_id"]
 
 
-def send_fcm(push_token: str, payload: dict, *, timeout: float = 10.0) -> dict:
-    """POST a data message via FCM HTTP v1.
+def _build_fcm_message(push_token: str, payload: dict, alert: Optional[dict]) -> dict:
+    """FCM `message` body. With an alert -> a `notification` block (tray banner
+    that launches the app on tap); always carries the `data` envelope."""
+    data = {k: str(v) for k, v in (payload or {}).items()}
+    msg: dict = {
+        "token": push_token,
+        "data": data,
+        # High priority on the data channel so the message is delivered
+        # promptly even when the device is in Doze / app-standby buckets.
+        "android": {"priority": "HIGH"},
+    }
+    if alert:
+        msg["notification"] = {"title": alert.get("title", ""), "body": alert.get("body", "")}
+    return msg
+
+
+def send_fcm(push_token: str, payload: dict, *, timeout: float = 10.0,
+             alert: Optional[dict] = None) -> dict:
+    """POST a message via FCM HTTP v1.
 
     ``payload`` must be a flat dict of strings (FCM ``data`` payloads are
     string-typed). We stringify each value defensively so callers don't
-    have to.
+    have to. With ``alert`` (title/body) the message also carries a visible
+    ``notification`` block (tappable tray banner).
     """
     if not fcm_configured():
         return {"ok": False, "error": "FCM not configured"}
@@ -150,16 +168,7 @@ def send_fcm(push_token: str, payload: dict, *, timeout: float = 10.0) -> dict:
         return {"ok": False, "error": f"FCM token: {exc}"}
     if not project_id:
         return {"ok": False, "error": "FCM project_id missing"}
-    data = {k: str(v) for k, v in (payload or {}).items()}
-    body = {
-        "message": {
-            "token": push_token,
-            "data": data,
-            # High priority on the data channel so the message is delivered
-            # promptly even when the device is in Doze / app-standby buckets.
-            "android": {"priority": "HIGH"},
-        }
-    }
+    body = {"message": _build_fcm_message(push_token, payload, alert)}
     req = urllib.request.Request(
         f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send",
         data=json.dumps(body).encode("utf-8"),

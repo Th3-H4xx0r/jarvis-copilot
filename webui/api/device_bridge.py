@@ -222,11 +222,78 @@ def _invoke_via_ws(c: "_DeviceConn", skill_name: str, args: dict,
 # seconds even on a good network, plus the app needs its background
 # window to open before it can poll.
 
-_PENDING_MOBILE: dict[str, list[dict]] = {}     # device_id → list of {call_id, skill, args, queued_at}
+_PENDING_MOBILE: dict[str, list[dict]] = {}     # device_id → list of {call_id, skill, args, queued_at, requires_foreground, expires_at}
 _PENDING_MOBILE_LOCK = threading.Lock()
 _MOBILE_CALL_EVENTS: dict[str, dict] = {}        # call_id → {event, result, error, device_id}
 _MOBILE_CALL_EVENTS_LOCK = threading.Lock()
 _MOBILE_QUEUE_CAP_PER_DEVICE = 32                # protects against runaway queueing
+
+
+# Skills whose final action needs the FOREGROUND (they call openURL / platform
+# UI). When the phone is backgrounded the live WS manifest is gone, so this set
+# — not a per-skill manifest flag — is the source of truth for "send a visible,
+# tappable push" vs "silent background push". See the notification-tap bridge spec.
+_FOREGROUND_SKILLS = frozenset({
+    "phone_control", "open_url", "open_app", "run_shortcut",
+    "create_shortcut", "send_sms",
+})
+
+# How long a queued, not-yet-tapped invoke stays runnable before it's dropped.
+_MOBILE_INVOKE_TTL = 3600.0  # 1 hour
+
+
+def is_foreground_skill(skill_name: str) -> bool:
+    return skill_name in _FOREGROUND_SKILLS
+
+
+def _pretty_pct(value) -> str:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if v <= 1:
+        v *= 100
+    return f"{int(round(v))}%"
+
+
+def _truthy(value) -> bool:
+    return str(value).strip().lower() in ("1", "on", "true", "yes")
+
+
+def format_action_banner(skill_name: str, args: dict) -> tuple[str, str]:
+    """(title, body) for the visible push. Per-skill formatters with a generic
+    fallback so no skill is ever unhandled. Title is clamped so a pathological
+    URL/app name can't bloat the (4KB-capped) push payload."""
+    args = args if isinstance(args, dict) else {}
+    body = "Tap to run"
+    title = "JARVIS action ready"
+    if skill_name == "open_url":
+        url = str(args.get("url") or "")
+        host = url
+        try:
+            from urllib.parse import urlparse
+            host = urlparse(url).netloc or url
+        except Exception:
+            pass
+        title = f"Open {host}"
+    elif skill_name == "open_app":
+        title = f"Open {args.get('app') or args.get('name') or 'app'}"
+    elif skill_name == "run_shortcut":
+        title = f"Run {args.get('name') or 'shortcut'}"
+    elif skill_name == "send_sms":
+        title = "Send a text"
+    elif skill_name == "phone_control":
+        action = str(args.get("action") or "")
+        value = args.get("value")
+        if action in ("brightness", "volume"):
+            label = "brightness" if action == "brightness" else "volume"
+            title = f"Set {label}" if value is None else f"Set {label} {_pretty_pct(value)}"
+        elif action in ("wifi", "bluetooth", "focus"):
+            name = {"wifi": "Wi-Fi", "bluetooth": "Bluetooth", "focus": "Focus"}[action]
+            title = f"Turn {'on' if _truthy(value) else 'off'} {name}"
+        else:
+            title = "Phone control"
+    return (title[:100], body)
 
 
 def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
@@ -259,6 +326,7 @@ def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
     with _MOBILE_CALL_EVENTS_LOCK:
         _MOBILE_CALL_EVENTS[call_id] = holder
 
+    requires_foreground = is_foreground_skill(skill_name)
     with _PENDING_MOBILE_LOCK:
         q = _PENDING_MOBILE.setdefault(device_id, [])
         # Drop oldest entries if a runaway server keeps queueing without the
@@ -271,19 +339,32 @@ def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
             "skill": skill_name,
             "args": args or {},
             "queued_at": time.time(),
+            "requires_foreground": requires_foreground,
+            "expires_at": time.time() + _MOBILE_INVOKE_TTL,
         })
 
     # Fire-and-forget push. We don't wait on the HTTP response because
     # FCM/APNs delivery is independent of acknowledgement; if the message
     # never lands, the per-call Event will time out below.
+    # Foreground-required skills can't run headless, so we send a VISIBLE,
+    # tappable banner instead of a silent wake. Tapping it foregrounds the app,
+    # which drains the queue and runs the action where openURL works.
+    alert = None
+    if requires_foreground:
+        title, body = format_action_banner(skill_name, args or {})
+        alert = {"title": title, "body": body}
+    push_ok = False
+    push_err = None
     try:
         result = push_mod.send(push_kind, push_token, {
             "type": "invoke_pending",
             "device_id": device_id,
             "count": str(len(q)),
-        })
-        if not result.get("ok"):
-            logger.warning("push send failed (%s): %s", push_kind, result.get("error"))
+        }, alert=alert)
+        push_ok = bool(result.get("ok"))
+        if not push_ok:
+            push_err = result.get("error")
+            logger.warning("push send failed (%s): %s", push_kind, push_err)
             # If the token is unambiguously dead (FCM 404/UNREGISTERED, APNs 410)
             # we surface a clearer error so the agent can move on AND clear
             # the stale token so subsequent invokes don't fire pointless pushes.
@@ -297,7 +378,25 @@ def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
                     logger.warning("could not clear dead push token: %s", exc)
                 return {"ok": False, "error": "device push token expired"}
     except Exception as exc:
+        push_err = str(exc)
         logger.warning("push dispatch raised: %s", exc)
+
+    if requires_foreground:
+        # We can't block a server thread until a human taps the banner. The
+        # action runs on the foreground tap; we don't await its result here.
+        if not push_ok:
+            # The banner never reached the phone — don't tell the user we sent
+            # it. Drop the stranded queue entry + waiter and surface the error.
+            _cleanup_mobile_call(call_id)
+            return {"ok": False,
+                    "error": f"could not reach phone ({push_err or 'push failed'})"}
+        # Drop only the waiter Event — the queued invoke stays so the app can
+        # drain + run it when the user taps.
+        _cleanup_mobile_call_event_only(call_id)
+        return {"ok": True, "result": {
+            "queued": True,
+            "note": "Sent to your phone — tap the notification to run it.",
+        }}
 
     ok = ev.wait(timeout=timeout)
     final = _cleanup_mobile_call(call_id)
@@ -306,6 +405,13 @@ def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
     if final.get("error"):
         return {"ok": False, "error": str(final["error"])}
     return {"ok": True, "result": final.get("result")}
+
+
+def _cleanup_mobile_call_event_only(call_id: str) -> None:
+    """Drop only the waiter Event for a fire-and-forget invoke; the queued
+    invoke stays so the app can drain + run it when the user taps."""
+    with _MOBILE_CALL_EVENTS_LOCK:
+        _MOBILE_CALL_EVENTS.pop(call_id, None)
 
 
 def _cleanup_mobile_call(call_id: str) -> dict:
@@ -328,18 +434,45 @@ def _cleanup_mobile_call(call_id: str) -> dict:
 
 # ── Public helpers used by the /api/devices/mobile/* endpoints ─────────────
 
-def take_mobile_queue(device_id: str) -> list[dict]:
-    """Drain and return the queued invocations for a mobile device.
+def take_mobile_queue(device_id: str, include_foreground: bool = True) -> list[dict]:
+    """Drain queued invocations for a mobile device.
 
-    Called by ``GET /api/devices/mobile/poll`` once the app wakes up. The
-    callers are required to send back ``{type:"result"|"error"}`` for each
-    call_id; if they fail, the per-call Event eventually times out.
+    Drops invokes past ``expires_at`` (resolving any waiter with an "expired"
+    error). When ``include_foreground`` is False (the app polled from its
+    BACKGROUND isolate), foreground-required invokes are LEFT queued so the
+    isolate never tries to run a foreground action headless — they wait for the
+    visible-push tap to bring the app forward.
+
+    Called by ``POST /api/devices/mobile/poll``. Callers send back
+    ``{type:"result"|"error"}`` per call_id; if they fail, any per-call Event
+    eventually times out.
     """
+    now = time.time()
+    expired: list[dict] = []
     with _PENDING_MOBILE_LOCK:
-        q = _PENDING_MOBILE.pop(device_id, [])
+        q = _PENDING_MOBILE.get(device_id, [])
+        live: list[dict] = []
+        kept: list[dict] = []
+        for e in q:
+            exp = e.get("expires_at") or 0
+            if exp and exp < now:
+                expired.append(e)
+                continue
+            if not include_foreground and e.get("requires_foreground"):
+                kept.append(e)
+                continue
+            live.append(e)
+        if kept:
+            _PENDING_MOBILE[device_id] = kept
+        else:
+            _PENDING_MOBILE.pop(device_id, None)
+    # Resolve expired waiters OUTSIDE the queue lock (resolve takes another lock).
+    for e in expired:
+        resolve_mobile_result(e.get("call_id", ""),
+                              error="expired — phone not tapped in time")
     # Return a shallow copy of each entry so the caller can't mutate
     # remaining state via aliased dicts.
-    return [dict(e) for e in q]
+    return [dict(e) for e in live]
 
 
 def resolve_mobile_result(call_id: str, result=None, error: Optional[str] = None) -> bool:
