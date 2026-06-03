@@ -17,6 +17,7 @@ import 'services/ws_bridge.dart';
 import 'skills/registry.dart';
 import 'skills/common.dart' as common_skills;
 import 'theme.dart';
+import 'voice/voice_controller.dart';
 import 'voice/wake_service.dart';
 
 /// Top-level service handles wired by [main]. The Service binds Flutter
@@ -29,6 +30,15 @@ late final PushHandler push;
 late final WakeService wake;
 late final BackgroundLocation location;
 late final ConnectionMonitor connectionMonitor;
+
+/// The ONE voice session for the whole app. VoicePage references this singleton
+/// instead of creating its own, so there can only ever be a single live session
+/// — even if a VoicePage gets rebuilt — which keeps the Live Activity / orb
+/// state from ever showing two conflicting sessions ("idle" on top, "listening"
+/// underneath). Lazily built on first use so the audio session isn't configured
+/// until voice is actually opened.
+VoiceController? _voiceController;
+VoiceController get voiceController => _voiceController ??= VoiceController(api);
 
 /// Latched request to "open the Voice tab and start realtime" — fired by
 /// the Siri App Intent and the wake word. NavShell switches to the Voice

@@ -19,7 +19,10 @@ class VoicePage extends StatefulWidget {
 }
 
 class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
-  late final VoiceController _c = VoiceController(app.api);
+  // The single app-wide voice session (see main.voiceController). Referencing
+  // the singleton — never constructing one here — guarantees there's only ever
+  // one live session, so a rebuilt VoicePage can't spawn a second one.
+  VoiceController get _c => app.voiceController;
   final _replyScroll = ScrollController(); // auto-scrolls the reply as it speaks
   bool _waitingForSettings = false;
 
@@ -40,7 +43,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     app.voiceLaunchRequested.removeListener(_onVoiceLaunch);
     _c.removeListener(_manageWake);
-    _c.dispose();
+    // Do NOT dispose _c — it's the app-wide singleton, not owned by this page.
     _replyScroll.dispose();
     super.dispose();
   }
