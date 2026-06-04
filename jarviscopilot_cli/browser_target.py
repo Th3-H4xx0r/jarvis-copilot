@@ -183,6 +183,36 @@ def ensure_playwright_relay_server(device_id: str, enabled: bool = True,
 DESKTOP_ENGINE_TOOLSETS = (PLAYWRIGHT_DESKTOP_SERVER_NAME, PLAYWRIGHT_RELAY_SERVER_NAME)
 
 
+def relay_server_name(device_id: str) -> str:
+    """Stable per-device MCP server name for an auto-registered relay."""
+    safe = "".join(c for c in (device_id or "") if c.isalnum())[:8] or "device"
+    return f"playwright-relay-{safe}"
+
+
+def synthesize_relay_servers(relay_devices: list, existing_servers: Dict[str, Any]) -> Dict[str, Any]:
+    """Build auto-relay MCP server configs for connected relay-capable devices.
+
+    ``relay_devices`` is a list of ``{"device_id", "meta"}`` dicts (from the
+    device bridge). Skips any device already covered by a configured
+    ``device-relay`` server, so a hand-written entry always wins. Pure — used by
+    the MCP host's config loader so the browser relay appears automatically when
+    a desktop client connects, with no hand-edited device_id.
+    """
+    covered = set()
+    for cfg in (existing_servers or {}).values():
+        if isinstance(cfg, dict) and (cfg.get("transport") == "device-relay"):
+            covered.add(cfg.get("device_id"))
+    out: Dict[str, Any] = {}
+    for d in relay_devices or []:
+        did = (d or {}).get("device_id")
+        if not did or did in covered:
+            continue
+        meta = d.get("meta") if isinstance(d.get("meta"), dict) else {}
+        browser = str(meta.get("browser") or "chrome")
+        out[relay_server_name(did)] = playwright_relay_server_config(did, enabled=True, browser=browser)
+    return out
+
+
 def browser_target_toolset_overrides(target: str) -> Tuple[Set[str], Set[str]]:
     """Return (enable, disable) toolset sets for the active target.
 

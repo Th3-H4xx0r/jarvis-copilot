@@ -62,6 +62,10 @@ class _DeviceConn:
         # (which is request/response invokes).
         self.relay_sessions: dict[str, dict] = {}
         self.relay_lock = threading.Lock()
+        # Set when the device announces it can host an MCP relay (Phase 2
+        # auto-register): the MCP host synthesizes a relay server for it.
+        self.relay_capable = False
+        self.relay_meta: dict = {}
         # wsproto delivers a TextMessage event per recv chunk for a
         # multi-chunk WS frame, with `message_finished=True` only on the
         # final piece. We accumulate text data here until the full
@@ -309,6 +313,38 @@ def _relay_session(conn: "_DeviceConn", session_id) -> Optional[dict]:
         return None
     with conn.relay_lock:
         return conn.relay_sessions.get(session_id)
+
+
+def relay_capable_devices() -> list[dict]:
+    """Connected devices that announced MCP-relay capability.
+
+    Returns ``[{"device_id", "device_name", "meta"}]`` — consumed by the MCP
+    host's config loader to auto-register a relay server per device.
+    """
+    out: list[dict] = []
+    with _REG_LOCK:
+        for did, c in _REG.items():
+            if c.closed or not getattr(c, "relay_capable", False):
+                continue
+            out.append({
+                "device_id": did,
+                "device_name": c.name,
+                "meta": dict(getattr(c, "relay_meta", {}) or {}),
+            })
+    return out
+
+
+def _trigger_relay_autoregister() -> None:
+    """Re-scan MCP servers in the background so a newly-connected relay-capable
+    device's relay server starts without a manual reload. Best-effort; runs off
+    the pump thread so a slow connect can't stall the bridge."""
+    def _rescan():
+        try:
+            from tools.mcp_tool import discover_mcp_tools
+            discover_mcp_tools()
+        except Exception as exc:
+            logger.debug("relay autoregister rescan failed: %s", exc)
+    threading.Thread(target=_rescan, daemon=True, name="relay-autoregister").start()
 
 
 # ── Mobile push fallback ───────────────────────────────────────────────────
@@ -889,6 +925,11 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
             return
         entry["error"] = msg.get("error") or "device error"
         entry["event"].set()
+        return
+    if t == "mcp_relay_available":
+        conn.relay_capable = True
+        conn.relay_meta = msg.get("meta") if isinstance(msg.get("meta"), dict) else {}
+        _trigger_relay_autoregister()
         return
     if t == "mcp_frame":
         sess = _relay_session(conn, msg.get("session"))

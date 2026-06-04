@@ -181,6 +181,22 @@ class Service:
             log.warning("mcp relay unavailable: %s", exc)
             self._relay = None
 
+        # Announce relay capability so the server auto-registers a browser-relay
+        # MCP server for this device (no hand-edited device_id). Only if npx is
+        # available, since the relay spawns `npx @playwright/mcp`.
+        if self._relay is not None:
+            import shutil
+            if shutil.which("npx"):
+                try:
+                    ws.send_text(json.dumps(
+                        {"type": "mcp_relay_available", "meta": {"browser": "chrome"}}
+                    ))
+                    log.info("announced mcp relay capability")
+                except Exception:
+                    pass
+            else:
+                log.info("npx not found — not announcing mcp relay")
+
         # Register skills immediately. The deployed device bridge silently
         # drops WS messages larger than its socket recv buffer (~8 KB), so
         # we chunk the manifest. The first chunk REPLACES the registry;

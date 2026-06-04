@@ -131,6 +131,31 @@ def test_safe_close_notifies_relay_sessions(monkeypatch):
         _cleanup("d-close")
 
 
+def test_mcp_relay_available_marks_capable(monkeypatch):
+    _capture_sends(monkeypatch)
+    monkeypatch.setattr(db, "_trigger_relay_autoregister", lambda: None)
+    conn = _make_conn("d-cap")
+    try:
+        db._handle_message(conn, {"type": "mcp_relay_available", "meta": {"browser": "chrome"}})
+        assert conn.relay_capable is True
+        assert conn.relay_meta == {"browser": "chrome"}
+        caps = db.relay_capable_devices()
+        match = [c for c in caps if c["device_id"] == "d-cap"]
+        assert match and match[0]["meta"] == {"browser": "chrome"}
+    finally:
+        _cleanup("d-cap")
+
+
+def test_relay_capable_excludes_plain_devices(monkeypatch):
+    _capture_sends(monkeypatch)
+    _make_conn("d-plain")
+    try:
+        ids = [c["device_id"] for c in db.relay_capable_devices()]
+        assert "d-plain" not in ids
+    finally:
+        _cleanup("d-plain")
+
+
 def test_close_relay_sends_mcp_close_and_drops_session(monkeypatch):
     sent = _capture_sends(monkeypatch)
     conn = _make_conn("d-cl2")

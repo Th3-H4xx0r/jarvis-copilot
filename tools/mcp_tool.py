@@ -2337,15 +2337,29 @@ def _load_mcp_config() -> Dict[str, dict]:
         from jarviscopilot_cli.config import load_config
         config = load_config()
         servers = config.get("mcp_servers")
-        if not servers or not isinstance(servers, dict):
-            return {}
+        if not isinstance(servers, dict):
+            servers = {}
         # Ensure .env vars are available for interpolation
         try:
             from jarviscopilot_cli.env_loader import load_hermes_dotenv
             load_hermes_dotenv()
         except Exception:
             pass
-        return {name: _interpolate_env_vars(cfg) for name, cfg in servers.items()}
+        result = {name: _interpolate_env_vars(cfg) for name, cfg in servers.items()}
+        # Auto-register a relay server for each connected relay-capable desktop
+        # device, so the browser relay appears with no hand-edited device_id.
+        # A hand-written device-relay entry for the same device always wins
+        # (synthesize_relay_servers skips already-covered device_ids).
+        try:
+            from api import device_bridge
+            from jarviscopilot_cli.browser_target import synthesize_relay_servers
+            for name, cfg in synthesize_relay_servers(
+                device_bridge.relay_capable_devices(), result
+            ).items():
+                result.setdefault(name, cfg)
+        except Exception as exc:
+            logger.debug("relay auto-register skipped: %s", exc)
+        return result
     except Exception as exc:
         logger.debug("Failed to load MCP config: %s", exc)
         return {}

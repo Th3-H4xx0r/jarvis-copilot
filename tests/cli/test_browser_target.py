@@ -233,6 +233,37 @@ class TestSearchEngine:
         assert "screenshot" in g
 
 
+class TestAutoRegister:
+    def test_relay_server_name_stable_and_safe(self):
+        from jarviscopilot_cli.browser_target import relay_server_name
+        assert relay_server_name("2ded03c3daa94618a933ae0d955390dc") == "playwright-relay-2ded03c3"
+        assert relay_server_name("") == "playwright-relay-device"
+        # non-alnum stripped
+        assert relay_server_name("ab-cd/ef!gh") == "playwright-relay-abcdefgh"
+
+    def test_synthesize_skips_covered_and_builds_relay(self):
+        from jarviscopilot_cli.browser_target import synthesize_relay_servers, relay_server_name
+        devices = [
+            {"device_id": "AAA111", "meta": {"browser": "chrome"}},
+            {"device_id": "BBB222", "meta": {}},
+        ]
+        existing = {"hand": {"transport": "device-relay", "device_id": "AAA111"}}
+        out = synthesize_relay_servers(devices, existing)
+        # AAA111 already covered by a hand-written relay entry → skipped
+        assert relay_server_name("AAA111") not in out
+        name = relay_server_name("BBB222")
+        assert name in out
+        assert out[name]["transport"] == "device-relay"
+        assert out[name]["device_id"] == "BBB222"
+        assert out[name]["meta"]["browser"] == "chrome"  # default when meta empty
+        assert out[name]["enabled"] is True
+
+    def test_synthesize_empty_inputs(self):
+        from jarviscopilot_cli.browser_target import synthesize_relay_servers
+        assert synthesize_relay_servers([], {}) == {}
+        assert synthesize_relay_servers(None, {}) == {}
+
+
 class TestTargetPlan:
     def test_desktop_plan_provisions_without_delegating(self):
         # desktop must NOT delegate to /browser connect (that would launch a
