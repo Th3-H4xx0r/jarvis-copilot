@@ -177,7 +177,9 @@ class Service:
         try:
             from jc_client.mcp_relay import McpRelayManager
             self._relay = McpRelayManager(
-                send=ws.send_text, extension=_playwright_extension_enabled()
+                send=ws.send_text,
+                extension=_playwright_extension_enabled(),
+                extension_token=_playwright_extension_token(),
             )
         except Exception as exc:
             log.warning("mcp relay unavailable: %s", exc)
@@ -402,6 +404,20 @@ def _playwright_extension_enabled() -> bool:
         return bool(raw.get("playwright_extension"))
     except Exception:
         return False
+
+
+def _playwright_extension_token() -> Optional[str]:
+    """The Playwright Extension's connection token (from its status page), used
+    to auto-connect the --extension server without the interactive dialog. Read
+    from ~/.jarviscopilot-client/config.yaml `playwright_extension_token`."""
+    try:
+        import yaml
+        from jc_client.logger import state_dir
+        raw = yaml.safe_load((state_dir() / "config.yaml").read_text()) or {}
+        tok = raw.get("playwright_extension_token")
+        return str(tok) if tok else None
+    except Exception:
+        return None
 
 
 def _platform_summary() -> dict:

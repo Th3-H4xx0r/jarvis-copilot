@@ -112,7 +112,7 @@ def test_build_command_rejects_bad_browser_and_ignores_server_path():
 def test_handle_open_spawn_failure_emits_error():
     sends = []
 
-    def boom(_cmd):
+    def boom(_cmd, _env=None):
         raise OSError("npx not found")
 
     mgr = _mgr(boom, sends)
@@ -125,7 +125,7 @@ def test_handle_open_emits_ready_and_registers():
     sends = []
     block = threading.Event()
     proc = _FakeProc(lines=(), block=block)
-    mgr = _mgr(lambda _cmd: proc, sends)
+    mgr = _mgr(lambda _cmd, _env=None: proc, sends)
     try:
         mgr.handle_open("s2", {"browser": "chrome"})
         assert "mcp_ready" in _types(sends)
@@ -139,7 +139,7 @@ def test_handle_open_emits_ready_and_registers():
 def test_pump_stdout_forwards_frames_then_closed():
     sends = []
     proc = _FakeProc(lines=['{"jsonrpc":"2.0","id":1}', "", '{"id":2}'])
-    mgr = _mgr(lambda _cmd: proc, sends)
+    mgr = _mgr(lambda _cmd, _env=None: proc, sends)
     mgr._procs["s3"] = proc  # pre-register as handle_open would
     mgr._pump_stdout("s3", proc)  # run synchronously
     types = _types(sends)
@@ -153,7 +153,7 @@ def test_pump_stdout_forwards_frames_then_closed():
 def test_handle_frame_writes_line_to_stdin():
     sends = []
     proc = _FakeProc()
-    mgr = _mgr(lambda _cmd: proc, sends)
+    mgr = _mgr(lambda _cmd, _env=None: proc, sends)
     mgr._procs["s4"] = proc
     mgr.handle_frame("s4", '{"method":"tools/list"}')
     assert proc.stdin.written == ['{"method":"tools/list"}\n']
@@ -161,16 +161,51 @@ def test_handle_frame_writes_line_to_stdin():
 
 def test_handle_frame_unknown_session_is_noop():
     sends = []
-    mgr = _mgr(lambda _cmd: _FakeProc(), sends)
+    mgr = _mgr(lambda _cmd, _env=None: _FakeProc(), sends)
     mgr.handle_frame("ghost", "{}")  # must not raise
     assert sends == []
+
+
+def test_extension_token_injected_into_spawn_env():
+    from jc_client.mcp_relay import McpRelayManager
+    captured = {}
+
+    def spy(cmd, extra_env=None):
+        captured["env"] = extra_env
+        return _FakeProc(block=threading.Event())
+
+    mgr = McpRelayManager(
+        send=[].append, profile_dir="/tmp/p", spawn=spy,
+        extension=True, extension_token="TOK123",
+    )
+    try:
+        mgr.handle_open("s", {"browser": "chrome"})
+        assert captured["env"] == {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": "TOK123"}
+    finally:
+        mgr.handle_close("s")
+
+
+def test_no_extension_token_means_no_extra_env():
+    from jc_client.mcp_relay import McpRelayManager
+    captured = {}
+
+    def spy(cmd, extra_env=None):
+        captured["env"] = extra_env
+        return _FakeProc(block=threading.Event())
+
+    mgr = McpRelayManager(send=[].append, profile_dir="/tmp/p", spawn=spy, extension=False)
+    try:
+        mgr.handle_open("s", {"browser": "chrome"})
+        assert captured["env"] is None
+    finally:
+        mgr.handle_close("s")
 
 
 def test_shutdown_all_terminates_children():
     sends = []
     p1, p2 = _FakeProc(), _FakeProc()
     procs = iter([p1, p2])
-    mgr = _mgr(lambda _cmd: next(procs), sends)
+    mgr = _mgr(lambda _cmd, _env=None: next(procs), sends)
     mgr._procs["a"] = p1
     mgr._procs["b"] = p2
     mgr.shutdown_all()

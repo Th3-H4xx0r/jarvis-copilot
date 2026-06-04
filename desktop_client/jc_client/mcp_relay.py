@@ -86,14 +86,16 @@ class McpRelayManager:
 
     def __init__(self, send: Callable[[str], None], *,
                  profile_dir: Optional[str] = None,
-                 spawn: Optional[Callable[[list[str]], subprocess.Popen]] = None,
+                 spawn: Optional[Callable[..., subprocess.Popen]] = None,
                  command_builder: Callable[..., list[str]] = build_playwright_command,
-                 extension: bool = False):
+                 extension: bool = False,
+                 extension_token: Optional[str] = None):
         self._send = send
         self._profile_dir = profile_dir or _profile_dir()
         self._spawn = spawn or _default_spawn
         self._build = command_builder
         self._extension = extension
+        self._extension_token = extension_token
         self._procs: dict[str, subprocess.Popen] = {}
         self._lock = threading.Lock()
 
@@ -103,8 +105,13 @@ class McpRelayManager:
         if not session:
             return
         cmd = self._build(meta, self._profile_dir, self._extension)
+        extra_env = None
+        if self._extension and self._extension_token:
+            # Auto-connect the --extension server to the user's Chrome without
+            # the interactive "Connect" dialog (impossible from a daemon).
+            extra_env = {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": self._extension_token}
         try:
-            proc = self._spawn(cmd)
+            proc = self._spawn(cmd, extra_env)
         except Exception as exc:  # noqa: BLE001
             log.warning("playwright spawn failed: %s", exc)
             self._emit("mcp_error", session, error=f"spawn failed: {exc}")
@@ -168,13 +175,15 @@ class McpRelayManager:
             log.debug("mcp relay emit %s failed: %s", msg_type, exc)
 
 
-def _default_spawn(cmd: list[str]) -> subprocess.Popen:
+def _default_spawn(cmd: list[str], extra_env: Optional[dict] = None) -> subprocess.Popen:
     # Ensure node (next to npx) is on PATH for the child, since launchd's PATH
     # is minimal and npx shells out to node.
     env = dict(os.environ)
     bindir = os.path.dirname(cmd[0]) if cmd and os.path.sep in cmd[0] else ""
     if bindir and bindir not in env.get("PATH", "").split(os.pathsep):
         env["PATH"] = bindir + os.pathsep + env.get("PATH", "")
+    if extra_env:
+        env.update(extra_env)
     return subprocess.Popen(
         cmd,
         stdin=subprocess.PIPE,
