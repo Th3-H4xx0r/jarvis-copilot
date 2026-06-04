@@ -193,7 +193,16 @@ TOOLSETS = {
         ],
         "includes": []
     },
-    
+
+    "chrome": {
+        "description": "Drive the user's REAL, visible Chrome on a paired Mac (their logged-in session) — navigate, snapshot, click, type, press keys. NOT the headless server browser.",
+        "tools": [
+            "chrome_navigate", "chrome_snapshot", "chrome_click",
+            "chrome_type", "chrome_press_key",
+        ],
+        "includes": []
+    },
+
     "cronjob": {
         "description": "Cronjob management tool - create, list, update, pause, resume, remove, and trigger scheduled tasks",
         "tools": ["cronjob"],

@@ -203,14 +203,16 @@ def resolve_query(query: str, candidate_names: List[str]) -> List[str]:
 LAZY_TOOLS_GUIDANCE = (
     "Your tools are loaded lazily to save context. A lean core set is fully "
     "available now; every other tool is listed by NAME in the 'Deferred tools' "
-    "section below. To use a deferred tool, first call tool_search to load its "
-    "parameters — pass `select:tool_a,tool_b` for exact tools you already know "
-    "the name of, or a few keywords to find the right one. Loaded tools stay "
-    "available for the rest of the session. tool_search only loads AGENT tools "
-    "(the ones in the Deferred tools list — including the chrome_* tools that "
-    "drive the user's real Mac Chrome). A paired phone/tablet's device skills "
-    "(e.g. send_sms, run_shortcut) are NOT agent tools — invoke those through the "
-    "devices skill, not tool_search."
+    "section below. IMPORTANT: a tool listed there IS available to you — it is "
+    "NOT unavailable. If a task needs a tool that is named in 'Deferred tools' "
+    "but not in your active tool list (e.g. the chrome_* real-Mac-Chrome tools), "
+    "do NOT tell the user it's unavailable and do NOT refuse — instead FIRST call "
+    "tool_search to load it, THEN call it. Pass `select:tool_a,tool_b` for exact "
+    "tools you already know the name of, or a few keywords to find the right one. "
+    "Loaded tools stay available for the rest of the session. tool_search only "
+    "loads AGENT tools (the ones in the Deferred tools list). A paired "
+    "phone/tablet's device skills (e.g. send_sms, run_shortcut) are NOT agent "
+    "tools — invoke those through the devices skill, not tool_search."
 )
 
 TOOL_SEARCH_SCHEMA = {
