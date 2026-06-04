@@ -1355,6 +1355,25 @@ class MCPServerTask:
 
         from datetime import timedelta
         from tools.mcp_relay_transport import relay_transport
+        from api import device_bridge
+
+        # Wait for the desktop device to be connected before attempting the
+        # relay. A relay server configured while the desktop is offline stays
+        # pending (not permanently failed) and connects when the device appears.
+        #
+        # If the device is offline NOW, mark _ready immediately (with no session
+        # yet) so start() returns and this server is registered + shutdownable —
+        # otherwise the 60s connect_timeout in _connect_server would fire, drop
+        # the server from the registry, and orphan this polling task. Tool
+        # handlers gate on ``self.session`` (None until the device connects), so
+        # an early _ready exposes zero callable tools until the relay is live.
+        poll = float(config.get("device_poll_interval", 5) or 5)
+        if device_id not in device_bridge.connected_device_ids():
+            self._ready.set()
+        while device_id not in device_bridge.connected_device_ids():
+            if self._shutdown_event.is_set():
+                return
+            await asyncio.sleep(poll)
 
         sampling_kwargs = self._sampling.session_kwargs() if self._sampling else {}
         if _MCP_NOTIFICATION_TYPES and _MCP_MESSAGE_HANDLER_SUPPORTED:
@@ -1365,7 +1384,7 @@ class MCPServerTask:
         # infinite await over the tunnel.
         read_timeout = timedelta(seconds=config.get("read_timeout", 120))
 
-        async with relay_transport(device_id, meta) as (read_stream, write_stream):
+        async with relay_transport(device_id, meta) as (read_stream, write_stream, closed_event):
             async with ClientSession(
                 read_stream, write_stream,
                 read_timeout_seconds=read_timeout,
@@ -1375,7 +1394,31 @@ class MCPServerTask:
                 self.session = session
                 await self._discover_tools()
                 self._ready.set()
-                await self._wait_for_lifecycle_event()
+                # Wait for shutdown/reconnect OR a desktop disconnect, so a drop
+                # triggers a prompt reconnect (run() re-enters and re-waits for
+                # the device) instead of idling until the next keepalive.
+                lifecycle_task = asyncio.ensure_future(self._wait_for_lifecycle_event())
+                closed_task = asyncio.ensure_future(closed_event.wait())
+                try:
+                    await asyncio.wait(
+                        {lifecycle_task, closed_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                finally:
+                    if not closed_task.done():
+                        closed_task.cancel()
+                    if not lifecycle_task.done():
+                        lifecycle_task.cancel()
+                    try:
+                        await closed_task
+                    except asyncio.CancelledError:
+                        pass
+                    # Propagate a genuine lifecycle outcome (e.g. a reconnect
+                    # signal); swallow only the cancellation we triggered.
+                    try:
+                        await lifecycle_task
+                    except asyncio.CancelledError:
+                        pass
 
     async def _run_http(self, config: dict):
         """Run the server using HTTP/StreamableHTTP transport."""

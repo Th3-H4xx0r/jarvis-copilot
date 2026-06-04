@@ -212,6 +212,27 @@ class TestToolsetOverrides:
         assert PLAYWRIGHT_DESKTOP_SERVER_NAME not in result  # single surface
 
 
+class TestSearchEngine:
+    def test_default_and_normalization(self):
+        from jarviscopilot_cli.browser_target import get_browser_search_engine
+        assert get_browser_search_engine({}) == "duckduckgo"
+        assert get_browser_search_engine({"browser": {"search_engine": "GOOGLE"}}) == "google"
+        assert get_browser_search_engine({"browser": {"search_engine": "weird"}}) == "duckduckgo"
+
+    def test_search_url_quotes_and_uses_engine(self):
+        from jarviscopilot_cli.browser_target import browser_search_url
+        url = browser_search_url("hello world", {"browser": {"search_engine": "duckduckgo"}})
+        assert url.startswith("https://duckduckgo.com/?q=")
+        assert "hello+world" in url
+
+    def test_guidance_mentions_engine_google_and_screenshots(self):
+        from jarviscopilot_cli.browser_target import desktop_browser_guidance
+        g = desktop_browser_guidance({"browser": {"search_engine": "duckduckgo"}}).lower()
+        assert "duckduckgo" in g
+        assert "google" in g
+        assert "screenshot" in g
+
+
 class TestTargetPlan:
     def test_desktop_plan_provisions_without_delegating(self):
         # desktop must NOT delegate to /browser connect (that would launch a

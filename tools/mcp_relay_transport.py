@@ -75,6 +75,9 @@ async def relay_transport(device_id: str, meta: Optional[dict] = None, *,
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
     ready_event = asyncio.Event()
+    # Set when the device reports error/closed (or disconnects) — lets the caller
+    # react to a mid-session drop promptly instead of waiting for the keepalive.
+    closed_event = asyncio.Event()
     state = {"error": None}
 
     def _on_frame(data: str):
@@ -105,6 +108,7 @@ async def relay_transport(device_id: str, meta: Optional[dict] = None, *,
             except Exception:
                 pass
             ready_event.set()
+            closed_event.set()
 
         loop.call_soon_threadsafe(_teardown)
 
@@ -145,7 +149,7 @@ async def relay_transport(device_id: str, meta: Optional[dict] = None, *,
             if state["error"]:
                 raise ConnectionError(f"desktop relay error: {state['error']}")
             try:
-                yield read_stream, write_stream
+                yield read_stream, write_stream, closed_event
             finally:
                 tg.cancel_scope.cancel()
     finally:

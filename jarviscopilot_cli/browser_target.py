@@ -54,6 +54,51 @@ def set_browser_target(target: str) -> str:
     return norm
 
 
+# ── Search-engine guidance (avoid Google's bot-detection on automated browsers) ──
+DEFAULT_SEARCH_ENGINE = "duckduckgo"
+_SEARCH_ENGINE_URLS = {
+    "duckduckgo": "https://duckduckgo.com/?q={q}",
+    "bing": "https://www.bing.com/search?q={q}",
+    "startpage": "https://www.startpage.com/sp/search?query={q}",
+    "google": "https://www.google.com/search?q={q}",
+}
+
+
+def get_browser_search_engine(config: Optional[Dict[str, Any]] = None) -> str:
+    """Read ``browser.search_engine``; unknown/empty → ``duckduckgo``."""
+    if config is None:
+        from jarviscopilot_cli.config import load_config
+        config = load_config()
+    eng = str(cfg_get(config, "browser", "search_engine",
+                      default=DEFAULT_SEARCH_ENGINE) or "").strip().lower()
+    return eng if eng in _SEARCH_ENGINE_URLS else DEFAULT_SEARCH_ENGINE
+
+
+def browser_search_url(query: str, config: Optional[Dict[str, Any]] = None) -> str:
+    """Build a search URL for the configured engine (default DuckDuckGo)."""
+    from urllib.parse import quote_plus
+    eng = get_browser_search_engine(config)
+    return _SEARCH_ENGINE_URLS[eng].format(q=quote_plus(query or ""))
+
+
+def desktop_browser_guidance(config: Optional[Dict[str, Any]] = None) -> str:
+    """System note injected when the real desktop browser becomes active.
+
+    Steers the agent away from Google (which bot-blocks automated browsers) and
+    toward smaller screenshots (which keeps relay responses under the bridge's
+    per-message size limit).
+    """
+    eng = get_browser_search_engine(config)
+    example = _SEARCH_ENGINE_URLS[eng].format(q="<terms>")
+    return (
+        "[System note: Your browser tools now drive a REAL Chrome (Playwright MCP). "
+        f"For web searches prefer {eng} ({example}) — Google aggressively bot-blocks "
+        "automated browsers and often shows a CAPTCHA instead of results. When you "
+        "need a screenshot, prefer an element or downscaled/JPEG capture rather than a "
+        "full-page PNG, to stay under the desktop-relay message-size limit.]"
+    )
+
+
 def playwright_desktop_profile_dir() -> str:
     """Dedicated profile dir for the Playwright MCP desktop browser.
 

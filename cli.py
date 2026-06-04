@@ -8570,6 +8570,9 @@ class HermesCLI:
                 print("   Jarvis starts the Playwright engine on the next MCP reload")
                 print("   (a few seconds) or your next session; the visible Chrome")
                 print("   opens on the first browser action.")
+                if hasattr(self, "_pending_input"):
+                    from jarviscopilot_cli.browser_target import desktop_browser_guidance
+                    self._pending_input.put(desktop_browser_guidance())
             else:
                 print("🌐 Browser target → server (headless)")
             if plan["delegate"] == "disconnect":
