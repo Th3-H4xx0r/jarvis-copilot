@@ -199,6 +199,18 @@ class Service:
                 log.warning("mcp relay unavailable: %s", exc)
                 self._relay = None
 
+        # Warm up the browser MCP (chrome_* skills) so the first browser action
+        # isn't a cold `npx @playwright/mcp` start + extension attach. Best-effort,
+        # off the connect path.
+        try:
+            from jc_client.mcp_relay import find_npx
+            if find_npx():
+                from jc_client.browser_mcp import browser_mcp
+                threading.Thread(target=browser_mcp().start, daemon=True,
+                                 name="browser-warmup").start()
+        except Exception:
+            pass
+
         # Register skills immediately. The deployed device bridge silently
         # drops WS messages larger than its socket recv buffer (~8 KB), so
         # we chunk the manifest. The first chunk REPLACES the registry;

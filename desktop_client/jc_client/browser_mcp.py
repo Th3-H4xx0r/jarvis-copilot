@@ -25,6 +25,19 @@ _READY_TIMEOUT = 60.0   # cold `npx @playwright/mcp` + browser attach
 _CALL_TIMEOUT = 90.0    # generous for slow page loads
 
 
+def _config_extension_token() -> Optional[str]:
+    """Configured Playwright extension token — stable fallback when the live
+    read from Chrome's leveldb fails (it gets compacted into .ldb)."""
+    try:
+        import yaml
+        from jc_client.logger import state_dir
+        raw = yaml.safe_load((state_dir() / "config.yaml").read_text()) or {}
+        tok = raw.get("playwright_extension_token")
+        return str(tok) if tok else None
+    except Exception:
+        return None
+
+
 class _BrowserMcp:
     """Owns a persistent local Playwright MCP ClientSession on a background
     asyncio loop. Lazily started; auto-restarts if the child dies."""
@@ -82,9 +95,15 @@ class _BrowserMcp:
         bindir = os.path.dirname(npx) if os.path.sep in npx else ""
         if bindir and bindir not in env.get("PATH", "").split(os.pathsep):
             env["PATH"] = bindir + os.pathsep + env.get("PATH", "")
-        token = read_extension_token_from_chrome()
+        # Live read first (handles regeneration); fall back to the configured
+        # token, which survives Chrome's leveldb compaction. Without a token the
+        # extension shows an allow-dialog the daemon can't click.
+        token = read_extension_token_from_chrome() or _config_extension_token()
         if token:
             env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] = token
+        else:
+            log.warning("no Playwright extension token — the extension will "
+                        "show an allow-dialog; set playwright_extension_token in config")
         params = StdioServerParameters(
             command=npx,
             args=["@playwright/mcp@latest", "--extension", "--browser", "chrome"],
@@ -104,6 +123,16 @@ class _BrowserMcp:
             self._ready.set()
         finally:
             self._session = None
+
+    def start(self) -> bool:
+        """Pre-warm the Playwright MCP + extension connection so the first
+        browser action isn't cold. Best-effort; returns True if ready."""
+        try:
+            self._ensure_started()
+            return True
+        except Exception as exc:  # noqa: BLE001
+            log.info("browser MCP warm-start skipped: %s", exc)
+            return False
 
     # ── public (sync, called from skill threads) ────────────────────────
 

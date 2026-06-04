@@ -14,8 +14,10 @@ from jc_client.browser_mcp import browser_mcp
 @skill(
     "chrome_navigate",
     "Open a URL in the user's REAL, visible Chrome on their Mac (Playwright, "
-    "their logged-in session). Returns the page title + a snapshot. Use this — "
-    "NOT open_url — whenever you then need to read or click the page.",
+    "their logged-in session). Returns the page title AND an accessibility "
+    "snapshot with clickable refs — so you usually do NOT need a separate "
+    "chrome_snapshot after this. Use this — NOT open_url — whenever you then "
+    "need to read or click the page.",
     {"type": "object",
      "properties": {"url": {"type": "string", "description": "URL to open"}},
      "required": ["url"]},
@@ -38,7 +40,8 @@ def chrome_snapshot() -> dict:
 @skill(
     "chrome_click",
     "Click an element in the user's Chrome. Pass the element's human-readable "
-    "description and its ref from a recent chrome_snapshot.",
+    "description and its ref from a recent snapshot. Returns the resulting "
+    "page snapshot — no separate chrome_snapshot needed afterward.",
     {"type": "object",
      "properties": {
          "element": {"type": "string", "description": "human-readable element description"},
