@@ -8497,6 +8497,8 @@ class HermesCLI:
 
         elif sub == "status":
             print()
+            from jarviscopilot_cli.browser_target import get_browser_target as _get_bt
+            print(f"🎯 Target: {_get_bt()}")
             if current:
                 print("🌐 Browser: connected to live Chrome via CDP")
                 print(f"   Endpoint: {current}")
@@ -8542,15 +8544,46 @@ class HermesCLI:
             print()
             print("   /browser connect      — connect to your live Chrome")
             print("   /browser disconnect   — revert to default")
+            print("   /browser target …     — choose desktop or server engine")
             print()
+
+        elif sub.startswith("target"):
+            from jarviscopilot_cli.browser_target import (
+                browser_target_plan, set_browser_target, get_browser_target,
+                ensure_playwright_desktop_server,
+            )
+            target_parts = cmd.strip().split(None, 2)  # ["/browser","target","desktop"]
+            requested = target_parts[2].strip() if len(target_parts) > 2 else ""
+            if not requested:
+                print()
+                print(f"🌐 Browser target: {get_browser_target()}")
+                print("   /browser target desktop  — your real, visible Chrome (Playwright MCP)")
+                print("   /browser target server   — headless on the server (default)")
+                print()
+                return
+            plan = browser_target_plan(requested)
+            set_browser_target(plan["target"])
+            ensure_playwright_desktop_server(enabled=plan["provision_enabled"])
+            print()
+            if plan["target"] == "desktop":
+                print("🌐 Browser target → desktop (your real, visible Chrome via Playwright MCP)")
+                print("   Jarvis starts the Playwright engine on the next MCP reload")
+                print("   (a few seconds) or your next session; the visible Chrome")
+                print("   opens on the first browser action.")
+            else:
+                print("🌐 Browser target → server (headless)")
+            if plan["delegate"] == "disconnect":
+                self._handle_browser_command("/browser disconnect")
+            return
 
         else:
             print()
-            print("Usage: /browser connect|disconnect|status")
+            print("Usage: /browser connect|disconnect|status|target")
             print()
             print("   connect      Connect browser tools to your live Chrome session")
             print("   disconnect   Revert to default browser backend")
             print("   status       Show current browser mode")
+            print("   target       Choose desktop (real browser) or server (headless)")
             print()
 
     # ────────────────────────────────────────────────────────────────

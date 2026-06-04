@@ -298,9 +298,21 @@ In the CLI, use:
 ```
 /browser connect              # Connect to Chrome at ws://localhost:9222
 /browser connect ws://host:port  # Connect to a specific CDP endpoint
-/browser status               # Check current connection
+/browser status               # Check current connection + active target
 /browser disconnect            # Detach and return to cloud/local mode
 ```
+
+### Choosing a target (`/browser target`)
+
+Pick where browser work runs without managing CDP endpoints by hand:
+
+```
+/browser target               # Show the current target
+/browser target desktop       # Your real, visible Chrome via Playwright MCP
+/browser target server        # Headless on the server (default)
+```
+
+`desktop` provisions a `playwright-desktop` MCP server (headed `--browser chrome`, a dedicated `playwright-profile` you log into once) and gates the toolset so the agent uses the visible browser; the Chrome window opens on the first browser action. `server` reverts to the default headless backend. The setting persists as `browser.target` in `config.yaml`. (Requires Node/`npx` for the Playwright engine; if it isn't available the agent falls back to the native headless browser tools.)
 
 If Chrome isn't already running with remote debugging, JarvisCopilot will attempt to auto-launch it with `--remote-debugging-port=9222`.
 

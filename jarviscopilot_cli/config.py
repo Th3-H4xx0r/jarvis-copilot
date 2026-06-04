@@ -687,6 +687,12 @@ DEFAULT_CONFIG = {
         # "chrome"     — explicitly request Chrome
         # Also settable via AGENT_BROWSER_ENGINE env var.
         "engine": "auto",
+        # Browser target: which engine browser_* tools drive.
+        #   "server"  — native headless agent-browser (default)
+        #   "desktop" — real visible Chrome via Playwright MCP (headed,
+        #               dedicated profile) + /browser connect CDP fallback
+        # Settable live with `/browser target <server|desktop>`.
+        "target": "server",
         "auto_local_for_private_urls": True,  # When a cloud provider is set, auto-spawn local Chromium for LAN/localhost URLs instead of sending them to the cloud
         "cdp_url": "",  # Optional persistent CDP endpoint for attaching to an existing Chromium/Chrome
         # CDP supervisor — dialog + frame detection via a persistent WebSocket.

@@ -1340,6 +1340,21 @@ def _get_platform_tools(
         disabled_set = {str(ts) for ts in disabled_toolsets}
         enabled_toolsets -= disabled_set
 
+    # Honor browser.target — show exactly one browser surface (native headless
+    # vs Playwright desktop).  Default (target="server", no playwright-desktop
+    # server) is a no-op.
+    try:
+        from jarviscopilot_cli.browser_target import (
+            get_browser_target, apply_browser_target_gating,
+        )
+        enabled_toolsets = apply_browser_target_gating(
+            enabled_toolsets, get_browser_target(config)
+        )
+    except Exception:
+        # Never break toolset resolution over an optional gating step, but log
+        # it so a future regression is visible rather than silently swallowed.
+        logger.debug("browser-target toolset gating skipped", exc_info=True)
+
     return enabled_toolsets
 
 
