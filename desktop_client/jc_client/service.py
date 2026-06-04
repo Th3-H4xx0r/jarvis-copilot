@@ -174,32 +174,30 @@ class Service:
 
         # Spin up the MCP relay for this connection (Phase 2). Lazily imported
         # so a desktop without the relay still runs every other skill.
-        try:
-            from jc_client.mcp_relay import McpRelayManager
-            self._relay = McpRelayManager(
-                send=ws.send_text,
-                extension=_playwright_extension_enabled(),
-                extension_token=_playwright_extension_token(),
-            )
-        except Exception as exc:
-            log.warning("mcp relay unavailable: %s", exc)
-            self._relay = None
-
-        # Announce relay capability so the server auto-registers a browser-relay
-        # MCP server for this device (no hand-edited device_id). Only if npx is
-        # available, since the relay spawns `npx @playwright/mcp`.
-        if self._relay is not None:
-            from jc_client.mcp_relay import find_npx
-            if find_npx():
-                try:
+        # MCP-over-bridge relay (A1) is OFF by default — superseded by the
+        # chrome_* device skills (A2), which couldn't complete tool discovery
+        # over the real bridge. Only wire it up (manager + announce) if explicitly
+        # re-enabled with browser_relay_mcp: true; otherwise mcp_open is ignored
+        # so it can't spawn a Playwright child that conflicts with A2's.
+        self._relay = None
+        if _relay_mcp_enabled():
+            try:
+                from jc_client.mcp_relay import McpRelayManager, find_npx
+                self._relay = McpRelayManager(
+                    send=ws.send_text,
+                    extension=_playwright_extension_enabled(),
+                    extension_token=_playwright_extension_token(),
+                )
+                if find_npx():
                     ws.send_text(json.dumps(
                         {"type": "mcp_relay_available", "meta": {"browser": "chrome"}}
                     ))
                     log.info("announced mcp relay capability")
-                except Exception:
-                    pass
-            else:
-                log.info("npx not found — not announcing mcp relay")
+                else:
+                    log.info("npx not found — not announcing mcp relay")
+            except Exception as exc:
+                log.warning("mcp relay unavailable: %s", exc)
+                self._relay = None
 
         # Register skills immediately. The deployed device bridge silently
         # drops WS messages larger than its socket recv buffer (~8 KB), so
@@ -412,6 +410,19 @@ def _playwright_extension_enabled() -> bool:
     try:
         from jc_client.mcp_relay import read_extension_token_from_chrome
         return read_extension_token_from_chrome() is not None
+    except Exception:
+        return False
+
+
+def _relay_mcp_enabled() -> bool:
+    """Whether to announce the MCP-over-bridge relay (A1). Default False — A2
+    (chrome_* device skills) is the supported path. Opt back in with
+    ``browser_relay_mcp: true`` in ~/.jarviscopilot-client/config.yaml."""
+    try:
+        import yaml
+        from jc_client.logger import state_dir
+        raw = yaml.safe_load((state_dir() / "config.yaml").read_text()) or {}
+        return bool(raw.get("browser_relay_mcp"))
     except Exception:
         return False
 

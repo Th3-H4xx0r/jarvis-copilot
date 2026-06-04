@@ -153,6 +153,18 @@ def load_all(allow_shell: bool = False) -> None:
             __import__(mod)
         except Exception as exc:
             log.warning("Failed to load platform skills %s: %s", mod, exc)
+
+    # Browser skills (chrome_*): drive the user's real Chrome via a local
+    # Playwright MCP. Only advertise them if npx is available (the engine).
+    try:
+        from jc_client.mcp_relay import find_npx
+        if find_npx():
+            import jc_client.skills.browser  # noqa: F401 (registers via decorator)
+        else:
+            log.info("npx not found — browser (chrome_*) skills not loaded")
+    except Exception as exc:
+        log.warning("Failed to load browser skills: %s", exc)
+
     log.info(
         "Loaded %d skills on %s",
         len(_REGISTRY),
