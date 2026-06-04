@@ -156,6 +156,16 @@ def apply_lazy_partition(agent) -> None:
         | {d["name"] for d in deferred}
     )
     agent._lazy_all_tool_names.discard(None)
+    # Fingerprint of the available toolset — used to invalidate a resumed
+    # session's STORED system prompt (and its frozen manifest) when the set of
+    # registered tools changes (e.g. chrome_* added), so existing conversations
+    # pick up new tools instead of reusing a stale manifest forever. Stable per
+    # toolset (changes only on register/deregister), so it does NOT cause
+    # per-turn cache churn. See conversation_loop._restore_or_build_system_prompt.
+    import hashlib
+    agent._toolset_fingerprint = hashlib.sha1(
+        ",".join(sorted(agent._lazy_all_tool_names)).encode("utf-8")
+    ).hexdigest()[:16]
     if len(deferred) < _LAZY_MIN_DEFERRED:
         return  # not worth the manifest + tool_search round-trips
     agent.tools = core

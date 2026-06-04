@@ -177,21 +177,39 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
             )
 
     if stored_prompt:
-        # Continuing session — reuse the exact system prompt from the
-        # previous turn so the Anthropic cache prefix matches.
-        agent._cached_system_prompt = stored_prompt
-        # Populate _prompt_sections for the per-message insights composition: the
-        # stored prompt is a flat string with no section labels. Best-effort, once
-        # per resumed session; may differ slightly from the stored prompt if
-        # volatile content changed — it's an estimate. Does NOT touch the cached
-        # prompt the model actually sees.
-        try:
-            if not getattr(agent, "_prompt_sections", None):
-                from agent.system_prompt import build_system_prompt_parts
-                build_system_prompt_parts(agent, system_message)
-        except Exception:
-            pass
-        return
+        # Reuse the stored prompt ONLY when the available toolset is unchanged
+        # since it was stored (keeps the Anthropic prefix cache warm). If new
+        # tools were registered since — fingerprint mismatch, e.g. chrome_* added,
+        # or an OLD session that has no stored fingerprint — REBUILD so the frozen
+        # deferred-tools manifest refreshes (otherwise an existing conversation
+        # never sees newly-added tools). A deliberate one-time cache miss at
+        # exactly the moment the toolset changes; byte-stable otherwise.
+        _cur_sig = getattr(agent, "_toolset_fingerprint", "") or ""
+        _stored_sig = ""
+        if _cur_sig and agent._session_db and agent.session_id:
+            try:
+                _stored_sig = agent._session_db.get_meta(f"sysprompt_sig:{agent.session_id}") or ""
+            except Exception:
+                _stored_sig = ""
+        if (not _cur_sig) or (_stored_sig == _cur_sig):
+            # Continuing session, toolset unchanged — reuse the exact prompt.
+            agent._cached_system_prompt = stored_prompt
+            # Populate _prompt_sections for the per-message insights composition
+            # (the stored prompt is a flat string with no section labels).
+            # Best-effort; does NOT touch the cached prompt the model sees.
+            try:
+                if not getattr(agent, "_prompt_sections", None):
+                    from agent.system_prompt import build_system_prompt_parts
+                    build_system_prompt_parts(agent, system_message)
+            except Exception:
+                pass
+            return
+        logger.info(
+            "Toolset changed since session %s stored its prompt (sig %s -> %s) "
+            "— rebuilding to refresh the tool manifest.",
+            agent.session_id, _stored_sig or "none", _cur_sig,
+        )
+        # fall through to rebuild + re-store below
 
     if conversation_history and stored_state in ("null", "empty"):
         # Continuing session whose stored prompt is unusable.  The
@@ -231,6 +249,14 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
     if agent._session_db:
         try:
             agent._session_db.update_system_prompt(agent.session_id, agent._cached_system_prompt)
+            # Stamp the toolset fingerprint so a later resume can tell whether the
+            # available tools changed (→ rebuild) or not (→ reuse, cache stays warm).
+            _sig = getattr(agent, "_toolset_fingerprint", "") or ""
+            if _sig and agent.session_id:
+                try:
+                    agent._session_db.set_meta(f"sysprompt_sig:{agent.session_id}", _sig)
+                except Exception:
+                    pass
         except Exception as exc:
             logger.warning(
                 "Session DB update_system_prompt failed for session %s: "
