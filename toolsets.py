@@ -39,11 +39,16 @@ _HERMES_CORE_TOOLS = [
     "vision_analyze", "image_generate",
     # Skills
     "skills_list", "skill_view", "skill_manage",
-    # Browser automation
+    # Browser automation (headless server browser)
     "browser_navigate", "browser_snapshot", "browser_click",
     "browser_type", "browser_scroll", "browser_back",
     "browser_press", "browser_get_images",
     "browser_vision", "browser_console", "browser_cdp", "browser_dialog",
+    # Real desktop Chrome on a paired Mac — drives the user's own logged-in,
+    # visible Chrome (distinct from the headless browser_* tools above). Gated on
+    # a chrome-capable device being online via check_fn (chrome_device_tool.py).
+    "chrome_navigate", "chrome_snapshot", "chrome_click",
+    "chrome_type", "chrome_press_key",
     # Text-to-speech
     "text_to_speech",
     # Planning & memory

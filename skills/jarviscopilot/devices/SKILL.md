@@ -99,9 +99,11 @@ After capture, pass the printed `path` to your vision/image-reading tool (e.g. `
 
 ## Driving the user's real desktop browser (Chrome)
 
-A paired **Mac** (running the JarvisCopilot client + the Playwright Chrome extension) advertises `chrome_*` skills that drive the user's **real, visible, logged-in Chrome**. Use these whenever the user says "on my Mac", "in my browser", "my real Chrome", or wants you to act on a site they're already signed into. These are **device skills** invoked through `invoke` below — they are NOT agent tools, so do **not** `tool_search` for them, and do **not** fall back to `open_url` or the server's headless `browser_*`.
+A paired **Mac** (running the JarvisCopilot client + the Playwright Chrome extension) can drive the user's **real, visible, logged-in Chrome**. Use this whenever the user says "on my Mac", "in my browser", "my real Chrome", or wants you to act on a site they're already signed into — and **not** `open_url` or the server's headless `browser_*`.
 
-The whole loop is just `invoke`. Find the Mac in `list`, then:
+**Prefer the direct `chrome_*` agent tools** (`chrome_navigate`, `chrome_snapshot`, `chrome_click`, `chrome_type`, `chrome_press_key`) — they surface automatically when a chrome-capable Mac is online (under lazy tool-loading, `tool_search` for `chrome_navigate` to load them), and they call the Mac directly with server-side snapshot truncation. The `devices invoke chrome_*` form below is the equivalent **fallback** if those tools aren't available.
+
+The fallback loop is just `invoke`. Find the Mac in `list`, then:
 
 ```bash
 python3 "$SCRIPT" invoke "Pranav's Macbook" chrome_navigate \

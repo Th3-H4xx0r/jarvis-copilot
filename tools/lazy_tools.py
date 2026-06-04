@@ -207,10 +207,10 @@ LAZY_TOOLS_GUIDANCE = (
     "parameters — pass `select:tool_a,tool_b` for exact tools you already know "
     "the name of, or a few keywords to find the right one. Loaded tools stay "
     "available for the rest of the session. tool_search only loads AGENT tools "
-    "(the ones in the Deferred tools list). Skills — including device skills on "
-    "paired phones/Macs (e.g. chrome_navigate) — are NOT agent tools: don't "
-    "tool_search for them; use the relevant skill directly (e.g. the devices "
-    "skill to invoke a device's chrome_* skills)."
+    "(the ones in the Deferred tools list — including the chrome_* tools that "
+    "drive the user's real Mac Chrome). A paired phone/tablet's device skills "
+    "(e.g. send_sms, run_shortcut) are NOT agent tools — invoke those through the "
+    "devices skill, not tool_search."
 )
 
 TOOL_SEARCH_SCHEMA = {
