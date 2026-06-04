@@ -583,7 +583,6 @@ MIME_MAP = {
 # ── Toolsets (from config.yaml or hardcoded default) ─────────────────────────
 _DEFAULT_TOOLSETS = [
     "browser",
-    "chrome",
     "clarify",
     "code_execution",
     "cronjob",
