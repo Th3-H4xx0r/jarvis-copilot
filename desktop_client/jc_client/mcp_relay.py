@@ -12,8 +12,11 @@ server side (``tools/mcp_relay_transport.py``) owns the MCP ``ClientSession``.
 
 from __future__ import annotations
 
+import glob
 import json
 import logging
+import os
+import shutil
 import subprocess
 import threading
 from typing import Callable, Optional
@@ -33,15 +36,35 @@ def _profile_dir() -> str:
     return str(p)
 
 
+def find_npx() -> Optional[str]:
+    """Locate the ``npx`` binary, resilient to launchd's minimal PATH.
+
+    A LaunchAgent daemon doesn't inherit the user's shell PATH, so an
+    nvm/homebrew npx isn't on ``PATH`` even though it's installed. Check PATH
+    first, then common install locations (newest nvm node wins)."""
+    p = shutil.which("npx")
+    if p:
+        return p
+    home = os.path.expanduser("~")
+    candidates = sorted(
+        glob.glob(os.path.join(home, ".nvm/versions/node/*/bin/npx")), reverse=True
+    ) + ["/opt/homebrew/bin/npx", "/usr/local/bin/npx"]
+    for c in candidates:
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return None
+
+
 def build_playwright_command(meta: Optional[dict], profile_dir: str) -> list[str]:
     """Build the ``npx @playwright/mcp`` argv. Only ``meta.browser`` (a safe
-    enum) is honored from the server; the profile dir is chosen locally."""
+    enum) is honored from the server; the profile dir is chosen locally. Uses a
+    resolved npx path so it works under launchd's minimal PATH."""
     meta = meta if isinstance(meta, dict) else {}
     browser = str(meta.get("browser") or _DEFAULT_BROWSER).strip().lower()
     if browser not in _ALLOWED_BROWSERS:
         browser = _DEFAULT_BROWSER
     return [
-        "npx", "@playwright/mcp@latest",
+        find_npx() or "npx", "@playwright/mcp@latest",
         "--browser", browser,
         "--user-data-dir", profile_dir,
     ]
@@ -134,6 +157,12 @@ class McpRelayManager:
 
 
 def _default_spawn(cmd: list[str]) -> subprocess.Popen:
+    # Ensure node (next to npx) is on PATH for the child, since launchd's PATH
+    # is minimal and npx shells out to node.
+    env = dict(os.environ)
+    bindir = os.path.dirname(cmd[0]) if cmd and os.path.sep in cmd[0] else ""
+    if bindir and bindir not in env.get("PATH", "").split(os.pathsep):
+        env["PATH"] = bindir + os.pathsep + env.get("PATH", "")
     return subprocess.Popen(
         cmd,
         stdin=subprocess.PIPE,
@@ -141,6 +170,7 @@ def _default_spawn(cmd: list[str]) -> subprocess.Popen:
         stderr=subprocess.DEVNULL,
         text=True,
         bufsize=1,
+        env=env,
     )
 
 

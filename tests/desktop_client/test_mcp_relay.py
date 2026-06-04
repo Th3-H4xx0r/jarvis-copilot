@@ -74,9 +74,19 @@ def _types(sends):
 
 def test_build_command_honors_browser_enum():
     cmd = build_playwright_command({"browser": "msedge"}, "/p")
-    assert cmd[:2] == ["npx", "@playwright/mcp@latest"]
+    # cmd[0] is a resolved npx path (or bare "npx" if not found).
+    assert os.path.basename(cmd[0]) == "npx"
+    assert cmd[1] == "@playwright/mcp@latest"
     assert "--browser" in cmd and "msedge" in cmd
     assert cmd[cmd.index("--user-data-dir") + 1] == "/p"
+
+
+def test_find_npx_returns_path_or_none():
+    from jc_client.mcp_relay import find_npx
+    p = find_npx()
+    # On a machine with node it resolves to an executable path ending in npx;
+    # otherwise None. Either way it must not raise.
+    assert p is None or os.path.basename(p) == "npx"
 
 
 def test_build_command_rejects_bad_browser_and_ignores_server_path():

@@ -185,8 +185,8 @@ class Service:
         # MCP server for this device (no hand-edited device_id). Only if npx is
         # available, since the relay spawns `npx @playwright/mcp`.
         if self._relay is not None:
-            import shutil
-            if shutil.which("npx"):
+            from jc_client.mcp_relay import find_npx
+            if find_npx():
                 try:
                     ws.send_text(json.dumps(
                         {"type": "mcp_relay_available", "meta": {"browser": "chrome"}}
