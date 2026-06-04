@@ -84,9 +84,13 @@ _HERMES_CORE_TOOLS = [
 _LAZY_CORE_TOOLS = [
     "tool_search",
     "web_search", "terminal",
-    "read_file", "write_file", "patch", "search_files",
-    "memory", "session_search", "todo", "clarify",
+    "read_file", "write_file",
+    "memory", "todo", "clarify",
 ]
+# Deliberately NOT in core (deferred to the manifest, loaded on demand): the
+# fat-schema, not-every-turn tools — session_search (~1.1k tok), patch (~0.5k),
+# search_files (~0.4k). Their guidance still shows (gated on availability), so
+# the model knows they exist and tool_searches them when a task needs them.
 
 
 # Core toolset definitions
