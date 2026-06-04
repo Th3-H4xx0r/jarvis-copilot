@@ -176,7 +176,9 @@ class Service:
         # so a desktop without the relay still runs every other skill.
         try:
             from jc_client.mcp_relay import McpRelayManager
-            self._relay = McpRelayManager(send=ws.send_text)
+            self._relay = McpRelayManager(
+                send=ws.send_text, extension=_playwright_extension_enabled()
+            )
         except Exception as exc:
             log.warning("mcp relay unavailable: %s", exc)
             self._relay = None
@@ -387,6 +389,19 @@ class Service:
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
+
+
+def _playwright_extension_enabled() -> bool:
+    """Desktop-local flag: when true, the relay drives the user's already-running
+    Chrome via the Playwright Extension (visible, logged-in) instead of a
+    dedicated headless-ish profile. Read from ~/.jarviscopilot-client/config.yaml."""
+    try:
+        import yaml
+        from jc_client.logger import state_dir
+        raw = yaml.safe_load((state_dir() / "config.yaml").read_text()) or {}
+        return bool(raw.get("playwright_extension"))
+    except Exception:
+        return False
 
 
 def _platform_summary() -> dict:

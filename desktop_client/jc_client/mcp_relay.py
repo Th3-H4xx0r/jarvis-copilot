@@ -55,16 +55,26 @@ def find_npx() -> Optional[str]:
     return None
 
 
-def build_playwright_command(meta: Optional[dict], profile_dir: str) -> list[str]:
+def build_playwright_command(meta: Optional[dict], profile_dir: str,
+                             extension: bool = False) -> list[str]:
     """Build the ``npx @playwright/mcp`` argv. Only ``meta.browser`` (a safe
     enum) is honored from the server; the profile dir is chosen locally. Uses a
-    resolved npx path so it works under launchd's minimal PATH."""
+    resolved npx path so it works under launchd's minimal PATH.
+
+    ``extension=True`` (a desktop-local choice) connects to the user's ALREADY-
+    RUNNING Chrome via the Playwright Extension — real profile, real session, a
+    visible window the user already has — instead of launching a separate
+    headed-but-background profile. No ``--user-data-dir`` in that mode.
+    """
     meta = meta if isinstance(meta, dict) else {}
     browser = str(meta.get("browser") or _DEFAULT_BROWSER).strip().lower()
     if browser not in _ALLOWED_BROWSERS:
         browser = _DEFAULT_BROWSER
+    npx = find_npx() or "npx"
+    if extension:
+        return [npx, "@playwright/mcp@latest", "--extension", "--browser", browser]
     return [
-        find_npx() or "npx", "@playwright/mcp@latest",
+        npx, "@playwright/mcp@latest",
         "--browser", browser,
         "--user-data-dir", profile_dir,
     ]
@@ -77,11 +87,13 @@ class McpRelayManager:
     def __init__(self, send: Callable[[str], None], *,
                  profile_dir: Optional[str] = None,
                  spawn: Optional[Callable[[list[str]], subprocess.Popen]] = None,
-                 command_builder: Callable[[Optional[dict], str], list[str]] = build_playwright_command):
+                 command_builder: Callable[..., list[str]] = build_playwright_command,
+                 extension: bool = False):
         self._send = send
         self._profile_dir = profile_dir or _profile_dir()
         self._spawn = spawn or _default_spawn
         self._build = command_builder
+        self._extension = extension
         self._procs: dict[str, subprocess.Popen] = {}
         self._lock = threading.Lock()
 
@@ -90,7 +102,7 @@ class McpRelayManager:
     def handle_open(self, session: str, meta: Optional[dict]) -> None:
         if not session:
             return
-        cmd = self._build(meta, self._profile_dir)
+        cmd = self._build(meta, self._profile_dir, self._extension)
         try:
             proc = self._spawn(cmd)
         except Exception as exc:  # noqa: BLE001

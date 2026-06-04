@@ -81,6 +81,14 @@ def test_build_command_honors_browser_enum():
     assert cmd[cmd.index("--user-data-dir") + 1] == "/p"
 
 
+def test_build_command_extension_mode():
+    cmd = build_playwright_command({"browser": "chrome"}, "/p", extension=True)
+    assert "--extension" in cmd
+    assert "--user-data-dir" not in cmd  # uses the running browser, not a profile
+    assert "--browser" in cmd and "chrome" in cmd
+    assert os.path.basename(cmd[0]) == "npx"
+
+
 def test_find_npx_returns_path_or_none():
     from jc_client.mcp_relay import find_npx
     p = find_npx()
