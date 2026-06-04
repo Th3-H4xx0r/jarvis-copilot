@@ -49,11 +49,20 @@ def compute_message_composition(agent: Any, api_messages: Optional[List[Dict[str
     sections: Dict[str, int] = {}
 
     # System-prompt sub-sections (chars recorded at build time → tokens).
-    for label, chars in (getattr(agent, "_prompt_sections", {}) or {}).items():
-        try:
-            sections[str(label)] = max(0, int(chars) // _CHARS_PER_TOK)
-        except Exception:
-            continue
+    prompt_sections = getattr(agent, "_prompt_sections", {}) or {}
+    if prompt_sections:
+        for label, chars in prompt_sections.items():
+            try:
+                sections[str(label)] = max(0, int(chars) // _CHARS_PER_TOK)
+            except Exception:
+                continue
+    else:
+        # Sub-sections unavailable (e.g. an old resumed session whose stored
+        # prompt predates the labeling) — still count the whole cached system
+        # prompt so it isn't invisible (it's usually the bulk of the input).
+        sysp = getattr(agent, "_cached_system_prompt", None)
+        if sysp:
+            sections["system_prompt"] = _est_tokens(sysp)
 
     # Advertised tool schemas this call.
     tools = getattr(agent, "tools", None)

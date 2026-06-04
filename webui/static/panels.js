@@ -3527,6 +3527,7 @@ const _INSIGHTS_SECTION_META = {
   external_memory:      { label: 'External memory',         color: '#d24b86' },
   timestamp:            { label: 'Timestamp',               color: '#9aa0a6' },
   other:                { label: 'Other (system)',          color: '#6b7280' },
+  system_prompt:        { label: 'System prompt',           color: '#7c5cff' },
   tool_schemas:         { label: 'Tool schemas',            color: '#a06bff' },
   conversation_history: { label: 'Conversation history',    color: '#5b6fb0' },
   user_message:         { label: 'User message',            color: '#34c759' },

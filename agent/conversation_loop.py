@@ -180,6 +180,17 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
         # Continuing session — reuse the exact system prompt from the
         # previous turn so the Anthropic cache prefix matches.
         agent._cached_system_prompt = stored_prompt
+        # Populate _prompt_sections for the per-message insights composition: the
+        # stored prompt is a flat string with no section labels. Best-effort, once
+        # per resumed session; may differ slightly from the stored prompt if
+        # volatile content changed — it's an estimate. Does NOT touch the cached
+        # prompt the model actually sees.
+        try:
+            if not getattr(agent, "_prompt_sections", None):
+                from agent.system_prompt import build_system_prompt_parts
+                build_system_prompt_parts(agent, system_message)
+        except Exception:
+            pass
         return
 
     if conversation_history and stored_state in ("null", "empty"):
