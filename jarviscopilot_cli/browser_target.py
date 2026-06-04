@@ -183,6 +183,16 @@ def ensure_playwright_relay_server(device_id: str, enabled: bool = True,
 DESKTOP_ENGINE_TOOLSETS = (PLAYWRIGHT_DESKTOP_SERVER_NAME, PLAYWRIGHT_RELAY_SERVER_NAME)
 
 
+def _is_desktop_engine_toolset(toolset: str) -> bool:
+    """A toolset that drives a desktop Playwright browser — the fixed names OR
+    an auto-registered per-device relay (``playwright-relay-<id>``)."""
+    return toolset in DESKTOP_ENGINE_TOOLSETS or toolset.startswith("playwright-relay-")
+
+
+def _is_relay_toolset(toolset: str) -> bool:
+    return toolset == PLAYWRIGHT_RELAY_SERVER_NAME or toolset.startswith("playwright-relay-")
+
+
 def relay_server_name(device_id: str) -> str:
     """Stable per-device MCP server name for an auto-registered relay."""
     safe = "".join(c for c in (device_id or "") if c.isalnum())[:8] or "device"
@@ -241,18 +251,17 @@ def apply_browser_target_gating(enabled_toolsets: Set[str], target: str) -> Set[
     """
     target = normalize_browser_target(target)
     enabled = set(enabled_toolsets)
+    desktop_engines = {t for t in enabled if _is_desktop_engine_toolset(t)}
     if target == "desktop":
-        present = [e for e in DESKTOP_ENGINE_TOOLSETS if e in enabled]
-        if present:
+        if desktop_engines:
             enabled.discard(NATIVE_BROWSER_TOOLSET)
-            # Single surface: prefer the relay over the local stdio engine.
-            if (PLAYWRIGHT_RELAY_SERVER_NAME in enabled
-                    and PLAYWRIGHT_DESKTOP_SERVER_NAME in enabled):
+            # Single surface: if a relay engine is present, prefer it over the
+            # local stdio one.
+            if any(_is_relay_toolset(t) for t in desktop_engines):
                 enabled.discard(PLAYWRIGHT_DESKTOP_SERVER_NAME)
         return enabled
-    enabled.discard(PLAYWRIGHT_DESKTOP_SERVER_NAME)
-    enabled.discard(PLAYWRIGHT_RELAY_SERVER_NAME)
-    return enabled
+    # server: hide every desktop engine (fixed names + per-device relays).
+    return enabled - desktop_engines
 
 
 def browser_target_plan(target: str) -> Dict[str, Any]:

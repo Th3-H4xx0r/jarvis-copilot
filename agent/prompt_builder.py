@@ -410,6 +410,35 @@ COMPUTER_USE_GUIDANCE = (
     "force empty trash). You'll see an error if you try.\n"
 )
 
+# Injected only when a desktop browser-relay toolset is present (the
+# `mcp_playwright_relay_*` tools, auto-registered when the user's paired Mac
+# client announces it). Steers the agent to drive the user's REAL browser via
+# the relay instead of open_url / AppleScript / the headless server browser.
+BROWSER_RELAY_GUIDANCE = (
+    "# Browsing on the user's computer\n"
+    "A real web browser runs on the user's own machine, exposed as the "
+    "`mcp_playwright_relay_*` tools (e.g. `…_browser_navigate`, "
+    "`…_browser_snapshot`, `…_browser_click`, `…_browser_type`). These drive the "
+    "user's ACTUAL, visible, logged-in Chrome.\n\n"
+    "For ANY task that involves viewing, reading, searching, clicking, filling, "
+    "or otherwise interacting with web pages on the user's computer, use these "
+    "`mcp_playwright_relay_*` tools. Typical flow: `browser_navigate` → "
+    "`browser_snapshot` (read the page + get element refs) → "
+    "`browser_click`/`browser_type`.\n\n"
+    "Do NOT use these for browsing the user's machine:\n"
+    "- `open_url` only OPENS a URL — it cannot read, snapshot, or click. Use it "
+    "only for a fire-and-forget 'just open this link', never when you then need "
+    "to read or act on the page.\n"
+    "- AppleScript/osascript or shelling out to drive the browser — unreliable "
+    "and unnecessary; the relay tools do this properly.\n"
+    "- The headless server-side browser (`browser_navigate`/`browser_snapshot` "
+    "WITHOUT the `mcp_playwright_relay_` prefix) runs on the server, not the "
+    "user's computer. When the user says 'on my Mac/computer/machine', you MUST "
+    "use the `mcp_playwright_relay_*` tools.\n\n"
+    "If a relay browser tool errors, report the error — do NOT silently fall "
+    "back to open_url or AppleScript.\n"
+)
+
 # Model name substrings that should use the 'developer' role instead of
 # 'system' for the system prompt.  OpenAI's newer models (GPT-5, Codex)
 # give stronger instruction-following weight to the 'developer' role.

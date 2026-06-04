@@ -1195,3 +1195,15 @@ class TestOpenAIModelExecutionGuidance:
 
 
 
+
+
+def test_browser_relay_guidance_content():
+    """The desktop browser-relay guidance steers the agent to the relay tools
+    and away from open_url / AppleScript / the server browser."""
+    from agent.prompt_builder import BROWSER_RELAY_GUIDANCE
+    g = BROWSER_RELAY_GUIDANCE
+    assert "mcp_playwright_relay_" in g
+    assert "open_url" in g
+    assert "AppleScript" in g or "osascript" in g
+    # tells the model the relay drives the user's real machine
+    assert "user's computer" in g or "your computer" in g.lower() or "my Mac" in g

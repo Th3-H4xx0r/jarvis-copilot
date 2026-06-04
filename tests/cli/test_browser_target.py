@@ -200,6 +200,21 @@ class TestToolsetOverrides:
         assert "browser" not in result
         assert PLAYWRIGHT_RELAY_SERVER_NAME in result
 
+    def test_server_hides_auto_registered_relay(self):
+        # The auto-registered relay is named playwright-relay-<id>; server must hide it.
+        from jarviscopilot_cli.browser_target import apply_browser_target_gating
+        enabled = {"browser", "web", "playwright-relay-afb105a1"}
+        result = apply_browser_target_gating(enabled, target="server")
+        assert "playwright-relay-afb105a1" not in result
+        assert "browser" in result and "web" in result
+
+    def test_desktop_with_auto_registered_relay_hides_native(self):
+        from jarviscopilot_cli.browser_target import apply_browser_target_gating
+        enabled = {"browser", "web", "playwright-relay-afb105a1"}
+        result = apply_browser_target_gating(enabled, target="desktop")
+        assert "browser" not in result
+        assert "playwright-relay-afb105a1" in result
+
     def test_desktop_with_both_engines_prefers_relay(self):
         from jarviscopilot_cli.browser_target import (
             apply_browser_target_gating,

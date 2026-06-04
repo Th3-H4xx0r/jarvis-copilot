@@ -127,6 +127,13 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         from agent.prompt_builder import COMPUTER_USE_GUIDANCE
         stable_parts.append(COMPUTER_USE_GUIDANCE)
 
+    # Desktop browser relay (Playwright on the user's own machine) — prefer it
+    # over open_url / AppleScript / the headless server browser for any web
+    # interaction. Only injected when the relay tools are actually present.
+    if any("playwright_relay" in name for name in agent.valid_tool_names):
+        from agent.prompt_builder import BROWSER_RELAY_GUIDANCE
+        stable_parts.append(BROWSER_RELAY_GUIDANCE)
+
     nous_subscription_prompt = _r.build_nous_subscription_prompt(agent.valid_tool_names)
     if nous_subscription_prompt:
         stable_parts.append(nous_subscription_prompt)
