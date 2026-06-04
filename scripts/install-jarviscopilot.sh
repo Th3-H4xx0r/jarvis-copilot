@@ -169,17 +169,20 @@ PIP_QUIET=(-q --progress-bar off --no-input)
 
 info "Installing core + voice extras (this can take a few minutes on first run) ..."
 "$VENV_PY" -m pip install --upgrade pip "${PIP_QUIET[@]}" || die "pip upgrade failed"
-"$VENV_PY" -m pip install -e ".[all,voice,edge-tts]" "${PIP_QUIET[@]}" || die "pip install failed"
+# IMPORTANT: editable_mode=compat. setuptools' DEFAULT (strict/lenient) editable
+# install uses a MetaPathFinder that turns the top-level `jarviscopilot_cli`
+# package into a NAMESPACE package — its __init__.py never runs, so __version__
+# is undefined at every import site ("cannot import name '__version__' from
+# 'jarviscopilot_cli' (unknown location)"), bricking the whole CLI. `compat` mode
+# writes a legacy .pth that puts the repo root on sys.path, so it imports as a
+# normal package. (Belt-and-suspenders: also force-refresh below.)
+EDITABLE_MODE=(--config-settings editable_mode=compat)
+"$VENV_PY" -m pip install -e ".[all,voice,edge-tts]" "${EDITABLE_MODE[@]}" "${PIP_QUIET[@]}" || die "pip install failed"
 
-# Force-refresh the editable install of jarviscopilot ITSELF (no deps). pip skips
-# the editable reinstall above as "already satisfied" when the version is
-# unchanged — but a prior install + a later `git pull` that renamed/restructured
-# packages (e.g. hermes_cli→jarviscopilot_cli) leaves STALE editable metadata, so
-# `jarviscopilot_cli` resolves as a NAMESPACE package (its __init__.py never runs
-# → "cannot import name '__version__' from 'jarviscopilot_cli' (unknown
-# location)"). --force-reinstall regenerates the editable hooks; --no-deps keeps
-# it fast (seconds, no dependency churn).
-"$VENV_PY" -m pip install -e . --no-deps --force-reinstall "${PIP_QUIET[@]}" || warn "editable metadata refresh failed -- if the CLI reports 'unknown location', run: $VENV_PY -m pip install -e . --no-deps --force-reinstall"
+# Force-refresh just jarviscopilot itself in compat mode (no deps, fast): pip
+# skips the editable reinstall above as "already satisfied" when the version is
+# unchanged, so an existing strict-mode install would otherwise persist.
+"$VENV_PY" -m pip install -e . --no-deps --force-reinstall "${EDITABLE_MODE[@]}" "${PIP_QUIET[@]}" || warn "editable refresh failed -- run: $VENV_PY -m pip install -e . --no-deps --force-reinstall --config-settings editable_mode=compat"
 
 info "Installing webui dependencies ..."
 "$VENV_PY" -m pip install -r webui/requirements.txt "${PIP_QUIET[@]}" || die "webui requirements install failed"
