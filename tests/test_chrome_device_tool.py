@@ -1,8 +1,6 @@
 """Tests for the direct chrome_* agent tools (A2 speed path)."""
 
 import json
-import sys
-import types
 
 from tools.registry import discover_builtin_tools, registry
 
@@ -85,25 +83,49 @@ def test_handlers_forward_args(monkeypatch):
     ]
 
 
-# ── device resolution + check_fn against a faked bridge ───────────────────────
+# ── device resolution + check_fn over the webui REST API ─────────────────────
 
-def test_resolve_and_check_fn_via_bridge(monkeypatch):
-    webui = types.ModuleType("webui"); webui.__path__ = []
-    api = types.ModuleType("webui.api"); api.__path__ = []
-    bridge = types.ModuleType("webui.api.device_bridge")
-    bridge.connected_device_ids = lambda: ["mac", "phone"]
-    bridge.skills_for_device = lambda d: (
-        [{"name": "chrome_navigate"}, {"name": "chrome_click"}] if d == "mac"
-        else [{"name": "send_sms"}]
-    )
-    monkeypatch.setitem(sys.modules, "webui", webui)
-    monkeypatch.setitem(sys.modules, "webui.api", api)
-    monkeypatch.setitem(sys.modules, "webui.api.device_bridge", bridge)
-    assert cdt._resolve_chrome_device() == "mac"
+def test_resolve_and_check_fn_via_rest(monkeypatch):
+    def fake_api(method, path, body=None, timeout=10.0):
+        assert method == "GET" and path == "/api/devices/skills"
+        return {"skills": [
+            {"name": "chrome_navigate", "device_id": "mac1", "device_name": "Mac"},
+            {"name": "send_sms", "device_id": "phone1"},
+        ]}
+    monkeypatch.setattr(cdt, "_api_request", fake_api)
+    assert cdt._resolve_chrome_device() == "mac1"
     assert cdt._chrome_available() is True
 
 
-def test_check_fn_false_without_bridge(monkeypatch):
-    # No device bridge importable / no chrome device → tools stay hidden.
-    monkeypatch.setattr(cdt, "_resolve_chrome_device", lambda: None)
+def test_resolve_none_when_no_chrome_device(monkeypatch):
+    monkeypatch.setattr(cdt, "_api_request",
+                        lambda *a, **k: {"skills": [{"name": "send_sms", "device_id": "p"}]})
+    assert cdt._resolve_chrome_device() is None
+
+
+def test_resolve_none_on_api_error(monkeypatch):
+    monkeypatch.setattr(cdt, "_api_request", lambda *a, **k: {"_error": "connection refused"})
+    assert cdt._resolve_chrome_device() is None
     assert cdt._chrome_available() is False
+
+
+def test_invoke_skill_safe_posts_via_rest(monkeypatch):
+    captured = {}
+
+    def fake_api(method, path, body=None, timeout=10.0):
+        captured.update(method=method, path=path, body=body)
+        return {"ok": True, "result": {"ok": True, "result": "snap"}}
+
+    monkeypatch.setattr(cdt, "_api_request", fake_api)
+    out = cdt.invoke_skill_safe("mac1", "chrome_navigate", {"url": "u"})
+    assert out["ok"] is True
+    assert captured["method"] == "POST" and captured["path"] == "/api/devices/skills/invoke"
+    assert captured["body"]["device_id"] == "mac1"
+    assert captured["body"]["skill"] == "chrome_navigate"
+    assert captured["body"]["args"] == {"url": "u"}
+
+
+def test_invoke_skill_safe_transport_error(monkeypatch):
+    monkeypatch.setattr(cdt, "_api_request", lambda *a, **k: {"_error": "refused"})
+    out = cdt.invoke_skill_safe("mac1", "chrome_navigate", {})
+    assert out["ok"] is False and "refused" in out["error"]
