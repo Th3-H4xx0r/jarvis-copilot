@@ -24,22 +24,37 @@ def test_manifest_includes_chrome_with_schemas():
     assert "real" in m["chrome_navigate"]["description"].lower()
 
 
-def test_chrome_navigate_forwards_to_playwright_tool(monkeypatch):
+def test_chrome_navigate_navigates_then_snapshots(monkeypatch):
     calls = []
     monkeypatch.setattr(bm._INSTANCE, "call_tool",
                         lambda name, args=None, **kw: calls.append((name, args)) or {"ok": True, "result": "x"})
     out = sk.invoke("chrome_navigate", {"url": "https://example.com"})
-    assert calls == [("browser_navigate", {"url": "https://example.com"})]
+    # navigate, then an EXPLICIT inline snapshot so browser_mcp's size cap applies
+    # (Playwright's own post-navigate snapshot can be saved to a file the agent
+    # would otherwise read raw).
+    assert calls == [("browser_navigate", {"url": "https://example.com"}),
+                     ("browser_snapshot", {})]
     assert out == {"ok": True, "result": "x"}
 
 
-def test_chrome_click_maps_ref_to_target(monkeypatch):
+def test_chrome_click_maps_ref_to_target_then_snapshots(monkeypatch):
     # Playwright MCP >=0.0.75 takes the snapshot ref as `target`, not `ref`.
     calls = []
     monkeypatch.setattr(bm._INSTANCE, "call_tool",
                         lambda name, args=None, **kw: calls.append((name, args)) or {"ok": True})
     sk.invoke("chrome_click", {"element": "first result", "ref": "e47"})
-    assert calls == [("browser_click", {"element": "first result", "target": "e47"})]
+    assert calls == [("browser_click", {"element": "first result", "target": "e47"}),
+                     ("browser_snapshot", {})]
+
+
+def test_snapshot_depth_env(monkeypatch):
+    import jc_client.skills.browser as br
+    monkeypatch.delenv("JC_BROWSER_SNAPSHOT_DEPTH", raising=False)
+    assert br._snapshot_args() == {}
+    monkeypatch.setenv("JC_BROWSER_SNAPSHOT_DEPTH", "12")
+    assert br._snapshot_args() == {"depth": 12}
+    monkeypatch.setenv("JC_BROWSER_SNAPSHOT_DEPTH", "0")
+    assert br._snapshot_args() == {}
 
 
 def test_chrome_type_submit_flag(monkeypatch):

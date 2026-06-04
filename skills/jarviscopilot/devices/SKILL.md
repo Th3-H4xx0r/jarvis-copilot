@@ -97,6 +97,35 @@ After capture, pass the printed `path` to your vision/image-reading tool (e.g. `
 
 **When the user asks "what's on my screen" / "can you see my Mac":** find their Mac in `list`, run `screenshot <device>`, then open the saved path with your vision tool. That's the whole flow — three calls, ~1 second.
 
+## Driving the user's real desktop browser (Chrome)
+
+A paired **Mac** (running the JarvisCopilot client + the Playwright Chrome extension) advertises `chrome_*` skills that drive the user's **real, visible, logged-in Chrome**. Use these whenever the user says "on my Mac", "in my browser", "my real Chrome", or wants you to act on a site they're already signed into. These are **device skills** invoked through `invoke` below — they are NOT agent tools, so do **not** `tool_search` for them, and do **not** fall back to `open_url` or the server's headless `browser_*`.
+
+The whole loop is just `invoke`. Find the Mac in `list`, then:
+
+```bash
+python3 "$SCRIPT" invoke "Pranav's Macbook" chrome_navigate \
+  --json-args '{"url":"https://en.wikipedia.org/wiki/Houston"}'
+# → returns a SIZE-CAPPED accessibility snapshot with clickable refs like [ref=e47]
+python3 "$SCRIPT" invoke "Pranav's Macbook" chrome_click \
+  --json-args '{"element":"first article body link","ref":"e47"}'
+# → returns the resulting page's snapshot (read the title/links from it)
+```
+
+Advertised chrome skills (confirm with `skills`):
+
+- `chrome_navigate {url}` — open a URL; returns the page snapshot with refs (no separate `chrome_snapshot` needed afterward).
+- `chrome_snapshot {}` — re-read the current page's snapshot.
+- `chrome_click {element, ref}` — click the element with that `ref` (from a recent snapshot); `element` is a human-readable description. Returns the new snapshot.
+- `chrome_type {element, ref, text, submit?}` — type into a field; `submit:true` presses Enter.
+- `chrome_press_key {key}` — press a key (`Enter`, `PageDown`, …).
+
+Notes:
+
+- Snapshots are size-capped to protect your context. On a huge page you'll see a truncation note — narrow the view (scroll or click into the relevant section, or set `JC_BROWSER_SNAPSHOT_DEPTH` on the client) rather than trying to dump the whole tree.
+- Refs (`e47`) belong to the most recent snapshot — re-snapshot if the page changed under you.
+- Bot-protected sites (Google / Cloudflare CAPTCHA) defeat any automation. For *finding* things prefer your `web_search` tool; reserve real-Chrome driving for logged-in / non-hostile sites.
+
 ## Controlling an iPhone / iPad (iOS)
 
 iOS sandboxes apps hard: there is **no** way to tap/type/swipe in arbitrary apps the way Android accessibility allows. The supported, powerful control surface on iOS is **Shortcuts**, exposed through the `run_shortcut` device skill.
