@@ -113,14 +113,6 @@ def _resolve_chrome_device() -> Optional[str]:
     return None
 
 
-def _chrome_available() -> bool:
-    """check_fn: only advertise these tools when a chrome-capable device is online."""
-    try:
-        return _resolve_chrome_device() is not None
-    except Exception:
-        return False
-
-
 def invoke_skill_safe(device_id: str, skill_name: str, args: dict) -> dict:
     """Invoke a device skill over the webui REST API. Returns the webui's
     ``{ok,result}`` (or ``{ok:False,error}``)."""
@@ -255,15 +247,19 @@ def _h_press_key(args, **kw):
     return _chrome_call("chrome_press_key", {"key": (args or {}).get("key", "")})
 
 
-# Explicit top-level registrations (NOT a loop — discover_builtin_tools' AST scan
-# only picks up modules with a top-level ``registry.register(...)`` statement).
+# Registered WITHOUT a check_fn — always present (deferred under lazy loading, so
+# ~5 cheap manifest lines, not full schemas). A probe-based check_fn proved flaky
+# (cross-process webui probe timing), which silently hid the tools entirely. Now
+# they always surface; the handler returns a clean "no Mac online" error when
+# _resolve_chrome_device() finds nothing. Explicit top-level calls (NOT a loop —
+# discover_builtin_tools' AST scan only sees top-level registry.register(...)).
 registry.register(name="chrome_navigate", toolset="chrome", schema=_NAV,
-                  handler=_h_navigate, check_fn=_chrome_available, emoji="🌐")
+                  handler=_h_navigate, emoji="🌐")
 registry.register(name="chrome_snapshot", toolset="chrome", schema=_SNAP,
-                  handler=_h_snapshot, check_fn=_chrome_available, emoji="📸")
+                  handler=_h_snapshot, emoji="📸")
 registry.register(name="chrome_click", toolset="chrome", schema=_CLICK,
-                  handler=_h_click, check_fn=_chrome_available, emoji="🖱️")
+                  handler=_h_click, emoji="🖱️")
 registry.register(name="chrome_type", toolset="chrome", schema=_TYPE,
-                  handler=_h_type, check_fn=_chrome_available, emoji="⌨️")
+                  handler=_h_type, emoji="⌨️")
 registry.register(name="chrome_press_key", toolset="chrome", schema=_KEY,
-                  handler=_h_press_key, check_fn=_chrome_available, emoji="⏎")
+                  handler=_h_press_key, emoji="⏎")

@@ -85,7 +85,13 @@ def test_handlers_forward_args(monkeypatch):
 
 # ── device resolution + check_fn over the webui REST API ─────────────────────
 
-def test_resolve_and_check_fn_via_rest(monkeypatch):
+def test_tools_have_no_check_fn():
+    # Always-present (deferred under lazy loading) — no flaky probe-gate.
+    for n in ("chrome_navigate", "chrome_click", "chrome_press_key"):
+        assert registry.get_entry(n).check_fn is None
+
+
+def test_resolve_chrome_device_via_rest(monkeypatch):
     def fake_api(method, path, body=None, timeout=10.0):
         assert method == "GET" and path == "/api/devices/skills"
         return {"skills": [
@@ -94,7 +100,6 @@ def test_resolve_and_check_fn_via_rest(monkeypatch):
         ]}
     monkeypatch.setattr(cdt, "_api_request", fake_api)
     assert cdt._resolve_chrome_device() == "mac1"
-    assert cdt._chrome_available() is True
 
 
 def test_resolve_none_when_no_chrome_device(monkeypatch):
@@ -106,7 +111,6 @@ def test_resolve_none_when_no_chrome_device(monkeypatch):
 def test_resolve_none_on_api_error(monkeypatch):
     monkeypatch.setattr(cdt, "_api_request", lambda *a, **k: {"_error": "connection refused"})
     assert cdt._resolve_chrome_device() is None
-    assert cdt._chrome_available() is False
 
 
 def test_invoke_skill_safe_posts_via_rest(monkeypatch):
