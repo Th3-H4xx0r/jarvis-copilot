@@ -203,6 +203,17 @@ TOOLSETS = {
         "includes": []
     },
 
+    # The lazy tool-loading loader. MUST be resolvable as a platform toolset or
+    # the deferred-tools manifest is useless — the model would see deferred tools
+    # but have no way to load them. check_fn (in tools/lazy_tools.py) keeps it out
+    # of the tool set when lazy loading is off. Like `chrome`, keep this a plain
+    # (non-configurable) toolset so the platform-recovery loop always enables it.
+    "lazy_tools": {
+        "description": "Lazy tool-loading: tool_search loads deferred tools' schemas on demand.",
+        "tools": ["tool_search"],
+        "includes": []
+    },
+
     "cronjob": {
         "description": "Cronjob management tool - create, list, update, pause, resume, remove, and trigger scheduled tasks",
         "tools": ["cronjob"],
