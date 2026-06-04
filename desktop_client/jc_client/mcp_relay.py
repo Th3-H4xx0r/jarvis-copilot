@@ -36,6 +36,50 @@ def _profile_dir() -> str:
     return str(p)
 
 
+# The published Playwright MCP Chrome extension's (stable) ID. Its status page
+# stores the connection token in localStorage under key "auth-token", which
+# Chrome persists in <profile>/Local Storage/leveldb as plaintext — so we can
+# auto-discover it and never make the user copy/paste a token.
+PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
+
+
+def _chrome_localstorage_globs() -> list[str]:
+    """Glob patterns for Chrome's Local Storage leveldb across OSes/profiles."""
+    import sys
+    home = os.path.expanduser("~")
+    if sys.platform == "darwin":
+        roots = [os.path.join(home, "Library/Application Support/Google/Chrome")]
+    elif sys.platform.startswith("win"):
+        roots = [os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google/Chrome/User Data")]
+    else:
+        roots = [os.path.join(home, ".config/google-chrome"),
+                 os.path.join(home, ".config/chromium")]
+    return [os.path.join(r, "*", "Local Storage", "leveldb", "*") for r in roots if r]
+
+
+def read_extension_token_from_chrome(ext_id: str = PLAYWRIGHT_EXTENSION_ID,
+                                     globs: Optional[list[str]] = None) -> Optional[str]:
+    """Auto-discover the Playwright Extension's connection token from Chrome's
+    on-disk localStorage, so the user never copy/pastes it. Returns the most
+    recently written token, or None if not found / Chrome not present."""
+    import re
+    pat = re.compile(
+        rb"_chrome-extension://" + re.escape(ext_id.encode())
+        + rb"\x00\x01auth-token.{0,6}?([A-Za-z0-9_-]{24,})",
+        re.S,
+    )
+    found: Optional[str] = None
+    for pattern in (globs if globs is not None else _chrome_localstorage_globs()):
+        for path in glob.glob(pattern):
+            try:
+                data = open(path, "rb").read()
+            except Exception:
+                continue
+            for m in pat.finditer(data):
+                found = m.group(1).decode()  # last write wins (handles regen)
+    return found
+
+
 def find_npx() -> Optional[str]:
     """Locate the ``npx`` binary, resilient to launchd's minimal PATH.
 
@@ -89,13 +133,15 @@ class McpRelayManager:
                  spawn: Optional[Callable[..., subprocess.Popen]] = None,
                  command_builder: Callable[..., list[str]] = build_playwright_command,
                  extension: bool = False,
-                 extension_token: Optional[str] = None):
+                 extension_token: Optional[str] = None,
+                 token_reader: Optional[Callable[[], Optional[str]]] = None):
         self._send = send
         self._profile_dir = profile_dir or _profile_dir()
         self._spawn = spawn or _default_spawn
         self._build = command_builder
         self._extension = extension
-        self._extension_token = extension_token
+        self._extension_token = extension_token  # explicit fallback / override
+        self._token_reader = token_reader or read_extension_token_from_chrome
         self._procs: dict[str, subprocess.Popen] = {}
         self._lock = threading.Lock()
 
@@ -106,10 +152,22 @@ class McpRelayManager:
             return
         cmd = self._build(meta, self._profile_dir, self._extension)
         extra_env = None
-        if self._extension and self._extension_token:
+        if self._extension:
             # Auto-connect the --extension server to the user's Chrome without
             # the interactive "Connect" dialog (impossible from a daemon).
-            extra_env = {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": self._extension_token}
+            # Prefer the live token read from Chrome (handles regeneration);
+            # fall back to an explicitly-configured token.
+            token = None
+            try:
+                token = self._token_reader()
+            except Exception as exc:
+                log.debug("extension token auto-read failed: %s", exc)
+            token = token or self._extension_token
+            if token:
+                extra_env = {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": token}
+            else:
+                log.warning("extension mode but no Playwright token found — "
+                            "install + open the Playwright extension in Chrome")
         try:
             proc = self._spawn(cmd, extra_env)
         except Exception as exc:  # noqa: BLE001

@@ -176,13 +176,49 @@ def test_extension_token_injected_into_spawn_env():
 
     mgr = McpRelayManager(
         send=[].append, profile_dir="/tmp/p", spawn=spy,
-        extension=True, extension_token="TOK123",
+        extension=True, extension_token="TOK123", token_reader=lambda: None,
     )
     try:
         mgr.handle_open("s", {"browser": "chrome"})
         assert captured["env"] == {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": "TOK123"}
     finally:
         mgr.handle_close("s")
+
+
+def test_auto_read_token_wins_over_config():
+    from jc_client.mcp_relay import McpRelayManager
+    captured = {}
+
+    def spy(cmd, extra_env=None):
+        captured["env"] = extra_env
+        return _FakeProc(block=threading.Event())
+
+    mgr = McpRelayManager(
+        send=[].append, profile_dir="/tmp/p", spawn=spy,
+        extension=True, extension_token="CONFIG", token_reader=lambda: "AUTOREAD",
+    )
+    try:
+        mgr.handle_open("s", {"browser": "chrome"})
+        assert captured["env"] == {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": "AUTOREAD"}
+    finally:
+        mgr.handle_close("s")
+
+
+def test_read_extension_token_from_chrome_blob(tmp_path):
+    # Synthetic leveldb-shaped blob mirroring the real on-disk structure.
+    from jc_client.mcp_relay import read_extension_token_from_chrome, PLAYWRIGHT_EXTENSION_ID
+    tok = "vdVkMXEW_AP_BPvomauBDnI7ks9zRbr6-1B7K6eCy3g"
+    blob = (b"A:https://github.com\x0c..._chrome-extension://"
+            + PLAYWRIGHT_EXTENSION_ID.encode()
+            + b"\x00\x01auth-token,\x01" + tok.encode()
+            + b"\x01>METAACCESS:chrome-extension://x")
+    f = tmp_path / "000003.log"
+    f.write_bytes(blob)
+    got = read_extension_token_from_chrome(globs=[str(tmp_path / "*.log")])
+    assert got == tok
+
+    # Missing → None, no crash.
+    assert read_extension_token_from_chrome(globs=[str(tmp_path / "nope*")]) is None
 
 
 def test_no_extension_token_means_no_extra_env():

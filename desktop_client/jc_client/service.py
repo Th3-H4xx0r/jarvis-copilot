@@ -394,14 +394,24 @@ class Service:
 
 
 def _playwright_extension_enabled() -> bool:
-    """Desktop-local flag: when true, the relay drives the user's already-running
-    Chrome via the Playwright Extension (visible, logged-in) instead of a
-    dedicated headless-ish profile. Read from ~/.jarviscopilot-client/config.yaml."""
+    """Whether to drive the user's existing Chrome via the Playwright Extension
+    (visible, logged-in) instead of a dedicated profile.
+
+    Explicit ``playwright_extension`` in ~/.jarviscopilot-client/config.yaml wins;
+    otherwise auto-enable when the extension is actually installed (its token is
+    readable from Chrome) — so the user just installs the extension and the rest
+    is automatic, no flag or token to set."""
     try:
         import yaml
         from jc_client.logger import state_dir
         raw = yaml.safe_load((state_dir() / "config.yaml").read_text()) or {}
-        return bool(raw.get("playwright_extension"))
+        if "playwright_extension" in raw:
+            return bool(raw.get("playwright_extension"))
+    except Exception:
+        pass
+    try:
+        from jc_client.mcp_relay import read_extension_token_from_chrome
+        return read_extension_token_from_chrome() is not None
     except Exception:
         return False
 
