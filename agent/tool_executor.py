@@ -674,6 +674,16 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             tool_duration = time.time() - tool_start_time
             if agent._should_emit_quiet_tool_messages():
                 agent._vprint(f"  {_get_cute_tool_message_impl('clarify', function_args, tool_duration, result=function_result)}")
+        elif function_name == "tool_search":
+            # Lazy tool-loading: resolve the query, load the matching tools'
+            # full schemas, and promote them into the live agent.tools so the
+            # provider lets the model call them next turn. Needs agent state, so
+            # it's intercepted here rather than dispatched through the registry.
+            from tools.lazy_tools import handle_tool_search
+            function_result = handle_tool_search(agent, function_args)
+            tool_duration = time.time() - tool_start_time
+            if agent._should_emit_quiet_tool_messages():
+                agent._vprint(f"  {_get_cute_tool_message_impl('tool_search', function_args, tool_duration, result=function_result)}")
         elif function_name == "delegate_task":
             tasks_arg = function_args.get("tasks")
             if tasks_arg and isinstance(tasks_arg, list):

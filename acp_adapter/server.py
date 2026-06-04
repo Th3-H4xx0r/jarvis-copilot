@@ -801,6 +801,13 @@ class HermesACPAgent(acp.Agent):
             state.agent.valid_tool_names = {
                 tool["function"]["name"] for tool in state.agent.tools or []
             }
+            # Re-apply lazy partition so the refreshed tool surface stays lean and
+            # the deferred manifest reflects any newly-registered MCP tools.
+            try:
+                from tools.lazy_tools import apply_lazy_partition
+                apply_lazy_partition(state.agent)
+            except Exception:
+                pass
             invalidate = getattr(state.agent, "_invalidate_system_prompt", None)
             if callable(invalidate):
                 invalidate()

@@ -586,8 +586,18 @@ DEFAULT_CONFIG = {
         # only controls how inbound user images are presented.
         "image_input_mode": "auto",
         "disabled_toolsets": [],
+        # Lazy tool-schema loading (ToolSearch pattern). When true, only a lean
+        # core set + a `tool_search` meta-tool are sent to the model each turn;
+        # every other tool (and all MCP tools) is listed by name in a cheap
+        # system-prompt manifest and its full schema is loaded on demand. Cuts
+        # the per-request tool-schema floor (~45k → ~8-12k). Set false to send
+        # all tool schemas every turn (legacy behavior).
+        "lazy_tools": True,
+        # Optional override for the always-loaded core tool list. Empty = use
+        # the built-in lean core (toolsets._LAZY_CORE_TOOLS).
+        "lazy_tools_core": [],
     },
-    
+
     "terminal": {
         "backend": "local",
         "modal_mode": "auto",

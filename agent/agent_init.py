@@ -910,7 +910,20 @@ def init_agent(
         disabled_toolsets=disabled_toolsets,
         quiet_mode=agent.quiet_mode,
     )
-    
+
+    # Lazy tool-loading: keep only a lean core in agent.tools and expose the rest
+    # as a name+description manifest in the system prompt (full schemas loaded on
+    # demand via tool_search). Cuts the per-request tool-schema floor. Never break
+    # agent init over this. See tools/lazy_tools.py + the design spec.
+    agent._lazy_tools_manifest = ""
+    agent._lazy_loaded_tools = set()
+    try:
+        from tools.lazy_tools import apply_lazy_partition
+        apply_lazy_partition(agent)
+    except Exception as _lazy_exc:  # pragma: no cover - defensive
+        if not agent.quiet_mode:
+            print(f"⚠️  lazy_tools partition skipped: {_lazy_exc}")
+
     # Show tool configuration and store valid tool names for validation
     agent.valid_tool_names = set()
     if agent.tools:
@@ -933,8 +946,11 @@ def init_agent(
     # membership test + reference on every system-prompt rebuild
     # (init + each context compression).
     from agent.prompt_builder import KANBAN_GUIDANCE
+    from tools.lazy_tools import available_tool_names
     agent._kanban_worker_guidance = (
-        KANBAN_GUIDANCE if "kanban_show" in agent.valid_tool_names else ""
+        # Availability (not advertisement): under lazy loading kanban_show may be
+        # deferred, but the worker still needs its lifecycle guidance.
+        KANBAN_GUIDANCE if "kanban_show" in available_tool_names(agent) else ""
     )
 
     # Check tool requirements

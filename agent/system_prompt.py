@@ -100,13 +100,21 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # Pointer to the jarviscopilot skill + docs for user questions about JarvisCopilot itself.
     stable_parts.append(HERMES_AGENT_HELP_GUIDANCE)
 
-    # Tool-aware behavioral guidance: only inject when the tools are loaded
+    # Tool-aware behavioral guidance: inject when the tool is AVAILABLE to the
+    # agent — advertised now OR deferred-but-loadable via tool_search (lazy
+    # loading). Without this, deferring a tool silently drops its guidance.
+    # available_tool_names == valid_tool_names for non-lazy agents.
+    try:
+        from tools.lazy_tools import available_tool_names as _available_tool_names
+        _avail = _available_tool_names(agent)
+    except Exception:
+        _avail = set(agent.valid_tool_names or set())
     tool_guidance = []
-    if "memory" in agent.valid_tool_names:
+    if "memory" in _avail:
         tool_guidance.append(MEMORY_GUIDANCE)
-    if "session_search" in agent.valid_tool_names:
+    if "session_search" in _avail:
         tool_guidance.append(SESSION_SEARCH_GUIDANCE)
-    if "skill_manage" in agent.valid_tool_names:
+    if "skill_manage" in _avail:
         tool_guidance.append(SKILLS_GUIDANCE)
     # Kanban worker/orchestrator lifecycle — only present when the
     # dispatcher spawned this process (kanban_show check_fn gates on
@@ -115,22 +123,31 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     _kanban_guidance = getattr(agent, "_kanban_worker_guidance", None)
     if _kanban_guidance:
         tool_guidance.append(_kanban_guidance)
-    elif _kanban_guidance is None and "kanban_show" in agent.valid_tool_names:
+    elif _kanban_guidance is None and "kanban_show" in _avail:
         # Fallback for code paths that bypass agent_init (rare).
         tool_guidance.append(KANBAN_GUIDANCE)
     if tool_guidance:
         stable_parts.append(" ".join(tool_guidance))
 
+    # Lazy tool-loading manifest: deferred tools listed by name + one-liner (full
+    # schemas loaded on demand via tool_search). Precomputed in agent_init and
+    # byte-stable for a registry generation, so it stays in the cached prefix.
+    _lazy_manifest = getattr(agent, "_lazy_tools_manifest", "")
+    if _lazy_manifest:
+        from tools.lazy_tools import LAZY_TOOLS_GUIDANCE
+        stable_parts.append(LAZY_TOOLS_GUIDANCE)
+        stable_parts.append(_lazy_manifest)
+
     # Computer-use (macOS) — goes in as its own block rather than being
     # merged into tool_guidance because the content is multi-paragraph.
-    if "computer_use" in agent.valid_tool_names:
+    if "computer_use" in _avail:
         from agent.prompt_builder import COMPUTER_USE_GUIDANCE
         stable_parts.append(COMPUTER_USE_GUIDANCE)
 
     # Desktop browser relay (Playwright on the user's own machine) — prefer it
     # over open_url / AppleScript / the headless server browser for any web
     # interaction. Only injected when the relay tools are actually present.
-    if any("playwright_relay" in name for name in agent.valid_tool_names):
+    if any("playwright_relay" in name for name in _avail):
         from agent.prompt_builder import BROWSER_RELAY_GUIDANCE
         stable_parts.append(BROWSER_RELAY_GUIDANCE)
 
@@ -173,17 +190,17 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
             if "gpt" in _model_lower or "codex" in _model_lower or "grok" in _model_lower:
                 stable_parts.append(OPENAI_MODEL_EXECUTION_GUIDANCE)
 
-    has_skills_tools = any(name in agent.valid_tool_names for name in ['skills_list', 'skill_view', 'skill_manage'])
+    has_skills_tools = any(name in _avail for name in ['skills_list', 'skill_view', 'skill_manage'])
     if has_skills_tools:
         avail_toolsets = {
             toolset
             for toolset in (
-                _r.get_toolset_for_tool(tool_name) for tool_name in agent.valid_tool_names
+                _r.get_toolset_for_tool(tool_name) for tool_name in _avail
             )
             if toolset
         }
         skills_prompt = _r.build_skills_system_prompt(
-            available_tools=agent.valid_tool_names,
+            available_tools=_avail,
             available_toolsets=avail_toolsets,
         )
     else:

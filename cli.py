@@ -9678,6 +9678,21 @@ class HermesCLI:
                 self.agent.valid_tool_names = {
                     tool["function"]["name"] for tool in self.agent.tools
                 } if self.agent.tools else set()
+                # Re-apply lazy partition: keep the lean core + already-loaded
+                # tools advertised and rebuild the deferred manifest (now incl.
+                # any new MCP tools). Without this the reload re-inflates the full
+                # tool set and the manifest goes stale. Only invalidate the cached
+                # system prompt when lazy is active (manifest present), so the
+                # non-lazy path keeps its prefix-preserving tail-message behavior.
+                try:
+                    from tools.lazy_tools import apply_lazy_partition
+                    apply_lazy_partition(self.agent)
+                    if getattr(self.agent, "_lazy_tools_manifest", ""):
+                        _inv = getattr(self.agent, "_invalidate_system_prompt", None)
+                        if callable(_inv):
+                            _inv()
+                except Exception:
+                    pass
 
             # Inject a message at the END of conversation history so the
             # model knows tools changed.  Appended after all existing

@@ -70,6 +70,22 @@ _HERMES_CORE_TOOLS = [
     "kanban_unblock",
     # Computer use (macOS, gated on cua-driver being installed via check_fn)
     "computer_use",
+    # Lazy tool-loading meta-tool — only surfaces when agent.lazy_tools is on
+    # (gated via check_fn in tools/lazy_tools.py); lets the model load deferred
+    # tool schemas on demand.
+    "tool_search",
+]
+
+
+# Lean always-loaded core when agent.lazy_tools is on. Everything else stays in
+# the registry (and the system-prompt manifest) and is loaded on demand via
+# tool_search. Keep this small — it is the per-request token floor.
+# See docs/superpowers/specs/2026-06-04-lazy-tool-loading-design.md.
+_LAZY_CORE_TOOLS = [
+    "tool_search",
+    "web_search", "terminal",
+    "read_file", "write_file", "patch", "search_files",
+    "memory", "session_search", "todo", "clarify",
 ]
 
 
