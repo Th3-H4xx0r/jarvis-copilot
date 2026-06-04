@@ -1384,41 +1384,37 @@ class MCPServerTask:
         # infinite await over the tunnel.
         read_timeout = timedelta(seconds=config.get("read_timeout", 120))
 
-        async with relay_transport(device_id, meta) as (read_stream, write_stream, closed_event):
-            async with ClientSession(
-                read_stream, write_stream,
-                read_timeout_seconds=read_timeout,
-                **sampling_kwargs,
-            ) as session:
-                self.initialize_result = await session.initialize()
-                self.session = session
-                await self._discover_tools()
-                self._ready.set()
-                # Wait for shutdown/reconnect OR a desktop disconnect, so a drop
-                # triggers a prompt reconnect (run() re-enters and re-waits for
-                # the device) instead of idling until the next keepalive.
-                lifecycle_task = asyncio.ensure_future(self._wait_for_lifecycle_event())
-                closed_task = asyncio.ensure_future(closed_event.wait())
-                try:
-                    await asyncio.wait(
-                        {lifecycle_task, closed_task},
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                finally:
-                    if not closed_task.done():
-                        closed_task.cancel()
-                    if not lifecycle_task.done():
-                        lifecycle_task.cancel()
-                    try:
-                        await closed_task
-                    except asyncio.CancelledError:
-                        pass
-                    # Propagate a genuine lifecycle outcome (e.g. a reconnect
-                    # signal); swallow only the cancellation we triggered.
-                    try:
-                        await lifecycle_task
-                    except asyncio.CancelledError:
-                        pass
+        try:
+            async with relay_transport(device_id, meta) as (read_stream, write_stream):
+                async with ClientSession(
+                    read_stream, write_stream,
+                    read_timeout_seconds=read_timeout,
+                    **sampling_kwargs,
+                ) as session:
+                    self.initialize_result = await session.initialize()
+                    self.session = session
+                    await self._discover_tools()
+                    self._ready.set()
+                    # Hold the session until shutdown/reconnect or a transport
+                    # error. A desktop disconnect closes the read stream →
+                    # ClientSession surfaces it → run() reconnects. Kept
+                    # anyio-clean (no mixed asyncio tasks) to avoid the
+                    # "unhandled errors in a TaskGroup" flapping we hit before.
+                    await self._wait_for_lifecycle_event()
+        except BaseException as exc:
+            # run()'s reconnect logs only str(exc) — for an anyio/Exception
+            # group that's the opaque "unhandled errors in a TaskGroup (N
+            # sub-exceptions)". Unwrap to the leaf cause and log it so relay
+            # failures are diagnosable. (No-op for plain/CancelledError.)
+            real = exc
+            for _ in range(8):
+                subs = getattr(real, "exceptions", None)
+                if not subs:
+                    break
+                real = subs[0]
+            if real is not exc:
+                logger.warning("MCP relay '%s' transport error: %r", self.name, real)
+            raise
 
     async def _run_http(self, config: dict):
         """Run the server using HTTP/StreamableHTTP transport."""

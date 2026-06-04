@@ -74,10 +74,11 @@ async def relay_transport(device_id: str, meta: Optional[dict] = None, *,
     # write: ClientSession writes into write_stream; we drain write_stream_reader → device.
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    ready_event = asyncio.Event()
-    # Set when the device reports error/closed (or disconnects) — lets the caller
-    # react to a mid-session drop promptly instead of waiting for the keepalive.
-    closed_event = asyncio.Event()
+    # anyio-native event so the ready-wait composes cleanly inside the anyio
+    # task group below. (Mixing asyncio.wait_for / asyncio tasks inside an anyio
+    # task group caused "unhandled errors in a TaskGroup" + relay flapping.)
+    # Set from the bridge pump thread via loop.call_soon_threadsafe.
+    ready_event = anyio.Event()
     state = {"error": None}
 
     def _on_frame(data: str):
@@ -107,8 +108,8 @@ async def relay_transport(device_id: str, meta: Optional[dict] = None, *,
                 read_stream_writer.close()
             except Exception:
                 pass
-            ready_event.set()
-            closed_event.set()
+            if not ready_event.is_set():
+                ready_event.set()
 
         loop.call_soon_threadsafe(_teardown)
 
@@ -130,7 +131,7 @@ async def relay_transport(device_id: str, meta: Optional[dict] = None, *,
                     data = serialize_session_message(session_message)
                     if not device_bridge.relay_send_frame(device_id, session_id, data):
                         break
-        except anyio.ClosedResourceError:
+        except (anyio.ClosedResourceError, anyio.EndOfStream):
             pass
         except Exception as exc:  # noqa: BLE001
             logger.debug("relay writer for %s ended: %s", device_id, exc)
@@ -138,18 +139,19 @@ async def relay_transport(device_id: str, meta: Optional[dict] = None, *,
     try:
         async with anyio.create_task_group() as tg:
             tg.start_soon(_writer)
-            # Wait for the desktop child to be live before handing streams to
-            # ClientSession (so the initialize request isn't dropped).
+            # Wait (anyio-native) for the desktop child to be live before handing
+            # streams to ClientSession, so the initialize request isn't dropped.
             try:
-                await asyncio.wait_for(ready_event.wait(), timeout=_READY_TIMEOUT_S)
-            except asyncio.TimeoutError:
+                with anyio.fail_after(_READY_TIMEOUT_S):
+                    await ready_event.wait()
+            except TimeoutError:
                 raise TimeoutError(
                     f"desktop {device_id!r} did not start its Playwright MCP in time"
                 )
             if state["error"]:
                 raise ConnectionError(f"desktop relay error: {state['error']}")
             try:
-                yield read_stream, write_stream, closed_event
+                yield read_stream, write_stream
             finally:
                 tg.cancel_scope.cancel()
     finally:
