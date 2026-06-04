@@ -56,6 +56,12 @@ class _DeviceConn:
         self.connected_at = time.time()
         self.last_seen = time.time()
         self.closed = False
+        # session_id -> {"on_frame": callable(str), "on_event": callable(str, dict)}
+        # Used by the MCP-relay channel (Phase 2): tunnels MCP JSON-RPC frames
+        # to a Playwright MCP running on the device. Separate from `pending`
+        # (which is request/response invokes).
+        self.relay_sessions: dict[str, dict] = {}
+        self.relay_lock = threading.Lock()
         # wsproto delivers a TextMessage event per recv chunk for a
         # multi-chunk WS frame, with `message_finished=True` only on the
         # final piece. We accumulate text data here until the full
@@ -99,6 +105,17 @@ def _safe_close(conn: _DeviceConn) -> None:
             entry["error"] = "device disconnected"
             entry["event"].set()
         conn.pending.clear()
+    # Tear down any live MCP-relay sessions so the server-side transport unblocks.
+    with conn.relay_lock:
+        sessions = list(conn.relay_sessions.items())
+        conn.relay_sessions.clear()
+    for _sid, sess in sessions:
+        cb = sess.get("on_event")
+        if cb:
+            try:
+                cb("closed", {"reason": "device disconnected"})
+            except Exception:
+                pass
 
 
 # ── Public API used by routes ───────────────────────────────────────────────
@@ -206,6 +223,92 @@ def _invoke_via_ws(c: "_DeviceConn", skill_name: str, args: dict,
     if holder["error"]:
         return {"ok": False, "error": str(holder["error"])}
     return {"ok": True, "result": holder["result"]}
+
+
+# ── MCP relay channel (Phase 2) ─────────────────────────────────────────────
+#
+# Tunnels MCP JSON-RPC frames between a server-side MCP transport and a
+# Playwright MCP process running on the device. The bridge is a dumb pipe: it
+# carries opaque `data` strings (one JSON-RPC message each) in both directions
+# and routes them to the registered session callbacks. See
+# tools/mcp_relay_transport.py (server side) and the desktop client's
+# mcp_relay.py (device side).
+
+
+def open_relay(device_id: str, on_frame, on_event=None,
+               meta: Optional[dict] = None) -> Optional[str]:
+    """Open an MCP-relay session to a connected device.
+
+    ``on_frame(data: str)`` is called (from the bridge pump thread) for every
+    inbound ``mcp_frame``. ``on_event(kind: str, payload: dict)`` is called for
+    ``ready`` / ``error`` / ``closed``. Returns the new session_id, or None if
+    the device isn't connected / the open frame couldn't be sent.
+    """
+    with _REG_LOCK:
+        c = _REG.get(device_id)
+    if not c or c.closed:
+        return None
+    session_id = secrets.token_hex(8)
+    with c.relay_lock:
+        c.relay_sessions[session_id] = {"on_frame": on_frame, "on_event": on_event}
+    try:
+        _ws_send_text(c, json.dumps({
+            "type": "mcp_open",
+            "session": session_id,
+            "meta": meta or {},
+        }))
+    except Exception:
+        with c.relay_lock:
+            c.relay_sessions.pop(session_id, None)
+        return None
+    return session_id
+
+
+def relay_send_frame(device_id: str, session_id: str, data: str) -> bool:
+    """Send one JSON-RPC frame to the device's relay session. Returns False if
+    the device is gone or the send failed."""
+    with _REG_LOCK:
+        c = _REG.get(device_id)
+    if not c or c.closed:
+        return False
+    with c.relay_lock:
+        live = session_id in c.relay_sessions
+    if not live:
+        return False
+    try:
+        _ws_send_text(c, json.dumps({
+            "type": "mcp_frame",
+            "session": session_id,
+            "data": data,
+        }))
+        return True
+    except Exception:
+        return False
+
+
+def close_relay(device_id: str, session_id: str) -> None:
+    """Close an MCP-relay session and tell the device to stop the child."""
+    with _REG_LOCK:
+        c = _REG.get(device_id)
+    if not c:
+        return
+    with c.relay_lock:
+        existed = c.relay_sessions.pop(session_id, None) is not None
+    if existed:
+        try:
+            _ws_send_text(c, json.dumps({
+                "type": "mcp_close",
+                "session": session_id,
+            }))
+        except Exception:
+            pass
+
+
+def _relay_session(conn: "_DeviceConn", session_id) -> Optional[dict]:
+    if not session_id:
+        return None
+    with conn.relay_lock:
+        return conn.relay_sessions.get(session_id)
 
 
 # ── Mobile push fallback ───────────────────────────────────────────────────
@@ -786,6 +889,26 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
             return
         entry["error"] = msg.get("error") or "device error"
         entry["event"].set()
+        return
+    if t == "mcp_frame":
+        sess = _relay_session(conn, msg.get("session"))
+        if sess and sess.get("on_frame"):
+            try:
+                sess["on_frame"](msg.get("data") or "")
+            except Exception as exc:
+                logger.debug("relay on_frame raised: %s", exc)
+        return
+    if t in ("mcp_ready", "mcp_error", "mcp_closed"):
+        kind = t[len("mcp_"):]  # ready | error | closed
+        sess = _relay_session(conn, msg.get("session"))
+        if t == "mcp_closed":
+            with conn.relay_lock:
+                conn.relay_sessions.pop(msg.get("session"), None)
+        if sess and sess.get("on_event"):
+            try:
+                sess["on_event"](kind, msg)
+            except Exception as exc:
+                logger.debug("relay on_event raised: %s", exc)
         return
     if t == "ping":
         try:

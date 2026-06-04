@@ -1067,6 +1067,10 @@ class MCPServerTask:
         """Check if this server uses HTTP transport."""
         return "url" in self._config
 
+    def _is_relay(self) -> bool:
+        """Check if this server tunnels to a device's MCP via the bridge."""
+        return (self._config.get("transport") or "").strip() == "device-relay"
+
     # ----- Dynamic tool discovery (notifications/tools/list_changed) -----
 
     async def _refresh_tools_task(self):
@@ -1334,6 +1338,45 @@ class MCPServerTask:
                             continue  # process already exited — nothing to do
                         _orphan_stdio_pids.add(pid)
 
+    async def _run_relay(self, config: dict):
+        """Run the server by tunneling MCP frames to a Playwright MCP on a
+        paired desktop device, via the device bridge (Phase 2).
+
+        The relay transport yields the same ``(read_stream, write_stream)`` shape
+        as ``stdio_client``, so all downstream ClientSession machinery (tool
+        discovery, keepalive, reconnect) is identical to the stdio path.
+        """
+        device_id = (config.get("device_id") or "").strip()
+        if not device_id:
+            raise ValueError(
+                f"MCP server '{self.name}' (transport: device-relay) has no 'device_id'"
+            )
+        meta = config.get("meta") if isinstance(config.get("meta"), dict) else {}
+
+        from datetime import timedelta
+        from tools.mcp_relay_transport import relay_transport
+
+        sampling_kwargs = self._sampling.session_kwargs() if self._sampling else {}
+        if _MCP_NOTIFICATION_TYPES and _MCP_MESSAGE_HANDLER_SUPPORTED:
+            sampling_kwargs["message_handler"] = self._make_message_handler()
+
+        # Bound every request (including initialize) so a desktop that goes
+        # silent mid-RPC surfaces as an error → reconnect, instead of an
+        # infinite await over the tunnel.
+        read_timeout = timedelta(seconds=config.get("read_timeout", 120))
+
+        async with relay_transport(device_id, meta) as (read_stream, write_stream):
+            async with ClientSession(
+                read_stream, write_stream,
+                read_timeout_seconds=read_timeout,
+                **sampling_kwargs,
+            ) as session:
+                self.initialize_result = await session.initialize()
+                self.session = session
+                await self._discover_tools()
+                self._ready.set()
+                await self._wait_for_lifecycle_event()
+
     async def _run_http(self, config: dict):
         """Run the server using HTTP/StreamableHTTP transport."""
         if not _MCP_HTTP_AVAILABLE:
@@ -1547,7 +1590,9 @@ class MCPServerTask:
 
         while True:
             try:
-                if self._is_http():
+                if self._is_relay():
+                    await self._run_relay(config)
+                elif self._is_http():
                     await self._run_http(config)
                 else:
                     await self._run_stdio(config)
@@ -3173,7 +3218,10 @@ async def _discover_and_register_server(name: str, config: dict) -> List[str]:
     registered_names = _register_server_tools(name, server, config)
     server._registered_tool_names = list(registered_names)
 
-    transport_type = "HTTP" if "url" in config else "stdio"
+    if (config.get("transport") or "").strip() == "device-relay":
+        transport_type = "relay"
+    else:
+        transport_type = "HTTP" if "url" in config else "stdio"
     logger.info(
         "MCP server '%s' (%s): registered %d tool(s): %s",
         name, transport_type, len(registered_names),

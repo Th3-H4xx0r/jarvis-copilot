@@ -116,6 +116,28 @@ class TestProvisioning:
         set_browser_target("server")
         assert get_browser_target() == "server"
 
+    def test_relay_server_config_shape(self):
+        from jarviscopilot_cli.browser_target import playwright_relay_server_config
+        cfg = playwright_relay_server_config("dev-123", enabled=True, browser="chrome")
+        assert cfg["transport"] == "device-relay"
+        assert cfg["device_id"] == "dev-123"
+        assert cfg["meta"] == {"browser": "chrome"}
+        assert cfg["enabled"] is True
+        # No command/url — routed to the relay transport, not stdio/http.
+        assert "command" not in cfg and "url" not in cfg
+
+    def test_ensure_relay_server_idempotent_and_isolated(self):
+        from jarviscopilot_cli.browser_target import (
+            ensure_playwright_relay_server, PLAYWRIGHT_RELAY_SERVER_NAME,
+        )
+        from jarviscopilot_cli.config import load_config
+        assert ensure_playwright_relay_server("dev-9", enabled=True) is True
+        assert ensure_playwright_relay_server("dev-9", enabled=True) is False
+        servers = load_config().get("mcp_servers", {})
+        assert servers[PLAYWRIGHT_RELAY_SERVER_NAME]["device_id"] == "dev-9"
+        # flipping enabled rewrites
+        assert ensure_playwright_relay_server("dev-9", enabled=False) is True
+
 
 class TestToolsetOverrides:
     def test_server_target_disables_playwright_keeps_native(self):
@@ -159,6 +181,35 @@ class TestToolsetOverrides:
         result = apply_browser_target_gating(enabled, target="desktop")
         assert "browser" in result
         assert "web" in result
+
+    def test_server_target_also_hides_relay_engine(self):
+        from jarviscopilot_cli.browser_target import (
+            apply_browser_target_gating, PLAYWRIGHT_RELAY_SERVER_NAME,
+        )
+        enabled = {"browser", "web", PLAYWRIGHT_RELAY_SERVER_NAME}
+        result = apply_browser_target_gating(enabled, target="server")
+        assert PLAYWRIGHT_RELAY_SERVER_NAME not in result
+        assert "browser" in result
+
+    def test_desktop_with_only_relay_hides_native(self):
+        from jarviscopilot_cli.browser_target import (
+            apply_browser_target_gating, PLAYWRIGHT_RELAY_SERVER_NAME,
+        )
+        enabled = {"browser", "web", PLAYWRIGHT_RELAY_SERVER_NAME}
+        result = apply_browser_target_gating(enabled, target="desktop")
+        assert "browser" not in result
+        assert PLAYWRIGHT_RELAY_SERVER_NAME in result
+
+    def test_desktop_with_both_engines_prefers_relay(self):
+        from jarviscopilot_cli.browser_target import (
+            apply_browser_target_gating,
+            PLAYWRIGHT_RELAY_SERVER_NAME, PLAYWRIGHT_DESKTOP_SERVER_NAME,
+        )
+        enabled = {"browser", PLAYWRIGHT_DESKTOP_SERVER_NAME, PLAYWRIGHT_RELAY_SERVER_NAME}
+        result = apply_browser_target_gating(enabled, target="desktop")
+        assert "browser" not in result
+        assert PLAYWRIGHT_RELAY_SERVER_NAME in result
+        assert PLAYWRIGHT_DESKTOP_SERVER_NAME not in result  # single surface
 
 
 class TestTargetPlan:

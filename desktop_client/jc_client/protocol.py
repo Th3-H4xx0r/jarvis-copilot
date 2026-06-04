@@ -479,6 +479,14 @@ class WsConnection:
         surface to the caller."""
         if not self._conn or not self._sock:
             return
+        # wsproto delivers a large WS message as several TextMessage events
+        # (one per recv chunk), with ``message_finished=True`` only on the last.
+        # We must accumulate until the message is complete before parsing JSON —
+        # otherwise any frame over one recv chunk (~8 KB) is silently lost. The
+        # server's _pump does the same on its side; the relay sends large
+        # mcp_frames in BOTH directions, so the client needs it too.
+        text_buf = ""
+        _MAX_FRAME_BYTES = 8 * 1024 * 1024
         while not self._closed:
             try:
                 chunk = self._sock.recv(_RECV_CHUNK)
@@ -493,8 +501,15 @@ class WsConnection:
                 break
             for event in self._conn.events():
                 if isinstance(event, TextMessage):
+                    text_buf += event.data or ""
+                    if not getattr(event, "message_finished", True):
+                        continue
+                    raw, text_buf = text_buf, ""
+                    if len(raw) > _MAX_FRAME_BYTES:
+                        log.warning("oversize frame (%d B) — dropping", len(raw))
+                        continue
                     try:
-                        yield json.loads(event.data or "{}")
+                        yield json.loads(raw or "{}")
                     except Exception as exc:
                         log.warning("malformed json frame: %s", exc)
                 elif isinstance(event, BytesMessage):

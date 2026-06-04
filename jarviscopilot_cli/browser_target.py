@@ -98,37 +98,85 @@ def ensure_playwright_desktop_server(enabled: bool = True) -> bool:
     return True
 
 
+# Phase 2: the relay variant — Playwright MCP runs on a paired DESKTOP device and
+# is tunneled to a server-side Jarvis over the device bridge. Distinct server
+# name from the local stdio `playwright-desktop` so both can coexist in config.
+PLAYWRIGHT_RELAY_SERVER_NAME = "playwright-desktop-remote"
+
+
+def playwright_relay_server_config(device_id: str, enabled: bool = True,
+                                   browser: str = "chrome") -> Dict[str, Any]:
+    """MCP server config that tunnels to a Playwright MCP on a desktop device.
+
+    Consumed by ``tools/mcp_relay_transport.py`` via ``transport: device-relay``.
+    """
+    return {
+        "transport": "device-relay",
+        "device_id": device_id,
+        "meta": {"browser": browser},
+        "enabled": bool(enabled),
+    }
+
+
+def ensure_playwright_relay_server(device_id: str, enabled: bool = True,
+                                   browser: str = "chrome") -> bool:
+    """Idempotently register/refresh the ``playwright-desktop-remote`` relay
+    server. Returns True if config changed. Never touches other servers."""
+    from jarviscopilot_cli.config import load_config, save_config
+    desired = playwright_relay_server_config(device_id, enabled, browser)
+    config = load_config()
+    servers = config.setdefault("mcp_servers", {})
+    if servers.get(PLAYWRIGHT_RELAY_SERVER_NAME) == desired:
+        return False
+    servers[PLAYWRIGHT_RELAY_SERVER_NAME] = desired
+    save_config(config)
+    return True
+
+
+# Both "desktop" browser engines: local stdio Playwright and the relayed
+# (remote-desktop) Playwright. The gating treats them as one logical surface.
+DESKTOP_ENGINE_TOOLSETS = (PLAYWRIGHT_DESKTOP_SERVER_NAME, PLAYWRIGHT_RELAY_SERVER_NAME)
+
+
 def browser_target_toolset_overrides(target: str) -> Tuple[Set[str], Set[str]]:
     """Return (enable, disable) toolset sets for the active target.
 
-    desktop → use Playwright MCP, hide the native headless browser toolset.
-    server  → use native browser, hide the Playwright desktop toolset.
+    desktop → use a Playwright engine, hide the native headless browser toolset.
+    server  → use native browser, hide BOTH Playwright desktop engines.
     Keeping only ONE browser surface visible avoids confusing the model about
     which to use.
     """
     target = normalize_browser_target(target)
     if target == "desktop":
-        return {PLAYWRIGHT_DESKTOP_SERVER_NAME}, {NATIVE_BROWSER_TOOLSET}
-    return set(), {PLAYWRIGHT_DESKTOP_SERVER_NAME}
+        return set(DESKTOP_ENGINE_TOOLSETS), {NATIVE_BROWSER_TOOLSET}
+    return set(), set(DESKTOP_ENGINE_TOOLSETS)
 
 
 def apply_browser_target_gating(enabled_toolsets: Set[str], target: str) -> Set[str]:
     """Apply target overrides to a set of enabled toolset names.
 
-    Fallback-safe — never leaves the model with zero browser tools:
-      - ``desktop``: hide native ``browser`` ONLY when the Playwright desktop
-        engine is actually present in the enabled set; otherwise keep native
-        browser as a fallback (e.g. Playwright not provisioned / unavailable).
-      - ``server``: hide ``playwright-desktop`` (no-op when it isn't present),
-        keep native ``browser``.
+    Fallback-safe — never leaves the model with zero browser tools, and never
+    shows more than one browser surface:
+      - ``desktop``: hide native ``browser`` ONLY when a Playwright desktop
+        engine (local stdio OR relayed) is actually present; otherwise keep
+        native browser as a fallback. If BOTH Playwright engines are somehow
+        enabled, keep just the relayed (remote-desktop) one.
+      - ``server``: hide BOTH Playwright engines (no-op when absent), keep
+        native ``browser``.
     """
     target = normalize_browser_target(target)
     enabled = set(enabled_toolsets)
     if target == "desktop":
-        if PLAYWRIGHT_DESKTOP_SERVER_NAME in enabled:
+        present = [e for e in DESKTOP_ENGINE_TOOLSETS if e in enabled]
+        if present:
             enabled.discard(NATIVE_BROWSER_TOOLSET)
+            # Single surface: prefer the relay over the local stdio engine.
+            if (PLAYWRIGHT_RELAY_SERVER_NAME in enabled
+                    and PLAYWRIGHT_DESKTOP_SERVER_NAME in enabled):
+                enabled.discard(PLAYWRIGHT_DESKTOP_SERVER_NAME)
         return enabled
     enabled.discard(PLAYWRIGHT_DESKTOP_SERVER_NAME)
+    enabled.discard(PLAYWRIGHT_RELAY_SERVER_NAME)
     return enabled
 
 

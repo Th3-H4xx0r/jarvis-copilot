@@ -62,6 +62,9 @@ class Service:
         self._connected = False
         self._last_connect_attempt = 0.0
         self._last_error = ""
+        # Per-connection MCP relay manager (Phase 2): tunnels a local Playwright
+        # MCP to the server. Created in _connect_and_pump, torn down on drop.
+        self._relay = None
 
     # ── public ────────────────────────────────────────────────────────
 
@@ -169,6 +172,15 @@ class Service:
         self._last_error = ""
         log.info("connected to %s", creds.server_url)
 
+        # Spin up the MCP relay for this connection (Phase 2). Lazily imported
+        # so a desktop without the relay still runs every other skill.
+        try:
+            from jc_client.mcp_relay import McpRelayManager
+            self._relay = McpRelayManager(send=ws.send_text)
+        except Exception as exc:
+            log.warning("mcp relay unavailable: %s", exc)
+            self._relay = None
+
         # Register skills immediately. The deployed device bridge silently
         # drops WS messages larger than its socket recv buffer (~8 KB), so
         # we chunk the manifest. The first chunk REPLACES the registry;
@@ -213,6 +225,12 @@ class Service:
                 self._handle_frame(ws, frame)
         finally:
             ping_stop.set()
+            if self._relay is not None:
+                try:
+                    self._relay.shutdown_all()
+                except Exception:
+                    pass
+                self._relay = None
             try:
                 ws.close()
             except Exception:
@@ -234,6 +252,21 @@ class Service:
             # Dispatch on the worker pool so a 30s screenshot doesn't
             # starve the receive loop.
             self._executor.submit(self._run_invoke, ws, call_id, skill_name, args)
+            return
+
+        if msg_type == "mcp_open":
+            if self._relay:
+                self._relay.handle_open(frame.get("session") or "", frame.get("meta"))
+            return
+
+        if msg_type == "mcp_frame":
+            if self._relay:
+                self._relay.handle_frame(frame.get("session") or "", frame.get("data") or "")
+            return
+
+        if msg_type == "mcp_close":
+            if self._relay:
+                self._relay.handle_close(frame.get("session") or "")
             return
 
         if msg_type == "ping":
