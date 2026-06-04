@@ -83,6 +83,18 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # ── Stable tier ────────────────────────────────────────────────
     stable_parts: List[str] = []
 
+    # Per-message token-insights: record labeled section sizes (chars) as the
+    # prompt is assembled, so the insights screen can show what the input is made
+    # of. Best-effort; read once into agent._prompt_sections at the end.
+    _sections: List[tuple] = []
+
+    def _sec(label: str, text: Optional[str], bucket: List[str]):
+        """Append ``text`` to ``bucket`` AND record (label, char_len) for insights."""
+        if text and str(text).strip():
+            bucket.append(text)
+            _sections.append((label, len(text)))
+        return text
+
     # Try SOUL.md as primary identity unless the caller explicitly skipped it.
     # Some execution modes (cron) still want HERMES_HOME persona while keeping
     # cwd project instructions disabled.
@@ -90,12 +102,12 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     if agent.load_soul_identity or not agent.skip_context_files:
         _soul_content = _r.load_soul_md()
         if _soul_content:
-            stable_parts.append(_soul_content)
+            _sec("identity", _soul_content, stable_parts)
             _soul_loaded = True
 
     if not _soul_loaded:
         # Fallback to hardcoded identity
-        stable_parts.append(DEFAULT_AGENT_IDENTITY)
+        _sec("identity", DEFAULT_AGENT_IDENTITY, stable_parts)
 
     # Pointer to the jarviscopilot skill + docs for user questions about JarvisCopilot itself.
     stable_parts.append(HERMES_AGENT_HELP_GUIDANCE)
@@ -127,7 +139,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         # Fallback for code paths that bypass agent_init (rare).
         tool_guidance.append(KANBAN_GUIDANCE)
     if tool_guidance:
-        stable_parts.append(" ".join(tool_guidance))
+        _sec("behavioral_guidance", " ".join(tool_guidance), stable_parts)
 
     # Lazy tool-loading manifest: deferred tools listed by name + one-liner (full
     # schemas loaded on demand via tool_search). Precomputed in agent_init and
@@ -135,8 +147,12 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     _lazy_manifest = getattr(agent, "_lazy_tools_manifest", "")
     if _lazy_manifest:
         from tools.lazy_tools import LAZY_TOOLS_GUIDANCE
+        # Keep the ORIGINAL two separate appends so the assembled prompt is
+        # byte-for-byte unchanged (critical for prompt caching); just record both
+        # under one insights label.
         stable_parts.append(LAZY_TOOLS_GUIDANCE)
         stable_parts.append(_lazy_manifest)
+        _sections.append(("lazy_manifest", len(LAZY_TOOLS_GUIDANCE) + len(_lazy_manifest)))
 
     # Computer-use (macOS) — goes in as its own block rather than being
     # merged into tool_guidance because the content is multi-paragraph.
@@ -176,19 +192,19 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
             model_lower = (agent.model or "").lower()
             _inject = any(p in model_lower for p in TOOL_USE_ENFORCEMENT_MODELS)
         if _inject:
-            stable_parts.append(TOOL_USE_ENFORCEMENT_GUIDANCE)
+            _sec("tool_use_guidance", TOOL_USE_ENFORCEMENT_GUIDANCE, stable_parts)
             _model_lower = (agent.model or "").lower()
             # Google model operational guidance (conciseness, absolute
             # paths, parallel tool calls, verify-before-edit, etc.)
             if "gemini" in _model_lower or "gemma" in _model_lower:
-                stable_parts.append(GOOGLE_MODEL_OPERATIONAL_GUIDANCE)
+                _sec("tool_use_guidance", GOOGLE_MODEL_OPERATIONAL_GUIDANCE, stable_parts)
             # OpenAI GPT/Codex execution discipline (tool persistence,
             # prerequisite checks, verification, anti-hallucination).
             # Also applied to xAI Grok — same failure modes (claims completion
             # without tool calls, suggests workarounds instead of using
             # existing tools, replies with plans instead of executing).
             if "gpt" in _model_lower or "codex" in _model_lower or "grok" in _model_lower:
-                stable_parts.append(OPENAI_MODEL_EXECUTION_GUIDANCE)
+                _sec("tool_use_guidance", OPENAI_MODEL_EXECUTION_GUIDANCE, stable_parts)
 
     has_skills_tools = any(name in _avail for name in ['skills_list', 'skill_view', 'skill_manage'])
     if has_skills_tools:
@@ -206,7 +222,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     else:
         skills_prompt = ""
     if skills_prompt:
-        stable_parts.append(skills_prompt)
+        _sec("skills_catalog", skills_prompt, stable_parts)
 
     # Alibaba Coding Plan API always returns "glm-4.7" as model name regardless
     # of the requested model. Inject explicit model identity into the system prompt
@@ -227,7 +243,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # Stable for the lifetime of the process.
     _env_hints = _r.build_environment_hints()
     if _env_hints:
-        stable_parts.append(_env_hints)
+        _sec("env_profile", _env_hints, stable_parts)
 
     # Active-profile hint — names the JarvisCopilot profile the agent is running
     # under so it doesn't conflate ~/.jarviscopilot/skills/ (default profile) with
@@ -242,16 +258,16 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     except Exception:
         active_profile = "default"
     if active_profile == "default":
-        stable_parts.append(
+        _sec("env_profile",
             "Active JarvisCopilot profile: default. Other profiles (if any) live "
             "under ~/.jarviscopilot/profiles/<name>/. Each profile has its own "
             "skills/, plugins/, cron/, and memories/ that affect a different "
             "session than this one. Do not modify another profile's "
             "skills/plugins/cron/memories unless the user explicitly directs "
-            "you to."
+            "you to.", stable_parts
         )
     else:
-        stable_parts.append(
+        _sec("env_profile",
             f"Active JarvisCopilot profile: {active_profile}. This session reads "
             f"and writes ~/.jarviscopilot/profiles/{active_profile}/. The default "
             f"profile's data lives at ~/.jarviscopilot/skills/, ~/.jarviscopilot/plugins/, "
@@ -260,19 +276,19 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
             f"another profile's skills/plugins/cron/memories unless the user "
             f"explicitly directs you to. The cross-profile write guard will "
             f"refuse such writes by default; pass cross_profile=True only "
-            f"after explicit direction."
+            f"after explicit direction.", stable_parts
         )
 
     platform_key = (agent.platform or "").lower().strip()
     if platform_key in PLATFORM_HINTS:
-        stable_parts.append(PLATFORM_HINTS[platform_key])
+        _sec("env_profile", PLATFORM_HINTS[platform_key], stable_parts)
     elif platform_key:
         # Check plugin registry for platform-specific LLM guidance
         try:
             from gateway.platform_registry import platform_registry
             _entry = platform_registry.get(platform_key)
             if _entry and _entry.platform_hint:
-                stable_parts.append(_entry.platform_hint)
+                _sec("env_profile", _entry.platform_hint, stable_parts)
         except Exception:
             pass
 
@@ -282,7 +298,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # Note: ephemeral_system_prompt is NOT included here. It's injected at
     # API-call time only so it stays out of the cached/stored system prompt.
     if system_message is not None:
-        context_parts.append(system_message)
+        _sec("system_message", system_message, context_parts)
 
     if not agent.skip_context_files:
         # Use TERMINAL_CWD for context file discovery when set (gateway
@@ -293,7 +309,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         context_files_prompt = _r.build_context_files_prompt(
             cwd=_context_cwd, skip_soul=_soul_loaded)
         if context_files_prompt:
-            context_parts.append(context_files_prompt)
+            _sec("context_files", context_files_prompt, context_parts)
 
     # ── Volatile tier (changes per session/turn — never cached) ───
     volatile_parts: List[str] = []
@@ -302,19 +318,19 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         if agent._memory_enabled:
             mem_block = agent._memory_store.format_for_system_prompt("memory")
             if mem_block:
-                volatile_parts.append(mem_block)
+                _sec("memory", mem_block, volatile_parts)
         # USER.md is always included when enabled.
         if agent._user_profile_enabled:
             user_block = agent._memory_store.format_for_system_prompt("user")
             if user_block:
-                volatile_parts.append(user_block)
+                _sec("memory", user_block, volatile_parts)
 
     # External memory provider system prompt block (additive to built-in)
     if agent._memory_manager:
         try:
             _ext_mem_block = agent._memory_manager.build_system_prompt()
             if _ext_mem_block:
-                volatile_parts.append(_ext_mem_block)
+                _sec("external_memory", _ext_mem_block, volatile_parts)
         except Exception:
             pass
 
@@ -333,13 +349,30 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         timestamp_line += f"\nModel: {agent.model}"
     if agent.provider:
         timestamp_line += f"\nProvider: {agent.provider}"
-    volatile_parts.append(timestamp_line)
+    _sec("timestamp", timestamp_line, volatile_parts)
 
-    return {
+    parts = {
         "stable":   "\n\n".join(p.strip() for p in stable_parts   if p and p.strip()),
         "context":  "\n\n".join(p.strip() for p in context_parts  if p and p.strip()),
         "volatile": "\n\n".join(p.strip() for p in volatile_parts if p and p.strip()),
     }
+
+    # Roll up labeled section sizes (chars) for per-message token insights.
+    # Best-effort — never affects the prompt itself. "other" captures the few
+    # small/rare unlabeled blocks (help pointer, computer-use, relay, alibaba).
+    try:
+        _sec_map: Dict[str, int] = {}
+        for _lbl, _n in _sections:
+            _sec_map[_lbl] = _sec_map.get(_lbl, 0) + _n
+        _labeled = sum(_sec_map.values())
+        _total = sum(len(p) for p in (parts["stable"], parts["context"], parts["volatile"]))
+        if _total > _labeled:
+            _sec_map["other"] = _total - _labeled
+        agent._prompt_sections = _sec_map
+    except Exception:
+        agent._prompt_sections = {}
+
+    return parts
 
 
 def build_system_prompt(agent: Any, system_message: Optional[str] = None) -> str:

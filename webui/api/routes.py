@@ -2926,6 +2926,33 @@ def _handle_llm_wiki_status(handler, parsed) -> bool:
     return True
 
 
+def _handle_insights_messages(handler, parsed) -> bool:
+    """Per-message token usage + input composition for one session — powers the
+    insights 'Messages' section. Reads the message_usage table the agent writes."""
+    query = parse_qs(parsed.query or "")
+    session_id = (query.get("session_id", [""])[0] or "").strip()
+    try:
+        limit = min(max(int(query.get("limit", ["200"])[0]), 1), 1000)
+    except (ValueError, TypeError):
+        limit = 200
+    if not session_id:
+        return j(handler, {"session_id": "", "messages": []})
+    db = None
+    try:
+        from api.state_sync import _get_state_db
+        db = _get_state_db()
+        records = db.get_message_usage(session_id, limit=limit) if db else []
+    except Exception as e:
+        return j(handler, {"session_id": session_id, "messages": [], "error": str(e)})
+    finally:
+        try:
+            if db:
+                db.close()
+        except Exception:
+            pass
+    return j(handler, {"session_id": session_id, "messages": records})
+
+
 def _handle_insights(handler, parsed) -> bool:
     """Return usage analytics from local WebUI session data."""
     import collections
@@ -3598,6 +3625,9 @@ def handle_get(handler, parsed) -> bool:
     # ── Insights / knowledge status ──
     if parsed.path == "/api/insights":
         return _handle_insights(handler, parsed)
+
+    if parsed.path == "/api/insights/messages":
+        return _handle_insights_messages(handler, parsed)
 
     if parsed.path.startswith("/api/kanban/"):
         from api.kanban_bridge import handle_kanban_get

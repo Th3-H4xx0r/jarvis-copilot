@@ -3212,12 +3212,16 @@ async function loadInsights(animate) {
     refreshBtn.disabled = true;
   }
   const period = ($('insightsPeriod') || {}).value || '30';
+  const sessionId = (typeof S !== 'undefined' && S.session) ? S.session.session_id : null;
   try {
-    const [data, wikiStatus] = await Promise.all([
+    const [data, wikiStatus, msgData] = await Promise.all([
       api(`/api/insights?days=${period}`),
       api('/api/wiki/status').catch(err => ({status:'error', error: err.message || String(err)})),
+      sessionId
+        ? api(`/api/insights/messages?session_id=${encodeURIComponent(sessionId)}`).catch(() => null)
+        : Promise.resolve(null),
     ]);
-    _renderInsights(data, box, wikiStatus);
+    _renderInsights(data, box, wikiStatus, msgData);
     if (typeof _syncSystemHealthMonitorVisibility === 'function') _syncSystemHealthMonitorVisibility();
     if (typeof pollSystemHealth === 'function') void pollSystemHealth();
   } catch(e) {
@@ -3370,7 +3374,7 @@ function _bucketDailyTokensForChart(rows) {
   return result;
 }
 
-function _renderInsights(d, box, wikiStatus) {
+function _renderInsights(d, box, wikiStatus, msgData) {
   const fmtNum = n => Number(n || 0).toLocaleString();
   const fmtCost = c => {
     const value = Number(c || 0);
@@ -3471,6 +3475,27 @@ function _renderInsights(d, box, wikiStatus) {
       </div>
     </div>`;
 
+  // Per-message token usage + composition for the CURRENT conversation.
+  let messagesHtml = '';
+  const msgs = (msgData && Array.isArray(msgData.messages)) ? msgData.messages : null;
+  if (msgs === null) {
+    messagesHtml = `<div class="insights-card"><div class="insights-card-title">${esc(t('insights_messages_title'))}</div><div class="insights-empty">${esc(t('insights_messages_no_session'))}</div></div>`;
+  } else if (!msgs.length) {
+    messagesHtml = `<div class="insights-card"><div class="insights-card-title">${esc(t('insights_messages_title'))}</div><div class="insights-empty">${esc(t('insights_messages_empty'))}</div></div>`;
+  } else {
+    window.__insightsMsgs = msgs;  // referenced by showMsgComposition()
+    messagesHtml = `<div class="insights-card"><div class="insights-card-title">${esc(t('insights_messages_title'))}</div>` +
+      `<div class="insights-table insights-msg-table"><div class="insights-table-head"><span>#</span><span>${esc(t('insights_input_tokens'))}</span><span>${esc(t('insights_output_tokens'))}</span><span>${esc(t('insights_total'))}</span><span>${esc(t('insights_composition'))}</span><span></span></div>` +
+      msgs.map((m, i) => {
+        const inT = Number(m.input_tokens || 0), outT = Number(m.output_tokens || 0);
+        const cacheHit = Number(m.cache_read_tokens || 0) > 0;
+        const comp = (m.composition && m.composition.sections) || {};
+        const cacheBadge = cacheHit ? `<span class="insights-msg-cache" title="${esc(t('insights_cache_hit'))}">⚡</span>` : '';
+        return `<div class="insights-table-row"><span>#${esc(String(m.turn))}</span><span>${fmtTokens(inT)}${cacheBadge}</span><span>${fmtTokens(outT)}</span><span>${fmtTokens(inT + outT)}</span><span class="insights-msg-bar-cell">${_compositionBar(comp)}</span><span><button type="button" class="insights-msg-details" onclick="showMsgComposition(${i})">${esc(t('insights_details'))}</button></span></div>`;
+      }).join('') +
+      `</div></div>`;
+  }
+
   box.innerHTML = `
     ${_renderSystemHealthPanel()}
     ${_renderLlmWikiStatus(wikiStatus)}
@@ -3478,6 +3503,7 @@ function _renderInsights(d, box, wikiStatus) {
       ${overviewCards.map(c => `<div class="insights-stat"><div class="insights-stat-icon">${c.icon}</div><div class="insights-stat-info"><div class="insights-stat-value">${c.value}</div><div class="insights-stat-label">${esc(c.label)}</div></div></div>`).join('')}
     </div>
     ${dailyHtml}
+    ${messagesHtml}
     <div class="insights-row insights-usage-grid">
       ${tokenCards}
       ${modelsHtml}
@@ -3486,6 +3512,73 @@ function _renderInsights(d, box, wikiStatus) {
     ${hodHtml}
     <div style="text-align:center;color:var(--muted);font-size:10px;margin-top:12px;opacity:.6">${esc(t('insights_footer').replace('{days}', d.period_days))}</div>
   `;
+}
+
+// ── Per-message token composition (insights "Messages" section) ──────────────
+const _INSIGHTS_SECTION_META = {
+  identity:             { label: 'Identity / SOUL.md',      color: '#7c5cff' },
+  behavioral_guidance:  { label: 'Behavioral guidance',     color: '#4f8cff' },
+  tool_use_guidance:    { label: 'Tool-use guidance',       color: '#3fb6c9' },
+  lazy_manifest:        { label: 'Deferred-tools manifest', color: '#2dbf7e' },
+  skills_catalog:       { label: 'Skills catalog',          color: '#8bc34a' },
+  env_profile:          { label: 'Environment & profile',   color: '#c9b03f' },
+  context_files:        { label: 'Context files',           color: '#e0913a' },
+  memory:               { label: 'Memory (MEMORY/USER.md)', color: '#e0573a' },
+  external_memory:      { label: 'External memory',         color: '#d24b86' },
+  timestamp:            { label: 'Timestamp',               color: '#9aa0a6' },
+  other:                { label: 'Other (system)',          color: '#6b7280' },
+  tool_schemas:         { label: 'Tool schemas',            color: '#a06bff' },
+  conversation_history: { label: 'Conversation history',    color: '#5b6fb0' },
+  user_message:         { label: 'User message',            color: '#34c759' },
+};
+function _insSectionMeta(key) {
+  return _INSIGHTS_SECTION_META[key] || { label: key, color: '#888' };
+}
+function _compositionBar(comp) {
+  const entries = Object.entries(comp || {}).filter(([, v]) => Number(v) > 0);
+  const total = entries.reduce((s, [, v]) => s + Number(v), 0);
+  if (!total) return '<div class="insights-comp-bar"></div>';
+  const segs = entries.sort((a, b) => b[1] - a[1]).map(([k, v]) => {
+    const pct = (Number(v) / total * 100).toFixed(2);
+    const m = _insSectionMeta(k);
+    return `<span class="insights-comp-seg" style="width:${pct}%;background:${m.color}" title="${esc(m.label)}: ${Number(v).toLocaleString()} tok"></span>`;
+  }).join('');
+  return `<div class="insights-comp-bar">${segs}</div>`;
+}
+function showMsgComposition(i) {
+  const m = (window.__insightsMsgs || [])[i];
+  if (!m) return;
+  const fmtT = n => Number(n || 0).toLocaleString();
+  const comp = (m.composition && m.composition.sections) || {};
+  const entries = Object.entries(comp).filter(([, v]) => Number(v) > 0).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((s, [, v]) => s + Number(v), 0) || 1;
+  const rows = entries.map(([k, v]) => {
+    const meta = _insSectionMeta(k);
+    const pct = (Number(v) / total * 100).toFixed(1);
+    return `<div class="insights-comp-row"><span class="insights-comp-dot" style="background:${meta.color}"></span><span class="insights-comp-name">${esc(meta.label)}</span><div class="insights-comp-rowbar"><div style="width:${pct}%;background:${meta.color}"></div></div><span class="insights-comp-val">${fmtT(v)} <em>(${pct}%)</em></span></div>`;
+  }).join('');
+  const totals = `<div class="insights-comp-totals">`
+    + `<span>${esc(t('insights_input_tokens'))}: <b>${fmtT(m.input_tokens)}</b></span>`
+    + `<span>${esc(t('insights_output_tokens'))}: <b>${fmtT(m.output_tokens)}</b></span>`
+    + (Number(m.cache_read_tokens) ? `<span>${esc(t('insights_cache_hit'))}: <b>${fmtT(m.cache_read_tokens)}</b></span>` : '')
+    + (Number(m.reasoning_tokens) ? `<span>${esc(t('insights_reasoning'))}: <b>${fmtT(m.reasoning_tokens)}</b></span>` : '')
+    + (m.latency_s != null ? `<span>${Number(m.latency_s).toFixed(1)}s</span>` : '')
+    + (m.model ? `<span class="insights-comp-model">${esc(m.model)}</span>` : '')
+    + `</div>`;
+  const overlay = document.createElement('div');
+  overlay.className = 'insights-comp-overlay';
+  overlay.innerHTML = `<div class="insights-comp-modal" role="dialog" aria-modal="true">`
+    + `<div class="insights-comp-head"><span>${esc(t('insights_composition'))} — #${esc(String(m.turn))}</span>`
+    + `<button type="button" class="insights-comp-close" aria-label="close">×</button></div>`
+    + totals
+    + `<div class="insights-comp-estnote">${esc(t('insights_est_note'))}</div>`
+    + `<div class="insights-comp-list">${rows || ('<div class="insights-empty">' + esc(t('insights_messages_empty')) + '</div>')}</div></div>`;
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('.insights-comp-close').addEventListener('click', close);
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(overlay);
 }
 
 async function clearConversation() {

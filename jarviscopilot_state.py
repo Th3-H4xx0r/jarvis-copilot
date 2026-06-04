@@ -250,6 +250,25 @@ CREATE INDEX IF NOT EXISTS idx_sessions_source ON sessions(source);
 CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);
+
+-- Per-API-call token usage + input composition, for the insights "Messages"
+-- section. One row per model call; composition_json is the labeled token split.
+CREATE TABLE IF NOT EXISTS message_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    turn INTEGER NOT NULL,
+    timestamp REAL NOT NULL,
+    model TEXT,
+    provider TEXT,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    cache_read_tokens INTEGER DEFAULT 0,
+    cache_write_tokens INTEGER DEFAULT 0,
+    reasoning_tokens INTEGER DEFAULT 0,
+    latency_s REAL,
+    composition_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_message_usage_session ON message_usage(session_id, turn);
 """
 
 FTS_SQL = """
@@ -952,6 +971,48 @@ class SessionDB:
             )
             row = cursor.fetchone()
         return dict(row) if row else None
+
+    # ── per-message token usage (insights "Messages" section) ──────────────
+
+    def record_message_usage(self, session_id: str, turn: int, timestamp: float,
+                             model: str = None, provider: str = None,
+                             input_tokens: int = 0, output_tokens: int = 0,
+                             cache_read_tokens: int = 0, cache_write_tokens: int = 0,
+                             reasoning_tokens: int = 0, latency_s: float = None,
+                             composition_json: str = None) -> None:
+        """Persist a per-API-call token-usage + composition record. Best-effort —
+        insights must never break a turn."""
+        try:
+            with self._lock:
+                self._conn.execute(
+                    "INSERT INTO message_usage (session_id, turn, timestamp, model, "
+                    "provider, input_tokens, output_tokens, cache_read_tokens, "
+                    "cache_write_tokens, reasoning_tokens, latency_s, composition_json) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (session_id, turn, timestamp, model, provider, input_tokens,
+                     output_tokens, cache_read_tokens, cache_write_tokens,
+                     reasoning_tokens, latency_s, composition_json),
+                )
+        except Exception:
+            pass
+
+    def get_message_usage(self, session_id: str, limit: int = 200) -> List[Dict[str, Any]]:
+        """Per-API-call usage records for a session, newest first. composition_json
+        is parsed into a ``composition`` dict for the caller."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT * FROM message_usage WHERE session_id = ? "
+                "ORDER BY turn DESC, id DESC LIMIT ?",
+                (session_id, int(limit)),
+            )
+            rows = [dict(r) for r in cursor.fetchall()]
+        for r in rows:
+            raw = r.pop("composition_json", None)
+            try:
+                r["composition"] = json.loads(raw) if raw else {}
+            except Exception:
+                r["composition"] = {}
+        return rows
 
     def resolve_session_id(self, session_id_or_prefix: str) -> Optional[str]:
         """Resolve an exact or uniquely prefixed session ID to the full ID.

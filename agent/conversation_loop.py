@@ -1655,6 +1655,30 @@ def run_conversation(
                     agent.session_cache_write_tokens += canonical_usage.cache_write_tokens
                     agent.session_reasoning_tokens += canonical_usage.reasoning_tokens
 
+                    # Per-message token-usage + input composition for the insights
+                    # "Messages" section. Best-effort — must never break a turn.
+                    if agent._session_db and agent.session_id:
+                        try:
+                            from agent.message_insights import compute_message_composition
+                            _mi_comp = compute_message_composition(
+                                agent, api_messages, canonical_usage, latency_s=api_duration)
+                            agent._session_db.record_message_usage(
+                                session_id=agent.session_id,
+                                turn=agent.session_api_calls,
+                                timestamp=time.time(),
+                                model=agent.model,
+                                provider=agent.provider,
+                                input_tokens=canonical_usage.input_tokens,
+                                output_tokens=canonical_usage.output_tokens,
+                                cache_read_tokens=canonical_usage.cache_read_tokens,
+                                cache_write_tokens=canonical_usage.cache_write_tokens,
+                                reasoning_tokens=canonical_usage.reasoning_tokens,
+                                latency_s=api_duration,
+                                composition_json=json.dumps(_mi_comp),
+                            )
+                        except Exception:
+                            pass
+
                     # Log API call details for debugging/observability
                     _cache_pct = ""
                     if canonical_usage.cache_read_tokens and prompt_tokens:
