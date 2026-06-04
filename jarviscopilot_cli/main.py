@@ -260,7 +260,16 @@ import threading
 import time as _time
 from datetime import datetime
 
-from jarviscopilot_cli import __version__, __release_date__
+try:
+    from jarviscopilot_cli import __version__, __release_date__
+except ImportError:
+    # A stale/namespace install can leave ``jarviscopilot_cli`` as a NAMESPACE
+    # package (its __init__.py never runs → no __version__), e.g. leftover editable
+    # metadata after the hermes_cli→jarviscopilot_cli rename + a `git pull` without
+    # re-running `pip install -e`. Don't brick the whole CLI over it — degrade
+    # gracefully so `stop`/`start`/`update` still work, and `jarviscopilot update`
+    # (which re-runs the installer) can fix the root cause.
+    __version__, __release_date__ = "unknown", ""
 from jarviscopilot_constants import AI_GATEWAY_BASE_URL, OPENROUTER_BASE_URL
 
 logger = logging.getLogger(__name__)
