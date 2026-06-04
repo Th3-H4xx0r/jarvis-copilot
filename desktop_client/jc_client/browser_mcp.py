@@ -24,6 +24,51 @@ log = logging.getLogger(__name__)
 _READY_TIMEOUT = 60.0   # cold `npx @playwright/mcp` + browser attach
 _CALL_TIMEOUT = 90.0    # generous for slow page loads
 
+# A2's biggest cost: an accessibility snapshot of a content-heavy page (a long
+# Wikipedia article has ~4k links) is hundreds of KB. Returned RAW, ONE snapshot
+# dumps 50-130k tokens into the agent's context, and several across a task
+# compound — one real run hit 325k input tokens. Cap snapshot-bearing results
+# the same structure-aware way the server's own browser tool does
+# (tools/browser_tool.py `_truncate_snapshot`), but with a higher default ceiling
+# since this device path has no LLM-summarize fallback. 0 disables the cap.
+_SNAPSHOT_MAX_CHARS_DEFAULT = 20000
+
+
+def _snapshot_max_chars() -> int:
+    raw = os.environ.get("JC_BROWSER_SNAPSHOT_MAX_CHARS")
+    if raw is None:
+        return _SNAPSHOT_MAX_CHARS_DEFAULT
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return _SNAPSHOT_MAX_CHARS_DEFAULT
+
+
+def _truncate_snapshot(text: str, max_chars: Optional[int] = None) -> str:
+    """Structure-aware truncation of a Playwright result so a giant accessibility
+    tree doesn't blow up the agent's context. Cuts at newline boundaries (never
+    splits a tree node mid-line) and appends a note telling the agent how much
+    was dropped + how to recover it. Returns ``text`` unchanged when within
+    budget, or when the cap is disabled (``<= 0``)."""
+    cap = _snapshot_max_chars() if max_chars is None else max_chars
+    if cap <= 0 or len(text) <= cap:
+        return text
+    lines = text.split("\n")
+    kept: list[str] = []
+    chars = 0
+    for line in lines:
+        if chars + len(line) + 1 > cap - 260:  # reserve room for the note
+            break
+        kept.append(line)
+        chars += len(line) + 1
+    dropped = len(lines) - len(kept)
+    kept.append(
+        f"\n[... {dropped} more lines truncated to save context "
+        f"({len(text)} chars total). Scroll or click into the relevant section "
+        f"for a smaller snapshot, or raise JC_BROWSER_SNAPSHOT_MAX_CHARS.]"
+    )
+    return "\n".join(kept)
+
 
 def _config_extension_token() -> Optional[str]:
     """Configured Playwright extension token — stable fallback when the live
@@ -88,7 +133,8 @@ class _BrowserMcp:
     async def _serve(self) -> None:
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
-        from jc_client.mcp_relay import find_npx, read_extension_token_from_chrome
+        from jc_client.mcp_relay import (
+            find_npx, read_extension_token_from_chrome, PLAYWRIGHT_MCP_SPEC)
 
         npx = find_npx() or "npx"
         env = dict(os.environ)
@@ -106,7 +152,9 @@ class _BrowserMcp:
                         "show an allow-dialog; set playwright_extension_token in config")
         params = StdioServerParameters(
             command=npx,
-            args=["@playwright/mcp@latest", "--extension", "--browser", "chrome"],
+            # Pinned (was `@latest`) — see PLAYWRIGHT_MCP_SPEC: schemas drift
+            # between releases and the chrome_* skills must match the pinned one.
+            args=[PLAYWRIGHT_MCP_SPEC, "--extension", "--browser", "chrome"],
             env=env,
         )
         self._stop = asyncio.Event()
@@ -147,7 +195,8 @@ class _BrowserMcp:
     async def _call(self, name: str, args: dict) -> dict:
         result = await self._session.call_tool(name, args)
         text = "".join(getattr(c, "text", "") for c in (result.content or []))
-        return {"ok": not bool(getattr(result, "isError", False)), "result": text}
+        return {"ok": not bool(getattr(result, "isError", False)),
+                "result": _truncate_snapshot(text)}
 
 
 _INSTANCE = _BrowserMcp()

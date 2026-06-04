@@ -28,6 +28,12 @@ log = logging.getLogger(__name__)
 _ALLOWED_BROWSERS = {"chrome", "msedge", "chromium", "firefox", "webkit"}
 _DEFAULT_BROWSER = "chrome"
 
+# Pin the Playwright MCP version (not `@latest`): its tool schemas drift between
+# releases — e.g. 0.0.75 takes the snapshot ref as `target` where older builds
+# used `ref`, and the hand-written chrome_* skills (skills/browser.py) must match.
+# Single source of truth, shared by the A1 relay and the A2 browser_mcp child.
+PLAYWRIGHT_MCP_SPEC = "@playwright/mcp@0.0.75"
+
 
 def _profile_dir() -> str:
     from jc_client.logger import state_dir
@@ -116,9 +122,9 @@ def build_playwright_command(meta: Optional[dict], profile_dir: str,
         browser = _DEFAULT_BROWSER
     npx = find_npx() or "npx"
     if extension:
-        return [npx, "@playwright/mcp@latest", "--extension", "--browser", browser]
+        return [npx, PLAYWRIGHT_MCP_SPEC, "--extension", "--browser", browser]
     return [
-        npx, "@playwright/mcp@latest",
+        npx, PLAYWRIGHT_MCP_SPEC,
         "--browser", browser,
         "--user-data-dir", profile_dir,
     ]

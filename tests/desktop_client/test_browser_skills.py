@@ -1,5 +1,6 @@
 """Tests for the A2 browser device skills (chrome_*)."""
 
+import asyncio
 import os
 import sys
 
@@ -32,12 +33,13 @@ def test_chrome_navigate_forwards_to_playwright_tool(monkeypatch):
     assert out == {"ok": True, "result": "x"}
 
 
-def test_chrome_click_forwards_element_and_ref(monkeypatch):
+def test_chrome_click_maps_ref_to_target(monkeypatch):
+    # Playwright MCP >=0.0.75 takes the snapshot ref as `target`, not `ref`.
     calls = []
     monkeypatch.setattr(bm._INSTANCE, "call_tool",
                         lambda name, args=None, **kw: calls.append((name, args)) or {"ok": True})
     sk.invoke("chrome_click", {"element": "first result", "ref": "e47"})
-    assert calls == [("browser_click", {"element": "first result", "ref": "e47"})]
+    assert calls == [("browser_click", {"element": "first result", "target": "e47"})]
 
 
 def test_chrome_type_submit_flag(monkeypatch):
@@ -45,8 +47,64 @@ def test_chrome_type_submit_flag(monkeypatch):
     monkeypatch.setattr(bm._INSTANCE, "call_tool",
                         lambda name, args=None, **kw: calls.append((name, args)) or {"ok": True})
     sk.invoke("chrome_type", {"element": "search", "ref": "e3", "text": "houston", "submit": True})
-    assert calls[0] == ("browser_type", {"element": "search", "ref": "e3", "text": "houston", "submit": True})
+    assert calls[0] == ("browser_type", {"element": "search", "target": "e3", "text": "houston", "submit": True})
     # without submit, the flag is omitted
     calls.clear()
     sk.invoke("chrome_type", {"element": "search", "ref": "e3", "text": "x"})
-    assert calls[0] == ("browser_type", {"element": "search", "ref": "e3", "text": "x"})
+    assert calls[0] == ("browser_type", {"element": "search", "target": "e3", "text": "x"})
+
+
+# ── snapshot truncation (the 325k-token fix) ─────────────────────────────────
+
+def test_truncate_snapshot_unchanged_under_cap():
+    assert bm._truncate_snapshot("- link a\n- link b", 1000) == "- link a\n- link b"
+
+
+def test_truncate_snapshot_caps_large_tree():
+    big = "\n".join(f'- link "item {i}" [ref=e{i}]' for i in range(5000))
+    out = bm._truncate_snapshot(big, 2000)
+    assert len(out) <= 2000
+    assert "truncated to save context" in out
+    # never split an accessibility node mid-line
+    body = out.split("\n[... ")[0]
+    for line in body.splitlines():
+        assert line == "" or line.startswith('- link "item ')
+
+
+def test_truncate_snapshot_disabled_with_zero():
+    big = "x" * 50000
+    assert bm._truncate_snapshot(big, 0) == big
+
+
+def test_snapshot_max_chars_env_override(monkeypatch):
+    monkeypatch.setenv("JC_BROWSER_SNAPSHOT_MAX_CHARS", "1234")
+    assert bm._snapshot_max_chars() == 1234
+    monkeypatch.setenv("JC_BROWSER_SNAPSHOT_MAX_CHARS", "not-a-number")
+    assert bm._snapshot_max_chars() == bm._SNAPSHOT_MAX_CHARS_DEFAULT
+    monkeypatch.delenv("JC_BROWSER_SNAPSHOT_MAX_CHARS", raising=False)
+    assert bm._snapshot_max_chars() == bm._SNAPSHOT_MAX_CHARS_DEFAULT
+
+
+def test_call_applies_snapshot_cap(monkeypatch):
+    # _call must cap whatever the Playwright tool returns, so a huge accessibility
+    # tree can't dump 100k+ tokens into the agent's context.
+    class _Content:
+        def __init__(self, text):
+            self.text = text
+
+    class _Result:
+        def __init__(self, text):
+            self.content = [_Content(text)]
+            self.isError = False
+
+    class _Session:
+        async def call_tool(self, name, args):
+            return _Result('- link "x" [ref=e1]\n' * 10000)
+
+    monkeypatch.setenv("JC_BROWSER_SNAPSHOT_MAX_CHARS", "3000")
+    inst = bm._BrowserMcp()
+    inst._session = _Session()
+    out = asyncio.run(inst._call("browser_snapshot", {}))
+    assert out["ok"] is True
+    assert len(out["result"]) <= 3000
+    assert "truncated to save context" in out["result"]

@@ -14,10 +14,10 @@ from jc_client.browser_mcp import browser_mcp
 @skill(
     "chrome_navigate",
     "Open a URL in the user's REAL, visible Chrome on their Mac (Playwright, "
-    "their logged-in session). Returns the page title AND an accessibility "
-    "snapshot with clickable refs — so you usually do NOT need a separate "
-    "chrome_snapshot after this. Use this — NOT open_url — whenever you then "
-    "need to read or click the page.",
+    "their logged-in session). Returns the page title and an accessibility "
+    "snapshot with clickable refs when available; if the result has no refs, "
+    "call chrome_snapshot once to get them. Use this — NOT open_url — whenever "
+    "you then need to read or click the page.",
     {"type": "object",
      "properties": {"url": {"type": "string", "description": "URL to open"}},
      "required": ["url"]},
@@ -40,8 +40,9 @@ def chrome_snapshot() -> dict:
 @skill(
     "chrome_click",
     "Click an element in the user's Chrome. Pass the element's human-readable "
-    "description and its ref from a recent snapshot. Returns the resulting "
-    "page snapshot — no separate chrome_snapshot needed afterward.",
+    "description and its ref from a recent snapshot (the `[ref=eNN]` value). "
+    "Returns the resulting page snapshot — no separate chrome_snapshot needed "
+    "afterward.",
     {"type": "object",
      "properties": {
          "element": {"type": "string", "description": "human-readable element description"},
@@ -49,7 +50,9 @@ def chrome_snapshot() -> dict:
      "required": ["element", "ref"]},
 )
 def chrome_click(element: str, ref: str) -> dict:
-    return browser_mcp().call_tool("browser_click", {"element": element, "ref": ref})
+    # Playwright MCP (>=0.0.75) takes the snapshot ref as `target`; `element`
+    # is the human-readable description used only for the permission prompt.
+    return browser_mcp().call_tool("browser_click", {"element": element, "target": ref})
 
 
 @skill(
@@ -65,7 +68,9 @@ def chrome_click(element: str, ref: str) -> dict:
      "required": ["element", "ref", "text"]},
 )
 def chrome_type(element: str, ref: str, text: str, submit: bool = False) -> dict:
-    args = {"element": element, "ref": ref, "text": text}
+    # `target` is the snapshot ref (Playwright MCP >=0.0.75); `element` is the
+    # human-readable description.
+    args = {"element": element, "target": ref, "text": text}
     if submit:
         args["submit"] = True
     return browser_mcp().call_tool("browser_type", args)
