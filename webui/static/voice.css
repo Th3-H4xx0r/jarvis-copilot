@@ -106,10 +106,29 @@ main.main.showing-voice #mainVoice { display: flex !important; }
   color: var(--fg, #d8dee9);
 }
 
+/* Assistant reply is rendered karaoke-style (word-by-word highlight), matching
+   the mobile client: a plain flowing Inter paragraph — no bubble — with spoken
+   words lit and the rest muted. The user line above keeps its bubble. */
 .voice-transcript-assistant {
-  background: rgba(120, 180, 255, 0.07);
-  border: 1px solid rgba(140, 180, 255, 0.18);
-  color: var(--fg, #e8eef6);
+  background: none;
+  border: none;
+  padding: 6px 4px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.2px;
+  color: #8A93A8;            /* fallback for any non-word text (whitespace) */
+}
+.voice-transcript-assistant .kw {
+  transition: color .15s ease;
+}
+.voice-transcript-assistant .kw.spoken { color: #EDF0F8; }    /* spoken */
+.voice-transcript-assistant .kw.unspoken { color: #8A93A8; }  /* not yet spoken */
+/* Zero-width marker at the spoken boundary — scrollIntoView anchor only. */
+.voice-transcript-assistant .kw-cursor {
+  display: inline-block;
+  width: 0;
 }
 
 /* ---- Controls ---- */

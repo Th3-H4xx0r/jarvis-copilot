@@ -167,6 +167,12 @@
   border:none !important;color:#fff !important;border-radius:var(--radius-pill);
   box-shadow:0 6px 22px rgba(46,107,255,0.40);
 }
+/* Active (session live → "Stop") — red so the toggle state is unmistakable. */
+:root[data-skin="jarvis"] .voice-ptt-btn.active,
+:root[data-skin="jarvis"] .voice-ptt-btn[aria-pressed="true"]{
+  background:linear-gradient(135deg,#FF8A8A 0%,#E5484D 60%,#C0353A 100%) !important;
+  box-shadow:0 6px 26px rgba(229,72,77,0.45);
+}
 :root[data-skin="jarvis"] .btn-primary:hover,
 :root[data-skin="jarvis"] .send-btn:not(.stop):not(.interrupt):not(.steer):hover,
 :root[data-skin="jarvis"] .composer-send:hover{filter:brightness(1.07);}
