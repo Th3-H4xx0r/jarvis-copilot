@@ -191,11 +191,6 @@
         <span data-i18n="tab_voice">Voice</span>
       </div>
       <div class="voice-sidebar-body">
-        <div class="voice-mode-toggle" role="tablist" aria-label="Voice mode">
-          <button id="voiceModeQualityBtn" class="voice-mode-btn active" role="tab" aria-selected="true" data-mode="quality" data-i18n="voice_mode_quality">Quality</button>
-          <button id="voiceModeRealtimeBtn" class="voice-mode-btn" role="tab" aria-selected="false" data-mode="realtime" data-i18n="voice_mode_realtime">Realtime</button>
-        </div>
-        <div class="voice-mode-hint" id="voiceModeHint" data-i18n="voice_mode_hint_quality">Push to talk, release to send. Best transcription quality.</div>
         <div class="voice-sidebar-section">
           <label class="voice-field-label" for="voiceEngineSelect" data-i18n="voice_label_engine">Engine</label>
           <select id="voiceEngineSelect" class="voice-field-select"></select>
@@ -776,11 +771,10 @@
           <div class="voice-transcript-row voice-transcript-assistant" id="voiceAssistantLine" style="display:none"></div>
         </div>
         <div class="voice-controls">
-          <button id="voicePttBtn" class="voice-ptt-btn" type="button" aria-pressed="false" data-i18n-title="voice_btn_ptt_quality">
+          <button id="voicePttBtn" class="voice-ptt-btn" type="button" aria-pressed="false" data-i18n-title="voice_btn_talk">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-            <span class="voice-ptt-label" id="voicePttLabel" data-i18n="voice_btn_ptt_quality">Hold to talk</span>
+            <span class="voice-ptt-label" id="voicePttLabel" data-i18n="voice_btn_talk">Tap to talk</span>
           </button>
-          <button id="voiceStopBtn" class="voice-secondary-btn voice-stop-btn" type="button" style="display:none" data-i18n="voice_btn_stop">Stop</button>
           <button id="voiceMuteBtn" class="voice-secondary-btn voice-mute-btn" type="button" aria-pressed="false" data-i18n="voice_btn_mute">Mute</button>
         </div>
         <div class="voice-error" id="voiceError" style="display:none" role="alert"></div>

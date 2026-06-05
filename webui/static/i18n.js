@@ -601,6 +601,8 @@ const LOCALES = {
     voice_btn_speak: 'Speak',
     voice_btn_ptt_quality: 'Hold to talk',
     voice_btn_ptt_realtime: 'Tap to start',
+    voice_btn_talk: 'Tap to talk',
+    voice_btn_stop_talk: 'Stop',
     voice_btn_stop: 'Stop',
     voice_btn_mute: 'Mute',
     voice_btn_unmute: 'Unmute',

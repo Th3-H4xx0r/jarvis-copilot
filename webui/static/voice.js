@@ -1,14 +1,13 @@
 /*
- * Voice tab — orb visualizer, mic capture, mode FSM, WS realtime client.
+ * Voice tab — orb visualizer, mic capture, WS realtime client, karaoke reply.
  *
- * Quality mode  (push-to-talk):
- *   hold button → record 16kHz mono PCM via WebAudio → release → POST
- *   /api/voice/quality-turn → { transcript, reply, audio_base64 } → play MP3.
- *
- * Realtime mode (tap-to-toggle):
+ * Realtime-only, hands-free (tap-to-toggle):
  *   tap button → open WS /api/voice/s2s/ws → stream 16kHz PCM binary frames
  *   continuously; client-side VAD signals end_turn → server streams back
- *   transcript, assistant_text, audio_meta + binary PCM frames @ 24kHz.
+ *   transcript, assistant_text, audio_meta + binary PCM frames @ 24kHz. Tap
+ *   again to end the session. The assistant reply is shown karaoke-style:
+ *   words highlight one at a time, driven by the audio playback clock (see the
+ *   Karaoke controller + the PcmPlayer per-clip timing hook).
  *
  * Exposed (used by panels.js):
  *   initVoicePanel()       — first entry into the Voice tab
@@ -20,7 +19,6 @@
 
   // ---- shared state ----
   const STATE = {
-    mode: 'quality',          // 'quality' | 'realtime'
     fsm: 'idle',              // idle | connecting | listening | thinking | speaking | error
     muted: false,
     initialized: false,
@@ -31,8 +29,6 @@
     mic: null,                // MicCapture instance
     player: null,             // PcmPlayer instance
     ws: null,                 // RealtimeWS instance
-    audioEl: null,            // <audio> element for Quality-mode playback
-    inflight: false,
     bargeInThreshold: 0.40,   // mic amplitude above this while speaking → interrupt
   };
 
@@ -69,6 +65,7 @@
     }
     if (STATE.orb) STATE.orb.setState(state);
     _updateMuteButtonLabel();
+    _updateToggleButton();
   }
 
   // The Mute button does double duty: in Realtime mode while listening, it
@@ -77,12 +74,12 @@
   function _updateMuteButtonLabel() {
     const btn = document.getElementById('voiceMuteBtn');
     if (!btn) return;
-    if (STATE.mode === 'realtime' && STATE.fsm === 'listening') {
+    if (STATE.fsm === 'listening') {
       btn.textContent = tr('voice_btn_done_speaking', 'Done speaking');
       btn.dataset.action = 'end-turn';
       return;
     }
-    if (STATE.mode === 'realtime' && (STATE.fsm === 'thinking' || STATE.fsm === 'speaking')) {
+    if (STATE.fsm === 'thinking' || STATE.fsm === 'speaking') {
       btn.textContent = tr('voice_btn_interrupt', 'Interrupt');
       btn.dataset.action = 'interrupt';
       return;
@@ -913,30 +910,6 @@
     isOpen() { return !!this.ws && this.ws.readyState === 1; }
   }
 
-  // ---- Quality mode (push-to-talk) ----
-  async function startQualityCapture() {
-    if (STATE.inflight) return;
-    showError('');
-    clearTranscript();
-    _startLiveSpeech();
-    if (!STATE.mic) STATE.mic = new MicCapture();
-    const chunks = [];
-    STATE.mic.onFrame = (int16) => {
-      chunks.push(new Uint8Array(int16.buffer.slice(0)));
-    };
-    STATE.mic.onAmplitude = (a) => { if (STATE.orb) STATE.orb.setAmplitude(a); };
-    try {
-      await STATE.mic.start();
-    } catch (e) {
-      showError(tr('voice_err_no_mic', 'Microphone access denied or unavailable.'));
-      setStatus('error');
-      _stopLiveSpeech();
-      return;
-    }
-    setStatus('listening');
-    STATE._qualityChunks = chunks;
-  }
-
   // Voice needs a chat session to route the turn through (so it gets tools +
   // segmented responses). In the mini popup there's no chat UI to pick one, so
   // auto-create one on first use via the global newSession() — the same call
@@ -977,143 +950,7 @@
     return '';
   }
 
-  async function stopQualityCaptureAndSend() {
-    const chunks = STATE._qualityChunks || [];
-    STATE._qualityChunks = null;
-    if (STATE.mic) STATE.mic.stop();
-    _stopLiveSpeech();
-    if (!chunks.length) {
-      setStatus('idle');
-      return;
-    }
-    setStatus('thinking');
-    // Concat and base64-encode int16 PCM
-    let total = 0;
-    for (const c of chunks) total += c.length;
-    const merged = new Uint8Array(total);
-    let off = 0;
-    for (const c of chunks) { merged.set(c, off); off += c.length; }
-    const b64 = await uint8ToBase64(merged);
-    STATE.inflight = true;
-    try {
-      // The voice quality-turn endpoint now routes through the user's active
-      // chat session so the response can include tool calls (Open Chrome,
-      // search the web, etc.). The session id is needed so the server knows
-      // which chat to inject the user message into.
-      const sessionId = await _ensureVoiceSession();
-      if (!sessionId) {
-        showError(tr('voice_err_no_session', 'Open a chat session first so voice has somewhere to talk.'));
-        setStatus('idle');
-        return;
-      }
-      const res = await fetch('api/voice/quality-turn', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          audio_base64: b64,
-          sample_rate: 16000,
-          session_id: sessionId,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        showError(err.error || `Request failed (${res.status})`);
-        setStatus('error');
-        return;
-      }
-      // Server streams newline-delimited JSON: one event per line. We read
-      // chunks via ReadableStream + TextDecoder and play each text segment
-      // the moment it lands instead of waiting for the whole turn. This is
-      // what gives the "ack → tool → confirm" cadence its real-time feel.
-      if (!STATE.player) STATE.player = new PcmPlayer();
-      STATE.player.onAmplitude = (a) => { if (STATE.orb) STATE.orb.setAmplitude(a); };
-      const assistantText = [];
-      let gotTranscript = false;
-      let sawSegment = false;
-      const reader = res.body && res.body.getReader ? res.body.getReader() : null;
-      if (!reader) {
-        showError('Streaming not supported by this browser.');
-        setStatus('error');
-        return;
-      }
-      const decoder = new TextDecoder('utf-8');
-      let buf = '';
-      let aborted = false;
-      try {
-        while (!aborted) {
-          const { done, value } = await reader.read();
-          if (value) buf += decoder.decode(value, { stream: true });
-          let nl;
-          while ((nl = buf.indexOf('\n')) !== -1) {
-            const line = buf.slice(0, nl);
-            buf = buf.slice(nl + 1);
-            if (!line.trim()) continue;
-            let event = null;
-            try { event = JSON.parse(line); } catch (e) { continue; }
-            if (!event || !event.type) continue;
-            if (event.type === 'transcript') {
-              gotTranscript = !!(event.text && event.text.trim());
-              setTranscript(event.text || '', 'user');
-            } else if (event.type === 'segment') {
-              sawSegment = true;
-              if (event.kind === 'text') {
-                if (event.text) {
-                  assistantText.push(event.text);
-                  setTranscript(assistantText.join('\n\n'), 'assistant');
-                }
-                if (event.audio_base64) {
-                  setStatus('speaking');
-                  try {
-                    // Await so the next segment doesn't TTS-overlap the
-                    // current one. Server has already moved on to producing
-                    // the next segment; the audio just queues until ready.
-                    await STATE.player.playMp3Bytes(base64ToUint8(event.audio_base64));
-                  } catch (e) { /* ignore decode errors */ }
-                }
-              } else if (event.kind === 'tool') {
-                // Tool started — flip the orb to thinking so the user sees
-                // the "...running..." moment between segments. The next
-                // text segment will flip it back to speaking.
-                setStatus('thinking');
-              }
-            } else if (event.type === 'error') {
-              showError(event.error || 'Stream error');
-              setStatus('error');
-              aborted = true;
-              break;
-            } else if (event.type === 'done') {
-              aborted = true;
-              break;
-            }
-          }
-          if (done) break;
-        }
-      } catch (e) {
-        showError('Stream read failed: ' + (e && e.message || e));
-        setStatus('error');
-        return;
-      } finally {
-        try { reader.releaseLock && reader.releaseLock(); } catch (e) {}
-      }
-      if (!gotTranscript) {
-        showError(tr('voice_err_no_speech', "Didn't catch that — try again."));
-        setStatus('idle');
-        return;
-      }
-      if (!sawSegment) {
-        setStatus('idle');
-        return;
-      }
-      setStatus('idle');
-    } catch (e) {
-      showError(String(e && e.message || e));
-      setStatus('error');
-    } finally {
-      STATE.inflight = false;
-    }
-  }
-
-  // ---- Realtime mode (WS streaming) ----
+  // ---- Realtime conversation (WS streaming) ----
   async function startRealtime() {
     if (STATE.ws && STATE.ws.isOpen()) return;
     showError('');
@@ -1511,39 +1348,21 @@
   };
 
   // ---- Mode toggle ----
-  function setMode(mode) {
-    if (mode !== 'quality' && mode !== 'realtime') return;
-    STATE.mode = mode;
-    const qBtn = $('voiceModeQualityBtn');
-    const rBtn = $('voiceModeRealtimeBtn');
-    if (qBtn && rBtn) {
-      qBtn.classList.toggle('active', mode === 'quality');
-      qBtn.setAttribute('aria-selected', mode === 'quality');
-      rBtn.classList.toggle('active', mode === 'realtime');
-      rBtn.setAttribute('aria-selected', mode === 'realtime');
+  // Single tap-to-toggle button. Idle → "Tap to talk" (tap starts the realtime
+  // conversation); active (connecting/listening/thinking/speaking) → "Stop"
+  // (tap ends the session). Driven by the FSM via setStatus().
+  function _updateToggleButton() {
+    const btn = $('voicePttBtn');
+    const label = $('voicePttLabel');
+    if (!btn) return;
+    const active = STATE.fsm !== 'idle' && STATE.fsm !== 'error';
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    if (label) {
+      label.textContent = active
+        ? tr('voice_btn_stop_talk', 'Stop')
+        : tr('voice_btn_talk', 'Tap to talk');
     }
-    const hint = $('voiceModeHint');
-    if (hint) {
-      const k = mode === 'quality' ? 'voice_mode_hint_quality' : 'voice_mode_hint_realtime';
-      hint.textContent = tr(k, mode === 'quality'
-        ? 'Push to talk, release to send.'
-        : 'Stream your voice live.');
-    }
-    const pttLabel = $('voicePttLabel');
-    if (pttLabel) {
-      pttLabel.textContent = mode === 'quality'
-        ? tr('voice_btn_ptt_quality', 'Hold to talk')
-        : tr('voice_btn_ptt_realtime', 'Tap to start');
-    }
-    const stopBtn = $('voiceStopBtn');
-    if (stopBtn) stopBtn.style.display = (mode === 'realtime') ? '' : 'none';
-    // Stop any in-flight session when switching modes.
-    if (STATE.ws) stopRealtime();
-    if (STATE._qualityChunks) {
-      if (STATE.mic) STATE.mic.stop();
-      STATE._qualityChunks = null;
-    }
-    setStatus('idle');
   }
 
   // ---- Voice picker ----
@@ -1722,47 +1541,17 @@
       STATE.orb = new VoiceOrb(canvas);
       STATE.orb.start();
     }
-    const qBtn = $('voiceModeQualityBtn');
-    const rBtn = $('voiceModeRealtimeBtn');
-    if (qBtn) qBtn.addEventListener('click', () => setMode('quality'));
-    if (rBtn) rBtn.addEventListener('click', () => setMode('realtime'));
-
     const ptt = $('voicePttBtn');
     if (ptt) {
-      // Push-to-talk in Quality mode; toggle in Realtime mode.
-      const startEv = ['pointerdown'];
-      const endEv = ['pointerup', 'pointercancel', 'pointerleave'];
-      ptt.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        if (STATE.mode === 'quality') startQualityCapture();
-        else { if (STATE.ws && STATE.ws.isOpen()) stopRealtime(); else startRealtime(); }
-      });
-      for (const evName of endEv) {
-        ptt.addEventListener(evName, (e) => {
-          if (STATE.mode === 'quality' && STATE._qualityChunks) {
-            stopQualityCaptureAndSend();
-          }
-        });
-      }
-      // Keyboard: space-hold = PTT, enter = realtime toggle
-      ptt.addEventListener('keydown', (e) => {
-        if (e.key === ' ' && STATE.mode === 'quality' && !STATE._qualityChunks) {
-          e.preventDefault();
-          startQualityCapture();
-        }
-      });
-      ptt.addEventListener('keyup', (e) => {
-        if (e.key === ' ' && STATE.mode === 'quality' && STATE._qualityChunks) {
-          e.preventDefault();
-          stopQualityCaptureAndSend();
-        }
-      });
+      // Single tap-to-toggle: tap to start the realtime conversation, tap
+      // again to stop it. (Hold-to-talk / Quality mode is gone.)
+      const toggle = (e) => {
+        if (e) e.preventDefault();
+        if (STATE.ws && STATE.ws.isOpen()) stopRealtime();
+        else startRealtime();
+      };
+      ptt.addEventListener('click', toggle);
     }
-    const stopBtn = $('voiceStopBtn');
-    if (stopBtn) stopBtn.addEventListener('click', () => {
-      if (STATE.mode === 'realtime') stopRealtime();
-      else if (STATE._qualityChunks) { if (STATE.mic) STATE.mic.stop(); STATE._qualityChunks = null; setStatus('idle'); }
-    });
     const muteBtn = $('voiceMuteBtn');
     if (muteBtn) muteBtn.addEventListener('click', () => {
       // Mute button is mode-aware (see _updateMuteButtonLabel for the
@@ -1831,7 +1620,6 @@
   // ---- Public entry points ----
   window.initVoicePanel = function initVoicePanel() {
     wireOnce();
-    setMode(STATE.mode);
     setStatus('idle');
     // Re-resize the orb canvas now that the panel is visible (zero size
     // while hidden via display:none in many layouts).
@@ -1847,10 +1635,6 @@
   window.onVoicePanelLeave = function onVoicePanelLeave() {
     // Be polite: don't keep mic/WS alive once user has navigated away.
     if (STATE.ws) stopRealtime();
-    if (STATE._qualityChunks) {
-      if (STATE.mic) STATE.mic.stop();
-      STATE._qualityChunks = null;
-    }
     setStatus('idle');
   };
 })();
