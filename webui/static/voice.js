@@ -786,6 +786,24 @@
       this.queueEnd = 0;
       this.playing = false;
       this.onAmplitude = null;       // (float 0..1) for orb feedback
+      // Karaoke timing hooks. setClipTag() tags the segment whose audio is
+      // about to stream in; onClipStart(tag, startAtSec) fires once when that
+      // segment's first audio is scheduled; onClipDur(tag, ms) accrues as PCM
+      // frames arrive (the karaoke schedules words across this duration).
+      this.onClipStart = null;
+      this.onClipDur = null;
+      this._clipTag = null;
+      this._clipStarted = false;
+    }
+    setClipTag(tag) { this._clipTag = tag; this._clipStarted = false; }
+    nowSec() { return this.ctx ? this.ctx.currentTime : 0; }
+    _noteClip(startAt, durSec) {
+      if (this._clipTag == null) return;
+      if (!this._clipStarted) {
+        this._clipStarted = true;
+        if (this.onClipStart) this.onClipStart(this._clipTag, startAt);
+      }
+      if (this.onClipDur) this.onClipDur(this._clipTag, durSec * 1000);
     }
     _ensureCtx() {
       if (this.ctx) return;
@@ -812,6 +830,7 @@
       src.start(startAt);
       this.queueEnd = startAt + buf.duration;
       this.playing = true;
+      this._noteClip(startAt, buf.duration);
     }
     async playMp3Bytes(uint8) {
       this._ensureCtx();
@@ -823,6 +842,7 @@
       src.start(startAt);
       this.queueEnd = startAt + buf.duration;
       this.playing = true;
+      this._noteClip(startAt, buf.duration);
       return new Promise(res => { src.onended = res; });
     }
     stop() {
@@ -832,6 +852,8 @@
       this.ctx = null;
       this.queueEnd = 0;
       this.playing = false;
+      this._clipTag = null;
+      this._clipStarted = false;
     }
   }
 
@@ -1099,6 +1121,9 @@
     if (!STATE.mic) STATE.mic = new MicCapture();
     if (!STATE.player) STATE.player = new PcmPlayer();
     STATE.player.onAmplitude = (a) => { if (STATE.orb) STATE.orb.setAmplitude(a); };
+    STATE.player.onClipStart = (tag, startAt) => Karaoke.onClipStart(tag, startAt);
+    STATE.player.onClipDur = (tag, ms) => Karaoke.accrueDur(tag, ms);
+    Karaoke.reset();
     setStatus('connecting');
     STATE.ws = new RealtimeWS();
     STATE.ws.onText = onRealtimeText;
@@ -1188,13 +1213,15 @@
     } else if (t === 'transcript') {
       setTranscript(obj.text || '', 'user');
     } else if (t === 'assistant_text') {
-      // Accumulate streamed chunks instead of replacing, so the FULL reply
-      // stays on screen (audio plays each chunk in sequence). Reset at the
-      // start of each new assistant reply (flag cleared on end_turn).
-      if (!STATE._asstActive) { STATE._asstAccum = []; STATE._asstActive = true; }
+      // Each chunk is a karaoke segment paired with the audio clip that
+      // follows it. beginReply() clears the previous turn's text; the flag is
+      // cleared on end_turn so the next reply starts fresh.
+      if (!STATE._asstActive) { Karaoke.beginReply(); STATE._asstActive = true; }
       if (obj.text) {
-        STATE._asstAccum.push(obj.text);
-        setTranscript(STATE._asstAccum.join(' '), 'assistant');
+        Karaoke.addSegment(obj.text);
+        // Tag the player so the binary frames that follow are timed against
+        // this segment for the word highlight.
+        if (STATE.player) STATE.player.setClipTag(Karaoke.segs.length - 1);
       }
       setStatus('speaking');
     } else if (t === 'audio_meta') {
@@ -1213,6 +1240,7 @@
     } else if (t === 'end_turn') {
       // Next assistant reply should start a fresh accumulation.
       STATE._asstActive = false;
+      Karaoke.finishReply();
       // Resume listening for the next user utterance, but only when
       // any queued audio has finished playing.
       const wait = STATE.player ? Math.max(0, (STATE.player.queueEnd - STATE.player.ctx?.currentTime) * 1000) : 0;
@@ -1251,6 +1279,7 @@
     if (STATE.mic) STATE.mic.stop();
     _stopLiveSpeech();
     if (STATE.player) { STATE.player.stop(); STATE.player = null; }
+    Karaoke.reset();
     setStatus('idle');
   }
 
@@ -1347,6 +1376,139 @@
     while (k < starts.length && starts[k] <= posMs) k++;
     return k > prev ? k : prev;
   }
+
+  function _escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // ---- Karaoke runtime — mobile-style word-by-word reply highlight ----
+  // Each assistant_text chunk is a segment paired with the audio clip that
+  // follows it. As that clip plays (PcmPlayer per-clip hook), words light up
+  // one at a time driven by the audio clock — no server-side timestamps.
+  // Spoken words use the spoken color, the rest stay muted (see voice.css).
+  const Karaoke = {
+    segs: [],
+    cur: -1,            // index of the segment whose audio is currently playing
+    raf: 0,
+    active: false,      // a reply is in progress (first assistant_text → end_turn)
+
+    _el() { return $('voiceAssistantLine'); },
+
+    reset() {
+      this.segs = []; this.cur = -1; this.active = false;
+      this._stopTick();
+      const el = this._el();
+      if (el) { el.innerHTML = ''; el.style.display = 'none'; }
+    },
+
+    // First assistant_text of a fresh turn — clear the previous reply.
+    beginReply() { this.reset(); this.active = true; },
+
+    addSegment(text) {
+      text = (text == null ? '' : String(text));
+      if (!text.trim()) return;
+      const ranges = karaokeWordRanges(text);
+      const words = ranges.map(r => text.slice(r[0], r[1]));
+      this.segs.push({ text, ranges, words, starts: [], clipStart: 0, durMs: 0, spoken: 0, audioStarted: false });
+      if (this.cur < 0) this.cur = 0;
+      this.render();
+      this._startTick();
+    },
+
+    onClipStart(tag, startAtSec) {
+      const seg = this.segs[tag];
+      if (!seg) return;
+      seg.clipStart = startAtSec;
+      seg.audioStarted = true;
+      if (tag >= this.cur) this.cur = tag;
+      this._startTick();
+    },
+
+    accrueDur(tag, ms) {
+      const seg = this.segs[tag];
+      if (!seg) return;
+      seg.durMs += ms;
+      seg.starts = karaokeSchedule(seg.words, seg.durMs);
+    },
+
+    // end_turn: stop generating new segments, but let the tick finish playing
+    // out whatever audio is still queued.
+    finishReply() { this.active = false; },
+
+    _ticking() {
+      if (this.active) return true;
+      const last = this.segs[this.segs.length - 1];
+      return !!(last && last.audioStarted && last.spoken < last.words.length);
+    },
+    _startTick() {
+      if (this.raf || typeof requestAnimationFrame !== 'function') return;
+      const loop = () => {
+        this.raf = 0;
+        this._advance();
+        if (this._ticking()) this.raf = requestAnimationFrame(loop);
+      };
+      this.raf = requestAnimationFrame(loop);
+    },
+    _stopTick() {
+      if (this.raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.raf);
+      this.raf = 0;
+    },
+
+    _advance() {
+      if (!STATE.player || this.cur < 0) return;
+      const seg = this.segs[this.cur];
+      if (!seg || !seg.audioStarted) return;
+      const posMs = (STATE.player.nowSec() - seg.clipStart) * 1000;
+      const next = karaokeAdvanceSpoken(seg.starts, posMs, seg.spoken);
+      let changed = false;
+      if (next !== seg.spoken) { seg.spoken = next; changed = true; }
+      // Hand off to the next segment once this one is fully spoken and its
+      // successor's audio has started.
+      if (seg.spoken >= seg.words.length &&
+          this.cur + 1 < this.segs.length && this.segs[this.cur + 1].audioStarted) {
+        seg.spoken = seg.words.length;
+        this.cur++;
+        changed = true;
+      }
+      if (changed) { this.render(); this.follow(); }
+    },
+
+    render() {
+      const el = this._el();
+      if (!el) return;
+      let html = '';
+      let cursorPlaced = false;
+      for (let si = 0; si < this.segs.length; si++) {
+        const seg = this.segs[si];
+        const spokenCount = si < this.cur ? seg.words.length
+          : (si === this.cur ? seg.spoken : 0);
+        let last = 0;
+        for (let i = 0; i < seg.ranges.length; i++) {
+          const s = seg.ranges[i][0], e = seg.ranges[i][1];
+          if (s > last) html += _escHtml(seg.text.slice(last, s));
+          if (si === this.cur && i === spokenCount && !cursorPlaced) {
+            html += '<span class="kw-cursor" aria-hidden="true"></span>';
+            cursorPlaced = true;
+          }
+          html += '<span class="kw ' + (i < spokenCount ? 'spoken' : 'unspoken') + '">'
+            + _escHtml(seg.text.slice(s, e)) + '</span>';
+          last = e;
+        }
+        if (last < seg.text.length) html += _escHtml(seg.text.slice(last));
+        if (si < this.segs.length - 1) html += ' ';
+      }
+      el.innerHTML = html;
+      el.style.display = this.segs.length ? '' : 'none';
+    },
+
+    follow() {
+      const el = this._el();
+      if (!el) return;
+      const c = el.querySelector('.kw-cursor');
+      if (c && c.scrollIntoView) c.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    },
+  };
 
   // ---- Mode toggle ----
   function setMode(mode) {
