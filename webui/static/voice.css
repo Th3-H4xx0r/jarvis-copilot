@@ -168,9 +168,13 @@ main.main.showing-voice #mainVoice { display: flex !important; }
 }
 
 .voice-ptt-btn[aria-pressed="true"],
+.voice-ptt-btn.active,
 main.main.showing-voice .voice-orb-state-label[data-state="listening"] ~ * .voice-ptt-btn {
-  border-color: rgba(156, 232, 255, 0.7);
-  box-shadow: 0 0 26px rgba(156, 232, 255, 0.35);
+  /* Active session ("Stop") — filled red so it reads clearly as a toggle in
+     the ON state (the JARVIS skin has its own stronger override). */
+  background: linear-gradient(180deg, rgba(229, 72, 77, 0.30), rgba(229, 72, 77, 0.16));
+  border-color: rgba(255, 138, 138, 0.7);
+  box-shadow: 0 0 26px rgba(229, 72, 77, 0.30);
 }
 
 .voice-secondary-btn {

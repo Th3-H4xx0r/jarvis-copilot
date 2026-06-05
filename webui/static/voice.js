@@ -74,12 +74,14 @@
   function _updateMuteButtonLabel() {
     const btn = document.getElementById('voiceMuteBtn');
     if (!btn) return;
-    if (STATE.fsm === 'listening') {
+    // Only offer end-turn/interrupt when a realtime session is actually live —
+    // not during e.g. the TTS-test preview, which also drives the FSM.
+    if (STATE.ws && STATE.fsm === 'listening') {
       btn.textContent = tr('voice_btn_done_speaking', 'Done speaking');
       btn.dataset.action = 'end-turn';
       return;
     }
-    if (STATE.fsm === 'thinking' || STATE.fsm === 'speaking') {
+    if (STATE.ws && (STATE.fsm === 'thinking' || STATE.fsm === 'speaking')) {
       btn.textContent = tr('voice_btn_interrupt', 'Interrupt');
       btn.dataset.action = 'interrupt';
       return;
@@ -831,6 +833,9 @@
     }
     async playMp3Bytes(uint8) {
       this._ensureCtx();
+      // Snapshot the tag BEFORE the async decode — a later segment's
+      // setClipTag() during the await must not retarget this (whole) clip.
+      const clipTag = this._clipTag;
       const buf = await this.ctx.decodeAudioData(uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength));
       const src = this.ctx.createBufferSource();
       src.buffer = buf;
@@ -839,7 +844,12 @@
       src.start(startAt);
       this.queueEnd = startAt + buf.duration;
       this.playing = true;
-      this._noteClip(startAt, buf.duration);
+      // MP3 arrives as one complete clip per call, so report start + full
+      // duration directly against the snapshotted tag.
+      if (clipTag != null) {
+        if (this.onClipStart) this.onClipStart(clipTag, startAt);
+        if (this.onClipDur) this.onClipDur(clipTag, buf.duration * 1000);
+      }
       return new Promise(res => { src.onended = res; });
     }
     stop() {
@@ -952,9 +962,13 @@
 
   // ---- Realtime conversation (WS streaming) ----
   async function startRealtime() {
-    if (STATE.ws && STATE.ws.isOpen()) return;
+    // STATE.ws is non-null from 'connecting' onward, so this also rejects a
+    // second tap during the connect window (which would otherwise overwrite
+    // STATE.ws and leak the first socket).
+    if (STATE.ws) return;
     showError('');
     clearTranscript();
+    STATE._asstActive = false;
     if (!STATE.mic) STATE.mic = new MicCapture();
     if (!STATE.player) STATE.player = new PcmPlayer();
     STATE.player.onAmplitude = (a) => { if (STATE.orb) STATE.orb.setAmplitude(a); };
@@ -962,24 +976,41 @@
     STATE.player.onClipDur = (tag, ms) => Karaoke.accrueDur(tag, ms);
     Karaoke.reset();
     setStatus('connecting');
-    STATE.ws = new RealtimeWS();
-    STATE.ws.onText = onRealtimeText;
-    STATE.ws.onBinary = onRealtimeBinary;
-    STATE.ws.onError = () => { showError(tr('voice_err_ws_failed', 'Realtime connection failed.')); setStatus('error'); };
-    STATE.ws.onClose = () => { setStatus('idle'); };
+    const ws = new RealtimeWS();
+    STATE.ws = ws;
+    ws.onText = onRealtimeText;
+    ws.onBinary = onRealtimeBinary;
+    // Guard the close/error callbacks on identity so a stale socket (e.g. one
+    // the server idle-closes after we've started a new session) can't clobber
+    // the current session's state.
+    ws.onError = () => {
+      if (STATE.ws !== ws) return;
+      showError(tr('voice_err_ws_failed', 'Realtime connection failed.'));
+      setStatus('error');
+    };
+    ws.onClose = () => {
+      if (STATE.ws !== ws) return;
+      STATE.ws = null;
+      STATE._asstActive = false;
+      Karaoke.finishReply();
+      setStatus('idle');
+    };
     try {
-      await STATE.ws.open();
+      await ws.open();
     } catch (e) {
+      if (STATE.ws === ws) STATE.ws = null;
       showError(tr('voice_err_ws_failed', 'Realtime connection failed.'));
       setStatus('error');
       return;
     }
+    if (STATE.ws !== ws) return;  // torn down during open()
     try {
       await STATE.mic.start();
     } catch (e) {
       showError(tr('voice_err_no_mic', 'Microphone access denied or unavailable.'));
       setStatus('error');
-      STATE.ws.close();
+      ws.close();
+      if (STATE.ws === ws) STATE.ws = null;
       return;
     }
     // Realtime mode also routes through the user's active chat session so
@@ -987,7 +1018,8 @@
     // none exists (e.g. the mini popup) instead of falling back to a tool-less
     // reply.
     const _sid = await _ensureVoiceSession();
-    STATE.ws.sendJson({ type: 'begin_turn', sample_rate: 16000, session_id: _sid });
+    if (STATE.ws !== ws) return;  // torn down during mic.start() / session create
+    ws.sendJson({ type: 'begin_turn', sample_rate: 16000, session_id: _sid });
     setStatus('listening');
     _startLiveSpeech();
     // VAD heuristic — two phases per turn so a quiet room doesn't fire
@@ -1116,6 +1148,7 @@
     if (STATE.mic) STATE.mic.stop();
     _stopLiveSpeech();
     if (STATE.player) { STATE.player.stop(); STATE.player = null; }
+    STATE._asstActive = false;
     Karaoke.reset();
     setStatus('idle');
   }
@@ -1269,14 +1302,32 @@
       seg.starts = karaokeSchedule(seg.words, seg.durMs);
     },
 
-    // end_turn: stop generating new segments, but let the tick finish playing
-    // out whatever audio is still queued.
-    finishReply() { this.active = false; },
+    // end_turn: stop accepting new segments, let the tick play out whatever
+    // audio is still queued, then guarantee a fully-lit final state.
+    finishReply() { this.active = false; this._startTick(); },
 
+    _audioPlaying() {
+      return !!(STATE.player && STATE.player.queueEnd > STATE.player.nowSec() + 0.05);
+    },
     _ticking() {
       if (this.active) return true;
-      const last = this.segs[this.segs.length - 1];
-      return !!(last && last.audioStarted && last.spoken < last.words.length);
+      // Keep advancing while audio is still playing, or the current segment's
+      // words haven't caught up to its audio yet.
+      if (this._audioPlaying()) return true;
+      const seg = this.segs[this.cur];
+      return !!(seg && seg.audioStarted && seg.spoken < seg.words.length);
+    },
+    // Light up everything once the reply is over — covers audio that under-ran
+    // the text and a trailing text-only segment that never received audio (a
+    // real path when server-side TTS fails for the final segment).
+    _finalize() {
+      if (!this.segs.length) return;
+      let changed = false;
+      for (const s of this.segs) {
+        if (s.spoken !== s.words.length) { s.spoken = s.words.length; changed = true; }
+      }
+      this.cur = this.segs.length - 1;
+      if (changed) { this.render(); this.follow(); }
     },
     _startTick() {
       if (this.raf || typeof requestAnimationFrame !== 'function') return;
@@ -1284,6 +1335,7 @@
         this.raf = 0;
         this._advance();
         if (this._ticking()) this.raf = requestAnimationFrame(loop);
+        else this._finalize();   // reply done + audio drained → ensure 100% lit
       };
       this.raf = requestAnimationFrame(loop);
     },
@@ -1355,7 +1407,10 @@
     const btn = $('voicePttBtn');
     const label = $('voicePttLabel');
     if (!btn) return;
-    const active = STATE.fsm !== 'idle' && STATE.fsm !== 'error';
+    // Gate on an actual session (STATE.ws), so unrelated FSM changes (e.g. the
+    // TTS-test preview which flips to 'speaking') don't flip the button to
+    // "Stop" when there's nothing to stop.
+    const active = !!STATE.ws && STATE.fsm !== 'idle' && STATE.fsm !== 'error';
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', active ? 'true' : 'false');
     if (label) {
@@ -1547,7 +1602,9 @@
       // again to stop it. (Hold-to-talk / Quality mode is gone.)
       const toggle = (e) => {
         if (e) e.preventDefault();
-        if (STATE.ws && STATE.ws.isOpen()) stopRealtime();
+        // STATE.ws is non-null while connecting OR live, so this stops a
+        // session in either state (and a fresh tap after it's cleared starts).
+        if (STATE.ws) stopRealtime();
         else startRealtime();
       };
       ptt.addEventListener('click', toggle);

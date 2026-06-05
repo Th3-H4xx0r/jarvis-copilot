@@ -768,7 +768,10 @@
         </div>
         <div class="voice-transcript-wrap" id="voiceTranscriptWrap" aria-live="polite">
           <div class="voice-transcript-row voice-transcript-user" id="voiceUserLine" style="display:none"></div>
-          <div class="voice-transcript-row voice-transcript-assistant" id="voiceAssistantLine" style="display:none"></div>
+          <!-- aria-live off: the karaoke line mutates once per spoken word; the
+               reply is already spoken aloud via TTS, so per-word announcements
+               would just spam a screen reader. -->
+          <div class="voice-transcript-row voice-transcript-assistant" id="voiceAssistantLine" style="display:none" aria-live="off"></div>
         </div>
         <div class="voice-controls">
           <button id="voicePttBtn" class="voice-ptt-btn" type="button" aria-pressed="false" data-i18n-title="voice_btn_talk">
