@@ -1306,6 +1306,48 @@
     return out;
   }
 
+  // ---- Karaoke scheduler (pure) — ported from mobile _Seg.schedule/advance ----
+  // These are deliberately DOM-free so webui/tests/test_voice_karaoke.py can
+  // extract + eval them under node.
+
+  // Word ranges: [startOffset, endOffset) for each whitespace-delimited token.
+  function karaokeWordRanges(text) {
+    const ranges = [];
+    const re = /\S+/g; let m;
+    while ((m = re.exec(text || '')) !== null) ranges.push([m.index, m.index + m[0].length]);
+    return ranges;
+  }
+
+  // Cumulative start time (ms) of each word across a clip of clipMs, weighted by
+  // word length plus a pause after sentence/clause punctuation. starts[0] === 0.
+  function karaokeSchedule(words, clipMs) {
+    const n = words.length;
+    if (n === 0) return [];
+    const weights = new Array(n); let total = 0;
+    for (let i = 0; i < n; i++) {
+      const w = words[i]; let wt = w.length + 1.0;
+      const last = w.length ? w[w.length - 1] : '';
+      if ('.!?'.includes(last)) wt += 6.0;        // sentence end → long pause
+      else if (',;:'.includes(last)) wt += 3.0;   // clause break → short pause
+      weights[i] = wt; total += wt;
+    }
+    const starts = new Array(n); let cum = 0;
+    for (let i = 0; i < n; i++) {
+      starts[i] = total > 0 ? (cum / total) * clipMs : 0;
+      cum += weights[i];
+    }
+    return starts;
+  }
+
+  // Monotonic spoken-word count: words whose start <= posMs, never decreasing
+  // below prevSpoken (so a position jitter backwards never un-highlights).
+  function karaokeAdvanceSpoken(starts, posMs, prevSpoken) {
+    const prev = prevSpoken || 0;
+    let k = prev;
+    while (k < starts.length && starts[k] <= posMs) k++;
+    return k > prev ? k : prev;
+  }
+
   // ---- Mode toggle ----
   function setMode(mode) {
     if (mode !== 'quality' && mode !== 'realtime') return;
