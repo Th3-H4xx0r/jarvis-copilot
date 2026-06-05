@@ -762,16 +762,17 @@
     </div><!-- /#mainChat -->
     <div id="mainVoice" class="main-view">
       <div class="voice-main">
+        <!-- What you said — quiet, centered, unboxed line ABOVE the orb (mobile parity). -->
+        <div class="voice-transcript-user" id="voiceUserLine" style="display:none"></div>
         <div class="voice-orb-wrap" id="voiceOrbWrap">
           <canvas id="voiceOrbCanvas" class="voice-orb-canvas" aria-hidden="true"></canvas>
           <div class="voice-orb-state-label" id="voiceStateLabel" data-i18n="voice_status_idle">Ready</div>
         </div>
         <div class="voice-transcript-wrap" id="voiceTranscriptWrap" aria-live="polite">
-          <div class="voice-transcript-row voice-transcript-user" id="voiceUserLine" style="display:none"></div>
           <!-- aria-live off: the karaoke line mutates once per spoken word; the
                reply is already spoken aloud via TTS, so per-word announcements
                would just spam a screen reader. -->
-          <div class="voice-transcript-row voice-transcript-assistant" id="voiceAssistantLine" style="display:none" aria-live="off"></div>
+          <div class="voice-transcript-assistant" id="voiceAssistantLine" style="display:none" aria-live="off"></div>
         </div>
         <div class="voice-controls">
           <button id="voicePttBtn" class="voice-ptt-btn" type="button" aria-pressed="false" data-i18n-title="voice_btn_talk">

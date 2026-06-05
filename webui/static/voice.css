@@ -100,23 +100,34 @@ main.main.showing-voice #mainVoice { display: flex !important; }
   white-space: pre-wrap;
 }
 
+/* What you said — quiet, centered, unboxed line above the orb (mobile parity). */
 .voice-transcript-user {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-  color: var(--fg, #d8dee9);
+  width: 100%;
+  max-width: 560px;
+  text-align: center;
+  color: #B8C0CE;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.4;
+  word-break: break-word;
+  /* Clamp to 2 lines so a long utterance doesn't shove the orb around. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-/* Assistant reply is rendered karaoke-style (word-by-word highlight), matching
-   the mobile client: a plain flowing Inter paragraph — no bubble — with spoken
-   words lit and the rest muted. The user line above keeps its bubble. */
+/* Assistant reply — karaoke word-by-word highlight, matching the mobile client:
+   a plain centered Inter paragraph (no bubble), spoken words lit, rest muted. */
 .voice-transcript-assistant {
   background: none;
   border: none;
   padding: 6px 4px;
+  text-align: center;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1.45;
   letter-spacing: -0.2px;
   color: #8A93A8;            /* fallback for any non-word text (whitespace) */
 }

@@ -967,14 +967,16 @@
     // STATE.ws and leak the first socket).
     if (STATE.ws) return;
     showError('');
-    clearTranscript();
+    // Clear the stale "what you said" line, but KEEP the previous reply on
+    // screen — it's replaced only when this conversation's reply streams in
+    // (Karaoke.beginReply), so the last answer stays visible meanwhile.
+    setTranscript('', 'user');
     STATE._asstActive = false;
     if (!STATE.mic) STATE.mic = new MicCapture();
     if (!STATE.player) STATE.player = new PcmPlayer();
     STATE.player.onAmplitude = (a) => { if (STATE.orb) STATE.orb.setAmplitude(a); };
     STATE.player.onClipStart = (tag, startAt) => Karaoke.onClipStart(tag, startAt);
     STATE.player.onClipDur = (tag, ms) => Karaoke.accrueDur(tag, ms);
-    Karaoke.reset();
     setStatus('connecting');
     const ws = new RealtimeWS();
     STATE.ws = ws;
@@ -1149,7 +1151,9 @@
     _stopLiveSpeech();
     if (STATE.player) { STATE.player.stop(); STATE.player = null; }
     STATE._asstActive = false;
-    Karaoke.reset();
+    // Keep the last reply on screen (fully lit) rather than wiping it — it's
+    // replaced when the next conversation's reply starts (beginReply).
+    Karaoke.finishReply();
     setStatus('idle');
   }
 
@@ -1311,11 +1315,9 @@
     },
     _ticking() {
       if (this.active) return true;
-      // Keep advancing while audio is still playing, or the current segment's
-      // words haven't caught up to its audio yet.
-      if (this._audioPlaying()) return true;
-      const seg = this.segs[this.cur];
-      return !!(seg && seg.audioStarted && seg.spoken < seg.words.length);
+      // Keep advancing only while audio is actually playing; once it drains (or
+      // the player is stopped, e.g. on Stop) we finalize instead of spinning.
+      return this._audioPlaying();
     },
     // Light up everything once the reply is over — covers audio that under-ran
     // the text and a trailing text-only segment that never received audio (a
