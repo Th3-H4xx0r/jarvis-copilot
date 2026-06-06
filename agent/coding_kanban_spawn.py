@@ -33,6 +33,20 @@ Assumptions (see module docstring + the returned function below):
 from __future__ import annotations
 
 
+def _field(task, key, default=None):
+    """Read a card field whether the card is dict-like or an object.
+
+    The test suite passes plain dicts; the live ``dispatch_once`` passes a
+    ``Task`` object exposing the same fields as attributes. Support both.
+    """
+    if hasattr(task, "get"):
+        try:
+            return task.get(key, default)
+        except TypeError:
+            pass
+    return getattr(task, key, default)
+
+
 def _wants_claude(task) -> bool:
     """Return True iff this card is flagged to run under Claude Code.
 
@@ -40,7 +54,7 @@ def _wants_claude(task) -> bool:
     empty string, ``None``, ``"Claude"``, ``"claude-code"``, ...) is False so
     the card falls through to the default hermes spawn.
     """
-    return task.get("runner") == "claude"
+    return _field(task, "runner") == "claude"
 
 
 def _build_initial_prompt(task) -> str:
@@ -50,17 +64,17 @@ def _build_initial_prompt(task) -> str:
     ``title`` + ``body``. Always appends an explicit kanban-work instruction
     referencing the card id.
     """
-    context = task.get("worker_context")
+    context = _field(task, "worker_context")
     if context:
         base = str(context)
     else:
-        title = task.get("title") or ""
-        body = task.get("body", "") or ""
+        title = _field(task, "title") or ""
+        body = _field(task, "body", "") or ""
         base = title
         if body:
             base = f"{title}\n\n{body}" if title else body
 
-    task_id = task.get("id")
+    task_id = _field(task, "id")
     ref = f" (kanban card {task_id})" if task_id else ""
     instruction = (
         f"You are working a JarvisCopilot kanban task{ref}. "
@@ -99,22 +113,23 @@ def make_claude_spawn_fn(manager, *, fallback, link=None):
         if not _wants_claude(task):
             return fallback(task, workspace, board=board)
 
-        cwd = task.get("worktree_path") or task.get("workspace_path") or workspace
+        cwd = (_field(task, "worktree_path") or _field(task, "workspace_path")
+               or workspace)
         if not cwd:
             raise ValueError(
-                f"claude card {task.get('id')!r} has no workspace: set "
+                f"claude card {_field(task, 'id')!r} has no workspace: set "
                 "worktree_path / workspace_path or pass a dispatcher workspace"
             )
 
         session = manager.launch(
             cwd=cwd,
-            title=task.get("title") or task.get("id"),
+            title=_field(task, "title") or _field(task, "id"),
             initial_prompt=_build_initial_prompt(task),
-            model=task.get("model_override"),
+            model=_field(task, "model_override"),
         )
 
         if link is not None:
-            link(task_id=task.get("id"), session_id=session.get("id"))
+            link(task_id=_field(task, "id"), session_id=session.get("id"))
 
         return session
 

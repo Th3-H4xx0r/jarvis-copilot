@@ -8,9 +8,36 @@ returns such a callable that routes claude-flagged cards into a
 These tests inject a FAKE manager + FAKE fallback so they never touch a real
 claude/tmux or the real manager.
 """
+import types
+
 import pytest
 
-from agent.coding_kanban_spawn import make_claude_spawn_fn, _wants_claude
+from agent.coding_kanban_spawn import make_claude_spawn_fn, _wants_claude, _field
+
+
+def test_field_handles_objects_and_dicts():
+    assert _field({"runner": "claude"}, "runner") == "claude"
+    obj = types.SimpleNamespace(runner="claude", title="T")
+    assert _field(obj, "runner") == "claude"
+    assert _field(obj, "missing", "d") == "d"
+
+
+def test_spawn_works_with_object_style_task():
+    launched = {}
+
+    class Mgr:
+        def launch(self, **kw):
+            launched.update(kw)
+            return {"id": "cs_obj"}
+
+    spawn = make_claude_spawn_fn(Mgr(), fallback=lambda *a, **k: "fb")
+    task = types.SimpleNamespace(runner="claude", workspace_path="/repo",
+                                 title="do it", id="k1", worker_context=None,
+                                 worktree_path=None, model_override="opus")
+    out = spawn(task, None, board=None)
+    assert out == {"id": "cs_obj"}
+    assert launched["cwd"] == "/repo"
+    assert launched["model"] == "opus"
 
 
 class FakeManager:
