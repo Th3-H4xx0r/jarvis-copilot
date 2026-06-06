@@ -276,8 +276,8 @@ function _codingRenderDetail(session, subagents) {
     const host = session.host || 'server';
     const termSection = host === 'server'
       ? `<div class="cm-section">
-           <div class="cm-section-head"><span class="cm-section-title">Live terminal</span></div>
-           <div class="cdg-term" id="codingTerm" style="height:340px;background:#0a0d13;border-radius:8px;padding:6px;overflow:hidden"></div>
+           <div class="cm-section-head"><span class="cm-section-title">Live terminal</span><span class="cm-section-count" style="font-weight:400;opacity:.6">type here to talk to claude</span></div>
+           <div class="cdg-term" id="codingTerm" style="height:460px;background:#0a0d13;border-radius:8px;padding:6px;overflow:hidden"></div>
          </div>`
       : `<div class="cm-section"><div class="cdg-sub-empty">Live terminal is available for server-host sessions.</div></div>`;
     detail.innerHTML = `
@@ -298,14 +298,6 @@ function _codingRenderDetail(session, subagents) {
           <div class="cdg-subs" id="codingSubs"></div>
         </div>
         ${termSection}
-        <div class="cm-section">
-          <div class="cm-section-head"><span class="cm-section-title">Send a message</span></div>
-          <textarea class="cdg-textarea" id="codingMsg" rows="3" placeholder="Send a follow-up to the coding agent…"></textarea>
-          <div class="cdg-form-actions">
-            <button type="button" class="cdg-btn-primary" id="codingSendBtn" onclick="codingSendMessage()">Send</button>
-          </div>
-          <div class="cdg-form-err" id="codingMsgErr" style="display:none"></div>
-        </div>
       </div>`;
     if (host === 'server') _codingMountTerminal(id);
   }
@@ -393,31 +385,9 @@ function _codingTeardownTerminal() {
   _codingTermResize = null; _codingTermMountedId = null;
 }
 
-async function codingSendMessage() {
-  if (!_codingSelectedId) return;
-  const ta = document.getElementById('codingMsg');
-  const errEl = document.getElementById('codingMsgErr');
-  const btn = document.getElementById('codingSendBtn');
-  const text = ta ? ta.value.trim() : '';
-  if (errEl) errEl.style.display = 'none';
-  if (!text) return;
-  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-  try {
-    const res = await api('/api/coding/session/' + encodeURIComponent(_codingSelectedId) + '/message',
-      { method: 'POST', body: JSON.stringify({ text }) });
-    if (!res || res.ok === false) {
-      if (errEl) { errEl.textContent = (res && (res.error || res.message)) || 'Send failed.'; errEl.style.display = ''; }
-      return;
-    }
-    if (ta) ta.value = '';
-    _codingRefreshDetail();
-  } catch (e) {
-    if (errEl) { errEl.textContent = (e && e.message) || 'Send failed.'; errEl.style.display = ''; }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
-  }
-}
-window.codingSendMessage = codingSendMessage;
+// Messages are now sent by typing directly into the live terminal (xterm ->
+// /api/terminal/input). The separate composer was removed as redundant; the
+// /api/coding/session/<id>/message endpoint stays for the chat skill + mobile.
 
 async function codingStop() {
   if (!_codingSelectedId) return;
