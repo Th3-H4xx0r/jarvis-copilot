@@ -387,3 +387,19 @@ def test_launch_defaults_to_server_host():
         manager_for_host=lambda h: desktop if h == "desktop" else server)
     assert status == 200
     assert any(c[0] == "launch" for c in server.calls)
+
+
+def test_terminal_start_unknown_session_404():
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "POST", "/session/nope/terminal/start", {}, manager=m)
+    assert status == 404
+
+
+def test_terminal_start_without_tmux_name_409():
+    # the FakeManager's known session has host defaulting to 'server' and no
+    # tmux_name -> 409 (no real tmux is ever spawned in this path)
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "POST", "/session/" + FakeManager.KNOWN + "/terminal/start", {}, manager=m)
+    assert status == 409

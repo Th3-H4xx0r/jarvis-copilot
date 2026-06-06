@@ -24,6 +24,12 @@ let _codingProjectsCache = [];      // [{repo_path,name,...}]
 let _codingSelectedId = null;       // currently-open session id (string) or null
 let _codingPollTimer = null;        // setInterval handle for the detail poll
 let _codingLoaded = false;          // idempotency guard for the one-time shell render
+let _codingDetailShellId = null;    // session id the detail shell is built for
+let _codingTerm = null;             // xterm instance for the live terminal
+let _codingTermES = null;           // EventSource for terminal output
+let _codingTermFit = null;          // xterm FitAddon
+let _codingTermResize = null;       // bound window resize handler
+let _codingTermMountedId = null;    // session id the terminal is attached to
 const _CODING_POLL_MS = 4000;       // detail status/subagent refresh cadence
 
 function _cdgEsc(s) {
@@ -176,6 +182,8 @@ window.codingShowLaunch = codingShowLaunch;
 
 function codingClearDetail() {
   _codingStopPoll();
+  _codingTeardownTerminal();
+  _codingDetailShellId = null;
   _codingSelectedId = null;
   document.querySelectorAll('.cdg-item').forEach(b => b.classList.remove('active'));
   const detail = document.getElementById('codingDetail');
@@ -255,52 +263,134 @@ function _codingRenderDetail(session, subagents) {
   const detail = document.getElementById('codingDetail');
   if (!detail) return;
   const id = String(session.id != null ? session.id : _codingSelectedId || '');
-  const title = session.title || session.cwd || session.repo_path || id;
-  const cwd = session.cwd || session.repo_path || '';
-  const st = _cdgStatusClass(session.status);
-  const statusLabel = session.status || 'idle';
-  const isRunning = st === 'running' || st === 'idle';
   const subList = Array.isArray(subagents) ? subagents : [];
-  const subHtml = subList.length
+
+  // Build the detail SHELL once per session. Subsequent polls only update the
+  // dynamic bits (status + subagents) so the live xterm terminal isn't
+  // destroyed and recreated every 4s.
+  if (_codingDetailShellId !== id) {
+    _codingTeardownTerminal();
+    _codingDetailShellId = id;
+    const title = session.title || session.cwd || session.repo_path || id;
+    const cwd = session.cwd || session.repo_path || '';
+    const host = session.host || 'server';
+    const termSection = host === 'server'
+      ? `<div class="cm-section">
+           <div class="cm-section-head"><span class="cm-section-title">Live terminal</span></div>
+           <div class="cdg-term" id="codingTerm" style="height:340px;background:#0a0d13;border-radius:8px;padding:6px;overflow:hidden"></div>
+         </div>`
+      : `<div class="cm-section"><div class="cdg-sub-empty">Live terminal is available for server-host sessions.</div></div>`;
+    detail.innerHTML = `
+      <div class="cm-detail-head">
+        <div class="cm-detail-titles">
+          <div class="cm-detail-name">${_cdgEsc(title)}</div>
+          <div class="cm-detail-slug">${_cdgEsc(cwd)}</div>
+        </div>
+        <div class="cdg-detail-status">
+          <span class="cdg-dot cdg-dot-idle" id="codingStatusDot"></span>
+          <span class="cdg-status-text" id="codingStatusText">…</span>
+          <button type="button" class="cdg-btn-stop" id="codingStopBtn" onclick="codingStop()">Stop</button>
+        </div>
+      </div>
+      <div class="cm-detail-body">
+        <div class="cm-section">
+          <div class="cm-section-head"><span class="cm-section-title">Subagents</span><span class="cm-section-count" id="codingSubCount">0</span></div>
+          <div class="cdg-subs" id="codingSubs"></div>
+        </div>
+        ${termSection}
+        <div class="cm-section">
+          <div class="cm-section-head"><span class="cm-section-title">Send a message</span></div>
+          <textarea class="cdg-textarea" id="codingMsg" rows="3" placeholder="Send a follow-up to the coding agent…"></textarea>
+          <div class="cdg-form-actions">
+            <button type="button" class="cdg-btn-primary" id="codingSendBtn" onclick="codingSendMessage()">Send</button>
+          </div>
+          <div class="cdg-form-err" id="codingMsgErr" style="display:none"></div>
+        </div>
+      </div>`;
+    if (host === 'server') _codingMountTerminal(id);
+  }
+  _codingUpdateDetailStatus(session);
+  _codingUpdateSubagents(subList);
+}
+
+function _codingUpdateDetailStatus(session) {
+  const st = _cdgStatusClass(session.status);
+  const dot = document.getElementById('codingStatusDot');
+  const txt = document.getElementById('codingStatusText');
+  const stop = document.getElementById('codingStopBtn');
+  if (dot) dot.className = 'cdg-dot cdg-dot-' + st;
+  if (txt) txt.textContent = session.status || 'idle';
+  if (stop) stop.disabled = !(st === 'running' || st === 'idle');
+}
+
+function _codingUpdateSubagents(subList) {
+  const wrap = document.getElementById('codingSubs');
+  const count = document.getElementById('codingSubCount');
+  if (count) count.textContent = subList.length;
+  if (!wrap) return;
+  wrap.innerHTML = subList.length
     ? subList.map(sa => {
         const sast = _cdgStatusClass(sa.status);
-        return `<div class="cdg-sub">
-          <span class="cdg-dot cdg-dot-${sast}"></span>
-          <span class="cdg-sub-name">${_cdgEsc(sa.name || sa.title || sa.id || 'subagent')}</span>
+        return `<div class="cdg-sub"><span class="cdg-dot cdg-dot-${sast}"></span>
+          <span class="cdg-sub-name">${_cdgEsc(sa.sub_type || sa.name || sa.title || sa.id || 'subagent')}</span>
           <span class="cdg-sub-status">${_cdgEsc(sa.status || '')}</span>
-          ${sa.detail ? `<span class="cdg-sub-detail">${_cdgEsc(sa.detail)}</span>` : ''}
+          ${sa.description ? `<span class="cdg-sub-detail">${_cdgEsc(sa.description)}</span>` : ''}
         </div>`;
       }).join('')
     : '<div class="cdg-sub-empty">No subagents.</div>';
+}
 
-  detail.innerHTML = `
-    <div class="cm-detail-head">
-      <div class="cm-detail-titles">
-        <div class="cm-detail-name">${_cdgEsc(title)}</div>
-        <div class="cm-detail-slug">${_cdgEsc(cwd)}</div>
-      </div>
-      <div class="cdg-detail-status">
-        <span class="cdg-dot cdg-dot-${st}"></span>
-        <span class="cdg-status-text">${_cdgEsc(statusLabel)}</span>
-        <button type="button" class="cdg-btn-stop" id="codingStopBtn" onclick="codingStop()" ${isRunning ? '' : 'disabled'}>Stop</button>
-      </div>
-    </div>
-    <div class="cm-detail-body">
-      <div class="cm-section">
-        <div class="cm-section-head"><span class="cm-section-title">Subagents</span><span class="cm-section-count">${subList.length}</span></div>
-        <div class="cdg-subs">${subHtml}</div>
-      </div>
-      <div class="cm-section">
-        <div class="cm-section-head"><span class="cm-section-title">Send a message</span></div>
-        <textarea class="cdg-textarea" id="codingMsg" rows="3" placeholder="Send a follow-up to the coding agent…"></textarea>
-        <div class="cdg-form-actions">
-          <button type="button" class="cdg-btn-primary" id="codingSendBtn" onclick="codingSendMessage()">Send</button>
-        </div>
-        <div class="cdg-form-err" id="codingMsgErr" style="display:none"></div>
-      </div>
-      <!-- TODO: live tmux-attach terminal (xterm.js is already loaded in index.html).
-           MVP polls status/subagents only; a real PTY stream is a later enhancement. -->
-    </div>`;
+function _codingMountTerminal(id) {
+  const host = document.getElementById('codingTerm');
+  if (!host || !window.Terminal) return;
+  // Attach a server-side PTY to the session's tmux, then stream it into xterm.
+  api('/api/coding/session/' + encodeURIComponent(id) + '/terminal/start',
+    { method: 'POST', body: JSON.stringify({ rows: 24, cols: 100 }) })
+    .then(res => {
+      if (_codingDetailShellId !== id) return;        // switched away during start
+      if (res && res.ok === false) { host.textContent = (res.error || 'terminal unavailable'); return; }
+      const term = new window.Terminal({
+        cursorBlink: true, fontSize: 13,
+        fontFamily: 'Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        scrollback: 4000, convertEol: false,
+      });
+      let fit = null;
+      if (window.FitAddon && typeof window.FitAddon.FitAddon === 'function') {
+        fit = new window.FitAddon.FitAddon(); term.loadAddon(fit);
+      }
+      term.open(host);
+      try { if (fit) fit.fit(); } catch (_) {}
+      _codingTerm = term; _codingTermFit = fit; _codingTermMountedId = id;
+      term.onData(d => api('/api/terminal/input',
+        { method: 'POST', body: JSON.stringify({ session_id: id, data: d }) }).catch(() => {}));
+      const sendResize = () => {
+        try { if (fit) fit.fit(); } catch (_) {}
+        api('/api/terminal/resize',
+          { method: 'POST', body: JSON.stringify({ session_id: id, rows: term.rows, cols: term.cols }) }).catch(() => {});
+      };
+      _codingTermResize = sendResize;
+      window.addEventListener('resize', sendResize);
+      setTimeout(sendResize, 120);
+      const es = new EventSource('/api/terminal/output?session_id=' + encodeURIComponent(id), { withCredentials: true });
+      _codingTermES = es;
+      es.addEventListener('output', ev => {
+        let text = ''; try { text = (JSON.parse(ev.data) || {}).text || ''; } catch (_) {}
+        if (text && _codingTerm) _codingTerm.write(text);
+      });
+      es.addEventListener('terminal_closed', () => { if (_codingTerm) _codingTerm.write('\r\n\x1b[90m[detached]\x1b[0m\r\n'); });
+    }).catch(() => { host.textContent = 'terminal failed to start'; });
+}
+
+function _codingTeardownTerminal() {
+  try { if (_codingTermES) _codingTermES.close(); } catch (_) {}
+  try { if (_codingTermResize) window.removeEventListener('resize', _codingTermResize); } catch (_) {}
+  // Detach the server-side PTY (does NOT kill the tmux session / claude).
+  if (_codingTermMountedId) {
+    api('/api/terminal/close', { method: 'POST', body: JSON.stringify({ session_id: _codingTermMountedId }) }).catch(() => {});
+  }
+  try { if (_codingTerm) _codingTerm.dispose(); } catch (_) {}
+  _codingTerm = null; _codingTermES = null; _codingTermFit = null;
+  _codingTermResize = null; _codingTermMountedId = null;
 }
 
 async function codingSendMessage() {
@@ -362,5 +452,5 @@ function _codingStopPoll() {
 
 // Cleared from panels.js when the panel is switched away (mirrors how other
 // panels stop their timers), but also self-guards inside the interval above.
-function onCodingPanelLeave() { _codingStopPoll(); }
+function onCodingPanelLeave() { _codingStopPoll(); _codingTeardownTerminal(); _codingDetailShellId = null; }
 window.onCodingPanelLeave = onCodingPanelLeave;

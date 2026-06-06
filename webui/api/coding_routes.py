@@ -218,6 +218,30 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
 
             return _run(_stop)
 
+        # POST /session/<id>/terminal/start  — attach a live terminal to the
+        # session's tmux (server-host sessions only; reuses the existing
+        # /api/terminal/{output,input,resize,close} machinery, keyed by <id>).
+        if action == "terminal" and len(parts) > 2 and parts[2] == "start" and method == "POST":
+            def _term_start():
+                session = manager.status(sid)
+                if session is None:
+                    return _err(404, "session not found: " + sid)
+                if (session.get("host") or "server") != "server":
+                    return _err(400, "live terminal is only available for server-host sessions")
+                tmux_name = session.get("tmux_name")
+                if not tmux_name:
+                    return _err(409, "session has no tmux session to attach to")
+                from api.terminal import start_attach_terminal
+
+                term = start_attach_terminal(
+                    sid, tmux_name,
+                    rows=int(body.get("rows") or 24),
+                    cols=int(body.get("cols") or 80),
+                    restart=bool(body.get("restart")))
+                return _ok({"ok": True, "session_id": sid, "running": term.is_alive()})
+
+            return _run(_term_start)
+
         return _err(404, "not found")
 
     return _err(404, "not found")

@@ -198,6 +198,63 @@ def start_terminal(session_id: str, workspace: Path, rows: int = 24, cols: int =
         return term
 
 
+def start_attach_terminal(session_id: str, tmux_name: str,
+                          rows: int = 24, cols: int = 80,
+                          restart: bool = False) -> TerminalSession:
+    """Start (or return) a live terminal ATTACHED to a coding session's tmux.
+
+    Unlike ``start_terminal`` (which spawns a fresh shell in a workspace), this
+    runs ``tmux attach-session -t <tmux_name>`` in a PTY so the WebUI can watch
+    and type into the live ``claude`` session. Closing this terminal DETACHES
+    (the tmux session and its claude keep running). Registered under
+    ``session_id`` so the existing /api/terminal/{output,input,resize,close}
+    machinery drives it unchanged.
+    """
+    sid = str(session_id or "").strip()
+    if not sid:
+        raise ValueError("session_id is required")
+    name = str(tmux_name or "").strip()
+    if not name:
+        raise ValueError("tmux_name is required")
+    if not shutil.which("tmux"):
+        raise RuntimeError("tmux is not installed on this host")
+
+    with _LOCK:
+        current = _TERMINALS.get(sid)
+        if current and current.is_alive() and not restart:
+            _set_size(current, rows, cols)
+            return current
+        if current:
+            close_terminal(sid)
+
+        master_fd, slave_fd = os.openpty()
+        _SAFE_ENV_KEYS = {
+            "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL",
+            "LC_CTYPE", "LC_MESSAGES", "LANGUAGE", "TZ", "TMPDIR", "TEMP",
+            "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+        }
+        env = {k: v for k, v in os.environ.items() if k in _SAFE_ENV_KEYS}
+        env.update({"TERM": "xterm-256color", "COLORTERM": "truecolor",
+                    "COLUMNS": str(cols), "LINES": str(rows)})
+        home = env.get("HOME") or os.path.expanduser("~") or "/"
+        proc = subprocess.Popen(
+            ["tmux", "attach-session", "-t", name],
+            cwd=home, env=env,
+            stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
+            close_fds=True, start_new_session=True,
+        )
+        os.close(slave_fd)
+        _set_nonblocking(master_fd)
+
+        term = TerminalSession(session_id=sid, workspace=home, proc=proc,
+                               master_fd=master_fd, rows=rows, cols=cols)
+        _set_size(term, rows, cols)
+        term.reader = threading.Thread(target=_reader_loop, args=(term,), daemon=True)
+        term.reader.start()
+        _TERMINALS[sid] = term
+        return term
+
+
 def get_terminal(session_id: str) -> TerminalSession | None:
     with _LOCK:
         term = _TERMINALS.get(str(session_id or ""))
