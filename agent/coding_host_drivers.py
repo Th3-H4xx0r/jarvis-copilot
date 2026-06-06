@@ -61,7 +61,9 @@ class LocalDriver(HostDriver):
         return prefix
 
     def claude_argv(self, *, plugin_dir: str, context_file: str,
-                    model: str | None, initial_prompt: str | None) -> list[str]:
+                    model: str | None, initial_prompt: str | None,
+                    skip_permissions: bool = False,
+                    resume: bool = False) -> list[str]:
         """argv that starts a real agentic claude session.
 
         Deliberately omits the inference-shim's crippling flags (``--tools ""``,
@@ -69,15 +71,28 @@ class LocalDriver(HostDriver):
         makes the jarviscopilot-code-assist plugin available; the Jarvis memory
         seed is fed via ``--append-system-prompt-file`` (an absolute path).
         Returned as argv (no shell), so no value needs shell-quoting.
+
+        ``skip_permissions`` adds ``--dangerously-skip-permissions`` (claude runs
+        autonomously, no approval prompts). claude REFUSES that flag as root
+        unless ``IS_SANDBOX=1`` — hermes runs as root, so we set it via the env
+        prefix when the flag is on. ``resume`` adds ``--continue`` (resume the
+        most recent conversation in this cwd — used by Restart).
         """
-        argv = self._scrub_prefix() + [
+        prefix = self._scrub_prefix()
+        if skip_permissions:
+            prefix = prefix + ["IS_SANDBOX=1"]
+        argv = prefix + [
             _resolve_command(),
             "--plugin-dir", plugin_dir,
             "--append-system-prompt-file", context_file,
         ]
+        if resume:
+            argv += ["--continue"]
+        if skip_permissions:
+            argv += ["--dangerously-skip-permissions"]
         if is_valid_model(model):
             argv += ["--model", model]
-        if initial_prompt:
+        if initial_prompt and not resume:
             argv += [initial_prompt]
         return argv
 

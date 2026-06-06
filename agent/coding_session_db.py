@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS coding_sessions (
   cwd TEXT NOT NULL, worktree_path TEXT, branch TEXT, tmux_name TEXT,
   claude_session_id TEXT, status TEXT NOT NULL DEFAULT 'starting',
   title TEXT, source TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
-  last_activity_at REAL
+  last_activity_at REAL, skip_permissions INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON coding_sessions(status);
 """
@@ -64,20 +64,29 @@ class CodingSessionStore:
             # future poller all writing concurrently.
             c.execute("PRAGMA journal_mode=WAL")
             c.executescript(_SCHEMA)
+            # Migration: add columns to pre-existing dbs (CREATE IF NOT EXISTS
+            # won't add a column to an existing table). Ignore "duplicate column".
+            try:
+                c.execute("ALTER TABLE coding_sessions ADD COLUMN "
+                          "skip_permissions INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
 
     # --- sessions -----------------------------------------------------------
 
     def create_session(self, *, project_id, host, cwd, branch, tmux_name,
-                       source, title, worktree_path=None) -> str:
+                       source, title, worktree_path=None,
+                       skip_permissions=False) -> str:
         sid = "cs_" + uuid.uuid4().hex[:12]
         now = time.time()
         with self._conn() as c:
             c.execute(
                 "INSERT INTO coding_sessions(id,project_id,host,cwd,worktree_path,"
-                "branch,tmux_name,status,title,source,created_at,updated_at) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                "branch,tmux_name,status,title,source,created_at,updated_at,"
+                "skip_permissions) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (sid, project_id, host, cwd, worktree_path, branch, tmux_name,
-                 "starting", title, source, now, now))
+                 "starting", title, source, now, now,
+                 1 if skip_permissions else 0))
         return sid
 
     def update_session(self, sid: str, **fields) -> None:
@@ -98,6 +107,10 @@ class CodingSessionStore:
         with self._conn() as c:
             r = c.execute("SELECT * FROM coding_sessions WHERE id=?", (sid,)).fetchone()
         return dict(r) if r else None
+
+    def delete_session(self, sid: str) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM coding_sessions WHERE id=?", (sid,))
 
     def list_sessions(self, *, status: str | None = None) -> list[dict]:
         q = "SELECT * FROM coding_sessions"

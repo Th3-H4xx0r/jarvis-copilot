@@ -60,10 +60,11 @@ class FakeManager:
             raise self.exc
 
     def launch(self, *, cwd, title, initial_prompt, model,
-               worktree=False, repo_path=None):
+               worktree=False, repo_path=None, skip_permissions=False):
         self.calls.append(
             ("launch", dict(cwd=cwd, title=title, initial_prompt=initial_prompt,
-                            model=model, worktree=worktree, repo_path=repo_path)))
+                            model=model, worktree=worktree, repo_path=repo_path,
+                            skip_permissions=skip_permissions)))
         self._maybe_raise("launch")
         return {"id": "sess-new", "status": "running", "cwd": cwd,
                 "title": title}
@@ -99,6 +100,15 @@ class FakeManager:
         self.calls.append(("subagents", sid))
         self._maybe_raise("subagents")
         return [{"name": "tester"}]
+
+    def restart(self, sid):
+        self.calls.append(("restart", sid))
+        self._maybe_raise("restart")
+        return {"id": sid, "status": "running"}
+
+    def delete(self, sid):
+        self.calls.append(("delete", sid))
+        self._maybe_raise("delete")
 
 
 # ── prefix / matches ────────────────────────────────────────────────────────────
@@ -403,3 +413,41 @@ def test_terminal_start_without_tmux_name_409():
     status, body = handle_coding_request(
         "POST", "/session/" + FakeManager.KNOWN + "/terminal/start", {}, manager=m)
     assert status == 409
+
+
+def test_restart_route_known_session():
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "POST", "/session/" + FakeManager.KNOWN + "/restart", {}, manager=m)
+    assert status == 200 and body["ok"] is True
+    assert any(c[0] == "restart" for c in m.calls)
+
+
+def test_restart_route_unknown_session_404():
+    m = FakeManager()
+    status, body = handle_coding_request("POST", "/session/nope/restart", {}, manager=m)
+    assert status == 404
+
+
+def test_delete_route_known_session():
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "POST", "/session/" + FakeManager.KNOWN + "/delete", {}, manager=m)
+    assert status == 200 and body["ok"] is True
+    assert any(c[0] == "delete" for c in m.calls)
+
+
+def test_delete_route_accepts_delete_method():
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "DELETE", "/session/" + FakeManager.KNOWN + "/delete", None, manager=m)
+    assert status == 200
+
+
+def test_launch_passes_skip_permissions():
+    m = FakeManager()
+    handle_coding_request("POST", "/launch",
+                          {"cwd": "/x", "prompt": "go", "skip_permissions": True},
+                          manager=m)
+    launch_call = next(c for c in m.calls if c[0] == "launch")
+    assert launch_call[1]["skip_permissions"] is True

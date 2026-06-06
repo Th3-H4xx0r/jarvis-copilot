@@ -71,7 +71,8 @@ class CodingSessionManager:
         return self.context_root / sid / "JARVIS-CONTEXT.md"
 
     def launch(self, *, cwd, title, initial_prompt, model, project_id=None,
-               branch=None, worktree_path=None, worktree=False, repo_path=None):
+               branch=None, worktree_path=None, worktree=False, repo_path=None,
+               skip_permissions=False):
         # Optionally isolate the session in a fresh git worktree so parallel
         # sessions on one repo don't collide.
         if worktree:
@@ -113,7 +114,7 @@ class CodingSessionManager:
         sid = self.store.create_session(
             project_id=project_id, host=self.driver.name, cwd=cwd, branch=branch,
             tmux_name=tmux_name, source="chat", title=title,
-            worktree_path=worktree_path)
+            worktree_path=worktree_path, skip_permissions=skip_permissions)
         # 2. build + write the memory seed OUTSIDE the project repo
         mem, usr = self.memory_loader()
         lt = ""
@@ -132,7 +133,8 @@ class CodingSessionManager:
         # 3. start tmux running claude directly (argv, no shell)
         launch_argv = self.driver.claude_argv(
             plugin_dir=self.plugin_dir, context_file=str(ctx_path),
-            model=model, initial_prompt=initial_prompt)
+            model=model, initial_prompt=initial_prompt,
+            skip_permissions=skip_permissions)
         since = time.time()
         res = self.driver._run(self.driver.tmux_new_argv(
             tmux_name=tmux_name, cwd=cwd, launch_argv=launch_argv))
@@ -218,3 +220,68 @@ class CodingSessionManager:
                 remove_worktree(row["worktree_path"], force=True)
             except Exception:
                 pass
+
+    def restart(self, sid):
+        """Restart a stopped session, RESUMING its conversation (claude --continue).
+
+        Re-seeds the memory context (deleted on stop), preserves the session's
+        skip-permissions setting, and starts a fresh tmux running
+        ``claude --continue`` in the original cwd.
+        """
+        row = self.store.get_session(sid)
+        if not row:
+            raise KeyError(sid)
+        cwd = row["cwd"]
+        if not cwd or not os.path.isdir(cwd):
+            raise ValueError(f"working directory no longer exists: {cwd!r}")
+        reason = self.driver.preflight()
+        if reason:
+            raise RuntimeError(reason)
+        # re-seed the memory context (stop() unlinked it)
+        mem, usr = self.memory_loader()
+        ctx = build_context_markdown(
+            memory_text=_scan_memory(mem), user_text=_scan_memory(usr),
+            project_name=Path(cwd).name, task=row.get("title") or "", long_term="")
+        ctx_path = self._context_path(sid)
+        ctx_path.parent.mkdir(parents=True, exist_ok=True)
+        ctx_path.write_text(ctx, encoding="utf-8")
+        tmux_name = "jc-" + uuid.uuid4().hex[:8]
+        launch_argv = self.driver.claude_argv(
+            plugin_dir=self.plugin_dir, context_file=str(ctx_path),
+            model=None, initial_prompt=None,
+            skip_permissions=bool(row.get("skip_permissions")), resume=True)
+        res = self.driver._run(self.driver.tmux_new_argv(
+            tmux_name=tmux_name, cwd=cwd, launch_argv=launch_argv))
+        rc = getattr(res, "returncode", 0)
+        if rc not in (0, None):
+            self.store.update_session(sid, status="error", last_activity_at=time.time())
+            err = (getattr(res, "stderr", "") or "tmux new-session failed").strip()
+            raise RuntimeError(f"failed to restart session: {err}")
+        self.store.update_session(sid, tmux_name=tmux_name, status="running",
+                                  last_activity_at=time.time())
+        return self.store.get_session(sid)
+
+    def delete(self, sid):
+        """Stop (if running) and permanently remove a session + its artifacts."""
+        row = self.store.get_session(sid)
+        if not row:
+            raise KeyError(sid)
+        try:
+            self.driver._run(self.driver.kill_argv(tmux_name=row["tmux_name"]))
+        except Exception:
+            pass
+        try:
+            ctx = self._context_path(sid)
+            if ctx.exists():
+                ctx.unlink()
+                ctx.parent.rmdir()
+        except Exception:
+            pass
+        if row.get("worktree_path"):
+            try:
+                from agent.coding_worktree import remove_worktree
+
+                remove_worktree(row["worktree_path"], force=True)
+            except Exception:
+                pass
+        self.store.delete_session(sid)

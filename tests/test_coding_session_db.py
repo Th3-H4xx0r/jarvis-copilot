@@ -30,6 +30,22 @@ def test_update_status_and_claude_id(tmp_path):
     assert row["claude_session_id"] == "uuid-1"
 
 
+def test_skip_permissions_persisted(tmp_path):
+    s = _store(str(tmp_path))
+    sid = s.create_session(project_id=None, host="server", cwd="/r", branch=None,
+                           tmux_name="jc-x", source="chat", title="t",
+                           skip_permissions=True)
+    assert s.get_session(sid)["skip_permissions"] == 1
+
+
+def test_delete_session(tmp_path):
+    s = _store(str(tmp_path))
+    sid = s.create_session(project_id=None, host="server", cwd="/r", branch=None,
+                           tmux_name="jc-x", source="chat", title="t")
+    s.delete_session(sid)
+    assert s.get_session(sid) is None
+
+
 def test_list_sessions_filters_by_status(tmp_path):
     s = _store(str(tmp_path))
     a = s.create_session(project_id=None, host="server", cwd="/a", branch=None,

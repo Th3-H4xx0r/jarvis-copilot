@@ -166,6 +166,7 @@ function codingShowLaunch() {
         </select>
 
         <label class="cdg-check"><input type="checkbox" id="codingWorktree"> <span>Run in an isolated git worktree</span></label>
+        <label class="cdg-check"><input type="checkbox" id="codingSkipPerms"> <span>Dangerously skip permissions (autonomous — no approval prompts)</span></label>
 
         <label class="cdg-label" for="codingPrompt">Initial prompt</label>
         <textarea class="cdg-textarea" id="codingPrompt" rows="5" placeholder="Describe the task for the coding agent…"></textarea>
@@ -197,6 +198,7 @@ async function codingLaunch() {
   const model = (document.getElementById('codingModel') || {}).value || '';
   const prompt = (document.getElementById('codingPrompt') || {}).value || '';
   const worktree = !!(document.getElementById('codingWorktree') || {}).checked;
+  const skipPerms = !!(document.getElementById('codingSkipPerms') || {}).checked;
   const host = (document.getElementById('codingHost') || {}).value || 'server';
   const errEl = document.getElementById('codingLaunchErr');
   const btn = document.getElementById('codingLaunchBtn');
@@ -212,6 +214,7 @@ async function codingLaunch() {
       cwd: cwd.trim(),
       repo_path: cwd.trim(),
       worktree,
+      skip_permissions: skipPerms,
       host,
       title: title.trim(),
       prompt: prompt.trim(),
@@ -290,19 +293,16 @@ function _codingRenderDetail(session, subagents) {
           <span class="cdg-dot cdg-dot-idle" id="codingStatusDot"></span>
           <span class="cdg-status-text" id="codingStatusText">…</span>
           <button type="button" class="cdg-btn-stop" id="codingStopBtn" onclick="codingStop()">Stop</button>
+          <button type="button" class="cdg-btn-primary" id="codingRestartBtn" onclick="codingRestart()" style="display:none">Restart</button>
+          <button type="button" class="cdg-btn-secondary" id="codingDeleteBtn" onclick="codingDelete()">Delete</button>
         </div>
       </div>
       <div class="cm-detail-body">
-        <div class="cm-section">
-          <div class="cm-section-head"><span class="cm-section-title">Subagents</span><span class="cm-section-count" id="codingSubCount">0</span></div>
-          <div class="cdg-subs" id="codingSubs"></div>
-        </div>
         ${termSection}
       </div>`;
     if (host === 'server') _codingMountTerminal(id);
   }
   _codingUpdateDetailStatus(session);
-  _codingUpdateSubagents(subList);
 }
 
 function _codingUpdateDetailStatus(session) {
@@ -310,26 +310,12 @@ function _codingUpdateDetailStatus(session) {
   const dot = document.getElementById('codingStatusDot');
   const txt = document.getElementById('codingStatusText');
   const stop = document.getElementById('codingStopBtn');
+  const restart = document.getElementById('codingRestartBtn');
   if (dot) dot.className = 'cdg-dot cdg-dot-' + st;
   if (txt) txt.textContent = session.status || 'idle';
-  if (stop) stop.disabled = !(st === 'running' || st === 'idle');
-}
-
-function _codingUpdateSubagents(subList) {
-  const wrap = document.getElementById('codingSubs');
-  const count = document.getElementById('codingSubCount');
-  if (count) count.textContent = subList.length;
-  if (!wrap) return;
-  wrap.innerHTML = subList.length
-    ? subList.map(sa => {
-        const sast = _cdgStatusClass(sa.status);
-        return `<div class="cdg-sub"><span class="cdg-dot cdg-dot-${sast}"></span>
-          <span class="cdg-sub-name">${_cdgEsc(sa.sub_type || sa.name || sa.title || sa.id || 'subagent')}</span>
-          <span class="cdg-sub-status">${_cdgEsc(sa.status || '')}</span>
-          ${sa.description ? `<span class="cdg-sub-detail">${_cdgEsc(sa.description)}</span>` : ''}
-        </div>`;
-      }).join('')
-    : '<div class="cdg-sub-empty">No subagents.</div>';
+  const running = (st === 'running' || st === 'idle');
+  if (stop) stop.style.display = running ? '' : 'none';
+  if (restart) restart.style.display = running ? 'none' : '';
 }
 
 function _codingMountTerminal(id) {
@@ -402,6 +388,43 @@ async function codingStop() {
   }
 }
 window.codingStop = codingStop;
+
+async function codingRestart() {
+  if (!_codingSelectedId) return;
+  const id = _codingSelectedId;
+  const btn = document.getElementById('codingRestartBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Restarting…'; }
+  try {
+    const res = await api('/api/coding/session/' + encodeURIComponent(id) + '/restart',
+      { method: 'POST', body: JSON.stringify({}) });
+    if (res && res.ok === false) { alert(res.error || 'Restart failed.'); return; }
+    // Force a full re-render so the live terminal re-attaches to the NEW tmux.
+    _codingTeardownTerminal();
+    _codingDetailShellId = null;
+    await _codingRefreshDetail();
+    _codingRefreshList();
+  } catch (e) {
+    alert((e && e.message) || 'Restart failed.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Restart'; }
+  }
+}
+window.codingRestart = codingRestart;
+
+async function codingDelete() {
+  if (!_codingSelectedId) return;
+  if (!window.confirm('Delete this coding session? This stops it and permanently removes it.')) return;
+  const id = _codingSelectedId;
+  try {
+    await api('/api/coding/session/' + encodeURIComponent(id) + '/delete',
+      { method: 'POST', body: JSON.stringify({}) });
+    codingClearDetail();
+    _codingRefreshList();
+  } catch (e) {
+    alert((e && e.message) || 'Delete failed.');
+  }
+}
+window.codingDelete = codingDelete;
 
 /* ── Polling lifecycle ───────────────────────────────────────────────────── */
 

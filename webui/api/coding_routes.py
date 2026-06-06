@@ -166,7 +166,8 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 session = launch_mgr.launch(
                     cwd=cwd, title=body.get("title"),
                     initial_prompt=body.get("prompt"), model=body.get("model"),
-                    worktree=worktree, repo_path=repo_path)
+                    worktree=worktree, repo_path=repo_path,
+                    skip_permissions=bool(body.get("skip_permissions")))
                 return _ok({"ok": True, "session": session})
 
             return _run(_launch)
@@ -217,6 +218,26 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 return _ok({"ok": True})
 
             return _run(_stop)
+
+        # POST /session/<id>/restart  — resume the conversation (claude --continue)
+        if action == "restart" and method == "POST":
+            def _restart():
+                if manager.status(sid) is None:
+                    return _err(404, "session not found: " + sid)
+                session = manager.restart(sid)
+                return _ok({"ok": True, "session": session})
+
+            return _run(_restart)
+
+        # POST or DELETE /session/<id>/delete  — stop + permanently remove
+        if action == "delete" and method in ("POST", "DELETE"):
+            def _delete():
+                if manager.status(sid) is None:
+                    return _err(404, "session not found: " + sid)
+                manager.delete(sid)
+                return _ok({"ok": True})
+
+            return _run(_delete)
 
         # POST /session/<id>/terminal/start  — attach a live terminal to the
         # session's tmux (server-host sessions only; reuses the existing

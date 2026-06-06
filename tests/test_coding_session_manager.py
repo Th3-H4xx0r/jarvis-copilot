@@ -13,7 +13,8 @@ class FakeDriver:
         self.calls = []
         self.returncode = returncode
 
-    def claude_argv(self, *, plugin_dir, context_file, model, initial_prompt):
+    def claude_argv(self, *, plugin_dir, context_file, model, initial_prompt,
+                    skip_permissions=False, resume=False):
         return ["env", "claude", "--append-system-prompt-file", context_file]
 
     def tmux_new_argv(self, *, tmux_name, cwd, launch_argv):
@@ -77,6 +78,33 @@ def test_launch_expands_tilde(tmp_path, monkeypatch):
     expected = os.path.join(str(tmp_path / "home"), "proj")
     assert s["cwd"] == expected
     assert os.path.isdir(expected)
+
+
+def test_restart_resumes_stopped_session(tmp_path):
+    mgr, drv = _mgr(tmp_path)
+    s = mgr.launch(cwd=str(tmp_path), title="t", initial_prompt="x", model=None)
+    mgr.stop(s["id"])
+    drv.calls.clear()
+    r = mgr.restart(s["id"])
+    assert r["status"] == "running"
+    assert any("new-session" in c for c in drv.calls)   # a fresh tmux was started
+
+
+def test_restart_preserves_skip_permissions(tmp_path):
+    mgr, _ = _mgr(tmp_path)
+    s = mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None, model=None,
+                   skip_permissions=True)
+    assert mgr.status(s["id"])["skip_permissions"] == 1
+    mgr.stop(s["id"])
+    mgr.restart(s["id"])
+    assert mgr.status(s["id"])["skip_permissions"] == 1
+
+
+def test_delete_removes_session(tmp_path):
+    mgr, _ = _mgr(tmp_path)
+    s = mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None, model=None)
+    mgr.delete(s["id"])
+    assert mgr.status(s["id"]) is None
 
 
 def test_launch_blocked_when_preflight_fails(tmp_path):
