@@ -230,6 +230,8 @@ def safe_join(root: str, relpath: str) -> str:
     ``root``. The target file itself need not exist yet (we resolve the
     deepest existing ancestor for the symlink check).
     """
+    if "\x00" in relpath:
+        raise ValueError("relpath contains NUL byte")
     if os.path.isabs(relpath):
         raise ValueError(f"absolute relpath not allowed: {relpath!r}")
 

@@ -41,12 +41,16 @@ _MTIME_GRACE = 1.0
 def encode_project_dir(cwd: str) -> str:
     """Encode an absolute project path the way Claude Code names its dir.
 
-    Replaces every ``/`` and every ``.`` with ``-``.
+    Claude encodes the **realpath** of the cwd (so ``/tmp`` -> ``/private/tmp``
+    on macOS, and any symlinked component is resolved) and replaces every ``/``
+    and every ``.`` with ``-``. We realpath first so the lookup matches the
+    directory Claude actually wrote to.
 
     >>> encode_project_dir("/Users/jane/my.proj")
     '-Users-jane-my-proj'
     """
-    return cwd.replace("/", "-").replace(".", "-")
+    resolved = os.path.realpath(cwd)
+    return resolved.replace("/", "-").replace(".", "-")
 
 
 def claude_projects_dir() -> Path:

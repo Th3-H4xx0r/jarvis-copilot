@@ -22,7 +22,9 @@ def test_encode_project_dir_simple():
 
 def test_encode_project_dir_leading_dot_dir():
     # A leading-dot dir like ".config": the "/." run becomes "--".
-    assert csc.encode_project_dir("/home/x/.config/app") == "-home-x--config-app"
+    # Use a non-existent root so realpath() is identity on every platform
+    # (encode_project_dir realpaths first; /home is a firmlink on macOS).
+    assert csc.encode_project_dir("/jcroot/x/.config/app") == "-jcroot-x--config-app"
 
 
 def test_encode_project_dir_dot_in_name():

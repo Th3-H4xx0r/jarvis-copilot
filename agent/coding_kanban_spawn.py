@@ -131,6 +131,12 @@ def make_claude_spawn_fn(manager, *, fallback, link=None):
         if link is not None:
             link(task_id=_field(task, "id"), session_id=session.get("id"))
 
-        return session
+        # IMPORTANT: the kanban dispatcher does ``int(pid)`` on a truthy return
+        # value (kanban_db.dispatch_once). A coding session is NOT a tracked
+        # pid, so return None — a falsy return tells the dispatcher there is no
+        # worker pid to record (the session is tracked via ``link`` instead).
+        # Returning the session dict would raise TypeError there and be
+        # miscounted as a spawn failure, tripping the circuit breaker.
+        return None
 
     return spawn_fn

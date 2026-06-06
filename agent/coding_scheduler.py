@@ -233,7 +233,15 @@ class CodingScheduler:
         """
         fired = 0
         for sched in self.due(now=now):
-            send(sched["session_id"], sched["message"])
-            self.mark_fired(sched["id"], now=now)
-            fired += 1
+            # Mark BEFORE send: a one-off that has been advanced/disabled can't
+            # be re-delivered on the next tick even if the send (or this whole
+            # iteration) fails. A delivered-but-failed message is lost — far
+            # preferable to an infinite re-delivery spam loop. Per-item isolation
+            # so one bad row doesn't abort the rest of the batch.
+            try:
+                self.mark_fired(sched["id"], now=now)
+                send(sched["session_id"], sched["message"])
+                fired += 1
+            except Exception:
+                continue
         return fired

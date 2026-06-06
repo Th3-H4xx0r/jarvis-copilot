@@ -78,6 +78,14 @@ class CodingSessionManager:
             branch = wt_branch
         if not os.path.isabs(cwd) or not os.path.isdir(cwd):
             raise ValueError(f"cwd must be an existing absolute directory: {cwd!r}")
+        # Validate model at the chokepoint so every entrypoint (chat tool AND
+        # the HTTP route, which bypasses the tool layer) rejects a bad/injection
+        # model identically instead of silently falling back.
+        if model:
+            from agent.coding_host_drivers import is_valid_model
+
+            if not is_valid_model(model):
+                raise ValueError(f"invalid model: {model!r}")
         tmux_name = "jc-" + uuid.uuid4().hex[:8]
         # 1. record the session first (so the context dir can be session-scoped)
         sid = self.store.create_session(
@@ -108,6 +116,16 @@ class CodingSessionManager:
             tmux_name=tmux_name, cwd=cwd, launch_argv=launch_argv))
         rc = getattr(res, "returncode", 0)
         if rc not in (0, None):
+            # Roll back the worktree WE created so a failed launch doesn't leave
+            # an orphan worktree + dangling branch + error row pointing at it.
+            if worktree and worktree_path:
+                try:
+                    from agent.coding_worktree import remove_worktree
+
+                    remove_worktree(worktree_path, force=True)
+                except Exception:
+                    pass
+                self.store.update_session(sid, worktree_path=None)
             self.store.update_session(sid, status="error", last_activity_at=time.time())
             err = (getattr(res, "stderr", "") or "tmux new-session failed").strip()
             raise RuntimeError(f"failed to start session: {err}")

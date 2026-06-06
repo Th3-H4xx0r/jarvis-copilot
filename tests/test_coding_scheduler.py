@@ -112,6 +112,19 @@ def test_cancel_disables(tmp_path):
     assert rows[0]["enabled"] == 0
 
 
+def test_send_failure_does_not_cause_redelivery(tmp_path):
+    # mark-before-send: a one-off whose send raises is still advanced/disabled,
+    # so it is NOT re-delivered on the next tick (no infinite spam loop).
+    sched = CodingScheduler(db_path=_db(tmp_path))
+    sched.schedule_once("sess", "hello", run_at=100.0)
+
+    def boom(_sid, _msg):
+        raise RuntimeError("delivery failed")
+
+    sched.run_due(150.0, boom)             # send raises, but mark_fired ran first
+    assert sched.due(now=200.0) == []      # not due again -> no re-delivery
+
+
 def test_persistence_across_instances(tmp_path):
     db = _db(tmp_path)
     sched1 = CodingScheduler(db_path=db)

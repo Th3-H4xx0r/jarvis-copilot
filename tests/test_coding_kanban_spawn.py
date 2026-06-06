@@ -35,7 +35,7 @@ def test_spawn_works_with_object_style_task():
                                  title="do it", id="k1", worker_context=None,
                                  worktree_path=None, model_override="opus")
     out = spawn(task, None, board=None)
-    assert out == {"id": "cs_obj"}
+    assert out is None  # kanban-compatible: no pid to record
     assert launched["cwd"] == "/repo"
     assert launched["model"] == "opus"
 
@@ -152,8 +152,8 @@ def test_claude_card_with_worktree_launches_session():
     # link callback associated the session with the card
     assert link.calls == [("t3", "cs_x")]
 
-    # the launched session dict is returned
-    assert out == {"id": "cs_x", "status": "running"}
+    # returns None (no pid) so the kanban dispatcher doesn't int() a dict
+    assert out is None
 
 
 def test_claude_card_without_worker_context_builds_title_body_prompt():
@@ -235,4 +235,4 @@ def test_link_is_optional():
 
     task = {"id": "t9", "title": "x", "runner": "claude", "worktree_path": "/wt/t9"}
     out = spawn(task, "/dispatch/ws")
-    assert out == {"id": "cs_x"}            # no crash without a link callable
+    assert out is None                      # no crash without a link callable

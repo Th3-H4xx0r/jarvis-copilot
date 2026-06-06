@@ -131,3 +131,25 @@ def test_launch_with_worktree_isolates_session(tmp_path):
     assert s["cwd"] == s["worktree_path"]
     import os
     assert os.path.isdir(s["worktree_path"])
+
+
+def test_launch_rejects_invalid_model(tmp_path):
+    mgr, _ = _mgr(tmp_path)
+    with pytest.raises(ValueError):
+        mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None,
+                   model="opus; rm -rf ~")
+
+
+def test_worktree_cleaned_up_when_tmux_fails(tmp_path):
+    import os
+    repo = tmp_path / "repo"
+    _git_repo(repo)
+    mgr, _ = _mgr(tmp_path, returncode=1)  # tmux new-session "fails"
+    with pytest.raises(RuntimeError):
+        mgr.launch(cwd="/unused", title="t", initial_prompt=None, model=None,
+                   worktree=True, repo_path=str(repo))
+    rows = mgr.list()
+    assert rows and rows[-1]["status"] == "error"
+    # the orphan worktree was rolled back and unlinked from the row
+    assert rows[-1]["worktree_path"] is None
+    assert not (repo / ".jc-worktrees").exists() or not any((repo / ".jc-worktrees").iterdir())
