@@ -33,21 +33,34 @@ from urllib.parse import parse_qs, urlsplit
 
 CODING_PATH_PREFIX = "/api/coding"
 
-_MANAGER = None
+_MANAGERS: dict = {}
 
 
-def default_manager():
-    """The shared CodingSessionManager (same singleton the chat tools use).
+def default_manager(host: str = "server"):
+    """The CodingSessionManager for a given host ('server' or 'desktop').
 
-    Lazily built so importing this module is cheap and the webui only spins up
-    a LocalDriver manager when a /api/coding/* request actually arrives.
+    Both share the same SQLite store (so list/status see every session), and the
+    desktop manager reuses the server manager's config with a DesktopDriver
+    swapped in. Lazily built and cached per host.
     """
-    global _MANAGER
-    if _MANAGER is None:
+    host = host if host in ("server", "desktop") else "server"
+    if host not in _MANAGERS:
         from tools.coding_session_tool import _mgr
 
-        _MANAGER = _mgr()
-    return _MANAGER
+        base = _mgr()  # fully-configured server (LocalDriver) manager
+        if host == "server":
+            _MANAGERS["server"] = base
+        else:
+            from agent.coding_host_drivers import DesktopDriver
+            from agent.coding_session_manager import CodingSessionManager
+
+            _MANAGERS["desktop"] = CodingSessionManager(
+                store=base.store, driver=DesktopDriver(),
+                plugin_dir=base.plugin_dir, memory_loader=base.memory_loader,
+                long_term_recall=base.long_term_recall,
+                context_root=str(base.context_root),
+                session_capturer=base.session_capturer)
+    return _MANAGERS[host]
 
 
 def matches(path: str) -> bool:
@@ -96,8 +109,13 @@ def _run(fn) -> tuple[int, dict]:
 # ── dispatcher ──────────────────────────────────────────────────────────────────
 
 def handle_coding_request(method: str, path: str, body: dict | None, *,
-                          manager) -> tuple[int, dict]:
-    """Route a single coding-API request. See module docstring for the contract."""
+                          manager, manager_for_host=None) -> tuple[int, dict]:
+    """Route a single coding-API request. See module docstring for the contract.
+
+    ``manager`` is the default (server) manager used for most routes. When
+    ``manager_for_host`` is provided (the live wiring passes ``default_manager``),
+    /launch selects the manager for the requested ``host`` ('server'|'desktop').
+    """
     method = (method or "").upper()
     body = body or {}
     p, query = _split_path(path)
@@ -140,9 +158,12 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             else:
                 if not cwd:
                     return _err(400, "cwd is required (or set worktree=true with repo_path)")
+            # pick the manager for the requested host (server | desktop)
+            host = body.get("host") or "server"
+            launch_mgr = manager_for_host(host) if manager_for_host else manager
 
             def _launch():
-                session = manager.launch(
+                session = launch_mgr.launch(
                     cwd=cwd, title=body.get("title"),
                     initial_prompt=body.get("prompt"), model=body.get("model"),
                     worktree=worktree, repo_path=repo_path)

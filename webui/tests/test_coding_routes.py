@@ -356,3 +356,34 @@ def test_body_none_treated_as_empty_for_post():
     m = FakeManager()
     status, body = handle_coding_request("POST", "/projects", None, manager=m)
     assert status == 400  # name/repo_path missing, not a crash
+
+
+def test_launch_selects_manager_for_host():
+    server = FakeManager()
+    desktop = FakeManager()
+    picked = {}
+
+    def manager_for_host(h):
+        picked["h"] = h
+        return desktop if h == "desktop" else server
+
+    status, body = handle_coding_request(
+        "POST", "/launch",
+        {"cwd": "/x", "prompt": "go", "host": "desktop"},
+        manager=server, manager_for_host=manager_for_host)
+    assert status == 200
+    assert picked["h"] == "desktop"
+    # the desktop manager launched, not the default server one
+    assert any(c[0] == "launch" for c in desktop.calls)
+    assert not any(c[0] == "launch" for c in server.calls)
+
+
+def test_launch_defaults_to_server_host():
+    server = FakeManager()
+    desktop = FakeManager()
+    status, body = handle_coding_request(
+        "POST", "/launch", {"cwd": "/x", "prompt": "go"},
+        manager=server,
+        manager_for_host=lambda h: desktop if h == "desktop" else server)
+    assert status == 200
+    assert any(c[0] == "launch" for c in server.calls)

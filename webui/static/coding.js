@@ -153,6 +153,12 @@ function codingShowLaunch() {
         <label class="cdg-label" for="codingModel">Model (optional)</label>
         <input class="cdg-input" id="codingModel" placeholder="e.g. claude-opus-4-8 (blank = server default)" autocomplete="off">
 
+        <label class="cdg-label" for="codingHost">Run on</label>
+        <select class="cdg-input" id="codingHost">
+          <option value="server">This server (Jarvis host)</option>
+          <option value="desktop">My computer (paired desktop)</option>
+        </select>
+
         <label class="cdg-check"><input type="checkbox" id="codingWorktree"> <span>Run in an isolated git worktree</span></label>
 
         <label class="cdg-label" for="codingPrompt">Initial prompt</label>
@@ -183,6 +189,7 @@ async function codingLaunch() {
   const model = (document.getElementById('codingModel') || {}).value || '';
   const prompt = (document.getElementById('codingPrompt') || {}).value || '';
   const worktree = !!(document.getElementById('codingWorktree') || {}).checked;
+  const host = (document.getElementById('codingHost') || {}).value || 'server';
   const errEl = document.getElementById('codingLaunchErr');
   const btn = document.getElementById('codingLaunchBtn');
   const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = ''; } };
@@ -197,6 +204,7 @@ async function codingLaunch() {
       cwd: cwd.trim(),
       repo_path: cwd.trim(),
       worktree,
+      host,
       title: title.trim(),
       prompt: prompt.trim(),
     };

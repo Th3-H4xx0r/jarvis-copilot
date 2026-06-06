@@ -4652,7 +4652,8 @@ def handle_post(handler, parsed) -> bool:
         if parsed.query:
             sub += "?" + parsed.query
         status, payload = handle_coding_request(
-            "POST", sub, body, manager=default_manager())
+            "POST", sub, body, manager=default_manager(),
+            manager_for_host=default_manager)
         return j(handler, payload, status=status)
 
     if parsed.path == "/api/session/recovery/repair-safe":
