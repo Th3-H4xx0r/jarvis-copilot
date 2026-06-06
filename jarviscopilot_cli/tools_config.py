@@ -78,6 +78,7 @@ CONFIGURABLE_TOOLSETS = [
     ("discord_admin",   "🛡️  Discord Server Admin",    "list channels/roles, pin, assign roles"),
     ("yuanbao",          "🤖 Yuanbao",                  "group info, member queries, DM"),
     ("computer_use",     "🖱️  Computer Use (macOS)",     "background desktop control via cua-driver"),
+    ("coding_sessions",  "🛠️  Coding Sessions",          "launch/monitor/message Claude Code sessions (needs claude + tmux)"),
 ]
 
 # Toolsets that are OFF by default for new installs.

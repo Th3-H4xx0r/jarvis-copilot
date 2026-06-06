@@ -73,6 +73,11 @@ _HERMES_CORE_TOOLS = [
     "kanban_complete", "kanban_block", "kanban_heartbeat",
     "kanban_comment", "kanban_create", "kanban_link",
     "kanban_unblock",
+    # Coding Sessions — launch/drive interactive Claude Code sessions
+    # (tmux-backed). Handlers degrade gracefully when claude/tmux are absent.
+    "coding_session_launch", "coding_session_list", "coding_session_status",
+    "coding_session_message", "coding_session_stop",
+    "coding_project_create", "coding_project_list",
     # Computer use (macOS, gated on cua-driver being installed via check_fn)
     "computer_use",
     # Lazy tool-loading meta-tool — only surfaces when agent.lazy_tools is on
@@ -199,6 +204,16 @@ TOOLSETS = {
         "tools": [
             "chrome_navigate", "chrome_snapshot", "chrome_click",
             "chrome_type", "chrome_press_key",
+        ],
+        "includes": []
+    },
+
+    "coding_sessions": {
+        "description": "Launch and drive interactive Claude Code coding sessions (tmux-backed): launch in a project dir, list, status, send a message, stop; plus register/list projects.",
+        "tools": [
+            "coding_session_launch", "coding_session_list", "coding_session_status",
+            "coding_session_message", "coding_session_stop",
+            "coding_project_create", "coding_project_list",
         ],
         "includes": []
     },
