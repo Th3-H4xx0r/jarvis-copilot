@@ -19,3 +19,13 @@ def test_build_context_handles_empty():
     md = build_context_markdown(memory_text="", user_text="",
                                 project_name="p", task="")
     assert "# JARVIS CONTEXT" in md
+
+
+def test_build_context_preserves_multiline_entry():
+    mem = "line one\nline two same entry"
+    md = build_context_markdown(memory_text=mem, user_text="",
+                                project_name="p", task="")
+    # a multi-line entry stays one bullet with an indented continuation,
+    # not collapsed into a run-on line
+    assert "- line one" in md
+    assert "\n  line two same entry" in md

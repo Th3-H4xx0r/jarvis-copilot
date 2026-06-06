@@ -63,17 +63,29 @@ def _claude_available() -> bool:
 # ── handlers ──────────────────────────────────────────────────────────────────
 
 def _h_launch(args, **kw):
+    import os
+
     a = args or {}
     cwd = a.get("cwd") or a.get("path")
     if not cwd:
         return json.dumps({"error": "cwd (project directory) is required"})
+    if not os.path.isabs(cwd):
+        return json.dumps({"error": "cwd must be an absolute path"})
+    if not os.path.isdir(cwd):
+        return json.dumps({"error": f"cwd is not an existing directory: {cwd}"})
+    model = a.get("model")
+    if model:
+        from agent.coding_host_drivers import is_valid_model
+
+        if not is_valid_model(model):
+            return json.dumps({"error": f"invalid model {model!r} (use opus|sonnet|haiku or a claude-* id)"})
     if not _claude_available():
         return json.dumps({"error": "the `claude` CLI is not installed or on PATH on this host"})
     if not shutil.which("tmux"):
         return json.dumps({"error": "`tmux` is not installed on this host"})
     try:
         s = _mgr().launch(cwd=cwd, title=a.get("title") or "",
-                          initial_prompt=a.get("prompt"), model=a.get("model"))
+                          initial_prompt=a.get("prompt"), model=model)
         return json.dumps({"ok": True, "session": s})
     except Exception as e:  # pragma: no cover - defensive
         return json.dumps({"error": str(e)})

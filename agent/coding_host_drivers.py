@@ -5,17 +5,39 @@ runs ``tmux`` + ``claude`` on this host (the Jarvis server). A future
 ``DesktopDriver`` (Phase 4) issues the same operations to the paired desktop
 client over the device bridge.
 
-Command *construction* is kept pure (and unit-tested); *execution* wraps
-``subprocess``. The subprocess env reuses the proven credential scrub from
-``agent/claude_code_client.py`` so a launched ``claude`` bills the user's
-subscription, not an API key.
+Security posture (hardened after the Phase-1 bug sweep):
+- The session is launched as the tmux pane's **argv command** (no intermediate
+  shell), so model/path values are never parsed by a shell — eliminating the
+  command-injection vector and the "type into a not-yet-ready shell" race.
+- The argv is prefixed with ``env -u <secret> …`` so Anthropic credentials are
+  stripped at exec time regardless of what environment a pre-existing tmux
+  *server* holds (a plain ``env=`` on the new-session client does NOT reach the
+  pane when tmux attaches to an already-running server).
+- ``--model`` is only included when it passes an allowlist (``_looks_like_claude_model``).
+- Free-text messages are sent with ``send-keys -l -- <text>`` so a message
+  beginning with ``-`` is not parsed as tmux options.
 """
 from __future__ import annotations
 
-import shlex
 import subprocess
 
-from agent.claude_code_client import _build_subprocess_env, _resolve_command
+from agent.claude_code_client import (
+    _build_subprocess_env,
+    _looks_like_claude_model,
+    _resolve_command,
+)
+
+# Anthropic credentials that must NOT reach a launched claude (it must bill the
+# user's subscription, not an API key). Mirrors claude_code_client._build_subprocess_env.
+SCRUB_KEYS = (
+    "ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN", "ANTHROPIC_AUTH_TOKEN",
+    "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+)
+
+
+def is_valid_model(model: str | None) -> bool:
+    """True when ``model`` is a safe value to pass to ``claude --model``."""
+    return bool(model) and _looks_like_claude_model(model)
 
 
 class HostDriver:
@@ -32,41 +54,52 @@ class LocalDriver(HostDriver):
 
     name = "server"
 
-    def tmux_new_argv(self, *, tmux_name: str, cwd: str) -> list[str]:
-        """argv to create a detached tmux session rooted at ``cwd``."""
-        return ["tmux", "new-session", "-d", "-s", tmux_name, "-c", cwd]
+    def _scrub_prefix(self) -> list[str]:
+        prefix = ["env"]
+        for k in SCRUB_KEYS:
+            prefix += ["-u", k]
+        return prefix
 
-    def claude_launch_command(self, *, plugin_dir: str, context_file: str,
-                              model: str | None,
-                              initial_prompt: str | None) -> str:
-        """The shell command (typed into the tmux pane) that starts ``claude``.
+    def claude_argv(self, *, plugin_dir: str, context_file: str,
+                    model: str | None, initial_prompt: str | None) -> list[str]:
+        """argv that starts a real agentic claude session.
 
         Deliberately omits the inference-shim's crippling flags (``--tools ""``,
-        ``--no-session-persistence``, ``--strict-mcp-config``): this is a real
-        agentic session. ``--plugin-dir`` makes the jarviscopilot-code-assist
-        plugin (+ its bundled skills and MCP back-channel) available; the
-        Jarvis memory seed is fed via ``--append-system-prompt-file``.
+        ``--no-session-persistence``, ``--strict-mcp-config``). ``--plugin-dir``
+        makes the jarviscopilot-code-assist plugin available; the Jarvis memory
+        seed is fed via ``--append-system-prompt-file`` (an absolute path).
+        Returned as argv (no shell), so no value needs shell-quoting.
         """
-        claude = _resolve_command()
-        cmd = (f"{claude} --plugin-dir {plugin_dir} "
-               f"--append-system-prompt-file {context_file}")
-        if model:
-            cmd += f" --model {model}"
+        argv = self._scrub_prefix() + [
+            _resolve_command(),
+            "--plugin-dir", plugin_dir,
+            "--append-system-prompt-file", context_file,
+        ]
+        if is_valid_model(model):
+            argv += ["--model", model]
         if initial_prompt:
-            cmd += " " + shlex.quote(initial_prompt)
-        return cmd
+            argv += [initial_prompt]
+        return argv
+
+    def tmux_new_argv(self, *, tmux_name: str, cwd: str,
+                      launch_argv: list[str]) -> list[str]:
+        """argv to create a detached tmux session that runs ``launch_argv``."""
+        return ["tmux", "new-session", "-d", "-s", tmux_name, "-c", cwd] + list(launch_argv)
 
     def send_message_argvs(self, *, tmux_name: str, text: str) -> list[list[str]]:
-        """Two ``tmux send-keys`` argvs: literal text, then a separate Enter.
+        """Two ``tmux send-keys`` argvs: literal text (after ``--``), then Enter.
 
-        Sending the text with ``-l`` (literal) then Enter as its own keystroke
-        is the reliable, bracketed-paste-safe way to submit a turn into an
-        interactive CLI without the text being interpreted as key names.
+        ``-l`` sends text literally (not interpreted as key names); the ``--``
+        terminator ensures a message starting with ``-`` is treated as payload,
+        not as more tmux options. Enter is sent as its own keystroke to submit.
         """
         return [
-            ["tmux", "send-keys", "-t", tmux_name, "-l", text],
+            ["tmux", "send-keys", "-t", tmux_name, "-l", "--", text],
             ["tmux", "send-keys", "-t", tmux_name, "Enter"],
         ]
+
+    def kill_argv(self, *, tmux_name: str) -> list[str]:
+        return ["tmux", "kill-session", "-t", tmux_name]
 
     # --- execution (mocked in unit tests) -----------------------------------
 

@@ -31,3 +31,17 @@ def test_launch_handler_errors_cleanly_without_cwd():
     from tools.coding_session_tool import _h_launch
     out = json.loads(_h_launch({}))
     assert "error" in out
+
+
+def test_launch_rejects_relative_cwd():
+    import json
+    from tools.coding_session_tool import _h_launch
+    out = json.loads(_h_launch({"cwd": "relative/path"}))
+    assert "error" in out and "absolute" in out["error"]
+
+
+def test_launch_rejects_injection_model(tmp_path):
+    import json
+    from tools.coding_session_tool import _h_launch
+    out = json.loads(_h_launch({"cwd": str(tmp_path), "model": "opus; rm -rf ~"}))
+    assert "error" in out and "invalid model" in out["error"]

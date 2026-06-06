@@ -16,7 +16,9 @@ def _bullets(text: str) -> str:
     parts = [p.strip() for p in text.split(_DELIM) if p.strip()]
     if not parts:
         return "_(none)_"
-    return "\n".join(f"- {p.replace(chr(10), ' ')}" for p in parts)
+    # Keep multi-line entries readable: indent continuation lines under the
+    # bullet rather than collapsing newlines into one run-on line.
+    return "\n".join("- " + p.replace("\n", "\n  ") for p in parts)
 
 
 def build_context_markdown(*, memory_text: str, user_text: str,

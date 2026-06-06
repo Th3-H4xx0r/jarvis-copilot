@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS coding_sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON coding_sessions(status);
 """
 
+VALID_STATUSES = {"starting", "running", "idle", "stopped", "error"}
+
 
 class CodingSessionStore:
     """Thin SQLite-backed store for coding projects and sessions."""
@@ -58,6 +60,9 @@ class CodingSessionStore:
 
     def _init_schema(self) -> None:
         with self._conn() as c:
+            # WAL reduces "database is locked" under the WebUI + chat tools + a
+            # future poller all writing concurrently.
+            c.execute("PRAGMA journal_mode=WAL")
             c.executescript(_SCHEMA)
 
     # --- sessions -----------------------------------------------------------
@@ -79,6 +84,8 @@ class CodingSessionStore:
         allowed = {"status", "claude_session_id", "title", "tmux_name",
                    "worktree_path", "branch", "last_activity_at"}
         sets = {k: v for k, v in fields.items() if k in allowed}
+        if "status" in sets and sets["status"] not in VALID_STATUSES:
+            raise ValueError(f"invalid status: {sets['status']!r}")
         if not sets:
             return
         sets["updated_at"] = time.time()
