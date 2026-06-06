@@ -98,3 +98,19 @@ def test_desktop_driver_without_bridge_raises():
         assert False, "expected RuntimeError"
     except RuntimeError as e:
         assert "transport not configured" in str(e)
+
+
+def test_desktop_driver_preflight_without_client():
+    from agent.coding_host_drivers import DesktopDriver
+
+    # no bridge + no preflight_fn -> clear "pair a desktop client" message
+    assert "desktop client" in DesktopDriver().preflight()
+
+
+def test_desktop_driver_preflight_delegates():
+    from agent.coding_host_drivers import DesktopDriver
+
+    d = DesktopDriver(preflight_fn=lambda: None)
+    assert d.preflight() is None
+    d2 = DesktopDriver(preflight_fn=lambda: "no tmux on your Mac")
+    assert d2.preflight() == "no tmux on your Mac"

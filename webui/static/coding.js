@@ -1,5 +1,5 @@
 /* ============================================================================
- * Coding tab — drive headless `claude` coding sessions from the WebUI.
+ * Coding tab — drive interactive `claude` coding sessions from the WebUI.
  *
  * Renders into #mainCoding: a projects+sessions list on the left and a detail
  * pane on the right (launch form + live status + subagent list + composer +
@@ -142,9 +142,10 @@ function codingShowLaunch() {
     <div class="cm-detail-body">
       <div class="cdg-form-card">
         <div class="cdg-form-title">New coding session</div>
-        <label class="cdg-label" for="codingCwd">Working directory (cwd / repo_path)</label>
-        <input class="cdg-input" id="codingCwd" list="codingProjList" placeholder="/Users/you/code/your-repo" autocomplete="off">
+        <label class="cdg-label" for="codingCwd">Working directory</label>
+        <input class="cdg-input" id="codingCwd" list="codingProjList" placeholder="~/code/your-project  (~ expands, new folders are created)" autocomplete="off">
         <datalist id="codingProjList">${projOpts}</datalist>
+        <div class="cdg-hint"><code>~</code> and relative paths work; the folder is created if it doesn't exist.</div>
 
         <label class="cdg-label" for="codingTitle">Title (optional)</label>
         <input class="cdg-input" id="codingTitle" placeholder="What are we building?" autocomplete="off">

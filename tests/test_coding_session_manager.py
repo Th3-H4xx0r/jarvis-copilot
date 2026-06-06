@@ -26,6 +26,9 @@ class FakeDriver:
     def kill_argv(self, *, tmux_name):
         return ["tmux", "kill-session", "-t", tmux_name]
 
+    def preflight(self):
+        return None  # host always "ready" in unit tests
+
     def _run(self, argv):
         self.calls.append(argv)
         return types.SimpleNamespace(returncode=self.returncode, stderr="boom")
@@ -55,11 +58,39 @@ def test_launch_writes_context_outside_repo(tmp_path):
     assert not (tmp_path / "JARVIS-CONTEXT.md").exists()
 
 
-def test_launch_rejects_non_directory_cwd(tmp_path):
+def test_launch_auto_creates_missing_cwd(tmp_path):
+    import os
     mgr, _ = _mgr(tmp_path)
-    with pytest.raises(ValueError):
-        mgr.launch(cwd=str(tmp_path / "does-not-exist"), title="t",
-                   initial_prompt=None, model=None)
+    target = tmp_path / "new" / "nested" / "proj"   # does not exist yet
+    s = mgr.launch(cwd=str(target), title="t", initial_prompt=None, model=None)
+    assert s["status"] == "running"
+    assert os.path.isdir(str(target))               # auto-created
+    assert s["cwd"] == str(target)
+
+
+def test_launch_expands_tilde(tmp_path, monkeypatch):
+    import os
+    # point HOME at tmp so ~ expansion is observable without touching real HOME
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    mgr, _ = _mgr(tmp_path)
+    s = mgr.launch(cwd="~/proj", title="t", initial_prompt=None, model=None)
+    expected = os.path.join(str(tmp_path / "home"), "proj")
+    assert s["cwd"] == expected
+    assert os.path.isdir(expected)
+
+
+def test_launch_blocked_when_preflight_fails(tmp_path):
+    store = CodingSessionStore(db_path=str(tmp_path / "c.db"))
+
+    class BadHost(FakeDriver):
+        def preflight(self):
+            return "tmux is not installed and could not be auto-installed."
+
+    mgr = CodingSessionManager(
+        store=store, driver=BadHost(), plugin_dir="/p",
+        memory_loader=lambda: ("m", "u"), context_root=str(tmp_path / "ctx"))
+    with pytest.raises(RuntimeError, match="tmux"):
+        mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None, model=None)
 
 
 def test_launch_failure_sets_error_status(tmp_path):

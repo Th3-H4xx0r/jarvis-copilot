@@ -33,11 +33,14 @@ def test_launch_handler_errors_cleanly_without_cwd():
     assert "error" in out
 
 
-def test_launch_rejects_relative_cwd():
+def test_launch_requires_some_cwd():
+    # relative/~/new paths are now ACCEPTED (manager resolves+creates them);
+    # only a completely missing cwd is an error. (Don't pass a real cwd here —
+    # that would attempt a real launch.)
     import json
     from tools.coding_session_tool import _h_launch
-    out = json.loads(_h_launch({"cwd": "relative/path"}))
-    assert "error" in out and "absolute" in out["error"]
+    out = json.loads(_h_launch({"cwd": ""}))
+    assert "error" in out
 
 
 def test_launch_rejects_injection_model(tmp_path):

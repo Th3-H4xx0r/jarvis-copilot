@@ -20,6 +20,13 @@ from pathlib import Path
 from agent.coding_memory_seed import build_context_markdown
 
 
+def _resolve_dir(p: str | None) -> str:
+    """Expand ``~``, make absolute. ('' for falsy input.)"""
+    if not p:
+        return ""
+    return os.path.abspath(os.path.expanduser(str(p)))
+
+
 def _default_context_root() -> Path:
     try:
         from jarviscopilot_constants import get_hermes_home
@@ -68,16 +75,26 @@ class CodingSessionManager:
         # Optionally isolate the session in a fresh git worktree so parallel
         # sessions on one repo don't collide.
         if worktree:
+            repo_path = _resolve_dir(repo_path)
             if not repo_path or not os.path.isdir(repo_path):
-                raise ValueError("worktree=True requires an existing repo_path")
+                raise ValueError("worktree=True requires repo_path to be an existing directory")
             from agent.coding_worktree import add_worktree
 
             wt_branch = branch or ("jc/" + uuid.uuid4().hex[:6])
             cwd = add_worktree(repo_path, wt_branch)
             worktree_path = cwd
             branch = wt_branch
-        if not os.path.isabs(cwd) or not os.path.isdir(cwd):
-            raise ValueError(f"cwd must be an existing absolute directory: {cwd!r}")
+        else:
+            # Accept ``~``, relative paths, and not-yet-existing dirs: expand,
+            # absolutize, and create the directory on demand (the user asked for
+            # this — no more "must be an existing absolute directory").
+            cwd = _resolve_dir(cwd)
+            if not cwd:
+                raise ValueError("a working directory is required")
+            try:
+                os.makedirs(cwd, exist_ok=True)
+            except OSError as e:
+                raise ValueError(f"could not create working directory {cwd!r}: {e}")
         # Validate model at the chokepoint so every entrypoint (chat tool AND
         # the HTTP route, which bypasses the tool layer) rejects a bad/injection
         # model identically instead of silently falling back.
@@ -86,6 +103,11 @@ class CodingSessionManager:
 
             if not is_valid_model(model):
                 raise ValueError(f"invalid model: {model!r}")
+        # Host readiness: auto-installs tmux if missing, checks claude — so the
+        # user gets a clear message instead of a raw "[Errno 2] … 'tmux'".
+        reason = self.driver.preflight()
+        if reason:
+            raise RuntimeError(reason)
         tmux_name = "jc-" + uuid.uuid4().hex[:8]
         # 1. record the session first (so the context dir can be session-scoped)
         sid = self.store.create_session(

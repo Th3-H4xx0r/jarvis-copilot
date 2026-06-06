@@ -101,6 +101,22 @@ class LocalDriver(HostDriver):
     def kill_argv(self, *, tmux_name: str) -> list[str]:
         return ["tmux", "kill-session", "-t", tmux_name]
 
+    def preflight(self) -> str | None:
+        """Ensure the host can run a session. Auto-installs tmux if missing.
+
+        Returns None when ready, or a clear human-readable reason string the
+        caller should surface (so the user never sees a raw ``[Errno 2] … tmux``).
+        """
+        from agent.coding_deps import claude_status, ensure_tmux
+
+        ok, detail = ensure_tmux()
+        if not ok:
+            return detail
+        ok, detail = claude_status()
+        if not ok:
+            return detail
+        return None
+
     # --- execution (mocked in unit tests) -----------------------------------
 
     def _run(self, argv: list[str]) -> subprocess.CompletedProcess:
@@ -121,9 +137,20 @@ class DesktopDriver(LocalDriver):
 
     name = "desktop"
 
-    def __init__(self, bridge_run=None):
+    def __init__(self, bridge_run=None, preflight_fn=None):
         # bridge_run(argv) -> object with .returncode/.stderr (or None)
         self._bridge_run = bridge_run
+        # preflight_fn() -> reason|None, run on the DESKTOP (over the bridge),
+        # since the server's local tmux/claude is irrelevant for a desktop session.
+        self._preflight_fn = preflight_fn
+
+    def preflight(self) -> str | None:
+        if self._bridge_run is None and self._preflight_fn is None:
+            return ("no desktop client is connected. Pair the JarvisCopilot "
+                    "desktop app (jc-client) to run sessions on your computer.")
+        if self._preflight_fn is not None:
+            return self._preflight_fn()
+        return None
 
     def _run(self, argv: list[str]):
         if self._bridge_run is None:
