@@ -167,7 +167,8 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     cwd=cwd, title=body.get("title"),
                     initial_prompt=body.get("prompt"), model=body.get("model"),
                     worktree=worktree, repo_path=repo_path,
-                    skip_permissions=bool(body.get("skip_permissions")))
+                    skip_permissions=bool(body.get("skip_permissions")),
+                    sync=body.get("sync"))
                 return _ok({"ok": True, "session": session})
 
             return _run(_launch)

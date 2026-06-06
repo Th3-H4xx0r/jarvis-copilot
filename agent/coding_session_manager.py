@@ -72,7 +72,7 @@ class CodingSessionManager:
 
     def launch(self, *, cwd, title, initial_prompt, model, project_id=None,
                branch=None, worktree_path=None, worktree=False, repo_path=None,
-               skip_permissions=False):
+               skip_permissions=False, sync=None):
         # Optionally isolate the session in a fresh git worktree so parallel
         # sessions on one repo don't collide.
         if worktree:
@@ -111,10 +111,16 @@ class CodingSessionManager:
             raise RuntimeError(reason)
         tmux_name = "jc-" + uuid.uuid4().hex[:8]
         # 1. record the session first (so the context dir can be session-scoped)
+        sync_config = None
+        if sync and (sync.get("enabled") or sync.get("device") or sync.get("remote_path")):
+            import json as _json
+
+            sync_config = _json.dumps(sync)
         sid = self.store.create_session(
             project_id=project_id, host=self.driver.name, cwd=cwd, branch=branch,
             tmux_name=tmux_name, source="chat", title=title,
-            worktree_path=worktree_path, skip_permissions=skip_permissions)
+            worktree_path=worktree_path, skip_permissions=skip_permissions,
+            sync_config=sync_config)
         # 2. build + write the memory seed OUTSIDE the project repo
         mem, usr = self.memory_loader()
         lt = ""

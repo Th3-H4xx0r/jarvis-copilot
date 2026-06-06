@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS coding_sessions (
   cwd TEXT NOT NULL, worktree_path TEXT, branch TEXT, tmux_name TEXT,
   claude_session_id TEXT, status TEXT NOT NULL DEFAULT 'starting',
   title TEXT, source TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
-  last_activity_at REAL, skip_permissions INTEGER NOT NULL DEFAULT 0
+  last_activity_at REAL, skip_permissions INTEGER NOT NULL DEFAULT 0,
+  sync_config TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON coding_sessions(status);
 """
@@ -66,27 +67,31 @@ class CodingSessionStore:
             c.executescript(_SCHEMA)
             # Migration: add columns to pre-existing dbs (CREATE IF NOT EXISTS
             # won't add a column to an existing table). Ignore "duplicate column".
-            try:
-                c.execute("ALTER TABLE coding_sessions ADD COLUMN "
-                          "skip_permissions INTEGER NOT NULL DEFAULT 0")
-            except sqlite3.OperationalError:
-                pass
+            for ddl in (
+                "ALTER TABLE coding_sessions ADD COLUMN "
+                "skip_permissions INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE coding_sessions ADD COLUMN sync_config TEXT",
+            ):
+                try:
+                    c.execute(ddl)
+                except sqlite3.OperationalError:
+                    pass
 
     # --- sessions -----------------------------------------------------------
 
     def create_session(self, *, project_id, host, cwd, branch, tmux_name,
                        source, title, worktree_path=None,
-                       skip_permissions=False) -> str:
+                       skip_permissions=False, sync_config=None) -> str:
         sid = "cs_" + uuid.uuid4().hex[:12]
         now = time.time()
         with self._conn() as c:
             c.execute(
                 "INSERT INTO coding_sessions(id,project_id,host,cwd,worktree_path,"
                 "branch,tmux_name,status,title,source,created_at,updated_at,"
-                "skip_permissions) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "skip_permissions,sync_config) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (sid, project_id, host, cwd, worktree_path, branch, tmux_name,
                  "starting", title, source, now, now,
-                 1 if skip_permissions else 0))
+                 1 if skip_permissions else 0, sync_config))
         return sid
 
     def update_session(self, sid: str, **fields) -> None:

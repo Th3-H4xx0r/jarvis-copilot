@@ -336,3 +336,28 @@ def test_iter_chunks_empty_file(tmp_path):
     f = tmp_path / "empty.bin"
     f.write_bytes(b"")
     assert list(cs.iter_chunks(str(f))) == []
+
+
+def test_decide_initial_direction():
+    from agent.coding_sync import decide_initial_direction, is_manifest_empty
+    assert decide_initial_direction(remote_is_empty=True) == "push"
+    assert decide_initial_direction(remote_is_empty=False) == "pull"
+    assert is_manifest_empty({}) is True
+    assert is_manifest_empty({"a.py": (1, 2.0, "h")}) is False
+
+
+def test_plan_initial_sync_push_when_remote_empty():
+    from agent.coding_sync import plan_initial_sync
+    server = {"a.py": (1, 2.0, "h1"), "b.py": (1, 2.0, "h2")}
+    plan = plan_initial_sync(server, {})
+    assert plan["direction"] == "push"
+    assert plan["files"] == ["a.py", "b.py"]
+
+
+def test_plan_initial_sync_pull_when_remote_has_files():
+    from agent.coding_sync import plan_initial_sync
+    server = {"a.py": (1, 2.0, "h1")}
+    remote = {"x.py": (1, 2.0, "rh"), "y.py": (1, 2.0, "rh2")}
+    plan = plan_initial_sync(server, remote)
+    assert plan["direction"] == "pull"
+    assert plan["files"] == ["x.py", "y.py"]

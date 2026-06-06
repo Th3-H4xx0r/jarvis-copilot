@@ -308,3 +308,34 @@ def iter_chunks(path: str, chunk_size: int = _CHUNK_SIZE) -> Iterator[bytes]:
             if not block:
                 break
             yield block
+
+
+# ── initial-sync direction ───────────────────────────────────────────────────
+# When a session opts into syncing a project with a remote device, the FIRST
+# reconcile picks a direction based on whether the REMOTE folder already has
+# content (user rule):
+#   - remote has files  -> PULL remote -> server (claude uses the remote's files)
+#   - remote is empty    -> PUSH server -> remote (seed the remote from the server)
+
+def is_manifest_empty(manifest: dict) -> bool:
+    """True when a manifest has no (non-ignored) files."""
+    return not manifest
+
+
+def decide_initial_direction(*, remote_is_empty: bool) -> str:
+    """Return 'push' (server -> remote) when the remote is empty, else 'pull'."""
+    return "push" if remote_is_empty else "pull"
+
+
+def plan_initial_sync(server_manifest: dict, remote_manifest: dict) -> dict:
+    """Decide the initial direction + the files to transfer.
+
+    Returns ``{"direction": "push"|"pull", "files": [relpaths]}``:
+      - push: every file in the server manifest goes to the remote;
+      - pull: every file in the remote manifest comes to the server.
+    """
+    direction = decide_initial_direction(
+        remote_is_empty=is_manifest_empty(remote_manifest))
+    if direction == "push":
+        return {"direction": "push", "files": sorted(server_manifest.keys())}
+    return {"direction": "pull", "files": sorted(remote_manifest.keys())}

@@ -60,11 +60,11 @@ class FakeManager:
             raise self.exc
 
     def launch(self, *, cwd, title, initial_prompt, model,
-               worktree=False, repo_path=None, skip_permissions=False):
+               worktree=False, repo_path=None, skip_permissions=False, sync=None):
         self.calls.append(
             ("launch", dict(cwd=cwd, title=title, initial_prompt=initial_prompt,
                             model=model, worktree=worktree, repo_path=repo_path,
-                            skip_permissions=skip_permissions)))
+                            skip_permissions=skip_permissions, sync=sync)))
         self._maybe_raise("launch")
         return {"id": "sess-new", "status": "running", "cwd": cwd,
                 "title": title}

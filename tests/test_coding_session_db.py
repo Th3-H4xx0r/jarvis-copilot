@@ -57,3 +57,12 @@ def test_list_sessions_filters_by_status(tmp_path):
     running = [r["id"] for r in s.list_sessions(status="running")]
     assert running == [a]
     assert len(s.list_sessions()) == 2
+
+
+def test_sync_config_persisted(tmp_path):
+    s = _store(str(tmp_path))
+    sid = s.create_session(project_id=None, host="server", cwd="/r", branch=None,
+                           tmux_name="jc-x", source="chat", title="t",
+                           sync_config='{"enabled": true, "device": "mac", "remote_path": "~/p"}')
+    row = s.get_session(sid)
+    assert '"device": "mac"' in row["sync_config"]

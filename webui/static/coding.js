@@ -167,6 +167,14 @@ function codingShowLaunch() {
 
         <label class="cdg-check"><input type="checkbox" id="codingWorktree"> <span>Run in an isolated git worktree</span></label>
         <label class="cdg-check"><input type="checkbox" id="codingSkipPerms"> <span>Dangerously skip permissions (autonomous — no approval prompts)</span></label>
+        <label class="cdg-check"><input type="checkbox" id="codingSync" onchange="codingToggleSyncOpts()"> <span>Sync this project with another device</span></label>
+        <div id="codingSyncOpts" style="display:none;margin:4px 0 2px 22px">
+          <label class="cdg-label" for="codingSyncDevice">Device</label>
+          <input class="cdg-input" id="codingSyncDevice" placeholder="paired device name (e.g. your Mac)" autocomplete="off">
+          <label class="cdg-label" for="codingSyncPath">Folder path on that device</label>
+          <input class="cdg-input" id="codingSyncPath" placeholder="~/code/your-project" autocomplete="off">
+          <div class="cdg-hint">On launch: if that folder already has files they're pulled to the server; if it's empty, the server's folder is pushed to it. Two-way sync then keeps them in step. (Activates once that device's sync agent is connected.)</div>
+        </div>
 
         <label class="cdg-label" for="codingPrompt">Initial prompt</label>
         <textarea class="cdg-textarea" id="codingPrompt" rows="5" placeholder="Describe the task for the coding agent…"></textarea>
@@ -192,6 +200,13 @@ function codingClearDetail() {
 }
 window.codingClearDetail = codingClearDetail;
 
+function codingToggleSyncOpts() {
+  const on = !!(document.getElementById('codingSync') || {}).checked;
+  const opts = document.getElementById('codingSyncOpts');
+  if (opts) opts.style.display = on ? '' : 'none';
+}
+window.codingToggleSyncOpts = codingToggleSyncOpts;
+
 async function codingLaunch() {
   const cwd = (document.getElementById('codingCwd') || {}).value || '';
   const title = (document.getElementById('codingTitle') || {}).value || '';
@@ -199,6 +214,9 @@ async function codingLaunch() {
   const prompt = (document.getElementById('codingPrompt') || {}).value || '';
   const worktree = !!(document.getElementById('codingWorktree') || {}).checked;
   const skipPerms = !!(document.getElementById('codingSkipPerms') || {}).checked;
+  const syncOn = !!(document.getElementById('codingSync') || {}).checked;
+  const syncDevice = ((document.getElementById('codingSyncDevice') || {}).value || '').trim();
+  const syncPath = ((document.getElementById('codingSyncPath') || {}).value || '').trim();
   const host = (document.getElementById('codingHost') || {}).value || 'server';
   const errEl = document.getElementById('codingLaunchErr');
   const btn = document.getElementById('codingLaunchBtn');
@@ -220,6 +238,7 @@ async function codingLaunch() {
       prompt: prompt.trim(),
     };
     if (model.trim()) payload.model = model.trim();
+    if (syncOn) payload.sync = { enabled: true, device: syncDevice, remote_path: syncPath };
     const res = await api('/api/coding/launch', { method: 'POST', body: JSON.stringify(payload) });
     if (!res || res.ok === false) { showErr((res && (res.error || res.message)) || 'Launch failed.'); return; }
     const sess = res.session || {};
