@@ -585,6 +585,7 @@ const LOCALES = {
     tab_workspaces: 'Spaces',
     tab_profiles: 'Profiles',
     tab_kanban: 'Kanban',
+    tab_coding: 'Coding',
     // Voice tab
     voice_mode_quality: 'Push to talk',
     voice_mode_realtime: 'Realtime',

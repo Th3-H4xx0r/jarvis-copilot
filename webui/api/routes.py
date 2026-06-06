@@ -3451,6 +3451,16 @@ def handle_get(handler, parsed) -> bool:
         if handle_edge_get(handler, parsed):
             return True
 
+    if parsed.path.startswith("/api/coding"):
+        from api.coding_routes import (
+            CODING_PATH_PREFIX, default_manager, handle_coding_request)
+        sub = parsed.path[len(CODING_PATH_PREFIX):]
+        if parsed.query:
+            sub += "?" + parsed.query
+        status, payload = handle_coding_request(
+            "GET", sub, None, manager=default_manager())
+        return j(handler, payload, status=status)
+
     if parsed.path.startswith("/session/static/"):
         # Strip the leading "/session" so _serve_static() sees a path that
         # starts with "/static/" (its required prefix). _serve_static enforces
@@ -4634,6 +4644,16 @@ def handle_post(handler, parsed) -> bool:
         if diag:
             diag.finish()
         raise
+
+    if parsed.path.startswith("/api/coding"):
+        from api.coding_routes import (
+            CODING_PATH_PREFIX, default_manager, handle_coding_request)
+        sub = parsed.path[len(CODING_PATH_PREFIX):]
+        if parsed.query:
+            sub += "?" + parsed.query
+        status, payload = handle_coding_request(
+            "POST", sub, body, manager=default_manager())
+        return j(handler, payload, status=status)
 
     if parsed.path == "/api/session/recovery/repair-safe":
         from api.session_recovery import repair_safe_session_recovery

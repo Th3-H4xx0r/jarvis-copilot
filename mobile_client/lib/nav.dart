@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'widgets/glass.dart';
 import 'main.dart' as app;
 import 'pages/chat_page.dart';
+import 'pages/coding_page.dart';
 import 'pages/devices_page.dart';
 import 'pages/more_page.dart';
 import 'pages/skills_page.dart';
@@ -13,7 +14,7 @@ import 'pages/voice_page.dart';
 import 'services/android_accessibility.dart';
 import 'theme.dart';
 
-/// 5-tab bottom-nav shell. The 5 native tabs hit the hot paths; the
+/// 6-tab bottom-nav shell. The native tabs hit the hot paths; the
 /// More tab opens a grid of webview launchers for the rest of the
 /// server tabs (Tasks, Kanban, Memory, …).
 class NavShell extends StatefulWidget {
@@ -32,6 +33,7 @@ class _NavShellState extends State<NavShell> {
     VoicePage(),
     SkillsPage(),
     DevicesPage(),
+    CodingPage(),
     MorePage(),
   ];
 
@@ -104,6 +106,7 @@ class _NavShellState extends State<NavShell> {
     (Icons.graphic_eq_rounded, Icons.graphic_eq_rounded, 'Voice'),
     (Icons.auto_awesome_outlined, Icons.auto_awesome_rounded, 'Skills'),
     (Icons.devices_other_outlined, Icons.devices_other_rounded, 'Devices'),
+    (Icons.terminal_outlined, Icons.terminal_rounded, 'Coding'),
     (Icons.grid_view_outlined, Icons.grid_view_rounded, 'More'),
   ];
 

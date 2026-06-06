@@ -39,6 +39,7 @@ const APP_TITLEBAR_KEYS = {
   chat: 'tab_chat', voice: 'tab_voice', tasks: 'tab_tasks', skills: 'tab_skills',
   memory: 'tab_memory', workspaces: 'tab_workspaces',
   profiles: 'tab_profiles', todos: 'tab_todos', insights: 'tab_insights', logs: 'tab_logs', settings: 'tab_settings',
+  coding: 'tab_coding',
 };
 
 // Display names for panels whose auto-capitalized slug reads badly (multi-word).
@@ -230,7 +231,7 @@ async function switchPanel(name, opts = {}) {
   // showing-<name> class on <main>; no class means chat (the default).
   const mainEl = document.querySelector('main.main');
   if (mainEl) {
-    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','voice','devices','selfimprovement','codememory'].forEach(p => {
+    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','voice','devices','selfimprovement','codememory','coding'].forEach(p => {
       mainEl.classList.toggle('showing-' + p, nextPanel === p);
     });
   }
@@ -238,6 +239,9 @@ async function switchPanel(name, opts = {}) {
   // be empty dead space — hide it (desktop only; on mobile it's the off-canvas
   // nav menu) so the panel uses the full width.
   document.body.classList.toggle('cm-fullwidth', nextPanel === 'codememory');
+  // Coding tab has its own session nav (like Code Memory) — reclaim the empty
+  // conversation sidebar for full-width content. Mirrors codememory's toggle.
+  document.body.classList.toggle('coding-fullwidth', nextPanel === 'coding');
   // Lazy-load panel data
   if (nextPanel === 'tasks') await loadCrons();
   if (nextPanel === 'kanban') await loadKanban();
@@ -250,6 +254,8 @@ async function switchPanel(name, opts = {}) {
   if (nextPanel === 'logs') await loadLogs();
   if (nextPanel === 'selfimprovement') await loadSelfImprovement();
   if (nextPanel === 'codememory') await loadCodeMemory();
+  if (nextPanel === 'coding' && typeof loadCoding === 'function') await loadCoding();
+  if (prevPanel === 'coding' && nextPanel !== 'coding' && typeof onCodingPanelLeave === 'function') onCodingPanelLeave();
   if (nextPanel === 'devices' && typeof loadDevices === 'function') await loadDevices();
   if (nextPanel === 'voice' && typeof initVoicePanel === 'function') initVoicePanel();
   if (prevPanel === 'voice' && nextPanel !== 'voice' && typeof onVoicePanelLeave === 'function') onVoicePanelLeave();
