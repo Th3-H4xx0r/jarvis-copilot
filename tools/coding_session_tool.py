@@ -39,11 +39,14 @@ def _mgr():
         from agent.coding_host_drivers import LocalDriver
         from agent.coding_session_manager import CodingSessionManager
 
+        from agent.coding_session_capture import wait_for_session_id
+
         repo = Path(__file__).resolve().parent.parent
         plugin_dir = str(repo / "plugins" / "jarviscopilot-code-assist")
         _MGR = CodingSessionManager(
             store=CodingSessionStore(), driver=LocalDriver(),
-            plugin_dir=plugin_dir, memory_loader=_load_memory)
+            plugin_dir=plugin_dir, memory_loader=_load_memory,
+            session_capturer=wait_for_session_id)
     return _MGR
 
 
@@ -66,13 +69,20 @@ def _h_launch(args, **kw):
     import os
 
     a = args or {}
-    cwd = a.get("cwd") or a.get("path")
-    if not cwd:
-        return json.dumps({"error": "cwd (project directory) is required"})
-    if not os.path.isabs(cwd):
-        return json.dumps({"error": "cwd must be an absolute path"})
-    if not os.path.isdir(cwd):
-        return json.dumps({"error": f"cwd is not an existing directory: {cwd}"})
+    worktree = bool(a.get("worktree"))
+    repo_path = a.get("repo_path")
+    if worktree:
+        if not repo_path or not os.path.isabs(repo_path) or not os.path.isdir(repo_path):
+            return json.dumps({"error": "worktree=true requires repo_path to be an existing absolute directory"})
+        cwd = repo_path  # the manager replaces this with the new worktree path
+    else:
+        cwd = a.get("cwd") or a.get("path")
+        if not cwd:
+            return json.dumps({"error": "cwd (project directory) is required"})
+        if not os.path.isabs(cwd):
+            return json.dumps({"error": "cwd must be an absolute path"})
+        if not os.path.isdir(cwd):
+            return json.dumps({"error": f"cwd is not an existing directory: {cwd}"})
     model = a.get("model")
     if model:
         from agent.coding_host_drivers import is_valid_model
@@ -85,7 +95,9 @@ def _h_launch(args, **kw):
         return json.dumps({"error": "`tmux` is not installed on this host"})
     try:
         s = _mgr().launch(cwd=cwd, title=a.get("title") or "",
-                          initial_prompt=a.get("prompt"), model=model)
+                          initial_prompt=a.get("prompt"), model=model,
+                          worktree=bool(a.get("worktree")),
+                          repo_path=a.get("repo_path"))
         return json.dumps({"ok": True, "session": s})
     except Exception as e:  # pragma: no cover - defensive
         return json.dumps({"error": str(e)})
@@ -104,7 +116,9 @@ def _h_status(args, **kw):
     if not sid:
         return json.dumps({"error": "session_id is required"})
     s = _mgr().status(sid)
-    return json.dumps({"ok": True, "session": s} if s else {"error": "no such session"})
+    if not s:
+        return json.dumps({"error": "no such session"})
+    return json.dumps({"ok": True, "session": s, "subagents": _mgr().subagents(sid)})
 
 
 def _h_message(args, **kw):
@@ -162,7 +176,9 @@ _LAUNCH = {
                        "cwd": {"type": "string", "description": "absolute path to the project directory"},
                        "title": {"type": "string", "description": "short human label for the session"},
                        "prompt": {"type": "string", "description": "the initial task/instruction for the session"},
-                       "model": {"type": "string", "description": "claude model (opus|sonnet|haiku or a full id)"}},
+                       "model": {"type": "string", "description": "claude model (opus|sonnet|haiku or a full id)"},
+                       "worktree": {"type": "boolean", "description": "isolate in a fresh git worktree (requires repo_path)"},
+                       "repo_path": {"type": "string", "description": "repo to branch a worktree from when worktree=true"}},
                    "required": ["cwd"]},
 }
 _LIST = {

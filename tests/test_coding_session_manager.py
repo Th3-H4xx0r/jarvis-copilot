@@ -88,3 +88,46 @@ def test_stop_marks_stopped_and_cleans_context(tmp_path):
     mgr.stop(s["id"])
     assert mgr.status(s["id"])["status"] == "stopped"
     assert not ctx.exists()
+
+
+def test_launch_captures_claude_session_id_when_capturer_set(tmp_path):
+    store = CodingSessionStore(db_path=str(tmp_path / "c.db"))
+    mgr = CodingSessionManager(
+        store=store, driver=FakeDriver(),
+        plugin_dir="/p", memory_loader=lambda: ("m", "u"),
+        context_root=str(tmp_path / "ctx"),
+        session_capturer=lambda cwd, since: "claude-uuid-123")
+    s = mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None, model=None)
+    assert s["claude_session_id"] == "claude-uuid-123"
+
+
+def test_subagents_empty_without_claude_session_id(tmp_path):
+    mgr, _ = _mgr(tmp_path)
+    s = mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None, model=None)
+    assert mgr.subagents(s["id"]) == []
+
+
+def _git_repo(path):
+    import subprocess
+    path.mkdir(parents=True, exist_ok=True)
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    import os
+    e = {**os.environ, **env}
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True, env=e)
+    (path / "README.md").write_text("hi")
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True, capture_output=True, env=e)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=path, check=True,
+                   capture_output=True, env=e)
+
+
+def test_launch_with_worktree_isolates_session(tmp_path):
+    repo = tmp_path / "repo"
+    _git_repo(repo)
+    mgr, _ = _mgr(tmp_path)
+    s = mgr.launch(cwd="/unused", title="t", initial_prompt=None, model=None,
+                   worktree=True, repo_path=str(repo))
+    assert s["worktree_path"]
+    assert s["cwd"] == s["worktree_path"]
+    import os
+    assert os.path.isdir(s["worktree_path"])

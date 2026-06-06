@@ -49,19 +49,33 @@ def _scan_memory(text: str) -> str:
 
 class CodingSessionManager:
     def __init__(self, *, store, driver, plugin_dir, memory_loader,
-                 long_term_recall=None, context_root=None):
+                 long_term_recall=None, context_root=None, session_capturer=None):
         self.store = store
         self.driver = driver
         self.plugin_dir = plugin_dir
         self.memory_loader = memory_loader          # () -> (memory_text, user_text)
         self.long_term_recall = long_term_recall    # (task) -> str | None
         self.context_root = Path(context_root) if context_root else _default_context_root()
+        # (cwd, since_ts) -> claude session uuid | None. None = skip capture
+        # (kept injectable so unit tests don't poll the real ~/.claude/projects).
+        self.session_capturer = session_capturer
 
     def _context_path(self, sid: str) -> Path:
         return self.context_root / sid / "JARVIS-CONTEXT.md"
 
     def launch(self, *, cwd, title, initial_prompt, model, project_id=None,
-               branch=None, worktree_path=None):
+               branch=None, worktree_path=None, worktree=False, repo_path=None):
+        # Optionally isolate the session in a fresh git worktree so parallel
+        # sessions on one repo don't collide.
+        if worktree:
+            if not repo_path or not os.path.isdir(repo_path):
+                raise ValueError("worktree=True requires an existing repo_path")
+            from agent.coding_worktree import add_worktree
+
+            wt_branch = branch or ("jc/" + uuid.uuid4().hex[:6])
+            cwd = add_worktree(repo_path, wt_branch)
+            worktree_path = cwd
+            branch = wt_branch
         if not os.path.isabs(cwd) or not os.path.isdir(cwd):
             raise ValueError(f"cwd must be an existing absolute directory: {cwd!r}")
         tmux_name = "jc-" + uuid.uuid4().hex[:8]
@@ -89,6 +103,7 @@ class CodingSessionManager:
         launch_argv = self.driver.claude_argv(
             plugin_dir=self.plugin_dir, context_file=str(ctx_path),
             model=model, initial_prompt=initial_prompt)
+        since = time.time()
         res = self.driver._run(self.driver.tmux_new_argv(
             tmux_name=tmux_name, cwd=cwd, launch_argv=launch_argv))
         rc = getattr(res, "returncode", 0)
@@ -97,7 +112,34 @@ class CodingSessionManager:
             err = (getattr(res, "stderr", "") or "tmux new-session failed").strip()
             raise RuntimeError(f"failed to start session: {err}")
         self.store.update_session(sid, status="running", last_activity_at=time.time())
+        # 4. best-effort: recover the claude session UUID (enables --resume +
+        #    transcript/subagent correlation). Injectable; skipped if not set.
+        if self.session_capturer:
+            try:
+                cid = self.session_capturer(cwd, since)
+                if cid:
+                    self.store.update_session(sid, claude_session_id=cid)
+            except Exception:
+                pass
         return self.store.get_session(sid)
+
+    def subagents(self, sid):
+        """Subagents the session has spawned (parsed from its transcript)."""
+        row = self.store.get_session(sid)
+        if not row:
+            raise KeyError(sid)
+        cid = row.get("claude_session_id")
+        if not cid:
+            return []
+        try:
+            from agent.coding_session_capture import (
+                claude_projects_dir, encode_project_dir)
+            from agent.coding_subagent_tracker import parse_subagents
+
+            path = claude_projects_dir() / encode_project_dir(row["cwd"]) / f"{cid}.jsonl"
+            return parse_subagents(str(path))
+        except Exception:
+            return []
 
     def send_message(self, sid, text):
         row = self.store.get_session(sid)
@@ -128,3 +170,11 @@ class CodingSessionManager:
                 ctx.parent.rmdir()
         except Exception:
             pass
+        # best-effort cleanup of the session's git worktree
+        if row.get("worktree_path"):
+            try:
+                from agent.coding_worktree import remove_worktree
+
+                remove_worktree(row["worktree_path"], force=True)
+            except Exception:
+                pass

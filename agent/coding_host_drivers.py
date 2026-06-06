@@ -106,3 +106,28 @@ class LocalDriver(HostDriver):
     def _run(self, argv: list[str]) -> subprocess.CompletedProcess:
         return subprocess.run(argv, capture_output=True, text=True,
                               env=self.subprocess_env())
+
+
+class DesktopDriver(LocalDriver):
+    """Runs the session on the user's paired desktop client.
+
+    Command *construction* is identical to ``LocalDriver`` (same tmux+claude
+    argvs); only *execution* differs — argvs are dispatched to the desktop
+    client over the device bridge instead of run locally. The bridge transport
+    is injected (``bridge_run``) so it is testable and so the agent process,
+    which can't see the webui's in-memory device registry, can route through
+    the webui REST API the same way ``tools/chrome_device_tool.py`` does.
+    """
+
+    name = "desktop"
+
+    def __init__(self, bridge_run=None):
+        # bridge_run(argv) -> object with .returncode/.stderr (or None)
+        self._bridge_run = bridge_run
+
+    def _run(self, argv: list[str]):
+        if self._bridge_run is None:
+            raise RuntimeError(
+                "desktop session transport not configured — pair a desktop "
+                "client (jc-client) and provide a bridge_run")
+        return self._bridge_run(argv)

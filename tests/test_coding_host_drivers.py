@@ -72,3 +72,29 @@ def test_subprocess_env_scrubs_api_key(monkeypatch):
     env = d.subprocess_env()
     assert "ANTHROPIC_API_KEY" not in env
     assert env.get("HOME")
+
+
+def test_desktop_driver_reuses_construction_and_routes_through_bridge():
+    from agent.coding_host_drivers import DesktopDriver
+
+    sent = []
+    d = DesktopDriver(bridge_run=lambda argv: sent.append(argv) or
+                      __import__("types").SimpleNamespace(returncode=0, stderr=""))
+    assert d.name == "desktop"
+    # command construction is inherited from LocalDriver
+    argv = d.tmux_new_argv(tmux_name="jc-x", cwd="/r", launch_argv=["env", "claude"])
+    assert argv[:3] == ["tmux", "new-session", "-d"]
+    res = d._run(argv)
+    assert sent == [argv]
+    assert res.returncode == 0
+
+
+def test_desktop_driver_without_bridge_raises():
+    from agent.coding_host_drivers import DesktopDriver
+
+    d = DesktopDriver()
+    try:
+        d._run(["tmux", "ls"])
+        assert False, "expected RuntimeError"
+    except RuntimeError as e:
+        assert "transport not configured" in str(e)
