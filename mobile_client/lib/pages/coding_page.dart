@@ -556,7 +556,12 @@ class _SyncCard extends StatelessWidget {
       case 'syncing':
         return 'Syncing…';
       case 'opening':
+      case 'connecting':
         return 'Connecting…';
+      case 'conflicts':
+        return sync.conflicts > 1
+            ? '${sync.conflicts} conflicts'
+            : '${sync.conflicts} conflict';
       case 'idle':
         return online ? 'Idle' : 'Waiting for device';
       case 'disconnected':

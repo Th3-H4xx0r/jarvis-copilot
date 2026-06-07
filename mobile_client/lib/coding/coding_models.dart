@@ -176,6 +176,7 @@ class CodingSyncStatus {
     this.status = 'off',
     this.total = 0,
     this.done = 0,
+    this.conflicts = 0,
     this.lastSyncAt,
     this.error,
   });
@@ -186,10 +187,17 @@ class CodingSyncStatus {
   final String status;
   final int total;
   final int done;
+  final int conflicts;
   final double? lastSyncAt; // epoch seconds
   final String? error;
 
-  bool get isSyncing => status == 'syncing' || status == 'opening';
+  bool get isSyncing =>
+      status == 'syncing' || status == 'opening' || status == 'connecting';
+
+  /// Percent complete from Mutagen's staging progress (done/total files).
+  int get pct => (isSyncing && total > 0)
+      ? ((done / total) * 100).round()
+      : (status == 'synced' ? 100 : 0);
 
   factory CodingSyncStatus.fromJson(Map<String, dynamic> j) {
     return CodingSyncStatus(
@@ -199,6 +207,7 @@ class CodingSyncStatus {
       status: (j['status'] ?? 'off').toString(),
       total: _asInt(j['total']),
       done: _asInt(j['done']),
+      conflicts: _asInt(j['conflicts']),
       lastSyncAt: _asDouble(j['last_sync_at']),
       error: _str(j['error']),
     );

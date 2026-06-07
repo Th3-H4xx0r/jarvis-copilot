@@ -92,6 +92,21 @@ class CodingMutagenAgent:
             log.warning("sync key/ssh-config bootstrap failed: %s", exc)
             return None
 
+    def _ensure_engine(self) -> bool:
+        """Mutagen present? If not, fetch it once (download) and point the driver
+        at it. Best-effort; returns False if it still can't be installed."""
+        if self._driver.has_engine():
+            return True
+        try:
+            from jc_client.mutagen_install import ensure_mutagen
+            path = ensure_mutagen(self._state_dir,
+                                  log_fn=lambda m: log.info("%s", m))
+            self._driver.set_path(path)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            log.warning("mutagen auto-install failed: %s", exc)
+            return False
+
     # ── inbound frames ──────────────────────────────────────────────────
 
     def handle_frame(self, frame: dict) -> None:
@@ -111,7 +126,13 @@ class CodingMutagenAgent:
         ignore = frame.get("ignore") if isinstance(frame.get("ignore"), list) else None
         if not sync_id or not local or not remote:
             return
-        # Make sure the key + ssh alias + daemon are ready.
+        # Make sure the Mutagen engine is installed (self-heal if a `jc-client
+        # update` hasn't fetched it yet) + the key/ssh alias/daemon are ready.
+        if not self._ensure_engine():
+            self._emit_error(
+                sync_id, "Mutagen sync engine is not installed — run "
+                         "`jc-client install-mutagen` (or `jc-client update`)")
+            return
         self.pubkey()
         try:
             self._driver.ensure_daemon()

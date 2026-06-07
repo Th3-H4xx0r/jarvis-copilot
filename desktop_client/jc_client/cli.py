@@ -749,9 +749,37 @@ def cmd_update(args) -> int:
         [sys.executable, "-m", "pip", "install", "-e", str(repo / "desktop_client"),
          "-q", "--disable-pip-version-check"],
     )
+    # Ensure the Mutagen sync engine is installed/refreshed for coding-session
+    # file sync (best-effort — a failure here must not fail the client update).
+    _ensure_mutagen_quiet()
+
     print("Updated. Restart to apply: quit + relaunch the tray for the new menu,"
           " and `jc-client restart` for the background service.")
     return 0
+
+
+def _ensure_mutagen_quiet() -> None:
+    try:
+        from jc_client.mutagen_install import ensure_mutagen
+        from jc_client.logger import state_dir
+        ensure_mutagen(str(state_dir()), log_fn=print)
+    except Exception as exc:  # noqa: BLE001
+        print(f"(mutagen sync engine not installed: {exc} — sync will be "
+              f"unavailable until `jc-client install-mutagen` succeeds)",
+              file=sys.stderr)
+
+
+def cmd_install_mutagen(args) -> int:
+    """Download + install the pinned Mutagen binary used by coding-session sync."""
+    from jc_client.mutagen_install import ensure_mutagen
+    from jc_client.logger import state_dir
+    try:
+        path = ensure_mutagen(str(state_dir()), log_fn=print)
+        print(f"OK: {path}")
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(f"install-mutagen failed: {exc}", file=sys.stderr)
+        return 1
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
@@ -820,6 +848,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("mcp-serve", help="Run the jarviscopilot-code-assist MCP server (stdio)").set_defaults(func=cmd_mcp_serve)
     sub.add_parser("tcp-relay", help="SSH ProxyCommand: bridge stdio to the server sync relay").set_defaults(func=cmd_tcp_relay)
+    sub.add_parser("install-mutagen", help="Download/refresh the Mutagen sync engine").set_defaults(func=cmd_install_mutagen)
     cmsub = sub.add_parser("code-memory", help="Project code-memory (bootstrap/recall/store/projects)")
     cmsubp = cmsub.add_subparsers(dest="cm_command", required=True)
     cmsubp.add_parser("bootstrap")

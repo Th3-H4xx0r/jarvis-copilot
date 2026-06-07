@@ -152,11 +152,28 @@ def _default_runner(argv: list, env: Optional[dict] = None) -> tuple:
         return 1, "", f"timeout: {exc}"
 
 
+def _client_state_dir() -> str:
+    try:
+        from jc_client.logger import state_dir
+        return str(state_dir())
+    except Exception:
+        return os.path.expanduser("~/.jarviscopilot-client")
+
+
 def find_mutagen() -> Optional[str]:
-    """Locate the bundled or PATH mutagen binary."""
+    """Locate the mutagen binary: explicit override, the fetched cache (managed
+    by mutagen_install — the normal case), the PyInstaller payload, then PATH."""
     env = os.getenv("JC_MUTAGEN_PATH")
     if env and os.path.isfile(env):
         return env
+    # the version we fetch on update/first-sync lives in the client state dir
+    try:
+        from jc_client import mutagen_install
+        cached = mutagen_install.installed_path(_client_state_dir())
+        if cached:
+            return cached
+    except Exception:
+        pass
     # bundled in the PyInstaller payload: _MEIPASS is already the bundle ROOT
     # dir (do NOT dirname it); a non-frozen run looks next to argv[0].
     import sys
@@ -176,6 +193,12 @@ class MutagenDriver:
         self._mutagen = mutagen_path or find_mutagen()
         self._run = runner or _default_runner
         self._env = env
+
+    def has_engine(self) -> bool:
+        return bool(self._mutagen)
+
+    def set_path(self, path: str) -> None:
+        self._mutagen = path
 
     def _require(self) -> str:
         if not self._mutagen:
