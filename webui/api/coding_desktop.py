@@ -1,0 +1,676 @@
+"""Server side of a DESKTOP-host coding session, driven over the device bridge.
+
+When a coding session is launched with ``host='desktop'`` the tmux+claude
+process runs on the user's paired desktop client (jc-client), not on the Jarvis
+server. This module is the webui-process glue that:
+
+  1. tells the desktop to start that tmux+claude (``coding_term_open``),
+  2. streams the desktop PTY into the WebUI's live terminal (the existing
+     ``/api/terminal/{output,input,resize,close}`` SSE machinery), and
+  3. drives the bidirectional file sync (initial reconcile + incremental
+     deltas).
+
+Topology / frames
+-----------------
+The device-bridge connection registry lives in *this* (webui) process, so the
+send path is in-process (``device_bridge.send_frame``) — no REST hop like the
+agent-side chrome tools need. Frames (mirroring jc_client's CodingTermManager /
+CodingSyncAgent):
+
+  Terminal   S->D  coding_term_open  {term_id, cwd, argv, env}
+                   coding_term_input {term_id, data}
+                   coding_term_resize{term_id, rows, cols}
+                   coding_term_close {term_id}
+             D->S  coding_term_output{term_id, data}
+                   coding_term_exit  {term_id, code}
+
+  Sync       S->D  coding_sync_open  {sync_id, path, ignore}
+                   coding_sync_get   {sync_id, relpath}
+                   coding_sync_file  {sync_id, relpath, b64}
+                   coding_sync_rm    {sync_id, relpath}
+                   coding_sync_close {sync_id}
+             D->S  coding_sync_manifest{sync_id, manifest}
+                   coding_sync_file  {sync_id, relpath, b64}
+                   coding_sync_event {sync_id, relpath, kind}
+
+Design for testability
+-----------------------
+Every class takes an injectable *transport* — anything with
+``send(device_id, frame) -> bool``. Tests pass a FakeBridge that records sent
+frames and lets the test inject inbound frames (via ``DesktopBridge.on_frame``).
+No real WebSocket, tmux, claude, or filesystem watcher is touched by the unit
+tests; only the on-disk sync apply touches a tmp directory.
+"""
+from __future__ import annotations
+
+import base64
+import queue
+import threading
+import time
+from pathlib import Path
+
+from agent import coding_sync as sync_core
+
+# ── transport seam ───────────────────────────────────────────────────────────
+
+
+class _RealTransport:
+    """Default transport: the in-process device-bridge send path."""
+
+    def send(self, device_id: str, frame: dict) -> bool:
+        from api import device_bridge
+
+        return device_bridge.send_frame(device_id, frame)
+
+
+# ── desktop terminal feed (TerminalSession-compatible) ───────────────────────
+
+
+class _FakeProc:
+    """Minimal Popen stand-in so the SSE route's ``term.proc.poll()`` works."""
+
+    def __init__(self):
+        self._code = None
+
+    def set_exit(self, code):
+        self._code = 0 if code is None else int(code)
+
+    def poll(self):
+        return self._code
+
+
+class DesktopTerminalFeed:
+    """A TerminalSession-compatible object whose PTY lives on the desktop.
+
+    Output is fed by inbound ``coding_term_output`` frames; ``feed_write`` /
+    ``feed_resize`` / ``feed_close`` emit the matching S->D frames. It is
+    registered in ``api.terminal``'s ``_TERMINALS`` registry under the coding
+    *session id* so the existing /api/terminal/{output,input,resize,close}
+    routes drive it unchanged (those routes dispatch to the ``feed_*`` methods
+    when present — see api/terminal.py).
+    """
+
+    # Bound the buffered output so a chatty session can't grow memory without
+    # bound before a viewer attaches. Mirrors TerminalSession's queue cap.
+    _MAX_QUEUE = 2000
+
+    def __init__(self, *, session_id, device_id, term_id, bridge,
+                 rows: int = 24, cols: int = 80):
+        self.session_id = str(session_id)
+        self.device_id = str(device_id)
+        self.term_id = str(term_id)
+        self._bridge = bridge
+        self.workspace = ""  # parity field; the real cwd lives on the device
+        self.rows = rows
+        self.cols = cols
+        self.output: queue.Queue = queue.Queue(maxsize=self._MAX_QUEUE)
+        self.closed = threading.Event()
+        self.proc = _FakeProc()
+        self.reader = None  # parity with TerminalSession.reader (unused here)
+
+    # --- read surface the SSE route uses ------------------------------------
+
+    def is_alive(self) -> bool:
+        return not self.closed.is_set()
+
+    def put_output(self, event: str, payload: dict) -> None:
+        try:
+            self.output.put_nowait((event, payload))
+        except queue.Full:
+            # Drop the oldest chunk to stay responsive (same policy as
+            # TerminalSession.put_output).
+            try:
+                self.output.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self.output.put_nowait((event, payload))
+            except queue.Full:
+                pass
+
+    # --- inbound device frames ----------------------------------------------
+
+    def on_output(self, data: str) -> None:
+        if data:
+            self.put_output("output", {"text": data})
+
+    def on_exit(self, code) -> None:
+        self.proc.set_exit(code)
+        self.closed.set()
+        self.put_output("terminal_closed", {"exit_code": self.proc.poll()})
+
+    # --- feed_* overrides used by api.terminal write/resize/close ------------
+
+    def feed_write(self, data: str) -> None:
+        self._bridge.send_term_input(self.device_id, self.term_id, str(data or ""))
+
+    def feed_resize(self, rows: int, cols: int) -> None:
+        self.rows = max(8, min(int(rows or self.rows or 24), 80))
+        self.cols = max(20, min(int(cols or self.cols or 80), 240))
+        self._bridge.send_term_resize(self.device_id, self.term_id,
+                                      self.rows, self.cols)
+
+    def feed_close(self) -> None:
+        # Detach the viewer; the desktop tmux+claude keeps running (parity with
+        # the server-host "attach" terminal, which detaches rather than kills).
+        # We do NOT send coding_term_close here so the session survives a tab
+        # close; the session lifecycle (stop/delete) sends the close frame.
+        self.closed.set()
+
+
+# ── the bridge helper ────────────────────────────────────────────────────────
+
+
+class DesktopBridge:
+    """Server-side helper that sends coding frames to a device and routes the
+    device's replies back to the right terminal feed / sync session.
+
+    Single instance per webui process (``get_desktop_bridge()``). It owns the
+    process-wide inbound coding-frame handler registered with the device bridge.
+    Routing is by ``term_id`` (terminal frames) / ``sync_id`` (sync frames)
+    carried inside each frame.
+    """
+
+    # Per-term replay buffer cap (chars) so a viewer attaching after launch
+    # still sees recent scrollback. Bounded to protect memory.
+    _REPLAY_CAP = 64 * 1024
+
+    def __init__(self, transport=None):
+        self._transport = transport or _RealTransport()
+        self._lock = threading.RLock()
+        # term_id -> DesktopTerminalFeed
+        self._feeds: dict[str, DesktopTerminalFeed] = {}
+        # term_id -> list[str] replay buffer (output seen before a feed attached)
+        self._replay: dict[str, list[str]] = {}
+        # term_id -> int exit code seen before a feed attached
+        self._pending_exit: dict[str, int] = {}
+        # sync_id -> DesktopSyncSession
+        self._syncs: dict = {}
+
+    # --- registration with the device bridge --------------------------------
+
+    def install(self) -> None:
+        """Register this instance as the device bridge's coding-frame handler."""
+        from api import device_bridge
+
+        device_bridge.set_coding_frame_handler(self.on_frame)
+
+    # --- outbound terminal frames -------------------------------------------
+
+    def send_term_open(self, device_id: str, *, term_id: str, cwd: str,
+                       argv: list, env: dict | None = None) -> bool:
+        return self._transport.send(device_id, {
+            "type": "coding_term_open",
+            "term_id": term_id,
+            "cwd": cwd,
+            "argv": list(argv),
+            "env": dict(env or {}),
+        })
+
+    def send_term_input(self, device_id: str, term_id: str, data: str) -> bool:
+        return self._transport.send(device_id, {
+            "type": "coding_term_input", "term_id": term_id, "data": data,
+        })
+
+    def send_term_resize(self, device_id: str, term_id: str,
+                         rows: int, cols: int) -> bool:
+        return self._transport.send(device_id, {
+            "type": "coding_term_resize", "term_id": term_id,
+            "rows": int(rows), "cols": int(cols),
+        })
+
+    def send_term_close(self, device_id: str, term_id: str) -> bool:
+        with self._lock:
+            self._feeds.pop(term_id, None)
+            self._replay.pop(term_id, None)
+            self._pending_exit.pop(term_id, None)
+        return self._transport.send(device_id, {
+            "type": "coding_term_close", "term_id": term_id,
+        })
+
+    # --- terminal feed lifecycle --------------------------------------------
+
+    def attach_feed(self, *, session_id: str, device_id: str, term_id: str,
+                    rows: int = 24, cols: int = 80) -> DesktopTerminalFeed:
+        """Create (or return) the feed for ``term_id`` and replay buffered output.
+
+        Registers the feed in api.terminal's registry under ``session_id`` so the
+        existing SSE/input/resize/close routes drive it.
+        """
+        from api import terminal as term_mod
+
+        with self._lock:
+            feed = self._feeds.get(term_id)
+            if feed is None:
+                feed = DesktopTerminalFeed(
+                    session_id=session_id, device_id=device_id, term_id=term_id,
+                    bridge=self, rows=rows, cols=cols)
+                self._feeds[term_id] = feed
+                # Replay any output that arrived before the viewer attached.
+                for chunk in self._replay.pop(term_id, []):
+                    feed.on_output(chunk)
+                if term_id in self._pending_exit:
+                    feed.on_exit(self._pending_exit.pop(term_id))
+        term_mod.register_terminal(session_id, feed)
+        return feed
+
+    def feed_for(self, term_id: str) -> DesktopTerminalFeed | None:
+        with self._lock:
+            return self._feeds.get(term_id)
+
+    # --- outbound sync frames -----------------------------------------------
+
+    def send_sync_open(self, device_id: str, *, sync_id: str, path: str,
+                       ignore: list | None = None) -> bool:
+        return self._transport.send(device_id, {
+            "type": "coding_sync_open", "sync_id": sync_id,
+            "path": path, "ignore": list(ignore or []),
+        })
+
+    def send_sync_get(self, device_id: str, sync_id: str, relpath: str) -> bool:
+        return self._transport.send(device_id, {
+            "type": "coding_sync_get", "sync_id": sync_id, "relpath": relpath,
+        })
+
+    def send_sync_file(self, device_id: str, sync_id: str, relpath: str,
+                       data: bytes) -> bool:
+        b64 = base64.b64encode(data).decode("ascii")
+        return self._transport.send(device_id, {
+            "type": "coding_sync_file", "sync_id": sync_id,
+            "relpath": relpath, "b64": b64,
+        })
+
+    def send_sync_rm(self, device_id: str, sync_id: str, relpath: str) -> bool:
+        return self._transport.send(device_id, {
+            "type": "coding_sync_rm", "sync_id": sync_id, "relpath": relpath,
+        })
+
+    def send_sync_close(self, device_id: str, sync_id: str) -> bool:
+        with self._lock:
+            self._syncs.pop(sync_id, None)
+        return self._transport.send(device_id, {
+            "type": "coding_sync_close", "sync_id": sync_id,
+        })
+
+    def register_sync(self, session) -> None:
+        with self._lock:
+            self._syncs[session.sync_id] = session
+
+    def sync_for(self, sync_id: str):
+        with self._lock:
+            return self._syncs.get(sync_id)
+
+    # --- inbound frame routing (called from the bridge pump thread) ---------
+
+    def on_frame(self, device_id: str, frame: dict) -> None:
+        t = frame.get("type")
+        if t == "coding_term_output":
+            self._route_term_output(frame)
+        elif t == "coding_term_exit":
+            self._route_term_exit(frame)
+        elif t in ("coding_sync_manifest", "coding_sync_file", "coding_sync_event"):
+            self._route_sync(frame)
+
+    def _route_term_output(self, frame: dict) -> None:
+        term_id = frame.get("term_id")
+        data = frame.get("data") or ""
+        with self._lock:
+            feed = self._feeds.get(term_id)
+            if feed is None:
+                # No viewer yet — buffer (bounded) for replay on attach.
+                buf = self._replay.setdefault(term_id, [])
+                buf.append(data)
+                total = sum(len(c) for c in buf)
+                while total > self._REPLAY_CAP and len(buf) > 1:
+                    total -= len(buf.pop(0))
+                return
+        feed.on_output(data)
+
+    def _route_term_exit(self, frame: dict) -> None:
+        term_id = frame.get("term_id")
+        code = frame.get("code")
+        with self._lock:
+            feed = self._feeds.get(term_id)
+            if feed is None:
+                self._pending_exit[term_id] = 0 if code is None else int(code)
+                return
+        feed.on_exit(code)
+
+    def _route_sync(self, frame: dict) -> None:
+        sync = self.sync_for(frame.get("sync_id"))
+        if sync is None:
+            return
+        t = frame.get("type")
+        if t == "coding_sync_manifest":
+            sync.on_manifest(frame.get("manifest") or {})
+        elif t == "coding_sync_file":
+            sync.on_file(frame.get("relpath") or "", frame.get("b64") or "")
+        elif t == "coding_sync_event":
+            sync.on_event(frame.get("relpath") or "", frame.get("kind") or "")
+
+
+# ── sync session (server side of the synced tunnel) ──────────────────────────
+
+
+class DesktopSyncSession:
+    """Drives the initial reconcile + incremental deltas for one synced root.
+
+    The hard reconciliation/transfer logic lives in agent.coding_sync (pure,
+    network-free). This class is the thin stateful orchestrator that pairs the
+    server-side filesystem with the remote (desktop) side over the bridge.
+
+    Direction rule (per spec): on first reconcile, if the remote manifest is
+    empty we PUSH (seed the desktop from the server); otherwise we PULL (claude
+    uses the desktop's files).
+    """
+
+    def __init__(self, *, sync_id: str, device_id: str, root: str, bridge,
+                 ignore: list | None = None, remote_path: str | None = None):
+        self.sync_id = str(sync_id)
+        self.device_id = str(device_id)
+        self.root = str(Path(root).expanduser())
+        # What the DESKTOP watches/opens (defaults to the server root path).
+        self.remote_path = str(remote_path) if remote_path else self.root
+        self.bridge = bridge
+        self.ignore = list(ignore) if ignore else list(sync_core.DEFAULT_IGNORES)
+        self.direction = None  # 'push' | 'pull' (set after first manifest)
+        self.reconciled = threading.Event()
+        # files we still expect to receive (pull) before the tree is whole
+        self._pending_pull: set = set()
+        self._lock = threading.RLock()
+
+    # --- lifecycle ----------------------------------------------------------
+
+    def open(self) -> bool:
+        """Send coding_sync_open so the desktop starts watching + replies with
+        its manifest. ``path`` is the REMOTE path the desktop opens/watches."""
+        return self.bridge.send_sync_open(
+            self.device_id, sync_id=self.sync_id, path=self.remote_path,
+            ignore=self.ignore)
+
+    def server_manifest(self) -> dict:
+        return sync_core.build_manifest(self.root, self.ignore)
+
+    # --- inbound from device ------------------------------------------------
+
+    def on_manifest(self, remote_manifest: dict) -> None:
+        """Got the desktop's manifest — pick a direction and start transfers."""
+        local = self.server_manifest()
+        plan = sync_core.plan_initial_sync(local, remote_manifest)
+        with self._lock:
+            self.direction = plan["direction"]
+            if self.direction == "push":
+                # PUSH: read each server file and send it to the desktop.
+                for rel in plan["files"]:
+                    self._push_file(rel)
+                self.reconciled.set()
+            else:
+                # PULL: request each remote file; mark the tree reconciled once
+                # every requested file has arrived.
+                self._pending_pull = set(plan["files"])
+                for rel in plan["files"]:
+                    self.bridge.send_sync_get(self.device_id, self.sync_id, rel)
+                if not self._pending_pull:
+                    self.reconciled.set()
+
+    def on_file(self, relpath: str, b64: str) -> None:
+        """A coding_sync_file arrived from the desktop — write it locally."""
+        if not relpath:
+            return
+        try:
+            data = base64.b64decode(b64 or "")
+        except Exception:
+            return
+        try:
+            sync_core.apply_write(self.root, relpath, data)
+        except ValueError:
+            # path traversal / escape — refuse silently (apply_write's guard)
+            return
+        with self._lock:
+            self._pending_pull.discard(relpath)
+            if self.direction == "pull" and not self._pending_pull:
+                self.reconciled.set()
+
+    def on_event(self, relpath: str, kind: str) -> None:
+        """Incremental delta after the initial reconcile.
+
+        ``kind`` is 'modified'/'created' -> request the new bytes (pull side);
+        'deleted' -> apply the delete locally. Kept deliberately simple: a
+        modify on the desktop pulls the file down; the watcher/loop is the
+        device's responsibility (it emits these events)."""
+        if not relpath:
+            return
+        if kind in ("modified", "created", "changed"):
+            self.bridge.send_sync_get(self.device_id, self.sync_id, relpath)
+        elif kind in ("deleted", "removed"):
+            try:
+                sync_core.apply_delete(self.root, relpath)
+            except ValueError:
+                pass
+
+    def _push_file(self, relpath: str) -> None:
+        try:
+            target = sync_core.safe_join(self.root, relpath)
+            with open(target, "rb") as fh:
+                data = fh.read()
+        except (OSError, ValueError):
+            return
+        self.bridge.send_sync_file(self.device_id, self.sync_id, relpath, data)
+
+
+# ── process-wide singleton + driver wiring ───────────────────────────────────
+
+_BRIDGE = None
+_BRIDGE_LOCK = threading.Lock()
+
+
+def get_desktop_bridge() -> DesktopBridge:
+    """The webui process's DesktopBridge (installs the device-bridge handler on
+    first use)."""
+    global _BRIDGE
+    with _BRIDGE_LOCK:
+        if _BRIDGE is None:
+            _BRIDGE = DesktopBridge()
+            try:
+                _BRIDGE.install()
+            except Exception:
+                # device_bridge import may fail in some contexts; the bridge is
+                # still usable for outbound sends if a transport is wired later.
+                pass
+        return _BRIDGE
+
+
+def resolve_desktop_device_id() -> str | None:
+    """device_id of a connected desktop client, else None.
+
+    Prefers a relay-capable device (the jc-client advertises MCP relay), then
+    falls back to any device whose pairing record kind is 'desktop'. Runs in the
+    webui process, so it reads the in-memory bridge registry directly.
+    """
+    try:
+        from api import device_bridge
+    except Exception:
+        return None
+    # 1. a connected relay-capable device is almost certainly the jc desktop client
+    try:
+        caps = device_bridge.relay_capable_devices()
+        if caps:
+            return caps[0]["device_id"]
+    except Exception:
+        pass
+    # 2. any connected device whose pairing record kind == 'desktop'
+    try:
+        connected = set(device_bridge.connected_device_ids())
+        from api.pairing import list_devices
+
+        for d in list_devices():
+            if d.get("id") in connected and (d.get("kind") or "").lower() == "desktop":
+                return d["id"]
+    except Exception:
+        pass
+    # 3. last resort: the single connected device, if there's exactly one
+    try:
+        connected = device_bridge.connected_device_ids()
+        if len(connected) == 1:
+            return connected[0]
+    except Exception:
+        pass
+    return None
+
+
+class _BridgeRunResult:
+    """CompletedProcess-shaped result so CodingSessionManager's rc check works."""
+
+    def __init__(self, returncode: int, stderr: str = ""):
+        self.returncode = returncode
+        self.stderr = stderr
+
+
+def make_bridge_run(device_id: str, bridge: DesktopBridge | None = None):
+    """Return a ``bridge_run(argv)`` closure for a DesktopDriver bound to one
+    device.
+
+    The manager calls ``driver._run(argv)`` for three kinds of argv (all
+    constructed identically to LocalDriver):
+
+      * ``tmux new-session -d -s <name> -c <cwd> <claude-argv...>``  -> launch:
+        send ``coding_term_open`` carrying (term_id=<name>, cwd, argv=<claude>).
+        The desktop runs tmux+claude and streams ``coding_term_output``.
+      * ``tmux send-keys -t <name> ...``                              -> message:
+        translate to ``coding_term_input`` against term_id=<name>.
+      * ``tmux kill-session -t <name>``                               -> stop:
+        send ``coding_term_close`` for term_id=<name>.
+
+    Anything else is sent verbatim as a best-effort and reported as success so a
+    new tmux sub-command doesn't hard-fail the manager.
+    """
+    bridge = bridge or get_desktop_bridge()
+
+    def _run(argv):
+        argv = list(argv or [])
+        try:
+            return _dispatch_tmux_argv(bridge, device_id, argv)
+        except Exception as exc:  # never raise into the manager's launch path
+            return _BridgeRunResult(1, str(exc))
+
+    return _run
+
+
+def start_sync_for_launch(device_id: str, *, session_id: str, cwd: str,
+                          sync: dict | None,
+                          bridge: DesktopBridge | None = None):
+    """Open a DesktopSyncSession for a freshly-launched desktop session, if the
+    launch opted into syncing. Returns the session (or None when sync is off).
+
+    The server-side root is the session ``cwd``; the desktop's path comes from
+    ``sync['remote_path']`` (the device opens it on its side via coding_sync_open
+    — we pass our local root as ``path`` so the device knows what to watch when
+    paths match, but the device ultimately watches its own ``remote_path``; the
+    reconcile is content/manifest based so absolute paths need not match).
+    """
+    if not sync:
+        return None
+    if not (sync.get("enabled") or sync.get("device") or sync.get("remote_path")):
+        return None
+    bridge = bridge or get_desktop_bridge()
+    sync_id = "sync-" + session_id
+    ignore = sync.get("ignore") if isinstance(sync.get("ignore"), list) else None
+    remote_path = sync.get("remote_path") or cwd
+    session = DesktopSyncSession(
+        sync_id=sync_id, device_id=device_id, root=cwd, bridge=bridge,
+        ignore=ignore, remote_path=remote_path)
+    bridge.register_sync(session)
+    session.open()  # coding_sync_open -> device replies with coding_sync_manifest
+    return session
+
+
+def make_on_launched(device_id: str, bridge: DesktopBridge | None = None):
+    """Return an ``on_launched(session_id, cwd, tmux_name, sync)`` closure bound
+    to one device — kicks off the file sync after a successful launch."""
+    bridge = bridge or get_desktop_bridge()
+
+    def _on_launched(*, session_id, cwd, tmux_name, sync):
+        try:
+            start_sync_for_launch(device_id, session_id=session_id, cwd=cwd,
+                                  sync=sync, bridge=bridge)
+        except Exception:
+            pass
+
+    return _on_launched
+
+
+def _dispatch_tmux_argv(bridge: DesktopBridge, device_id: str,
+                        argv: list) -> _BridgeRunResult:
+    if not argv or argv[0] != "tmux":
+        return _BridgeRunResult(1, f"unexpected non-tmux argv: {argv[:1]}")
+    sub = argv[1] if len(argv) > 1 else ""
+
+    if sub == "new-session":
+        term_id, cwd, launch_argv = _parse_new_session(argv)
+        if not term_id:
+            return _BridgeRunResult(1, "could not parse tmux new-session argv")
+        ok = bridge.send_term_open(device_id, term_id=term_id, cwd=cwd,
+                                   argv=launch_argv)
+        return _BridgeRunResult(0 if ok else 1,
+                                "" if ok else "desktop client not connected")
+
+    if sub == "send-keys":
+        term_id, data, is_enter = _parse_send_keys(argv)
+        payload = "\r" if is_enter else (data or "")
+        ok = bridge.send_term_input(device_id, term_id, payload)
+        return _BridgeRunResult(0 if ok else 1,
+                                "" if ok else "desktop client not connected")
+
+    if sub == "kill-session":
+        term_id = _flag_value(argv, "-t")
+        ok = bridge.send_term_close(device_id, term_id)
+        return _BridgeRunResult(0 if ok else 1,
+                                "" if ok else "desktop client not connected")
+
+    # Unknown tmux subcommand — best-effort success (don't break the manager).
+    return _BridgeRunResult(0)
+
+
+def _flag_value(argv: list, flag: str) -> str | None:
+    try:
+        i = argv.index(flag)
+        return argv[i + 1]
+    except (ValueError, IndexError):
+        return None
+
+
+def _parse_new_session(argv: list):
+    """Pull (term_id, cwd, launch_argv) out of a LocalDriver tmux_new_argv.
+
+    Shape: ``tmux new-session -d -s <name> -c <cwd> <launch_argv...>`` — the
+    launch argv is everything after the ``-c <cwd>`` pair (LocalDriver builds it
+    in exactly this order). Robust to flag order via index lookup, then takes
+    the tail after the last recognised option value.
+    """
+    term_id = _flag_value(argv, "-s")
+    cwd = _flag_value(argv, "-c") or ""
+    # launch argv = everything after the -c <cwd> pair (matches LocalDriver's
+    # fixed construction order: -d -s NAME -c CWD <launch...>).
+    launch_argv: list = []
+    if "-c" in argv:
+        ci = argv.index("-c")
+        launch_argv = argv[ci + 2:]
+    return term_id, cwd, launch_argv
+
+
+def _parse_send_keys(argv: list):
+    """(term_id, literal_text, is_enter) from a LocalDriver send_message argv.
+
+    Two shapes:
+      ['tmux','send-keys','-t',NAME,'-l','--',TEXT]   -> literal text
+      ['tmux','send-keys','-t',NAME,'Enter']          -> submit
+    """
+    term_id = _flag_value(argv, "-t")
+    if "--" in argv:
+        di = argv.index("--")
+        text = argv[di + 1] if di + 1 < len(argv) else ""
+        return term_id, text, False
+    if argv and argv[-1] == "Enter":
+        return term_id, "", True
+    # Fallback: last token is the payload.
+    return term_id, (argv[-1] if argv else ""), False

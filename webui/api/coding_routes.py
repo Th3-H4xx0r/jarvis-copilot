@@ -54,8 +54,36 @@ def default_manager(host: str = "server"):
             from agent.coding_host_drivers import DesktopDriver
             from agent.coding_session_manager import CodingSessionManager
 
+            def _desktop_bridge_run_factory():
+                # Resolve the connected desktop client + an in-process bridge_run
+                # at launch time, so the cached manager binds to whichever client
+                # is connected now (devices come and go).
+                from api.coding_desktop import (
+                    make_bridge_run, resolve_desktop_device_id)
+
+                device_id = resolve_desktop_device_id()
+                if not device_id:
+                    return None
+                return make_bridge_run(device_id)
+
+            def _desktop_on_launched(*, session_id, cwd, tmux_name, sync):
+                # After a successful start, kick off the bidirectional file sync
+                # against the same desktop client that ran tmux+claude.
+                from api.coding_desktop import (
+                    make_on_launched, resolve_desktop_device_id)
+
+                device_id = resolve_desktop_device_id()
+                if not device_id:
+                    return
+                make_on_launched(device_id)(
+                    session_id=session_id, cwd=cwd, tmux_name=tmux_name,
+                    sync=sync)
+
             _MANAGERS["desktop"] = CodingSessionManager(
-                store=base.store, driver=DesktopDriver(),
+                store=base.store,
+                driver=DesktopDriver(
+                    bridge_run_factory=_desktop_bridge_run_factory,
+                    on_launched_fn=_desktop_on_launched),
                 plugin_dir=base.plugin_dir, memory_loader=base.memory_loader,
                 long_term_recall=base.long_term_recall,
                 context_root=str(base.context_root),
@@ -248,17 +276,33 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 session = manager.status(sid)
                 if session is None:
                     return _err(404, "session not found: " + sid)
-                if (session.get("host") or "server") != "server":
-                    return _err(400, "live terminal is only available for server-host sessions")
+                host = session.get("host") or "server"
                 tmux_name = session.get("tmux_name")
                 if not tmux_name:
                     return _err(409, "session has no tmux session to attach to")
+                rows = int(body.get("rows") or 24)
+                cols = int(body.get("cols") or 80)
+                if host == "desktop":
+                    # The desktop client already runs tmux+claude and streams
+                    # coding_term_output; attach a feed so the existing
+                    # /api/terminal/{output,input,resize,close} routes drive it.
+                    from api.coding_desktop import (
+                        get_desktop_bridge, resolve_desktop_device_id)
+
+                    device_id = resolve_desktop_device_id()
+                    if not device_id:
+                        return _err(409, "desktop client is not connected")
+                    feed = get_desktop_bridge().attach_feed(
+                        session_id=sid, device_id=device_id, term_id=tmux_name,
+                        rows=rows, cols=cols)
+                    return _ok({"ok": True, "session_id": sid,
+                                "running": feed.is_alive()})
+                if host != "server":
+                    return _err(400, "live terminal is not available for this session host")
                 from api.terminal import start_attach_terminal
 
                 term = start_attach_terminal(
-                    sid, tmux_name,
-                    rows=int(body.get("rows") or 24),
-                    cols=int(body.get("cols") or 80),
+                    sid, tmux_name, rows=rows, cols=cols,
                     restart=bool(body.get("restart")))
                 return _ok({"ok": True, "session_id": sid, "running": term.is_alive()})
 

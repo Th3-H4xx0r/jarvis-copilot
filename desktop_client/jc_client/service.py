@@ -65,6 +65,9 @@ class Service:
         # Per-connection MCP relay manager (Phase 2): tunnels a local Playwright
         # MCP to the server. Created in _connect_and_pump, torn down on drop.
         self._relay = None
+        # Coding Sessions desktop execution + file sync (created per connection).
+        self._coding_term = None
+        self._coding_sync = None
 
     # ── public ────────────────────────────────────────────────────────
 
@@ -199,6 +202,22 @@ class Service:
                 log.warning("mcp relay unavailable: %s", exc)
                 self._relay = None
 
+        # Coding Sessions: desktop execution (PTY relay) + bidirectional file
+        # sync. Always on (core feature). Frames flow over this same bridge.
+        try:
+            from jc_client.coding_sync_agent import CodingSyncAgent
+            from jc_client.coding_term import CodingTermManager
+
+            def _coding_send(f):
+                ws.send_text(json.dumps(f))
+
+            self._coding_term = CodingTermManager(send=_coding_send)
+            self._coding_sync = CodingSyncAgent(send=_coding_send)
+        except Exception as exc:
+            log.warning("coding sessions desktop support unavailable: %s", exc)
+            self._coding_term = None
+            self._coding_sync = None
+
         # Warm up the browser MCP (chrome_* skills) so the first browser action
         # isn't a cold `npx @playwright/mcp` start + extension attach. Best-effort,
         # off the connect path.
@@ -261,6 +280,15 @@ class Service:
                 except Exception:
                     pass
                 self._relay = None
+            for _mgr_attr, _stop in (("_coding_term", "shutdown_all"),
+                                     ("_coding_sync", "close")):
+                _m = getattr(self, _mgr_attr, None)
+                if _m is not None:
+                    try:
+                        getattr(_m, _stop)()
+                    except Exception:
+                        pass
+                    setattr(self, _mgr_attr, None)
             try:
                 ws.close()
             except Exception:
@@ -282,6 +310,16 @@ class Service:
             # Dispatch on the worker pool so a 30s screenshot doesn't
             # starve the receive loop.
             self._executor.submit(self._run_invoke, ws, call_id, skill_name, args)
+            return
+
+        if msg_type and msg_type.startswith("coding_term_"):
+            if self._coding_term:
+                self._coding_term.handle_frame(frame)
+            return
+
+        if msg_type and msg_type.startswith("coding_sync_"):
+            if self._coding_sync:
+                self._coding_sync.handle_frame(frame)
             return
 
         if msg_type == "mcp_open":

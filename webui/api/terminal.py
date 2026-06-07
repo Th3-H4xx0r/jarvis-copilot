@@ -263,10 +263,36 @@ def get_terminal(session_id: str) -> TerminalSession | None:
         return term
 
 
+def register_terminal(session_id: str, term) -> None:
+    """Register a TerminalSession-compatible object under ``session_id``.
+
+    Used by non-PTY feeds (e.g. a desktop-host coding session whose output is
+    fed by ``coding_term_output`` bridge frames). The object must expose the
+    read surface the SSE route uses (``output`` queue, ``closed`` Event,
+    ``proc.poll()``, ``is_alive()``); it MAY expose ``feed_write(data)`` /
+    ``feed_resize(rows, cols)`` / ``feed_close()`` to override the PTY write
+    path (see ``write_terminal`` / ``resize_terminal`` / ``close_terminal``).
+    Replaces (closing) any terminal already registered under this id.
+    """
+    sid = str(session_id or "").strip()
+    if not sid:
+        raise ValueError("session_id is required")
+    with _LOCK:
+        current = _TERMINALS.get(sid)
+    if current is not None and current is not term:
+        close_terminal(sid)
+    with _LOCK:
+        _TERMINALS[sid] = term
+
+
 def write_terminal(session_id: str, data: str) -> None:
     term = get_terminal(session_id)
     if not term or not term.is_alive():
         raise KeyError("terminal not running")
+    feed_write = getattr(term, "feed_write", None)
+    if callable(feed_write):
+        feed_write(str(data or ""))
+        return
     os.write(term.master_fd, str(data or "").encode("utf-8", errors="replace"))
 
 
@@ -274,6 +300,10 @@ def resize_terminal(session_id: str, rows: int, cols: int) -> None:
     term = get_terminal(session_id)
     if not term:
         raise KeyError("terminal not running")
+    feed_resize = getattr(term, "feed_resize", None)
+    if callable(feed_resize):
+        feed_resize(rows, cols)
+        return
     _set_size(term, rows, cols)
 
 
@@ -283,6 +313,14 @@ def close_terminal(session_id: str) -> bool:
         term = _TERMINALS.pop(sid, None)
     if not term:
         return False
+    feed_close = getattr(term, "feed_close", None)
+    if callable(feed_close):
+        term.closed.set()
+        try:
+            feed_close()
+        except Exception:
+            pass
+        return True
     term.closed.set()
     try:
         if term.proc.poll() is None:

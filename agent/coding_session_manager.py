@@ -160,6 +160,16 @@ class CodingSessionManager:
             err = (getattr(res, "stderr", "") or "tmux new-session failed").strip()
             raise RuntimeError(f"failed to start session: {err}")
         self.store.update_session(sid, status="running", last_activity_at=time.time())
+        # 3b. Optional host hook after a successful start (desktop sessions use
+        #     this to kick off the bidirectional file sync over the bridge).
+        #     LocalDriver doesn't define it, so server sessions are unaffected.
+        on_launched = getattr(self.driver, "on_launched", None)
+        if callable(on_launched):
+            try:
+                on_launched(session_id=sid, cwd=cwd, tmux_name=tmux_name,
+                            sync=sync)
+            except Exception:
+                pass
         # 4. best-effort: recover the claude session UUID (enables --resume +
         #    transcript/subagent correlation). Injectable; skipped if not set.
         if self.session_capturer:

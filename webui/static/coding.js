@@ -296,12 +296,11 @@ function _codingRenderDetail(session, subagents) {
     const title = session.title || session.cwd || session.repo_path || id;
     const cwd = session.cwd || session.repo_path || '';
     const host = session.host || 'server';
-    const termSection = host === 'server'
-      ? `<div class="cm-section">
-           <div class="cm-section-head"><span class="cm-section-title">Live terminal</span><span class="cm-section-count" style="font-weight:400;opacity:.6">type here to talk to claude</span></div>
+    const hostLabel = host === 'desktop' ? 'desktop' : 'server';
+    const termSection = `<div class="cm-section">
+           <div class="cm-section-head"><span class="cm-section-title">Live terminal</span><span class="cm-section-count" style="font-weight:400;opacity:.6">${hostLabel} · type here to talk to claude</span></div>
            <div class="cdg-term" id="codingTerm" style="height:460px;background:#0a0d13;border-radius:8px;padding:6px;overflow:hidden"></div>
-         </div>`
-      : `<div class="cm-section"><div class="cdg-sub-empty">Live terminal is available for server-host sessions.</div></div>`;
+         </div>`;
     detail.innerHTML = `
       <div class="cm-detail-head">
         <div class="cm-detail-titles">
@@ -319,7 +318,7 @@ function _codingRenderDetail(session, subagents) {
       <div class="cm-detail-body">
         ${termSection}
       </div>`;
-    if (host === 'server') _codingMountTerminal(id);
+    _codingMountTerminal(id);   // server attaches local tmux; desktop streams over the bridge
   }
   _codingUpdateDetailStatus(session);
 }

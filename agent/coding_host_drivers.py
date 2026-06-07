@@ -145,22 +145,46 @@ class DesktopDriver(LocalDriver):
     Command *construction* is identical to ``LocalDriver`` (same tmux+claude
     argvs); only *execution* differs — argvs are dispatched to the desktop
     client over the device bridge instead of run locally. The bridge transport
-    is injected (``bridge_run``) so it is testable and so the agent process,
-    which can't see the webui's in-memory device registry, can route through
-    the webui REST API the same way ``tools/chrome_device_tool.py`` does.
+    is injected (``bridge_run``) so it is testable.
+
+    ``bridge_run`` may be supplied explicitly (tests) OR resolved lazily via
+    ``bridge_run_factory()`` at run time. The factory path lets a single cached
+    desktop manager (built once by ``coding_routes.default_manager``) bind to
+    whichever desktop client is connected *now*, since devices connect/
+    disconnect over the life of the webui process. In the webui process the
+    factory builds an in-process bridge_run (api.coding_desktop); the registry
+    is right there, so no REST hop like the agent-side chrome tools need.
     """
 
     name = "desktop"
 
-    def __init__(self, bridge_run=None, preflight_fn=None):
+    def __init__(self, bridge_run=None, preflight_fn=None,
+                 bridge_run_factory=None, on_launched_fn=None):
         # bridge_run(argv) -> object with .returncode/.stderr (or None)
         self._bridge_run = bridge_run
+        # () -> bridge_run | None, resolved each run (picks the live device)
+        self._bridge_run_factory = bridge_run_factory
         # preflight_fn() -> reason|None, run on the DESKTOP (over the bridge),
         # since the server's local tmux/claude is irrelevant for a desktop session.
         self._preflight_fn = preflight_fn
+        # on_launched_fn(session_id, cwd, tmux_name, sync) — called by the
+        # manager after a successful start to kick off the file sync.
+        self._on_launched_fn = on_launched_fn
+
+    def on_launched(self, *, session_id, cwd, tmux_name, sync):
+        if self._on_launched_fn is not None:
+            self._on_launched_fn(session_id=session_id, cwd=cwd,
+                                 tmux_name=tmux_name, sync=sync)
+
+    def _resolve_bridge_run(self):
+        if self._bridge_run is not None:
+            return self._bridge_run
+        if self._bridge_run_factory is not None:
+            return self._bridge_run_factory()
+        return None
 
     def preflight(self) -> str | None:
-        if self._bridge_run is None and self._preflight_fn is None:
+        if self._resolve_bridge_run() is None and self._preflight_fn is None:
             return ("no desktop client is connected. Pair the JarvisCopilot "
                     "desktop app (jc-client) to run sessions on your computer.")
         if self._preflight_fn is not None:
@@ -168,8 +192,9 @@ class DesktopDriver(LocalDriver):
         return None
 
     def _run(self, argv: list[str]):
-        if self._bridge_run is None:
+        run = self._resolve_bridge_run()
+        if run is None:
             raise RuntimeError(
                 "desktop session transport not configured — pair a desktop "
                 "client (jc-client) and provide a bridge_run")
-        return self._bridge_run(argv)
+        return run(argv)

@@ -315,6 +315,71 @@ def _relay_session(conn: "_DeviceConn", session_id) -> Optional[dict]:
         return conn.relay_sessions.get(session_id)
 
 
+# ── Coding-session channel (Phase 4: desktop-host coding sessions) ───────────
+#
+# A desktop-host coding session drives tmux+claude on the paired desktop client
+# and streams its PTY + a bidirectional file sync over the bridge. The webui
+# process sends ``coding_term_*`` / ``coding_sync_*`` frames to the device and
+# routes the device's replies to a registered handler. Unlike the MCP relay
+# (one session_id per channel) and invokes (call_id correlation), coding frames
+# are routed by their own ``term_id`` / ``sync_id`` *inside* the frame, so the
+# bridge just forwards the whole frame to a single process-wide subscriber
+# (api.coding_desktop.DesktopBridge) which fans out by id.
+
+# Frame types the device sends back that belong to the coding channel.
+_CODING_INBOUND_TYPES = frozenset({
+    "coding_term_output", "coding_term_exit",
+    "coding_sync_manifest", "coding_sync_file", "coding_sync_event",
+})
+
+# process-wide handler(device_id: str, frame: dict) -> None, set by DesktopBridge.
+_coding_frame_handler = None
+_coding_handler_lock = threading.Lock()
+
+
+def set_coding_frame_handler(handler) -> None:
+    """Register the process-wide inbound coding-frame handler.
+
+    ``handler(device_id, frame)`` is invoked (from the bridge pump thread) for
+    every inbound ``coding_term_*`` / ``coding_sync_*`` frame. Passing ``None``
+    clears it. Only one handler is supported — the webui's DesktopBridge owns it.
+    """
+    global _coding_frame_handler
+    with _coding_handler_lock:
+        _coding_frame_handler = handler
+
+
+def send_frame(device_id: str, frame: dict) -> bool:
+    """Send an arbitrary JSON frame to a connected device. Returns False if the
+    device isn't connected or the send failed.
+
+    This is the generic streaming (non-invoke) send path used by the coding
+    channel. Unlike ``invoke_skill`` it does not wait for a reply — replies
+    arrive asynchronously as their own inbound frames and are routed by
+    ``set_coding_frame_handler``.
+    """
+    with _REG_LOCK:
+        c = _REG.get(device_id)
+    if not c or c.closed:
+        return False
+    try:
+        _ws_send_text(c, json.dumps(frame))
+        return True
+    except Exception:
+        return False
+
+
+def _dispatch_coding_frame(conn: "_DeviceConn", msg: dict) -> None:
+    with _coding_handler_lock:
+        handler = _coding_frame_handler
+    if handler is None:
+        return
+    try:
+        handler(conn.device_id, msg)
+    except Exception as exc:
+        logger.debug("coding frame handler raised: %s", exc)
+
+
 def relay_capable_devices() -> list[dict]:
     """Connected devices that announced MCP-relay capability.
 
@@ -950,6 +1015,9 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
                 sess["on_event"](kind, msg)
             except Exception as exc:
                 logger.debug("relay on_event raised: %s", exc)
+        return
+    if t in _CODING_INBOUND_TYPES:
+        _dispatch_coding_frame(conn, msg)
         return
     if t == "ping":
         try:

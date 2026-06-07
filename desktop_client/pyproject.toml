@@ -42,6 +42,11 @@ dependencies = [
   "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
   "pyobjc-framework-WebKit>=10; sys_platform == 'darwin'",
   "pythonnet>=3.0; sys_platform == 'win32'",
+  # Windows PTY backend for the local coding-terminal relay (coding_term.py).
+  # POSIX uses the stdlib `pty` module; Windows has no equivalent, so we shell
+  # out to a real ConPTY via pywinpty. Windows-only marker so the other OSes
+  # don't try to build it.
+  "pywinpty>=2; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
