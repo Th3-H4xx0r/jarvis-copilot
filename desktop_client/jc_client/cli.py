@@ -753,8 +753,21 @@ def cmd_update(args) -> int:
     # file sync (best-effort — a failure here must not fail the client update).
     _ensure_mutagen_quiet()
 
-    print("Updated. Restart to apply: quit + relaunch the tray for the new menu,"
-          " and `jc-client restart` for the background service.")
+    if getattr(args, "no_restart", False):
+        print("Updated. Apply with `jc-client restart` (and relaunch the tray).")
+        return 0
+    # Auto-restart so the new code is actually LIVE. The long-running service
+    # keeps the OLD modules loaded until it restarts — the coding-sync agent,
+    # ssh-config/key bootstrap, and Mutagen driver all run in-process there.
+    # (The relay ProxyCommand is a fresh subprocess per use, so it self-updates;
+    # the service is what needs the bounce.) `cmd_restart` drives the installed
+    # supervisor (launchctl/systemd) or, failing that, re-spawns the tray — both
+    # paths bring the service back, so coding-session sync uses the new code.
+    print("Restarting the client to apply the update …")
+    rc = cmd_restart(args)
+    if rc != 0:
+        print("(auto-restart did not confirm — run `jc-client restart` manually)",
+              file=sys.stderr)
     return 0
 
 
@@ -870,6 +883,9 @@ def _build_parser() -> argparse.ArgumentParser:
     upd = sub.add_parser("update", help="Pull the latest client code and reinstall")
     upd.add_argument("--branch", default=None,
                      help="Git branch to sync to (default: main)")
+    upd.add_argument("--no-restart", action="store_true",
+                     help="Don't restart the running client after updating "
+                          "(default: restart so the new code goes live)")
     upd.set_defaults(func=cmd_update)
 
     up = sub.add_parser("unpair", help="Wipe saved credentials")
