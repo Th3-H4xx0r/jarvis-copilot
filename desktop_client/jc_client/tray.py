@@ -292,11 +292,78 @@ class TrayApp:
         # In supervised mode there's no IPC to pause the other process;
         # menu item is hidden via _pause_visible.
 
+    def _stop_supervised_service(self) -> None:
+        """Stop the SUPERVISED/background service the same way ``jc-client
+        stop`` does — drive the supervisor if one's loaded, else kill the
+        PID-file process.
+
+        This is what makes "Quit" actually quit: on macOS the LaunchAgent
+        (KeepAlive=true) would instantly respawn a merely-killed service, so
+        we must ``launchctl unload`` it. We reuse cli.py's per-OS helpers
+        rather than re-encoding any launchctl/systemd/kill strings here, so
+        the two stop paths can't drift. Best-effort and bounded: each step is
+        wrapped, and the supervisor calls run in a daemon thread we join with
+        a short timeout so a hung ``launchctl`` can never freeze the quit.
+        """
+        from jc_client import cli
+
+        def _do_supervisor_stop() -> None:
+            # Same branch cmd_stop takes: unload the supervisor if it's the
+            # one keeping the service alive. _supervisor_unload() already
+            # branches per-OS (launchctl unload on mac, systemctl --user stop
+            # on linux) and no-ops when no supervisor is installed (Windows).
+            try:
+                if cli._supervisor_kind() and cli._supervisor_is_loaded():
+                    cli._supervisor_unload()
+            except Exception as exc:  # noqa: BLE001 — quit must never hang/raise
+                log.debug("supervisor unload failed: %s", exc)
+
+        # launchctl/systemctl can occasionally block; never let it freeze the
+        # UI thread. Join with a short timeout, then move on regardless.
+        t = threading.Thread(target=_do_supervisor_stop, daemon=True)
+        t.start()
+        t.join(timeout=4.0)
+
+        # Also kill any PID-file service process directly. On Windows there's
+        # no supervisor (the tray owns the service in-process), but a manually
+        # launched `jc-client start --no-tray` would still leave a PID file;
+        # on mac/linux this reaps a service that unload left running. Mirrors
+        # cmd_stop's PID-file fallback. Guarded so a stale/dead PID is a no-op.
+        try:
+            pid = cli._read_pid()
+            if pid and pid != os.getpid() and cli._is_running(pid):
+                import signal as _signal
+                os.kill(pid, _signal.SIGTERM)
+                # Brief, bounded wait for it to exit before we drop the file.
+                for _ in range(20):
+                    if not cli._is_running(pid):
+                        break
+                    time.sleep(0.1)
+            try:
+                cli.PID_FILE.unlink()
+            except FileNotFoundError:
+                pass
+        except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+            log.debug("pid-file stop failed: %s", exc)
+
     def _act_quit(self, icon, _item) -> None:
         self._stop.set()
-        # Only stop our own service handle. The supervised process keeps
-        # running — that's the whole point of LaunchAgent/systemd.
+        # 1. Stop our own in-process service handle if we own one (Windows /
+        #    no-supervisor case). No-op when supervised (_svc is None).
         self._stop_service()
+        # 2. ALWAYS stop the SUPERVISED/background service too, so the
+        #    LaunchAgent/systemd service is actually stopped and KeepAlive
+        #    can't restart it. Reuses cli.py's stop logic (per-OS) and is
+        #    bounded so it can't hang the quit. NOTE: on macOS this UNLOADS
+        #    the LaunchAgent for this login session (the only way to defeat
+        #    KeepAlive) — it does not permanently disable autostart, so the
+        #    agent loads again on next login/reboot. Re-run `jc-client start`
+        #    to bring it back within the same session.
+        try:
+            self._stop_supervised_service()
+        except Exception as exc:  # noqa: BLE001 — never block quit
+            log.debug("supervised stop failed: %s", exc)
+        # 3. Finally stop the tray icon so the menubar item disappears.
         try:
             icon.stop()
         except Exception:
