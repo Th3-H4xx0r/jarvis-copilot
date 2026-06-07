@@ -22,9 +22,13 @@ class FakeRunner:
         return 0, "", ""
 
 
+import tempfile as _tempfile
+
+
 def _agent(runner, sent):
     driver = MutagenDriver(mutagen_path="mutagen", runner=runner)
     return CodingMutagenAgent(send=sent.append, driver=driver,
+                              state_dir=_tempfile.mkdtemp(prefix="jc-sync-test-"),
                               proxy_command='"jc" tcp-relay', poll_interval=0.05)
 
 
@@ -87,3 +91,23 @@ def test_status_poller_pushes_updates(monkeypatch):
     assert len(statuses) >= 2
     assert statuses[-1]["status"] == "syncing"
     assert statuses[-1]["done"] == 3 and statuses[-1]["total"] == 9
+
+
+def test_sync_state_file_tracks_active_count(tmp_path, monkeypatch):
+    import json as _json
+    from jc_client.coding_mutagen import MutagenDriver
+    sent = []
+    driver = MutagenDriver(mutagen_path="mutagen", runner=FakeRunner())
+    a = CodingMutagenAgent(send=sent.append, driver=driver,
+                           state_dir=str(tmp_path), proxy_command='"jc" tcp-relay',
+                           poll_interval=0.05)
+    monkeypatch.setattr(a, "pubkey", lambda: "k")
+    sf = tmp_path / "sync_state.json"
+    # constructed -> stale cleared to 0
+    assert _json.loads(sf.read_text())["active"] == 0
+    a.handle_frame({"type": "coding_sync_start", "sync_id": "sync-1",
+                    "local_path": "/l", "remote_path": "/r"})
+    assert _json.loads(sf.read_text())["active"] == 1
+    a.handle_frame({"type": "coding_sync_stop", "sync_id": "sync-1"})
+    assert _json.loads(sf.read_text())["active"] == 0
+    a.close()

@@ -18,6 +18,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from typing import Callable, Optional
 
 from jc_client.coding_mutagen import MutagenDriver, MutagenError
@@ -27,6 +28,9 @@ log = logging.getLogger(__name__)
 
 _POLL_INTERVAL = 2.0
 _REMOTE_HOST = ssh_key.HOST_ALIAS  # "jc-hermes"
+# Cross-process indicator the tray reads ("Sync: N active" + the % line). The old
+# CodingSyncAgent wrote this; we keep the same schema so the tray is unchanged.
+_SYNC_STATE_FILENAME = "sync_state.json"
 
 
 def _default_state_dir() -> str:
@@ -71,7 +75,10 @@ class CodingMutagenAgent:
         self._lock = threading.RLock()
         self._stops: dict = {}     # sync_id -> threading.Event
         self._threads: dict = {}   # sync_id -> Thread
+        self._last_status: dict = {}  # sync_id -> last status dict (for the tray)
         self._pubkey: Optional[str] = None
+        # Clear any stale "Sync: N active" the OLD agent left behind.
+        self._write_sync_state()
 
     # ── key + ssh-config bootstrap ──────────────────────────────────────
 
@@ -149,10 +156,13 @@ class CodingMutagenAgent:
         if not sync_id:
             return
         self._stop_poller(sync_id)
+        with self._lock:
+            self._last_status.pop(sync_id, None)
         try:
             self._driver.stop_sync(sync_id)
         except Exception:
             pass
+        self._write_sync_state()
 
     # ── status poller ───────────────────────────────────────────────────
 
@@ -165,6 +175,7 @@ class CodingMutagenAgent:
                                  daemon=True, name=f"mutagen-{sync_id[:10]}")
             self._threads[sync_id] = t
             t.start()
+        self._write_sync_state()  # active count reflects the new poller now
 
     def _poll_loop(self, sync_id: str, stop: threading.Event) -> None:
         # First poll runs immediately (in THIS thread, not the WS-handler thread)
@@ -198,6 +209,8 @@ class CodingMutagenAgent:
     # ── emit ────────────────────────────────────────────────────────────
 
     def _emit_status(self, sync_id: str, st: dict) -> None:
+        with self._lock:
+            self._last_status[sync_id] = dict(st)
         self._safe_send({
             "type": "coding_sync_status", "sync_id": sync_id,
             "status": st.get("status", "syncing"),
@@ -206,10 +219,41 @@ class CodingMutagenAgent:
             "total": int(st.get("total") or 0),
             "error": st.get("error"),
         })
+        self._write_sync_state()
 
     def _emit_error(self, sync_id: str, msg: str) -> None:
+        with self._lock:
+            self._last_status[sync_id] = {"status": "error", "error": msg}
         self._safe_send({"type": "coding_sync_error", "sync_id": sync_id,
                          "op": "mutagen", "error": msg})
+        self._write_sync_state()
+
+    def _write_sync_state(self) -> None:
+        """Write the cross-process tray indicator (active count + aggregate
+        progress). active = running pollers (a synced/idle session still counts);
+        the % shows only while actively transferring."""
+        import json
+        import tempfile
+        with self._lock:
+            active = len(self._threads)
+            statuses = list(self._last_status.values())
+        done = sum(int(s.get("done") or 0) for s in statuses)
+        total = sum(int(s.get("total") or 0) for s in statuses)
+        transferring = any(
+            s.get("status") in ("syncing", "opening", "connecting") for s in statuses)
+        payload = {
+            "last_transfer_at": (time.time() if (transferring and active) else 0.0),
+            "active": active, "done": done, "total": total,
+        }
+        path = os.path.join(self._state_dir, _SYNC_STATE_FILENAME)
+        try:
+            os.makedirs(self._state_dir, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=self._state_dir, prefix=".sync-state-")
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh)
+            os.replace(tmp, path)
+        except Exception as exc:  # noqa: BLE001 — status I/O must never break sync
+            log.debug("sync_state write failed: %s", exc)
 
     def _safe_send(self, frame: dict) -> None:
         try:
@@ -227,3 +271,5 @@ class CodingMutagenAgent:
         with self._lock:
             for sync_id in list(self._stops.keys()):
                 self._stop_poller_locked(sync_id)
+            self._last_status.clear()
+        self._write_sync_state()  # active -> 0 so the tray clears
