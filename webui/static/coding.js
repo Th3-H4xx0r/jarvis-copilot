@@ -533,6 +533,7 @@ async function _codingRefreshSyncStatus(id) {
         <span style="margin-left:auto;opacity:.85">${_cdgEsc(label)}</span>
       </div>
       ${bar}
+      ${(status === 'error' && st.error) ? `<div class="cdg-hint" style="color:#e06c75;margin-top:6px;word-break:break-word">${_cdgEsc(st.error)}</div>` : ''}
     </div>`;
 }
 

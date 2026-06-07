@@ -89,7 +89,7 @@ class FakeRunner:
         self._status_json = status_json or json.dumps([{"status": "watching"}])
         self._create_rc = create_rc
 
-    def __call__(self, argv, env=None):
+    def __call__(self, argv, env=None, timeout=None):
         self.calls.append(argv)
         if argv[1:3] == ["sync", "list"]:
             return 0, self._status_json, ""
@@ -122,7 +122,9 @@ def test_driver_create_failure_raises():
 
 
 def test_driver_missing_binary_raises():
-    d = MutagenDriver(mutagen_path=None, runner=FakeRunner())
+    d = MutagenDriver(mutagen_path="x", runner=FakeRunner())
+    d.set_path("")  # force "no engine" (find_mutagen may resolve a real binary)
+    assert d.has_engine() is False
     try:
         d.status("cs1")
         assert False

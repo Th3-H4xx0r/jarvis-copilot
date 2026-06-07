@@ -137,14 +137,22 @@ def parse_status(stdout: str) -> dict:
 
 # ── runner + driver ───────────────────────────────────────────────────────────
 
-# runner(argv, env) -> (returncode:int, stdout:str, stderr:str)
-Runner = Callable[[list, Optional[dict]], tuple]
+# runner(argv, env, timeout) -> (returncode:int, stdout:str, stderr:str)
+Runner = Callable[..., tuple]
 
 
-def _default_runner(argv: list, env: Optional[dict] = None) -> tuple:
+# `sync create` blocks until both endpoints connect + the remote agent is
+# deployed (Mutagen scp's its ~15 MB agent on first use) — over a tunneled relay
+# that can take a while. Give it a generous cap; status/terminate stay short.
+_DEFAULT_TIMEOUT = 30
+_CREATE_TIMEOUT = 300
+
+
+def _default_runner(argv: list, env: Optional[dict] = None,
+                    timeout: Optional[int] = None) -> tuple:
     try:
         p = subprocess.run(argv, capture_output=True, text=True, env=env,
-                           timeout=60)
+                           timeout=timeout or _DEFAULT_TIMEOUT)
         return p.returncode, p.stdout or "", p.stderr or ""
     except FileNotFoundError as exc:
         raise MutagenError(f"mutagen not found: {exc}") from exc
@@ -221,7 +229,7 @@ class MutagenDriver:
         argv = create_sync_argv(self._require(), name=name, local_path=local_path,
                                 remote_host=remote_host, remote_path=remote_path,
                                 ignore=ignore)
-        rc, _out, err = self._run(argv, self._env)
+        rc, _out, err = self._run(argv, self._env, _CREATE_TIMEOUT)
         if rc not in (0, None):
             raise MutagenError(f"mutagen sync create failed: {(err or '').strip()}")
         return name

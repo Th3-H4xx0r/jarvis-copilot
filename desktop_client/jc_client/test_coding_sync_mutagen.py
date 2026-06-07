@@ -13,7 +13,7 @@ class FakeRunner:
         self.status = status
         self.create_rc = create_rc
 
-    def __call__(self, argv, env=None):
+    def __call__(self, argv, env=None, timeout=None):
         self.calls.append(argv)
         if argv[1:3] == ["sync", "list"]:
             return 0, self.status, ""
