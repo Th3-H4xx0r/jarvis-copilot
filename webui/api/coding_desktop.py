@@ -43,14 +43,10 @@ tests; only the on-disk sync apply touches a tmp directory.
 """
 from __future__ import annotations
 
-import base64
 import logging
 import queue
 import threading
 import time
-from pathlib import Path
-
-from agent import coding_sync as sync_core
 
 log = logging.getLogger(__name__)
 
@@ -263,46 +259,22 @@ class DesktopBridge:
 
     # --- outbound sync frames -----------------------------------------------
 
-    def send_sync_open(self, device_id: str, *, sync_id: str, path: str,
-                       ignore: list | None = None) -> bool:
+    def send_sync_start(self, device_id: str, *, sync_id: str, local_path: str,
+                        remote_path: str, ignore: list | None = None) -> bool:
+        """Tell the desktop to start a Mutagen sync for this session: its LOCAL
+        folder (``local_path``) <-> the server's session cwd (``remote_path``,
+        reached over the WS<->TCP relay's ssh alias)."""
         return self._transport.send(device_id, {
-            "type": "coding_sync_open", "sync_id": sync_id,
-            "path": path, "ignore": list(ignore or []),
+            "type": "coding_sync_start", "sync_id": sync_id,
+            "local_path": local_path, "remote_path": remote_path,
+            "ignore": list(ignore or []),
         })
 
-    def send_sync_progress(self, device_id: str, sync_id: str,
-                           done: int, total: int) -> bool:
-        """Push transfer progress (done/total files) to the device so its tray
-        can show a sync percentage. OUTBOUND only (server->device); no inbound
-        routing needed for this frame type."""
-        return self._transport.send(device_id, {
-            "type": "coding_sync_progress", "sync_id": sync_id,
-            "done": int(done), "total": int(total),
-        })
-
-    def send_sync_get(self, device_id: str, sync_id: str, relpath: str) -> bool:
-        return self._transport.send(device_id, {
-            "type": "coding_sync_get", "sync_id": sync_id, "relpath": relpath,
-        })
-
-    def send_sync_file(self, device_id: str, sync_id: str, relpath: str,
-                       data: bytes) -> bool:
-        b64 = base64.b64encode(data).decode("ascii")
-        return self._transport.send(device_id, {
-            "type": "coding_sync_file", "sync_id": sync_id,
-            "relpath": relpath, "b64": b64,
-        })
-
-    def send_sync_rm(self, device_id: str, sync_id: str, relpath: str) -> bool:
-        return self._transport.send(device_id, {
-            "type": "coding_sync_rm", "sync_id": sync_id, "relpath": relpath,
-        })
-
-    def send_sync_close(self, device_id: str, sync_id: str) -> bool:
+    def send_sync_stop(self, device_id: str, sync_id: str) -> bool:
         with self._lock:
             self._syncs.pop(sync_id, None)
         return self._transport.send(device_id, {
-            "type": "coding_sync_close", "sync_id": sync_id,
+            "type": "coding_sync_stop", "sync_id": sync_id,
         })
 
     def register_sync(self, session) -> None:
@@ -321,8 +293,9 @@ class DesktopBridge:
             self._route_term_output(frame)
         elif t == "coding_term_exit":
             self._route_term_exit(frame)
-        elif t in ("coding_sync_manifest", "coding_sync_file",
-                   "coding_sync_event", "coding_sync_error"):
+        elif t == "coding_sync_authorize_key":
+            self._authorize_sync_key(frame.get("pubkey") or "")
+        elif t in ("coding_sync_status", "coding_sync_error"):
             self._route_sync(frame)
 
     def _route_term_output(self, frame: dict) -> None:
@@ -350,17 +323,28 @@ class DesktopBridge:
                 return
         feed.on_exit(code)
 
+    def _authorize_sync_key(self, pubkey: str) -> None:
+        """Add the desktop's sync SSH public key to the server's authorized_keys
+        so Mutagen (over the WS<->TCP relay) can connect. Idempotent + defensive
+        — a bad key or fs error must never break the bridge."""
+        try:
+            from agent.sync_authorized_keys import add_authorized_key
+            res = add_authorized_key(pubkey)
+            if res.get("error"):
+                log.warning("coding_sync_authorize_key rejected: %s", res["error"])
+            elif res.get("added"):
+                log.info("coding_sync: authorized desktop sync key -> %s",
+                         res.get("path"))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("coding_sync_authorize_key failed: %s", exc)
+
     def _route_sync(self, frame: dict) -> None:
         sync = self.sync_for(frame.get("sync_id"))
         if sync is None:
             return
         t = frame.get("type")
-        if t == "coding_sync_manifest":
-            sync.on_manifest(frame.get("manifest") or {})
-        elif t == "coding_sync_file":
-            sync.on_file(frame.get("relpath") or "", frame.get("b64") or "")
-        elif t == "coding_sync_event":
-            sync.on_event(frame.get("relpath") or "", frame.get("kind") or "")
+        if t == "coding_sync_status":
+            sync.on_status(frame)
         elif t == "coding_sync_error":
             sync.on_error(frame.get("op") or "", frame.get("error") or "",
                           frame.get("relpath"))
@@ -369,220 +353,89 @@ class DesktopBridge:
 # ── sync session (server side of the synced tunnel) ──────────────────────────
 
 
-class DesktopSyncSession:
-    """Drives the initial reconcile + incremental deltas for one synced root.
+class MutagenSyncSession:
+    """Server-side state for ONE coding session's Mutagen sync.
 
-    The hard reconciliation/transfer logic lives in agent.coding_sync (pure,
-    network-free). This class is the thin stateful orchestrator that pairs the
-    server-side filesystem with the remote (desktop) side over the bridge.
+    The actual file sync runs on the DESKTOP (Mutagen over the WS<->TCP relay).
+    This object only (a) tells the desktop to start/stop the sync and (b) holds
+    the latest status the desktop pushes back, for the WebUI sync panel. It owns
+    no transfer logic — that is Mutagen's job now.
 
-    Direction rule (per spec): on first reconcile, if the remote manifest is
-    empty we PUSH (seed the desktop from the server); otherwise we PULL (claude
-    uses the desktop's files).
-
-    Pull is FLOW-CONTROLLED: we keep at most ``_PULL_WINDOW`` ``coding_sync_get``
-    requests in flight and send the next one as each file lands. Firing every
-    request at once (the old behaviour) floods the bridge — on a large tree the
-    send buffers overflow, frames drop, and because there's no retry the pull
-    wedges partway (e.g. stuck at 17/500). Windowing paces it to what the link
-    can carry; any straggler lost to a mid-transfer disconnect is picked up on
-    the next reconcile (Refresh / auto-resync), which re-diffs and re-requests.
+    ``local_path``  = the desktop's working folder to sync.
+    ``remote_path`` = the server session's cwd (where claude runs).
     """
 
-    # Max number of in-flight pull requests (coding_sync_get awaiting a file).
-    _PULL_WINDOW = 16
-    # If we've been "opening" (waiting for the desktop's manifest) this long,
-    # re-send coding_sync_open. Covers an open/manifest frame lost to a bridge
-    # reconnect mid-handshake, which otherwise leaves the sync stuck on
-    # "Connecting…" forever. Generous so a slow manifest build isn't restarted.
+    # Re-send coding_sync_start if the desktop never reports status (handshake
+    # lost to a reconnect); generous so a slow initial scan isn't restarted.
     _REOPEN_STALE_SECS = 45.0
 
-    def __init__(self, *, sync_id: str, device_id: str, root: str, bridge,
-                 ignore: list | None = None, remote_path: str | None = None):
+    def __init__(self, *, sync_id, device_id, local_path, remote_path, bridge,
+                 ignore=None):
         self.sync_id = str(sync_id)
         self.device_id = str(device_id)
-        self.root = str(Path(root).expanduser())
-        # What the DESKTOP watches/opens (defaults to the server root path).
-        self.remote_path = str(remote_path) if remote_path else self.root
+        self.local_path = str(local_path or "")
+        self.remote_path = str(remote_path or "")
         self.bridge = bridge
-        self.ignore = list(ignore) if ignore else list(sync_core.DEFAULT_IGNORES)
-        self.direction = None  # 'push' | 'pull' (set after first manifest)
-        self.reconciled = threading.Event()
-        # files we still expect to receive (pull) before the tree is whole
-        self._pending_pull: set = set()
-        # not-yet-REQUESTED pull files (the window drains this as files arrive)
-        self._pull_queue: list = []
-        self._lock = threading.RLock()
-        # status surfaced to the WebUI: opening | syncing | synced | error
+        self.ignore = list(ignore) if ignore else None
+        # status surfaced to the WebUI:
+        #   opening | syncing | synced | conflicts | error
         self.status = "opening"
+        self.direction = None  # parity field (Mutagen is bidirectional)
+        self.conflicts = 0
+        self.done = 0
+        self.total = 0
         self.last_sync_at = None
         self.error = None
-        # epoch of the most recent coding_sync_open send (drives reopen_if_stale)
         self._last_open_at = 0.0
-        # transfer progress for the WebUI progress bar
-        self.total = 0
-        self.done = 0
-
-    # --- lifecycle ----------------------------------------------------------
 
     def open(self) -> bool:
-        """Send coding_sync_open so the desktop starts watching + replies with
-        its manifest. ``path`` is the REMOTE path the desktop opens/watches."""
+        """Tell the desktop to (re)start the Mutagen sync for this session."""
         self.status = "opening"
         self._last_open_at = time.time()
-        ok = self.bridge.send_sync_open(
-            self.device_id, sync_id=self.sync_id, path=self.remote_path,
-            ignore=self.ignore)
-        # Bracket the manifest handshake in the logs: this line + the
-        # "manifest:" line in on_manifest pinpoint whether a stuck "opening"
-        # status is the open frame failing to send vs. the desktop never
-        # replying with its manifest (e.g. a slow/huge manifest build).
-        log.info("coding_sync[%s] open -> device=%s path=%s sent=%s",
-                 self.sync_id, self.device_id, self.remote_path, ok)
+        ok = self.bridge.send_sync_start(
+            self.device_id, sync_id=self.sync_id, local_path=self.local_path,
+            remote_path=self.remote_path, ignore=self.ignore)
+        log.info("coding_sync[%s] start -> device=%s local=%s remote=%s sent=%s",
+                 self.sync_id, self.device_id, self.local_path,
+                 self.remote_path, ok)
         return ok
 
-    def server_manifest(self) -> dict:
-        return sync_core.build_manifest(self.root, self.ignore)
-
-    def reopen_if_stale(self, now: float | None = None) -> bool:
-        """Re-send coding_sync_open if we've been waiting for the manifest too
-        long (the open/manifest handshake was likely lost to a reconnect). No-op
-        once we're past 'opening'. Rate-limited by ``_REOPEN_STALE_SECS`` since
-        ``open()`` resets ``_last_open_at``. Returns True if it re-opened."""
+    def reopen_if_stale(self, now=None) -> bool:
+        """Re-send coding_sync_start if no status has arrived within the stale
+        window (the start/status handshake was likely lost to a reconnect)."""
         if self.status != "opening":
             return False
         if now is None:
             now = time.time()
         if self._last_open_at and (now - self._last_open_at) < self._REOPEN_STALE_SECS:
             return False
-        log.info("coding_sync[%s] reopen: no manifest after %.0fs",
+        log.info("coding_sync[%s] re-start: no status after %.0fs",
                  self.sync_id, now - (self._last_open_at or now))
         self.open()
         return True
 
-    # --- inbound from device ------------------------------------------------
-
-    def _mark_synced(self) -> None:
-        self.status = "synced"
-        self.last_sync_at = time.time()
-
-    def _emit_progress(self) -> None:
-        """Best-effort push of the current (done, total) to the device's tray.
-
-        Sent whenever ``total``/``done`` change so the desktop client can show a
-        sync percentage. Never raises into the sync path (a broken/closed bridge
-        must not abort a transfer)."""
-        try:
-            self.bridge.send_sync_progress(
-                self.device_id, self.sync_id, self.done, self.total)
-        except Exception:
-            pass
+    def on_status(self, frame: dict) -> None:
+        """The desktop pushed a coding_sync_status frame parsed from Mutagen."""
+        status = str(frame.get("status") or "").strip() or self.status
+        self.status = status
+        self.conflicts = int(frame.get("conflicts") or 0)
+        self.done = int(frame.get("done") or 0)
+        self.total = int(frame.get("total") or 0)
+        self.error = frame.get("error")
+        if status == "synced":
+            self.last_sync_at = time.time()
 
     def on_error(self, op: str, error: str, relpath=None) -> None:
-        """A desktop-side sync op failed — surface it on the status panel + log.
-
-        Without this, a failed ``coding_sync_get``/write on the device vanished
-        silently and the server looked 'idle' forever while nothing transferred.
-        """
         self.error = f"{op}: {error}" + (f" ({relpath})" if relpath else "")
         self.status = "error"
-        log.warning("coding_sync[%s] desktop error op=%s relpath=%s: %s",
-                    self.sync_id, op, relpath, error)
+        log.warning("coding_sync[%s] desktop error op=%s: %s",
+                    self.sync_id, op, error)
 
-    def on_manifest(self, remote_manifest: dict) -> None:
-        """Got the desktop's manifest — pick a direction and start transfers."""
-        local = self.server_manifest()
-        plan = sync_core.plan_initial_sync(local, remote_manifest)
-        log.info("coding_sync[%s] manifest: remote=%d local=%d -> %s %d file(s)",
-                 self.sync_id, len(remote_manifest or {}), len(local),
-                 plan["direction"], len(plan["files"]))
-        with self._lock:
-            self.status = "syncing"
-            self.direction = plan["direction"]
-            self.total = len(plan["files"])
-            self.done = 0
-            self._emit_progress()  # total now known (done=0)
-            if self.direction == "push":
-                # PUSH: read each server file and send it to the desktop.
-                for rel in plan["files"]:
-                    self._push_file(rel)
-                    self.done += 1
-                    self._emit_progress()  # per-file push increment
-                self.reconciled.set()
-                self._mark_synced()
-            else:
-                # PULL: request files through a bounded WINDOW (send the first
-                # _PULL_WINDOW gets now; on_file sends the next as each lands).
-                # Mark reconciled once every requested file has arrived.
-                self._pending_pull = set(plan["files"])
-                self._pull_queue = list(plan["files"])
-                if not self._pull_queue:
-                    self.reconciled.set()
-                    self._mark_synced()
-                else:
-                    for _ in range(min(self._PULL_WINDOW, len(self._pull_queue))):
-                        rel = self._pull_queue.pop(0)
-                        self.bridge.send_sync_get(self.device_id, self.sync_id, rel)
-
-    def on_file(self, relpath: str, b64: str) -> None:
-        """A coding_sync_file arrived from the desktop — write it locally."""
-        if not relpath:
-            return
+    def close(self) -> None:
         try:
-            data = base64.b64decode(b64 or "")
+            self.bridge.send_sync_stop(self.device_id, self.sync_id)
         except Exception:
-            return
-        try:
-            sync_core.apply_write(self.root, relpath, data)
-        except ValueError:
-            # path traversal / escape — refuse silently (apply_write's guard)
-            return
-        with self._lock:
-            was_pending = relpath in self._pending_pull
-            self._pending_pull.discard(relpath)
-            if self.total:
-                self.done = min(self.total, self.done + 1)
-                self._emit_progress()  # per-file pull increment
-            # Windowed pull: a slot freed up, so request the next queued file.
-            if was_pending and self._pull_queue:
-                nxt = self._pull_queue.pop(0)
-                self.bridge.send_sync_get(self.device_id, self.sync_id, nxt)
-            if not self._pending_pull:
-                # initial pull complete OR a single incremental delta applied
-                self.reconciled.set()
-                self._mark_synced()
-
-    def on_event(self, relpath: str, kind: str) -> None:
-        """Incremental delta after the initial reconcile.
-
-        A create/modify -> request the new bytes (pull side); a delete -> apply
-        the delete locally. The desktop watcher emits 'create'/'modify'/'delete'
-        (singular) — we ALSO accept the past-tense spellings so the two peers
-        can't drift on vocabulary. Kept deliberately simple: a change on the
-        desktop pulls the file down; the watcher/loop is the device's
-        responsibility (it emits these events)."""
-        if not relpath:
-            return
-        k = (kind or "").lower()
-        if k in ("modified", "created", "changed", "modify", "create", "change"):
-            self.status = "syncing"
-            self.bridge.send_sync_get(self.device_id, self.sync_id, relpath)
-        elif k in ("deleted", "removed", "delete", "remove"):
-            self.status = "syncing"
-            try:
-                sync_core.apply_delete(self.root, relpath)
-            except ValueError:
-                pass
-            self._mark_synced()
-
-    def _push_file(self, relpath: str) -> None:
-        try:
-            target = sync_core.safe_join(self.root, relpath)
-            with open(target, "rb") as fh:
-                data = fh.read()
-        except (OSError, ValueError):
-            return
-        self.bridge.send_sync_file(self.device_id, self.sync_id, relpath, data)
+            pass
 
 
 # ── process-wide singleton + driver wiring ───────────────────────────────────
@@ -701,14 +554,12 @@ def make_bridge_run(device_id: str, bridge: DesktopBridge | None = None):
 def start_sync_for_launch(device_id: str, *, session_id: str, cwd: str,
                           sync: dict | None,
                           bridge: DesktopBridge | None = None):
-    """Open a DesktopSyncSession for a freshly-launched desktop session, if the
-    launch opted into syncing. Returns the session (or None when sync is off).
+    """Open a MutagenSyncSession for a session that opted into syncing.
 
-    The server-side root is the session ``cwd``; the desktop's path comes from
-    ``sync['remote_path']`` (the device opens it on its side via coding_sync_open
-    — we pass our local root as ``path`` so the device knows what to watch when
-    paths match, but the device ultimately watches its own ``remote_path``; the
-    reconcile is content/manifest based so absolute paths need not match).
+    The desktop runs Mutagen between its LOCAL folder (``sync['remote_path']`` —
+    the path on the user's machine) and the server session's cwd
+    (``remote_path`` on the Mutagen ``jc-hermes`` ssh alias). Returns the session
+    (or None when sync is off).
     """
     if not sync:
         return None
@@ -717,12 +568,12 @@ def start_sync_for_launch(device_id: str, *, session_id: str, cwd: str,
     bridge = bridge or get_desktop_bridge()
     sync_id = "sync-" + session_id
     ignore = sync.get("ignore") if isinstance(sync.get("ignore"), list) else None
-    remote_path = sync.get("remote_path") or cwd
-    session = DesktopSyncSession(
-        sync_id=sync_id, device_id=device_id, root=cwd, bridge=bridge,
-        ignore=ignore, remote_path=remote_path)
+    local_path = sync.get("remote_path") or cwd  # the DESKTOP's folder
+    session = MutagenSyncSession(
+        sync_id=sync_id, device_id=device_id, local_path=local_path,
+        remote_path=cwd, bridge=bridge, ignore=ignore)
     bridge.register_sync(session)
-    session.open()  # coding_sync_open -> device replies with coding_sync_manifest
+    session.open()  # coding_sync_start -> desktop runs Mutagen, pushes status
     return session
 
 
@@ -755,7 +606,7 @@ def sync_status(session_id: str, sync_config=None) -> dict:
 
     out = {"enabled": False, "device": None, "device_online": False,
            "status": "off", "direction": None, "total": 0, "done": 0,
-           "last_sync_at": None, "error": None}
+           "conflicts": 0, "last_sync_at": None, "error": None}
     cfg = {}
     if sync_config:
         try:
@@ -788,6 +639,7 @@ def sync_status(session_id: str, sync_config=None) -> dict:
         out["direction"] = getattr(sess, "direction", None)
         out["total"] = int(getattr(sess, "total", 0) or 0)
         out["done"] = int(getattr(sess, "done", 0) or 0)
+        out["conflicts"] = int(getattr(sess, "conflicts", 0) or 0)
         out["last_sync_at"] = getattr(sess, "last_sync_at", None)
         out["error"] = getattr(sess, "error", None)
     if not out["device_online"]:

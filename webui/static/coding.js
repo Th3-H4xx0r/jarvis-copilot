@@ -509,8 +509,9 @@ async function _codingRefreshSyncStatus(id) {
   // status label + color
   const labels = { synced: 'Up to date', syncing: 'Syncing…', opening: 'Connecting…',
     idle: online ? 'Idle' : 'Waiting for device', disconnected: 'Device offline',
-    error: 'Error', off: '' };
+    conflicts: 'Conflicts', error: 'Error', off: '' };
   let label = labels[status] || status;
+  if (status === 'conflicts' && st.conflicts) label = `${st.conflicts} conflict${st.conflicts > 1 ? 's' : ''}`;
   if (!online && status !== 'disconnected') label = 'Device offline';
   const pct = (syncing && st.total) ? Math.round((st.done / st.total) * 100) : (status === 'synced' ? 100 : 0);
   const bar = syncing

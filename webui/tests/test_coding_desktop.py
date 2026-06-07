@@ -32,7 +32,6 @@ for _p in (_WEBUI_DIR, _REPO_ROOT):
 
 from api import coding_desktop as cd  # noqa: E402
 from agent.coding_host_drivers import DesktopDriver, LocalDriver  # noqa: E402
-from agent import coding_sync as sync_core  # noqa: E402
 
 
 # ── fakes ────────────────────────────────────────────────────────────────────
@@ -218,322 +217,21 @@ def test_inbound_exit_closes_feed(monkeypatch):
     assert "terminal_closed" in events
 
 
-# ── sync: initial direction PUSH vs PULL ─────────────────────────────────────
+# ── Mutagen sync: control frames + status (engine runs on the desktop) ───────
 
 
-def test_sync_push_when_remote_empty(tmp_path):
-    # Server has files, remote is empty -> PUSH: send each file to the device.
-    (tmp_path / "a.txt").write_text("alpha", encoding="utf-8")
-    (tmp_path / "sub").mkdir()
-    (tmp_path / "sub" / "b.txt").write_text("bravo", encoding="utf-8")
-
-    bridge, t = make_bridge()
-    s = cd.DesktopSyncSession(sync_id="sync-1", device_id="dev-P",
-                              root=str(tmp_path), bridge=bridge)
-    bridge.register_sync(s)
-    assert s.open() is True
-    # device replies with an EMPTY manifest
-    bridge.on_frame("dev-P", {"type": "coding_sync_manifest",
-                              "sync_id": "sync-1", "manifest": {}})
-    assert s.direction == "push"
-    files = t.frames("coding_sync_file")
-    sent_paths = sorted(f["relpath"] for f in files)
-    assert sent_paths == ["a.txt", "sub/b.txt"]
-    # bytes are base64 of the real file contents
-    by_path = {f["relpath"]: base64.b64decode(f["b64"]) for f in files}
-    assert by_path["a.txt"] == b"alpha"
-    assert by_path["sub/b.txt"] == b"bravo"
-    assert s.reconciled.is_set()
-    # no pull requests on a push
-    assert t.frames("coding_sync_get") == []
-
-
-def test_sync_pull_when_remote_has_files(tmp_path):
-    # Remote has files, so PULL: request each remote file; inbound files land.
-    bridge, t = make_bridge()
-    s = cd.DesktopSyncSession(sync_id="sync-2", device_id="dev-Q",
-                              root=str(tmp_path), bridge=bridge)
-    bridge.register_sync(s)
-    s.open()
-    remote_manifest = {
-        "main.py": (3, 111.0, "h1"),
-        "pkg/util.py": (5, 222.0, "h2"),
-    }
-    bridge.on_frame("dev-Q", {"type": "coding_sync_manifest",
-                              "sync_id": "sync-2", "manifest": remote_manifest})
-    assert s.direction == "pull"
-    gets = sorted(f["relpath"] for f in t.frames("coding_sync_get"))
-    assert gets == ["main.py", "pkg/util.py"]
-    assert not s.reconciled.is_set()  # nothing received yet
-
-    # device streams the requested files back
-    bridge.on_frame("dev-Q", {"type": "coding_sync_file", "sync_id": "sync-2",
-                              "relpath": "main.py",
-                              "b64": base64.b64encode(b"print(1)").decode()})
-    bridge.on_frame("dev-Q", {"type": "coding_sync_file", "sync_id": "sync-2",
-                              "relpath": "pkg/util.py",
-                              "b64": base64.b64encode(b"X=1\n").decode()})
-    assert (tmp_path / "main.py").read_bytes() == b"print(1)"
-    assert (tmp_path / "pkg" / "util.py").read_bytes() == b"X=1\n"
-    assert s.reconciled.is_set()  # all pulled files arrived
-    # no pushes on a pull
-    assert t.frames("coding_sync_file") == []  # we SENT none (only received)
-
-
-def test_sync_reopen_if_stale_resends_open(tmp_path):
-    """A sync stuck in 'opening' (manifest never arrived) re-sends open after
-    the stale window, but not before — and stops once a manifest lands."""
-    bridge, t = make_bridge()
-    s = cd.DesktopSyncSession(sync_id="sync-st", device_id="dev-ST",
-                              root=str(tmp_path), bridge=bridge)
-    bridge.register_sync(s)
-    s.open()
-    assert len(t.frames("coding_sync_open")) == 1
-    # too soon -> no reopen
-    assert s.reopen_if_stale(now=s._last_open_at + 1) is False
-    assert len(t.frames("coding_sync_open")) == 1
-    # past the stale window -> reopen
-    assert s.reopen_if_stale(now=s._last_open_at + 999) is True
-    assert len(t.frames("coding_sync_open")) == 2
-    # once the manifest arrives we're 'syncing' -> never reopen again
-    bridge.on_frame("dev-ST", {"type": "coding_sync_manifest",
-                               "sync_id": "sync-st", "manifest": {}})
-    assert s.status in ("syncing", "synced")
-    assert s.reopen_if_stale(now=s._last_open_at + 999) is False
-
-
-def test_sync_pull_is_windowed_not_a_flood(tmp_path):
-    """A large pull must NOT fire every get at once (that floods the bridge and
-    wedges partway). At most _PULL_WINDOW requests are in flight; the next is
-    sent only as each file lands — and every file still transfers in the end."""
-    bridge, t = make_bridge()
-    s = cd.DesktopSyncSession(sync_id="sync-win", device_id="dev-W",
-                              root=str(tmp_path), bridge=bridge)
-    bridge.register_sync(s)
-    s.open()
-    n = 50
-    remote = {f"f{i:03d}.py": (1, float(i), f"h{i}") for i in range(n)}
-    bridge.on_frame("dev-W", {"type": "coding_sync_manifest",
-                              "sync_id": "sync-win", "manifest": remote})
-    # Only the window's worth of gets is outstanding initially.
-    assert len(t.frames("coding_sync_get")) == cd.DesktopSyncSession._PULL_WINDOW
-    assert not s.reconciled.is_set()
-    # Stream every file back; each arrival should pull the next until done.
-    for rel in sorted(remote):
-        bridge.on_frame("dev-W", {"type": "coding_sync_file", "sync_id": "sync-win",
-                                  "relpath": rel,
-                                  "b64": base64.b64encode(b"x").decode()})
-    # Every file was requested exactly once and written; the tree reconciled.
-    got = [f["relpath"] for f in t.frames("coding_sync_get")]
-    assert sorted(got) == sorted(remote)
-    assert len(got) == len(set(got)) == n
-    assert s.reconciled.is_set()
-    assert s.done == n and s.total == n
-
-
-def test_sync_pull_resumes_skips_already_synced(tmp_path):
-    """Resume: a re-open after a partial pull only re-requests the files the
-    server is still missing (diff), not the whole tree."""
-    # server already has a.py with the SAME bytes the remote will report
-    (tmp_path / "a.py").write_text("same", encoding="utf-8")
-    import hashlib
-    h = hashlib.sha256(b"same").hexdigest()
-    bridge, t = make_bridge()
-    s = cd.DesktopSyncSession(sync_id="sync-rs", device_id="dev-RSx",
-                              root=str(tmp_path), bridge=bridge)
-    bridge.register_sync(s)
-    remote = {"a.py": (4, 1.0, h), "b.py": (1, 2.0, "hb")}
-    bridge.on_frame("dev-RSx", {"type": "coding_sync_manifest",
-                                "sync_id": "sync-rs", "manifest": remote})
-    gets = sorted(f["relpath"] for f in t.frames("coding_sync_get"))
-    assert gets == ["b.py"]  # a.py already matches → skipped
-
-
-def test_sync_push_emits_progress_frames(tmp_path):
-    # PUSH path: total set up front (done=0), then one increment per file.
-    (tmp_path / "a.txt").write_text("alpha", encoding="utf-8")
-    (tmp_path / "b.txt").write_text("bravo", encoding="utf-8")
-    bridge, t = make_bridge()
-    s = cd.DesktopSyncSession(sync_id="sync-pp", device_id="dev-PP",
-                              root=str(tmp_path), bridge=bridge)
-    bridge.register_sync(s)
-    s.open()
-    bridge.on_frame("dev-PP", {"type": "coding_sync_manifest",
-                               "sync_id": "sync-pp", "manifest": {}})
-    progs = t.frames("coding_sync_progress")
-    # First frame announces the total (done=0); final frame is done==total==2.
-    assert progs[0]["total"] == 2 and progs[0]["done"] == 0
-    assert progs[-1] == {"type": "coding_sync_progress", "sync_id": "sync-pp",
-                         "done": 2, "total": 2}
-    # done advances monotonically and never exceeds total.
-    dones = [p["done"] for p in progs]
-    assert dones == sorted(dones)
-    assert all(p["done"] <= p["total"] for p in progs)
-
-
-def test_sync_pull_emits_progress_on_each_file(tmp_path):
-    bridge, t = make_bridge()
-    s = cd.DesktopSyncSession(sync_id="sync-pq", device_id="dev-PQ",
-                              root=str(tmp_path), bridge=bridge)
-    bridge.register_sync(s)
-    s.open()
-    remote_manifest = {"x.py": (1, 1.0, "h1"), "y.py": (1, 2.0, "h2")}
-    bridge.on_frame("dev-PQ", {"type": "coding_sync_manifest",
-                               "sync_id": "sync-pq", "manifest": remote_manifest})
-    # On manifest: total announced (done=0), no per-file increments yet.
-    progs = t.frames("coding_sync_progress")
-    assert progs[-1] == {"type": "coding_sync_progress", "sync_id": "sync-pq",
-                         "done": 0, "total": 2}
-    # Each inbound file bumps done.
-    bridge.on_frame("dev-PQ", {"type": "coding_sync_file", "sync_id": "sync-pq",
-                               "relpath": "x.py",
-                               "b64": base64.b64encode(b"a").decode()})
-    bridge.on_frame("dev-PQ", {"type": "coding_sync_file", "sync_id": "sync-pq",
-                               "relpath": "y.py",
-                               "b64": base64.b64encode(b"b").decode()})
-    progs = t.frames("coding_sync_progress")
-    assert progs[-1] == {"type": "coding_sync_progress", "sync_id": "sync-pq",
-                         "done": 2, "total": 2}
-
-
-def test_sync_event_modify_pulls_and_delete_applies(tmp_path):
-    bridge, t = make_bridge()
-    (tmp_path / "gone.txt").write_text("bye", encoding="utf-8")
-    s = cd.DesktopSyncSession(sync_id="sync-3", device_id="dev-R",
-                              root=str(tmp_path), bridge=bridge)
-    bridge.register_sync(s)
-    # an incremental modify -> request the bytes
-    bridge.on_frame("dev-R", {"type": "coding_sync_event", "sync_id": "sync-3",
-                              "relpath": "changed.py", "kind": "modified"})
-    assert any(f["relpath"] == "changed.py" for f in t.frames("coding_sync_get"))
-    # an incremental delete -> apply locally
-    bridge.on_frame("dev-R", {"type": "coding_sync_event", "sync_id": "sync-3",
-                              "relpath": "gone.txt", "kind": "deleted"})
-    assert not (tmp_path / "gone.txt").exists()
-
-
-def test_sync_event_singular_kinds_match(tmp_path):
-    """Regression: the desktop watcher emits SINGULAR kinds ('create'/'modify'/
-    'delete'); the server must act on them (it previously only matched the
-    past-tense spellings, so every incremental desktop edit was dropped)."""
-    bridge, t = make_bridge()
-    (tmp_path / "gone.txt").write_text("bye", encoding="utf-8")
-    s = cd.DesktopSyncSession(sync_id="sync-sg", device_id="dev-SG",
-                              root=str(tmp_path), bridge=bridge)
-    bridge.register_sync(s)
-    # 'create' / 'modify' -> request the bytes
-    bridge.on_frame("dev-SG", {"type": "coding_sync_event", "sync_id": "sync-sg",
-                               "relpath": "new.py", "kind": "create"})
-    bridge.on_frame("dev-SG", {"type": "coding_sync_event", "sync_id": "sync-sg",
-                               "relpath": "edited.py", "kind": "modify"})
-    gets = {f["relpath"] for f in t.frames("coding_sync_get")}
-    assert {"new.py", "edited.py"} <= gets
-    # 'delete' -> apply locally
-    bridge.on_frame("dev-SG", {"type": "coding_sync_event", "sync_id": "sync-sg",
-                               "relpath": "gone.txt", "kind": "delete"})
-    assert not (tmp_path / "gone.txt").exists()
-
-
-def test_sync_status_reports_live_registered_session(tmp_path, monkeypatch):
-    """Regression: sync_status must FIND a registered live sync session via the
-    bridge's ``sync_for`` accessor and surface its status/progress. A prior bug
-    called a non-existent ``get_sync`` method, so the lookup always threw and the
-    panel was stuck on 'idle' even while a transfer was running."""
-    import json
-
-    monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda preferred=None: "dev-Z")
-    sess = cd.DesktopSyncSession(sync_id="sync-cs_Z", device_id="dev-Z",
-                                 root=str(tmp_path), bridge=make_bridge()[0])
-    sess.status = "syncing"
-    sess.direction = "pull"
-    sess.total, sess.done = 5, 2
-    cd.get_desktop_bridge().register_sync(sess)
-    try:
-        out = cd.sync_status("cs_Z", json.dumps({"enabled": True, "device": "dev-Z"}))
-    finally:
-        cd.get_desktop_bridge().send_sync_close("dev-Z", "sync-cs_Z")
-    assert out["status"] == "syncing"
-    assert out["direction"] == "pull"
-    assert out["total"] == 5 and out["done"] == 2
-    assert out["device_online"] is True
-
-
-def test_sync_status_offline_overrides_stale_syncing(tmp_path, monkeypatch):
-    """If the desktop client is gone, a left-over session still claiming
-    status='syncing' must NOT keep the panel on 'Syncing…' — report
-    'disconnected' so the UI says offline (and last-known progress is kept)."""
-    import json
-
-    monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda preferred=None: None)
-    sess = cd.DesktopSyncSession(sync_id="sync-cs_Off", device_id="dev-Off",
-                                 root=str(tmp_path), bridge=make_bridge()[0])
-    sess.status = "syncing"
-    sess.total, sess.done = 500, 17
-    cd.get_desktop_bridge().register_sync(sess)
-    try:
-        out = cd.sync_status("cs_Off", json.dumps({"enabled": True, "device": "dev-Off"}))
-    finally:
-        cd.get_desktop_bridge().send_sync_close("dev-Off", "sync-cs_Off")
-    assert out["device_online"] is False
-    assert out["status"] == "disconnected"      # not the stale "syncing"
-    assert out["total"] == 500 and out["done"] == 17  # last-known progress kept
-
-
-def test_desktop_bridge_has_sync_for_not_get_sync():
-    """Lock the accessor name so sync_status can't silently regress again."""
-    bridge, _t = make_bridge()
-    assert hasattr(bridge, "sync_for")
-    assert not hasattr(bridge, "get_sync")
-
-
-def test_sync_error_frame_surfaces_on_session(tmp_path):
-    """A desktop-side coding_sync_error must reach the session (status=error +
-    message) instead of being dropped by the bridge's inbound whitelist."""
-    bridge, _t = make_bridge()
-    s = cd.DesktopSyncSession(sync_id="sync-er", device_id="dev-ER",
-                              root=str(tmp_path), bridge=bridge)
-    bridge.register_sync(s)
-    bridge.on_frame("dev-ER", {"type": "coding_sync_error", "sync_id": "sync-er",
-                               "op": "coding_sync_get", "error": "OSError: nope",
-                               "relpath": "missing.py"})
-    assert s.status == "error"
-    assert "coding_sync_get" in (s.error or "")
-    assert "missing.py" in (s.error or "")
-
-
-def test_sync_file_refuses_path_traversal(tmp_path):
-    bridge, t = make_bridge()
-    s = cd.DesktopSyncSession(sync_id="sync-4", device_id="dev-S",
-                              root=str(tmp_path), bridge=bridge)
-    bridge.register_sync(s)
-    bridge.on_frame("dev-S", {"type": "coding_sync_file", "sync_id": "sync-4",
-                              "relpath": "../escape.txt",
-                              "b64": base64.b64encode(b"pwned").decode()})
-    # nothing written outside the root
-    assert not (tmp_path.parent / "escape.txt").exists()
-
-
-def test_unregistered_sync_id_is_ignored():
-    bridge, t = make_bridge()
-    # No DesktopSyncSession registered for this id -> frame dropped, no crash.
-    bridge.on_frame("dev-T", {"type": "coding_sync_manifest",
-                              "sync_id": "ghost", "manifest": {}})
-    assert t.sent == []
-
-
-def test_start_sync_for_launch_opens_when_enabled(tmp_path):
-    (tmp_path / "x.txt").write_text("hi", encoding="utf-8")
+def test_start_sync_for_launch_sends_start(tmp_path):
     bridge, t = make_bridge()
     s = cd.start_sync_for_launch(
-        "dev-L", session_id="cs_L", cwd=str(tmp_path),
+        "dev-L", session_id="cs_L", cwd="/root/proj",
         sync={"enabled": True, "remote_path": "/Users/me/proj"}, bridge=bridge)
     assert s is not None
-    opens = t.frames("coding_sync_open")
-    assert len(opens) == 1
-    # the open frame carries the REMOTE path the desktop watches
-    assert opens[0]["path"] == "/Users/me/proj"
-    assert opens[0]["sync_id"] == "sync-cs_L"
-    # bridge routes inbound frames for this sync id
+    starts = t.frames("coding_sync_start")
+    assert len(starts) == 1
+    f = starts[0]
+    assert f["sync_id"] == "sync-cs_L"
+    assert f["local_path"] == "/Users/me/proj"   # the DESKTOP's folder
+    assert f["remote_path"] == "/root/proj"       # the server's cwd
     assert bridge.sync_for("sync-cs_L") is s
 
 
@@ -545,6 +243,133 @@ def test_start_sync_for_launch_noop_when_disabled(tmp_path):
     assert cd.start_sync_for_launch("dev-N", session_id="cs_N",
                                     cwd=str(tmp_path), sync={"enabled": False},
                                     bridge=bridge) is None
+    assert t.sent == []
+
+
+def test_mutagen_on_status_updates_session():
+    bridge, t = make_bridge()
+    s = cd.MutagenSyncSession(sync_id="sync-1", device_id="dev-A",
+                              local_path="/l", remote_path="/r", bridge=bridge)
+    bridge.register_sync(s)
+    s.open()
+    assert s.status == "opening"
+    bridge.on_frame("dev-A", {"type": "coding_sync_status", "sync_id": "sync-1",
+                              "status": "syncing", "done": 12, "total": 100})
+    assert s.status == "syncing" and s.done == 12 and s.total == 100
+    bridge.on_frame("dev-A", {"type": "coding_sync_status", "sync_id": "sync-1",
+                              "status": "synced"})
+    assert s.status == "synced" and s.last_sync_at is not None
+
+
+def test_mutagen_status_conflicts():
+    bridge, t = make_bridge()
+    s = cd.MutagenSyncSession(sync_id="sync-c", device_id="dev-C",
+                              local_path="/l", remote_path="/r", bridge=bridge)
+    bridge.register_sync(s)
+    bridge.on_frame("dev-C", {"type": "coding_sync_status", "sync_id": "sync-c",
+                              "status": "conflicts", "conflicts": 3})
+    assert s.status == "conflicts" and s.conflicts == 3
+
+
+def test_mutagen_reopen_if_stale_resends_start():
+    bridge, t = make_bridge()
+    s = cd.MutagenSyncSession(sync_id="sync-st", device_id="dev-S",
+                              local_path="/l", remote_path="/r", bridge=bridge)
+    bridge.register_sync(s)
+    s.open()
+    assert len(t.frames("coding_sync_start")) == 1
+    assert s.reopen_if_stale(now=s._last_open_at + 1) is False
+    assert s.reopen_if_stale(now=s._last_open_at + 999) is True
+    assert len(t.frames("coding_sync_start")) == 2
+    # once status arrives we're no longer 'opening' -> never reopen
+    bridge.on_frame("dev-S", {"type": "coding_sync_status", "sync_id": "sync-st",
+                              "status": "synced"})
+    assert s.reopen_if_stale(now=s._last_open_at + 999) is False
+
+
+def test_mutagen_close_sends_stop():
+    bridge, t = make_bridge()
+    s = cd.MutagenSyncSession(sync_id="sync-x", device_id="dev-X",
+                              local_path="/l", remote_path="/r", bridge=bridge)
+    bridge.register_sync(s)
+    s.close()
+    assert t.frames("coding_sync_stop") and t.frames("coding_sync_stop")[0]["sync_id"] == "sync-x"
+    assert bridge.sync_for("sync-x") is None  # send_sync_stop deregisters
+
+
+def test_sync_status_reports_live_registered_session(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda preferred=None: "dev-Z")
+    sess = cd.MutagenSyncSession(sync_id="sync-cs_Z", device_id="dev-Z",
+                                 local_path="/l", remote_path="/r",
+                                 bridge=make_bridge()[0])
+    sess.status = "syncing"
+    sess.done, sess.total = 2, 5
+    cd.get_desktop_bridge().register_sync(sess)
+    try:
+        out = cd.sync_status("cs_Z", json.dumps({"enabled": True, "device": "dev-Z"}))
+    finally:
+        cd.get_desktop_bridge().send_sync_stop("dev-Z", "sync-cs_Z")
+    assert out["status"] == "syncing"
+    assert out["total"] == 5 and out["done"] == 2
+    assert out["device_online"] is True
+
+
+def test_sync_status_offline_overrides_stale_syncing(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda preferred=None: None)
+    sess = cd.MutagenSyncSession(sync_id="sync-cs_Off", device_id="dev-Off",
+                                 local_path="/l", remote_path="/r",
+                                 bridge=make_bridge()[0])
+    sess.status = "syncing"
+    sess.done, sess.total = 17, 500
+    cd.get_desktop_bridge().register_sync(sess)
+    try:
+        out = cd.sync_status("cs_Off", json.dumps({"enabled": True, "device": "dev-Off"}))
+    finally:
+        cd.get_desktop_bridge().send_sync_stop("dev-Off", "sync-cs_Off")
+    assert out["device_online"] is False
+    assert out["status"] == "disconnected"
+    assert out["total"] == 500 and out["done"] == 17
+
+
+def test_sync_status_surfaces_conflicts(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda preferred=None: "dev-K")
+    sess = cd.MutagenSyncSession(sync_id="sync-cs_K", device_id="dev-K",
+                                 local_path="/l", remote_path="/r",
+                                 bridge=make_bridge()[0])
+    sess.status = "conflicts"
+    sess.conflicts = 2
+    cd.get_desktop_bridge().register_sync(sess)
+    try:
+        out = cd.sync_status("cs_K", json.dumps({"enabled": True, "device": "dev-K"}))
+    finally:
+        cd.get_desktop_bridge().send_sync_stop("dev-K", "sync-cs_K")
+    assert out["status"] == "conflicts" and out["conflicts"] == 2
+
+
+def test_desktop_bridge_has_sync_for_not_get_sync():
+    bridge, _t = make_bridge()
+    assert hasattr(bridge, "sync_for")
+    assert not hasattr(bridge, "get_sync")
+
+
+def test_sync_error_frame_surfaces_on_session():
+    bridge, _t = make_bridge()
+    s = cd.MutagenSyncSession(sync_id="sync-er", device_id="dev-ER",
+                              local_path="/l", remote_path="/r", bridge=bridge)
+    bridge.register_sync(s)
+    bridge.on_frame("dev-ER", {"type": "coding_sync_error", "sync_id": "sync-er",
+                               "op": "mutagen", "error": "ssh connect refused"})
+    assert s.status == "error"
+    assert "ssh connect refused" in (s.error or "")
+
+
+def test_unregistered_sync_id_is_ignored():
+    bridge, t = make_bridge()
+    bridge.on_frame("dev-T", {"type": "coding_sync_status",
+                              "sync_id": "ghost", "status": "synced"})
     assert t.sent == []
 
 
@@ -585,11 +410,11 @@ def test_resync_device_reopens_running_synced_sessions(tmp_path):
     n = cd.resync_device("dev-RS", store=store, bridge=bridge)
     assert n == 1
 
-    opens = t.frames("coding_sync_open")
+    opens = t.frames("coding_sync_start")
     assert len(opens) == 1
     f = opens[0]
     assert f["sync_id"] == "sync-cs_run"
-    assert f["path"] == "/Users/me/proj"  # the desktop's remote path
+    assert f["local_path"] == "/Users/me/proj"  # the desktop's folder
     # the session is registered for inbound-frame routing under its sync id
     assert bridge.sync_for("sync-cs_run") is not None
 
@@ -604,10 +429,10 @@ def test_resync_device_desktop_session_without_sync_config(tmp_path):
     ])
     n = cd.resync_device("dev-D2", store=store, bridge=bridge)
     assert n == 1
-    opens = t.frames("coding_sync_open")
+    opens = t.frames("coding_sync_start")
     assert len(opens) == 1
     # no explicit remote_path -> the desktop opens the session cwd
-    assert opens[0]["path"] == str(tmp_path)
+    assert opens[0]["local_path"] == str(tmp_path)
     assert opens[0]["sync_id"] == "sync-cs_d"
 
 
@@ -618,7 +443,7 @@ def test_resync_device_noop_when_nothing_synced(tmp_path):
          "cwd": str(tmp_path), "sync_config": None},
     ])
     assert cd.resync_device("dev-N", store=store, bridge=bridge) == 0
-    assert t.frames("coding_sync_open") == []
+    assert t.frames("coding_sync_start") == []
 
 
 def test_resync_device_defensive_on_bad_store():
@@ -654,7 +479,7 @@ def test_resync_device_skips_bad_sync_config_json(tmp_path):
     # _session_is_synced is True (non-empty sync_config) but the JSON is bad ->
     # no usable sync dict -> skipped, count 0, no frames.
     assert cd.resync_device("dev-J", store=store, bridge=bridge) == 0
-    assert t.frames("coding_sync_open") == []
+    assert t.frames("coding_sync_start") == []
 
 
 # ── device_bridge inbound hook routes coding frames to the handler ───────────
@@ -677,12 +502,12 @@ def test_device_bridge_routes_coding_frames_to_handler():
                               name="desk")
         db._handle_message(conn, {"type": "coding_term_output",
                                   "term_id": "jc-z", "data": "hi"})
-        db._handle_message(conn, {"type": "coding_sync_event",
-                                  "sync_id": "s", "relpath": "f", "kind": "x"})
+        db._handle_message(conn, {"type": "coding_sync_status",
+                                  "sync_id": "s", "status": "synced"})
         # a non-coding type is NOT routed to the handler
         db._handle_message(conn, {"type": "pong"})
         assert [g[1]["type"] for g in got] == [
-            "coding_term_output", "coding_sync_event"]
+            "coding_term_output", "coding_sync_status"]
         assert got[0][0] == "dev-Z"
     finally:
         db.set_coding_frame_handler(None)

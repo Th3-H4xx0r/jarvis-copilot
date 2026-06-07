@@ -221,14 +221,22 @@ class Service:
         # Coding Sessions: desktop execution (PTY relay) + bidirectional file
         # sync. Always on (core feature). Frames flow over this same bridge.
         try:
-            from jc_client.coding_sync_agent import CodingSyncAgent
+            from jc_client.coding_sync_mutagen import CodingMutagenAgent
             from jc_client.coding_term import CodingTermManager
 
             def _coding_send(f):
                 ws.send_text(json.dumps(f))
 
             self._coding_term = CodingTermManager(send=_coding_send)
-            self._coding_sync = CodingSyncAgent(send=_coding_send)
+            self._coding_sync = CodingMutagenAgent(send=_coding_send)
+            # Authorize this client's sync key on the server so Mutagen's SSH
+            # (through the WS<->TCP relay) can connect. Idempotent on both ends.
+            try:
+                pub = self._coding_sync.pubkey()
+                if pub:
+                    _coding_send({"type": "coding_sync_authorize_key", "pubkey": pub})
+            except Exception as exc:  # noqa: BLE001
+                log.debug("sync key authorize push failed: %s", exc)
         except Exception as exc:
             log.warning("coding sessions desktop support unavailable: %s", exc)
             self._coding_term = None

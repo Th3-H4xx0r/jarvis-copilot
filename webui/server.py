@@ -309,6 +309,14 @@ class Handler(BaseHTTPRequestHandler):
                         return
                 except Exception:
                     pass
+                # Binary WS<->TCP relay for coding-session sync (/api/devices/tcp-relay
+                # → local sshd). Mirrors the device-bridge auth gate.
+                try:
+                    from api.tcp_relay import handle_tcp_relay as _tcp_relay
+                    if _tcp_relay(self, parsed):
+                        return
+                except Exception:
+                    pass
                 # Local TUI gateway bridge (/api/tui/ws → spawned tui_gateway).
                 try:
                     from api.tui_bridge import handle_websocket as _tui_ws

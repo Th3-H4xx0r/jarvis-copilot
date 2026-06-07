@@ -517,6 +517,12 @@ def cmd_mcp_serve(args) -> int:
     return 0
 
 
+def cmd_tcp_relay(args) -> int:
+    """SSH ProxyCommand: bridge stdio to the server's WS<->TCP relay (sync)."""
+    from jc_client.tcp_relay_client import run
+    return run()
+
+
 def cmd_code_memory(args) -> int:
     import json as _json
     import os as _os
@@ -813,6 +819,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ).set_defaults(func=cmd_tui)
 
     sub.add_parser("mcp-serve", help="Run the jarviscopilot-code-assist MCP server (stdio)").set_defaults(func=cmd_mcp_serve)
+    sub.add_parser("tcp-relay", help="SSH ProxyCommand: bridge stdio to the server sync relay").set_defaults(func=cmd_tcp_relay)
     cmsub = sub.add_parser("code-memory", help="Project code-memory (bootstrap/recall/store/projects)")
     cmsubp = cmsub.add_subparsers(dest="cm_command", required=True)
     cmsubp.add_parser("bootstrap")

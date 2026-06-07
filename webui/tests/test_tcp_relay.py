@@ -1,0 +1,99 @@
+"""Unit tests for the WS<->TCP relay byte-pump core (no real WebSocket)."""
+import socket
+import threading
+
+from api.tcp_relay import Channel, SocketChannel, relay_pump
+
+
+class ScriptChannel(Channel):
+    """Yields a fixed list of byte chunks from recv(), then EOF; records sends."""
+
+    def __init__(self, to_recv):
+        self._recv = list(to_recv)
+        self.sent = []
+        self.closed = False
+
+    def recv(self):
+        if self._recv:
+            return self._recv.pop(0)
+        return None  # EOF after the scripted data
+
+    def send(self, data):
+        self.sent.append(data)
+
+    def close(self):
+        self.closed = True
+
+
+def _recv_exact(sock, n):
+    buf = b""
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
+        if not chunk:
+            break
+        buf += chunk
+    return buf
+
+
+def test_relay_pump_bridges_two_socketpairs_both_ways():
+    # Real, deterministic bidirectional test: bytes written on either outer end
+    # appear on the other, proving the pump relays both directions live.
+    a_in, a_out = socket.socketpair()
+    b_in, b_out = socket.socketpair()
+    t = threading.Thread(target=relay_pump,
+                         args=(SocketChannel(a_in), SocketChannel(b_in)),
+                         daemon=True)
+    t.start()
+    a_out.sendall(b"ping")
+    assert _recv_exact(b_out, 4) == b"ping"
+    b_out.sendall(b"pong")
+    assert _recv_exact(a_out, 4) == b"pong"
+    # Closing one outer end tears the whole relay down.
+    a_out.close()
+    t.join(timeout=2.0)
+    assert not t.is_alive()
+    b_out.close()
+
+
+def test_relay_pump_close_propagates():
+    # One side closes immediately (no data); the relay must terminate cleanly.
+    a = ScriptChannel([])
+    b = ScriptChannel([b"x"])
+    relay_pump(a, b)
+    assert a.closed and b.closed
+    # b's single chunk may or may not have flushed before teardown, but a got
+    # nothing and the pump returned (no hang) — that's the contract.
+
+
+def test_socketchannel_loopback_echo():
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+
+    def _echo():
+        conn, _ = srv.accept()
+        while True:
+            d = conn.recv(4096)
+            if not d:
+                break
+            conn.sendall(d)
+        conn.close()
+
+    threading.Thread(target=_echo, daemon=True).start()
+    client = socket.create_connection(("127.0.0.1", port), timeout=2)
+    ch = SocketChannel(client)
+    ch.send(b"ping")
+    assert ch.recv() == b"ping"
+    ch.close()
+    srv.close()
+
+
+def test_socketchannel_recv_none_after_close():
+    a, b = socket.socketpair()
+    ch = SocketChannel(a)
+    b.close()
+    # peer closed -> recv returns b"" (falsy) which the pump treats as EOF
+    assert not ch.recv()
+    ch.close()

@@ -1,0 +1,89 @@
+"""Tests for the desktop Mutagen sync agent (frame handling + status emit)."""
+import time
+
+from jc_client.coding_sync_mutagen import CodingMutagenAgent
+from jc_client.coding_mutagen import MutagenDriver, MutagenError
+
+
+class FakeRunner:
+    """Records argv; returns a configurable status JSON for `sync list`."""
+
+    def __init__(self, status='{"status": "Watching for changes"}', create_rc=0):
+        self.calls = []
+        self.status = status
+        self.create_rc = create_rc
+
+    def __call__(self, argv, env=None):
+        self.calls.append(argv)
+        if argv[1:3] == ["sync", "list"]:
+            return 0, self.status, ""
+        if argv[1:3] == ["sync", "create"]:
+            return self.create_rc, "", ("boom" if self.create_rc else "")
+        return 0, "", ""
+
+
+def _agent(runner, sent):
+    driver = MutagenDriver(mutagen_path="mutagen", runner=runner)
+    return CodingMutagenAgent(send=sent.append, driver=driver,
+                              proxy_command='"jc" tcp-relay', poll_interval=0.05)
+
+
+def test_start_runs_mutagen_and_emits_status(tmp_path, monkeypatch):
+    # avoid real ssh-keygen / ~/.ssh writes
+    a = None
+    sent = []
+    runner = FakeRunner()
+    a = _agent(runner, sent)
+    monkeypatch.setattr(a, "pubkey", lambda: "ssh-ed25519 AAAA jc")
+    a.handle_frame({"type": "coding_sync_start", "sync_id": "sync-1",
+                    "local_path": "/Users/me/p", "remote_path": "/root/p",
+                    "ignore": ["build"]})
+    # a sync create happened to the jc-hermes alias
+    creates = [c for c in runner.calls if c[1:3] == ["sync", "create"]]
+    assert creates and "jc-hermes:/root/p" in creates[0]
+    assert "/Users/me/p" in creates[0]
+    # an immediate status was emitted
+    assert any(f["type"] == "coding_sync_status" and f["sync_id"] == "sync-1"
+               for f in sent)
+    s = [f for f in sent if f["type"] == "coding_sync_status"][-1]
+    assert s["status"] == "synced"
+    a.close()
+
+
+def test_start_failure_emits_error(monkeypatch):
+    sent = []
+    a = _agent(FakeRunner(create_rc=1), sent)
+    monkeypatch.setattr(a, "pubkey", lambda: "k")
+    a.handle_frame({"type": "coding_sync_start", "sync_id": "sync-x",
+                    "local_path": "/l", "remote_path": "/r"})
+    errs = [f for f in sent if f["type"] == "coding_sync_error"]
+    assert errs and errs[0]["sync_id"] == "sync-x"
+    a.close()
+
+
+def test_stop_terminates(monkeypatch):
+    sent = []
+    runner = FakeRunner()
+    a = _agent(runner, sent)
+    monkeypatch.setattr(a, "pubkey", lambda: "k")
+    a.handle_frame({"type": "coding_sync_start", "sync_id": "sync-1",
+                    "local_path": "/l", "remote_path": "/r"})
+    assert a.active_count() == 1
+    a.handle_frame({"type": "coding_sync_stop", "sync_id": "sync-1"})
+    assert a.active_count() == 0
+    assert any(c[1:3] == ["sync", "terminate"] for c in runner.calls)
+
+
+def test_status_poller_pushes_updates(monkeypatch):
+    sent = []
+    runner = FakeRunner(status='{"status": "Staging files on beta", "stagingDone": 3, "stagingTotal": 9}')
+    a = _agent(runner, sent)
+    monkeypatch.setattr(a, "pubkey", lambda: "k")
+    a.handle_frame({"type": "coding_sync_start", "sync_id": "sync-1",
+                    "local_path": "/l", "remote_path": "/r"})
+    time.sleep(0.2)  # let the poller tick a few times
+    a.close()
+    statuses = [f for f in sent if f["type"] == "coding_sync_status"]
+    assert len(statuses) >= 2
+    assert statuses[-1]["status"] == "syncing"
+    assert statuses[-1]["done"] == 3 and statuses[-1]["total"] == 9

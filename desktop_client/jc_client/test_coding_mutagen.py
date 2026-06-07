@@ -1,0 +1,116 @@
+"""Unit tests for the desktop Mutagen driver (argv + status parsing + flow)."""
+import json
+
+from jc_client.coding_mutagen import (
+    MutagenDriver, MutagenError, create_sync_argv, parse_status, session_name,
+    status_argv, terminate_argv,
+)
+
+
+def test_session_name_sanitized():
+    assert session_name("e6daf36111a9") == "jc-e6daf36111a9"
+    assert session_name("a b/c:d") == "jc-a-b-c-d"
+    assert session_name("") == "jc-session"
+
+
+def test_create_sync_argv_shape():
+    argv = create_sync_argv("mutagen", name="jc-x", local_path="/Users/me/p",
+                            remote_host="jc-hermes", remote_path="/root/p",
+                            ignore=["node_modules", "build"])
+    assert argv[:6] == ["mutagen", "sync", "create", "--name", "jc-x", "--sync-mode"]
+    assert "two-way-safe" in argv
+    assert "--ignore-vcs" in argv
+    # each ignore is its own --ignore pair
+    assert argv.count("--ignore") == 2
+    assert "node_modules" in argv and "build" in argv
+    # local then remote host:path last
+    assert argv[-2:] == ["/Users/me/p", "jc-hermes:/root/p"]
+
+
+def test_status_argv_and_terminate_argv():
+    assert status_argv("mutagen", "jc-x") == [
+        "mutagen", "sync", "list", "--template", "{{json .}}", "jc-x"]
+    assert terminate_argv("mutagen", "jc-x") == ["mutagen", "sync", "terminate", "jc-x"]
+
+
+def test_parse_status_synced():
+    out = parse_status(json.dumps({"status": "Watching for changes", "conflicts": []}))
+    assert out["status"] == "synced"
+    assert out["conflicts"] == 0
+
+
+def test_parse_status_syncing_with_progress():
+    out = parse_status(json.dumps({
+        "status": "Staging files on beta",
+        "stagingDone": 17, "stagingTotal": 483, "conflicts": []}))
+    assert out["status"] == "syncing"
+    assert out["done"] == 17 and out["total"] == 483
+
+
+def test_parse_status_conflicts():
+    out = parse_status(json.dumps({
+        "status": "Watching for changes",
+        "conflicts": [{"root": "a.py"}, {"root": "b.py"}]}))
+    assert out["status"] == "conflicts"
+    assert out["conflicts"] == 2
+
+
+def test_parse_status_error():
+    out = parse_status(json.dumps({"status": "Connecting", "lastError": "ssh: connect refused"}))
+    assert out["status"] == "error"
+    assert "connect refused" in out["error"]
+
+
+def test_parse_status_empty_or_garbage():
+    assert parse_status("")["status"] == "unknown"
+    assert parse_status("not json")["status"] == "unknown"
+
+
+# ── driver flow with a fake runner ────────────────────────────────────────────
+
+
+class FakeRunner:
+    def __init__(self, status_json=None, create_rc=0):
+        self.calls = []
+        self._status_json = status_json or json.dumps({"status": "Watching for changes"})
+        self._create_rc = create_rc
+
+    def __call__(self, argv, env=None):
+        self.calls.append(argv)
+        if argv[1:3] == ["sync", "list"]:
+            return 0, self._status_json, ""
+        if argv[1:3] == ["sync", "create"]:
+            return self._create_rc, "", ("boom" if self._create_rc else "")
+        return 0, "", ""
+
+
+def test_driver_start_then_status():
+    fr = FakeRunner()
+    d = MutagenDriver(mutagen_path="mutagen", runner=fr)
+    name = d.start_sync(session_id="cs1", local_path="/l", remote_host="jc-hermes",
+                        remote_path="/r")
+    assert name == "jc-cs1"
+    # start terminates any prior session, then creates
+    kinds = [c[1:3] for c in fr.calls]
+    assert ["sync", "terminate"] in kinds and ["sync", "create"] in kinds
+    st = d.status("cs1")
+    assert st["status"] == "synced"
+
+
+def test_driver_create_failure_raises():
+    d = MutagenDriver(mutagen_path="mutagen", runner=FakeRunner(create_rc=1))
+    try:
+        d.start_sync(session_id="cs1", local_path="/l", remote_host="jc-hermes",
+                     remote_path="/r")
+        assert False, "expected MutagenError"
+    except MutagenError as e:
+        assert "create failed" in str(e)
+
+
+def test_driver_missing_binary_raises():
+    d = MutagenDriver(mutagen_path=None, runner=FakeRunner())
+    try:
+        d.status("cs1")
+        assert False
+    except MutagenError as e:
+        assert "not found" in str(e)

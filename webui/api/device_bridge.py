@@ -330,10 +330,9 @@ def _relay_session(conn: "_DeviceConn", session_id) -> Optional[dict]:
 # Frame types the device sends back that belong to the coding channel.
 _CODING_INBOUND_TYPES = frozenset({
     "coding_term_output", "coding_term_exit",
-    "coding_sync_manifest", "coding_sync_file", "coding_sync_event",
-    # coding_sync_error lets a desktop-side sync failure (bad get/write/etc.)
-    # surface on the server's status panel + logs instead of vanishing silently.
-    "coding_sync_error",
+    # Mutagen sync: the desktop pushes status snapshots + actionable errors,
+    # and (once per connect) its sync SSH public key to authorize.
+    "coding_sync_status", "coding_sync_error", "coding_sync_authorize_key",
 })
 
 # process-wide handler(device_id: str, frame: dict) -> None, set by DesktopBridge.
