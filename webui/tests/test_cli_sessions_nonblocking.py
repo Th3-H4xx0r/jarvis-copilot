@@ -1,9 +1,11 @@
-"""get_cli_sessions() must never block /api/sessions on the slow uncached scan.
+"""get_cli_sessions() must not pile up on the global cache lock.
 
 Regression for the prod hang where the 20-40s `_load_cli_sessions_uncached`
 ran while holding `_CLI_SESSIONS_CACHE_LOCK`, so every concurrent /api/sessions
-request piled up on the lock (and a volatile cache key meant it re-loaded on
-nearly every request).
+request serialized on the lock. The new design: freshness is preserved (a
+state.db change reloads), but the slow load runs under a per-key single-flight
+lock OUTSIDE the global lock, so concurrent callers serve the last (stale)
+snapshot instantly instead of blocking.
 """
 import threading
 import time
@@ -11,59 +13,78 @@ import time
 from api import models
 
 
-def _setup(monkeypatch, load_secs=0.4):
-    key = ("h", "p", "db")
+class Ctl:
+    def __init__(self):
+        self.sig = ("s1",)
+        self.load_count = 0
+        self.load_secs = 0.0
+        self.value = [{"id": "cli_1", "is_cli_session": True}]
+
+
+def _setup(monkeypatch, ctl):
     monkeypatch.setattr(models, "_resolve_cli_sessions_context",
-                        lambda: ("h", "db", "p", key))
-    calls = {"n": 0}
+                        lambda: ("h", "db", "p", ("KEY",), ctl.sig))
 
-    def _slow_load(home, db, profile):
-        calls["n"] += 1
-        time.sleep(load_secs)
-        return [{"id": "cli_1", "is_cli_session": True}]
+    def _load(home, db, profile):
+        ctl.load_count += 1
+        time.sleep(ctl.load_secs)
+        return [dict(v) for v in ctl.value]
 
-    monkeypatch.setattr(models, "_load_cli_sessions_uncached", _slow_load)
+    monkeypatch.setattr(models, "_load_cli_sessions_uncached", _load)
     models.clear_cli_sessions_cache()
-    return calls
 
 
-def test_first_call_returns_immediately_then_caches(monkeypatch):
-    calls = _setup(monkeypatch, load_secs=0.4)
+def test_warm_stale_serves_instantly_while_loader_runs(monkeypatch):
+    ctl = Ctl()
+    _setup(monkeypatch, ctl)
+    # prime the cache (cold load, fast)
+    assert models.get_cli_sessions()[0]["id"] == "cli_1"
+    assert ctl.load_count == 1
+
+    # stat changes (stale) AND the reload is slow
+    ctl.sig = ("s2",)
+    ctl.load_secs = 0.5
+    ctl.value = [{"id": "cli_2", "is_cli_session": True}]
+
+    # a background request becomes the single loader (blocks ~0.5s)
+    bg = threading.Thread(target=models.get_cli_sessions)
+    bg.start()
+    time.sleep(0.08)  # let it grab the load lock + start loading
+
+    # main request: stale -> serve the OLD snapshot INSTANTLY, not block 0.5s
     t0 = time.monotonic()
-    first = models.get_cli_sessions()
+    got = models.get_cli_sessions()
     elapsed = time.monotonic() - t0
-    assert elapsed < 0.15, f"first call blocked {elapsed:.2f}s on the slow load"
-    assert first == []  # nothing cached yet; background refresh kicked
+    assert elapsed < 0.2, f"stale read blocked {elapsed:.2f}s on the slow load"
+    assert got[0]["id"] == "cli_1"  # stale data served while loader runs
 
-    # Background refresh completes → subsequent call returns the data, fast.
-    deadline = time.monotonic() + 3.0
-    got = []
-    while time.monotonic() < deadline:
-        got = models.get_cli_sessions()
-        if got:
-            break
-        time.sleep(0.05)
-    assert got and got[0]["id"] == "cli_1"
-    assert calls["n"] == 1  # exactly one load happened
+    bg.join()
+    # loader finished -> fresh data now cached
+    assert models.get_cli_sessions()[0]["id"] == "cli_2"
+    assert ctl.load_count == 2  # prime + the one reload (single-flight)
 
 
-def test_concurrent_polls_do_not_stack_loads(monkeypatch):
-    calls = _setup(monkeypatch, load_secs=0.5)
-    # Fire many concurrent first-time polls while the single refresh is in flight.
+def test_concurrent_stale_polls_single_flight(monkeypatch):
+    ctl = Ctl()
+    _setup(monkeypatch, ctl)
+    models.get_cli_sessions()              # prime (load_count=1)
+    ctl.sig = ("s2",)                      # mark stale
+    ctl.load_secs = 0.4
+
     results = []
 
-    def _poll():
+    def poll():
         t0 = time.monotonic()
         models.get_cli_sessions()
         results.append(time.monotonic() - t0)
 
-    threads = [threading.Thread(target=_poll) for _ in range(12)]
+    threads = [threading.Thread(target=poll) for _ in range(12)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    # None of the 12 concurrent polls blocked on the 0.5s load.
-    assert all(e < 0.2 for e in results), f"a poll blocked: {max(results):.2f}s"
-    # Let the in-flight refresh finish, then confirm only ONE load ran.
-    time.sleep(0.7)
-    assert calls["n"] == 1
+
+    # at most one poll became the loader (~0.4s); the rest served stale instantly
+    fast = [r for r in results if r < 0.15]
+    assert len(fast) >= 11, f"too many polls blocked: {sorted(results)}"
+    assert ctl.load_count == 2  # prime + exactly ONE reload

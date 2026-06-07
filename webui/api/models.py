@@ -29,10 +29,13 @@ logger = logging.getLogger(__name__)
 CLI_VISIBLE_SESSION_LIMIT = 20
 _CLI_SESSIONS_CACHE_TTL_SECONDS = 5.0
 _CLI_SESSIONS_CACHE_LOCK = threading.Lock()
+# stable_key -> (freshness_sig, expires_monotonic, sessions)
 _CLI_SESSIONS_CACHE = {}
-# cache_key -> True while a background refresh is in flight (single-flight guard
-# so a thundering herd of /api/sessions polls never stack multiple slow loads).
-_CLI_SESSIONS_REFRESHING: dict = {}
+# stable_key -> threading.Lock — single-flight load guard. The slow load runs
+# while holding ONLY this per-key lock (never the global cache lock), so a
+# thundering herd of /api/sessions polls can't pile up on the global lock; one
+# request loads while the rest serve the last (stale) snapshot instantly.
+_CLI_SESSIONS_INFLIGHT: dict = {}
 
 # ---------------------------------------------------------------------------
 # Stale temp-file cleanup
@@ -1998,7 +2001,7 @@ def get_claude_code_session_messages(sid, projects_dir: Path | str | None = None
 def clear_cli_sessions_cache() -> None:
     with _CLI_SESSIONS_CACHE_LOCK:
         _CLI_SESSIONS_CACHE.clear()
-        _CLI_SESSIONS_REFRESHING.clear()
+        _CLI_SESSIONS_INFLIGHT.clear()
 
 
 def _copy_cli_sessions(sessions: list) -> list:
@@ -2062,17 +2065,18 @@ def _resolve_cli_sessions_context():
         cli_profile = None
 
     db_path = hermes_home / 'state.db'
-    # STABLE cache key: home + profile + db path only. Do NOT fold in state.db's
-    # mtime/size (or the projects/index stats) — those change on every agent
-    # write, which made the key churn on nearly every request so the cache never
-    # hit and each /api/sessions re-ran the slow uncached scan. The TTL bounds
-    # staleness instead; a few-seconds-stale CLI-sessions sidebar is fine.
-    cache_key = (
-        str(hermes_home),
-        str(cli_profile or ''),
-        str(db_path),
+    projects_dir = _default_claude_code_projects_dir()
+    # STABLE cache key (home + profile + db) — this keys the cache SLOT and the
+    # single-flight load lock, so it must NOT churn. Freshness-on-change is a
+    # SEPARATE signature (db/projects/index stats); when it changes we reload,
+    # but the key stays put so concurrent reloads coalesce instead of stacking.
+    cache_key = (str(hermes_home), str(cli_profile or ''), str(db_path))
+    freshness_sig = (
+        _sqlite_file_stat_cache_key(db_path),
+        _path_stat_cache_key(projects_dir),
+        _path_stat_cache_key(SESSION_INDEX_FILE),
     )
-    return hermes_home, db_path, cli_profile, cache_key
+    return hermes_home, db_path, cli_profile, cache_key, freshness_sig
 
 
 def _load_cli_sessions_uncached(hermes_home: Path, db_path: Path, _cli_profile) -> list:
@@ -2182,11 +2186,11 @@ def get_cli_sessions() -> list:
     Returns empty list if the SQLite DB is missing or any error occurs -- the
     bridge is purely additive and never crashes the WebUI.
     """
-    hermes_home, db_path, cli_profile, cache_key = _resolve_cli_sessions_context()
+    hermes_home, db_path, cli_profile, cache_key, fresh_sig = \
+        _resolve_cli_sessions_context()
     ttl = _cli_sessions_cache_ttl_seconds()
 
-    if ttl <= 0:
-        # Caching disabled — load inline (callers opting out accept the cost).
+    def _load():
         try:
             return _load_cli_sessions_uncached(hermes_home, db_path, cli_profile)
         except Exception as _cli_err:
@@ -2194,47 +2198,48 @@ def get_cli_sessions() -> list:
                 "get_cli_sessions() failed — check state.db schema or path (%s): %s",
                 db_path, _cli_err,
             )
-            return []
+            return None
 
-    # Stale-while-revalidate: NEVER block /api/sessions on the slow uncached
-    # scan (it can take 20-40s while state.db is being hammered). Serve the
-    # cached (even stale) value instantly and refresh in ONE background thread.
+    if ttl <= 0:
+        return _load() or []
+
     now = time.monotonic()
     with _CLI_SESSIONS_CACHE_LOCK:
         cached = _CLI_SESSIONS_CACHE.get(cache_key)
-        fresh = bool(cached) and cached[0] > now
-        if fresh:
-            return _copy_cli_sessions(cached[1])
-        # Stale or missing → kick a single background refresh (don't stack them).
-        if not _CLI_SESSIONS_REFRESHING.get(cache_key):
-            _CLI_SESSIONS_REFRESHING[cache_key] = True
-            _start_cli_sessions_refresh(cache_key, hermes_home, db_path, cli_profile, ttl)
-        # Serve the last-known snapshot immediately; empty on the very first call
-        # (CLI sessions then appear on the next poll — a few seconds later).
-        return _copy_cli_sessions(cached[1]) if cached else []
+        if cached and cached[0] == fresh_sig and cached[1] > now:
+            return _copy_cli_sessions(cached[2])  # fresh: stat unchanged + in TTL
+        loadlock = _CLI_SESSIONS_INFLIGHT.get(cache_key)
+        if loadlock is None:
+            loadlock = threading.Lock()
+            _CLI_SESSIONS_INFLIGHT[cache_key] = loadlock
+        stale = _copy_cli_sessions(cached[2]) if cached else None
+        # Try to BECOME the loader without blocking under the global lock.
+        am_loader = loadlock.acquire(blocking=False)
 
-
-def _start_cli_sessions_refresh(cache_key, hermes_home, db_path, cli_profile, ttl) -> None:
-    """Background single-flight refresh of the CLI-sessions cache. The slow load
-    runs OUTSIDE _CLI_SESSIONS_CACHE_LOCK so concurrent /api/sessions never block
-    on it; the lock is held only for the fast cache swap. Always clears the
-    in-flight flag, even on error, so refreshes can't wedge."""
-    def _run():
-        sessions = None
-        try:
-            sessions = _load_cli_sessions_uncached(hermes_home, db_path, cli_profile)
-        except Exception as _cli_err:
-            logger.warning(
-                "get_cli_sessions() refresh failed — check state.db (%s): %s",
-                db_path, _cli_err,
-            )
+    if not am_loader:
+        # Another request is loading THIS key. Serve the stale snapshot instantly
+        # (the whole point — no pileup). Only if there's nothing to serve (cold +
+        # someone loading) do we wait for that loader, then read its result.
+        if stale is not None:
+            return stale
+        loadlock.acquire()
+        loadlock.release()
         with _CLI_SESSIONS_CACHE_LOCK:
-            if sessions is not None:
-                _CLI_SESSIONS_CACHE[cache_key] = (
-                    time.monotonic() + ttl, _copy_cli_sessions(sessions))
-            _CLI_SESSIONS_REFRESHING[cache_key] = False
+            c = _CLI_SESSIONS_CACHE.get(cache_key)
+        return _copy_cli_sessions(c[2]) if c else []
 
-    threading.Thread(target=_run, name="cli-sessions-refresh", daemon=True).start()
+    # We are the single loader. The slow scan runs here holding ONLY loadlock
+    # (never the global cache lock), so concurrent polls above never block on it.
+    try:
+        sessions = _load()
+        if sessions is None:
+            return stale if stale is not None else []
+        with _CLI_SESSIONS_CACHE_LOCK:
+            _CLI_SESSIONS_CACHE[cache_key] = (
+                fresh_sig, time.monotonic() + ttl, _copy_cli_sessions(sessions))
+        return _copy_cli_sessions(sessions)
+    finally:
+        loadlock.release()
 
 
 def _json_loads_if_string(value):
