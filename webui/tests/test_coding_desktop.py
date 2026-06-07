@@ -280,6 +280,53 @@ def test_sync_pull_when_remote_has_files(tmp_path):
     assert t.frames("coding_sync_file") == []  # we SENT none (only received)
 
 
+def test_sync_pull_is_windowed_not_a_flood(tmp_path):
+    """A large pull must NOT fire every get at once (that floods the bridge and
+    wedges partway). At most _PULL_WINDOW requests are in flight; the next is
+    sent only as each file lands — and every file still transfers in the end."""
+    bridge, t = make_bridge()
+    s = cd.DesktopSyncSession(sync_id="sync-win", device_id="dev-W",
+                              root=str(tmp_path), bridge=bridge)
+    bridge.register_sync(s)
+    s.open()
+    n = 50
+    remote = {f"f{i:03d}.py": (1, float(i), f"h{i}") for i in range(n)}
+    bridge.on_frame("dev-W", {"type": "coding_sync_manifest",
+                              "sync_id": "sync-win", "manifest": remote})
+    # Only the window's worth of gets is outstanding initially.
+    assert len(t.frames("coding_sync_get")) == cd.DesktopSyncSession._PULL_WINDOW
+    assert not s.reconciled.is_set()
+    # Stream every file back; each arrival should pull the next until done.
+    for rel in sorted(remote):
+        bridge.on_frame("dev-W", {"type": "coding_sync_file", "sync_id": "sync-win",
+                                  "relpath": rel,
+                                  "b64": base64.b64encode(b"x").decode()})
+    # Every file was requested exactly once and written; the tree reconciled.
+    got = [f["relpath"] for f in t.frames("coding_sync_get")]
+    assert sorted(got) == sorted(remote)
+    assert len(got) == len(set(got)) == n
+    assert s.reconciled.is_set()
+    assert s.done == n and s.total == n
+
+
+def test_sync_pull_resumes_skips_already_synced(tmp_path):
+    """Resume: a re-open after a partial pull only re-requests the files the
+    server is still missing (diff), not the whole tree."""
+    # server already has a.py with the SAME bytes the remote will report
+    (tmp_path / "a.py").write_text("same", encoding="utf-8")
+    import hashlib
+    h = hashlib.sha256(b"same").hexdigest()
+    bridge, t = make_bridge()
+    s = cd.DesktopSyncSession(sync_id="sync-rs", device_id="dev-RSx",
+                              root=str(tmp_path), bridge=bridge)
+    bridge.register_sync(s)
+    remote = {"a.py": (4, 1.0, h), "b.py": (1, 2.0, "hb")}
+    bridge.on_frame("dev-RSx", {"type": "coding_sync_manifest",
+                                "sync_id": "sync-rs", "manifest": remote})
+    gets = sorted(f["relpath"] for f in t.frames("coding_sync_get"))
+    assert gets == ["b.py"]  # a.py already matches → skipped
+
+
 def test_sync_push_emits_progress_frames(tmp_path):
     # PUSH path: total set up front (done=0), then one increment per file.
     (tmp_path / "a.txt").write_text("alpha", encoding="utf-8")

@@ -379,7 +379,18 @@ class DesktopSyncSession:
     Direction rule (per spec): on first reconcile, if the remote manifest is
     empty we PUSH (seed the desktop from the server); otherwise we PULL (claude
     uses the desktop's files).
+
+    Pull is FLOW-CONTROLLED: we keep at most ``_PULL_WINDOW`` ``coding_sync_get``
+    requests in flight and send the next one as each file lands. Firing every
+    request at once (the old behaviour) floods the bridge — on a large tree the
+    send buffers overflow, frames drop, and because there's no retry the pull
+    wedges partway (e.g. stuck at 17/500). Windowing paces it to what the link
+    can carry; any straggler lost to a mid-transfer disconnect is picked up on
+    the next reconcile (Refresh / auto-resync), which re-diffs and re-requests.
     """
+
+    # Max number of in-flight pull requests (coding_sync_get awaiting a file).
+    _PULL_WINDOW = 16
 
     def __init__(self, *, sync_id: str, device_id: str, root: str, bridge,
                  ignore: list | None = None, remote_path: str | None = None):
@@ -394,6 +405,8 @@ class DesktopSyncSession:
         self.reconciled = threading.Event()
         # files we still expect to receive (pull) before the tree is whole
         self._pending_pull: set = set()
+        # not-yet-REQUESTED pull files (the window drains this as files arrive)
+        self._pull_queue: list = []
         self._lock = threading.RLock()
         # status surfaced to the WebUI: opening | syncing | synced | error
         self.status = "opening"
@@ -466,14 +479,18 @@ class DesktopSyncSession:
                 self.reconciled.set()
                 self._mark_synced()
             else:
-                # PULL: request each remote file; mark the tree reconciled once
-                # every requested file has arrived.
+                # PULL: request files through a bounded WINDOW (send the first
+                # _PULL_WINDOW gets now; on_file sends the next as each lands).
+                # Mark reconciled once every requested file has arrived.
                 self._pending_pull = set(plan["files"])
-                for rel in plan["files"]:
-                    self.bridge.send_sync_get(self.device_id, self.sync_id, rel)
-                if not self._pending_pull:
+                self._pull_queue = list(plan["files"])
+                if not self._pull_queue:
                     self.reconciled.set()
                     self._mark_synced()
+                else:
+                    for _ in range(min(self._PULL_WINDOW, len(self._pull_queue))):
+                        rel = self._pull_queue.pop(0)
+                        self.bridge.send_sync_get(self.device_id, self.sync_id, rel)
 
     def on_file(self, relpath: str, b64: str) -> None:
         """A coding_sync_file arrived from the desktop — write it locally."""
@@ -489,10 +506,15 @@ class DesktopSyncSession:
             # path traversal / escape — refuse silently (apply_write's guard)
             return
         with self._lock:
+            was_pending = relpath in self._pending_pull
             self._pending_pull.discard(relpath)
             if self.total:
                 self.done = min(self.total, self.done + 1)
                 self._emit_progress()  # per-file pull increment
+            # Windowed pull: a slot freed up, so request the next queued file.
+            if was_pending and self._pull_queue:
+                nxt = self._pull_queue.pop(0)
+                self.bridge.send_sync_get(self.device_id, self.sync_id, nxt)
             if not self._pending_pull:
                 # initial pull complete OR a single incremental delta applied
                 self.reconciled.set()

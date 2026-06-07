@@ -361,3 +361,25 @@ def test_plan_initial_sync_pull_when_remote_has_files():
     plan = plan_initial_sync(server, remote)
     assert plan["direction"] == "pull"
     assert plan["files"] == ["x.py", "y.py"]
+
+
+def test_plan_initial_sync_pull_resumes_skips_matching_hashes():
+    """Resume: pull only the remote files the server is missing or differs on,
+    so a reconnect continues instead of re-pulling the whole tree."""
+    from agent.coding_sync import plan_initial_sync
+    remote = {"a.py": (1, 2.0, "h1"), "b.py": (1, 2.0, "h2"),
+              "c.py": (1, 2.0, "h3")}
+    # server already has a.py (same hash) and b.py (DIFFERENT hash)
+    server = {"a.py": (1, 9.0, "h1"), "b.py": (1, 9.0, "OTHER")}
+    plan = plan_initial_sync(server, remote)
+    assert plan["direction"] == "pull"
+    # a.py matches → skipped; b.py differs → re-pull; c.py missing → pull
+    assert plan["files"] == ["b.py", "c.py"]
+
+
+def test_plan_initial_sync_push_diff_only_changed():
+    from agent.coding_sync import plan_initial_sync
+    server = {"a.py": (1, 2.0, "h1"), "b.py": (1, 2.0, "h2")}
+    plan = plan_initial_sync(server, {})  # empty remote -> push everything
+    assert plan["direction"] == "push"
+    assert plan["files"] == ["a.py", "b.py"]

@@ -330,12 +330,25 @@ def decide_initial_direction(*, remote_is_empty: bool) -> str:
 def plan_initial_sync(server_manifest: dict, remote_manifest: dict) -> dict:
     """Decide the initial direction + the files to transfer.
 
-    Returns ``{"direction": "push"|"pull", "files": [relpaths]}``:
-      - push: every file in the server manifest goes to the remote;
-      - pull: every file in the remote manifest comes to the server.
+    Returns ``{"direction": "push"|"pull", "files": [relpaths]}``.
+
+    Direction follows the empty-remote rule (push to seed an empty remote, else
+    pull). The file LIST is a content DIFF, not the whole tree: we only move
+    files the *receiving* side is missing or has a different hash for. This is
+    what makes an interrupted sync RESUME instead of restarting — a reconnect
+    (or the Refresh button) re-runs this against the now-partially-synced side
+    and only fetches what's still outstanding. Without the diff, every reconnect
+    re-pulled the entire tree from scratch, so a large tree (e.g. 500 files)
+    could never finish inside one connection's uptime.
     """
     direction = decide_initial_direction(
         remote_is_empty=is_manifest_empty(remote_manifest))
     if direction == "push":
-        return {"direction": "push", "files": sorted(server_manifest.keys())}
-    return {"direction": "pull", "files": sorted(remote_manifest.keys())}
+        # send server files the remote is missing or has a different hash for
+        files = [rel for rel, entry in server_manifest.items()
+                 if _hash(remote_manifest.get(rel)) != entry[2]]
+        return {"direction": "push", "files": sorted(files)}
+    # pull: receive remote files the server is missing or has a different hash for
+    files = [rel for rel, entry in remote_manifest.items()
+             if _hash(server_manifest.get(rel)) != entry[2]]
+    return {"direction": "pull", "files": sorted(files)}
