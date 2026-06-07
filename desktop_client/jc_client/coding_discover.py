@@ -157,6 +157,64 @@ def _to_wire(sess: dict) -> dict:
 # ── transcript (Claude Code session store) scan ───────────────────────────────
 
 
+# Chunk size for the bounded head reader.
+_TRANSCRIPT_READ_CHUNK = 1 << 16  # 64 KiB
+
+
+def _iter_head_lines(fh, *, head_lines: int, max_line_bytes: int):
+    """Yield up to ``head_lines`` logical lines from binary file ``fh`` WITHOUT
+    ever buffering more than ~``max_line_bytes`` at a time.
+
+    Claude Code transcripts can contain a single multi-megabyte (or larger) JSONL
+    line — a pasted file, a base64 image, a big tool result. Iterating the file
+    object directly (``for line in fh``) reads the WHOLE line up to the next
+    ``\\n`` into memory BEFORE any length check can skip it, so a pathological
+    line (worst case: no newline at all) would read the entire file into RAM and
+    block the poll thread. This reader instead pulls fixed-size chunks and yields
+    ``(text, overlong)`` per logical line, draining (and discarding) any line that
+    exceeds the cap so memory stays bounded and we never read past ``head_lines``
+    real newlines worth of content. ``text`` is decoded UTF-8 (errors replaced);
+    for an overlong line ``text`` is ``""`` and ``overlong`` is ``True``.
+    """
+    emitted = 0
+    buf = b""
+    overflowed = False  # current logical line already blew past the cap
+    while emitted < head_lines:
+        chunk = fh.read(_TRANSCRIPT_READ_CHUNK)
+        if not chunk:
+            break
+        buf += chunk
+        while True:
+            nl = buf.find(b"\n")
+            if nl == -1:
+                # No complete line yet. If what we're holding already exceeds the
+                # cap, this line is overlong: drop the buffer (drain) and remember
+                # so we skip everything until the terminating newline.
+                if len(buf) > max_line_bytes:
+                    overflowed = True
+                    buf = b""
+                break
+            raw = buf[:nl]
+            buf = buf[nl + 1:]
+            if overflowed or len(raw) > max_line_bytes:
+                # Overlong line (possibly spanning several chunks) -> skip it.
+                overflowed = False
+                emitted += 1
+                yield "", True
+            else:
+                emitted += 1
+                yield raw.decode("utf-8", "replace"), False
+            if emitted >= head_lines:
+                break
+    # A trailing line with no final newline: surface it too (if not overlong and
+    # we still have budget) so a tiny single-line transcript isn't missed.
+    if emitted < head_lines and buf and not overflowed:
+        if len(buf) <= max_line_bytes:
+            yield buf.decode("utf-8", "replace"), False
+        else:
+            yield "", True
+
+
 def _extract_cwd_summary(path: str, *, head_lines: int) -> tuple:
     """Read the first ``head_lines`` JSONL records of a transcript CHEAPLY and
     recover ``(cwd, summary)``.
@@ -178,13 +236,15 @@ def _extract_cwd_summary(path: str, *, head_lines: int) -> tuple:
     summary = ""
     first_user = ""
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            for i, raw in enumerate(fh):
-                if i >= head_lines:
-                    break
-                if len(raw) > _TRANSCRIPT_MAX_LINE_BYTES:
-                    continue
-                line = raw.strip()
+        # Binary + a bounded reader so a single pathological (multi-MB / no-newline)
+        # line can't read the whole file into memory and wedge the poll thread.
+        with open(path, "rb") as fh:
+            for raw_text, overlong in _iter_head_lines(
+                    fh, head_lines=head_lines,
+                    max_line_bytes=_TRANSCRIPT_MAX_LINE_BYTES):
+                if overlong:
+                    continue  # overlong line already drained -> skip
+                line = raw_text.strip()
                 if not line:
                     continue
                 try:
@@ -265,6 +325,18 @@ def _user_text(obj: dict) -> str:
         if parts:
             return " ".join(parts).strip()
     return ""
+
+
+def _norm_cwd(c) -> str:
+    """Normalize a cwd for the live-match comparison: strip surrounding
+    whitespace and any trailing slash, but keep root ``/`` intact. Returns ``""``
+    for anything that isn't a non-empty string."""
+    if not isinstance(c, str):
+        return ""
+    s = c.strip()
+    if not s:
+        return ""
+    return s.rstrip("/") or "/"
 
 
 def scan_transcripts(home_dir: str, *, now: float, live_cwds=(),
@@ -349,10 +421,13 @@ def scan_transcripts(home_dir: str, *, now: float, live_cwds=(),
         )
         candidates = candidates[:cap]
 
-    live = set()
-    for c in (live_cwds or ()):
-        if isinstance(c, str) and c.strip():
-            live.add(c.strip())
+    # Normalize cwds (strip a trailing slash, keep root "/") ONLY for the
+    # live-match comparison: tmux's ``pane_current_path`` and Claude's recorded
+    # ``cwd`` are normally both un-slashed, but if one side ever carries a
+    # trailing slash an exact ``in`` test would wrongly report ``live=False`` for
+    # a session that IS live. The emitted ``cwd`` stays verbatim (the server
+    # resumes against it).
+    live = {n for n in (_norm_cwd(c) for c in (live_cwds or ())) if n}
 
     # Dedup by session id, keeping the newest. ``candidates`` is newest-first,
     # so the first time we see an id wins.
@@ -371,7 +446,7 @@ def scan_transcripts(home_dir: str, *, now: float, live_cwds=(),
             "cwd": cwd,
             "summary": summary or "",
             "last_activity": float(mtime),
-            "live": cwd in live,
+            "live": _norm_cwd(cwd) in live,
         }
 
     return list(by_id.values())

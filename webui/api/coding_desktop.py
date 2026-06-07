@@ -901,6 +901,19 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
     # cwds that have a LIVE tmux item in THIS batch — a transcript with live=true
     # under one of these is the same drivable session, so we skip it (dedup).
     live_tmux_cwds: set = set()
+    # claude_session_ids already owned by a discovered-TMUX row (a RESUMED
+    # transcript: resume_discovered_session flips the row to source
+    # 'discovered-tmux' but keeps its claude_session_id). The desktop keeps
+    # pushing that same csid as a transcript history item — possibly live=false —
+    # so we MUST dedup it against the drivable tmux row by csid (cwd-only dedup is
+    # both too narrow — it misses idle re-reports — and brittle to cwd drift).
+    # Seed from pre-existing discovered-tmux rows; rows resumed/created in THIS
+    # batch are added as we go.
+    tmux_owned_csids: set = {
+        (r.get("claude_session_id") or "").strip()
+        for r in existing_tmux.values()
+        if (r.get("claude_session_id") or "").strip()
+    }
     upserted = 0
 
     # First pass over tmux items so live_tmux_cwds is fully populated before any
@@ -966,7 +979,15 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                 continue
             cwd = sess.get("cwd") or ""
             live = bool(sess.get("live"))
-            # Dedup: a LIVE transcript whose cwd already has a tmux item this
+            # Dedup (A): this transcript's claude_session_id is already owned by a
+            # discovered-TMUX row — i.e. a RESUMED session whose row we flipped to
+            # 'discovered-tmux' (keeping the csid). The desktop still lists that
+            # csid as transcript history (possibly live=false), so skip it to avoid
+            # a duplicate idle/running "history" copy of a session the user is
+            # already driving. Keyed on csid (robust), independent of cwd/live.
+            if csid in tmux_owned_csids:
+                continue
+            # Dedup (B): a LIVE transcript whose cwd already has a tmux item this
             # batch is the same drivable session — prefer the tmux row, skip this.
             if live and cwd in live_tmux_cwds:
                 continue
@@ -1025,12 +1046,15 @@ def resume_discovered_session(session_row: dict, *,
     status='starting' (until the desktop streams output for term_id=<tmux_name>).
     Returns the updated row.
 
-    The ``source`` flip to 'discovered-tmux' is requested too — it's about to be a
-    live, drivable tmux — but the store's ``update_session`` only persists its
-    allow-listed columns, so ``source`` stays 'discovered-transcript' under the
-    current store. That's harmless: the tmux 'stopped' reconcile only touches
-    'discovered-tmux'-sourced rows, so a resumed-but-still-transcript row is never
-    wrongly stopped while it spins up.
+    The ``source`` is flipped to 'discovered-tmux' (the store's ``update_session``
+    allow-list now includes 'source', so this PERSISTS). That matters for the
+    resume -> rediscover dedup chain: the next discovery push lists a tmux item
+    for the new ``tmux_name`` AND still lists the same ``claude_session_id`` as a
+    transcript history item. Pass 1 matches the resumed row by
+    (device_id, tmux_name) within the discovered-tmux scope; pass 2 then SKIPS the
+    transcript because its csid is already owned by that discovered-tmux row
+    (``tmux_owned_csids`` dedup) — so we keep exactly one drivable row instead of
+    spawning a duplicate idle/running "history" copy.
 
     Raises ValueError if the row has no ``claude_session_id`` (nothing to resume)
     or no resolvable ``device_id`` (no desktop to drive it)."""

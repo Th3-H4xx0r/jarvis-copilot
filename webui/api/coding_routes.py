@@ -366,6 +366,15 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 row = manager.status(sid)
                 if row is None:
                     return _err(404, "session not found: " + sid)
+                # Resume is ONLY for discovered transcript (history) rows — it
+                # flips the row to host='desktop'/source='discovered-tmux' and
+                # spawns a `claude --resume` tmux. Letting a server-host /
+                # Jarvis-launched session through here would corrupt a real
+                # running session (re-host it onto a desktop, overwrite its
+                # tmux_name). Reject anything that isn't a discovered transcript.
+                if not (row.get("source") or "").startswith("discovered-transcript"):
+                    return _err(400,
+                                "only discovered transcript sessions can be resumed")
                 if not (row.get("claude_session_id") or "").strip():
                     return _err(400, "session has no claude_session_id to resume")
                 from api.coding_desktop import (

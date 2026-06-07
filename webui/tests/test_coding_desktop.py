@@ -994,6 +994,133 @@ def test_resume_discovered_session_requires_claude_session_id(tmp_path, monkeypa
     assert t.sent == []
 
 
+def test_resume_discovered_session_no_device_raises_value_error(tmp_path, monkeypatch):
+    """A row with no device_id AND no resolvable desktop -> a clean ValueError
+    (NOT a RuntimeError/500). The route maps the 'no device' case to 409 itself;
+    the helper's own guard is the backstop and must stay a ValueError."""
+    import pytest
+
+    store = _temp_store(tmp_path)
+    monkeypatch.setattr(cd, "resolve_desktop_device_id",
+                        lambda preferred=None: None, raising=True)
+    bridge, t = make_bridge()
+    with pytest.raises(ValueError):
+        cd.resume_discovered_session(
+            {"id": "cs_x", "claude_session_id": "C", "cwd": "/w",
+             "device_id": ""}, bridge=bridge, store=store)
+    assert t.sent == []  # no frame sent when there's nowhere to send it
+
+
+def test_resume_discovered_session_persists_source_flip(tmp_path, monkeypatch):
+    """resume flips source -> 'discovered-tmux' and the store NOW persists it
+    (its update_session allow-list includes 'source'). This is load-bearing for
+    the rediscover dedup: the resumed row must read back as discovered-tmux."""
+    store = _temp_store(tmp_path)
+    monkeypatch.setattr(cd, "_resolve_store", lambda: store, raising=True)
+    _discovered("dev-src", [
+        {"kind": "transcript", "claude_session_id": "flip-me", "cwd": "/w/f",
+         "summary": "flip"},
+    ], store, monkeypatch)
+    row = store.list_sessions(device_id="dev-src")[0]
+    assert row["source"] == "discovered-transcript"
+
+    bridge, _t = make_bridge()
+    cd.resume_discovered_session(row, bridge=bridge, store=store)
+    # Re-read from the store (not the returned dict) to prove it PERSISTED.
+    persisted = store.get_session(row["id"])
+    assert persisted["source"] == "discovered-tmux"
+    assert persisted["claude_session_id"] == "flip-me"  # csid kept
+
+
+# ── CRITICAL: resume -> rediscover dedup chain (one row, drivable, no dup) ────
+
+
+def _resume_then_rediscover(store, monkeypatch, *, rediscover_transcript):
+    """Helper: ingest an idle transcript, resume it, then run a rediscover push
+    carrying {the new tmux item} + ``rediscover_transcript`` (the desktop still
+    listing the same csid as transcript history). Returns the rows afterwards."""
+    monkeypatch.setattr(cd, "_resolve_store", lambda: store, raising=True)
+    cd._DISMISSED_DISCOVERED.clear()
+    cd.ingest_discovered("dev-chain", [
+        {"kind": "transcript", "claude_session_id": "CSID",
+         "cwd": "/w/proj", "summary": "history"},
+    ])
+    row = store.list_sessions(device_id="dev-chain")[0]
+    assert row["status"] == "idle"
+
+    bridge, _t = make_bridge()
+    updated = cd.resume_discovered_session(row, bridge=bridge, store=store)
+    new_tmux = updated["tmux_name"]
+    assert new_tmux and new_tmux.startswith("jc-")
+
+    cd.ingest_discovered("dev-chain", [
+        {"kind": "tmux", "tmux_name": new_tmux, "cwd": "/w/proj",
+         "title": "proj"},
+        rediscover_transcript,
+    ])
+    return store.list_sessions(device_id="dev-chain")
+
+
+def test_resume_then_rediscover_live_transcript_one_row(tmp_path, monkeypatch):
+    """End-to-end: idle transcript -> resume -> rediscover {tmux + LIVE same-csid
+    same-cwd transcript} -> EXACTLY ONE row, source discovered-tmux, running."""
+    store = _temp_store(tmp_path)
+    rows = _resume_then_rediscover(
+        store, monkeypatch,
+        rediscover_transcript={"kind": "transcript", "claude_session_id": "CSID",
+                               "cwd": "/w/proj", "summary": "history",
+                               "live": True})
+    assert len(rows) == 1
+    assert rows[0]["source"] == "discovered-tmux"
+    assert rows[0]["status"] == "running"
+    assert rows[0]["claude_session_id"] == "CSID"
+
+
+def test_resume_then_rediscover_idle_transcript_one_row(tmp_path, monkeypatch):
+    """REGRESSION: the desktop may re-list the resumed session's csid as an IDLE
+    (live=false) transcript history item — the cwd-only dedup (which only fired
+    for live=true) missed this and created a duplicate idle 'history' copy. The
+    csid-owned-by-tmux dedup must collapse it to ONE drivable row."""
+    store = _temp_store(tmp_path)
+    rows = _resume_then_rediscover(
+        store, monkeypatch,
+        rediscover_transcript={"kind": "transcript", "claude_session_id": "CSID",
+                               "cwd": "/w/proj"})  # live omitted -> idle
+    assert len(rows) == 1, \
+        "resumed session must not gain a duplicate idle transcript row"
+    assert rows[0]["source"] == "discovered-tmux"
+    assert rows[0]["status"] == "running"
+
+
+def test_resume_then_rediscover_transcript_cwd_drift_one_row(tmp_path, monkeypatch):
+    """The dedup must survive cwd drift between the tmux item and the transcript
+    item (e.g. a trailing slash) because it keys on claude_session_id, not cwd."""
+    store = _temp_store(tmp_path)
+    rows = _resume_then_rediscover(
+        store, monkeypatch,
+        rediscover_transcript={"kind": "transcript", "claude_session_id": "CSID",
+                               "cwd": "/w/proj/", "live": True})  # trailing slash
+    assert len(rows) == 1
+    assert rows[0]["source"] == "discovered-tmux"
+
+
+def test_distinct_idle_transcript_not_overdeduped_against_tmux(tmp_path, monkeypatch):
+    """The csid dedup must be PRECISE: an idle transcript with a DIFFERENT csid
+    sharing a tmux row's cwd is a genuinely distinct resumable history and must
+    NOT be swallowed."""
+    store = _temp_store(tmp_path)
+    n = _discovered("dev-precise", [
+        {"kind": "tmux", "tmux_name": "claude-now", "cwd": "/w/same",
+         "title": "now"},  # plain tmux: no claude_session_id
+        {"kind": "transcript", "claude_session_id": "other-csid",
+         "cwd": "/w/same", "summary": "a different past session"},
+    ], store, monkeypatch)
+    assert n == 2
+    sources = sorted(r["source"]
+                     for r in store.list_sessions(device_id="dev-precise"))
+    assert sources == ["discovered-tmux", "discovered-transcript"]
+
+
 # ── device_bridge inbound hook routes coding frames to the handler ───────────
 
 

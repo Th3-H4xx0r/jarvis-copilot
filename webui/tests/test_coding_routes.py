@@ -797,3 +797,51 @@ def test_resume_no_device_connected_409(monkeypatch):
         "POST", "/session/sess-off/resume", {}, manager=m)
     assert status == 409
     assert "error" in body
+
+
+def test_resume_rejects_server_host_launched_session_400(monkeypatch):
+    """Resume is ONLY for discovered transcript rows. A real server-host /
+    Jarvis-launched session that happens to carry a claude_session_id must be
+    rejected (400) BEFORE the helper runs — otherwise the helper would re-host it
+    onto a desktop, overwrite its tmux_name, and flip its source, corrupting a
+    live session."""
+    from api import coding_desktop as cd
+
+    m = FakeManager()
+    _add_session(m, {"id": "sess-srv", "status": "running",
+                     "source": "launch", "host": "server",
+                     "claude_session_id": "csid-srv", "device_id": "",
+                     "cwd": "/w/srv"})
+
+    def _boom(*a, **k):
+        raise AssertionError("resume helper must not run for a launched session")
+    monkeypatch.setattr(cd, "resume_discovered_session", _boom, raising=True)
+    monkeypatch.setattr(cd, "resolve_desktop_device_id",
+                        lambda preferred=None: "mac-1", raising=True)
+
+    status, body = handle_coding_request(
+        "POST", "/session/sess-srv/resume", {}, manager=m)
+    assert status == 400
+    assert "discovered transcript" in body["error"]
+
+
+def test_resume_rejects_discovered_tmux_row_400(monkeypatch):
+    """A discovered-TMUX row (live tmux, or an already-resumed row) is not a
+    transcript-history row; resume must reject it (400) rather than spawn a
+    duplicate tmux for the same csid."""
+    from api import coding_desktop as cd
+
+    m = FakeManager()
+    _add_session(m, {"id": "sess-tmux", "status": "running",
+                     "source": "discovered-tmux", "host": "desktop",
+                     "claude_session_id": "csid-live", "device_id": "dev-1",
+                     "cwd": "/w/live", "tmux_name": "jc-live"})
+
+    def _boom(*a, **k):
+        raise AssertionError("resume helper must not run for a tmux row")
+    monkeypatch.setattr(cd, "resume_discovered_session", _boom, raising=True)
+
+    status, body = handle_coding_request(
+        "POST", "/session/sess-tmux/resume", {}, manager=m)
+    assert status == 400
+    assert "discovered transcript" in body["error"]

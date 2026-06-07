@@ -260,6 +260,54 @@ def test_last_activity_change_alone_does_not_repush():
     assert len(sent) == 1
 
 
+def test_transcript_mtime_change_alone_does_not_repush(tmp_path):
+    # A transcript's mtime (= last_activity) ticks on every keypress; since the
+    # change-hash excludes last_activity, a pure mtime bump must NOT cause a
+    # spurious push (otherwise the throttle is defeated by transcripts).
+    home = str(tmp_path)
+    clock = FakeClock(100.0)
+    fpath = _write_transcript(home, "p", "ticky", [
+        {"type": "summary", "summary": "stable title"},
+        _cwd_line("/w/ticky")], mtime=50.0)
+    sent = []
+    fr = FakeRunner(stdout="")  # no tmux sessions; transcripts only
+    agent = CodingDiscoverAgent(send=sent.append, runner=fr, clock=clock,
+                                home_dir=home)
+    agent._scan_and_push(force=True)
+    assert len(sent) == 1
+    assert any(s["kind"] == "transcript" for s in sent[0]["sessions"])
+    # Bump ONLY the mtime (within the heartbeat window) -> hash unchanged.
+    os.utime(fpath, (60.0, 60.0))
+    clock.t = 101.0
+    agent._scan_and_push(force=False)
+    assert len(sent) == 1
+
+
+def test_transcript_live_change_drives_repush(tmp_path):
+    # Conversely, when a transcript flips live (a tmux session appears in its
+    # cwd), the change-hash DOES change -> a push (live is part of the identity).
+    home = str(tmp_path)
+    clock = FakeClock(100.0)
+    _write_transcript(home, "p", "flip", [
+        {"type": "summary", "summary": "t"}, _cwd_line("/Users/me/proj")],
+        mtime=50.0)
+    sent = []
+    fr = FakeRunner(stdout="")  # initially no live tmux -> transcript live=False
+    agent = CodingDiscoverAgent(send=sent.append, runner=fr, clock=clock,
+                                home_dir=home)
+    agent._scan_and_push(force=True)
+    assert len(sent) == 1
+    trans0 = [s for s in sent[0]["sessions"] if s["kind"] == "transcript"][0]
+    assert trans0["live"] is False
+    # A tmux claude session appears in the SAME cwd -> transcript flips live.
+    fr.stdout = "jc-x\t/Users/me/proj\tclaude\t1\n"
+    clock.t = 101.0
+    agent._scan_and_push(force=False)
+    assert len(sent) == 2
+    trans1 = [s for s in sent[1]["sessions"] if s["kind"] == "transcript"][0]
+    assert trans1["live"] is True
+
+
 # ── lifecycle (start idempotency / close safety / non-blocking close) ──────────
 
 
@@ -524,6 +572,100 @@ def test_scan_transcripts_live_flag(tmp_path):
     assert by_id["dead-one"]["live"] is False
 
 
+def test_scan_transcripts_live_flag_trailing_slash_normalized(tmp_path):
+    # A live_cwd with a trailing slash (or the transcript cwd with one) must STILL
+    # match: the live-match comparison normalizes a trailing slash away so a
+    # genuinely-live session isn't wrongly reported live=False on a slash mismatch.
+    home = str(tmp_path)
+    _write_transcript(home, "p", "t-slash-live", [_cwd_line("/w/proj")])
+    _write_transcript(home, "p", "t-slash-rev", [_cwd_line("/w/rev/")])
+    items = scan_transcripts(
+        home, now=1000.0, live_cwds=["/w/proj/", "/w/rev"])
+    by_id = {it["claude_session_id"]: it for it in items}
+    # live_cwd had the slash, transcript cwd didn't -> still live.
+    assert by_id["t-slash-live"]["live"] is True
+    # transcript cwd had the slash, live_cwd didn't -> still live.
+    assert by_id["t-slash-rev"]["live"] is True
+    # the EMITTED cwd is left verbatim (server resumes against it).
+    assert by_id["t-slash-rev"]["cwd"] == "/w/rev/"
+
+
+def test_scan_transcripts_overlong_line_is_bounded(tmp_path):
+    # Regression: a single multi-MB JSONL line (no newline until the very end —
+    # e.g. a pasted file or base64 image) must NOT be slurped whole into memory.
+    # The bounded head reader drains the overlong line and still recovers the
+    # cwd + summary from the cheap lines that follow, peaking well under the giant
+    # line's size.
+    import tracemalloc
+    from jc_client.coding_discover import _extract_cwd_summary
+
+    home = str(tmp_path)
+    pdir = os.path.join(home, ".claude", "projects", "p")
+    os.makedirs(pdir, exist_ok=True)
+    fpath = os.path.join(pdir, "giant.jsonl")
+    big = "x" * (8 * 1024 * 1024)  # 8 MiB single line, no embedded newline
+    with open(fpath, "w", encoding="utf-8") as fh:
+        fh.write(big + "\n")
+        fh.write(json.dumps({"cwd": "/w/giant"}) + "\n")
+        fh.write(json.dumps({"type": "summary", "summary": "after giant"}) + "\n")
+
+    tracemalloc.start()
+    cwd, summary = _extract_cwd_summary(fpath, head_lines=20)
+    _cur, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    assert cwd == "/w/giant"
+    assert summary == "after giant"
+    # Bounded: never materialize anywhere near the 8 MiB overlong line.
+    assert peak < 4 * 1024 * 1024, f"head read not bounded: peak={peak} bytes"
+
+    # And it surfaces correctly through the full scan, too.
+    items = scan_transcripts(home, now=1000.0)
+    assert len(items) == 1
+    assert items[0]["cwd"] == "/w/giant"
+    assert items[0]["summary"] == "after giant"
+
+
+def test_scan_transcripts_entire_file_one_overlong_line(tmp_path):
+    # Worst case: the whole file is one giant line with NO newline at all. The
+    # reader must terminate (bounded) and yield nothing resolvable, not hang or
+    # OOM. (Whole file = single drained line -> no cwd -> skipped.)
+    import tracemalloc
+    from jc_client.coding_discover import _extract_cwd_summary
+
+    home = str(tmp_path)
+    pdir = os.path.join(home, ".claude", "projects", "p")
+    os.makedirs(pdir, exist_ok=True)
+    fpath = os.path.join(pdir, "blob.jsonl")
+    with open(fpath, "w", encoding="utf-8") as fh:
+        fh.write("z" * (6 * 1024 * 1024))  # no newline anywhere
+
+    tracemalloc.start()
+    cwd, summary = _extract_cwd_summary(fpath, head_lines=20)
+    _cur, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert (cwd, summary) == ("", "")
+    assert peak < 4 * 1024 * 1024, f"head read not bounded: peak={peak} bytes"
+    assert scan_transcripts(home, now=1000.0) == []  # no cwd -> skipped
+
+
+def test_extract_cwd_summary_trailing_line_without_newline(tmp_path):
+    # A tiny single-line transcript with NO trailing newline must still be read
+    # (the bounded reader surfaces the final un-terminated line).
+    from jc_client.coding_discover import _extract_cwd_summary
+
+    home = str(tmp_path)
+    pdir = os.path.join(home, ".claude", "projects", "p")
+    os.makedirs(pdir, exist_ok=True)
+    fpath = os.path.join(pdir, "oneline.jsonl")
+    with open(fpath, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(
+            {"cwd": "/w/one", "type": "summary", "summary": "no newline"}))
+    cwd, summary = _extract_cwd_summary(fpath, head_lines=20)
+    assert cwd == "/w/one"
+    assert summary == "no newline"
+
+
 def test_scan_transcripts_dedup_by_session_id_keeps_newest(tmp_path):
     home = str(tmp_path)
     now = 4_000_000.0
@@ -634,3 +776,47 @@ def test_coding_resume_ignores_incomplete_frame():
                                 clock=lambda: 1.0, home_dir="/nonexistent-home")
     agent.handle_frame({"type": "coding_resume", "tmux_name": "jc-x"})  # no cwd/id
     assert not any(c[:2] == ["tmux", "new-session"] for c in calls)
+
+
+def test_coding_resume_duplicate_session_does_not_raise():
+    # `tmux new-session -s <name>` fails (rc=1, "duplicate session") when the name
+    # already exists. The resume handler must log + NOT crash, and still rescan
+    # (the existing session is reported, so the user can attach).
+    from jc_client.coding_discover import CodingDiscoverAgent
+    calls = []
+
+    def runner(argv):
+        calls.append(argv)
+        if argv[:2] == ["tmux", "new-session"]:
+            return 1, "", "duplicate session: jc-dup"  # already exists
+        if argv[:2] == ["tmux", "list-sessions"]:
+            return 0, "jc-dup\t/work/p\tclaude\t100\n", ""
+        return 0, "", ""
+
+    sent = []
+    agent = CodingDiscoverAgent(send=sent.append, device_id="d1", runner=runner,
+                                clock=lambda: 1.0, home_dir="/nonexistent-home")
+    # Must not raise into the pump despite the non-zero launch rc.
+    agent.handle_frame({"type": "coding_resume", "tmux_name": "jc-dup",
+                        "cwd": "/work/p", "claude_session_id": "abc-123"})
+    # A rescan still happened and reports the (already-live) session.
+    pushes = [f for f in sent if f.get("type") == "coding_discover"]
+    assert pushes and any(s.get("tmux_name") == "jc-dup"
+                          for s in pushes[-1]["sessions"])
+
+
+def test_coding_resume_runner_exception_does_not_raise():
+    # If the runner itself throws (e.g. tmux binary explodes), the resume handler
+    # must swallow it (no bubble into the WS pump) and NOT push a phantom session.
+    from jc_client.coding_discover import CodingDiscoverAgent
+
+    def runner(argv):
+        raise RuntimeError("tmux exploded")
+
+    sent = []
+    agent = CodingDiscoverAgent(send=sent.append, device_id="d1", runner=runner,
+                                clock=lambda: 1.0, home_dir="/nonexistent-home")
+    agent.handle_frame({"type": "coding_resume", "tmux_name": "jc-x",
+                        "cwd": "/work/p", "claude_session_id": "abc-123"})
+    # Launch failed before the rescan -> no push (and definitely no exception).
+    assert not [f for f in sent if f.get("type") == "coding_discover"]
