@@ -291,6 +291,13 @@ class _CodingPageState extends State<CodingPage> {
                   _InlineError(message: _c.error!),
                   const SizedBox(height: 12),
                 ],
+                if (_c.sync?.enabled == true) ...[
+                  _SyncCard(
+                    sync: _c.sync!,
+                    onRefresh: _c.refreshSync,
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 Row(
                   children: [
                     glassSectionLabel('Live terminal'),
@@ -522,6 +529,205 @@ class _StatusPill extends StatelessWidget {
           color: _color,
           fontSize: 12,
           fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Sync status card ────────────────────────────────────────────
+/// Cross-device sync panel shown in the session detail (parity with the
+/// WebUI). A colored dot + device + online/disconnected, a status label, a
+/// progress bar while syncing (done/total · pct%), and a Refresh button.
+class _SyncCard extends StatelessWidget {
+  const _SyncCard({required this.sync, required this.onRefresh});
+
+  final CodingSyncStatus sync;
+  final Future<void> Function() onRefresh;
+
+  // Status label, matching the web's mapping. Offline overrides everything
+  // except an explicit "disconnected" (which is already the offline message).
+  String get _label {
+    final online = sync.deviceOnline;
+    if (!online && sync.status != 'disconnected') return 'Device offline';
+    switch (sync.status) {
+      case 'synced':
+        return 'Up to date';
+      case 'syncing':
+        return 'Syncing…';
+      case 'opening':
+        return 'Connecting…';
+      case 'idle':
+        return online ? 'Idle' : 'Waiting for device';
+      case 'disconnected':
+        return 'Device offline';
+      case 'error':
+        return 'Error';
+      default:
+        return sync.status;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final online = sync.deviceOnline;
+    final dotColor = online ? JcTheme.success : JcTheme.muted;
+    final syncing = sync.isSyncing;
+    final hasTotal = syncing && sync.total > 0;
+    final pct = hasTotal ? ((sync.done / sync.total) * 100).round() : 0;
+    final isError = sync.status == 'error';
+
+    return GlassCard(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Head: "Sync" + Refresh
+          Row(
+            children: [
+              const Text(
+                'Sync',
+                style: TextStyle(
+                  color: JcTheme.text,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              _MiniButton(label: 'Refresh', onTap: onRefresh),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Device line: dot + name + online/disconnected + status label
+          Row(
+            children: [
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: dotColor,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  (sync.device ?? '').trim().isEmpty ? 'device' : sync.device!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: JcTheme.text,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                online ? 'online' : 'disconnected',
+                style: const TextStyle(color: JcTheme.muted, fontSize: 12),
+              ),
+              const Spacer(),
+              Text(
+                _label,
+                style: TextStyle(
+                  color: isError ? JcTheme.danger : JcTheme.text,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          // Progress bar while syncing
+          if (syncing) ...[
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: hasTotal ? (sync.done / sync.total).clamp(0.0, 1.0) : null,
+                minHeight: 6,
+                backgroundColor: JcTheme.glassFill,
+                valueColor:
+                    const AlwaysStoppedAnimation<Color>(JcTheme.primaryBlue),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              hasTotal
+                  ? '${sync.done}/${sync.total} files · $pct%'
+                  : 'Syncing…',
+              style: const TextStyle(color: JcTheme.muted, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A compact glass pill button (used for the Sync card's Refresh action), with
+/// a tiny in-flight spinner while the async action runs.
+class _MiniButton extends StatefulWidget {
+  const _MiniButton({required this.label, required this.onTap});
+  final String label;
+  final Future<void> Function() onTap;
+
+  @override
+  State<_MiniButton> createState() => _MiniButtonState();
+}
+
+class _MiniButtonState extends State<_MiniButton> {
+  bool _busy = false;
+
+  Future<void> _run() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onTap();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: _busy ? null : _run,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: JcTheme.glassFill,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: JcTheme.glassBorder),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_busy)
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: JcTheme.muted),
+                )
+              else
+                const Icon(Icons.refresh_rounded,
+                    size: 14, color: JcTheme.muted),
+              const SizedBox(width: 6),
+              Text(
+                widget.label,
+                style: const TextStyle(
+                  color: JcTheme.text,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

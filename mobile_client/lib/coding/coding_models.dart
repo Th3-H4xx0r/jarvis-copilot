@@ -125,16 +125,29 @@ class CodingProject {
 
 /// A paired/registered device (`GET /api/devices`), used to populate the
 /// sync "Device" dropdown. Offline devices are still listed but labelled.
+///
+/// `kind` ∈ `browser|desktop|mobile-ios|mobile-android`; `bridgeConnected` is
+/// true when the device holds a live jc-client desktop agent WS. The sync
+/// picker only shows sync-capable desktops — see [desktopCapable].
 class CodingDevice {
   const CodingDevice({
     required this.id,
     required this.name,
     this.online = true,
+    this.kind,
+    this.bridgeConnected = false,
   });
 
   final String id;
   final String name;
   final bool online;
+  final String? kind; // browser | desktop | mobile-ios | mobile-android
+  final bool bridgeConnected;
+
+  /// Only desktops that can actually sync. A device qualifies if it's a
+  /// `desktop` kind OR currently holds a live bridge (a connected jc-client
+  /// agent). Web/mobile pairings never qualify.
+  bool get desktopCapable => kind == 'desktop' || bridgeConnected;
 
   factory CodingDevice.fromJson(Map<String, dynamic> j) {
     final id = (j['id'] ?? j['device_id'] ?? '').toString();
@@ -144,6 +157,50 @@ class CodingDevice {
       id: id,
       name: name,
       online: j['online'] == null ? true : _asBool(j['online']),
+      kind: _str(j['kind'])?.toLowerCase(),
+      bridgeConnected: _asBool(j['bridge_connected']),
+    );
+  }
+}
+
+/// Live cross-device sync status for a session
+/// (`GET /api/coding/session/$id/sync`).
+///
+/// `status` ∈ off|disconnected|idle|opening|syncing|synced|error. `total`/
+/// `done` drive the progress bar while syncing; `lastSyncAt` is epoch seconds.
+class CodingSyncStatus {
+  const CodingSyncStatus({
+    this.enabled = false,
+    this.device,
+    this.deviceOnline = false,
+    this.status = 'off',
+    this.total = 0,
+    this.done = 0,
+    this.lastSyncAt,
+    this.error,
+  });
+
+  final bool enabled;
+  final String? device;
+  final bool deviceOnline;
+  final String status;
+  final int total;
+  final int done;
+  final double? lastSyncAt; // epoch seconds
+  final String? error;
+
+  bool get isSyncing => status == 'syncing' || status == 'opening';
+
+  factory CodingSyncStatus.fromJson(Map<String, dynamic> j) {
+    return CodingSyncStatus(
+      enabled: _asBool(j['enabled']),
+      device: _str(j['device']),
+      deviceOnline: _asBool(j['device_online']),
+      status: (j['status'] ?? 'off').toString(),
+      total: _asInt(j['total']),
+      done: _asInt(j['done']),
+      lastSyncAt: _asDouble(j['last_sync_at']),
+      error: _str(j['error']),
     );
   }
 }
@@ -173,6 +230,12 @@ double? _asDouble(Object? v) {
   if (v == null) return null;
   if (v is num) return v.toDouble();
   return double.tryParse(v.toString());
+}
+
+int _asInt(Object? v) {
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse((v ?? '').toString()) ?? 0;
 }
 
 bool _asBool(Object? v) {

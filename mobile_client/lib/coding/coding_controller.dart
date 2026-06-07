@@ -40,6 +40,11 @@ class CodingSessionsController extends ChangeNotifier {
   CodingSession? selected;
   bool detailLoading = false;
 
+  /// Live cross-device sync status for the selected session, polled alongside
+  /// the detail refresh. Null until the first poll returns (or when the
+  /// endpoint isn't available). Render the Sync card only when `sync.enabled`.
+  CodingSyncStatus? sync;
+
   // ── Action state ──────────────────────────────────────────────
   bool launching = false;
   bool sending = false;
@@ -98,7 +103,10 @@ class CodingSessionsController extends ChangeNotifier {
 
   // ── Select / inspect a session ────────────────────────────────
   Future<void> select(String id) async {
-    if (selectedId != id) _teardownTerminal();
+    if (selectedId != id) {
+      _teardownTerminal();
+      sync = null; // drop the previous session's sync status until the poll lands
+    }
     selectedId = id;
     selected = sessions.cast<CodingSession?>().firstWhere(
           (s) => s?.id == id,
@@ -121,6 +129,7 @@ class CodingSessionsController extends ChangeNotifier {
     _stopPolling();
     selectedId = null;
     selected = null;
+    sync = null;
     detailLoading = false;
   }
 
@@ -143,9 +152,39 @@ class CodingSessionsController extends ChangeNotifier {
     }
   }
 
+  /// Poll the live sync status for the selected session. Best-effort: a missing
+  /// endpoint / transient error leaves the last value in place. Notifies only
+  /// when the status actually changed so we don't churn the UI every tick.
+  Future<void> _refreshSync() async {
+    final id = selectedId;
+    if (id == null) return;
+    try {
+      final next = await _api.syncStatus(id);
+      if (selectedId != id || _disposed) return;
+      final prev = sync;
+      sync = next;
+      final changed = prev == null ||
+          prev.enabled != next.enabled ||
+          prev.deviceOnline != next.deviceOnline ||
+          prev.status != next.status ||
+          prev.total != next.total ||
+          prev.done != next.done ||
+          prev.device != next.device ||
+          prev.error != next.error;
+      if (changed) notifyListeners();
+    } catch (_) {
+      // Endpoint unavailable / transient — keep the last known status.
+    }
+  }
+
   void _startPolling() {
     _stopPolling();
-    _poll = Timer.periodic(_refreshInterval, (_) => _refreshDetail());
+    // Kick both polls immediately so the Sync card appears without a 4s wait.
+    _refreshSync();
+    _poll = Timer.periodic(_refreshInterval, (_) {
+      _refreshDetail();
+      _refreshSync();
+    });
   }
 
   void _stopPolling() {
@@ -310,6 +349,19 @@ class CodingSessionsController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  /// Kick a fresh sync pass for the selected session, then re-poll the status.
+  /// Best-effort — errors are swallowed (the status poll surfaces any issue).
+  Future<void> refreshSync() async {
+    final id = selectedId;
+    if (id == null) return;
+    try {
+      await _api.refreshSync(id);
+    } catch (_) {
+      // ignore — the status refresh below reflects reality
+    }
+    await _refreshSync();
   }
 
   // ── Live terminal ─────────────────────────────────────────────

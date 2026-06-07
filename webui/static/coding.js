@@ -46,7 +46,11 @@ function _codingDeviceOptionsHtml(selected) {
   const sel = String(selected == null ? '' : selected);
   let html = '<option value="">— choose a device —</option>';
   let matched = false;
-  (_codingDevicesCache || []).forEach(d => {
+  // Only DESKTOP devices can sync/run sessions — a paired jc-client desktop
+  // agent. Exclude web/mobile: keep kind==='desktop' OR a live bridge client.
+  const desktops = (_codingDevicesCache || []).filter(d =>
+    (String(d.kind || '').toLowerCase() === 'desktop') || d.bridge_connected);
+  desktops.forEach(d => {
     const id = String(d.id != null ? d.id : (d.device_id || ''));
     const name = d.name || d.device_name || id || 'device';
     const off = d.online === false ? ' (offline)' : '';

@@ -37,8 +37,11 @@ class CodingSessionsApi {
   /// GET /api/devices -> `{ devices: [...] }`.
   ///
   /// Paired/registered devices for the sync "Device" dropdown (parity with the
-  /// WebUI). Offline ones are still returned but flagged. Tolerates the body
-  /// being a bare list or missing the `devices` key.
+  /// WebUI). Filtered to sync-capable DESKTOP devices only — a device is kept
+  /// when `kind == 'desktop'` OR `bridge_connected == true` (a live jc-client
+  /// agent). Web/mobile pairings can't sync, so they're dropped. Offline
+  /// desktops are still returned but flagged. Tolerates the body being a bare
+  /// list or missing the `devices` key.
   Future<List<CodingDevice>> listDevices() async {
     final resp = await api.get('/api/devices');
     final data = resp.data;
@@ -48,7 +51,7 @@ class CodingSessionsApi {
     return raw
         .whereType<Map>()
         .map((m) => CodingDevice.fromJson(Map<String, dynamic>.from(m)))
-        .where((d) => d.id.isNotEmpty)
+        .where((d) => d.id.isNotEmpty && d.desktopCapable)
         .toList(growable: false);
   }
 
@@ -88,6 +91,20 @@ class CodingSessionsApi {
     final resp = await api.get('/api/coding/session/$id');
     final body = (resp.data as Map?) ?? const {};
     return CodingSessionDetail.fromJson(Map<String, dynamic>.from(body));
+  }
+
+  /// GET /api/coding/session/$id/sync — live cross-device sync status:
+  /// `{enabled, device, device_online, status, direction, total, done,
+  /// last_sync_at, error}`.
+  Future<CodingSyncStatus> syncStatus(String id) async {
+    final resp = await api.get('/api/coding/session/$id/sync');
+    final body = (resp.data as Map?) ?? const {};
+    return CodingSyncStatus.fromJson(Map<String, dynamic>.from(body));
+  }
+
+  /// POST /api/coding/session/$id/sync/refresh — kick a fresh sync pass.
+  Future<void> refreshSync(String id) async {
+    await api.postJson('/api/coding/session/$id/sync/refresh', const {});
   }
 
   /// POST /api/coding/session/$id/message

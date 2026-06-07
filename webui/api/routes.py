@@ -3566,6 +3566,10 @@ def handle_get(handler, parsed) -> bool:
             last_seen = float(d.get("last_seen", 0) or 0)
             recently_active = (_now - last_seen) <= _ONLINE_WINDOW_SECONDS
             dd["online"] = (d.get("id") in connected) or recently_active
+            # bridge_connected = holds a live device-bridge WS = a jc-client
+            # desktop agent (browser/mobile pairings never do). Used to filter
+            # the Coding sync device picker to sync-capable desktop devices.
+            dd["bridge_connected"] = d.get("id") in connected
             if skills_for_device is not None:
                 dd["skills"] = skills_for_device(d.get("id", "")) or []
             else:
