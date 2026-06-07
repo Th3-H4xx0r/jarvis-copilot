@@ -21,6 +21,7 @@
 // <script defer>, sharing global scope with the other panel scripts).
 let _codingSessionsCache = [];      // [{id,title,status,cwd,...}]
 let _codingProjectsCache = [];      // [{repo_path,name,...}]
+let _codingDevicesCache = [];       // [{id,name,online,...}] paired devices
 let _codingSelectedId = null;       // currently-open session id (string) or null
 let _codingPollTimer = null;        // setInterval handle for the detail poll
 let _codingLoaded = false;          // idempotency guard for the one-time shell render
@@ -36,6 +37,26 @@ function _cdgEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
+}
+
+// <option> list for the sync device dropdown, built from the paired-devices
+// cache. `selected` matches a device by id OR name (settings panel stores the
+// chosen value). Offline devices are shown but labelled.
+function _codingDeviceOptionsHtml(selected) {
+  const sel = String(selected == null ? '' : selected);
+  let html = '<option value="">— choose a device —</option>';
+  let matched = false;
+  (_codingDevicesCache || []).forEach(d => {
+    const id = String(d.id != null ? d.id : (d.device_id || ''));
+    const name = d.name || d.device_name || id || 'device';
+    const off = d.online === false ? ' (offline)' : '';
+    const isSel = sel && (sel === id || sel === name);
+    if (isSel) matched = true;
+    html += `<option value="${_cdgEsc(id)}"${isSel ? ' selected' : ''}>${_cdgEsc(name)}${off}</option>`;
+  });
+  // preserve a previously-saved value even if that device isn't in the list now
+  if (sel && !matched) html += `<option value="${_cdgEsc(sel)}" selected>${_cdgEsc(sel)} (not connected)</option>`;
+  return html;
 }
 
 function _cdgStatusClass(status) {
@@ -85,12 +106,14 @@ async function _codingRefreshList() {
   const list = document.getElementById('codingList');
   if (!list) return;
   try {
-    const [sessRes, projRes] = await Promise.all([
+    const [sessRes, projRes, devRes] = await Promise.all([
       api('/api/coding/sessions').catch(() => ({ sessions: [] })),
       api('/api/coding/projects').catch(() => ({ projects: [] })),
+      api('/api/devices').catch(() => ({ devices: [] })),
     ]);
     _codingSessionsCache = (sessRes && sessRes.sessions) || [];
     _codingProjectsCache = (projRes && projRes.projects) || [];
+    _codingDevicesCache = (devRes && devRes.devices) || [];
     _codingRenderList();
     // Re-open the previously selected session if it still exists; otherwise
     // show the launch form so the panel is never just an empty pane.
@@ -170,7 +193,7 @@ function codingShowLaunch() {
         <label class="cdg-check"><input type="checkbox" id="codingSync" onchange="codingToggleSyncOpts()"> <span>Sync this project with another device</span></label>
         <div id="codingSyncOpts" style="display:none;margin:4px 0 2px 22px">
           <label class="cdg-label" for="codingSyncDevice">Device</label>
-          <input class="cdg-input" id="codingSyncDevice" placeholder="paired device name (e.g. your Mac)" autocomplete="off">
+          <select class="cdg-input" id="codingSyncDevice">${_codingDeviceOptionsHtml('')}</select>
           <label class="cdg-label" for="codingSyncPath">Folder path on that device</label>
           <input class="cdg-input" id="codingSyncPath" placeholder="~/code/your-project" autocomplete="off">
           <div class="cdg-hint">On launch: if that folder already has files they're pulled to the server; if it's empty, the server's folder is pushed to it. Two-way sync then keeps them in step. (Activates once that device's sync agent is connected.)</div>
@@ -330,7 +353,7 @@ function _codingRenderDetail(session, subagents) {
           <label class="cdg-check"><input type="checkbox" id="codingSetSync" onchange="codingToggleSetSyncOpts()" ${_syncEnabled ? 'checked' : ''}> <span>Sync this project with another device</span></label>
           <div id="codingSetSyncOpts" style="display:${_syncEnabled ? '' : 'none'};margin-left:22px">
             <label class="cdg-label" for="codingSetSyncDevice">Device</label>
-            <input class="cdg-input" id="codingSetSyncDevice" value="${_syncDevice}" placeholder="paired device name" autocomplete="off">
+            <select class="cdg-input" id="codingSetSyncDevice">${_codingDeviceOptionsHtml(_sc.device || '')}</select>
             <label class="cdg-label" for="codingSetSyncPath">Folder on that device</label>
             <input class="cdg-input" id="codingSetSyncPath" value="${_syncPath}" placeholder="~/code/your-project" autocomplete="off">
           </div>
