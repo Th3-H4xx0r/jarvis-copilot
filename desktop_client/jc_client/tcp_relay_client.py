@@ -39,12 +39,19 @@ class ByteIO:
 
 
 def bridge(local: ByteIO, remote: ByteIO) -> None:
-    """Copy local->remote and remote->local until either EOFs, then close both."""
-    stop = threading.Event()
+    """Copy local<->remote until EITHER direction EOFs, then return.
+
+    Returns as soon as the FIRST direction ends — we do NOT join both. The
+    stdin reader can be parked in a blocking ``os.read(0)`` that ``close()``
+    does not interrupt on POSIX, so joining it would hang forever. The copy
+    threads are daemons: when this returns, ``run()`` closes the socket and the
+    ProxyCommand process exits, reaping the parked thread.
+    """
+    done = threading.Event()
 
     def _copy(src: ByteIO, dst: ByteIO) -> None:
         try:
-            while not stop.is_set():
+            while not done.is_set():
                 data = src.read()
                 if not data:
                     break
@@ -52,19 +59,16 @@ def bridge(local: ByteIO, remote: ByteIO) -> None:
         except Exception:
             pass
         finally:
-            stop.set()
+            done.set()
             for io in (src, dst):
                 try:
                     io.close()
                 except Exception:
                     pass
 
-    t1 = threading.Thread(target=_copy, args=(local, remote), daemon=True)
-    t2 = threading.Thread(target=_copy, args=(remote, local), daemon=True)
-    t1.start()
-    t2.start()
-    t1.join()
-    t2.join()
+    threading.Thread(target=_copy, args=(local, remote), daemon=True).start()
+    threading.Thread(target=_copy, args=(remote, local), daemon=True).start()
+    done.wait()
 
 
 class _StdIO(ByteIO):
@@ -103,7 +107,6 @@ class _WsClientIO(ByteIO):
         self._Ping, self._Pong, self._Close = Ping, Pong, CloseConnection
 
     def read(self) -> bytes:
-        from wsproto.events import Message  # noqa: F401 (parity)
         while not self._closed:
             try:
                 data = self._sock.recv(_CHUNK)

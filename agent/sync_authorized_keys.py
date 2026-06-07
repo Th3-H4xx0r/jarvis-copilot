@@ -25,7 +25,11 @@ def is_valid_pubkey(line: str) -> bool:
     """True if ``line`` looks like a single OpenSSH public key (not a private
     key, not multi-line, not shell junk)."""
     s = (line or "").strip()
-    if not s or "\n" in s or "\r" in s:
+    if not s:
+        return False
+    # Reject ANY control character (newline, CR, tab, NUL, vertical-tab, …) so a
+    # crafted "comment" can't smuggle control bytes into authorized_keys.
+    if any(ord(c) < 0x20 or ord(c) == 0x7f for c in s):
         return False
     if not s.startswith(_VALID_PREFIXES):
         return False
@@ -58,21 +62,34 @@ def add_authorized_key(pubkey: str, *, home: str | None = None) -> dict:
     tagged_line = f"{pubkey.strip()} # {_TAG}"
 
     try:
+        # Refuse a symlinked ~/.ssh — don't write through it.
+        if os.path.islink(ssh_dir):
+            return {"error": ".ssh is a symlink — refusing"}
         os.makedirs(ssh_dir, mode=0o700, exist_ok=True)
         try:
             os.chmod(ssh_dir, 0o700)
         except OSError:
             pass
+        # Read existing without following a symlinked authorized_keys.
         existing = ""
-        if os.path.isfile(path):
-            with open(path, encoding="utf-8", errors="replace") as fh:
+        try:
+            rfd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            with os.fdopen(rfd, encoding="utf-8", errors="replace") as fh:
                 existing = fh.read()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:  # ELOOP (symlink) or perms
+            return {"error": f"cannot read authorized_keys: {exc}"}
         # Already present (match on type+body, ignoring comment) → no-op.
         for ln in existing.splitlines():
             if _normalize_key(ln) == body:
                 return {"added": False, "path": path}
         sep = "" if (not existing or existing.endswith("\n")) else "\n"
-        with open(path, "a", encoding="utf-8") as fh:
+        # Create with 0600 atomically + refuse a symlinked target (O_NOFOLLOW),
+        # so there's no world-readable window and no symlink-follow write.
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+        wfd = os.open(path, flags, 0o600)
+        with os.fdopen(wfd, "a", encoding="utf-8") as fh:
             fh.write(f"{sep}{tagged_line}\n")
         try:
             os.chmod(path, 0o600)

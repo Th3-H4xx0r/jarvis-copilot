@@ -24,14 +24,13 @@ CodingSyncAgent):
              D->S  coding_term_output{term_id, data}
                    coding_term_exit  {term_id, code}
 
-  Sync       S->D  coding_sync_open  {sync_id, path, ignore}
-                   coding_sync_get   {sync_id, relpath}
-                   coding_sync_file  {sync_id, relpath, b64}
-                   coding_sync_rm    {sync_id, relpath}
-                   coding_sync_close {sync_id}
-             D->S  coding_sync_manifest{sync_id, manifest}
-                   coding_sync_file  {sync_id, relpath, b64}
-                   coding_sync_event {sync_id, relpath, kind}
+  Sync       S->D  coding_sync_start {sync_id, local_path, remote_path, ignore}
+                   coding_sync_stop  {sync_id}
+             D->S  coding_sync_status{sync_id, status, conflicts, done, total, error}
+                   coding_sync_error {sync_id, op, error}
+                   coding_sync_authorize_key {pubkey}
+        (the actual file bytes flow over the separate WS<->TCP relay + SSH +
+         Mutagen on the desktop — they never touch this control bridge)
 
 Design for testability
 -----------------------
@@ -401,9 +400,10 @@ class MutagenSyncSession:
         return ok
 
     def reopen_if_stale(self, now=None) -> bool:
-        """Re-send coding_sync_start if no status has arrived within the stale
-        window (the start/status handshake was likely lost to a reconnect)."""
-        if self.status != "opening":
+        """Re-send coding_sync_start if we've been stuck waiting to connect for
+        too long (the start frame was lost to a reconnect, or Mutagen's ssh
+        through the relay never came up). Fires while 'opening' OR 'connecting'."""
+        if self.status not in ("opening", "connecting"):
             return False
         if now is None:
             now = time.time()

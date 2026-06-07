@@ -45,3 +45,33 @@ def test_add_key_preserves_existing_user_keys(tmp_path):
 
 def test_add_bad_key_rejected(tmp_path):
     assert "error" in add_authorized_key("not a key", home=str(tmp_path))
+
+
+def test_reject_control_chars(tmp_path):
+    # tab / NUL / other control bytes in the comment must be rejected
+    assert not is_valid_pubkey("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAALongBody\tevil")
+    assert not is_valid_pubkey("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAALongBody\x00evil")
+    assert "error" in add_authorized_key(
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAALongBody\x00x", home=str(tmp_path))
+
+
+def test_refuses_symlinked_ssh_dir(tmp_path):
+    import os
+    real = tmp_path / "real_ssh"
+    real.mkdir()
+    link = tmp_path / ".ssh"
+    os.symlink(real, link)
+    res = add_authorized_key(_KEY, home=str(tmp_path))
+    assert "error" in res and "symlink" in res["error"]
+
+
+def test_refuses_symlinked_authorized_keys(tmp_path):
+    import os
+    ssh = tmp_path / ".ssh"
+    ssh.mkdir()
+    target = tmp_path / "evil_target"
+    target.write_text("")
+    os.symlink(target, ssh / "authorized_keys")
+    res = add_authorized_key(_KEY, home=str(tmp_path))
+    assert "error" in res          # O_NOFOLLOW refuses to follow the symlink
+    assert target.read_text() == ""  # the symlink target was NOT written

@@ -27,6 +27,17 @@ _TARGET_HOST = os.getenv("JC_SYNC_SSH_HOST", "127.0.0.1")
 _TARGET_PORT_ENV = "JC_SYNC_SSH_PORT"
 _RECV_CHUNK = 65536
 _CONNECT_TIMEOUT = 10.0
+# Cap a single reassembled WS message so a misbehaving (but authenticated)
+# device can't OOM us with endless un-finished continuation frames. SSH packets
+# are small; 8 MiB is far more than any real one. Mirrors the device bridge.
+_MAX_MSG_BYTES = 8 * 1024 * 1024
+
+
+# Cap concurrent relays so an authenticated-but-misbehaving device can't exhaust
+# threads/fds/sshd MaxStartups by opening many at once.
+_MAX_CONCURRENT_RELAYS = 32
+_relay_count = 0
+_relay_count_lock = threading.Lock()
 
 
 def _target_port() -> int:
@@ -34,6 +45,22 @@ def _target_port() -> int:
         return int(os.getenv(_TARGET_PORT_ENV, "22"))
     except (TypeError, ValueError):
         return 22
+
+
+def _is_loopback(host: str) -> bool:
+    """True iff every address ``host`` resolves to is a loopback address."""
+    import ipaddress
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return False
+    addrs = {info[4][0] for info in infos}
+    if not addrs:
+        return False
+    try:
+        return all(ipaddress.ip_address(a).is_loopback for a in addrs)
+    except ValueError:
+        return False
 
 
 # ── byte-pump core (transport-agnostic, unit-tested) ──────────────────────────
@@ -163,13 +190,18 @@ class WsSocketChannel(Channel):
             for event in self._ws.events():
                 if isinstance(event, BytesMessage):
                     self._buf += event.data or b""
+                    if len(self._buf) > _MAX_MSG_BYTES:
+                        log.warning("tcp-relay: oversize WS message (%d B) — closing",
+                                    len(self._buf))
+                        return None
                     if getattr(event, "message_finished", True):
                         out = bytes(self._buf)
                         self._buf.clear()
                         if out:
                             return out
                 elif isinstance(event, Ping):
-                    self._safe_send_raw(self._ws.send(Pong(payload=event.payload)))
+                    with self._send_lock:
+                        self._safe_send_raw(self._ws.send(Pong(payload=event.payload)))
                 elif isinstance(event, (Pong,)):
                     pass
                 elif isinstance(event, CloseConnection):
@@ -250,7 +282,17 @@ def handle_tcp_relay(handler, parsed) -> bool:
     if not accepted:
         return True
 
-    # Connect to the local sshd (never anything but localhost:22 by default).
+    # Connect to the LOCAL sshd only. Enforce loopback — never let a (mis)set
+    # JC_SYNC_SSH_HOST turn this authenticated relay into a pivot to an internal
+    # host (confused-deputy SSRF). Refuse anything that doesn't resolve to
+    # loopback.
+    if not _is_loopback(_TARGET_HOST):
+        log.error("tcp-relay: target %s is not loopback — refusing", _TARGET_HOST)
+        try:
+            WsSocketChannel(sock, ws).close()
+        except Exception:
+            pass
+        return True
     try:
         tcp = socket.create_connection((_TARGET_HOST, _target_port()),
                                        timeout=_CONNECT_TIMEOUT)
@@ -264,11 +306,25 @@ def handle_tcp_relay(handler, parsed) -> bool:
             pass
         return True
 
-    log.info("tcp-relay: device=%s -> %s:%s open",
-             device.get("id"), _TARGET_HOST, _target_port())
+    global _relay_count
+    with _relay_count_lock:
+        if _relay_count >= _MAX_CONCURRENT_RELAYS:
+            log.warning("tcp-relay: at capacity (%d) — refusing device=%s",
+                        _MAX_CONCURRENT_RELAYS, device.get("id"))
+            try:
+                tcp.close()
+                WsSocketChannel(sock, ws).close()
+            except Exception:
+                pass
+            return True
+        _relay_count += 1
+    log.info("tcp-relay: device=%s -> %s:%s open (%d active)",
+             device.get("id"), _TARGET_HOST, _target_port(), _relay_count)
     try:
         relay_pump(WsSocketChannel(sock, ws), SocketChannel(tcp))
     finally:
+        with _relay_count_lock:
+            _relay_count -= 1
         log.info("tcp-relay: device=%s closed", device.get("id"))
     return True
 

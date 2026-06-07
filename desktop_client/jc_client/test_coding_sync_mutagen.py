@@ -8,7 +8,7 @@ from jc_client.coding_mutagen import MutagenDriver, MutagenError
 class FakeRunner:
     """Records argv; returns a configurable status JSON for `sync list`."""
 
-    def __init__(self, status='{"status": "Watching for changes"}', create_rc=0):
+    def __init__(self, status='[{"status": "watching"}]', create_rc=0):
         self.calls = []
         self.status = status
         self.create_rc = create_rc
@@ -76,7 +76,7 @@ def test_stop_terminates(monkeypatch):
 
 def test_status_poller_pushes_updates(monkeypatch):
     sent = []
-    runner = FakeRunner(status='{"status": "Staging files on beta", "stagingDone": 3, "stagingTotal": 9}')
+    runner = FakeRunner(status='[{"status": "staging-beta", "beta": {"stagingProgress": {"receivedFiles": 3, "expectedFiles": 9}}}]')
     a = _agent(runner, sent)
     monkeypatch.setattr(a, "pubkey", lambda: "k")
     a.handle_frame({"type": "coding_sync_start", "sync_id": "sync-1",

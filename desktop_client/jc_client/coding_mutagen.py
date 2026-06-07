@@ -72,9 +72,15 @@ def parse_status(stdout: str) -> dict:
     """Normalize ``mutagen sync list --template {{json .}}`` output.
 
     Returns ``{status, conflicts, done, total, error}`` where status is one of
-    ``connecting | syncing | synced | conflicts | error | unknown``. Parsed
-    defensively (Mutagen's JSON schema varies by version) by keyword-matching the
-    status string + counting any conflicts, so it survives field-name drift.
+    ``connecting | syncing | synced | conflicts | error | unknown``.
+
+    Mutagen serializes ``Status`` to MACHINE tokens (its ``MarshalText`` form),
+    NOT the human ``Description()`` strings — e.g. ``"watching"``,
+    ``"scanning"``, ``"staging-beta"``, ``"connecting-alpha"``,
+    ``"disconnected"``, ``"halted-on-root-deletion"``. ``{{json .}}`` always
+    emits a JSON ARRAY of sessions. Staging progress lives nested under
+    ``beta.stagingProgress`` (a ReceiverState with ``receivedFiles`` /
+    ``expectedFiles``), never at top level.
     """
     out = {"status": "unknown", "conflicts": 0, "done": 0, "total": 0,
            "error": None}
@@ -85,7 +91,6 @@ def parse_status(stdout: str) -> dict:
         data = json.loads(text)
     except Exception:
         return out
-    # --template {{json .}} may emit a single object or a list of sessions.
     if isinstance(data, list):
         data = data[0] if data else {}
     if not isinstance(data, dict):
@@ -94,39 +99,38 @@ def parse_status(stdout: str) -> dict:
     conflicts = data.get("conflicts")
     out["conflicts"] = len(conflicts) if isinstance(conflicts, list) else 0
 
-    # Find a human-ish status string anywhere obvious.
-    status_str = ""
-    for k in ("status", "state", "lastError"):
-        v = data.get(k)
-        if isinstance(v, str) and v:
-            status_str = v
-            break
-    s = status_str.lower()
+    s = str(data.get("status") or "").lower()
 
     err = data.get("lastError") or data.get("error")
     if isinstance(err, str) and err:
         out["error"] = err
 
-    # Progress, if Mutagen exposes staging counters (best-effort field probing).
-    for done_k, total_k in (("stagingDone", "stagingTotal"),
-                            ("receivedFiles", "expectedFiles"),
-                            ("done", "total")):
-        d, t = data.get(done_k), data.get(total_k)
-        if isinstance(d, (int, float)) and isinstance(t, (int, float)) and t:
-            out["done"], out["total"] = int(d), int(t)
-            break
+    # Progress: beta.stagingProgress.{receivedFiles,expectedFiles} (try alpha
+    # too). The object is omitted unless actively staging.
+    for endpoint in ("beta", "alpha"):
+        ep = data.get(endpoint)
+        prog = ep.get("stagingProgress") if isinstance(ep, dict) else None
+        if isinstance(prog, dict):
+            d, t = prog.get("receivedFiles"), prog.get("expectedFiles")
+            if isinstance(d, (int, float)) and isinstance(t, (int, float)) and t:
+                out["done"], out["total"] = int(d), int(t)
+                break
 
-    if out["error"] or "error" in s:
+    if out["error"] or "error" in s or "halted" in s:
+        # a halted-on-* session is dead, not syncing — surface it.
         out["status"] = "error"
+        if not out["error"] and s:
+            out["error"] = s
     elif out["conflicts"] > 0 or "conflict" in s:
         out["status"] = "conflicts"
     elif any(w in s for w in ("disconnect", "waiting", "connecting")):
         out["status"] = "connecting"
-    elif "watching" in s or s in ("", "watching for changes"):
+    elif "watching" in s:
         out["status"] = "synced"
-    elif any(w in s for w in ("scan", "reconcil", "stag", "transition", "saving")):
-        out["status"] = "syncing"
+    elif s == "":
+        out["status"] = "unknown"   # no session / empty list
     else:
+        # scanning / reconciling / staging-* / transitioning / saving / etc.
         out["status"] = "syncing"
     return out
 
@@ -153,10 +157,14 @@ def find_mutagen() -> Optional[str]:
     env = os.getenv("JC_MUTAGEN_PATH")
     if env and os.path.isfile(env):
         return env
-    # bundled next to the running binary (PyInstaller payload)
+    # bundled in the PyInstaller payload: _MEIPASS is already the bundle ROOT
+    # dir (do NOT dirname it); a non-frozen run looks next to argv[0].
     import sys
-    here = os.path.dirname(os.path.abspath(getattr(sys, "_MEIPASS", sys.argv[0]) or ""))
-    for cand in (os.path.join(here, "mutagen"), os.path.join(here, "bin", "mutagen")):
+    if getattr(sys, "frozen", False) and getattr(sys, "_MEIPASS", None):
+        base = sys._MEIPASS
+    else:
+        base = os.path.dirname(os.path.abspath(sys.argv[0] or ""))
+    for cand in (os.path.join(base, "mutagen"), os.path.join(base, "bin", "mutagen")):
         if os.path.isfile(cand):
             return cand
     return shutil.which("mutagen")
@@ -199,8 +207,11 @@ class MutagenDriver:
         name = session_name(session_id)
         rc, out, _err = self._run(status_argv(self._require(), name), self._env)
         if rc not in (0, None):
-            return {"status": "error", "conflicts": 0, "done": 0, "total": 0,
-                    "error": (_err or "session not found").strip()}
+            # A just-created session can briefly not be listable (create/list
+            # race) — report 'connecting', not a hard error, so startup doesn't
+            # flash red. A persistent failure still self-evidences via the panel.
+            return {"status": "connecting", "conflicts": 0, "done": 0,
+                    "total": 0, "error": None}
         return parse_status(out)
 
     def stop_sync(self, session_id: str) -> None:

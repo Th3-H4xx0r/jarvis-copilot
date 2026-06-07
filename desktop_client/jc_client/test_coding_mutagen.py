@@ -34,36 +34,50 @@ def test_status_argv_and_terminate_argv():
 
 
 def test_parse_status_synced():
-    out = parse_status(json.dumps({"status": "Watching for changes", "conflicts": []}))
+    # {{json .}} emits an ARRAY; status is the machine token "watching".
+    out = parse_status(json.dumps([{"status": "watching", "conflicts": []}]))
     assert out["status"] == "synced"
     assert out["conflicts"] == 0
 
 
-def test_parse_status_syncing_with_progress():
-    out = parse_status(json.dumps({
-        "status": "Staging files on beta",
-        "stagingDone": 17, "stagingTotal": 483, "conflicts": []}))
+def test_parse_status_syncing_with_nested_staging_progress():
+    out = parse_status(json.dumps([{
+        "status": "staging-beta",
+        "beta": {"stagingProgress": {"receivedFiles": 17, "expectedFiles": 483}},
+        "conflicts": []}]))
     assert out["status"] == "syncing"
     assert out["done"] == 17 and out["total"] == 483
 
 
 def test_parse_status_conflicts():
-    out = parse_status(json.dumps({
-        "status": "Watching for changes",
-        "conflicts": [{"root": "a.py"}, {"root": "b.py"}]}))
+    out = parse_status(json.dumps([{
+        "status": "watching",
+        "conflicts": [{"root": "a.py"}, {"root": "b.py"}]}]))
     assert out["status"] == "conflicts"
     assert out["conflicts"] == 2
 
 
-def test_parse_status_error():
-    out = parse_status(json.dumps({"status": "Connecting", "lastError": "ssh: connect refused"}))
+def test_parse_status_error_from_last_error():
+    out = parse_status(json.dumps([{"status": "connecting-alpha",
+                                    "lastError": "ssh: connect refused"}]))
     assert out["status"] == "error"
     assert "connect refused" in out["error"]
+
+
+def test_parse_status_halted_is_error():
+    out = parse_status(json.dumps([{"status": "halted-on-root-deletion"}]))
+    assert out["status"] == "error"
+
+
+def test_parse_status_connecting_token():
+    out = parse_status(json.dumps([{"status": "connecting-beta"}]))
+    assert out["status"] == "connecting"
 
 
 def test_parse_status_empty_or_garbage():
     assert parse_status("")["status"] == "unknown"
     assert parse_status("not json")["status"] == "unknown"
+    assert parse_status("[]")["status"] == "unknown"
 
 
 # ── driver flow with a fake runner ────────────────────────────────────────────
@@ -72,7 +86,7 @@ def test_parse_status_empty_or_garbage():
 class FakeRunner:
     def __init__(self, status_json=None, create_rc=0):
         self.calls = []
-        self._status_json = status_json or json.dumps({"status": "Watching for changes"})
+        self._status_json = status_json or json.dumps([{"status": "watching"}])
         self._create_rc = create_rc
 
     def __call__(self, argv, env=None):

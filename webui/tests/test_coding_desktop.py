@@ -287,6 +287,21 @@ def test_mutagen_reopen_if_stale_resends_start():
     assert s.reopen_if_stale(now=s._last_open_at + 999) is False
 
 
+def test_mutagen_reopen_also_fires_on_connecting():
+    bridge, t = make_bridge()
+    s = cd.MutagenSyncSession(sync_id="sync-cn", device_id="dev-CN",
+                              local_path="/l", remote_path="/r", bridge=bridge)
+    bridge.register_sync(s)
+    s.open()
+    # Mutagen reports it's still connecting (ssh through the relay not up yet)
+    bridge.on_frame("dev-CN", {"type": "coding_sync_status", "sync_id": "sync-cn",
+                               "status": "connecting"})
+    assert s.status == "connecting"
+    # stuck connecting past the stale window -> re-start
+    assert s.reopen_if_stale(now=s._last_open_at + 999) is True
+    assert len(t.frames("coding_sync_start")) == 2
+
+
 def test_mutagen_close_sends_stop():
     bridge, t = make_bridge()
     s = cd.MutagenSyncSession(sync_id="sync-x", device_id="dev-X",

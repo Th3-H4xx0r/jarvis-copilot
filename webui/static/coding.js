@@ -504,10 +504,11 @@ async function _codingRefreshSyncStatus(id) {
   if (!st || !st.enabled) { el.innerHTML = ''; return; }
   const online = !!st.device_online;
   const status = st.status || 'idle';
-  const syncing = status === 'syncing' || status === 'opening';
+  const syncing = status === 'syncing' || status === 'opening' || status === 'connecting';
   const dotColor = online ? '#2ecc71' : '#888';
   // status label + color
   const labels = { synced: 'Up to date', syncing: 'Syncing…', opening: 'Connecting…',
+    connecting: 'Connecting…',
     idle: online ? 'Idle' : 'Waiting for device', disconnected: 'Device offline',
     conflicts: 'Conflicts', error: 'Error', off: '' };
   let label = labels[status] || status;

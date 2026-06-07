@@ -97,3 +97,13 @@ def test_socketchannel_recv_none_after_close():
     # peer closed -> recv returns b"" (falsy) which the pump treats as EOF
     assert not ch.recv()
     ch.close()
+
+
+def test_is_loopback_enforcement():
+    from api.tcp_relay import _is_loopback
+    assert _is_loopback("127.0.0.1")
+    assert _is_loopback("localhost")
+    assert _is_loopback("::1")
+    assert not _is_loopback("8.8.8.8")
+    assert not _is_loopback("169.254.169.254")  # cloud metadata SSRF target
+    assert not _is_loopback("nonexistent.invalid.")

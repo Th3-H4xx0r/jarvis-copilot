@@ -40,13 +40,21 @@ def _default_state_dir() -> str:
 def _relay_proxy_command() -> str:
     """The ssh ProxyCommand that pipes the SSH stream through the WS relay.
 
-    Runs THIS client binary's ``tcp-relay`` subcommand (it reuses the stored
-    pairing creds to reach the server's /api/devices/tcp-relay). Quoted so a
-    spaced install path survives ssh's ProxyCommand parsing.
+    Invokes THIS client's ``tcp-relay`` subcommand (it reuses the stored pairing
+    creds to reach /api/devices/tcp-relay). Frozen (PyInstaller): the app binary
+    IS the entrypoint, so ``<binary> tcp-relay``. Non-frozen (dev / pip / a
+    launchd-started module): ``sys.argv[0]`` isn't reliably re-invocable, so use
+    the installed ``jc-client`` console script if present, else the interpreter +
+    module (``<python> -m jc_client tcp-relay``). Quoted for spaced paths.
     """
-    exe = sys.executable if getattr(sys, "frozen", False) else sys.argv[0]
-    exe = os.path.abspath(exe or "jc-client")
-    return f'"{exe}" tcp-relay'
+    import shutil
+    if getattr(sys, "frozen", False):
+        exe = os.path.abspath(sys.executable or "jc-client")
+        return f'"{exe}" tcp-relay'
+    console = shutil.which("jc-client")
+    if console:
+        return f'"{console}" tcp-relay'
+    return f'"{os.path.abspath(sys.executable)}" -m jc_client tcp-relay'
 
 
 class CodingMutagenAgent:
@@ -136,10 +144,13 @@ class CodingMutagenAgent:
                                  daemon=True, name=f"mutagen-{sync_id[:10]}")
             self._threads[sync_id] = t
             t.start()
-        # push one status immediately so the panel leaves "opening" fast
-        self._poll_once(sync_id)
 
     def _poll_loop(self, sync_id: str, stop: threading.Event) -> None:
+        # First poll runs immediately (in THIS thread, not the WS-handler thread)
+        # so the panel leaves 'opening' fast without blocking frame processing or
+        # racing a concurrent stop.
+        if not stop.is_set():
+            self._poll_once(sync_id)
         while not stop.wait(self._poll):
             if stop.is_set():
                 break
