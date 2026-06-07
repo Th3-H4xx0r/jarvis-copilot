@@ -2691,6 +2691,8 @@ body.cdg-term-fs-open .cdg-term-fsbtn{position:fixed;top:12px;right:16px;z-index
 .cdg-btn-stop{padding:5px 13px;}
 .cdg-btn-stop:not(:disabled):hover{border-color:#ef4444;color:#ef4444;background:rgba(239,68,68,.08);}
 .cdg-form-err{margin-top:10px;font-size:0.8rem;color:#ef4444;}
+.cdg-hint{font-size:0.72rem;color:var(--muted);opacity:.85;line-height:1.45;margin:5px 0 2px;}
+.cdg-hint code{font-family:'SF Mono',ui-monospace,monospace;font-size:0.92em;}
 
 .cdg-subs{display:flex;flex-direction:column;gap:8px;}
 .cdg-sub{display:flex;align-items:center;gap:9px;flex-wrap:wrap;background:var(--surface-subtle);border:1px solid var(--border);border-radius:var(--radius-md);padding:9px 12px;font-size:0.84rem;}

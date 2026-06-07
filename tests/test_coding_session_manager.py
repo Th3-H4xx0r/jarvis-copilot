@@ -256,6 +256,56 @@ def test_sync_starter_fires_for_any_host(tmp_path):
     assert calls[0]["cwd"] == str(tmp_path)
 
 
+def test_repo_root_never_leaks_server_cwd_for_empty():
+    # An empty cwd must not resolve via ``git -C ''`` against the server's own
+    # repo (which would misgroup the session). It returns the literal input.
+    from agent.coding_session_manager import _repo_root
+    assert _repo_root("") == ""
+
+
+def test_repo_root_falls_back_for_missing_dir():
+    from agent.coding_session_manager import _repo_root
+    assert _repo_root("/no/such/dir/zzz") == "/no/such/dir/zzz"
+
+
+def test_launch_does_not_block_when_git_missing(tmp_path, monkeypatch):
+    # If git is slow/raises, _repo_root swallows it and the launch still
+    # succeeds (grouped by the literal cwd). Force git to blow up.
+    import subprocess
+    import agent.coding_session_manager as m
+
+    def boom(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="git", timeout=5)
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    mgr, _ = _mgr(tmp_path)
+    s = mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None, model=None)
+    assert s["status"] == "running"
+    assert s["project_id"]  # still landed in an auto-created project
+
+
+def test_launch_auto_project_is_race_safe(tmp_path):
+    # Concurrent launches in the SAME folder must share ONE project (the store's
+    # unique index + get_or_create make this atomic).
+    import threading
+    mgr, _ = _mgr(tmp_path)
+    pids, barrier = [], threading.Barrier(6)
+
+    def worker():
+        barrier.wait()
+        s = mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None,
+                       model=None)
+        pids.append(mgr.store.get_session(s["id"])["project_id"])
+
+    threads = [threading.Thread(target=worker) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(set(pids)) == 1            # all sessions share one project
+    assert len(mgr.store.list_projects()) == 1
+
+
 def test_sync_starter_not_fired_without_sync(tmp_path):
     store = CodingSessionStore(db_path=str(tmp_path / "c.db"))
     calls = []

@@ -85,6 +85,43 @@ class CodingSessionStore:
                     c.execute(ddl)
                 except sqlite3.OperationalError:
                     pass
+            # One project per (repo_path, device_id). The expression-based unique
+            # index (COALESCE folds a NULL device_id to '') is what makes
+            # get_or_create atomic under concurrency — two racing launches in the
+            # same repo can't double-insert. IF NOT EXISTS keeps it idempotent on
+            # an already-migrated db.
+            try:
+                c.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_path_device "
+                    "ON coding_projects(repo_path, COALESCE(device_id,''))")
+            except sqlite3.IntegrityError:
+                # A pre-fix db may already hold duplicate (repo_path, device_id)
+                # rows (from the old racy get_or_create). Collapse them onto the
+                # oldest project, re-point that group's sessions, drop the dupes,
+                # then build the index. Done in this same transaction.
+                self._dedupe_projects(c)
+                c.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_path_device "
+                    "ON coding_projects(repo_path, COALESCE(device_id,''))")
+
+    @staticmethod
+    def _dedupe_projects(c: sqlite3.Connection) -> None:
+        """Collapse duplicate (repo_path, COALESCE(device_id,'')) projects onto
+        the earliest-created one, re-pointing their sessions, then delete the
+        extras. Only invoked when the unique index can't be built yet."""
+        rows = c.execute(
+            "SELECT id, repo_path, COALESCE(device_id,'') AS dev FROM "
+            "coding_projects ORDER BY created_at ASC, id ASC").fetchall()
+        keep: dict[tuple, str] = {}
+        for r in rows:
+            key = (r["repo_path"], r["dev"])
+            canonical = keep.get(key)
+            if canonical is None:
+                keep[key] = r["id"]
+                continue
+            c.execute("UPDATE coding_sessions SET project_id=? WHERE project_id=?",
+                      (canonical, r["id"]))
+            c.execute("DELETE FROM coding_projects WHERE id=?", (r["id"],))
 
     # --- sessions -----------------------------------------------------------
 
@@ -156,14 +193,21 @@ class CodingSessionStore:
                        sync_enabled=False, sync_desktop_path=None,
                        ignore_rules=None) -> str:
         pid = "cp_" + uuid.uuid4().hex[:12]
-        with self._conn() as c:
-            c.execute(
-                "INSERT INTO coding_projects(id,name,repo_path,host,default_branch,"
-                "created_at,sync_enabled,sync_desktop_path,ignore_rules,device_id)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (pid, name, repo_path, host, default_branch, time.time(),
-                 1 if sync_enabled else 0, sync_desktop_path, ignore_rules,
-                 device_id))
+        try:
+            with self._conn() as c:
+                c.execute(
+                    "INSERT INTO coding_projects(id,name,repo_path,host,"
+                    "default_branch,created_at,sync_enabled,sync_desktop_path,"
+                    "ignore_rules,device_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (pid, name, repo_path, host, default_branch, time.time(),
+                     1 if sync_enabled else 0, sync_desktop_path, ignore_rules,
+                     device_id))
+        except sqlite3.IntegrityError as e:
+            # The (repo_path, device_id) unique index already holds a project for
+            # this path. Surface a clear message instead of a raw SQLite error;
+            # use get_or_create_project_for_path for idempotent reuse.
+            raise ValueError(
+                f"a project already exists for {repo_path!r}") from e
         return pid
 
     def get_or_create_project_for_path(self, *, repo_path, name=None,
@@ -172,31 +216,69 @@ class CodingSessionStore:
         """Idempotent project for a repo/folder. Keyed by (repo_path, device_id)
         so the SAME folder on the SAME device reuses one project (auto-grouping
         sessions), while the same path on a different device stays distinct.
-        Returns the project id."""
+        Returns the project id.
+
+        Race-safe: the (repo_path, COALESCE(device_id,'')) unique index makes the
+        INSERT atomic, so two concurrent launches in the same repo can't create
+        two projects — the loser's INSERT raises IntegrityError and we re-select
+        the winner's row."""
         dev = device_id or ""
-        with self._conn() as c:
-            row = c.execute(
+        from pathlib import Path as _P
+
+        def _select(c):
+            return c.execute(
                 "SELECT id FROM coding_projects WHERE repo_path=? "
                 "AND COALESCE(device_id,'')=? ORDER BY created_at ASC LIMIT 1",
                 (repo_path, dev)).fetchone()
-        if row:
-            return row["id"]
-        from pathlib import Path as _P
-        return self.create_project(
-            name=name or _P(repo_path).name or repo_path, repo_path=repo_path,
-            host=host, default_branch=default_branch, device_id=device_id)
+
+        with self._conn() as c:
+            row = _select(c)
+            if row:
+                return row["id"]
+            pid = "cp_" + uuid.uuid4().hex[:12]
+            try:
+                c.execute(
+                    "INSERT INTO coding_projects(id,name,repo_path,host,"
+                    "default_branch,created_at,sync_enabled,sync_desktop_path,"
+                    "ignore_rules,device_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (pid, name or _P(repo_path).name or repo_path, repo_path,
+                     host, default_branch, time.time(), 0, None, None, device_id))
+                return pid
+            except sqlite3.IntegrityError:
+                # Lost the race: another caller inserted the same key first.
+                row = _select(c)
+                if row:
+                    return row["id"]
+                raise
 
     def update_project(self, pid: str, **fields) -> None:
         allowed = {"name", "default_branch", "sync_enabled",
-                   "sync_desktop_path", "ignore_rules", "repo_path", "host"}
-        sets = {k: (1 if k == "sync_enabled" and isinstance(v, bool) else v)
+                   "sync_desktop_path", "ignore_rules", "repo_path", "host",
+                   "device_id"}
+        # sync_enabled is an INTEGER column: coerce True/False AND 1/0 to 0/1.
+        # (The old ``1 if isinstance(v, bool)`` mapped BOTH True and False to 1,
+        # so disabling sync silently re-enabled it.)
+        sets = {k: (int(bool(v)) if k == "sync_enabled" else v)
                 for k, v in fields.items() if k in allowed}
         if not sets:
             return
         cols = ", ".join(f"{k}=?" for k in sets)
         with self._conn() as c:
-            c.execute(f"UPDATE coding_projects SET {cols} WHERE id=?",
-                      (*sets.values(), pid))
+            try:
+                c.execute(f"UPDATE coding_projects SET {cols} WHERE id=?",
+                          (*sets.values(), pid))
+            except sqlite3.IntegrityError:
+                # Changing repo_path/device_id would collide with the
+                # (repo_path, device_id) unique index — another project already
+                # owns that key. Drop the keying fields and apply the rest so the
+                # user's rename/sync edits still persist.
+                safe = {k: v for k, v in sets.items()
+                        if k not in ("repo_path", "device_id")}
+                if not safe or set(safe) == {"updated_at"}:
+                    return
+                cols2 = ", ".join(f"{k}=?" for k in safe)
+                c.execute(f"UPDATE coding_projects SET {cols2} WHERE id=?",
+                          (*safe.values(), pid))
 
     def get_project(self, pid: str) -> dict | None:
         with self._conn() as c:

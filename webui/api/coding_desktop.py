@@ -327,11 +327,15 @@ class DesktopBridge:
     def _route_discover(self, device_id: str, frame: dict) -> None:
         """Ingest a device's pushed live ``claude`` tmux sessions.
 
-        The frame may carry its own ``device_id`` (the client's view of itself),
-        but it can be "" — in that case we fall back to ``device_id``, which the
-        device bridge passes as the connection's authoritative device id (every
-        inbound frame arrives on exactly one device's WS, so this is reliable)."""
-        did = (frame.get("device_id") or "").strip() or device_id
+        SECURITY: the authoritative device id is ``device_id`` — the id of the
+        WS this frame arrived on (set at pairing/auth time by the device bridge),
+        NOT the ``device_id`` the frame self-reports. A device must never be able
+        to write (or reconcile-to-stopped) ANOTHER device's discovered rows by
+        claiming a different id in the payload. We therefore always key off the
+        connection id; the frame's self-reported value is only consulted as a
+        fallback when the connection id is somehow blank (it never is in
+        practice), and even then must not be allowed to forge a foreign id."""
+        did = (device_id or "").strip() or (frame.get("device_id") or "").strip()
         try:
             ingest_discovered(did, frame.get("sessions") or [])
         except Exception as exc:  # never raise into the bridge pump thread
@@ -853,9 +857,17 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                 repo_path=cwd, host="desktop", device_id=device_id)
             row = existing.get(tmux_name)
             if row is not None:
-                store.update_session(
-                    row["id"], status="running", title=title,
-                    last_activity_at=last_activity, project_id=pid, external=1)
+                # Reparent to the (possibly new) cwd's project AND move the row's
+                # own cwd with it — a tmux session can be re-created under the
+                # same name in a different folder; leaving the stale cwd would
+                # split the row from its project's repo_path. Only apply
+                # last_activity_at when the device actually reported one, so a
+                # push that omits it doesn't wipe a previously-known value.
+                fields = dict(status="running", title=title, cwd=cwd,
+                              project_id=pid, external=1)
+                if last_activity is not None:
+                    fields["last_activity_at"] = last_activity
+                store.update_session(row["id"], **fields)
             else:
                 sid = store.create_session(
                     project_id=pid, host="desktop", cwd=cwd, branch=None,

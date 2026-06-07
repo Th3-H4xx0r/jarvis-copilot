@@ -351,6 +351,7 @@ function codingProjectSettings(pid) {
   const branch = _cdgEsc(proj.default_branch || '');
   const syncOn = !!proj.sync_enabled;
   const syncPath = _cdgEsc(proj.sync_desktop_path || '');
+  const syncDevice = proj.device_id || proj.sync_device || '';
   const ignore = _cdgEsc(proj.ignore_rules || '');
   detail.innerHTML = `
     <div class="cm-detail-head">
@@ -375,7 +376,7 @@ function codingProjectSettings(pid) {
         <label class="cdg-check"><input type="checkbox" id="codingProjSync" onchange="codingToggleProjSyncOpts()" ${syncOn ? 'checked' : ''}> <span>Sync this project with a desktop device</span></label>
         <div id="codingProjSyncOpts" style="display:${syncOn ? '' : 'none'};margin-left:22px">
           <label class="cdg-label" for="codingProjSyncDevice">Device</label>
-          <select class="cdg-input" id="codingProjSyncDevice">${_codingDeviceOptionsHtml('')}</select>
+          <select class="cdg-input" id="codingProjSyncDevice">${_codingDeviceOptionsHtml(syncDevice)}</select>
           <label class="cdg-label" for="codingProjSyncPath">Folder path on that device</label>
           <input class="cdg-input" id="codingProjSyncPath" value="${syncPath}" placeholder="~/code/your-project" autocomplete="off">
         </div>
@@ -407,6 +408,7 @@ async function codingSaveProject(pid) {
   const name = ((document.getElementById('codingProjName') || {}).value || '').trim();
   const branch = ((document.getElementById('codingProjBranch') || {}).value || '').trim();
   const syncOn = !!(document.getElementById('codingProjSync') || {}).checked;
+  const syncDevice = ((document.getElementById('codingProjSyncDevice') || {}).value || '').trim();
   const syncPath = ((document.getElementById('codingProjSyncPath') || {}).value || '').trim();
   const ignore = ((document.getElementById('codingProjIgnore') || {}).value || '');
   const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = ''; } };
@@ -418,6 +420,7 @@ async function codingSaveProject(pid) {
       name,
       default_branch: branch,
       sync_enabled: syncOn,
+      device_id: syncDevice,
       sync_desktop_path: syncPath,
       ignore_rules: ignore,
     };
@@ -763,6 +766,7 @@ function codingToggleTermFullscreen() {
   setTimeout(() => { try { if (_codingTermResize) _codingTermResize(); } catch (_) {} }, 60);
   try { if (_codingTerm) _codingTerm.focus(); } catch (_) {}
 }
+window.codingToggleTermFullscreen = codingToggleTermFullscreen;
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && _codingTermFs) codingToggleTermFullscreen();
 });

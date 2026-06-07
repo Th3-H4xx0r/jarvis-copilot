@@ -29,8 +29,14 @@ def _resolve_dir(p: str | None) -> str:
 
 def _repo_root(cwd: str) -> str:
     """Git toplevel of ``cwd`` (so every session in a repo groups under ONE
-    project), falling back to ``cwd`` itself for non-git folders. Never raises."""
+    project), falling back to ``cwd`` itself for non-git folders. Never raises,
+    never blocks a launch (5s timeout, all errors swallowed)."""
     cwd = _resolve_dir(cwd) or cwd
+    # An empty cwd would make ``git -C ''`` resolve against the SERVER's own
+    # working directory (i.e. the JarvisCopilot repo) and misgroup the session
+    # into the wrong project. Only shell out for a real, existing directory.
+    if not cwd or not os.path.isdir(cwd):
+        return cwd
     try:
         import subprocess
         r = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
@@ -39,6 +45,8 @@ def _repo_root(cwd: str) -> str:
         if r.returncode == 0 and top:
             return top
     except Exception:
+        # Includes subprocess.TimeoutExpired — a slow/hung git must NEVER block
+        # a launch; fall back to grouping by the literal cwd.
         pass
     return cwd
 

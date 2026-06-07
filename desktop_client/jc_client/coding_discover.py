@@ -102,10 +102,18 @@ def parse_tmux_list(stdout: str) -> list:
 
 
 def _is_coding_session(sess: dict) -> bool:
-    """A tmux session we care about: a ``claude`` process, or Jarvis-launched."""
+    """A tmux session we care about: a ``claude`` process, or Jarvis-launched.
+
+    tmux's ``pane_current_command`` is usually the bare basename (``claude``) but
+    can be an absolute path when claude was launched by full path (e.g.
+    ``/usr/local/bin/claude``) — match on the BASENAME so those aren't dropped.
+    A bare interpreter like ``node`` is intentionally NOT a match (too broad);
+    those are only kept via the ``jc-`` prefix.
+    """
     command = str(sess.get("command") or "")
     tmux_name = str(sess.get("tmux_name") or "")
-    return command == "claude" or tmux_name.startswith("jc-")
+    cmd_base = os.path.basename(command.strip()) if command else ""
+    return cmd_base == "claude" or tmux_name.startswith("jc-")
 
 
 def _to_wire(sess: dict) -> dict:

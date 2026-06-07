@@ -201,7 +201,8 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     return _err(404, "project not found: " + pid)
                 fields = {k: body[k] for k in
                           ("name", "default_branch", "sync_enabled",
-                           "sync_desktop_path", "ignore_rules") if k in body}
+                           "sync_desktop_path", "ignore_rules", "device_id")
+                          if k in body}
                 manager.store.update_project(pid, **fields)
                 return _ok({"ok": True, "project": manager.store.get_project(pid)})
 

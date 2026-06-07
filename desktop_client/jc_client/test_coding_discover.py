@@ -4,6 +4,8 @@ Covers the PURE ``parse_tmux_list`` (well-formed / blank lines / missing fields)
 the claude/jc- filter, the on-demand ``coding_discover_request`` push, and the
 change-hash throttle. A FakeRunner + fake clock keep tmux and the wall clock out.
 """
+import threading
+
 from jc_client.coding_discover import (
     CodingDiscoverAgent, parse_tmux_list, tmux_list_argv,
 )
@@ -110,6 +112,20 @@ def test_scan_empty_on_nonzero_rc():
     fr = FakeRunner(stdout=_FOUR_SESSIONS, rc=1)  # tmux failed / no server
     agent = CodingDiscoverAgent(send=lambda f: None, runner=fr, clock=FakeClock())
     assert agent.scan() == []
+
+
+def test_scan_keeps_claude_launched_by_absolute_path():
+    # tmux can report pane_current_command as a full path when claude is started
+    # by absolute path; the basename is still "claude" -> must be kept.
+    out = (
+        "abs\t/Users/me/a\t/usr/local/bin/claude\t1\n"   # path to claude -> keep
+        "node-only\t/Users/me/n\tnode\t2\n"               # bare node -> drop
+        "zsh-only\t/Users/me/z\t/bin/zsh\t3\n"            # path to zsh -> drop
+    )
+    fr = FakeRunner(stdout=out)
+    agent = CodingDiscoverAgent(send=lambda f: None, runner=fr, clock=FakeClock())
+    names = {s["tmux_name"] for s in agent.scan()}
+    assert names == {"abs"}
 
 
 # ── on-demand push (coding_discover_request) ──────────────────────────────────
@@ -225,3 +241,80 @@ def test_last_activity_change_alone_does_not_repush():
     clock.t = 101.0
     agent._scan_and_push(force=False)
     assert len(sent) == 1
+
+
+# ── lifecycle (start idempotency / close safety / non-blocking close) ──────────
+
+
+def test_start_is_idempotent_and_pushes_once_on_start():
+    import time as _time
+    sent = []
+    fr = FakeRunner(stdout=_FOUR_SESSIONS)
+    agent = CodingDiscoverAgent(send=sent.append, device_id="dev1", runner=fr,
+                                poll_interval=10.0)  # long poll: only the start push
+    try:
+        agent.start()
+        t1 = agent._thread
+        agent.start()  # second call must not spawn a new thread
+        assert agent._thread is t1
+        # the initial forced push lands shortly after start
+        deadline = _time.time() + 2.0
+        while not sent and _time.time() < deadline:
+            _time.sleep(0.01)
+        assert len(sent) == 1
+        assert sent[0]["type"] == "coding_discover"
+    finally:
+        agent.close()
+
+
+def test_close_is_safe_to_call_twice():
+    fr = FakeRunner(stdout=_FOUR_SESSIONS)
+    agent = CodingDiscoverAgent(send=lambda f: None, runner=fr, poll_interval=10.0)
+    agent.start()
+    agent.close()
+    assert agent._thread is None
+    agent.close()  # double close must not raise / double-join
+    assert agent._thread is None
+
+
+def test_close_returns_promptly_with_blocking_runner():
+    # A real tmux that hangs must not wedge disconnect: close() joins with a
+    # bounded timeout (the daemon thread is abandoned), so close() returns fast.
+    import time as _time
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_runner(argv):
+        started.set()
+        release.wait(10.0)  # simulate a wedged `tmux list-sessions`
+        return 0, "", ""
+
+    agent = CodingDiscoverAgent(send=lambda f: None, runner=blocking_runner,
+                                poll_interval=0.01)
+    agent.start()
+    assert started.wait(2.0), "poll thread never invoked the runner"
+    t0 = _time.time()
+    agent.close()  # the runner is still blocked inside the thread
+    elapsed = _time.time() - t0
+    release.set()  # let the abandoned thread unwind
+    assert elapsed < 3.0, f"close() blocked too long: {elapsed:.2f}s"
+    assert agent._thread is None
+
+
+def test_restart_after_close_works():
+    # close() sets the stop event; start() must clear it so the agent restarts.
+    import time as _time
+    sent = []
+    fr = FakeRunner(stdout=_FOUR_SESSIONS)
+    agent = CodingDiscoverAgent(send=sent.append, runner=fr, poll_interval=10.0)
+    try:
+        agent.start()
+        agent.close()
+        sent.clear()
+        agent.start()  # should spawn a fresh thread and push again
+        deadline = _time.time() + 2.0
+        while not sent and _time.time() < deadline:
+            _time.sleep(0.01)
+        assert len(sent) == 1
+    finally:
+        agent.close()

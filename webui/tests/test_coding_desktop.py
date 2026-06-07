@@ -614,6 +614,42 @@ def test_ingest_discovered_second_push_updates_not_duplicates(tmp_path, monkeypa
     assert rows[0]["last_activity_at"] == 99.0
 
 
+def test_ingest_discovered_cwd_change_moves_row_and_project(tmp_path, monkeypatch):
+    """A tmux session re-created under the SAME name in a DIFFERENT folder must
+    move the row's own cwd to match the (new) project it's reparented to — a
+    stale cwd would split the row from its project's repo_path."""
+    store = _temp_store(tmp_path)
+    _discovered("dev-cwd", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/old", "title": "a"},
+    ], store, monkeypatch)
+    _discovered("dev-cwd", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/new", "title": "a"},
+    ], store, monkeypatch)
+
+    rows = store.list_sessions(device_id="dev-cwd")
+    assert len(rows) == 1  # still one row (matched by name)
+    row = rows[0]
+    assert row["cwd"] == "/w/new"  # row cwd moved with it
+    # ...and it's parented to the NEW cwd's project, not the old one.
+    assert store.get_project(row["project_id"])["repo_path"] == "/w/new"
+
+
+def test_ingest_discovered_omitted_last_activity_does_not_wipe(tmp_path, monkeypatch):
+    """A push that omits last_activity must NOT overwrite a previously-known
+    last_activity_at with NULL — only apply it when the device reports one."""
+    store = _temp_store(tmp_path)
+    _discovered("dev-la", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/a",
+         "title": "a", "last_activity": 42.0},
+    ], store, monkeypatch)
+    # Next push has no last_activity field at all.
+    _discovered("dev-la", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/a", "title": "a"},
+    ], store, monkeypatch)
+    row = store.list_sessions(device_id="dev-la")[0]
+    assert row["last_activity_at"] == 42.0  # preserved, not wiped to None
+
+
 def test_ingest_discovered_reconciles_vanished_to_stopped(tmp_path, monkeypatch):
     store = _temp_store(tmp_path)
     _discovered("dev-3", [
@@ -679,6 +715,44 @@ def test_ingest_discovered_blank_device_id_uses_route_fallback(tmp_path, monkeyp
     })
     rows = store.list_sessions(device_id="conn-dev")
     assert len(rows) == 1 and rows[0]["tmux_name"] == "claude-z"
+
+
+def test_ingest_discovered_forged_frame_device_id_cannot_write_foreign_rows(
+        tmp_path, monkeypatch):
+    """SECURITY: a device authenticated as one id must NOT be able to write (or
+    reconcile) ANOTHER device's discovered rows by self-reporting a different
+    device_id in the frame. _route_discover keys off the authoritative WS
+    connection id, never the payload's claimed id."""
+    store = _temp_store(tmp_path)
+    monkeypatch.setattr(cd, "_resolve_store", lambda: store, raising=True)
+    bridge, _t = make_bridge()
+    # Connection authenticated as 'attacker'; frame falsely claims 'victim'.
+    bridge.on_frame("attacker", {
+        "type": "coding_discover", "device_id": "victim",
+        "sessions": [{"kind": "tmux", "tmux_name": "evil",
+                      "cwd": "/w/e", "title": "e"}],
+    })
+    # The row must land under the AUTHENTICATED connection id, not the forged one.
+    assert store.list_sessions(device_id="victim") == []
+    attacker_rows = store.list_sessions(device_id="attacker")
+    assert [r["tmux_name"] for r in attacker_rows] == ["evil"]
+
+
+def test_ingest_discovered_malformed_items_dont_abort_batch(tmp_path, monkeypatch):
+    """Non-dict / wrong-kind / blank-name items are skipped individually; the
+    valid sessions in the same batch are still ingested (a bad item never aborts
+    the whole push)."""
+    store = _temp_store(tmp_path)
+    n = _discovered("dev-mal", [
+        "not-a-dict",
+        {"kind": "tmux"},                              # missing tmux_name
+        {"kind": "shell", "tmux_name": "s", "cwd": "/w"},  # wrong kind
+        {"kind": "tmux", "tmux_name": "  ", "cwd": "/w"},   # blank name
+        {"kind": "tmux", "tmux_name": "good", "cwd": "/w/g", "title": "g"},
+    ], store, monkeypatch)
+    assert n == 1
+    names = {r["tmux_name"] for r in store.list_sessions(device_id="dev-mal")}
+    assert names == {"good"}
 
 
 def test_send_discover_request_emits_frame():
