@@ -391,6 +391,11 @@ class DesktopSyncSession:
 
     # Max number of in-flight pull requests (coding_sync_get awaiting a file).
     _PULL_WINDOW = 16
+    # If we've been "opening" (waiting for the desktop's manifest) this long,
+    # re-send coding_sync_open. Covers an open/manifest frame lost to a bridge
+    # reconnect mid-handshake, which otherwise leaves the sync stuck on
+    # "Connecting…" forever. Generous so a slow manifest build isn't restarted.
+    _REOPEN_STALE_SECS = 45.0
 
     def __init__(self, *, sync_id: str, device_id: str, root: str, bridge,
                  ignore: list | None = None, remote_path: str | None = None):
@@ -412,6 +417,8 @@ class DesktopSyncSession:
         self.status = "opening"
         self.last_sync_at = None
         self.error = None
+        # epoch of the most recent coding_sync_open send (drives reopen_if_stale)
+        self._last_open_at = 0.0
         # transfer progress for the WebUI progress bar
         self.total = 0
         self.done = 0
@@ -421,6 +428,8 @@ class DesktopSyncSession:
     def open(self) -> bool:
         """Send coding_sync_open so the desktop starts watching + replies with
         its manifest. ``path`` is the REMOTE path the desktop opens/watches."""
+        self.status = "opening"
+        self._last_open_at = time.time()
         ok = self.bridge.send_sync_open(
             self.device_id, sync_id=self.sync_id, path=self.remote_path,
             ignore=self.ignore)
@@ -434,6 +443,22 @@ class DesktopSyncSession:
 
     def server_manifest(self) -> dict:
         return sync_core.build_manifest(self.root, self.ignore)
+
+    def reopen_if_stale(self, now: float | None = None) -> bool:
+        """Re-send coding_sync_open if we've been waiting for the manifest too
+        long (the open/manifest handshake was likely lost to a reconnect). No-op
+        once we're past 'opening'. Rate-limited by ``_REOPEN_STALE_SECS`` since
+        ``open()`` resets ``_last_open_at``. Returns True if it re-opened."""
+        if self.status != "opening":
+            return False
+        if now is None:
+            now = time.time()
+        if self._last_open_at and (now - self._last_open_at) < self._REOPEN_STALE_SECS:
+            return False
+        log.info("coding_sync[%s] reopen: no manifest after %.0fs",
+                 self.sync_id, now - (self._last_open_at or now))
+        self.open()
+        return True
 
     # --- inbound from device ------------------------------------------------
 
@@ -753,6 +778,13 @@ def sync_status(session_id: str, sync_config=None) -> dict:
     # "disconnected" (not a frozen "Syncing…") so the panel says offline and the
     # next reconnect/Refresh re-reconciles.
     if sess is not None:
+        # Self-heal a sync stuck waiting for the manifest (lost handshake): the
+        # WebUI polls this every few seconds, so this re-opens within ~45s.
+        if out["device_online"]:
+            try:
+                sess.reopen_if_stale()
+            except Exception:
+                pass
         out["direction"] = getattr(sess, "direction", None)
         out["total"] = int(getattr(sess, "total", 0) or 0)
         out["done"] = int(getattr(sess, "done", 0) or 0)

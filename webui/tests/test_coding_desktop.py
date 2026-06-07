@@ -280,6 +280,28 @@ def test_sync_pull_when_remote_has_files(tmp_path):
     assert t.frames("coding_sync_file") == []  # we SENT none (only received)
 
 
+def test_sync_reopen_if_stale_resends_open(tmp_path):
+    """A sync stuck in 'opening' (manifest never arrived) re-sends open after
+    the stale window, but not before — and stops once a manifest lands."""
+    bridge, t = make_bridge()
+    s = cd.DesktopSyncSession(sync_id="sync-st", device_id="dev-ST",
+                              root=str(tmp_path), bridge=bridge)
+    bridge.register_sync(s)
+    s.open()
+    assert len(t.frames("coding_sync_open")) == 1
+    # too soon -> no reopen
+    assert s.reopen_if_stale(now=s._last_open_at + 1) is False
+    assert len(t.frames("coding_sync_open")) == 1
+    # past the stale window -> reopen
+    assert s.reopen_if_stale(now=s._last_open_at + 999) is True
+    assert len(t.frames("coding_sync_open")) == 2
+    # once the manifest arrives we're 'syncing' -> never reopen again
+    bridge.on_frame("dev-ST", {"type": "coding_sync_manifest",
+                               "sync_id": "sync-st", "manifest": {}})
+    assert s.status in ("syncing", "synced")
+    assert s.reopen_if_stale(now=s._last_open_at + 999) is False
+
+
 def test_sync_pull_is_windowed_not_a_flood(tmp_path):
     """A large pull must NOT fire every get at once (that floods the bridge and
     wedges partway). At most _PULL_WINDOW requests are in flight; the next is
