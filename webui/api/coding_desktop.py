@@ -421,9 +421,16 @@ class DesktopSyncSession:
     def open(self) -> bool:
         """Send coding_sync_open so the desktop starts watching + replies with
         its manifest. ``path`` is the REMOTE path the desktop opens/watches."""
-        return self.bridge.send_sync_open(
+        ok = self.bridge.send_sync_open(
             self.device_id, sync_id=self.sync_id, path=self.remote_path,
             ignore=self.ignore)
+        # Bracket the manifest handshake in the logs: this line + the
+        # "manifest:" line in on_manifest pinpoint whether a stuck "opening"
+        # status is the open frame failing to send vs. the desktop never
+        # replying with its manifest (e.g. a slow/huge manifest build).
+        log.info("coding_sync[%s] open -> device=%s path=%s sent=%s",
+                 self.sync_id, self.device_id, self.remote_path, ok)
+        return ok
 
     def server_manifest(self) -> dict:
         return sync_core.build_manifest(self.root, self.ignore)
