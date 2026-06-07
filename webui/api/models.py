@@ -30,6 +30,9 @@ CLI_VISIBLE_SESSION_LIMIT = 20
 _CLI_SESSIONS_CACHE_TTL_SECONDS = 5.0
 _CLI_SESSIONS_CACHE_LOCK = threading.Lock()
 _CLI_SESSIONS_CACHE = {}
+# cache_key -> True while a background refresh is in flight (single-flight guard
+# so a thundering herd of /api/sessions polls never stack multiple slow loads).
+_CLI_SESSIONS_REFRESHING: dict = {}
 
 # ---------------------------------------------------------------------------
 # Stale temp-file cleanup
@@ -1995,6 +1998,7 @@ def get_claude_code_session_messages(sid, projects_dir: Path | str | None = None
 def clear_cli_sessions_cache() -> None:
     with _CLI_SESSIONS_CACHE_LOCK:
         _CLI_SESSIONS_CACHE.clear()
+        _CLI_SESSIONS_REFRESHING.clear()
 
 
 def _copy_cli_sessions(sessions: list) -> list:
@@ -2058,15 +2062,15 @@ def _resolve_cli_sessions_context():
         cli_profile = None
 
     db_path = hermes_home / 'state.db'
-    projects_dir = _default_claude_code_projects_dir()
+    # STABLE cache key: home + profile + db path only. Do NOT fold in state.db's
+    # mtime/size (or the projects/index stats) — those change on every agent
+    # write, which made the key churn on nearly every request so the cache never
+    # hit and each /api/sessions re-ran the slow uncached scan. The TTL bounds
+    # staleness instead; a few-seconds-stale CLI-sessions sidebar is fine.
     cache_key = (
         str(hermes_home),
         str(cli_profile or ''),
         str(db_path),
-        _sqlite_file_stat_cache_key(db_path),
-        _path_cache_key(projects_dir),
-        _path_stat_cache_key(projects_dir),
-        _path_stat_cache_key(SESSION_INDEX_FILE),
     )
     return hermes_home, db_path, cli_profile, cache_key
 
@@ -2180,38 +2184,57 @@ def get_cli_sessions() -> list:
     """
     hermes_home, db_path, cli_profile, cache_key = _resolve_cli_sessions_context()
     ttl = _cli_sessions_cache_ttl_seconds()
-    now = time.monotonic()
 
-    if ttl > 0:
-        with _CLI_SESSIONS_CACHE_LOCK:
-            cached = _CLI_SESSIONS_CACHE.get(cache_key)
-            if cached:
-                expires_at, cached_sessions = cached
-                if expires_at > now:
-                    return _copy_cli_sessions(cached_sessions)
-                _CLI_SESSIONS_CACHE.pop(cache_key, None)
-            try:
-                sessions = _load_cli_sessions_uncached(hermes_home, db_path, cli_profile)
-            except Exception as _cli_err:
-                logger.warning(
-                    "get_cli_sessions() failed — check state.db schema or path (%s): %s",
-                    db_path, _cli_err,
-                )
-                return []
-            _CLI_SESSIONS_CACHE[cache_key] = (
-                time.monotonic() + ttl,
-                _copy_cli_sessions(sessions),
+    if ttl <= 0:
+        # Caching disabled — load inline (callers opting out accept the cost).
+        try:
+            return _load_cli_sessions_uncached(hermes_home, db_path, cli_profile)
+        except Exception as _cli_err:
+            logger.warning(
+                "get_cli_sessions() failed — check state.db schema or path (%s): %s",
+                db_path, _cli_err,
             )
-            return _copy_cli_sessions(sessions)
+            return []
 
-    try:
-        return _load_cli_sessions_uncached(hermes_home, db_path, cli_profile)
-    except Exception as _cli_err:
-        logger.warning(
-            "get_cli_sessions() failed — check state.db schema or path (%s): %s",
-            db_path, _cli_err,
-        )
-        return []
+    # Stale-while-revalidate: NEVER block /api/sessions on the slow uncached
+    # scan (it can take 20-40s while state.db is being hammered). Serve the
+    # cached (even stale) value instantly and refresh in ONE background thread.
+    now = time.monotonic()
+    with _CLI_SESSIONS_CACHE_LOCK:
+        cached = _CLI_SESSIONS_CACHE.get(cache_key)
+        fresh = bool(cached) and cached[0] > now
+        if fresh:
+            return _copy_cli_sessions(cached[1])
+        # Stale or missing → kick a single background refresh (don't stack them).
+        if not _CLI_SESSIONS_REFRESHING.get(cache_key):
+            _CLI_SESSIONS_REFRESHING[cache_key] = True
+            _start_cli_sessions_refresh(cache_key, hermes_home, db_path, cli_profile, ttl)
+        # Serve the last-known snapshot immediately; empty on the very first call
+        # (CLI sessions then appear on the next poll — a few seconds later).
+        return _copy_cli_sessions(cached[1]) if cached else []
+
+
+def _start_cli_sessions_refresh(cache_key, hermes_home, db_path, cli_profile, ttl) -> None:
+    """Background single-flight refresh of the CLI-sessions cache. The slow load
+    runs OUTSIDE _CLI_SESSIONS_CACHE_LOCK so concurrent /api/sessions never block
+    on it; the lock is held only for the fast cache swap. Always clears the
+    in-flight flag, even on error, so refreshes can't wedge."""
+    def _run():
+        sessions = None
+        try:
+            sessions = _load_cli_sessions_uncached(hermes_home, db_path, cli_profile)
+        except Exception as _cli_err:
+            logger.warning(
+                "get_cli_sessions() refresh failed — check state.db (%s): %s",
+                db_path, _cli_err,
+            )
+        with _CLI_SESSIONS_CACHE_LOCK:
+            if sessions is not None:
+                _CLI_SESSIONS_CACHE[cache_key] = (
+                    time.monotonic() + ttl, _copy_cli_sessions(sessions))
+            _CLI_SESSIONS_REFRESHING[cache_key] = False
+
+    threading.Thread(target=_run, name="cli-sessions-refresh", daemon=True).start()
 
 
 def _json_loads_if_string(value):
