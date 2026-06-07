@@ -356,50 +356,74 @@ function _codingFindProject(pid) {
   return (_codingProjectsCache || []).find(p => p && String(p.id) === key) || null;
 }
 
-// Create a project. Minimal: name + repo_path via two prompts (matches the
-// existing prompt/confirm idiom used elsewhere in this file).
-async function codingNewProject() {
-  let name = window.prompt('New project name:', '');
-  if (name == null) return;
-  name = name.trim();
-  if (!name) return;
-  let repoPath = window.prompt('Repo path on the server (e.g. ~/code/my-project):', '');
-  if (repoPath == null) return;
-  repoPath = repoPath.trim();
+// Create a project. Renders a small styled form-card in the detail pane (Name +
+// Repo path) — mirrors codingProjectSettings's card so it follows the chosen
+// skin (no native dialogs).
+function codingNewProject() {
+  _codingStopPoll();
+  _codingTeardownTerminal();
+  _codingDetailShellId = null;
+  _codingSelectedId = null;
+  document.querySelectorAll('.cdg-item').forEach(b => b.classList.remove('active'));
+  const detail = document.getElementById('codingDetail');
+  if (!detail) return;
+  detail.innerHTML = `
+    <div class="cm-detail-body">
+      <div class="cdg-form-card">
+        <div class="cdg-form-title">New project</div>
+
+        <label class="cdg-label" for="codingNewProjFormName">Name</label>
+        <input class="cdg-input" id="codingNewProjFormName" placeholder="My project" autocomplete="off">
+
+        <label class="cdg-label" for="codingNewProjFormPath">Repo path on the server</label>
+        <input class="cdg-input" id="codingNewProjFormPath" placeholder="~/code/my-project" autocomplete="off">
+        <div class="cdg-hint"><code>~</code> and relative paths work; the folder is created if it doesn't exist.</div>
+
+        <div class="cdg-form-actions">
+          <button type="button" class="cdg-btn-secondary" onclick="codingClearDetail()">Cancel</button>
+          <button type="button" class="cdg-btn-primary" id="codingNewProjSaveBtn" onclick="codingCreateProject()">Create project</button>
+        </div>
+        <div class="cdg-form-err" id="codingNewProjErr" style="display:none"></div>
+      </div>
+    </div>`;
+  const nameEl = document.getElementById('codingNewProjFormName');
+  if (nameEl) try { nameEl.focus(); } catch (_) {}
+}
+window.codingNewProject = codingNewProject;
+
+// Submit handler for the styled new-project form-card.
+async function codingCreateProject() {
+  const errEl = document.getElementById('codingNewProjErr');
+  const btn = document.getElementById('codingNewProjSaveBtn');
+  const name = ((document.getElementById('codingNewProjFormName') || {}).value || '').trim();
+  const repoPath = ((document.getElementById('codingNewProjFormPath') || {}).value || '').trim();
+  const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = ''; } };
+  if (errEl) errEl.style.display = 'none';
+  if (!name) { showErr('Name is required.'); return; }
+  if (!repoPath) { showErr('Repo path is required.'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
   try {
     const res = await api('/api/coding/projects', {
       method: 'POST', body: JSON.stringify({ name, repo_path: repoPath }),
     });
-    if (res && res.ok === false) { alert((res.error || res.message) || 'Could not create project.'); return; }
+    if (res && res.ok === false) { showErr((res.error || res.message) || 'Could not create project.'); return; }
+    const newPid = res && (res.project_id != null ? res.project_id : (res.project && res.project.id));
     await _codingRefreshList();
+    if (newPid != null) { _codingCollapsed.delete(String(newPid)); _codingPersistCollapsed(); }
+    codingClearDetail();
   } catch (e) {
-    alert((e && e.message) || 'Could not create project.');
+    showErr((e && e.message) || 'Could not create project.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Create project'; }
   }
 }
-window.codingNewProject = codingNewProject;
+window.codingCreateProject = codingCreateProject;
 
-// Launch a new session inside a project. cwd defaults (server-side) to the
-// project's repo_path, so we POST an empty body and let the backend fill it in.
-// On success we refresh the list and open the new session.
-async function codingProjectNewSession(pid) {
-  const proj = _codingFindProject(pid);
-  const prompt = window.prompt('Initial prompt for the new session' + (proj ? ' in "' + proj.name + '"' : '') + ':', '');
-  if (prompt == null) return;
-  try {
-    const body = {};
-    if (prompt.trim()) body.prompt = prompt.trim();
-    const res = await api('/api/coding/project/' + encodeURIComponent(String(pid)) + '/session', {
-      method: 'POST', body: JSON.stringify(body),
-    });
-    if (res && res.ok === false) { alert((res.error || res.message) || 'Could not launch session.'); return; }
-    const sess = (res && res.session) || {};
-    // Make sure the project is expanded so the new session is visible.
-    _codingCollapsed.delete(String(pid)); _codingPersistCollapsed();
-    await _codingRefreshList();
-    if (sess.id != null) codingOpenSession(String(sess.id));
-  } catch (e) {
-    alert((e && e.message) || 'Could not launch session.');
-  }
+// Launch a new session inside a project. Opens the unified styled launch form
+// pre-selected to this project (the form's Project dropdown handles the actual
+// POST to /api/coding/project/<id>/session) — no native prompt.
+function codingProjectNewSession(pid) {
+  codingShowLaunch(pid);
 }
 window.codingProjectNewSession = codingProjectNewSession;
 
@@ -407,7 +431,7 @@ window.codingProjectNewSession = codingProjectNewSession;
 // delete). Stops any session poll so the pane isn't clobbered.
 function codingProjectSettings(pid) {
   const proj = _codingFindProject(pid);
-  if (!proj) { alert('Project not found.'); return; }
+  if (!proj) { _codingFlash('Project not found.'); return; }
   _codingStopPoll();
   _codingTeardownTerminal();
   _codingDetailShellId = null;
@@ -512,38 +536,73 @@ async function codingDeleteProject(pid) {
   const id = String(pid);
   const proj = _codingFindProject(id);
   const cnt = proj && Array.isArray(proj.sessions) ? proj.sessions.length : 0;
+  const projName = proj ? proj.name : id;
   let cascade = 0;
   if (cnt > 0) {
-    const stopThem = window.confirm(
-      'Delete project "' + (proj ? proj.name : id) + '"?\n\n' +
-      'OK = also STOP and permanently DELETE its ' + cnt + ' session(s).\n' +
-      'Cancel = keep the sessions (they become Ungrouped).');
+    const stopThem = await showConfirmDialog({
+      title: 'Delete project',
+      message: 'Delete project "' + projName + '"?\n\n' +
+        'Delete sessions = also STOP and permanently DELETE its ' + cnt + ' session(s).\n' +
+        'Keep sessions = keep them (they become Ungrouped).',
+      confirmLabel: 'Delete sessions',
+      cancelLabel: 'Keep sessions',
+      danger: true,
+    });
     cascade = stopThem ? 1 : 0;
     // Confirm the detach path too, so an accidental Cancel doesn't surprise.
-    if (!cascade && !window.confirm('Delete the project but KEEP its sessions (move them to Ungrouped)?')) return;
-  } else if (!window.confirm('Delete project "' + (proj ? proj.name : id) + '"?')) {
-    return;
+    if (!cascade) {
+      const keepOk = await showConfirmDialog({
+        title: 'Delete project',
+        message: 'Delete the project but KEEP its sessions (move them to Ungrouped)?',
+        confirmLabel: 'Delete project',
+        cancelLabel: 'Cancel',
+        danger: true,
+      });
+      if (!keepOk) return;
+    }
+  } else {
+    const ok = await showConfirmDialog({
+      title: 'Delete project',
+      message: 'Delete project "' + projName + '"?',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      danger: true,
+    });
+    if (!ok) return;
   }
   try {
     const res = await api('/api/coding/project/' + encodeURIComponent(id) + '?delete_sessions=' + cascade,
       { method: 'DELETE' });
-    if (res && res.ok === false) { alert((res.error || res.message) || 'Delete failed.'); return; }
+    if (res && res.ok === false) { _codingFlash((res.error || res.message) || 'Delete failed.'); return; }
     codingClearDetail();
     await _codingRefreshList();
   } catch (e) {
-    alert((e && e.message) || 'Delete failed.');
+    _codingFlash((e && e.message) || 'Delete failed.');
   }
 }
 window.codingDeleteProject = codingDeleteProject;
 
 /* ── Launch form ─────────────────────────────────────────────────────────── */
 
-function codingShowLaunch() {
+// preselectProjectId (optional): pre-select that project in the dropdown and
+// prefill the cwd from its repo_path.
+function codingShowLaunch(preselectProjectId) {
   _codingStopPoll();
   _codingSelectedId = null;
   document.querySelectorAll('.cdg-item').forEach(b => b.classList.remove('active'));
   const detail = document.getElementById('codingDetail');
   if (!detail) return;
+  const preId = (preselectProjectId == null || preselectProjectId === '') ? '' : String(preselectProjectId);
+  const preProj = preId ? _codingFindProject(preId) : null;
+  // Project <select> options: auto (default) + one per known project + a "new"
+  // entry. Pre-select `preId` when the caller passed a project to launch into.
+  const projSelOpts = (_codingProjectsCache || []).map(p => {
+    if (!p) return '';
+    const pid = String(p.id == null ? '' : p.id);
+    const name = p.name || p.repo_path || ('project ' + pid);
+    const sel = (preId && pid === preId) ? ' selected' : '';
+    return `<option value="${_cdgEsc(pid)}"${sel}>${_cdgEsc(name)}</option>`;
+  }).join('');
   // Project <datalist> options from the known-projects list, so the cwd field
   // autocompletes repo paths the server already knows about.
   const projOpts = (_codingProjectsCache || []).map(p => {
@@ -551,14 +610,29 @@ function codingShowLaunch() {
     const name = p.name || path;
     return `<option value="${_cdgEsc(path)}">${_cdgEsc(name)}</option>`;
   }).join('');
+  // Prefill the cwd from the preselected project's repo path.
+  const cwdVal = preProj ? _cdgEsc(preProj.repo_path || preProj.path || preProj.cwd || '') : '';
   detail.innerHTML = `
     <div class="cm-detail-body">
       <div class="cdg-form-card">
         <div class="cdg-form-title">New coding session</div>
+
+        <label class="cdg-label" for="codingLaunchProject">Project</label>
+        <select class="cdg-input" id="codingLaunchProject" onchange="codingLaunchProjectChanged()">
+          <option value=""${preId ? '' : ' selected'}>Auto — new project from the working directory</option>
+          ${projSelOpts}
+          <option value="__new__">+ New project…</option>
+        </select>
+
+        <div id="codingNewProjNameRow" style="display:none">
+          <label class="cdg-label" for="codingNewProjName">New project name</label>
+          <input class="cdg-input" id="codingNewProjName" placeholder="My project" autocomplete="off">
+        </div>
+
         <label class="cdg-label" for="codingCwd">Working directory</label>
-        <input class="cdg-input" id="codingCwd" list="codingProjList" placeholder="~/code/your-project  (~ expands, new folders are created)" autocomplete="off">
+        <input class="cdg-input" id="codingCwd" list="codingProjList" value="${cwdVal}" placeholder="~/code/your-project  (~ expands, new folders are created)" autocomplete="off">
         <datalist id="codingProjList">${projOpts}</datalist>
-        <div class="cdg-hint"><code>~</code> and relative paths work; the folder is created if it doesn't exist.</div>
+        <div class="cdg-hint" id="codingCwdHint"><code>~</code> and relative paths work; the folder is created if it doesn't exist.</div>
 
         <label class="cdg-label" for="codingTitle">Title (optional)</label>
         <input class="cdg-input" id="codingTitle" placeholder="What are we building?" autocomplete="off">
@@ -572,7 +646,7 @@ function codingShowLaunch() {
           <option value="desktop">My computer (paired desktop)</option>
         </select>
 
-        <label class="cdg-check"><input type="checkbox" id="codingWorktree"> <span>Run in an isolated git worktree</span></label>
+        <label class="cdg-check" id="codingWorktreeRow"><input type="checkbox" id="codingWorktree"> <span>Run in an isolated git worktree</span></label>
         <label class="cdg-check"><input type="checkbox" id="codingSkipPerms"> <span>Dangerously skip permissions (autonomous — no approval prompts)</span></label>
         <label class="cdg-check"><input type="checkbox" id="codingSync" onchange="codingToggleSyncOpts()"> <span>Sync this project with another device</span></label>
         <div id="codingSyncOpts" style="display:none;margin:4px 0 2px 22px">
@@ -593,8 +667,46 @@ function codingShowLaunch() {
         <div class="cdg-form-err" id="codingLaunchErr" style="display:none"></div>
       </div>
     </div>`;
+  // Apply the initial project-selection state (e.g. hide worktree row / relabel
+  // the cwd hint when a real project is preselected).
+  codingLaunchProjectChanged();
 }
 window.codingShowLaunch = codingShowLaunch;
+
+// React to the Project dropdown changing:
+//   existing project id → prefill cwd with that project's repo_path, hide the
+//     worktree row (sessions in a project share the repo), hide the new-name
+//     input, restore the normal cwd hint.
+//   "__new__" → reveal the "New project name" input; the working-directory field
+//     IS the new project's repo path (relabel the hint to say so).
+//   "" (auto) → normal: everything as the default new-from-cwd flow.
+function codingLaunchProjectChanged() {
+  const sel = document.getElementById('codingLaunchProject');
+  const val = sel ? sel.value : '';
+  const nameRow = document.getElementById('codingNewProjNameRow');
+  const wtRow = document.getElementById('codingWorktreeRow');
+  const cwd = document.getElementById('codingCwd');
+  const hint = document.getElementById('codingCwdHint');
+  const defaultHint = '<code>~</code> and relative paths work; the folder is created if it doesn\'t exist.';
+  if (val === '__new__') {
+    if (nameRow) nameRow.style.display = '';
+    if (wtRow) wtRow.style.display = '';
+    if (hint) hint.innerHTML = 'This is the new project\'s repo path. <code>~</code> and relative paths work; the folder is created if it doesn\'t exist.';
+  } else if (val) {
+    // Existing project: prefill cwd from its repo path, hide worktree + name.
+    const proj = _codingFindProject(val);
+    if (proj && cwd) cwd.value = proj.repo_path || proj.path || proj.cwd || '';
+    if (nameRow) nameRow.style.display = 'none';
+    if (wtRow) wtRow.style.display = 'none';
+    if (hint) hint.innerHTML = 'Defaults to the project\'s folder. Change it only to run this session elsewhere.';
+  } else {
+    // Auto — new project from the working directory.
+    if (nameRow) nameRow.style.display = 'none';
+    if (wtRow) wtRow.style.display = '';
+    if (hint) hint.innerHTML = defaultHint;
+  }
+}
+window.codingLaunchProjectChanged = codingLaunchProjectChanged;
 
 function codingClearDetail() {
   _codingStopPoll();
@@ -615,10 +727,12 @@ function codingToggleSyncOpts() {
 window.codingToggleSyncOpts = codingToggleSyncOpts;
 
 async function codingLaunch() {
+  const projectSel = ((document.getElementById('codingLaunchProject') || {}).value || '');
   const cwd = (document.getElementById('codingCwd') || {}).value || '';
   const title = (document.getElementById('codingTitle') || {}).value || '';
   const model = (document.getElementById('codingModel') || {}).value || '';
-  const prompt = (document.getElementById('codingPrompt') || {}).value || '';
+  const initialPrompt = (document.getElementById('codingPrompt') || {}).value || '';
+  const newProjName = ((document.getElementById('codingNewProjName') || {}).value || '').trim();
   const worktree = !!(document.getElementById('codingWorktree') || {}).checked;
   const skipPerms = !!(document.getElementById('codingSkipPerms') || {}).checked;
   const syncOn = !!(document.getElementById('codingSync') || {}).checked;
@@ -630,27 +744,77 @@ async function codingLaunch() {
   const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = ''; } };
   if (errEl) errEl.style.display = 'none';
   if (!cwd.trim()) { showErr('Working directory is required.'); return; }
-  if (!prompt.trim()) { showErr('An initial prompt is required.'); return; }
+  if (!initialPrompt.trim()) { showErr('An initial prompt is required.'); return; }
   if (btn) { btn.disabled = true; btn.textContent = 'Launching…'; }
-  try {
-    // The API accepts cwd or repo_path for the directory; we send both keys set
-    // to the same value so either server-side naming works.
-    const payload = {
-      cwd: cwd.trim(),
-      repo_path: cwd.trim(),
-      worktree,
+  const sync = syncOn ? { enabled: true, device: syncDevice, remote_path: syncPath } : null;
+  // Body for the project-scoped session endpoint (existing or freshly-created
+  // project). cwd is included only when the user changed it from the project's
+  // default repo_path (so the backend uses the project folder otherwise).
+  const projectSessionBody = (pid) => {
+    const proj = _codingFindProject(pid);
+    const projPath = proj ? String(proj.repo_path || proj.path || proj.cwd || '') : '';
+    const body = {
+      title: title.trim(),
+      prompt: initialPrompt.trim(),
       skip_permissions: skipPerms,
       host,
-      title: title.trim(),
-      prompt: prompt.trim(),
     };
-    if (model.trim()) payload.model = model.trim();
-    if (syncOn) payload.sync = { enabled: true, device: syncDevice, remote_path: syncPath };
-    const res = await api('/api/coding/launch', { method: 'POST', body: JSON.stringify(payload) });
-    if (!res || res.ok === false) { showErr((res && (res.error || res.message)) || 'Launch failed.'); return; }
-    const sess = res.session || {};
+    if (model.trim()) body.model = model.trim();
+    if (cwd.trim() && cwd.trim() !== projPath) body.cwd = cwd.trim();
+    if (sync) body.sync = sync;
+    return body;
+  };
+  // Refresh, expand the target project, open the new session.
+  const onLaunched = async (sess, expandPid) => {
+    if (expandPid != null) { _codingCollapsed.delete(String(expandPid)); _codingPersistCollapsed(); }
     await _codingRefreshList();
-    if (sess.id != null) codingOpenSession(String(sess.id));
+    if (sess && sess.id != null) codingOpenSession(String(sess.id));
+  };
+  try {
+    if (projectSel === '__new__') {
+      // Create the project first, then launch a session into it.
+      if (!newProjName) { showErr('New project name is required.'); return; }
+      if (!cwd.trim()) { showErr('Repo path (working directory) is required.'); return; }
+      const created = await api('/api/coding/projects', {
+        method: 'POST', body: JSON.stringify({ name: newProjName, repo_path: cwd.trim() }),
+      });
+      if (!created || created.ok === false) {
+        showErr((created && (created.error || created.message)) || 'Could not create project.'); return;
+      }
+      const newPid = created.project_id != null ? created.project_id : (created.project && created.project.id);
+      if (newPid == null) { showErr('Project created but no id was returned.'); return; }
+      await _codingRefreshList();   // so _codingFindProject() can resolve the new project's path
+      const res = await api('/api/coding/project/' + encodeURIComponent(String(newPid)) + '/session', {
+        method: 'POST', body: JSON.stringify(projectSessionBody(String(newPid))),
+      });
+      if (!res || res.ok === false) { showErr((res && (res.error || res.message)) || 'Launch failed.'); return; }
+      await onLaunched(res.session || {}, newPid);
+    } else if (projectSel) {
+      // Existing project → project-scoped session endpoint.
+      const res = await api('/api/coding/project/' + encodeURIComponent(projectSel) + '/session', {
+        method: 'POST', body: JSON.stringify(projectSessionBody(projectSel)),
+      });
+      if (!res || res.ok === false) { showErr((res && (res.error || res.message)) || 'Launch failed.'); return; }
+      await onLaunched(res.session || {}, projectSel);
+    } else {
+      // Auto — new project from the working directory (current behavior).
+      // The API accepts cwd or repo_path for the directory; we send both keys set
+      // to the same value so either server-side naming works.
+      const payload = {
+        cwd: cwd.trim(),
+        repo_path: cwd.trim(),
+        worktree,
+        skip_permissions: skipPerms,
+        host,
+        title: title.trim(),
+        prompt: initialPrompt.trim(),
+      };
+      if (model.trim()) payload.model = model.trim();
+      if (sync) payload.sync = sync;
+      const res = await api('/api/coding/launch', { method: 'POST', body: JSON.stringify(payload) });
+      if (!res || res.ok === false) { showErr((res && (res.error || res.message)) || 'Launch failed.'); return; }
+      await onLaunched(res.session || {}, null);
+    }
   } catch (e) {
     showErr((e && e.message) || 'Launch failed.');
   } finally {
@@ -1004,14 +1168,14 @@ async function codingRestart() {
   try {
     const res = await api('/api/coding/session/' + encodeURIComponent(id) + '/restart',
       { method: 'POST', body: JSON.stringify({}) });
-    if (res && res.ok === false) { alert(res.error || 'Restart failed.'); return; }
+    if (res && res.ok === false) { _codingFlash(res.error || 'Restart failed.'); return; }
     // Force a full re-render so the live terminal re-attaches to the NEW tmux.
     _codingTeardownTerminal();
     _codingDetailShellId = null;
     await _codingRefreshDetail();
     _codingRefreshList();
   } catch (e) {
-    alert((e && e.message) || 'Restart failed.');
+    _codingFlash((e && e.message) || 'Restart failed.');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Restart'; }
   }
@@ -1020,7 +1184,14 @@ window.codingRestart = codingRestart;
 
 async function codingDelete() {
   if (!_codingSelectedId) return;
-  if (!window.confirm('Delete this coding session? This stops it and permanently removes it.')) return;
+  const ok = await showConfirmDialog({
+    title: 'Delete session',
+    message: 'Delete this coding session? This stops it and permanently removes it.',
+    confirmLabel: 'Delete',
+    cancelLabel: 'Cancel',
+    danger: true,
+  });
+  if (!ok) return;
   const id = _codingSelectedId;
   try {
     await api('/api/coding/session/' + encodeURIComponent(id) + '/delete',
@@ -1028,7 +1199,7 @@ async function codingDelete() {
     codingClearDetail();
     _codingRefreshList();
   } catch (e) {
-    alert((e && e.message) || 'Delete failed.');
+    _codingFlash((e && e.message) || 'Delete failed.');
   }
 }
 window.codingDelete = codingDelete;
