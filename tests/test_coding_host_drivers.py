@@ -1,4 +1,34 @@
-from agent.coding_host_drivers import LocalDriver, is_valid_model, SCRUB_KEYS
+from agent.coding_host_drivers import (
+    DesktopDriver, LocalDriver, is_valid_model, SCRUB_KEYS)
+
+
+def test_claude_argv_adds_mcp_config_when_given():
+    d = LocalDriver()
+    argv = d.claude_argv(plugin_dir="/p", context_file="/c.md", model=None,
+                         initial_prompt=None, mcp_config="/tmp/cs_1/mcp.json")
+    assert "--mcp-config" in argv
+    assert argv[argv.index("--mcp-config") + 1] == "/tmp/cs_1/mcp.json"
+    # omitted when not given
+    argv2 = d.claude_argv(plugin_dir="/p", context_file="/c.md", model=None,
+                          initial_prompt=None)
+    assert "--mcp-config" not in argv2
+
+
+def test_local_driver_mcp_servers_runs_server_side_module():
+    d = LocalDriver()
+    cfg = d.mcp_servers(cwd="/work", repo_root="/repo")
+    srv = cfg["mcpServers"]["jarviscopilot-code-assist"]
+    # server host runs the LOCAL-store MCP, not the desktop's jc-client binary
+    assert srv["command"] == "python3"
+    assert srv["args"] == ["-m", "agent.coding_mcp_server"]
+    assert srv["env"]["PYTHONPATH"] == "/repo"
+
+
+def test_desktop_driver_mcp_servers_is_none():
+    # a server-written --mcp-config path is unreadable on the desktop, so the
+    # desktop host gets no override (it supplies its own jc-client mcp-serve).
+    d = DesktopDriver(bridge_run=lambda argv: None)
+    assert d.mcp_servers(cwd="/work", repo_root="/repo") is None
 
 
 def test_is_valid_model_allowlist():

@@ -75,6 +75,28 @@ class CodingSessionManager:
     def _context_path(self, sid: str) -> Path:
         return self.context_root / sid / "JARVIS-CONTEXT.md"
 
+    def _mcp_config_path(self, sid: str, cwd: str) -> str | None:
+        """Write a per-session ``.mcp.json`` from the driver's host-appropriate
+        code-assist MCP config (next to the context file, OUTSIDE the repo) and
+        return its path for ``claude --mcp-config``. Returns None when the driver
+        wants no override (e.g. desktop host) or has no ``mcp_servers`` method."""
+        mcp_fn = getattr(self.driver, "mcp_servers", None)
+        if not callable(mcp_fn):
+            return None
+        try:
+            repo_root = Path(self.plugin_dir).resolve().parent.parent
+            cfg = mcp_fn(cwd=cwd, repo_root=str(repo_root))
+        except Exception:
+            cfg = None
+        if not cfg:
+            return None
+        import json as _json
+
+        path = self.context_root / sid / "mcp.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(cfg, indent=2), encoding="utf-8")
+        return str(path)
+
     def launch(self, *, cwd, title, initial_prompt, model, project_id=None,
                branch=None, worktree_path=None, worktree=False, repo_path=None,
                skip_permissions=False, sync=None):
@@ -145,7 +167,8 @@ class CodingSessionManager:
         launch_argv = self.driver.claude_argv(
             plugin_dir=self.plugin_dir, context_file=str(ctx_path),
             model=model, initial_prompt=initial_prompt,
-            skip_permissions=skip_permissions)
+            skip_permissions=skip_permissions,
+            mcp_config=self._mcp_config_path(sid, cwd))
         since = time.time()
         res = self.driver._run(self.driver.tmux_new_argv(
             tmux_name=tmux_name, cwd=cwd, launch_argv=launch_argv))
@@ -270,7 +293,8 @@ class CodingSessionManager:
         launch_argv = self.driver.claude_argv(
             plugin_dir=self.plugin_dir, context_file=str(ctx_path),
             model=None, initial_prompt=None,
-            skip_permissions=bool(row.get("skip_permissions")), resume=True)
+            skip_permissions=bool(row.get("skip_permissions")), resume=True,
+            mcp_config=self._mcp_config_path(sid, cwd))
         res = self.driver._run(self.driver.tmux_new_argv(
             tmux_name=tmux_name, cwd=cwd, launch_argv=launch_argv))
         rc = getattr(res, "returncode", 0)

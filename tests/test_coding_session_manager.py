@@ -14,8 +14,11 @@ class FakeDriver:
         self.returncode = returncode
 
     def claude_argv(self, *, plugin_dir, context_file, model, initial_prompt,
-                    skip_permissions=False, resume=False):
-        return ["env", "claude", "--append-system-prompt-file", context_file]
+                    skip_permissions=False, resume=False, mcp_config=None):
+        argv = ["env", "claude", "--append-system-prompt-file", context_file]
+        if mcp_config:
+            argv += ["--mcp-config", mcp_config]
+        return argv
 
     def tmux_new_argv(self, *, tmux_name, cwd, launch_argv):
         return ["tmux", "new-session", "-d", "-s", tmux_name, "-c", cwd] + list(launch_argv)

@@ -63,7 +63,8 @@ class LocalDriver(HostDriver):
     def claude_argv(self, *, plugin_dir: str, context_file: str,
                     model: str | None, initial_prompt: str | None,
                     skip_permissions: bool = False,
-                    resume: bool = False) -> list[str]:
+                    resume: bool = False,
+                    mcp_config: str | None = None) -> list[str]:
         """argv that starts a real agentic claude session.
 
         Deliberately omits the inference-shim's crippling flags (``--tools ""``,
@@ -77,6 +78,12 @@ class LocalDriver(HostDriver):
         unless ``IS_SANDBOX=1`` — hermes runs as root, so we set it via the env
         prefix when the flag is on. ``resume`` adds ``--continue`` (resume the
         most recent conversation in this cwd — used by Restart).
+
+        ``mcp_config`` (a path to a per-session ``.mcp.json``) adds
+        ``--mcp-config`` so the code-assist MCP server is whatever the HOST can
+        actually run — on the server that's ``python3 -m agent.coding_mcp_server``
+        (the plugin's old static ``jc-client mcp-serve`` only exists on the
+        desktop, so server-host sessions hit ENOENT and showed "MCP failed").
         """
         prefix = self._scrub_prefix()
         if skip_permissions:
@@ -86,6 +93,8 @@ class LocalDriver(HostDriver):
             "--plugin-dir", plugin_dir,
             "--append-system-prompt-file", context_file,
         ]
+        if mcp_config:
+            argv += ["--mcp-config", mcp_config]
         if resume:
             argv += ["--continue"]
         if skip_permissions:
@@ -95,6 +104,24 @@ class LocalDriver(HostDriver):
         if initial_prompt and not resume:
             argv += [initial_prompt]
         return argv
+
+    def mcp_servers(self, *, cwd: str, repo_root: str) -> dict | None:
+        """The ``mcpServers`` config for the code-assist MCP on THIS host.
+
+        Server host: run the local-store MCP (``agent.coding_mcp_server``) with
+        the repo root on ``PYTHONPATH`` so ``agent`` imports. Returns a dict the
+        manager writes to a per-session ``.mcp.json`` and passes via
+        ``--mcp-config``; returns None to add no server.
+        """
+        return {
+            "mcpServers": {
+                "jarviscopilot-code-assist": {
+                    "command": "python3",
+                    "args": ["-m", "agent.coding_mcp_server"],
+                    "env": {"PYTHONPATH": str(repo_root)},
+                }
+            }
+        }
 
     def tmux_new_argv(self, *, tmux_name: str, cwd: str,
                       launch_argv: list[str]) -> list[str]:
@@ -170,6 +197,14 @@ class DesktopDriver(LocalDriver):
         # on_launched_fn(session_id, cwd, tmux_name, sync) — called by the
         # manager after a successful start to kick off the file sync.
         self._on_launched_fn = on_launched_fn
+
+    def mcp_servers(self, *, cwd: str, repo_root: str) -> dict | None:
+        """No server-written ``--mcp-config`` for a desktop-host session: the
+        config file would live on the SERVER filesystem, unreadable by the
+        desktop's claude. The desktop client supplies its own code-assist MCP
+        (``jc-client mcp-serve``). Returning None leaves the desktop path
+        unchanged."""
+        return None
 
     def on_launched(self, *, session_id, cwd, tmux_name, sync):
         if self._on_launched_fn is not None:
