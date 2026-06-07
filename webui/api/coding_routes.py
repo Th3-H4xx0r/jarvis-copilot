@@ -152,7 +152,24 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
     # ── /projects ──
     if p == "/projects":
         if method == "GET":
-            return _run(lambda: _ok({"projects": manager.store.list_projects()}))
+            expand = (query.get("expand") or "") == "sessions"
+
+            def _list_projects():
+                projects = manager.store.list_projects()
+                if expand:
+                    by_pid = {}
+                    for s in manager.list():
+                        by_pid.setdefault(s.get("project_id"), []).append(s)
+                    for proj in projects:
+                        proj["sessions"] = by_pid.get(proj["id"], [])
+                    # Sessions with no project (legacy rows) surface in a synthetic
+                    # bucket so nothing is hidden in the UI.
+                    orphans = by_pid.get(None, [])
+                    return _ok({"projects": projects,
+                                "ungrouped": orphans})
+                return _ok({"projects": projects})
+
+            return _run(_list_projects)
         if method == "POST":
             name = (body.get("name") or "").strip()
             repo_path = (body.get("repo_path") or "").strip()
@@ -166,6 +183,69 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 return _ok({"ok": True, "project_id": pid})
 
             return _run(_create)
+        return _err(404, "not found")
+
+    # ── /project/<id>[/session] ──
+    if p.startswith("/project/"):
+        ptail = p[len("/project/"):]
+        pparts = ptail.split("/")
+        pid = pparts[0]
+        paction = pparts[1] if len(pparts) > 1 else ""
+        if not pid:
+            return _err(404, "not found")
+
+        # POST /project/<id>  — rename / set sync / default_branch
+        if paction == "" and method == "POST":
+            def _update_project():
+                if manager.store.get_project(pid) is None:
+                    return _err(404, "project not found: " + pid)
+                fields = {k: body[k] for k in
+                          ("name", "default_branch", "sync_enabled",
+                           "sync_desktop_path", "ignore_rules") if k in body}
+                manager.store.update_project(pid, **fields)
+                return _ok({"ok": True, "project": manager.store.get_project(pid)})
+
+            return _run(_update_project)
+
+        # DELETE /project/<id>?delete_sessions=0|1
+        if paction == "" and method == "DELETE":
+            cascade = (query.get("delete_sessions") or "0") == "1"
+
+            def _delete_project():
+                if manager.store.get_project(pid) is None:
+                    return _err(404, "project not found: " + pid)
+                for s in manager.store.list_sessions(project_id=pid):
+                    if cascade:
+                        try:
+                            manager.delete(s["id"])
+                        except Exception:
+                            pass
+                    else:
+                        manager.store.update_session(s["id"], project_id=None)
+                manager.store.delete_project(pid)
+                return _ok({"ok": True})
+
+            return _run(_delete_project)
+
+        # POST /project/<id>/session  — launch a session IN this project
+        if paction == "session" and method == "POST":
+            def _launch_in_project():
+                proj = manager.store.get_project(pid)
+                if proj is None:
+                    return _err(404, "project not found: " + pid)
+                host = body.get("host") or proj.get("host") or "server"
+                launch_mgr = manager_for_host(host) if manager_for_host else manager
+                cwd = body.get("cwd") or proj.get("repo_path")
+                session = launch_mgr.launch(
+                    cwd=cwd, title=body.get("title"),
+                    initial_prompt=body.get("prompt"), model=body.get("model"),
+                    project_id=pid,
+                    skip_permissions=bool(body.get("skip_permissions")),
+                    sync=body.get("sync"))
+                return _ok({"ok": True, "session": session})
+
+            return _run(_launch_in_project)
+
         return _err(404, "not found")
 
     # ── /sessions ──

@@ -27,6 +27,22 @@ def _resolve_dir(p: str | None) -> str:
     return os.path.abspath(os.path.expanduser(str(p)))
 
 
+def _repo_root(cwd: str) -> str:
+    """Git toplevel of ``cwd`` (so every session in a repo groups under ONE
+    project), falling back to ``cwd`` itself for non-git folders. Never raises."""
+    cwd = _resolve_dir(cwd) or cwd
+    try:
+        import subprocess
+        r = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+                           capture_output=True, text=True, timeout=5)
+        top = (r.stdout or "").strip()
+        if r.returncode == 0 and top:
+            return top
+    except Exception:
+        pass
+    return cwd
+
+
 def _default_context_root() -> Path:
     try:
         from jarviscopilot_constants import get_hermes_home
@@ -137,6 +153,15 @@ class CodingSessionManager:
         if reason:
             raise RuntimeError(reason)
         tmux_name = "jc-" + uuid.uuid4().hex[:8]
+        # Every session belongs to a PROJECT. When the caller didn't pick one,
+        # auto-group by the repo root of cwd (git toplevel, else cwd) so sessions
+        # in the same repo land together — keyed per (repo_path, device_id).
+        if not project_id:
+            try:
+                project_id = self.store.get_or_create_project_for_path(
+                    repo_path=_repo_root(cwd), host=self.driver.name)
+            except Exception:
+                project_id = None  # never block a launch on project bookkeeping
         # 1. record the session first (so the context dir can be session-scoped)
         sync_config = None
         if sync and (sync.get("enabled") or sync.get("device") or sync.get("remote_path")):

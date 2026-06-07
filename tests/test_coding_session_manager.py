@@ -62,6 +62,20 @@ def test_launch_writes_context_outside_repo(tmp_path):
     assert not (tmp_path / "JARVIS-CONTEXT.md").exists()
 
 
+def test_launch_auto_links_a_project(tmp_path):
+    # Every launched session lands in a project (auto-created from the cwd's
+    # repo root) so the UI can group them. Two launches in the same folder
+    # reuse ONE project.
+    mgr, _ = _mgr(tmp_path)
+    s1 = mgr.launch(cwd=str(tmp_path), title="a", initial_prompt=None, model=None)
+    s2 = mgr.launch(cwd=str(tmp_path), title="b", initial_prompt=None, model=None)
+    row1 = mgr.store.get_session(s1["id"])
+    row2 = mgr.store.get_session(s2["id"])
+    assert row1["project_id"] and row1["project_id"] == row2["project_id"]
+    proj = mgr.store.get_project(row1["project_id"])
+    assert proj is not None and proj["repo_path"]
+
+
 def test_launch_auto_creates_missing_cwd(tmp_path):
     import os
     mgr, _ = _mgr(tmp_path)
