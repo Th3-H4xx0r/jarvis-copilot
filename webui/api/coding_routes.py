@@ -359,35 +359,42 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
 
             return _run(_restart)
 
-        # POST /session/<id>/resume  — resume a discovered transcript (history)
-        # session into a live, drivable tmux on its desktop (claude --resume).
+        # POST /session/<id>/resume  — resume a DISCOVERED (Mac) session as a new
+        # session ON THE SERVER: pull its transcript from the device, mirror it
+        # into the server's ~/.claude, and run `claude --resume <csid>` in a
+        # server-side checkout with sync back to the Mac. The discovered session
+        # NEVER relaunches on the Mac.
         if action == "resume" and method == "POST":
             def _resume():
                 row = manager.status(sid)
                 if row is None:
                     return _err(404, "session not found: " + sid)
-                # Resume is ONLY for discovered transcript (history) rows — it
-                # flips the row to host='desktop'/source='discovered-tmux' and
-                # spawns a `claude --resume` tmux. Letting a server-host /
-                # Jarvis-launched session through here would corrupt a real
-                # running session (re-host it onto a desktop, overwrite its
-                # tmux_name). Reject anything that isn't a discovered transcript.
-                if not (row.get("source") or "").startswith("discovered-transcript"):
-                    return _err(400,
-                                "only discovered transcript sessions can be resumed")
+                # Resume is ONLY for discovered (device-side) rows. A server-host
+                # / Jarvis-launched session that happens to carry a
+                # claude_session_id must be rejected — it already runs on the
+                # server; "resuming" it would spin up a confusing duplicate.
+                if not (row.get("source") or "").startswith("discovered"):
+                    return _err(400, "only discovered sessions can be resumed")
                 if not (row.get("claude_session_id") or "").strip():
                     return _err(400, "session has no claude_session_id to resume")
                 from api.coding_desktop import (
-                    resolve_desktop_device_id, resume_discovered_session)
+                    get_desktop_bridge, resolve_desktop_device_id,
+                    resume_discovered_to_server)
 
                 device_id = (row.get("device_id") or "").strip() \
                     or resolve_desktop_device_id()
                 if not device_id:
                     return _err(409, "desktop client is not connected")
-                # Drive the resume on the row's own device (resume helper resolves
-                # the device again, but pass it through the row so it's honoured).
-                resumed = resume_discovered_session(dict(row, device_id=device_id))
-                return _ok({"ok": True, "session": resumed})
+                # Always run the resumed session on the SERVER (host LocalDriver),
+                # regardless of where the discovered session was scanned.
+                server_mgr = (manager_for_host("server")
+                              if manager_for_host else manager)
+                result = resume_discovered_to_server(
+                    sid, manager=server_mgr, bridge=get_desktop_bridge())
+                payload = {"ok": True, "session": result.get("session")}
+                if result.get("warning"):
+                    payload["warning"] = result["warning"]
+                return _ok(payload)
 
             return _run(_resume)
 

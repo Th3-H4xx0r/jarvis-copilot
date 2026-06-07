@@ -20,6 +20,7 @@ Coverage:
 from __future__ import annotations
 
 import base64
+import gzip
 import os
 import sys
 
@@ -32,6 +33,7 @@ for _p in (_WEBUI_DIR, _REPO_ROOT):
 
 from api import coding_desktop as cd  # noqa: E402
 from agent.coding_host_drivers import DesktopDriver, LocalDriver  # noqa: E402
+from agent.coding_session_manager import CodingSessionManager  # noqa: E402
 
 
 # ── fakes ────────────────────────────────────────────────────────────────────
@@ -938,170 +940,384 @@ def test_ingest_mixed_batch_both_kinds(tmp_path, monkeypatch):
     assert by_src["discovered-transcript"]["status"] == "idle"
 
 
-# ── send_resume + resume_discovered_session ──────────────────────────────────
+# ── claude --resume <id> argv (specific transcript) ──────────────────────────
 
 
-def test_send_resume_emits_frame():
-    bridge, t = make_bridge()
-    assert bridge.send_resume("dev-R", claude_session_id="abc",
-                              cwd="/w/r", tmux_name="jc-newterm") is True
-    f = t.frames("coding_resume")
-    assert f == [{"type": "coding_resume", "claude_session_id": "abc",
-                  "cwd": "/w/r", "tmux_name": "jc-newterm"}]
-    assert t.sent[0][0] == "dev-R"
+def test_local_driver_claude_argv_resume_session_id():
+    """resume_session_id -> ``--resume <id>`` and the initial prompt is suppressed
+    (an existing conversation to continue). Distinct from resume=True (--continue)."""
+    drv = LocalDriver()
+    argv = drv.claude_argv(plugin_dir="/p", context_file="/c", model=None,
+                           initial_prompt="seed me", resume_session_id="csid-9")
+    assert "--resume" in argv
+    assert argv[argv.index("--resume") + 1] == "csid-9"
+    assert "seed me" not in argv          # initial prompt suppressed on resume
+    assert "--continue" not in argv
+    # the Restart path still uses --continue (latest conversation), not --resume
+    cont = drv.claude_argv(plugin_dir="/p", context_file="/c", model=None,
+                           initial_prompt=None, resume=True)
+    assert "--continue" in cont and "--resume" not in cont
 
 
-def test_resume_discovered_session_sends_frame_and_updates_row(tmp_path, monkeypatch):
+# ── request_transcript: pull a discovered transcript FROM the device ─────────
+
+
+class TranscriptResponder:
+    """A FakeTransport that, on a ``coding_transcript_get``, SYNCHRONOUSLY feeds
+    back the configured ``coding_transcript_data`` frames through the bridge (so
+    ``request_transcript`` finds the event already set when it waits)."""
+
+    def __init__(self, chunks, *, error=None, respond=True):
+        # chunks: list[(seq, content_b64, eof)]
+        self.bridge = None
+        self.chunks = chunks
+        self.error = error
+        self.respond = respond
+        self.sent = []
+
+    def send(self, device_id, frame):
+        self.sent.append((device_id, dict(frame)))
+        if frame.get("type") != "coding_transcript_get" or not self.respond:
+            return True
+        req_id = frame["req_id"]
+        if self.error is not None:
+            self.bridge.on_frame(device_id, {
+                "type": "coding_transcript_data", "req_id": req_id,
+                "ok": False, "error": self.error})
+            return True
+        for (seq, content_b64, eof) in self.chunks:
+            self.bridge.on_frame(device_id, {
+                "type": "coding_transcript_data", "req_id": req_id,
+                "claude_session_id": frame.get("claude_session_id"),
+                "seq": seq, "eof": eof, "content_b64": content_b64})
+        return True
+
+
+def _make_transcript_bridge(chunks, *, error=None, respond=True):
+    resp = TranscriptResponder(chunks, error=error, respond=respond)
+    bridge = cd.DesktopBridge(transport=resp)
+    resp.bridge = bridge
+    return bridge, resp
+
+
+def _gz_chunks(raw, *, pieces=3):
+    """gzip ``raw`` then split into ``pieces`` base64 chunks (seq, b64, eof)."""
+    gz = gzip.compress(raw)
+    step = max(1, len(gz) // pieces)
+    out = []
+    i = seq = 0
+    while i < len(gz):
+        part = gz[i:i + step]
+        i += step
+        out.append((seq, base64.b64encode(part).decode(), i >= len(gz)))
+        seq += 1
+    return out
+
+
+def test_request_transcript_reassembles_and_gunzips():
+    raw = b'{"type":"user"}\n{"type":"assistant"}\n' * 200
+    chunks = _gz_chunks(raw, pieces=3)
+    assert len(chunks) >= 2  # actually split, so reassembly is exercised
+    # feed in REVERSE seq order (eof chunk first) to prove reassembly sorts by
+    # seq and that a late chunk after eof is still accumulated.
+    shuffled = list(reversed(chunks))
+    bridge, resp = _make_transcript_bridge(shuffled)
+    out = bridge.request_transcript("dev-T", claude_session_id="csid",
+                                    cwd="/w/p", timeout=2.0)
+    assert out == raw
+    # the get frame carried the req_id + lookup keys
+    gets = [f for (_d, f) in resp.sent if f.get("type") == "coding_transcript_get"]
+    assert len(gets) == 1
+    assert gets[0]["claude_session_id"] == "csid" and gets[0]["cwd"] == "/w/p"
+
+
+def test_request_transcript_timeout_returns_none():
+    bridge, _resp = _make_transcript_bridge([], respond=False)  # device never replies
+    out = bridge.request_transcript("dev-T", claude_session_id="c", cwd="/w",
+                                    timeout=0.05)
+    assert out is None
+
+
+def test_request_transcript_device_error_returns_none():
+    bridge, _resp = _make_transcript_bridge([], error="no such transcript")
+    out = bridge.request_transcript("dev-T", claude_session_id="c", cwd="/w",
+                                    timeout=2.0)
+    assert out is None
+
+
+def test_request_transcript_oversize_returns_none(monkeypatch):
+    monkeypatch.setattr(cd.DesktopBridge, "_TRANSCRIPT_CAP", 16, raising=True)
+    big = base64.b64encode(b"x" * 64).decode()  # 64 decoded bytes > 16 cap
+    bridge, _resp = _make_transcript_bridge([(0, big, True)])
+    out = bridge.request_transcript("dev-T", claude_session_id="c", cwd="/w",
+                                    timeout=2.0)
+    assert out is None
+
+
+def test_request_transcript_returns_none_when_device_offline():
+    bridge, _t = make_bridge(connected=False)  # send() returns False
+    out = bridge.request_transcript("dev-off", claude_session_id="c", cwd="/w",
+                                    timeout=2.0)
+    assert out is None
+
+
+def test_request_transcript_cleans_up_waiter():
+    raw = b"hello transcript\n"
+    bridge, _resp = _make_transcript_bridge(_gz_chunks(raw, pieces=1))
+    assert bridge.request_transcript("dev-T", claude_session_id="c", cwd="/w",
+                                     timeout=2.0) == raw
+    # the in-flight waiter registry is empty again (no leak on success)
+    assert bridge._transcript_waiters == {}
+
+
+# ── resume_discovered_to_server: run a discovered session ON THE SERVER ───────
+
+
+class _FailManager:
+    """A manager whose launch must NOT be reached (validation rejects first)."""
+
+    def launch(self, **kw):
+        raise AssertionError("manager.launch must not be called")
+
+
+class _RecordingServerDriver:
+    """Minimal host=server driver that records the claude_argv kwargs + tmux cwd
+    so the resume test can assert ``--resume <csid>`` ran in the server cwd."""
+
+    name = "server"
+
+    def __init__(self):
+        self.claude_kw = None
+        self.tmux_calls = []
+
+    def preflight(self):
+        return None
+
+    def claude_argv(self, *, plugin_dir, context_file, model, initial_prompt,
+                    skip_permissions=False, resume=False, resume_session_id=None,
+                    mcp_config=None):
+        self.claude_kw = dict(model=model, initial_prompt=initial_prompt,
+                              resume=resume, resume_session_id=resume_session_id)
+        argv = ["env", "claude"]
+        if resume_session_id:
+            argv += ["--resume", str(resume_session_id)]
+        return argv
+
+    def tmux_new_argv(self, *, tmux_name, cwd, launch_argv):
+        self.tmux_calls.append({"tmux_name": tmux_name, "cwd": cwd,
+                                "launch_argv": list(launch_argv)})
+        return ["tmux", "new-session", "-d", "-s", tmux_name, "-c", cwd] \
+            + list(launch_argv)
+
+    def _run(self, argv):
+        import types as _types
+        return _types.SimpleNamespace(returncode=0, stderr="")
+
+
+def _server_resume_fixture(tmp_path, monkeypatch, *,
+                           transcript=b'{"type":"user"}\n'):
+    """Seed a discovered transcript row + wire a server manager/bridge for resume.
+
+    ``transcript`` is the RAW (gunzipped) bytes ``request_transcript`` returns;
+    pass None to simulate a failed pull."""
     store = _temp_store(tmp_path)
-    monkeypatch.setattr(cd, "_resolve_store", lambda: store, raising=True)
-    # Seed an idle discovered-transcript row to resume.
-    _discovered("dev-res", [
-        {"kind": "transcript", "claude_session_id": "resume-me", "cwd": "/w/res",
-         "summary": "resume me"},
-    ], store, monkeypatch)
-    row = store.list_sessions(device_id="dev-res")[0]
-    assert row["status"] == "idle"
-
-    bridge, t = make_bridge()
-    updated = cd.resume_discovered_session(row, bridge=bridge, store=store)
-
-    # A coding_resume frame was sent to the row's device with a fresh jc- tmux name.
-    frames = t.frames("coding_resume")
-    assert len(frames) == 1
-    f = frames[0]
-    assert t.sent[0][0] == "dev-res"
-    assert f["claude_session_id"] == "resume-me"
-    assert f["cwd"] == "/w/res"
-    assert f["tmux_name"].startswith("jc-")
-    # The row was flipped to a starting, drivable tmux.
-    assert updated["status"] == "starting"
-    assert updated["host"] == "desktop"
-    assert updated["tmux_name"] == f["tmux_name"]
-    # source flips to 'discovered-tmux' so the NEXT discovery tick's tmux upsert
-    # (keyed by device_id+tmux_name within the discovered-tmux scope) MATCHES
-    # this row instead of creating a duplicate live row alongside it.
-    assert updated["source"] == "discovered-tmux"
-
-
-def test_resume_discovered_session_requires_claude_session_id(tmp_path, monkeypatch):
-    store = _temp_store(tmp_path)
-    bridge, t = make_bridge()
-    import pytest
-    with pytest.raises(ValueError):
-        cd.resume_discovered_session(
-            {"id": "cs_x", "device_id": "dev-x", "cwd": "/w"},
-            bridge=bridge, store=store)
-    assert t.sent == []
-
-
-def test_resume_discovered_session_no_device_raises_value_error(tmp_path, monkeypatch):
-    """A row with no device_id AND no resolvable desktop -> a clean ValueError
-    (NOT a RuntimeError/500). The route maps the 'no device' case to 409 itself;
-    the helper's own guard is the backstop and must stay a ValueError."""
-    import pytest
-
-    store = _temp_store(tmp_path)
-    monkeypatch.setattr(cd, "resolve_desktop_device_id",
-                        lambda preferred=None: None, raising=True)
-    bridge, t = make_bridge()
-    with pytest.raises(ValueError):
-        cd.resume_discovered_session(
-            {"id": "cs_x", "claude_session_id": "C", "cwd": "/w",
-             "device_id": ""}, bridge=bridge, store=store)
-    assert t.sent == []  # no frame sent when there's nowhere to send it
-
-
-def test_resume_discovered_session_persists_source_flip(tmp_path, monkeypatch):
-    """resume flips source -> 'discovered-tmux' and the store NOW persists it
-    (its update_session allow-list includes 'source'). This is load-bearing for
-    the rediscover dedup: the resumed row must read back as discovered-tmux."""
-    store = _temp_store(tmp_path)
-    monkeypatch.setattr(cd, "_resolve_store", lambda: store, raising=True)
-    _discovered("dev-src", [
-        {"kind": "transcript", "claude_session_id": "flip-me", "cwd": "/w/f",
-         "summary": "flip"},
-    ], store, monkeypatch)
-    row = store.list_sessions(device_id="dev-src")[0]
-    assert row["source"] == "discovered-transcript"
-
-    bridge, _t = make_bridge()
-    cd.resume_discovered_session(row, bridge=bridge, store=store)
-    # Re-read from the store (not the returned dict) to prove it PERSISTED.
-    persisted = store.get_session(row["id"])
-    assert persisted["source"] == "discovered-tmux"
-    assert persisted["claude_session_id"] == "flip-me"  # csid kept
-
-
-# ── CRITICAL: resume -> rediscover dedup chain (one row, drivable, no dup) ────
-
-
-def _resume_then_rediscover(store, monkeypatch, *, rediscover_transcript):
-    """Helper: ingest an idle transcript, resume it, then run a rediscover push
-    carrying {the new tmux item} + ``rediscover_transcript`` (the desktop still
-    listing the same csid as transcript history). Returns the rows afterwards."""
     monkeypatch.setattr(cd, "_resolve_store", lambda: store, raising=True)
     cd._DISMISSED_DISCOVERED.clear()
-    cd.ingest_discovered("dev-chain", [
-        {"kind": "transcript", "claude_session_id": "CSID",
-         "cwd": "/w/proj", "summary": "history"},
+    cd.ingest_discovered("dev-mac", [
+        {"kind": "transcript", "claude_session_id": "CSID-1",
+         "cwd": "/Users/me/proj", "summary": "history"},
     ])
-    row = store.list_sessions(device_id="dev-chain")[0]
-    assert row["status"] == "idle"
+    row = store.list_sessions(device_id="dev-mac")[0]
+
+    server_root = tmp_path / "server-projects"
+    monkeypatch.setattr(cd, "SERVER_PROJECTS_ROOT", str(server_root), raising=True)
+    claude_root = tmp_path / "claude" / "projects"
+    monkeypatch.setattr("agent.coding_session_capture.claude_projects_dir",
+                        lambda: claude_root, raising=True)
 
     bridge, _t = make_bridge()
-    updated = cd.resume_discovered_session(row, bridge=bridge, store=store)
-    new_tmux = updated["tmux_name"]
-    assert new_tmux and new_tmux.startswith("jc-")
+    monkeypatch.setattr(bridge, "request_transcript",
+                        lambda device_id, **kw: transcript)
 
-    cd.ingest_discovered("dev-chain", [
-        {"kind": "tmux", "tmux_name": new_tmux, "cwd": "/w/proj",
-         "title": "proj"},
-        rediscover_transcript,
+    drv = _RecordingServerDriver()
+    sync_calls = []
+    mgr = CodingSessionManager(
+        store=store, driver=drv,
+        plugin_dir="/repo/plugins/jarviscopilot-code-assist",
+        memory_loader=lambda: ("mem", "usr"),
+        context_root=str(tmp_path / "ctx"),
+        sync_starter=lambda **kw: sync_calls.append(kw))
+    return dict(store=store, row=row, server_root=server_root,
+                claude_root=claude_root, bridge=bridge, drv=drv, mgr=mgr,
+                sync_calls=sync_calls)
+
+
+def test_resume_discovered_to_server_happy_path(tmp_path, monkeypatch):
+    raw = b'{"type":"user"}\n{"type":"assistant"}\n'
+    fx = _server_resume_fixture(tmp_path, monkeypatch, transcript=raw)
+    out = cd.resume_discovered_to_server(
+        fx["row"]["id"], manager=fx["mgr"], bridge=fx["bridge"],
+        store=fx["store"])
+    server_cwd = fx["server_root"] / "proj"   # basename(device_cwd) under root
+
+    assert out["ok"] is True
+    assert "warning" not in out
+    sess = out["session"]
+    assert sess["cwd"] == str(server_cwd)
+    assert sess["status"] == "running"
+    assert sess["host"] == "server"
+
+    # claude --resume <csid>, server cwd, no initial prompt
+    assert fx["drv"].claude_kw["resume_session_id"] == "CSID-1"
+    assert fx["drv"].claude_kw["initial_prompt"] is None
+    assert fx["drv"].tmux_calls[0]["cwd"] == str(server_cwd)
+
+    # the transcript was written to the SERVER's encoded ~/.claude path so
+    # `claude --resume CSID-1` (in server_cwd) finds it.
+    from agent.coding_session_capture import encode_project_dir
+    dest = (fx["claude_root"] / encode_project_dir(str(server_cwd))
+            / "CSID-1.jsonl")
+    assert dest.read_bytes() == raw
+
+    # the old discovered row is retired (stopped) + tombstoned so it can't dup.
+    assert fx["store"].get_session(fx["row"]["id"])["status"] == "stopped"
+    assert cd._is_dismissed("dev-mac", "CSID-1") is True
+
+    # file sync was started server_cwd <-> device_cwd (via the manager's starter)
+    assert len(fx["sync_calls"]) == 1
+    sc = fx["sync_calls"][0]
+    assert sc["cwd"] == str(server_cwd)
+    assert sc["sync"] == {"enabled": True, "device": "dev-mac",
+                          "remote_path": "/Users/me/proj"}
+    cd._DISMISSED_DISCOVERED.clear()
+
+
+def test_resume_discovered_to_server_warns_when_transcript_unavailable(
+        tmp_path, monkeypatch):
+    """A failed transcript pull must NOT abort the resume — the session still
+    launches on the server (claude recovers what it can) with a soft warning."""
+    fx = _server_resume_fixture(tmp_path, monkeypatch, transcript=None)
+    out = cd.resume_discovered_to_server(
+        fx["row"]["id"], manager=fx["mgr"], bridge=fx["bridge"],
+        store=fx["store"])
+    assert out["ok"] is True
+    assert out.get("warning")                      # soft warning surfaced
+    assert out["session"]["status"] == "running"   # still launched on the server
+    server_cwd = fx["server_root"] / "proj"
+    from agent.coding_session_capture import encode_project_dir
+    dest = (fx["claude_root"] / encode_project_dir(str(server_cwd))
+            / "CSID-1.jsonl")
+    assert not dest.exists()                        # nothing written on failure
+    cd._DISMISSED_DISCOVERED.clear()
+
+
+def test_resume_discovered_to_server_unknown_session_raises_keyerror(tmp_path):
+    import pytest
+    store = _temp_store(tmp_path)
+    bridge, _t = make_bridge()
+    with pytest.raises(KeyError):
+        cd.resume_discovered_to_server("nope", manager=_FailManager(),
+                                       bridge=bridge, store=store)
+
+
+def test_resume_discovered_to_server_requires_claude_session_id(tmp_path):
+    import pytest
+    store = _temp_store(tmp_path)
+    sid = store.create_session(
+        project_id=None, host="desktop", cwd="/w", branch=None, tmux_name=None,
+        source="discovered-transcript", title="t", device_id="dev-1",
+        external=True, status="idle")  # no claude_session_id
+    bridge, _t = make_bridge()
+    with pytest.raises(ValueError):
+        cd.resume_discovered_to_server(sid, manager=_FailManager(),
+                                       bridge=bridge, store=store)
+
+
+def test_resume_discovered_to_server_rejects_non_discovered(tmp_path):
+    """A real server/launched session (even with a claude_session_id) is NOT a
+    discovered session — resume must reject it before touching the manager."""
+    import pytest
+    store = _temp_store(tmp_path)
+    sid = store.create_session(
+        project_id=None, host="server", cwd="/w", branch=None, tmux_name="jc-x",
+        source="chat", title="t", claude_session_id="csid", status="running")
+    bridge, _t = make_bridge()
+    with pytest.raises(ValueError):
+        cd.resume_discovered_to_server(sid, manager=_FailManager(),
+                                       bridge=bridge, store=store)
+
+
+# ── resume-to-server retirement: the discovered row doesn't resurrect ────────
+
+
+def test_resume_to_server_tombstone_blocks_rediscovery(tmp_path, monkeypatch):
+    """After a discovered transcript is resumed onto the server, the device keeps
+    listing that same csid as history. The resume tombstoned it, so a rediscover
+    push must NOT resurrect it as a dup of the now-live server session."""
+    raw = b'{"type":"user"}\n'
+    fx = _server_resume_fixture(tmp_path, monkeypatch, transcript=raw)
+    cd.resume_discovered_to_server(
+        fx["row"]["id"], manager=fx["mgr"], bridge=fx["bridge"],
+        store=fx["store"])
+    store = fx["store"]
+    before = {r["id"] for r in store.list_sessions(device_id="dev-mac")}
+    # the device re-pushes the same transcript (still present in its ~/.claude)
+    cd.ingest_discovered("dev-mac", [
+        {"kind": "transcript", "claude_session_id": "CSID-1",
+         "cwd": "/Users/me/proj", "summary": "history"},
     ])
-    return store.list_sessions(device_id="dev-chain")
+    after = store.list_sessions(device_id="dev-mac")
+    # no NEW discovered row was created (the csid is tombstoned)
+    assert {r["id"] for r in after} == before
+    # the original row stays retired
+    assert store.get_session(fx["row"]["id"])["status"] == "stopped"
+    cd._DISMISSED_DISCOVERED.clear()
 
 
-def test_resume_then_rediscover_live_transcript_one_row(tmp_path, monkeypatch):
-    """End-to-end: idle transcript -> resume -> rediscover {tmux + LIVE same-csid
-    same-cwd transcript} -> EXACTLY ONE row, source discovered-tmux, running."""
+# ── discovered projects default to sync-ON (with the device cwd) ─────────────
+
+
+def test_ingest_discovered_project_defaults_sync_on(tmp_path, monkeypatch):
+    """A project auto-created for a discovered session defaults sync ON with the
+    device cwd as the desktop path — so the server has a mirror target."""
     store = _temp_store(tmp_path)
-    rows = _resume_then_rediscover(
-        store, monkeypatch,
-        rediscover_transcript={"kind": "transcript", "claude_session_id": "CSID",
-                               "cwd": "/w/proj", "summary": "history",
-                               "live": True})
-    assert len(rows) == 1
-    assert rows[0]["source"] == "discovered-tmux"
-    assert rows[0]["status"] == "running"
-    assert rows[0]["claude_session_id"] == "CSID"
+    _discovered("dev-syncdef", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/Users/me/sp",
+         "title": "a"},
+    ], store, monkeypatch)
+    row = store.list_sessions(device_id="dev-syncdef")[0]
+    proj = store.get_project(row["project_id"])
+    assert proj["sync_enabled"] == 1
+    assert proj["sync_desktop_path"] == "/Users/me/sp"
 
 
-def test_resume_then_rediscover_idle_transcript_one_row(tmp_path, monkeypatch):
-    """REGRESSION: the desktop may re-list the resumed session's csid as an IDLE
-    (live=false) transcript history item — the cwd-only dedup (which only fired
-    for live=true) missed this and created a duplicate idle 'history' copy. The
-    csid-owned-by-tmux dedup must collapse it to ONE drivable row."""
+def test_ingest_transcript_project_defaults_sync_on(tmp_path, monkeypatch):
     store = _temp_store(tmp_path)
-    rows = _resume_then_rediscover(
-        store, monkeypatch,
-        rediscover_transcript={"kind": "transcript", "claude_session_id": "CSID",
-                               "cwd": "/w/proj"})  # live omitted -> idle
-    assert len(rows) == 1, \
-        "resumed session must not gain a duplicate idle transcript row"
-    assert rows[0]["source"] == "discovered-tmux"
-    assert rows[0]["status"] == "running"
+    _discovered("dev-trsync", [
+        {"kind": "transcript", "claude_session_id": "c1", "cwd": "/Users/me/tp",
+         "summary": "h"},
+    ], store, monkeypatch)
+    row = store.list_sessions(device_id="dev-trsync")[0]
+    proj = store.get_project(row["project_id"])
+    assert proj["sync_enabled"] == 1
+    assert proj["sync_desktop_path"] == "/Users/me/tp"
 
 
-def test_resume_then_rediscover_transcript_cwd_drift_one_row(tmp_path, monkeypatch):
-    """The dedup must survive cwd drift between the tmux item and the transcript
-    item (e.g. a trailing slash) because it keys on claude_session_id, not cwd."""
+def test_ingest_discovered_does_not_clobber_user_sync_toggle(tmp_path, monkeypatch):
+    """The sync default is CREATE-ONLY — a later discovery push must never undo a
+    user's manual sync toggle on an existing project."""
     store = _temp_store(tmp_path)
-    rows = _resume_then_rediscover(
-        store, monkeypatch,
-        rediscover_transcript={"kind": "transcript", "claude_session_id": "CSID",
-                               "cwd": "/w/proj/", "live": True})  # trailing slash
-    assert len(rows) == 1
-    assert rows[0]["source"] == "discovered-tmux"
+    _discovered("dev-tog", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/tog", "title": "a"},
+    ], store, monkeypatch)
+    pid = store.list_sessions(device_id="dev-tog")[0]["project_id"]
+    store.update_project(pid, sync_enabled=False)  # user turns it OFF
+    assert store.get_project(pid)["sync_enabled"] == 0
+    # a later push must NOT re-enable it
+    _discovered("dev-tog", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/tog", "title": "a"},
+    ], store, monkeypatch)
+    assert store.get_project(pid)["sync_enabled"] == 0
 
 
 def test_distinct_idle_transcript_not_overdeduped_against_tmux(tmp_path, monkeypatch):
@@ -1143,10 +1359,14 @@ def test_device_bridge_routes_coding_frames_to_handler():
                                   "term_id": "jc-z", "data": "hi"})
         db._handle_message(conn, {"type": "coding_sync_status",
                                   "sync_id": "s", "status": "synced"})
+        # the transcript-reply frame is allow-listed + routed too
+        db._handle_message(conn, {"type": "coding_transcript_data",
+                                  "req_id": "r", "seq": 0, "eof": True,
+                                  "content_b64": ""})
         # a non-coding type is NOT routed to the handler
         db._handle_message(conn, {"type": "pong"})
         assert [g[1]["type"] for g in got] == [
-            "coding_term_output", "coding_sync_status"]
+            "coding_term_output", "coding_sync_status", "coding_transcript_data"]
         assert got[0][0] == "dev-Z"
     finally:
         db.set_coding_frame_handler(None)

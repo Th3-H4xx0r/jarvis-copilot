@@ -32,14 +32,35 @@ Inbound (server -> client)::
 
     {"type": "coding_discover_request"}   # -> immediate scan + push (no throttle)
 
+    {"type": "coding_transcript_get",     # -> stream the named transcript back
+     "req_id": <str>, "claude_session_id": <str>, "cwd": <str>}
+
+The ``coding_transcript_get`` request asks this device to ship a past session's
+on-disk ``.jsonl`` transcript so the SERVER can resume it (resume runs on the
+server now — the device's only job is to send the file). The reply streams one
+or more::
+
+    {"type": "coding_transcript_data", "req_id": <str>, "claude_session_id": <str>,
+     "seq": <int 0-based>, "eof": <bool>, "content_b64": <str>}
+
+chunks whose concatenated base64 decodes to the GZIP-compressed transcript
+bytes; on failure a single::
+
+    {"type": "coding_transcript_data", "req_id": <str>, "ok": false, "error": <str>}
+
 Two session ``kind``s ship today: ``"tmux"`` (live sessions, from ``tmux
 list-sessions``) and ``"transcript"`` (PAST/resumable sessions, scanned from
 Claude Code's own on-disk session store at ``~/.claude/projects``). A
 transcript carries ``live=true`` when there is a live tmux session in the same
-cwd; the server dedups/links the two.
+cwd; the server dedups/links the two. Discovery only surfaces REAL work:
+sessions/transcripts whose cwd is hidden, deleted, or otherwise not an existing
+directory on this machine are filtered out.
 """
 from __future__ import annotations
 
+import base64
+import glob
+import gzip
 import hashlib
 import json
 import logging
@@ -68,6 +89,12 @@ _TRANSCRIPT_HEAD_LINES = 20
 # Don't let a single pathological line blow up memory while reading the head.
 _TRANSCRIPT_MAX_LINE_BYTES = 1 << 20  # 1 MiB
 
+# Transcript-send (coding_transcript_get) tunables.
+# Hard cap on a transcript we'll ship; bigger -> ``ok:false, "transcript too large"``.
+_TRANSCRIPT_GET_MAX_BYTES = 64 * 1024 * 1024  # 64 MiB
+# Each ``coding_transcript_data`` frame carries at most this many base64 chars.
+_TRANSCRIPT_CHUNK_B64 = 256 * 1024  # ~256 KiB of base64
+
 # Tab-separated fields, one line per session. Keep in sync with parse_tmux_list.
 _TMUX_FORMAT = (
     "#{session_name}\t#{pane_current_path}\t#{pane_current_command}\t"
@@ -81,15 +108,6 @@ _TMUX_FORMAT = (
 def tmux_list_argv() -> list:
     """argv for listing tmux sessions in the format ``parse_tmux_list`` expects."""
     return ["tmux", "list-sessions", "-F", _TMUX_FORMAT]
-
-
-def tmux_resume_argv(tmux_name: str, cwd: str, claude_session_id: str) -> list:
-    """argv to (re)launch a past Claude session as a fresh, detached tmux session
-    in ``cwd`` via ``claude --resume <id>``. Pure exec (no shell), so the
-    server-supplied values can't shell-inject. Next discovery tick reports it as
-    a live tmux session, so it becomes drivable from Jarvis."""
-    return ["tmux", "new-session", "-d", "-s", tmux_name, "-c", cwd,
-            "claude", "--resume", claude_session_id]
 
 
 def parse_tmux_list(stdout: str) -> list:
@@ -138,6 +156,25 @@ def _is_coding_session(sess: dict) -> bool:
     tmux_name = str(sess.get("tmux_name") or "")
     cmd_base = os.path.basename(command.strip()) if command else ""
     return cmd_base == "claude" or tmux_name.startswith("jc-")
+
+
+def _cwd_is_visible_dir(cwd: str) -> bool:
+    """True if ``cwd`` is a non-empty path that EXISTS as a directory on this
+    machine and whose basename is not hidden (dot-prefixed).
+
+    Discovery uses this to drop junk: throwaway tmux sessions and stale
+    transcripts whose cwd is hidden (e.g. ``~/.config/...``, a ``.HIDDEN`` test
+    dir), was deleted, or is empty must NOT resurrect as a real project. Never
+    raises (a stat error / odd path -> ``False``)."""
+    if not cwd:
+        return False
+    try:
+        base = os.path.basename(cwd.rstrip("/"))
+        if base.startswith("."):
+            return False
+        return os.path.isdir(cwd)
+    except (OSError, ValueError):
+        return False
 
 
 def _to_wire(sess: dict) -> dict:
@@ -432,14 +469,19 @@ def scan_transcripts(home_dir: str, *, now: float, live_cwds=(),
     # Dedup by session id, keeping the newest. ``candidates`` is newest-first,
     # so the first time we see an id wins.
     by_id: dict = {}
+    filtered = 0
     for mtime, fpath in candidates:
         session_id = os.path.splitext(os.path.basename(fpath))[0]
         if not session_id or session_id in by_id:
             continue
         cwd, summary = _extract_cwd_summary(
             fpath, head_lines=_TRANSCRIPT_HEAD_LINES)
-        if not cwd:
-            continue  # no resolvable cwd -> skip
+        # Only surface REAL work: skip a transcript whose recorded cwd is empty,
+        # hidden (dot-prefixed basename), or no longer an existing directory on
+        # this machine (its project folder was deleted -> don't resurrect it).
+        if not _cwd_is_visible_dir(cwd):
+            filtered += 1
+            continue
         by_id[session_id] = {
             "kind": "transcript",
             "claude_session_id": session_id,
@@ -449,6 +491,9 @@ def scan_transcripts(home_dir: str, *, now: float, live_cwds=(),
             "live": _norm_cwd(cwd) in live,
         }
 
+    if filtered:
+        log.debug("coding_discover: filtered %d transcript(s) with hidden/"
+                  "missing/nonexistent cwd", filtered)
     return list(by_id.values())
 
 
@@ -473,6 +518,72 @@ def _sessions_hash(sessions: list) -> str:
     )
     blob = json.dumps(norm, separators=(",", ":"), sort_keys=True)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+# ── transcript locate (coding_transcript_get) ─────────────────────────────────
+
+
+def _encode_project_dir(cwd: str) -> str:
+    """Encode ``cwd`` the way Claude Code names its on-disk project dir.
+
+    Mirror of ``agent.coding_session_capture.encode_project_dir`` (the desktop
+    client can't import ``agent.*``): realpath the cwd, then replace every ``/``
+    and every ``.`` with ``-``. Realpath-ing first matches the directory Claude
+    actually wrote to (``/tmp`` -> ``/private/tmp`` on macOS, symlinks resolved).
+    Never raises (a bad realpath falls back to the raw path)."""
+    try:
+        resolved = os.path.realpath(cwd or "")
+    except (OSError, ValueError):
+        resolved = cwd or ""
+    return resolved.replace("/", "-").replace(".", "-")
+
+
+def _claude_projects_dir(home_dir: str) -> str:
+    """Directory holding Claude Code's per-project transcript folders.
+
+    Honors ``CLAUDE_CONFIG_DIR`` (``<that>/projects``) if set, else
+    ``<home_dir>/.claude/projects`` (``home_dir`` falling back to the real home)."""
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    if config_dir:
+        return os.path.join(config_dir, "projects")
+    base = home_dir if home_dir else os.path.expanduser("~")
+    return os.path.join(base, ".claude", "projects")
+
+
+def _locate_transcript(home_dir: str, claude_session_id: str, cwd: str):
+    """Return the on-disk ``.jsonl`` path for ``claude_session_id`` or ``None``.
+
+    Prefers the encoded-cwd location
+    ``<projects>/<encode(cwd)>/<id>.jsonl``; FALLS BACK to globbing
+    ``<projects>/*/<id>.jsonl`` (handles realpath/symlink quirks where the
+    recorded cwd doesn't re-encode to the dir Claude used). On multiple glob
+    hits the newest by mtime wins. Never raises."""
+    fname = claude_session_id + ".jsonl"
+    projects_dir = _claude_projects_dir(home_dir)
+    try:
+        if cwd:
+            candidate = os.path.join(
+                projects_dir, _encode_project_dir(cwd), fname)
+            if os.path.isfile(candidate):
+                return candidate
+    except (OSError, ValueError):
+        pass
+    try:
+        # glob.escape the session-id stem so a ``[`` etc. in it can't turn into a
+        # wildcard; the ``*`` (project dir) is the only intentional wildcard.
+        matches = glob.glob(os.path.join(
+            projects_dir, "*", glob.escape(fname)))
+        matches = [m for m in matches if os.path.isfile(m)]
+    except (OSError, ValueError):
+        return None
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    try:
+        return max(matches, key=os.path.getmtime)
+    except OSError:
+        return matches[0]
 
 
 # ── runner ────────────────────────────────────────────────────────────────────
@@ -563,30 +674,112 @@ class CodingDiscoverAgent:
             if t == "coding_discover_request":
                 # On-demand: immediate scan + push, bypassing the throttle.
                 self._scan_and_push(force=True)
-            elif t == "coding_resume":
-                self._on_resume(frame)
+            elif t == "coding_transcript_get":
+                self._on_transcript_get(frame)
         except Exception as exc:  # noqa: BLE001 — never bubble into the pump
             log.warning("coding_discover handle_frame failed: %s", exc)
 
-    def _on_resume(self, frame: dict) -> None:
-        """Resume a past Claude session the server asked us to revive: launch
-        ``tmux new-session … claude --resume <id>`` in its cwd, then re-scan so
-        the now-live tmux session is reported and becomes drivable."""
-        tmux_name = str(frame.get("tmux_name") or "").strip()
-        cwd = str(frame.get("cwd") or "").strip()
+    def _on_transcript_get(self, frame: dict) -> None:
+        """Ship a past session's on-disk transcript back to the server (resume
+        runs on the server now; the device's only job is to SEND the file).
+
+        Locates ``<projects>/<encode(cwd)>/<id>.jsonl`` (falling back to a glob),
+        gzip-compresses + base64-encodes the bytes, and streams them as
+        ``coding_transcript_data`` chunks (final ``eof:true``). Any failure
+        (missing/oversize/unreadable) becomes a single ``ok:false`` frame. Never
+        raises into the pump."""
+        req_id = str(frame.get("req_id") or "")
         csid = str(frame.get("claude_session_id") or "").strip()
-        if not (tmux_name and cwd and csid):
-            log.warning("coding_resume: missing tmux_name/cwd/claude_session_id")
+        cwd = str(frame.get("cwd") or "").strip()
+
+        # Guard against an empty / path-traversal / glob-meta session id before it
+        # ever touches the filesystem.
+        bad_id = (
+            not csid
+            or os.sep in csid
+            or (os.altsep and os.altsep in csid)
+            or "\x00" in csid
+            or csid in (".", "..")
+        )
+        if bad_id:
+            self._send_transcript_error(req_id, "missing or invalid "
+                                                "claude_session_id")
             return
+
         try:
-            rc, _out, err = self._run(tmux_resume_argv(tmux_name, cwd, csid))
-            if rc not in (0, None):
-                log.warning("coding_resume: tmux launch rc=%s: %s", rc, err)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("coding_resume: launch failed: %s", exc)
+            path = _locate_transcript(self._home_dir, csid, cwd)
+        except Exception as exc:  # noqa: BLE001 — locate must never raise
+            log.debug("coding_transcript_get locate failed: %s", exc)
+            path = None
+        if not path:
+            self._send_transcript_error(req_id, "transcript not found")
             return
-        # Report the new live session promptly (bypass the throttle).
-        self._scan_and_push(force=True)
+
+        try:
+            size = os.path.getsize(path)
+        except OSError as exc:
+            log.debug("coding_transcript_get stat failed for %s: %s", path, exc)
+            self._send_transcript_error(req_id, "transcript not found")
+            return
+        if size > _TRANSCRIPT_GET_MAX_BYTES:
+            self._send_transcript_error(req_id, "transcript too large")
+            return
+
+        try:
+            with open(path, "rb") as fh:
+                # Read one byte past the cap so a file that grew since stat is
+                # still rejected rather than truncated.
+                raw = fh.read(_TRANSCRIPT_GET_MAX_BYTES + 1)
+        except (OSError, IOError) as exc:
+            log.debug("coding_transcript_get read failed for %s: %s", path, exc)
+            self._send_transcript_error(req_id, "transcript read error")
+            return
+        if len(raw) > _TRANSCRIPT_GET_MAX_BYTES:
+            self._send_transcript_error(req_id, "transcript too large")
+            return
+
+        try:
+            payload = base64.b64encode(gzip.compress(raw)).decode("ascii")
+        except Exception as exc:  # noqa: BLE001
+            log.debug("coding_transcript_get encode failed for %s: %s", path, exc)
+            self._send_transcript_error(req_id, "transcript encode error")
+            return
+
+        self._send_transcript_chunks(req_id, csid, payload)
+
+    def _send_transcript_chunks(self, req_id: str, csid: str,
+                                payload: str) -> None:
+        """Send ``payload`` (base64 of gzip'd bytes) as one-or-more data frames
+        of ≤ ``_TRANSCRIPT_CHUNK_B64`` chars each, the last carrying ``eof:true``.
+        Always emits at least one frame (an empty payload -> a single empty
+        ``eof`` chunk)."""
+        chunk = _TRANSCRIPT_CHUNK_B64
+        total = len(payload)
+        seq = 0
+        pos = 0
+        while True:
+            piece = payload[pos:pos + chunk]
+            pos += chunk
+            eof = pos >= total
+            self._send_safe({
+                "type": "coding_transcript_data",
+                "req_id": req_id,
+                "claude_session_id": csid,
+                "seq": seq,
+                "eof": eof,
+                "content_b64": piece,
+            })
+            seq += 1
+            if eof:
+                break
+
+    def _send_transcript_error(self, req_id: str, error: str) -> None:
+        self._send_safe({
+            "type": "coding_transcript_data",
+            "req_id": req_id,
+            "ok": False,
+            "error": error,
+        })
 
     # ── scan + push ─────────────────────────────────────────────────────
 
@@ -620,7 +813,23 @@ class CodingDiscoverAgent:
         except Exception as exc:  # noqa: BLE001
             log.debug("coding_discover parse failed: %s", exc)
             return []
-        return [_to_wire(s) for s in parsed if _is_coding_session(s)]
+        # Keep claude/jc- sessions, but only surface REAL work: drop any whose
+        # cwd is hidden (dot-prefixed) or not an existing directory (throwaway /
+        # junk sessions). The command-vs-coding check runs first so non-coding
+        # sessions aren't even cwd-checked.
+        kept: list = []
+        filtered = 0
+        for s in parsed:
+            if not _is_coding_session(s):
+                continue
+            if not _cwd_is_visible_dir(str(s.get("cwd") or "")):
+                filtered += 1
+                continue
+            kept.append(_to_wire(s))
+        if filtered:
+            log.debug("coding_discover: filtered %d tmux session(s) with "
+                      "hidden/nonexistent cwd", filtered)
+        return kept
 
     def _scan_transcripts(self, live_cwds) -> list:
         """PAST/resumable transcripts in the wire shape; ``[]`` on any error.
@@ -655,12 +864,16 @@ class CodingDiscoverAgent:
         self._push(sessions, now)
 
     def _push(self, sessions: list, scanned_at: float) -> None:
-        frame = {
+        self._send_safe({
             "type": "coding_discover",
             "device_id": self._device_id,
             "scanned_at": float(scanned_at),
             "sessions": sessions,
-        }
+        })
+
+    def _send_safe(self, frame: dict) -> None:
+        """Send a frame, swallowing any error: a send failure (WS closed mid-push)
+        must never break the poll loop or bubble into the pump."""
         try:
             self._send(frame)
         except Exception as exc:  # noqa: BLE001 — a send failure must not break the loop

@@ -42,12 +42,28 @@ tests; only the on-disk sync apply touches a tmp directory.
 """
 from __future__ import annotations
 
+import base64
+import gzip
 import logging
+import os
 import queue
 import threading
 import time
+import uuid
 
 log = logging.getLogger(__name__)
+
+# Where a resumed (discovered) session's mirror checkout lives ON THE SERVER.
+# Overridable via env so deployments can relocate it; defaults to ~/codingprojects.
+# Referenced through ``_server_projects_root()`` so tests can monkeypatch it.
+SERVER_PROJECTS_ROOT = os.path.expanduser("~/codingprojects")
+
+
+def _server_projects_root() -> str:
+    """Server-side root dir under which a resumed session's mirror checkout is
+    created (``<root>/<basename(device_cwd)>``). Env ``JC_CODING_PROJECTS_ROOT``
+    wins; otherwise the module-level ``SERVER_PROJECTS_ROOT`` (monkeypatchable)."""
+    return os.environ.get("JC_CODING_PROJECTS_ROOT") or SERVER_PROJECTS_ROOT
 
 # ── transport seam ───────────────────────────────────────────────────────────
 
@@ -173,6 +189,11 @@ class DesktopBridge:
     # still sees recent scrollback. Bounded to protect memory.
     _REPLAY_CAP = 64 * 1024
 
+    # Hard cap on a reassembled transcript (decoded, pre-gunzip bytes). A
+    # discovered Mac transcript that exceeds this is dropped with an error rather
+    # than buffered without bound — resume then proceeds with a soft warning.
+    _TRANSCRIPT_CAP = 64 * 1024 * 1024
+
     def __init__(self, transport=None):
         self._transport = transport or _RealTransport()
         self._lock = threading.RLock()
@@ -184,6 +205,9 @@ class DesktopBridge:
         self._pending_exit: dict[str, int] = {}
         # sync_id -> DesktopSyncSession
         self._syncs: dict = {}
+        # req_id -> {"event":Event, "chunks":{seq:bytes}, "eof":bool,
+        #            "error":str|None, "total":int} — in-flight transcript pulls.
+        self._transcript_waiters: dict[str, dict] = {}
 
     # --- registration with the device bridge --------------------------------
 
@@ -301,19 +325,57 @@ class DesktopBridge:
             "type": "coding_discover_request",
         })
 
-    def send_resume(self, device_id: str, *, claude_session_id: str, cwd: str,
-                    tmux_name: str) -> bool:
-        """Tell a device to RESUME a discovered (history) transcript session into a
-        live, drivable tmux. The desktop client receives this and launches
-        ``tmux new-session -d -s <tmux_name> -c <cwd> -- claude --resume
-        <claude_session_id>`` (its job, not ours — we only emit the frame), then
-        streams ``coding_term_output`` for the new term_id=<tmux_name>."""
-        return self._transport.send(device_id, {
-            "type": "coding_resume",
-            "claude_session_id": claude_session_id,
-            "cwd": cwd,
-            "tmux_name": tmux_name,
-        })
+    # --- transcript request/response (resume-to-server) ---------------------
+
+    def request_transcript(self, device_id: str, *, claude_session_id: str,
+                           cwd: str, timeout: float = 30.0) -> bytes | None:
+        """Pull a discovered session's transcript bytes FROM the device, synchronously.
+
+        Sends ``coding_transcript_get`` (req_id/claude_session_id/cwd) and blocks
+        up to ``timeout`` for the device to stream back one or more
+        ``coding_transcript_data`` frames. Each frame carries a base64 chunk of
+        the GZIPPED transcript under ``content_b64`` keyed by ``seq``; the final
+        frame sets ``eof:true`` (or ``ok:false``+``error`` on failure).
+
+        Returns the RAW (gunzipped) transcript bytes, or ``None`` on timeout,
+        device-offline, device error, oversize, or a corrupt stream. Always
+        cleans up the waiter; never blocks past ``timeout``.
+        """
+        req_id = uuid.uuid4().hex
+        waiter = {"event": threading.Event(), "chunks": {}, "eof": False,
+                  "error": None, "total": 0}
+        with self._lock:
+            self._transcript_waiters[req_id] = waiter
+        try:
+            ok = self._transport.send(device_id, {
+                "type": "coding_transcript_get",
+                "req_id": req_id,
+                "claude_session_id": claude_session_id,
+                "cwd": cwd,
+            })
+            if not ok:
+                return None  # device not connected
+            if not waiter["event"].wait(timeout):
+                log.warning("coding_transcript[%s]: timed out after %.0fs",
+                            req_id, timeout)
+                return None
+            if waiter["error"]:
+                log.warning("coding_transcript[%s]: device error: %s",
+                            req_id, waiter["error"])
+                return None
+            chunks = waiter["chunks"]
+            if not chunks:
+                return None
+            ordered = b"".join(chunks[i] for i in sorted(chunks))
+            try:
+                return gzip.decompress(ordered)
+            except Exception as exc:  # noqa: BLE001 — corrupt/partial stream
+                log.warning("coding_transcript[%s]: gunzip failed: %s",
+                            req_id, exc)
+                return None
+        finally:
+            with self._lock:
+                self._transcript_waiters.pop(req_id, None)
 
     def register_sync(self, session) -> None:
         with self._lock:
@@ -337,6 +399,50 @@ class DesktopBridge:
             self._route_sync(frame)
         elif t == "coding_discover":
             self._route_discover(device_id, frame)
+        elif t == "coding_transcript_data":
+            self._route_transcript_data(frame)
+
+    def _route_transcript_data(self, frame: dict) -> None:
+        """Accumulate a transcript chunk for the matching in-flight request.
+
+        Runs on the bridge pump thread. Appends ``base64.b64decode(content_b64)``
+        under ``chunks[seq]``, enforces the size cap, and on ``eof`` (or an
+        ``ok:false``/``error`` frame) signals the waiting request thread. Frames
+        for an unknown/already-finished req_id are ignored."""
+        req_id = frame.get("req_id")
+        if not req_id:
+            return
+        with self._lock:
+            waiter = self._transcript_waiters.get(req_id)
+        if waiter is None:
+            return  # unknown or already timed-out request
+        # Device-reported failure.
+        if frame.get("ok") is False or frame.get("error"):
+            waiter["error"] = str(frame.get("error") or "transcript fetch failed")
+            waiter["event"].set()
+            return
+        content_b64 = frame.get("content_b64") or ""
+        try:
+            chunk = base64.b64decode(content_b64) if content_b64 else b""
+        except Exception as exc:  # noqa: BLE001
+            waiter["error"] = f"bad base64 chunk: {exc}"
+            waiter["event"].set()
+            return
+        try:
+            seq = int(frame.get("seq"))
+        except (TypeError, ValueError):
+            seq = len(waiter["chunks"])
+        waiter["total"] += len(chunk)
+        if waiter["total"] > self._TRANSCRIPT_CAP:
+            waiter["error"] = (f"transcript exceeded {self._TRANSCRIPT_CAP} byte cap")
+            waiter["chunks"].clear()
+            waiter["event"].set()
+            return
+        if chunk:
+            waiter["chunks"][seq] = chunk
+        if frame.get("eof"):
+            waiter["eof"] = True
+            waiter["event"].set()
 
     def _route_discover(self, device_id: str, frame: dict) -> None:
         """Ingest a device's pushed live ``claude`` tmux sessions.
@@ -871,6 +977,32 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
         return 0
     sessions = sessions or []
 
+    # Default a DISCOVERED session's project to sync-ON with the device cwd as the
+    # desktop path — so the UI shows sync on by default and the server has a mirror
+    # target for resume-to-server. Only set on CREATE (never clobber a user's later
+    # toggle): pre-scan existing (repo_path, device_id) keys; a project already in
+    # this set keeps whatever sync settings it has.
+    existing_project_keys: set = set()
+    try:
+        for _p in store.list_projects():
+            existing_project_keys.add(
+                (_p.get("repo_path"), (_p.get("device_id") or "")))
+    except Exception:  # noqa: BLE001 — never block ingest on project bookkeeping
+        existing_project_keys = set()
+
+    def _project_for_discovered_cwd(cwd: str) -> str:
+        pid = store.get_or_create_project_for_path(
+            repo_path=cwd, host="desktop", device_id=device_id)
+        key = (cwd, device_id or "")
+        if key not in existing_project_keys:
+            existing_project_keys.add(key)  # don't re-set within this batch
+            try:
+                store.update_project(pid, sync_enabled=True,
+                                     sync_desktop_path=cwd)
+            except Exception:  # noqa: BLE001
+                pass
+        return pid
+
     # Existing discovered rows for this device. tmux rows indexed by tmux_name,
     # transcript rows by claude_session_id. We only ever touch rows this ingest
     # owns (external + source startswith 'discovered-') so Jarvis-launched
@@ -901,14 +1033,13 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
     # cwds that have a LIVE tmux item in THIS batch — a transcript with live=true
     # under one of these is the same drivable session, so we skip it (dedup).
     live_tmux_cwds: set = set()
-    # claude_session_ids already owned by a discovered-TMUX row (a RESUMED
-    # transcript: resume_discovered_session flips the row to source
-    # 'discovered-tmux' but keeps its claude_session_id). The desktop keeps
-    # pushing that same csid as a transcript history item — possibly live=false —
+    # claude_session_ids already owned by a discovered-TMUX row (a live tmux the
+    # device reports together with its claude session id). The desktop may keep
+    # listing that same csid as a transcript history item — possibly live=false —
     # so we MUST dedup it against the drivable tmux row by csid (cwd-only dedup is
     # both too narrow — it misses idle re-reports — and brittle to cwd drift).
-    # Seed from pre-existing discovered-tmux rows; rows resumed/created in THIS
-    # batch are added as we go.
+    # Seed from pre-existing discovered-tmux rows; rows created in THIS batch are
+    # added as we go.
     tmux_owned_csids: set = {
         (r.get("claude_session_id") or "").strip()
         for r in existing_tmux.values()
@@ -935,8 +1066,7 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             seen_tmux.add(tmux_name)
             title = sess.get("title") or tmux_name
             last_activity = sess.get("last_activity")
-            pid = store.get_or_create_project_for_path(
-                repo_path=cwd, host="desktop", device_id=device_id)
+            pid = _project_for_discovered_cwd(cwd)
             row = existing_tmux.get(tmux_name)
             if row is not None:
                 # Reparent to the (possibly new) cwd's project AND move the row's
@@ -980,11 +1110,11 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             cwd = sess.get("cwd") or ""
             live = bool(sess.get("live"))
             # Dedup (A): this transcript's claude_session_id is already owned by a
-            # discovered-TMUX row — i.e. a RESUMED session whose row we flipped to
-            # 'discovered-tmux' (keeping the csid). The desktop still lists that
-            # csid as transcript history (possibly live=false), so skip it to avoid
-            # a duplicate idle/running "history" copy of a session the user is
-            # already driving. Keyed on csid (robust), independent of cwd/live.
+            # discovered-TMUX row (a live tmux the device reports with its csid).
+            # The desktop still lists that csid as transcript history (possibly
+            # live=false), so skip it to avoid a duplicate idle/running "history"
+            # copy of a session the user is already driving. Keyed on csid
+            # (robust), independent of cwd/live.
             if csid in tmux_owned_csids:
                 continue
             # Dedup (B): a LIVE transcript whose cwd already has a tmux item this
@@ -995,8 +1125,7 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             title = sess.get("summary") or (_P(cwd).name if cwd else "") or csid
             last_activity = sess.get("last_activity")
             status = "running" if live else "idle"
-            pid = store.get_or_create_project_for_path(
-                repo_path=cwd, host="desktop", device_id=device_id)
+            pid = _project_for_discovered_cwd(cwd)
             row = existing_transcript.get(csid)
             if row is not None:
                 fields = dict(status=status, title=title, cwd=cwd,
@@ -1034,54 +1163,113 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
     return upserted
 
 
-def resume_discovered_session(session_row: dict, *,
-                              bridge: DesktopBridge | None = None,
-                              store=None) -> dict:
-    """Resume a discovered transcript (history) session into a live tmux.
+def resume_discovered_to_server(session_id: str, *, manager,
+                                bridge: DesktopBridge | None = None,
+                                store=None) -> dict:
+    """Resume a DISCOVERED (Mac) session as a brand-new session ON THE SERVER.
 
-    Allocates a fresh ``tmux_name`` (``jc-<hex>``), sends a ``coding_resume`` frame
-    to the row's ``device_id`` (the desktop launches the resume tmux on receipt:
-    ``tmux new-session -d -s <tmux_name> -c <cwd> -- claude --resume <csid>``),
-    and updates the row to host='desktop', the new tmux_name and
-    status='starting' (until the desktop streams output for term_id=<tmux_name>).
-    Returns the updated row.
+    The discovered session's conversation lives only on the user's Mac (its
+    ``<csid>.jsonl`` transcript under the Mac's ``~/.claude``). To continue it on
+    the Jarvis server (never on the Mac), we:
 
-    The ``source`` is flipped to 'discovered-tmux' (the store's ``update_session``
-    allow-list now includes 'source', so this PERSISTS). That matters for the
-    resume -> rediscover dedup chain: the next discovery push lists a tmux item
-    for the new ``tmux_name`` AND still lists the same ``claude_session_id`` as a
-    transcript history item. Pass 1 matches the resumed row by
-    (device_id, tmux_name) within the discovered-tmux scope; pass 2 then SKIPS the
-    transcript because its csid is already owned by that discovered-tmux row
-    (``tmux_owned_csids`` dedup) — so we keep exactly one drivable row instead of
-    spawning a duplicate idle/running "history" copy.
+      1. Load the row; require a DISCOVERED source with a ``claude_session_id``
+         (else ``ValueError``). Read ``device_cwd = row['cwd']`` and the row's
+         ``device_id`` (falling back to a resolved connected desktop).
+      2. Mirror dir ``server_cwd = <SERVER_PROJECTS_ROOT>/<basename(device_cwd)>``
+         and ``os.makedirs`` it.
+      3. Pull the transcript bytes from the device over the bridge
+         (``request_transcript``) and write them to the SERVER's
+         ``claude_projects_dir()/encode_project_dir(server_cwd)/<csid>.jsonl`` so
+         ``claude --resume <csid>`` (run in ``server_cwd``) finds them. If the
+         pull fails we continue anyway and surface a soft ``warning`` — resume can
+         still partially work / the user can re-message.
+      4. Launch on the SERVER via ``manager`` (a host='server' LocalDriver
+         manager): ``claude --resume <csid>`` in ``server_cwd``, with sync ON
+         (server_cwd <-> device_cwd). The manager's own ``sync_starter`` opens the
+         Mutagen sync against the device for the NEW session id, and the launch
+         gets the per-session ``.mcp.json`` (venv-python MCP) for free.
+      5. Retire the old discovered row: mark it ``stopped`` AND tombstone its csid
+         so the next discovery push doesn't resurrect it as a dup of the new
+         server session. The server session is now the live one.
 
-    Raises ValueError if the row has no ``claude_session_id`` (nothing to resume)
-    or no resolvable ``device_id`` (no desktop to drive it)."""
-    import uuid as _uuid
+    Returns ``{"ok": True, "session": <new server row>, "warning": <opt>}``.
 
+    Raises ``KeyError`` if ``session_id`` is unknown, ``ValueError`` if the row
+    isn't a resumable discovered session, ``RuntimeError`` if the store is
+    unavailable.
+    """
     bridge = bridge or get_desktop_bridge()
     store = store or _resolve_store()
     if store is None:
         raise RuntimeError("coding session store unavailable")
 
-    sid = session_row.get("id")
-    claude_session_id = (session_row.get("claude_session_id") or "").strip()
+    # 1. load + validate the discovered row
+    row = store.get_session(session_id)
+    if row is None:
+        raise KeyError(session_id)
+    if not (row.get("source") or "").startswith("discovered"):
+        raise ValueError("only discovered sessions can be resumed to the server")
+    claude_session_id = (row.get("claude_session_id") or "").strip()
     if not claude_session_id:
         raise ValueError("session has no claude_session_id to resume")
-    device_id = (session_row.get("device_id") or "").strip() \
+    device_cwd = row.get("cwd") or ""
+    device_id = (row.get("device_id") or "").strip() \
         or (resolve_desktop_device_id() or "")
     if not device_id:
-        raise ValueError("no desktop device connected to resume on")
-    cwd = session_row.get("cwd") or ""
+        raise ValueError("no desktop device connected to resume from")
 
-    tmux_name = "jc-" + _uuid.uuid4().hex[:12]
-    bridge.send_resume(device_id, claude_session_id=claude_session_id,
-                       cwd=cwd, tmux_name=tmux_name)
-    store.update_session(sid, host="desktop", tmux_name=tmux_name,
-                         status="starting", source="discovered-tmux",
-                         device_id=device_id)
-    return store.get_session(sid)
+    # 2. server-side mirror dir
+    base = os.path.basename(os.path.normpath(device_cwd)) if device_cwd else ""
+    server_cwd = os.path.join(_server_projects_root(), base or claude_session_id)
+    os.makedirs(server_cwd, exist_ok=True)
+
+    # 3. pull the transcript from the device + write it where claude --resume looks
+    warning = None
+    data = None
+    try:
+        data = bridge.request_transcript(
+            device_id, claude_session_id=claude_session_id,
+            cwd=device_cwd, timeout=30)
+    except Exception as exc:  # noqa: BLE001 — never fail the resume on a pull error
+        warning = f"transcript fetch raised: {exc}"
+        data = None
+    if data:
+        try:
+            from agent.coding_session_capture import (
+                claude_projects_dir, encode_project_dir)
+
+            dest = (claude_projects_dir() / encode_project_dir(server_cwd)
+                    / f"{claude_session_id}.jsonl")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+        except Exception as exc:  # noqa: BLE001
+            warning = f"could not write transcript on the server: {exc}"
+    elif warning is None:
+        warning = ("could not fetch the session transcript from the device; "
+                   "resuming with whatever Claude can recover locally")
+
+    # 4. launch on the SERVER with --resume + sync ON (server_cwd <-> device_cwd).
+    #    Passing ``sync`` makes the manager's sync_starter open the Mutagen sync
+    #    for the NEW session id, so no separate start call is needed.
+    sync = {"enabled": True, "device": device_id, "remote_path": device_cwd}
+    new = manager.launch(
+        cwd=server_cwd, title=row.get("title"), initial_prompt=None, model=None,
+        project_id=None, resume_session_id=claude_session_id, sync=sync)
+
+    # 5. retire the old discovered row (stopped + tombstoned so it can't dup).
+    try:
+        store.update_session(session_id, status="stopped")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        dismiss_discovered(device_id, claude_session_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+    out = {"ok": True, "session": new}
+    if warning:
+        out["warning"] = warning
+    return out
 
 
 def _session_is_synced(session: dict) -> bool:

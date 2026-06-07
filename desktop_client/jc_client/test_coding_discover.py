@@ -2,11 +2,18 @@
 
 Covers the PURE ``parse_tmux_list`` (well-formed / blank lines / missing fields),
 the claude/jc- filter, the on-demand ``coding_discover_request`` push, the
-change-hash throttle, and the PURE ``scan_transcripts`` (Claude Code session
-store) + its integration into the combined push. A FakeRunner + fake clock keep
-tmux and the wall clock out; an injected ``home_dir`` keeps the real ``~/.claude``
-out (the tmux-only tests point at an EMPTY tmp home so they stay tmux-only).
+change-hash throttle, the PURE ``scan_transcripts`` (Claude Code session store) +
+its integration into the combined push, the junk-discovery filters (hidden /
+nonexistent cwds), and the ``coding_transcript_get`` -> ``coding_transcript_data``
+streaming. A FakeRunner + fake clock keep tmux and the wall clock out; an injected
+``home_dir`` keeps the real ``~/.claude`` out.
+
+NOTE: discovery now drops any session/transcript whose cwd isn't an existing,
+non-hidden directory, so tests point cwds at REAL dirs created under ``_REAL_BASE``
+(not fictional ``/Users/me/...`` paths).
 """
+import base64
+import gzip
 import json
 import os
 import tempfile
@@ -20,6 +27,30 @@ from jc_client.coding_discover import (
 # returns ``[]``. The tmux-only tests pass this so they never pick up the real
 # ~/.claude (which would inject transcript items and break tmux_name asserts).
 _EMPTY_HOME = tempfile.mkdtemp(prefix="jc-discover-empty-home-")
+
+# A base of REAL directories. The discovery filters drop any session/transcript
+# whose cwd isn't an existing, non-hidden directory, so test cwds live here.
+_REAL_BASE = tempfile.mkdtemp(prefix="jc-discover-real-")
+
+
+def _real(*names) -> str:
+    """Create (idempotently) and return a real directory path under _REAL_BASE."""
+    p = os.path.join(_REAL_BASE, *names)
+    os.makedirs(p, exist_ok=True)
+    return p
+
+
+# Canonical four-session tmux fixture, with REAL cwds for the kept sessions.
+_CWD_PROJ = _real("proj")   # jc-abc
+_CWD_C = _real("c")         # plain-claude
+_CWD_J = _real("j")         # jc-launched
+
+_FOUR_SESSIONS = (
+    f"jc-abc\t{_CWD_PROJ}\tclaude\t1717800000\n"     # claude AND jc- -> keep
+    f"plain-claude\t{_CWD_C}\tclaude\t1717800001\n"   # claude -> keep
+    f"jc-launched\t{_CWD_J}\tnode\t1717800002\n"      # jc- prefix -> keep
+    "random\t/Users/me/r\tzsh\t1717800003\n"          # neither -> drop (cmd filter)
+)
 
 
 # ── pure parse_tmux_list ──────────────────────────────────────────────────────
@@ -93,14 +124,6 @@ class FakeClock:
         return self.t
 
 
-_FOUR_SESSIONS = (
-    "jc-abc\t/Users/me/proj\tclaude\t1717800000\n"   # claude AND jc- -> keep
-    "plain-claude\t/Users/me/c\tclaude\t1717800001\n"  # claude -> keep
-    "jc-launched\t/Users/me/j\tnode\t1717800002\n"     # jc- prefix -> keep
-    "random\t/Users/me/r\tzsh\t1717800003\n"           # neither -> drop
-)
-
-
 def test_scan_keeps_only_claude_or_jc():
     fr = FakeRunner(stdout=_FOUR_SESSIONS)
     agent = CodingDiscoverAgent(send=lambda f: None, device_id="dev1",
@@ -131,15 +154,51 @@ def test_scan_keeps_claude_launched_by_absolute_path():
     # tmux can report pane_current_command as a full path when claude is started
     # by absolute path; the basename is still "claude" -> must be kept.
     out = (
-        "abs\t/Users/me/a\t/usr/local/bin/claude\t1\n"   # path to claude -> keep
-        "node-only\t/Users/me/n\tnode\t2\n"               # bare node -> drop
-        "zsh-only\t/Users/me/z\t/bin/zsh\t3\n"            # path to zsh -> drop
+        f"abs\t{_real('a')}\t/usr/local/bin/claude\t1\n"  # path to claude -> keep
+        f"node-only\t{_real('n')}\tnode\t2\n"             # bare node -> drop
+        f"zsh-only\t{_real('z')}\t/bin/zsh\t3\n"          # path to zsh -> drop
     )
     fr = FakeRunner(stdout=out)
     agent = CodingDiscoverAgent(send=lambda f: None, runner=fr, clock=FakeClock(),
                                 home_dir=_EMPTY_HOME)
     names = {s["tmux_name"] for s in agent.scan()}
     assert names == {"abs"}
+
+
+# ── junk-discovery filters (hidden / nonexistent cwd) ─────────────────────────
+
+
+def test_scan_skips_hidden_and_nonexistent_tmux_cwd():
+    # A claude/jc- session in a hidden dir, and one whose cwd no longer exists,
+    # are both dropped; only the real visible-dir session is kept.
+    hidden = _real(".HIDDEN")                     # real dir, but hidden basename
+    real = _real("realwork")
+    gone = os.path.join(_REAL_BASE, "does-not-exist-xyz")  # never created
+    out = (
+        f"jc-hidden\t{hidden}\tclaude\t1\n"
+        f"jc-gone\t{gone}\tclaude\t2\n"
+        f"jc-real\t{real}\tclaude\t3\n"
+    )
+    fr = FakeRunner(stdout=out)
+    agent = CodingDiscoverAgent(send=lambda f: None, runner=fr, clock=FakeClock(),
+                                home_dir=_EMPTY_HOME)
+    names = {s["tmux_name"] for s in agent.scan()}
+    assert names == {"jc-real"}
+
+
+def test_scan_transcripts_skips_hidden_and_nonexistent_cwd(tmp_path):
+    # Transcripts whose recorded cwd is hidden or has been deleted must NOT
+    # resurrect as projects; only the real visible-dir transcript survives.
+    home = str(tmp_path)
+    real = _real("twork")
+    hidden = _real(".secret")
+    gone = os.path.join(_REAL_BASE, "transcript-gone-xyz")  # never created
+    _write_transcript(home, "p1", "real-id", [_cwd_line(real)])
+    _write_transcript(home, "p2", "hidden-id", [_cwd_line(hidden)])
+    _write_transcript(home, "p3", "gone-id", [_cwd_line(gone)])
+    items = scan_transcripts(home, now=1000.0)
+    ids = {it["claude_session_id"] for it in items}
+    assert ids == {"real-id"}
 
 
 # ── on-demand push (coding_discover_request) ──────────────────────────────────
@@ -222,7 +281,7 @@ def test_throttle_pushes_when_set_changes():
     agent._scan_and_push(force=True)
     assert len(sent) == 1
     # A new claude session appears -> the set changed -> push (no heartbeat).
-    fr.stdout = _FOUR_SESSIONS + "jc-new\t/Users/me/n\tclaude\t1717800004\n"
+    fr.stdout = _FOUR_SESSIONS + f"jc-new\t{_real('nnew')}\tclaude\t1717800004\n"
     clock.t = 101.0
     agent._scan_and_push(force=False)
     assert len(sent) == 2
@@ -266,9 +325,10 @@ def test_transcript_mtime_change_alone_does_not_repush(tmp_path):
     # spurious push (otherwise the throttle is defeated by transcripts).
     home = str(tmp_path)
     clock = FakeClock(100.0)
+    cwd = _real("ticky")
     fpath = _write_transcript(home, "p", "ticky", [
         {"type": "summary", "summary": "stable title"},
-        _cwd_line("/w/ticky")], mtime=50.0)
+        _cwd_line(cwd)], mtime=50.0)
     sent = []
     fr = FakeRunner(stdout="")  # no tmux sessions; transcripts only
     agent = CodingDiscoverAgent(send=sent.append, runner=fr, clock=clock,
@@ -288,8 +348,9 @@ def test_transcript_live_change_drives_repush(tmp_path):
     # cwd), the change-hash DOES change -> a push (live is part of the identity).
     home = str(tmp_path)
     clock = FakeClock(100.0)
+    cwd = _real("proj_flip")
     _write_transcript(home, "p", "flip", [
-        {"type": "summary", "summary": "t"}, _cwd_line("/Users/me/proj")],
+        {"type": "summary", "summary": "t"}, _cwd_line(cwd)],
         mtime=50.0)
     sent = []
     fr = FakeRunner(stdout="")  # initially no live tmux -> transcript live=False
@@ -300,7 +361,7 @@ def test_transcript_live_change_drives_repush(tmp_path):
     trans0 = [s for s in sent[0]["sessions"] if s["kind"] == "transcript"][0]
     assert trans0["live"] is False
     # A tmux claude session appears in the SAME cwd -> transcript flips live.
-    fr.stdout = "jc-x\t/Users/me/proj\tclaude\t1\n"
+    fr.stdout = f"jc-x\t{cwd}\tclaude\t1\n"
     clock.t = 101.0
     agent._scan_and_push(force=False)
     assert len(sent) == 2
@@ -420,13 +481,15 @@ def _cwd_line(cwd):
 def test_scan_transcripts_basic(tmp_path):
     home = str(tmp_path)
     now = 1_000_000.0
+    cwd_a = _real("proj-a")
+    cwd_b = _real("proj-b")
     # Two transcripts in two projects; each has a cwd line + a summary line.
     _write_transcript(home, "proj-a", "11111111-aaaa", [
         {"type": "summary", "summary": "Fix the login bug"},
-        _cwd_line("/Users/me/proj-a"),
+        _cwd_line(cwd_a),
     ], mtime=now - 100)
     _write_transcript(home, "proj-b", "22222222-bbbb", [
-        {"type": "user", "cwd": "/Users/me/proj-b",
+        {"type": "user", "cwd": cwd_b,
          "message": {"role": "user", "content": "do the thing"}},
     ], mtime=now - 200)
 
@@ -436,7 +499,7 @@ def test_scan_transcripts_basic(tmp_path):
 
     a = by_id["11111111-aaaa"]
     assert a["kind"] == "transcript"
-    assert a["cwd"] == "/Users/me/proj-a"
+    assert a["cwd"] == cwd_a
     assert a["summary"] == "Fix the login bug"  # explicit summary wins
     assert a["last_activity"] == now - 100      # = file mtime
     assert a["live"] is False
@@ -446,7 +509,7 @@ def test_scan_transcripts_basic(tmp_path):
     b = by_id["22222222-bbbb"]
     # No summary line -> falls back to the first user message text.
     assert b["summary"] == "do the thing"
-    assert b["cwd"] == "/Users/me/proj-b"
+    assert b["cwd"] == cwd_b
 
 
 def test_scan_transcripts_missing_home_returns_empty(tmp_path):
@@ -458,8 +521,9 @@ def test_scan_transcripts_missing_home_returns_empty(tmp_path):
 def test_scan_transcripts_user_content_blocks(tmp_path):
     # content as a list of {type:text,text} blocks -> joined as the summary.
     home = str(tmp_path)
+    cwd = _real("blocks")
     _write_transcript(home, "p", "sess-blocks", [
-        {"type": "user", "cwd": "/w/blocks", "message": {
+        {"type": "user", "cwd": cwd, "message": {
             "role": "user",
             "content": [
                 {"type": "text", "text": "first part"},
@@ -470,15 +534,16 @@ def test_scan_transcripts_user_content_blocks(tmp_path):
     items = scan_transcripts(home, now=1000.0)
     assert len(items) == 1
     assert items[0]["summary"] == "first part second part"
-    assert items[0]["cwd"] == "/w/blocks"
+    assert items[0]["cwd"] == cwd
 
 
 def test_scan_transcripts_skips_slash_command_boilerplate(tmp_path):
     # Claude Code injects a <command-name>/<local-command-caveat> wrapper as the
     # first "user" message; it must be skipped in favor of the real prose.
     home = str(tmp_path)
+    cwd = _real("boil-b")
     _write_transcript(home, "p", "boiler", [
-        {"type": "user", "cwd": "/w/b",
+        {"type": "user", "cwd": cwd,
          "message": {"role": "user",
                      "content": "<command-name>resume</command-name>"}},
         {"type": "user",
@@ -487,22 +552,23 @@ def test_scan_transcripts_skips_slash_command_boilerplate(tmp_path):
     items = scan_transcripts(home, now=1000.0)
     assert len(items) == 1
     assert items[0]["summary"] == "actually fix the parser"
-    assert items[0]["cwd"] == "/w/b"
+    assert items[0]["cwd"] == cwd
 
 
 def test_scan_transcripts_all_boilerplate_yields_empty_summary(tmp_path):
     # If the only user text is boilerplate and there's no summary line, the
     # summary defaults to "" (cwd still resolves, so the entry is kept).
     home = str(tmp_path)
+    cwd = _real("boil-o")
     _write_transcript(home, "p", "onlyboiler", [
-        {"type": "user", "cwd": "/w/o", "message": {
+        {"type": "user", "cwd": cwd, "message": {
             "role": "user",
             "content": "<local-command-caveat>Caveat: ...</local-command-caveat>"}},
     ])
     items = scan_transcripts(home, now=1000.0)
     assert len(items) == 1
     assert items[0]["summary"] == ""
-    assert items[0]["cwd"] == "/w/o"
+    assert items[0]["cwd"] == cwd
 
 
 def test_scan_transcripts_no_cwd_is_skipped(tmp_path):
@@ -519,10 +585,12 @@ def test_scan_transcripts_age_cap(tmp_path):
     home = str(tmp_path)
     now = 2_000_000.0
     day = 86400.0
+    cwd_fresh = _real("fresh")
+    cwd_stale = _real("stale")
     # Fresh (5 days old) vs stale (40 days old) with max_age_days=30.
-    _write_transcript(home, "p", "fresh", [_cwd_line("/w/fresh")],
+    _write_transcript(home, "p", "fresh", [_cwd_line(cwd_fresh)],
                       mtime=now - 5 * day)
-    _write_transcript(home, "p", "stale", [_cwd_line("/w/stale")],
+    _write_transcript(home, "p", "stale", [_cwd_line(cwd_stale)],
                       mtime=now - 40 * day)
     items = scan_transcripts(home, now=now, max_age_days=30)
     ids = {it["claude_session_id"] for it in items}
@@ -535,7 +603,7 @@ def test_scan_transcripts_file_cap_logs_skip(tmp_path, caplog):
     now = 3_000_000.0
     # 5 transcripts, distinct mtimes; cap to 2 newest -> 3 skipped + logged.
     for i in range(5):
-        _write_transcript(home, "p", f"s{i}", [_cwd_line(f"/w/{i}")],
+        _write_transcript(home, "p", f"s{i}", [_cwd_line(_real(f"cap{i}"))],
                           mtime=now - i)  # s0 newest ... s4 oldest
     with caplog.at_level(_logging.INFO, logger="jc_client.coding_discover"):
         items = scan_transcripts(home, now=now, max_files=2)
@@ -548,25 +616,28 @@ def test_scan_transcripts_file_cap_logs_skip(tmp_path, caplog):
 
 def test_scan_transcripts_malformed_lines_robust(tmp_path):
     home = str(tmp_path)
+    cwd = _real("messy")
     # Garbage + partial JSON lines mixed with a valid cwd line -> still parsed.
     _write_transcript(home, "p", "messy", [
         "not json at all",
         '{"partial": ',                       # truncated JSON
         "[]",                                  # valid JSON but not a dict
-        _cwd_line("/w/messy"),
+        _cwd_line(cwd),
         '{"type": "summary", "summary": "after the mess"}',
     ])
     items = scan_transcripts(home, now=1000.0)
     assert len(items) == 1
-    assert items[0]["cwd"] == "/w/messy"
+    assert items[0]["cwd"] == cwd
     assert items[0]["summary"] == "after the mess"
 
 
 def test_scan_transcripts_live_flag(tmp_path):
     home = str(tmp_path)
-    _write_transcript(home, "p", "live-one", [_cwd_line("/w/live")])
-    _write_transcript(home, "p", "dead-one", [_cwd_line("/w/dead")])
-    items = scan_transcripts(home, now=1000.0, live_cwds=["/w/live"])
+    cwd_live = _real("live")
+    cwd_dead = _real("dead")
+    _write_transcript(home, "p", "live-one", [_cwd_line(cwd_live)])
+    _write_transcript(home, "p", "dead-one", [_cwd_line(cwd_dead)])
+    items = scan_transcripts(home, now=1000.0, live_cwds=[cwd_live])
     by_id = {it["claude_session_id"]: it for it in items}
     assert by_id["live-one"]["live"] is True
     assert by_id["dead-one"]["live"] is False
@@ -577,17 +648,19 @@ def test_scan_transcripts_live_flag_trailing_slash_normalized(tmp_path):
     # match: the live-match comparison normalizes a trailing slash away so a
     # genuinely-live session isn't wrongly reported live=False on a slash mismatch.
     home = str(tmp_path)
-    _write_transcript(home, "p", "t-slash-live", [_cwd_line("/w/proj")])
-    _write_transcript(home, "p", "t-slash-rev", [_cwd_line("/w/rev/")])
+    cwd_proj = _real("slashproj")
+    cwd_rev = _real("slashrev")
+    _write_transcript(home, "p", "t-slash-live", [_cwd_line(cwd_proj)])
+    _write_transcript(home, "p", "t-slash-rev", [_cwd_line(cwd_rev + "/")])
     items = scan_transcripts(
-        home, now=1000.0, live_cwds=["/w/proj/", "/w/rev"])
+        home, now=1000.0, live_cwds=[cwd_proj + "/", cwd_rev])
     by_id = {it["claude_session_id"]: it for it in items}
     # live_cwd had the slash, transcript cwd didn't -> still live.
     assert by_id["t-slash-live"]["live"] is True
     # transcript cwd had the slash, live_cwd didn't -> still live.
     assert by_id["t-slash-rev"]["live"] is True
     # the EMITTED cwd is left verbatim (server resumes against it).
-    assert by_id["t-slash-rev"]["cwd"] == "/w/rev/"
+    assert by_id["t-slash-rev"]["cwd"] == cwd_rev + "/"
 
 
 def test_scan_transcripts_overlong_line_is_bounded(tmp_path):
@@ -600,21 +673,22 @@ def test_scan_transcripts_overlong_line_is_bounded(tmp_path):
     from jc_client.coding_discover import _extract_cwd_summary
 
     home = str(tmp_path)
+    cwd = _real("giant")
     pdir = os.path.join(home, ".claude", "projects", "p")
     os.makedirs(pdir, exist_ok=True)
     fpath = os.path.join(pdir, "giant.jsonl")
     big = "x" * (8 * 1024 * 1024)  # 8 MiB single line, no embedded newline
     with open(fpath, "w", encoding="utf-8") as fh:
         fh.write(big + "\n")
-        fh.write(json.dumps({"cwd": "/w/giant"}) + "\n")
+        fh.write(json.dumps({"cwd": cwd}) + "\n")
         fh.write(json.dumps({"type": "summary", "summary": "after giant"}) + "\n")
 
     tracemalloc.start()
-    cwd, summary = _extract_cwd_summary(fpath, head_lines=20)
+    cwd_out, summary = _extract_cwd_summary(fpath, head_lines=20)
     _cur, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
-    assert cwd == "/w/giant"
+    assert cwd_out == cwd
     assert summary == "after giant"
     # Bounded: never materialize anywhere near the 8 MiB overlong line.
     assert peak < 4 * 1024 * 1024, f"head read not bounded: peak={peak} bytes"
@@ -622,7 +696,7 @@ def test_scan_transcripts_overlong_line_is_bounded(tmp_path):
     # And it surfaces correctly through the full scan, too.
     items = scan_transcripts(home, now=1000.0)
     assert len(items) == 1
-    assert items[0]["cwd"] == "/w/giant"
+    assert items[0]["cwd"] == cwd
     assert items[0]["summary"] == "after giant"
 
 
@@ -669,17 +743,19 @@ def test_extract_cwd_summary_trailing_line_without_newline(tmp_path):
 def test_scan_transcripts_dedup_by_session_id_keeps_newest(tmp_path):
     home = str(tmp_path)
     now = 4_000_000.0
+    cwd_old = _real("dold")
+    cwd_new = _real("dnew")
     # Same session id in two different project dirs -> newest mtime wins.
     _write_transcript(home, "old-proj", "dup-id", [
-        {"type": "summary", "summary": "OLD"}, _cwd_line("/w/old")],
+        {"type": "summary", "summary": "OLD"}, _cwd_line(cwd_old)],
         mtime=now - 500)
     _write_transcript(home, "new-proj", "dup-id", [
-        {"type": "summary", "summary": "NEW"}, _cwd_line("/w/new")],
+        {"type": "summary", "summary": "NEW"}, _cwd_line(cwd_new)],
         mtime=now - 10)
     items = scan_transcripts(home, now=now)
     assert len(items) == 1
     assert items[0]["summary"] == "NEW"
-    assert items[0]["cwd"] == "/w/new"
+    assert items[0]["cwd"] == cwd_new
     assert items[0]["last_activity"] == now - 10
 
 
@@ -689,16 +765,17 @@ def test_scan_transcripts_dedup_by_session_id_keeps_newest(tmp_path):
 def test_combined_push_includes_tmux_and_transcripts(tmp_path):
     home = str(tmp_path)
     now = 5_000_000.0
-    # A live tmux claude session in /Users/me/proj (matches _FOUR_SESSIONS).
+    # A live tmux claude session in _CWD_PROJ (matches _FOUR_SESSIONS' jc-abc).
     # A transcript in that SAME cwd -> should come back live=True; plus a
     # transcript in a non-live cwd -> live=False.
+    cwd_else = _real("elsewhere")
     _write_transcript(home, "p1", "t-live", [
         {"type": "summary", "summary": "live work"},
-        _cwd_line("/Users/me/proj")],
+        _cwd_line(_CWD_PROJ)],
         mtime=now - 50)
     _write_transcript(home, "p2", "t-past", [
         {"type": "summary", "summary": "past work"},
-        _cwd_line("/Users/me/elsewhere")],
+        _cwd_line(cwd_else)],
         mtime=now - 60)
 
     sent = []
@@ -740,83 +817,205 @@ def test_combined_scan_survives_unreadable_store(tmp_path, monkeypatch):
     assert all(s["kind"] == "tmux" for s in sessions)  # transcripts degraded to []
 
 
-def test_coding_resume_launches_tmux_and_rescans():
-    """An inbound coding_resume runs `tmux new-session … claude --resume <id>`
-    in the session's cwd, then forces a re-scan so the new live session reports."""
-    from jc_client.coding_discover import (
-        CodingDiscoverAgent, tmux_resume_argv)
-    sent = []
-    calls = []
-
-    def runner(argv):
-        calls.append(argv)
-        # tmux list-sessions returns the just-resumed session as live claude
-        if argv[:2] == ["tmux", "list-sessions"]:
-            return 0, "jc-resumed\t/work/p\tclaude\t100\n", ""
-        return 0, "", ""
-
-    agent = CodingDiscoverAgent(send=lambda f: sent.append(f), device_id="d1",
-                                runner=runner, clock=lambda: 1.0,
-                                home_dir="/nonexistent-home")
-    agent.handle_frame({"type": "coding_resume", "tmux_name": "jc-resumed",
-                        "cwd": "/work/p", "claude_session_id": "abc-123"})
-    # the resume launch argv was issued, with the exact pure-exec shape
-    assert tmux_resume_argv("jc-resumed", "/work/p", "abc-123") in calls
-    # and a discover push followed (the new live session is reported)
-    pushes = [f for f in sent if f.get("type") == "coding_discover"]
-    assert pushes and any(s.get("tmux_name") == "jc-resumed"
-                          for s in pushes[-1]["sessions"])
+# ── transcript send (coding_transcript_get -> coding_transcript_data) ──────────
 
 
-def test_coding_resume_ignores_incomplete_frame():
-    from jc_client.coding_discover import CodingDiscoverAgent
-    calls = []
-    agent = CodingDiscoverAgent(send=lambda f: None, device_id="d1",
-                                runner=lambda a: (calls.append(a), (0, "", ""))[1],
-                                clock=lambda: 1.0, home_dir="/nonexistent-home")
-    agent.handle_frame({"type": "coding_resume", "tmux_name": "jc-x"})  # no cwd/id
-    assert not any(c[:2] == ["tmux", "new-session"] for c in calls)
+def _write_transcript_at(home, cwd, session_id, content_bytes):
+    """Write a transcript at the ENCODED location ``_on_transcript_get`` resolves
+    to: ``<home>/.claude/projects/<encode(cwd)>/<session_id>.jsonl``."""
+    from jc_client.coding_discover import _encode_project_dir
+    pdir = os.path.join(home, ".claude", "projects", _encode_project_dir(cwd))
+    os.makedirs(pdir, exist_ok=True)
+    fpath = os.path.join(pdir, session_id + ".jsonl")
+    with open(fpath, "wb") as fh:
+        fh.write(content_bytes)
+    return fpath
 
 
-def test_coding_resume_duplicate_session_does_not_raise():
-    # `tmux new-session -s <name>` fails (rc=1, "duplicate session") when the name
-    # already exists. The resume handler must log + NOT crash, and still rescan
-    # (the existing session is reported, so the user can attach).
-    from jc_client.coding_discover import CodingDiscoverAgent
-    calls = []
+def _data_frames(sent):
+    return [f for f in sent if f.get("type") == "coding_transcript_data"]
 
-    def runner(argv):
-        calls.append(argv)
-        if argv[:2] == ["tmux", "new-session"]:
-            return 1, "", "duplicate session: jc-dup"  # already exists
-        if argv[:2] == ["tmux", "list-sessions"]:
-            return 0, "jc-dup\t/work/p\tclaude\t100\n", ""
-        return 0, "", ""
+
+def _reassemble(frames):
+    """Concat the base64 chunks (in seq order), b64-decode, then gunzip."""
+    ordered = sorted(frames, key=lambda f: f["seq"])
+    blob = b"".join(base64.b64decode(f["content_b64"]) for f in ordered)
+    return gzip.decompress(blob)
+
+
+def _transcript_agent(sent, home):
+    return CodingDiscoverAgent(send=sent.append, device_id="d1",
+                               runner=FakeRunner(stdout=""), clock=FakeClock(),
+                               home_dir=home)
+
+
+def test_transcript_get_found_roundtrips(tmp_path):
+    home = str(tmp_path)
+    cwd = _real("getproj")
+    body = (b'{"type":"user","cwd":"x"}\n'
+            b'{"type":"summary","summary":"hi"}\n') * 50
+    _write_transcript_at(home, cwd, "sess-get-1", body)
 
     sent = []
-    agent = CodingDiscoverAgent(send=sent.append, device_id="d1", runner=runner,
-                                clock=lambda: 1.0, home_dir="/nonexistent-home")
-    # Must not raise into the pump despite the non-zero launch rc.
-    agent.handle_frame({"type": "coding_resume", "tmux_name": "jc-dup",
-                        "cwd": "/work/p", "claude_session_id": "abc-123"})
-    # A rescan still happened and reports the (already-live) session.
-    pushes = [f for f in sent if f.get("type") == "coding_discover"]
-    assert pushes and any(s.get("tmux_name") == "jc-dup"
-                          for s in pushes[-1]["sessions"])
+    agent = _transcript_agent(sent, home)
+    agent.handle_frame({"type": "coding_transcript_get", "req_id": "r1",
+                        "claude_session_id": "sess-get-1", "cwd": cwd})
+
+    data = _data_frames(sent)
+    assert data, "no data frames sent"
+    # No error frame; exactly one eof; contiguous 0-based seqs.
+    assert all(f.get("ok") is not False for f in data)
+    assert data[-1]["eof"] is True
+    assert sum(1 for f in data if f["eof"]) == 1
+    assert [f["seq"] for f in data] == list(range(len(data)))
+    assert all(f["req_id"] == "r1" and f["claude_session_id"] == "sess-get-1"
+               for f in data)
+    assert _reassemble(data) == body
 
 
-def test_coding_resume_runner_exception_does_not_raise():
-    # If the runner itself throws (e.g. tmux binary explodes), the resume handler
-    # must swallow it (no bubble into the WS pump) and NOT push a phantom session.
-    from jc_client.coding_discover import CodingDiscoverAgent
-
-    def runner(argv):
-        raise RuntimeError("tmux exploded")
+def test_transcript_get_multichunk_large_file(tmp_path):
+    home = str(tmp_path)
+    cwd = _real("getbig")
+    # ~900 KiB of incompressible bytes -> gzip stays large -> base64 spans
+    # several ≤256 KiB chunks.
+    body = os.urandom(900 * 1024)
+    _write_transcript_at(home, cwd, "sess-big", body)
 
     sent = []
-    agent = CodingDiscoverAgent(send=sent.append, device_id="d1", runner=runner,
-                                clock=lambda: 1.0, home_dir="/nonexistent-home")
-    agent.handle_frame({"type": "coding_resume", "tmux_name": "jc-x",
-                        "cwd": "/work/p", "claude_session_id": "abc-123"})
-    # Launch failed before the rescan -> no push (and definitely no exception).
-    assert not [f for f in sent if f.get("type") == "coding_discover"]
+    agent = _transcript_agent(sent, home)
+    agent.handle_frame({"type": "coding_transcript_get", "req_id": "rb",
+                        "claude_session_id": "sess-big", "cwd": cwd})
+
+    data = _data_frames(sent)
+    assert len(data) >= 2, "expected a multi-chunk stream"
+    # Every non-final chunk is a full 256 KiB of base64 and not eof.
+    for f in data[:-1]:
+        assert f["eof"] is False
+        assert len(f["content_b64"]) == 256 * 1024
+    assert data[-1]["eof"] is True
+    assert _reassemble(data) == body
+
+
+def test_transcript_get_empty_file_single_eof(tmp_path):
+    home = str(tmp_path)
+    cwd = _real("getempty")
+    _write_transcript_at(home, cwd, "sess-empty", b"")
+
+    sent = []
+    agent = _transcript_agent(sent, home)
+    agent.handle_frame({"type": "coding_transcript_get", "req_id": "re",
+                        "claude_session_id": "sess-empty", "cwd": cwd})
+
+    data = _data_frames(sent)
+    # Exactly one chunk, eof, seq 0; it gunzips back to empty bytes.
+    assert len(data) == 1
+    assert data[0]["eof"] is True
+    assert data[0]["seq"] == 0
+    assert data[0].get("ok") is not False
+    assert _reassemble(data) == b""
+
+
+def test_transcript_get_fallback_glob(tmp_path):
+    # The file is stored under a project dir that does NOT match encode(cwd)
+    # (realpath/symlink quirk); the glob fallback must still find it by id.
+    home = str(tmp_path)
+    pdir = os.path.join(home, ".claude", "projects", "some-unrelated-enc")
+    os.makedirs(pdir)
+    body = b'{"hello":"world"}\n'
+    with open(os.path.join(pdir, "sess-glob.jsonl"), "wb") as fh:
+        fh.write(body)
+
+    sent = []
+    agent = _transcript_agent(sent, home)
+    # cwd encodes to a dir that doesn't exist -> encoded lookup misses -> glob.
+    agent.handle_frame({"type": "coding_transcript_get", "req_id": "rg",
+                        "claude_session_id": "sess-glob",
+                        "cwd": "/nonmatching/path/xyz"})
+
+    data = _data_frames(sent)
+    assert data and data[-1]["eof"] is True
+    assert all(f.get("ok") is not False for f in data)
+    assert _reassemble(data) == body
+
+
+def test_transcript_get_honors_claude_config_dir(tmp_path, monkeypatch):
+    # With CLAUDE_CONFIG_DIR set, the transcript is read from <that>/projects,
+    # NOT <home>/.claude/projects.
+    from jc_client.coding_discover import _encode_project_dir
+    cfg = tmp_path / "cfg"
+    cwd = _real("cfgproj")
+    pdir = cfg / "projects" / _encode_project_dir(cwd)
+    pdir.mkdir(parents=True)
+    body = b'{"x":1}\n'
+    (pdir / "sess-cfg.jsonl").write_bytes(body)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+
+    sent = []
+    # home_dir points elsewhere (no transcript there) -> must use CLAUDE_CONFIG_DIR.
+    agent = _transcript_agent(sent, str(tmp_path / "otherhome"))
+    agent.handle_frame({"type": "coding_transcript_get", "req_id": "rc",
+                        "claude_session_id": "sess-cfg", "cwd": cwd})
+
+    data = _data_frames(sent)
+    assert data and data[-1]["eof"] is True
+    assert _reassemble(data) == body
+
+
+def test_transcript_get_missing_session_returns_error(tmp_path):
+    home = str(tmp_path)
+    sent = []
+    agent = _transcript_agent(sent, home)
+    agent.handle_frame({"type": "coding_transcript_get", "req_id": "rX",
+                        "claude_session_id": "does-not-exist",
+                        "cwd": _real("nope")})
+    data = _data_frames(sent)
+    assert len(data) == 1
+    assert data[0]["ok"] is False
+    assert data[0]["req_id"] == "rX"
+    assert data[0].get("error")
+    # An error frame carries no content/eof.
+    assert "content_b64" not in data[0]
+
+
+def test_transcript_get_oversize_returns_error(tmp_path, monkeypatch):
+    import jc_client.coding_discover as cd
+    monkeypatch.setattr(cd, "_TRANSCRIPT_GET_MAX_BYTES", 8)
+    home = str(tmp_path)
+    cwd = _real("getoversz")
+    _write_transcript_at(home, cwd, "sess-over", b"x" * 100)  # > 8 byte cap
+
+    sent = []
+    agent = _transcript_agent(sent, home)
+    agent.handle_frame({"type": "coding_transcript_get", "req_id": "ro",
+                        "claude_session_id": "sess-over", "cwd": cwd})
+    data = _data_frames(sent)
+    assert len(data) == 1
+    assert data[0]["ok"] is False
+    assert "too large" in data[0]["error"]
+
+
+def test_transcript_get_bad_session_id_returns_error(tmp_path):
+    # A path-traversal / empty session id is rejected before touching the FS.
+    home = str(tmp_path)
+    for bad in ("", "../escape", "a/b", ".."):
+        sent = []
+        agent = _transcript_agent(sent, home)
+        agent.handle_frame({"type": "coding_transcript_get", "req_id": "rbad",
+                            "claude_session_id": bad, "cwd": _real("any")})
+        data = _data_frames(sent)
+        assert len(data) == 1 and data[0]["ok"] is False, bad
+
+
+def test_transcript_get_send_failure_does_not_raise(tmp_path):
+    # A send failure mid-stream must be swallowed (never bubble into the pump).
+    home = str(tmp_path)
+    cwd = _real("getsendfail")
+    _write_transcript_at(home, cwd, "sess-sf", b"data\n")
+
+    def boom(_f):
+        raise RuntimeError("ws closed")
+
+    agent = CodingDiscoverAgent(send=boom, runner=FakeRunner(stdout=""),
+                                clock=FakeClock(), home_dir=home)
+    agent.handle_frame({"type": "coding_transcript_get", "req_id": "rsf",
+                        "claude_session_id": "sess-sf", "cwd": cwd})

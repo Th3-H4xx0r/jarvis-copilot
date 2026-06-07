@@ -336,6 +336,9 @@ _CODING_INBOUND_TYPES = frozenset({
     # Device-side session discovery: the desktop pushes its live `claude` tmux
     # sessions so the server upserts them as discovered coding-session rows.
     "coding_discover",
+    # Resume-to-server: the desktop streams a discovered session's transcript
+    # back (gzipped, base64, chunked) in response to a coding_transcript_get.
+    "coding_transcript_data",
 })
 
 # process-wide handler(device_id: str, frame: dict) -> None, set by DesktopBridge.

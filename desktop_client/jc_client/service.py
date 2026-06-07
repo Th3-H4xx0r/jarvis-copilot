@@ -387,7 +387,7 @@ class Service:
             return
 
         if msg_type and (msg_type.startswith("coding_discover")
-                         or msg_type == "coding_resume"):
+                         or msg_type == "coding_transcript_get"):
             if self._coding_discover:
                 self._coding_discover.handle_frame(frame)
             return

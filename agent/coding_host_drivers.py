@@ -65,6 +65,7 @@ class LocalDriver(HostDriver):
                     model: str | None, initial_prompt: str | None,
                     skip_permissions: bool = False,
                     resume: bool = False,
+                    resume_session_id: str | None = None,
                     mcp_config: str | None = None) -> list[str]:
         """argv that starts a real agentic claude session.
 
@@ -77,8 +78,17 @@ class LocalDriver(HostDriver):
         ``skip_permissions`` adds ``--dangerously-skip-permissions`` (claude runs
         autonomously, no approval prompts). claude REFUSES that flag as root
         unless ``IS_SANDBOX=1`` — hermes runs as root, so we set it via the env
-        prefix when the flag is on. ``resume`` adds ``--continue`` (resume the
-        most recent conversation in this cwd — used by Restart).
+        prefix when the flag is on.
+
+        Two distinct resume modes, mutually exclusive:
+          * ``resume=True`` adds ``--continue`` (resume the MOST RECENT
+            conversation in this cwd — used by Restart).
+          * ``resume_session_id=<uuid>`` adds ``--resume <uuid>`` (resume a
+            SPECIFIC transcript by its claude session id — used to bring a
+            discovered Mac session onto the server, where the transcript .jsonl
+            has been mirrored into the server's ~/.claude projects dir).
+        Either mode suppresses the initial prompt (there's an existing
+        conversation to continue, not a new task to seed).
 
         ``mcp_config`` (a path to a per-session ``.mcp.json``) adds
         ``--mcp-config`` so the code-assist MCP server is whatever the HOST can
@@ -96,13 +106,17 @@ class LocalDriver(HostDriver):
         ]
         if mcp_config:
             argv += ["--mcp-config", mcp_config]
+        # --continue (latest in cwd) wins over --resume <id> if both are somehow
+        # passed; they are otherwise mutually exclusive callers.
         if resume:
             argv += ["--continue"]
+        elif resume_session_id:
+            argv += ["--resume", str(resume_session_id)]
         if skip_permissions:
             argv += ["--dangerously-skip-permissions"]
         if is_valid_model(model):
             argv += ["--model", model]
-        if initial_prompt and not resume:
+        if initial_prompt and not resume and not resume_session_id:
             argv += [initial_prompt]
         return argv
 

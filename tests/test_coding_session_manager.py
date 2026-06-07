@@ -14,10 +14,17 @@ class FakeDriver:
         self.returncode = returncode
 
     def claude_argv(self, *, plugin_dir, context_file, model, initial_prompt,
-                    skip_permissions=False, resume=False, mcp_config=None):
+                    skip_permissions=False, resume=False, resume_session_id=None,
+                    mcp_config=None):
         argv = ["env", "claude", "--append-system-prompt-file", context_file]
         if mcp_config:
             argv += ["--mcp-config", mcp_config]
+        if resume:
+            argv += ["--continue"]
+        elif resume_session_id:
+            argv += ["--resume", str(resume_session_id)]
+        if initial_prompt and not resume and not resume_session_id:
+            argv += [initial_prompt]
         return argv
 
     def tmux_new_argv(self, *, tmux_name, cwd, launch_argv):
@@ -95,6 +102,20 @@ def test_launch_expands_tilde(tmp_path, monkeypatch):
     expected = os.path.join(str(tmp_path / "home"), "proj")
     assert s["cwd"] == expected
     assert os.path.isdir(expected)
+
+
+def test_launch_with_resume_session_id_adds_resume_flag(tmp_path):
+    # Resuming a specific transcript: claude --resume <csid>, and the initial
+    # prompt is suppressed (there's an existing conversation to continue).
+    mgr, drv = _mgr(tmp_path)
+    s = mgr.launch(cwd=str(tmp_path), title="t", initial_prompt="should be skipped",
+                   model=None, resume_session_id="csid-XYZ")
+    assert s["status"] == "running"
+    launch = next(c for c in drv.calls if c[0] == "tmux")
+    assert "--resume" in launch
+    assert launch[launch.index("--resume") + 1] == "csid-XYZ"
+    assert "should be skipped" not in launch     # initial prompt suppressed
+    assert "--continue" not in launch            # not the restart path
 
 
 def test_restart_resumes_stopped_session(tmp_path):

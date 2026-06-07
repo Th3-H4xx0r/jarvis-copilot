@@ -719,25 +719,30 @@ def test_resume_without_claude_session_id_400():
     assert "claude_session_id" in body["error"]
 
 
-def test_resume_ok_drives_helper(monkeypatch):
+def test_resume_runs_on_server_via_helper(monkeypatch):
+    """A discovered session resumes ON THE SERVER: the route hands the session id
+    + a server manager to resume_discovered_to_server and returns the new server
+    session it produces (the discovered row NEVER relaunches on the Mac)."""
     from api import coding_desktop as cd
 
     m = FakeManager()
     _add_session(m, {"id": "sess-tr", "status": "idle",
                      "source": "discovered-transcript", "host": "desktop",
                      "claude_session_id": "csid-abc", "device_id": "dev-1",
-                     "cwd": "/w/hist"})
+                     "cwd": "/Users/me/hist"})
 
     seen = {}
 
-    def _fake_resume(row, **kw):
-        seen["row"] = row
-        return {"id": row["id"], "status": "starting", "host": "desktop",
-                "tmux_name": "jc-fresh", "source": "discovered-tmux"}
+    def _fake_resume(session_id, *, manager, bridge):
+        seen["session_id"] = session_id
+        seen["manager"] = manager
+        return {"ok": True, "warning": None,
+                "session": {"id": "cs_new", "status": "running",
+                            "host": "server", "cwd": "/srv/hist"}}
 
-    monkeypatch.setattr(cd, "resume_discovered_session", _fake_resume, raising=True)
-    # device resolution shouldn't even be needed (the row carries device_id), but
-    # stub it so a fallback can't reach the real bridge.
+    monkeypatch.setattr(cd, "resume_discovered_to_server", _fake_resume,
+                        raising=True)
+    monkeypatch.setattr(cd, "get_desktop_bridge", lambda: None, raising=True)
     monkeypatch.setattr(cd, "resolve_desktop_device_id",
                         lambda preferred=None: "dev-1", raising=True)
 
@@ -745,15 +750,41 @@ def test_resume_ok_drives_helper(monkeypatch):
         "POST", "/session/sess-tr/resume", {}, manager=m)
     assert status == 200
     assert body["ok"] is True
-    assert body["session"]["status"] == "starting"
-    assert body["session"]["tmux_name"] == "jc-fresh"
-    # the route passed the row through to the helper with its own device_id
-    assert seen["row"]["device_id"] == "dev-1"
-    assert seen["row"]["claude_session_id"] == "csid-abc"
+    assert body["session"]["id"] == "cs_new"
+    assert body["session"]["host"] == "server"     # runs on the server
+    assert seen["session_id"] == "sess-tr"         # helper got the session id
+    assert seen["manager"] is m                    # the (server) manager
+    assert "warning" not in body                   # warning None -> not surfaced
+
+
+def test_resume_surfaces_soft_warning(monkeypatch):
+    """When the helper returns a soft warning (e.g. transcript pull failed), the
+    route surfaces it alongside the new session."""
+    from api import coding_desktop as cd
+
+    m = FakeManager()
+    _add_session(m, {"id": "sess-tr", "status": "idle",
+                     "source": "discovered-transcript", "host": "desktop",
+                     "claude_session_id": "csid-abc", "device_id": "dev-1",
+                     "cwd": "/Users/me/hist"})
+
+    def _fake_resume(session_id, *, manager, bridge):
+        return {"ok": True, "warning": "could not fetch the transcript",
+                "session": {"id": "cs_w", "status": "running"}}
+
+    monkeypatch.setattr(cd, "resume_discovered_to_server", _fake_resume,
+                        raising=True)
+    monkeypatch.setattr(cd, "get_desktop_bridge", lambda: None, raising=True)
+
+    status, body = handle_coding_request(
+        "POST", "/session/sess-tr/resume", {}, manager=m)
+    assert status == 200
+    assert body["warning"] == "could not fetch the transcript"
 
 
 def test_resume_falls_back_to_resolved_device(monkeypatch):
-    """When the row has no device_id, the route resolves the connected desktop."""
+    """When the row has no device_id, the route resolves a connected desktop for
+    the 409 gate (the helper still gets called)."""
     from api import coding_desktop as cd
 
     m = FakeManager()
@@ -764,18 +795,20 @@ def test_resume_falls_back_to_resolved_device(monkeypatch):
 
     monkeypatch.setattr(cd, "resolve_desktop_device_id",
                         lambda preferred=None: "mac-resolved", raising=True)
-    seen = {}
+    called = {}
 
-    def _fake_resume(row, **kw):
-        seen["device_id"] = row.get("device_id")
-        return {"id": row["id"], "status": "starting", "tmux_name": "jc-x",
-                "source": "discovered-tmux"}
+    def _fake_resume(session_id, *, manager, bridge):
+        called["session_id"] = session_id
+        return {"ok": True, "session": {"id": "cs_x", "status": "running"}}
 
-    monkeypatch.setattr(cd, "resume_discovered_session", _fake_resume, raising=True)
+    monkeypatch.setattr(cd, "resume_discovered_to_server", _fake_resume,
+                        raising=True)
+    monkeypatch.setattr(cd, "get_desktop_bridge", lambda: None, raising=True)
+
     status, body = handle_coding_request(
         "POST", "/session/sess-nodev/resume", {}, manager=m)
     assert status == 200
-    assert seen["device_id"] == "mac-resolved"
+    assert called["session_id"] == "sess-nodev"
 
 
 def test_resume_no_device_connected_409(monkeypatch):
@@ -791,7 +824,7 @@ def test_resume_no_device_connected_409(monkeypatch):
     # The helper must never be called when no device is connected.
     def _boom(*a, **k):
         raise AssertionError("resume helper should not be called offline")
-    monkeypatch.setattr(cd, "resume_discovered_session", _boom, raising=True)
+    monkeypatch.setattr(cd, "resume_discovered_to_server", _boom, raising=True)
 
     status, body = handle_coding_request(
         "POST", "/session/sess-off/resume", {}, manager=m)
@@ -800,11 +833,9 @@ def test_resume_no_device_connected_409(monkeypatch):
 
 
 def test_resume_rejects_server_host_launched_session_400(monkeypatch):
-    """Resume is ONLY for discovered transcript rows. A real server-host /
-    Jarvis-launched session that happens to carry a claude_session_id must be
-    rejected (400) BEFORE the helper runs — otherwise the helper would re-host it
-    onto a desktop, overwrite its tmux_name, and flip its source, corrupting a
-    live session."""
+    """Resume is ONLY for DISCOVERED rows. A real server-host / Jarvis-launched
+    session that happens to carry a claude_session_id must be rejected (400)
+    BEFORE the helper runs — it already runs on the server."""
     from api import coding_desktop as cd
 
     m = FakeManager()
@@ -815,33 +846,32 @@ def test_resume_rejects_server_host_launched_session_400(monkeypatch):
 
     def _boom(*a, **k):
         raise AssertionError("resume helper must not run for a launched session")
-    monkeypatch.setattr(cd, "resume_discovered_session", _boom, raising=True)
+    monkeypatch.setattr(cd, "resume_discovered_to_server", _boom, raising=True)
     monkeypatch.setattr(cd, "resolve_desktop_device_id",
                         lambda preferred=None: "mac-1", raising=True)
 
     status, body = handle_coding_request(
         "POST", "/session/sess-srv/resume", {}, manager=m)
     assert status == 400
-    assert "discovered transcript" in body["error"]
+    assert "discovered" in body["error"]
 
 
-def test_resume_rejects_discovered_tmux_row_400(monkeypatch):
-    """A discovered-TMUX row (live tmux, or an already-resumed row) is not a
-    transcript-history row; resume must reject it (400) rather than spawn a
-    duplicate tmux for the same csid."""
+def test_resume_discovered_row_without_csid_400(monkeypatch):
+    """A discovered row with no claude_session_id has nothing to resume -> 400
+    before the helper runs."""
     from api import coding_desktop as cd
 
     m = FakeManager()
     _add_session(m, {"id": "sess-tmux", "status": "running",
                      "source": "discovered-tmux", "host": "desktop",
-                     "claude_session_id": "csid-live", "device_id": "dev-1",
+                     "claude_session_id": "", "device_id": "dev-1",
                      "cwd": "/w/live", "tmux_name": "jc-live"})
 
     def _boom(*a, **k):
-        raise AssertionError("resume helper must not run for a tmux row")
-    monkeypatch.setattr(cd, "resume_discovered_session", _boom, raising=True)
+        raise AssertionError("resume helper must not run without a csid")
+    monkeypatch.setattr(cd, "resume_discovered_to_server", _boom, raising=True)
 
     status, body = handle_coding_request(
         "POST", "/session/sess-tmux/resume", {}, manager=m)
     assert status == 400
-    assert "discovered transcript" in body["error"]
+    assert "claude_session_id" in body["error"]

@@ -6418,6 +6418,21 @@ def handle_delete(handler, parsed) -> bool:
     if not _check_csrf(handler):
         return j(handler, {"error": "Cross-origin request rejected"}, status=403)
     body = read_body(handler)
+    # ── Coding Sessions (DELETE /api/coding/project/<id>, /session/<id>/delete) ──
+    # The coding dispatcher handles its own DELETE routes; it was only wired into
+    # handle_get/handle_post, so DELETE fell through to a generic 404 "not found"
+    # (e.g. deleting a project).
+    if parsed.path.startswith("/api/coding"):
+        from api.coding_routes import (
+            CODING_PATH_PREFIX, default_manager, handle_coding_request)
+        sub = parsed.path[len(CODING_PATH_PREFIX):]
+        if parsed.query:
+            sub += "?" + parsed.query
+        status, payload = handle_coding_request(
+            "DELETE", sub, body, manager=default_manager(),
+            manager_for_host=default_manager)
+        return j(handler, payload, status=status)
+
     if parsed.path.startswith("/api/kanban/"):
         from api.kanban_bridge import handle_kanban_delete
 

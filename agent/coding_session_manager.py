@@ -123,7 +123,7 @@ class CodingSessionManager:
 
     def launch(self, *, cwd, title, initial_prompt, model, project_id=None,
                branch=None, worktree_path=None, worktree=False, repo_path=None,
-               skip_permissions=False, sync=None):
+               skip_permissions=False, sync=None, resume_session_id=None):
         # Optionally isolate the session in a fresh git worktree so parallel
         # sessions on one repo don't collide.
         if worktree:
@@ -196,11 +196,16 @@ class CodingSessionManager:
         ctx_path = self._context_path(sid)
         ctx_path.parent.mkdir(parents=True, exist_ok=True)
         ctx_path.write_text(ctx, encoding="utf-8")
-        # 3. start tmux running claude directly (argv, no shell)
+        # 3. start tmux running claude directly (argv, no shell).
+        #    ``resume_session_id`` resumes a SPECIFIC transcript (--resume <id>);
+        #    when set, claude_argv suppresses the initial_prompt (there's an
+        #    existing conversation to continue, not a new task to seed). Used to
+        #    bring a discovered Mac session onto the server.
         launch_argv = self.driver.claude_argv(
             plugin_dir=self.plugin_dir, context_file=str(ctx_path),
             model=model, initial_prompt=initial_prompt,
             skip_permissions=skip_permissions,
+            resume_session_id=resume_session_id,
             mcp_config=self._mcp_config_path(sid, cwd))
         since = time.time()
         res = self.driver._run(self.driver.tmux_new_argv(
