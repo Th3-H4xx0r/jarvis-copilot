@@ -36,6 +36,14 @@ _MAX_MSG_BYTES = 8 * 1024 * 1024
 # Cap concurrent relays so an authenticated-but-misbehaving device can't exhaust
 # threads/fds/sshd MaxStartups by opening many at once.
 _MAX_CONCURRENT_RELAYS = 32
+
+# Relay-level keepalive cadence. The proxy chain (cloudflared/nginx/CF) holds the
+# LAST data frame of a quiescent WS stream until its idle reap (~2 min), which
+# stalls SSH's close + keepalive handshakes. A TEXT frame this often keeps the
+# stream non-quiescent so held frames flush within a few seconds. Must be well
+# under Mutagen's own ssh ServerAliveInterval (10s, CountMax=1) so the agent
+# connection's keepalive round-trips aren't held past its timeout.
+_KEEPALIVE_INTERVAL = 3.0
 _relay_count = 0
 _relay_count_lock = threading.Lock()
 
@@ -241,6 +249,19 @@ class WsSocketChannel(Channel):
         with self._send_lock:
             self._safe_send_raw(self._ws.send(Message(data=data, message_finished=True)))
 
+    def send_keepalive(self) -> None:
+        """Send a tiny WS TEXT frame as a relay-level keepalive. The proxy chain
+        holds the LAST data frame of a quiescent WS stream until its idle reap
+        (~2 min) — which stalls SSH's close/keepalive handshakes (the held frame
+        IS the exit-status / channel-close / SSH-keepalive). A periodic TEXT
+        frame is in-band DATA (unlike a WS control Ping, which the proxies don't
+        treat as activity), so it both resets the idle timer AND flushes the
+        previously-held frame. The peer (client _WsClientIO / server recv) drops
+        TEXT frames, so this never corrupts the binary SSH stream."""
+        from wsproto.events import TextMessage
+        with self._send_lock:
+            self._safe_send_raw(self._ws.send(TextMessage(data="k", message_finished=True)))
+
     def _safe_send_raw(self, payload: bytes) -> None:
         try:
             self._sock.sendall(payload)
@@ -361,10 +382,27 @@ def handle_tcp_relay(handler, parsed) -> bool:
         _relay_count += 1
     log.info("tcp-relay: device=%s -> %s:%s open (%d active)",
              device.get("id"), _TARGET_HOST, _target_port(), _relay_count)
+    ws_chan = WsSocketChannel(sock, ws)
+    # Relay-level keepalive: a tiny WS TEXT frame every _KEEPALIVE_INTERVAL keeps
+    # the proxy chain from holding the last data frame (see send_keepalive). The
+    # client sends its own toward us; this covers the server->client direction.
+    ka_stop = threading.Event()
+
+    def _keepalive():
+        while not ka_stop.wait(_KEEPALIVE_INTERVAL):
+            try:
+                ws_chan.send_keepalive()
+            except Exception:  # noqa: BLE001 — socket gone; pump will tear down
+                return
+
+    ka_thread = threading.Thread(target=_keepalive, daemon=True,
+                                 name="tcp-relay-keepalive")
+    ka_thread.start()
     try:
-        relay_pump(WsSocketChannel(sock, ws), SocketChannel(tcp),
+        relay_pump(ws_chan, SocketChannel(tcp),
                    labels=("client2sshd", "sshd2client"))
     finally:
+        ka_stop.set()
         with _relay_count_lock:
             _relay_count -= 1
         log.info("tcp-relay: device=%s closed", device.get("id"))

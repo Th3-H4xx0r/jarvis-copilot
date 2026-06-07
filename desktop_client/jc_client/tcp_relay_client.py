@@ -21,6 +21,12 @@ from typing import Optional
 
 _RELAY_PATH = "/api/devices/tcp-relay"
 _CHUNK = 65536
+# Relay-level keepalive cadence (must match the server's). A tiny WS TEXT frame
+# this often keeps the proxy chain from holding the LAST data frame of a
+# quiescent SSH stream until its idle reap (~2 min) — which otherwise stalls
+# SSH's close + keepalive handshakes. TEXT frames are dropped by both relay ends
+# so they never corrupt the binary SSH stream. See server tcp_relay.py.
+_KEEPALIVE_INTERVAL = 3.0
 
 
 # ── byte bridge core (testable) ───────────────────────────────────────────────
@@ -135,6 +141,15 @@ class _WsClientIO(ByteIO):
         with self._lock:
             self._sock.sendall(self._ws.send(Message(data=data, message_finished=True)))
 
+    def send_keepalive(self) -> None:
+        """Send a tiny WS TEXT keepalive (client->server direction). Keeps the
+        proxy chain from holding our last data frame; the server drops TEXT
+        frames so the SSH stream is untouched. See server tcp_relay.py."""
+        from wsproto.events import TextMessage
+        with self._lock:
+            self._sock.sendall(
+                self._ws.send(TextMessage(data="k", message_finished=True)))
+
     def close(self) -> None:
         if self._closed:
             return
@@ -210,9 +225,23 @@ def run(_argv: Optional[list] = None) -> int:
     except Exception as exc:  # noqa: BLE001
         sys.stderr.write(f"jc-client tcp-relay: {exc}\n")
         return 1
+    ws_io = _WsClientIO(sock, ws)
+    # Keep the proxy chain from holding our last frame: emit a TEXT keepalive
+    # every _KEEPALIVE_INTERVAL until the bridge ends.
+    ka_stop = threading.Event()
+
+    def _keepalive():
+        while not ka_stop.wait(_KEEPALIVE_INTERVAL):
+            try:
+                ws_io.send_keepalive()
+            except Exception:  # noqa: BLE001 — socket gone; bridge will end
+                return
+
+    threading.Thread(target=_keepalive, daemon=True, name="relay-keepalive").start()
     try:
-        bridge(_StdIO(), _WsClientIO(sock, ws))
+        bridge(_StdIO(), ws_io)
     finally:
+        ka_stop.set()
         try:
             sock.close()
         except OSError:
