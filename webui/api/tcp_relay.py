@@ -224,6 +224,20 @@ class WsSocketChannel(Channel):
         if self._closed:
             return
         self._closed = True
+        # Send a real WebSocket Close frame BEFORE the raw socket teardown. The
+        # SSH stream rides this WS through cloudflared + the nginx edge + the CF
+        # edge — all WS-aware proxies. A bare shutdown() is a connection-level
+        # half-close they do NOT forward to the downstream peer until their own
+        # idle timeout (~2 min) fires, so every short-lived SSH/scp the sync
+        # engine runs hung ~125 s at teardown and Mutagen's agent-copy timed out.
+        # A Close frame is in-band data the proxies forward immediately (proven:
+        # data frames stream in real time), so the peer EOFs at once.
+        try:
+            from wsproto.events import CloseConnection
+            with self._send_lock:
+                self._safe_send_raw(self._ws.send(CloseConnection(code=1000)))
+        except Exception:  # noqa: BLE001 — best-effort; raw teardown still runs
+            pass
         try:
             self._sock.shutdown(socket.SHUT_RDWR)
         except OSError:

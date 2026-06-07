@@ -99,6 +99,36 @@ def test_socketchannel_recv_none_after_close():
     ch.close()
 
 
+def test_wssocketchannel_close_emits_ws_close_frame():
+    # Regression: teardown MUST send a real WebSocket Close frame, not just a
+    # raw TCP shutdown. WS-aware proxies (cloudflared/nginx/CF) forward a Close
+    # frame to the peer immediately but sit on a bare half-close until their
+    # idle timeout — which hung every short-lived SSH/scp the sync engine runs
+    # ~125 s at teardown and timed out Mutagen's agent-copy.
+    from wsproto import WSConnection, ConnectionType
+    from wsproto.events import Request, AcceptConnection, CloseConnection
+    from api.tcp_relay import WsSocketChannel
+
+    server_ws = WSConnection(ConnectionType.SERVER)
+    client_ws = WSConnection(ConnectionType.CLIENT)
+    # Drive the handshake so both wsproto state machines reach OPEN.
+    server_ws.receive_data(
+        client_ws.send(Request(host="h", target="/api/devices/tcp-relay")))
+    for ev in server_ws.events():
+        if isinstance(ev, Request):
+            client_ws.receive_data(server_ws.send(AcceptConnection()))
+            break
+    list(client_ws.events())  # drain AcceptConnection
+
+    a, b = socket.socketpair()
+    WsSocketChannel(a, server_ws).close()
+
+    b.settimeout(2.0)
+    client_ws.receive_data(b.recv(4096))  # close frame was sent before shutdown
+    assert any(isinstance(ev, CloseConnection) for ev in client_ws.events())
+    b.close()
+
+
 def test_is_loopback_enforcement():
     from api.tcp_relay import _is_loopback
     assert _is_loopback("127.0.0.1")

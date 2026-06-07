@@ -49,6 +49,32 @@ class SockIO(ByteIO):
             pass
 
 
+def test_wsclientio_close_emits_ws_close_frame():
+    # Mirror of the server-side regression: the ProxyCommand must emit a real
+    # WebSocket Close frame on teardown so the proxy chain EOFs the peer at once
+    # (a bare TCP shutdown is held until the edge idle timeout). See tcp_relay.py.
+    from wsproto import WSConnection, ConnectionType
+    from wsproto.events import Request, AcceptConnection, CloseConnection
+    from jc_client.tcp_relay_client import _WsClientIO
+
+    client_ws = WSConnection(ConnectionType.CLIENT)
+    server_ws = WSConnection(ConnectionType.SERVER)
+    server_ws.receive_data(client_ws.send(Request(host="h", target="/r")))
+    for ev in server_ws.events():
+        if isinstance(ev, Request):
+            client_ws.receive_data(server_ws.send(AcceptConnection()))
+            break
+    list(client_ws.events())  # drain AcceptConnection
+
+    a, b = socket.socketpair()
+    _WsClientIO(a, client_ws).close()
+
+    b.settimeout(2.0)
+    server_ws.receive_data(b.recv(4096))  # close frame sent before shutdown
+    assert any(isinstance(ev, CloseConnection) for ev in server_ws.events())
+    b.close()
+
+
 def test_bridge_two_socketpairs_both_ways():
     a_in, a_out = socket.socketpair()
     b_in, b_out = socket.socketpair()

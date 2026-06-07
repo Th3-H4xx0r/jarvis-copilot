@@ -139,6 +139,15 @@ class _WsClientIO(ByteIO):
         if self._closed:
             return
         self._closed = True
+        # Mirror the server: emit a real WebSocket Close frame before the raw
+        # teardown so the WS-aware proxy chain propagates EOF to the peer at
+        # once. A bare shutdown() leaves a half-open WS the edge holds until its
+        # idle timeout, which hung SSH/scp teardown ~125 s (see tcp_relay.py).
+        try:
+            with self._lock:
+                self._sock.sendall(self._ws.send(self._Close(code=1000)))
+        except Exception:  # noqa: BLE001 — best-effort; raw teardown still runs
+            pass
         try:
             self._sock.shutdown(socket.SHUT_RDWR)
         except OSError:
