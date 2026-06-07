@@ -476,16 +476,20 @@ def get_desktop_bridge() -> DesktopBridge:
         return _BRIDGE
 
 
-# Pairing ``kind``s that can NEVER run Mutagen file sync. Mobile clients ALSO
-# hold a live device-bridge WebSocket (for notifications / phone-control), so
-# "is connected to the bridge" is NOT sufficient to call something a desktop
-# sync agent — these kinds are excluded explicitly. (Desktop jc-clients are
-# either kind=='desktop' or have kind unset.)
-NON_SYNC_KINDS = frozenset({"mobile-ios", "mobile-android", "mobile", "browser", "web"})
+# Pairing ``kind``s that can NEVER run Mutagen file sync. Only MOBILE apps are
+# excluded: they hold a live device-bridge WebSocket too (notifications /
+# phone-control), so "connected to the bridge" alone isn't proof of a desktop
+# agent. NOTE: a desktop jc-client registers with kind=='desktop' OR — very
+# commonly — the DEFAULT kind=='browser' (only the mobile app flips its kind
+# after pairing), so 'browser'/'' must NOT be excluded here. Actual web
+# browsers never hold a device-bridge WS, so they're filtered out by the
+# bridge_connected requirement, not by kind.
+NON_SYNC_KINDS = frozenset({"mobile-ios", "mobile-android", "mobile"})
 
 
 def is_sync_capable_kind(kind: str | None) -> bool:
-    """True unless ``kind`` is a known non-desktop pairing (mobile/browser)."""
+    """True unless ``kind`` is a known mobile pairing (which can't run Mutagen
+    even though it holds a device-bridge WS)."""
     return (kind or "").strip().lower() not in NON_SYNC_KINDS
 
 

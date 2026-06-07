@@ -326,11 +326,15 @@ def test_send_sync_reconcile_frame_and_deregisters_orphans():
     assert bridge.sync_for("sync-b") is None and bridge.sync_for("sync-c") is None
 
 
-def test_is_sync_capable_kind_excludes_mobile_and_browser():
-    assert cd.is_sync_capable_kind("desktop") is True
-    assert cd.is_sync_capable_kind("") is True        # unset jc-client
+def test_is_sync_capable_kind_excludes_only_mobile():
+    # Desktop jc-clients commonly register with the DEFAULT kind 'browser' (only
+    # the mobile app flips its kind), so 'browser'/'' must stay sync-capable —
+    # only mobile kinds are excluded by kind. (Actual web browsers are filtered
+    # out by the bridge_connected requirement, not here.)
+    for k in ("desktop", "", "browser", "web"):
+        assert cd.is_sync_capable_kind(k) is True
     assert cd.is_sync_capable_kind(None) is True
-    for k in ("mobile-ios", "mobile-android", "mobile", "browser", "web"):
+    for k in ("mobile-ios", "mobile-android", "mobile"):
         assert cd.is_sync_capable_kind(k) is False
 
 

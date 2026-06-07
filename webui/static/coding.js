@@ -47,13 +47,16 @@ function _codingDeviceOptionsHtml(selected) {
   let html = '<option value="">— choose a device —</option>';
   let matched = false;
   // Only DESKTOP jc-clients can run Mutagen sync. Mobile devices ALSO hold a
-  // bridge WS (notifications/phone-control), so bridge_connected alone is not
-  // enough — prefer the server's sync_capable flag and always exclude
-  // mobile/browser kinds.
-  const NON_DESKTOP = ['mobile-ios', 'mobile-android', 'mobile', 'browser', 'web'];
+  // bridge WS (notifications/phone-control), so bridge_connected alone isn't
+  // enough — exclude mobile kinds. But a desktop jc-client usually registers
+  // with the DEFAULT kind 'browser' (only the mobile app flips its kind), so we
+  // must NOT exclude 'browser'/'' by kind — actual web browsers are filtered by
+  // sync_capable/bridge_connected (they never hold a bridge). Prefer the
+  // server's sync_capable flag when present.
+  const MOBILE_KINDS = ['mobile-ios', 'mobile-android', 'mobile'];
   const desktops = (_codingDevicesCache || []).filter(d => {
     const k = String(d.kind || '').toLowerCase();
-    if (NON_DESKTOP.includes(k)) return false;
+    if (MOBILE_KINDS.includes(k)) return false;
     if (typeof d.sync_capable === 'boolean') return d.sync_capable;
     return k === 'desktop' || d.bridge_connected;
   });

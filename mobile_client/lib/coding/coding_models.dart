@@ -146,17 +146,17 @@ class CodingDevice {
   final bool bridgeConnected;
   final bool? syncCapable; // server-computed: can run Mutagen sync
 
-  /// Kinds that can NEVER run Mutagen file sync. Mobile clients hold a bridge
-  /// WS too (notifications/phone-control), so `bridgeConnected` alone is not
-  /// enough — exclude them explicitly.
-  static const _nonDesktopKinds = {
-    'mobile-ios', 'mobile-android', 'mobile', 'browser', 'web',
-  };
+  /// Mobile pairings can NEVER run Mutagen file sync, yet they hold a bridge WS
+  /// too (notifications/phone-control). Exclude ONLY these — a desktop jc-client
+  /// usually registers with the default kind 'browser', so excluding 'browser'
+  /// would drop the real desktop. Actual web browsers never hold a bridge, so
+  /// they're filtered by [syncCapable]/[bridgeConnected], not by kind.
+  static const _mobileKinds = {'mobile-ios', 'mobile-android', 'mobile'};
 
   /// Only desktops that can actually sync. Prefer the server's [syncCapable]
-  /// flag; always exclude mobile/browser kinds even if they hold a bridge.
+  /// flag; always exclude mobile kinds even if they hold a bridge.
   bool get desktopCapable {
-    if (kind != null && _nonDesktopKinds.contains(kind)) return false;
+    if (kind != null && _mobileKinds.contains(kind)) return false;
     if (syncCapable != null) return syncCapable!;
     return kind == 'desktop' || bridgeConnected;
   }
