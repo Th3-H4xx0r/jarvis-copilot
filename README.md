@@ -49,6 +49,35 @@ Then open **https://localhost:8787** on the host, or **https://&lt;your-LAN-ip&g
 
 ---
 
+## Desktop client (jc-client)
+
+Pair your Mac, PC, or Linux box so the agent can run native skills on it (open apps, screenshots, mouse/keyboard control) and so **coding sessions can sync their project folder** between that machine and the server.
+
+### macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Th3-H4xx0r/jarvis-copilot/main/desktop_client/installers/install-mac.sh | bash
+# Linux:
+curl -fsSL https://raw.githubusercontent.com/Th3-H4xx0r/jarvis-copilot/main/desktop_client/installers/install-linux.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/Th3-H4xx0r/jarvis-copilot/main/desktop_client/installers/install-windows.ps1 | iex
+```
+
+The installer drops a `jc-client` binary on PATH and opens the tray's pair dialog. Then pair it to the server:
+
+```bash
+jarviscopilot pair      # on the SERVER — prints a 6-char code
+jc-client pair          # on the CLIENT — enter the server URL + that code
+```
+
+`jc-client update` keeps it current (and fetches the [Mutagen](https://mutagen.io) engine used for coding-session sync). Full details — pairing, the skill catalogue, and coding-session file sync — are in [`desktop_client/README.md`](desktop_client/README.md).
+
+---
+
 ## What's added on top of JarvisCopilot
 
 | Surface | Added by Jarvis Copilot |
