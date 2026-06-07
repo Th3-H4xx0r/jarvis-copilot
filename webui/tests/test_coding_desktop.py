@@ -1070,6 +1070,37 @@ def test_request_transcript_cleans_up_waiter():
     assert bridge._transcript_waiters == {}
 
 
+def test_request_transcript_empty_transcript_roundtrips_to_empty_bytes():
+    """An EMPTY transcript: the device ships ONE eof chunk = base64(gzip(b"")).
+    The server must round-trip it to ``b""`` (a VALID empty result), NOT mistake
+    the empty payload for a timeout/error (which would return ``None``)."""
+    chunks = _gz_chunks(b"", pieces=1)          # one eof chunk, non-empty gzip
+    assert len(chunks) == 1 and chunks[0][2] is True
+    bridge, _resp = _make_transcript_bridge(chunks)
+    out = bridge.request_transcript("dev-T", claude_session_id="c", cwd="/w",
+                                    timeout=2.0)
+    assert out == b""          # valid-but-empty, distinct from None
+    assert out is not None
+    assert bridge._transcript_waiters == {}     # still cleaned up
+
+
+def test_request_transcript_late_duplicate_after_eof_is_safe():
+    """A stray duplicate chunk arriving for the SAME req_id AFTER eof was already
+    signalled must be dropped safely once the waiter is gone (no KeyError, no
+    resurrection) — the bridge stays consistent."""
+    raw = b'{"type":"user"}\n' * 100
+    chunks = _gz_chunks(raw, pieces=2)
+    bridge, _resp = _make_transcript_bridge(chunks)
+    out = bridge.request_transcript("dev-T", claude_session_id="c", cwd="/w",
+                                    timeout=2.0)
+    assert out == raw
+    # waiter already popped; a late frame for that req_id is ignored.
+    bridge._route_transcript_data({
+        "type": "coding_transcript_data", "req_id": "stale-req",
+        "seq": 0, "eof": True, "content_b64": ""})
+    assert bridge._transcript_waiters == {}
+
+
 # ── resume_discovered_to_server: run a discovered session ON THE SERVER ───────
 
 
@@ -1189,6 +1220,31 @@ def test_resume_discovered_to_server_happy_path(tmp_path, monkeypatch):
     assert sc["cwd"] == str(server_cwd)
     assert sc["sync"] == {"enabled": True, "device": "dev-mac",
                           "remote_path": "/Users/me/proj"}
+
+    # the resumed server session lands in the SAME project as the discovered row
+    # (project_id threaded through), not a fresh server-only project.
+    assert sess["project_id"] == fx["row"]["project_id"]
+    assert fx["row"]["project_id"]
+    cd._DISMISSED_DISCOVERED.clear()
+
+
+def test_resume_discovered_to_server_empty_transcript_writes_no_warning(
+        tmp_path, monkeypatch):
+    """A VALID-but-empty transcript (``request_transcript`` returns ``b""``) is a
+    SUCCESS, not a failure: the file is written (empty) and NO soft warning is
+    surfaced. Regression guard for ``if data:`` vs ``if data is not None:``."""
+    fx = _server_resume_fixture(tmp_path, monkeypatch, transcript=b"")
+    out = cd.resume_discovered_to_server(
+        fx["row"]["id"], manager=fx["mgr"], bridge=fx["bridge"],
+        store=fx["store"])
+    assert out["ok"] is True
+    assert "warning" not in out                    # empty != failed pull
+    server_cwd = fx["server_root"] / "proj"
+    from agent.coding_session_capture import encode_project_dir
+    dest = (fx["claude_root"] / encode_project_dir(str(server_cwd))
+            / "CSID-1.jsonl")
+    assert dest.exists()                           # written even though empty
+    assert dest.read_bytes() == b""
     cd._DISMISSED_DISCOVERED.clear()
 
 

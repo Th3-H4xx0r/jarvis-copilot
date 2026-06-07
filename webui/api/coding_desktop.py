@@ -359,11 +359,15 @@ class DesktopBridge:
                 log.warning("coding_transcript[%s]: timed out after %.0fs",
                             req_id, timeout)
                 return None
-            if waiter["error"]:
+            with self._lock:
+                err = waiter["error"]
+                # Snapshot under the lock so a late/duplicate device frame can't
+                # mutate the chunk map while we reassemble it.
+                chunks = dict(waiter["chunks"])
+            if err:
                 log.warning("coding_transcript[%s]: device error: %s",
-                            req_id, waiter["error"])
+                            req_id, err)
                 return None
-            chunks = waiter["chunks"]
             if not chunks:
                 return None
             ordered = b"".join(chunks[i] for i in sorted(chunks))
@@ -412,37 +416,55 @@ class DesktopBridge:
         req_id = frame.get("req_id")
         if not req_id:
             return
-        with self._lock:
-            waiter = self._transcript_waiters.get(req_id)
-        if waiter is None:
-            return  # unknown or already timed-out request
-        # Device-reported failure.
+        # Device-reported failure short-circuits everything.
         if frame.get("ok") is False or frame.get("error"):
-            waiter["error"] = str(frame.get("error") or "transcript fetch failed")
-            waiter["event"].set()
+            err = str(frame.get("error") or "transcript fetch failed")
+            with self._lock:
+                waiter = self._transcript_waiters.get(req_id)
+                if waiter is None:
+                    return  # unknown or already timed-out request
+                waiter["error"] = err
+                waiter["event"].set()
             return
+        # Decode the chunk OUTSIDE the lock (CPU), then mutate ALL waiter state
+        # UNDER the lock — so a late/duplicate frame can never grow the chunk map
+        # while request_transcript is snapshotting it for reassembly (which would
+        # raise "dict changed size during iteration").
         content_b64 = frame.get("content_b64") or ""
         try:
             chunk = base64.b64decode(content_b64) if content_b64 else b""
         except Exception as exc:  # noqa: BLE001
-            waiter["error"] = f"bad base64 chunk: {exc}"
-            waiter["event"].set()
+            with self._lock:
+                waiter = self._transcript_waiters.get(req_id)
+                if waiter is not None:
+                    waiter["error"] = f"bad base64 chunk: {exc}"
+                    waiter["event"].set()
             return
         try:
             seq = int(frame.get("seq"))
+            seq_explicit = True
         except (TypeError, ValueError):
-            seq = len(waiter["chunks"])
-        waiter["total"] += len(chunk)
-        if waiter["total"] > self._TRANSCRIPT_CAP:
-            waiter["error"] = (f"transcript exceeded {self._TRANSCRIPT_CAP} byte cap")
-            waiter["chunks"].clear()
-            waiter["event"].set()
-            return
-        if chunk:
-            waiter["chunks"][seq] = chunk
-        if frame.get("eof"):
-            waiter["eof"] = True
-            waiter["event"].set()
+            seq = -1
+            seq_explicit = False
+        eof = bool(frame.get("eof"))
+        with self._lock:
+            waiter = self._transcript_waiters.get(req_id)
+            if waiter is None:
+                return  # unknown or already timed-out request
+            if not seq_explicit:
+                seq = len(waiter["chunks"])
+            waiter["total"] += len(chunk)
+            if waiter["total"] > self._TRANSCRIPT_CAP:
+                waiter["error"] = (
+                    f"transcript exceeded {self._TRANSCRIPT_CAP} byte cap")
+                waiter["chunks"].clear()
+                waiter["event"].set()
+                return
+            if chunk:
+                waiter["chunks"][seq] = chunk
+            if eof:
+                waiter["eof"] = True
+                waiter["event"].set()
 
     def _route_discover(self, device_id: str, frame: dict) -> None:
         """Ingest a device's pushed live ``claude`` tmux sessions.
@@ -1185,9 +1207,10 @@ def resume_discovered_to_server(session_id: str, *, manager,
          still partially work / the user can re-message.
       4. Launch on the SERVER via ``manager`` (a host='server' LocalDriver
          manager): ``claude --resume <csid>`` in ``server_cwd``, with sync ON
-         (server_cwd <-> device_cwd). The manager's own ``sync_starter`` opens the
-         Mutagen sync against the device for the NEW session id, and the launch
-         gets the per-session ``.mcp.json`` (venv-python MCP) for free.
+         (server_cwd <-> device_cwd) and in the SAME project as the discovered
+         row (``project_id`` threaded through). The manager's own ``sync_starter``
+         opens the Mutagen sync against the device for the NEW session id, and the
+         launch gets the per-session ``.mcp.json`` (venv-python MCP) for free.
       5. Retire the old discovered row: mark it ``stopped`` AND tombstone its csid
          so the next discovery push doesn't resurrect it as a dup of the new
          server session. The server session is now the live one.
@@ -1233,7 +1256,12 @@ def resume_discovered_to_server(session_id: str, *, manager,
     except Exception as exc:  # noqa: BLE001 — never fail the resume on a pull error
         warning = f"transcript fetch raised: {exc}"
         data = None
-    if data:
+    # NOTE: ``data is not None`` (not ``if data``) — request_transcript returns
+    # ``b""`` for a VALID-but-empty transcript and ``None`` only on a real failure
+    # (timeout / offline / device error / corrupt stream). Treating the empty
+    # round-trip as a failure would surface a misleading warning and skip the
+    # write, so distinguish them explicitly.
+    if data is not None:
         try:
             from agent.coding_session_capture import (
                 claude_projects_dir, encode_project_dir)
@@ -1252,9 +1280,14 @@ def resume_discovered_to_server(session_id: str, *, manager,
     #    Passing ``sync`` makes the manager's sync_starter open the Mutagen sync
     #    for the NEW session id, so no separate start call is needed.
     sync = {"enabled": True, "device": device_id, "remote_path": device_cwd}
+    # Keep the resumed server session grouped with its discovered origin: thread
+    # the old row's project_id through so it lands in the SAME project (which was
+    # auto-created for this cwd/device and already defaults sync-ON), instead of
+    # spawning a separate server-only project for the mirror checkout.
     new = manager.launch(
         cwd=server_cwd, title=row.get("title"), initial_prompt=None, model=None,
-        project_id=None, resume_session_id=claude_session_id, sync=sync)
+        project_id=row.get("project_id"), resume_session_id=claude_session_id,
+        sync=sync)
 
     # 5. retire the old discovered row (stopped + tombstoned so it can't dup).
     try:
