@@ -80,25 +80,52 @@ class Channel:
         raise NotImplementedError
 
 
-def relay_pump(a: Channel, b: Channel) -> None:
+# Touch this file on the server to get per-chunk relay tracing in the journal
+# for the NEXT connections (one log line per chunk forwarded + per direction
+# end, with monotonic timestamps). Off unless the file exists, so production is
+# silent; invaluable for diagnosing teardown/latency through the proxy chain.
+_RELAY_DEBUG_FILE = "/tmp/jc-relay-debug"
+
+
+def _relay_debug_on() -> bool:
+    try:
+        return os.path.exists(_RELAY_DEBUG_FILE)
+    except Exception:
+        return False
+
+
+def relay_pump(a: Channel, b: Channel, labels=("a2b", "b2a")) -> None:
     """Copy bytes A->B and B->A until either side closes, then close both.
 
     Runs one thread per direction and blocks until both finish. Any error on a
     direction tears the whole relay down (a half-open SSH tunnel is useless).
-    Never raises out.
+    Never raises out. ``labels`` names the two directions for debug tracing.
     """
+    import time as _time
     stop = threading.Event()
+    dbg = _relay_debug_on()
+    t0 = _time.monotonic()
 
-    def _copy(src: Channel, dst: Channel) -> None:
+    def _copy(src: Channel, dst: Channel, label: str) -> None:
+        total = 0
+        end_reason = "eof"
         try:
             while not stop.is_set():
                 data = src.recv()
                 if not data:          # b"" or None == peer closed
                     break
+                total += len(data)
+                if dbg:
+                    log.warning("relay[%s] +%d B (total=%d) @%.3fs",
+                                label, len(data), total, _time.monotonic() - t0)
                 dst.send(data)
         except Exception as exc:  # noqa: BLE001 — any error ends the relay
+            end_reason = f"err:{exc}"
             log.debug("tcp-relay copy ended: %s", exc)
         finally:
+            if dbg:
+                log.warning("relay[%s] ENDED (%s) total=%d @%.3fs",
+                            label, end_reason, total, _time.monotonic() - t0)
             stop.set()
             # Nudge both ends so the other direction's blocking recv() returns.
             for ch in (src, dst):
@@ -107,9 +134,9 @@ def relay_pump(a: Channel, b: Channel) -> None:
                 except Exception:
                     pass
 
-    t1 = threading.Thread(target=_copy, args=(a, b), daemon=True,
+    t1 = threading.Thread(target=_copy, args=(a, b, labels[0]), daemon=True,
                           name="tcp-relay-a2b")
-    t2 = threading.Thread(target=_copy, args=(b, a), daemon=True,
+    t2 = threading.Thread(target=_copy, args=(b, a, labels[1]), daemon=True,
                           name="tcp-relay-b2a")
     t1.start()
     t2.start()
@@ -335,7 +362,8 @@ def handle_tcp_relay(handler, parsed) -> bool:
     log.info("tcp-relay: device=%s -> %s:%s open (%d active)",
              device.get("id"), _TARGET_HOST, _target_port(), _relay_count)
     try:
-        relay_pump(WsSocketChannel(sock, ws), SocketChannel(tcp))
+        relay_pump(WsSocketChannel(sock, ws), SocketChannel(tcp),
+                   labels=("client2sshd", "sshd2client"))
     finally:
         with _relay_count_lock:
             _relay_count -= 1
