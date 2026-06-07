@@ -96,6 +96,24 @@ class Service:
     def is_connected(self) -> bool:
         return self._connected
 
+    def _write_connection_state(self, state: str) -> None:
+        """Persist the live connection state (+ our pid) so a SEPARATE
+        launchd/systemd-supervised tray process can show the REAL green/red
+        status. Without this the tray guessed from the log tail, which returned
+        'unknown' (grey 'Supervised') whenever the recent log was full of other
+        chatter — exactly when a long-lived connection is healthy."""
+        try:
+            from jc_client.logger import state_dir
+            import tempfile
+            d = state_dir()
+            payload = {"state": state, "at": time.time(), "pid": os.getpid()}
+            fd, tmp = tempfile.mkstemp(dir=str(d), prefix=".conn-state-")
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh)
+            os.replace(tmp, str(d / "connection_state.json"))
+        except Exception as exc:  # noqa: BLE001 — status I/O must never break the service
+            log.debug("connection_state write failed: %s", exc)
+
     def coding_sync_active_count(self) -> int:
         """Number of currently-open Coding-Session file syncs.
 
@@ -168,10 +186,12 @@ class Service:
             delay = _BACKOFF_SECONDS[min(backoff_idx, len(_BACKOFF_SECONDS) - 1)]
             backoff_idx += 1
             log.info("reconnecting in %ss …", delay)
+            self._write_connection_state("reconnecting")
             if self._stop.wait(delay):
                 break
 
         log.info("jc-client service stopped")
+        self._write_connection_state("stopped")
         self._executor.shutdown(wait=False, cancel_futures=True)
         return 0
 
@@ -190,6 +210,7 @@ class Service:
         self._connected = True
         self._last_error = ""
         log.info("connected to %s", creds.server_url)
+        self._write_connection_state("connected")
 
         # Spin up the MCP relay for this connection (Phase 2). Lazily imported
         # so a desktop without the relay still runs every other skill.

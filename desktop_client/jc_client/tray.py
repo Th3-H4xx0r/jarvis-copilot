@@ -462,14 +462,13 @@ class TrayApp:
             else:
                 color = (224, 85, 43, 255)  # red
         else:
-            # Supervised mode — derive state from PID + log tail.
+            # Supervised mode — the service writes its real state to a file we
+            # read. Always green (connected) or red (anything else: reconnecting,
+            # stopped, or briefly-unknown-at-startup) — never a grey "supervised"
+            # limbo, which confused users into thinking it was broken.
             state = _supervised_state(self._supervised_pid)
-            if state == "connected":
-                color = (66, 160, 90, 255)  # green
-            elif state == "reconnecting":
-                color = (224, 85, 43, 255)  # red
-            else:
-                color = (90, 90, 90, 255)  # grey (stopped / unknown)
+            color = ((66, 160, 90, 255) if state == "connected"
+                     else (224, 85, 43, 255))  # green | red
         return _icon_image(color)
 
     def _refresh_menu(self) -> None:
@@ -583,9 +582,9 @@ def _format_supervised_status_line(pid: Optional[int]) -> str:
     state = _supervised_state(pid)
     if state == "connected":
         return f"● Connected to {creds.server_url}"
-    if state == "reconnecting":
-        return f"● Reconnecting to {creds.server_url}…"
-    return f"● Supervised (pid {pid})"
+    # Alive but not connected (reconnecting / briefly-unknown at startup): show
+    # "Reconnecting", never a grey "Supervised (pid …)" limbo.
+    return f"● Reconnecting to {creds.server_url}…"
 
 
 def _pid_alive(pid: int) -> bool:
@@ -596,12 +595,38 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
+def _read_connection_state(pid: Optional[int]) -> Optional[str]:
+    """The supervised service's persisted connection state, iff it was written
+    by the CURRENTLY-running service (pid match). Returns 'connected' /
+    'reconnecting' / 'stopped', or None if missing / from a stale prior run.
+
+    This is the RELIABLE signal — the service writes it on every transition, so
+    a long-lived healthy connection still reads 'connected' (the old log-tail
+    heuristic returned 'unknown' → grey 'Supervised' once the recent log filled
+    with sync/coding chatter)."""
+    import json as _json
+    try:
+        from jc_client.logger import state_dir
+        data = _json.loads((state_dir() / "connection_state.json").read_text())
+    except Exception:
+        return None
+    # Only trust it if it belongs to the service we're actually supervising —
+    # otherwise it could be a leftover from a previous (crashed) run.
+    if pid and int(data.get("pid") or 0) != int(pid):
+        return None
+    state = str(data.get("state") or "")
+    return state if state in ("connected", "reconnecting", "stopped") else None
+
+
 def _supervised_state(pid: Optional[int]) -> str:
-    """Derive the supervised service's state by tailing the log file.
-    Returns 'connected', 'reconnecting', or 'unknown'. Cheap — reads
-    the last ~4 KB of the log."""
+    """The supervised service's state: 'connected', 'reconnecting', 'stopped',
+    or 'unknown'. Prefers the state file the service writes; falls back to a log
+    tail for older service builds that don't write it."""
     if not pid or not _pid_alive(pid):
         return "stopped"
+    st = _read_connection_state(pid)
+    if st:
+        return st
     path = log_path()
     try:
         size = os.path.getsize(path)

@@ -247,3 +247,24 @@ class MutagenDriver:
 
     def stop_sync(self, session_id: str) -> None:
         self._run(terminate_argv(self._require(), session_name(session_id)), self._env)
+
+    def name_for(self, session_id: str) -> str:
+        """The Mutagen session name this driver uses for a sync id."""
+        return session_name(session_id)
+
+    def list_session_names(self) -> list:
+        """All Mutagen session names currently registered (empty on any error).
+
+        Used by reconcile to find orphan ``jc-sync-*`` sessions left behind by
+        deleted coding sessions or a prior client run."""
+        rc, out, _err = self._run(
+            [self._require(), "sync", "list", "--template",
+             "{{range .}}{{.Name}}\n{{end}}"], self._env)
+        if rc not in (0, None):
+            return []
+        return [ln.strip() for ln in (out or "").splitlines() if ln.strip()]
+
+    def terminate_by_name(self, name: str) -> None:
+        """Terminate a Mutagen sync session by its exact name (idempotent)."""
+        if name:
+            self._run(terminate_argv(self._require(), name), self._env)

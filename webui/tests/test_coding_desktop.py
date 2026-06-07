@@ -312,6 +312,54 @@ def test_mutagen_close_sends_stop():
     assert bridge.sync_for("sync-x") is None  # send_sync_stop deregisters
 
 
+def test_send_sync_reconcile_frame_and_deregisters_orphans():
+    bridge, t = make_bridge()
+    for sid in ("sync-a", "sync-b", "sync-c"):
+        bridge.register_sync(cd.MutagenSyncSession(
+            sync_id=sid, device_id="dev-1", local_path="/l", remote_path="/r",
+            bridge=bridge))
+    assert bridge.send_sync_reconcile("dev-1", ["sync-a"]) is True
+    f = t.frames("coding_sync_reconcile")
+    assert f and f[0]["active"] == ["sync-a"]
+    # The authoritative set keeps sync-a; orphans b/c are dropped server-side.
+    assert bridge.sync_for("sync-a") is not None
+    assert bridge.sync_for("sync-b") is None and bridge.sync_for("sync-c") is None
+
+
+def test_is_sync_capable_kind_excludes_mobile_and_browser():
+    assert cd.is_sync_capable_kind("desktop") is True
+    assert cd.is_sync_capable_kind("") is True        # unset jc-client
+    assert cd.is_sync_capable_kind(None) is True
+    for k in ("mobile-ios", "mobile-android", "mobile", "browser", "web"):
+        assert cd.is_sync_capable_kind(k) is False
+
+
+def test_resolve_desktop_device_id_skips_connected_mobile(monkeypatch):
+    # A mobile device holds a bridge WS too — it must NEVER be a sync target,
+    # even as the sole connected device or the explicitly-preferred one.
+    from api import device_bridge
+    monkeypatch.setattr(device_bridge, "connected_device_ids",
+                        lambda: ["phone-1", "mac-1"], raising=False)
+    monkeypatch.setattr("api.pairing.list_devices", lambda: [
+        {"id": "phone-1", "name": "iPhone", "kind": "mobile-ios"},
+        {"id": "mac-1", "name": "Mac", "kind": "desktop"},
+    ], raising=False)
+    assert cd.resolve_desktop_device_id() == "mac-1"
+    assert cd.resolve_desktop_device_id(preferred="phone-1") == "mac-1"
+    assert cd.resolve_desktop_device_id(preferred="iPhone") == "mac-1"
+
+
+def test_resolve_desktop_device_id_none_when_only_mobile(monkeypatch):
+    from api import device_bridge
+    monkeypatch.setattr(device_bridge, "connected_device_ids",
+                        lambda: ["phone-1"], raising=False)
+    monkeypatch.setattr("api.pairing.list_devices", lambda: [
+        {"id": "phone-1", "name": "iPhone", "kind": "mobile-ios"},
+    ], raising=False)
+    assert cd.resolve_desktop_device_id() is None
+    assert cd.resolve_desktop_device_id(preferred="phone-1") is None
+
+
 def test_sync_status_reports_live_registered_session(tmp_path, monkeypatch):
     import json
     monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda preferred=None: "dev-Z")

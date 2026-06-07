@@ -123,6 +123,8 @@ class CodingMutagenAgent:
                 self._on_start(frame)
             elif t == "coding_sync_stop":
                 self._on_stop(frame)
+            elif t == "coding_sync_reconcile":
+                self._on_reconcile(frame)
         except Exception as exc:  # noqa: BLE001 — never bubble into the pump
             log.warning("coding_sync_mutagen handle_frame failed: %s", exc)
 
@@ -162,6 +164,38 @@ class CodingMutagenAgent:
             self._driver.stop_sync(sync_id)
         except Exception:
             pass
+        self._write_sync_state()
+
+    def _on_reconcile(self, frame: dict) -> None:
+        """Terminate any sync (poller + Mutagen session) NOT in the server's
+        authoritative ``active`` set. Fixes the tray's stale "Sync: N active":
+        orphans from deleted/stopped sessions, and stale Mutagen sessions left
+        over from a previous client run (which have no poller of ours)."""
+        active = frame.get("active")
+        if not isinstance(active, list):
+            return
+        active_ids = {str(s) for s in active}
+        # 1. stop pollers (and their Mutagen syncs) for ids no longer active.
+        with self._lock:
+            poller_ids = list(self._threads.keys())
+        for sync_id in poller_ids:
+            if sync_id not in active_ids:
+                self._stop_poller(sync_id)
+                with self._lock:
+                    self._last_status.pop(sync_id, None)
+                try:
+                    self._driver.stop_sync(sync_id)
+                except Exception:
+                    pass
+        # 2. terminate orphan Mutagen sessions we have no poller for (e.g. left
+        #    by a previous run): any jc-sync-* not mapping to an active id.
+        try:
+            keep = {self._driver.name_for(sid) for sid in active_ids}
+            for name in self._driver.list_session_names():
+                if name.startswith("jc-sync-") and name not in keep:
+                    self._driver.terminate_by_name(name)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("reconcile orphan-scan failed: %s", exc)
         self._write_sync_state()
 
     # ── status poller ───────────────────────────────────────────────────

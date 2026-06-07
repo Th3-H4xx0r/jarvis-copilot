@@ -46,10 +46,17 @@ function _codingDeviceOptionsHtml(selected) {
   const sel = String(selected == null ? '' : selected);
   let html = '<option value="">— choose a device —</option>';
   let matched = false;
-  // Only DESKTOP devices can sync/run sessions — a paired jc-client desktop
-  // agent. Exclude web/mobile: keep kind==='desktop' OR a live bridge client.
-  const desktops = (_codingDevicesCache || []).filter(d =>
-    (String(d.kind || '').toLowerCase() === 'desktop') || d.bridge_connected);
+  // Only DESKTOP jc-clients can run Mutagen sync. Mobile devices ALSO hold a
+  // bridge WS (notifications/phone-control), so bridge_connected alone is not
+  // enough — prefer the server's sync_capable flag and always exclude
+  // mobile/browser kinds.
+  const NON_DESKTOP = ['mobile-ios', 'mobile-android', 'mobile', 'browser', 'web'];
+  const desktops = (_codingDevicesCache || []).filter(d => {
+    const k = String(d.kind || '').toLowerCase();
+    if (NON_DESKTOP.includes(k)) return false;
+    if (typeof d.sync_capable === 'boolean') return d.sync_capable;
+    return k === 'desktop' || d.bridge_connected;
+  });
   desktops.forEach(d => {
     const id = String(d.id != null ? d.id : (d.device_id || ''));
     const name = d.name || d.device_name || id || 'device';
@@ -330,7 +337,7 @@ function _codingRenderDetail(session, subagents) {
     const _syncDevice = _cdgEsc(_sc.device || '');
     const _syncPath = _cdgEsc(_sc.remote_path || '');
     const termSection = `<div class="cm-section">
-           <div class="cm-section-head"><span class="cm-section-title">Live terminal</span><span class="cm-section-count" style="font-weight:400;opacity:.6">${hostLabel} · type here to talk to claude</span></div>
+           <div class="cm-section-head"><span class="cm-section-title">Live terminal</span><span class="cm-section-count" style="font-weight:400;opacity:.6">${hostLabel} · type here to talk to claude</span><button type="button" class="cdg-term-fsbtn" id="codingTermFsBtn" onclick="codingToggleTermFullscreen()" title="Toggle fullscreen (Esc to exit)">⛶ Fullscreen</button></div>
            <div class="cdg-term" id="codingTerm" style="height:460px;background:#0a0d13;border-radius:8px;padding:6px;overflow:hidden"></div>
          </div>`;
     detail.innerHTML = `
@@ -438,6 +445,27 @@ function _codingTeardownTerminal() {
   _codingTerm = null; _codingTermES = null; _codingTermFit = null;
   _codingTermResize = null; _codingTermMountedId = null;
 }
+
+// Fullscreen the live terminal so the Claude session fills the viewport. Uses a
+// CSS class (not the native Fullscreen API) so the EventSource stream, our
+// header controls, and Esc-to-exit all keep working, then refits xterm + tells
+// the server-side PTY the new cols/rows.
+let _codingTermFs = false;
+function codingToggleTermFullscreen() {
+  const el = document.getElementById('codingTerm');
+  if (!el) return;
+  _codingTermFs = !_codingTermFs;
+  el.classList.toggle('cdg-term-fs', _codingTermFs);
+  document.body.classList.toggle('cdg-term-fs-open', _codingTermFs);
+  const btn = document.getElementById('codingTermFsBtn');
+  if (btn) btn.textContent = _codingTermFs ? '⛶ Exit fullscreen' : '⛶ Fullscreen';
+  // Let the layout settle, then refit xterm to the new size + resize the PTY.
+  setTimeout(() => { try { if (_codingTermResize) _codingTermResize(); } catch (_) {} }, 60);
+  try { if (_codingTerm) _codingTerm.focus(); } catch (_) {}
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && _codingTermFs) codingToggleTermFullscreen();
+});
 
 // Messages are now sent by typing directly into the live terminal (xterm ->
 // /api/terminal/input). The separate composer was removed as redundant; the

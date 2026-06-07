@@ -276,6 +276,22 @@ class DesktopBridge:
             "type": "coding_sync_stop", "sync_id": sync_id,
         })
 
+    def send_sync_reconcile(self, device_id: str, active_sync_ids: list) -> bool:
+        """Tell the desktop the AUTHORITATIVE set of syncs that should be running
+        right now (one per live coding session). The desktop terminates any
+        Mutagen sync + status poller NOT in this set — cleaning up orphans left
+        by deleted/stopped sessions (including deletes that happened while the
+        client was offline, or stale Mutagen sessions after a client restart).
+        This is what keeps the tray's "Sync: N active" count honest."""
+        active = [str(s) for s in (active_sync_ids or [])]
+        with self._lock:
+            for sid in list(self._syncs.keys()):
+                if sid not in active:
+                    self._syncs.pop(sid, None)
+        return self._transport.send(device_id, {
+            "type": "coding_sync_reconcile", "active": active,
+        })
+
     def register_sync(self, session) -> None:
         with self._lock:
             self._syncs[session.sync_id] = session
@@ -460,57 +476,79 @@ def get_desktop_bridge() -> DesktopBridge:
         return _BRIDGE
 
 
-def resolve_desktop_device_id(preferred: str | None = None) -> str | None:
-    """device_id of a connected jc-client (bridge-WS) device, else None.
+# Pairing ``kind``s that can NEVER run Mutagen file sync. Mobile clients ALSO
+# hold a live device-bridge WebSocket (for notifications / phone-control), so
+# "is connected to the bridge" is NOT sufficient to call something a desktop
+# sync agent — these kinds are excluded explicitly. (Desktop jc-clients are
+# either kind=='desktop' or have kind unset.)
+NON_SYNC_KINDS = frozenset({"mobile-ios", "mobile-android", "mobile", "browser", "web"})
 
-    Any device holding a live device-bridge WebSocket IS the jc-client desktop
-    agent (browser-paired devices don't hold a bridge connection), so a
-    non-empty ``connected_device_ids()`` is the real signal — NOT relay
-    capability (off by default) or pairing ``kind`` (often unset).
 
-    ``preferred`` (a device id OR name, e.g. the sync config's chosen device) is
-    honoured first when it's currently connected.
-    """
+def is_sync_capable_kind(kind: str | None) -> bool:
+    """True unless ``kind`` is a known non-desktop pairing (mobile/browser)."""
+    return (kind or "").strip().lower() not in NON_SYNC_KINDS
+
+
+def _connected_sync_capable() -> list:
+    """Connected device ids that can actually run Mutagen sync (desktop
+    jc-clients), in a stable order. Excludes mobile/browser pairings even though
+    they hold a bridge WS."""
     try:
         from api import device_bridge
 
         connected = list(device_bridge.connected_device_ids())
     except Exception:
-        return None
+        return []
     if not connected:
+        return []
+    try:
+        from api.pairing import list_devices
+
+        kind_of = {d.get("id"): (d.get("kind") or "") for d in list_devices()}
+    except Exception:
+        kind_of = {}
+    return [cid for cid in connected if is_sync_capable_kind(kind_of.get(cid))]
+
+
+def resolve_desktop_device_id(preferred: str | None = None) -> str | None:
+    """device_id of a connected jc-client DESKTOP (sync-capable) device, else None.
+
+    A device qualifies only if it holds a live device-bridge WS AND is not a
+    mobile/browser pairing (those hold a bridge too but can't run Mutagen). The
+    explicitly-chosen ``preferred`` device (by id or name) wins when it's both
+    connected and sync-capable.
+    """
+    capable = _connected_sync_capable()
+    if not capable:
         return None
+    capable_set = set(capable)
     # 1. honour the explicitly-chosen device (by id or name) if it's connected
+    #    AND sync-capable (never resolve a chosen mobile device to itself).
     if preferred:
-        if preferred in connected:
+        if preferred in capable_set:
             return preferred
         try:
             from api.pairing import list_devices
 
             for d in list_devices():
-                if d.get("id") in connected and (
+                if d.get("id") in capable_set and (
                         d.get("id") == preferred
                         or (d.get("name") or "") == preferred
                         or (d.get("device_name") or "") == preferred):
                     return d["id"]
         except Exception:
             pass
-    # 2. prefer a relay-capable / kind=='desktop' connected device
+    # 2. prefer a relay-capable connected device (still must be sync-capable)
     try:
+        from api import device_bridge
+
         caps = device_bridge.relay_capable_devices()
-        if caps and caps[0].get("device_id") in connected:
+        if caps and caps[0].get("device_id") in capable_set:
             return caps[0]["device_id"]
     except Exception:
         pass
-    try:
-        from api.pairing import list_devices
-
-        for d in list_devices():
-            if d.get("id") in connected and (d.get("kind") or "").lower() == "desktop":
-                return d["id"]
-    except Exception:
-        pass
-    # 3. any connected bridge device is a jc-client agent
-    return connected[0]
+    # 3. fall back to the first connected sync-capable (desktop) jc-client
+    return capable[0]
 
 
 class _BridgeRunResult:
@@ -594,6 +632,34 @@ def start_sync_for_session(*, session_id: str, cwd: str, sync: dict | None,
         return None  # chosen device isn't a connected jc-client
     return start_sync_for_launch(device_id, session_id=session_id, cwd=cwd,
                                  sync=sync, bridge=bridge)
+
+
+def stop_sync_for_session(session_id: str, *, bridge: DesktopBridge | None = None) -> None:
+    """Stop the file sync for a session that's being deleted/stopped — tell the
+    desktop to terminate its Mutagen sync + poller so the tray count drops
+    immediately (the reconcile-on-reconnect is the backstop). Never raises."""
+    if not session_id:
+        return
+    try:
+        bridge = bridge or get_desktop_bridge()
+    except Exception:
+        return
+    sync_id = "sync-" + str(session_id)
+    sess = bridge.sync_for(sync_id)
+    if sess is not None:
+        try:
+            sess.close()  # sends coding_sync_stop to its device + deregisters
+        except Exception:
+            pass
+        return
+    # No live session object (e.g. after a webui restart): still tell whatever
+    # desktop is connected to stop it, so a delete cleans up the orphan now.
+    try:
+        device_id = resolve_desktop_device_id()
+        if device_id:
+            bridge.send_sync_stop(device_id, sync_id)
+    except Exception:
+        pass
 
 
 def sync_status(session_id: str, sync_config=None) -> dict:
@@ -707,6 +773,7 @@ def resync_device(device_id: str, *, store=None,
     import json as _json
 
     reopened = 0
+    active_sync_ids = []  # the authoritative set the desktop should be running
     for session in running:
         try:
             if not _session_is_synced(session):
@@ -731,6 +798,7 @@ def resync_device(device_id: str, *, store=None,
             cwd = session.get("cwd") or ""
             if not session_id or not cwd:
                 continue
+            active_sync_ids.append("sync-" + str(session_id))
             opened = start_sync_for_launch(
                 device_id, session_id=session_id, cwd=cwd, sync=sync,
                 bridge=bridge)
@@ -739,6 +807,14 @@ def resync_device(device_id: str, *, store=None,
         except Exception:
             # Never let one bad session abort the rest (or the reconnect).
             continue
+    # Tell the desktop the authoritative active set so it terminates any orphan
+    # Mutagen sync / poller left over from deleted or stopped sessions. Sent
+    # unconditionally (even when empty) so a device whose every synced session
+    # was deleted gets its leftovers cleaned up and the tray count goes to 0.
+    try:
+        bridge.send_sync_reconcile(device_id, active_sync_ids)
+    except Exception:
+        pass
     return reopened
 
 

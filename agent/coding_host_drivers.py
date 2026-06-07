@@ -20,6 +20,7 @@ Security posture (hardened after the Phase-1 bug sweep):
 from __future__ import annotations
 
 import subprocess
+import sys
 
 from agent.claude_code_client import (
     _build_subprocess_env,
@@ -113,10 +114,15 @@ class LocalDriver(HostDriver):
         manager writes to a per-session ``.mcp.json`` and passes via
         ``--mcp-config``; returns None to add no server.
         """
+        # Use THIS process's interpreter (the venv python that actually has the
+        # `mcp` package), NOT bare "python3" — the latter resolves to the system
+        # python3, which lacks `mcp.server.fastmcp`, so Claude Code reported a
+        # permanent "1 setup issue: MCP" every session. sys.executable is the
+        # webui venv (e.g. /root/JarvisCopilot/.venv/bin/python).
         return {
             "mcpServers": {
                 "jarviscopilot-code-assist": {
-                    "command": "python3",
+                    "command": sys.executable or "python3",
                     "args": ["-m", "agent.coding_mcp_server"],
                     "env": {"PYTHONPATH": str(repo_root)},
                 }

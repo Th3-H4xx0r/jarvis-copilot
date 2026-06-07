@@ -3566,10 +3566,19 @@ def handle_get(handler, parsed) -> bool:
             last_seen = float(d.get("last_seen", 0) or 0)
             recently_active = (_now - last_seen) <= _ONLINE_WINDOW_SECONDS
             dd["online"] = (d.get("id") in connected) or recently_active
-            # bridge_connected = holds a live device-bridge WS = a jc-client
-            # desktop agent (browser/mobile pairings never do). Used to filter
-            # the Coding sync device picker to sync-capable desktop devices.
+            # bridge_connected = holds a live device-bridge WS. NOTE: mobile
+            # clients hold one too (notifications / phone-control), so this alone
+            # does NOT mean "desktop sync agent".
             dd["bridge_connected"] = d.get("id") in connected
+            # sync_capable = can actually run Mutagen file sync (a desktop
+            # jc-client). The Coding sync device picker filters on this so mobile
+            # devices never appear as sync targets even though they're connected.
+            try:
+                from api.coding_desktop import is_sync_capable_kind
+                dd["sync_capable"] = bool(dd["bridge_connected"]) and \
+                    is_sync_capable_kind(d.get("kind"))
+            except Exception:
+                dd["sync_capable"] = (str(d.get("kind") or "").lower() == "desktop")
             if skills_for_device is not None:
                 dd["skills"] = skills_for_device(d.get("id", "")) or []
             else:

@@ -136,6 +136,7 @@ class CodingDevice {
     this.online = true,
     this.kind,
     this.bridgeConnected = false,
+    this.syncCapable,
   });
 
   final String id;
@@ -143,11 +144,22 @@ class CodingDevice {
   final bool online;
   final String? kind; // browser | desktop | mobile-ios | mobile-android
   final bool bridgeConnected;
+  final bool? syncCapable; // server-computed: can run Mutagen sync
 
-  /// Only desktops that can actually sync. A device qualifies if it's a
-  /// `desktop` kind OR currently holds a live bridge (a connected jc-client
-  /// agent). Web/mobile pairings never qualify.
-  bool get desktopCapable => kind == 'desktop' || bridgeConnected;
+  /// Kinds that can NEVER run Mutagen file sync. Mobile clients hold a bridge
+  /// WS too (notifications/phone-control), so `bridgeConnected` alone is not
+  /// enough — exclude them explicitly.
+  static const _nonDesktopKinds = {
+    'mobile-ios', 'mobile-android', 'mobile', 'browser', 'web',
+  };
+
+  /// Only desktops that can actually sync. Prefer the server's [syncCapable]
+  /// flag; always exclude mobile/browser kinds even if they hold a bridge.
+  bool get desktopCapable {
+    if (kind != null && _nonDesktopKinds.contains(kind)) return false;
+    if (syncCapable != null) return syncCapable!;
+    return kind == 'desktop' || bridgeConnected;
+  }
 
   factory CodingDevice.fromJson(Map<String, dynamic> j) {
     final id = (j['id'] ?? j['device_id'] ?? '').toString();
@@ -159,6 +171,7 @@ class CodingDevice {
       online: j['online'] == null ? true : _asBool(j['online']),
       kind: _str(j['kind'])?.toLowerCase(),
       bridgeConnected: _asBool(j['bridge_connected']),
+      syncCapable: j['sync_capable'] == null ? null : _asBool(j['sync_capable']),
     );
   }
 }

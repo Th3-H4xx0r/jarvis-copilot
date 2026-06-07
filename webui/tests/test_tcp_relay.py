@@ -129,6 +129,37 @@ def test_wssocketchannel_close_emits_ws_close_frame():
     b.close()
 
 
+def test_wssocketchannel_send_keepalive_is_text_and_ignored_inbound():
+    # The keepalive MUST be a TEXT frame (in-band data that flushes the proxy's
+    # held last-frame) and MUST NOT be mistaken for SSH stream bytes on recv.
+    from wsproto import WSConnection, ConnectionType
+    from wsproto.events import Request, AcceptConnection, TextMessage, BytesMessage
+    from api.tcp_relay import WsSocketChannel
+
+    server_ws = WSConnection(ConnectionType.SERVER)
+    client_ws = WSConnection(ConnectionType.CLIENT)
+    server_ws.receive_data(
+        client_ws.send(Request(host="h", target="/api/devices/tcp-relay")))
+    for ev in server_ws.events():
+        if isinstance(ev, Request):
+            client_ws.receive_data(server_ws.send(AcceptConnection()))
+            break
+    list(client_ws.events())
+
+    a, b = socket.socketpair()
+    ch = WsSocketChannel(a, server_ws)
+    ch.send_keepalive()
+    # Peer sees a TEXT frame (not binary) — so it's data-plane (resets idle) but
+    # the relay drops it rather than writing it to the SSH socket.
+    b.settimeout(2.0)
+    client_ws.receive_data(b.recv(4096))
+    evs = list(client_ws.events())
+    assert any(isinstance(e, TextMessage) for e in evs)
+    assert not any(isinstance(e, BytesMessage) for e in evs)
+    ch.close()
+    b.close()
+
+
 def test_is_loopback_enforcement():
     from api.tcp_relay import _is_loopback
     assert _is_loopback("127.0.0.1")

@@ -130,3 +130,52 @@ def test_driver_missing_binary_raises():
         assert False
     except MutagenError as e:
         assert "not found" in str(e)
+
+
+# ── reconcile (orphan cleanup) ────────────────────────────────────────────────
+
+
+class _FakeReconcileDriver:
+    """Records terminate_by_name; lists a fixed set of Mutagen session names."""
+
+    def __init__(self, names):
+        self._names = list(names)
+        self.terminated = []
+
+    def name_for(self, sid):
+        return "jc-" + sid
+
+    def list_session_names(self):
+        return list(self._names)
+
+    def terminate_by_name(self, name):
+        self.terminated.append(name)
+
+    def stop_sync(self, sid):
+        pass
+
+
+def test_agent_reconcile_terminates_only_orphans():
+    from jc_client.coding_sync_mutagen import CodingMutagenAgent
+    import tempfile
+
+    drv = _FakeReconcileDriver(
+        ["jc-sync-a", "jc-sync-b", "jc-sync-orphan", "jc-other-tool"])
+    with tempfile.TemporaryDirectory() as td:
+        agent = CodingMutagenAgent(send=lambda f: None, state_dir=td, driver=drv)
+        agent.handle_frame({"type": "coding_sync_reconcile",
+                            "active": ["sync-a"]})
+    # jc-sync-b and jc-sync-orphan are ours but not active -> terminated.
+    # jc-sync-a is active -> kept. jc-other-tool isn't ours -> untouched.
+    assert set(drv.terminated) == {"jc-sync-b", "jc-sync-orphan"}
+
+
+def test_agent_reconcile_ignores_bad_payload():
+    from jc_client.coding_sync_mutagen import CodingMutagenAgent
+    import tempfile
+
+    drv = _FakeReconcileDriver(["jc-sync-a"])
+    with tempfile.TemporaryDirectory() as td:
+        agent = CodingMutagenAgent(send=lambda f: None, state_dir=td, driver=drv)
+        agent.handle_frame({"type": "coding_sync_reconcile"})  # no 'active'
+    assert drv.terminated == []  # nothing terminated on a malformed frame

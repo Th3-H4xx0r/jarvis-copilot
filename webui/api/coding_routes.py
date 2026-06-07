@@ -264,6 +264,14 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             def _delete():
                 if manager.status(sid) is None:
                     return _err(404, "session not found: " + sid)
+                # Stop the file sync first so the desktop terminates its Mutagen
+                # session + poller (otherwise it lingers as a stale "active"
+                # sync in the tray until the next reconnect-reconcile).
+                try:
+                    from api.coding_desktop import stop_sync_for_session
+                    stop_sync_for_session(sid)
+                except Exception:
+                    pass
                 manager.delete(sid)
                 return _ok({"ok": True})
 

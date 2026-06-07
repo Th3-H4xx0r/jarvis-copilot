@@ -379,20 +379,70 @@ class _CodingPageState extends State<CodingPage> {
                       ),
                     );
                   }
-                  return TerminalView(
-                    term,
-                    theme: _kTermTheme,
-                    textStyle: const TerminalStyle(
-                      fontSize: 12,
-                      fontFamily: 'Menlo',
-                    ),
-                    backgroundOpacity: 0,
-                    padding: EdgeInsets.zero,
+                  // The live Terminal in a Stack with a fullscreen toggle in the
+                  // corner. Tapping it pushes a full-screen route that renders
+                  // the SAME Terminal object, so the live session fills the
+                  // device (mirrors the WebUI's ⛶ Fullscreen).
+                  return Stack(
+                    children: [
+                      Positioned.fill(child: _termView(term)),
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        child: IconButton(
+                          icon: const Icon(Icons.fullscreen,
+                              color: JcTheme.muted, size: 22),
+                          tooltip: 'Fullscreen',
+                          onPressed: () => _openFullscreenTerminal(term),
+                        ),
+                      ),
+                    ],
                   );
                 },
               ),
       ),
     );
+  }
+
+  // The bare TerminalView, shared between the inline card and the fullscreen
+  // route (xterm renders the same live [Terminal] in both places).
+  Widget _termView(Terminal term) => TerminalView(
+        term,
+        theme: _kTermTheme,
+        textStyle: const TerminalStyle(fontSize: 12, fontFamily: 'Menlo'),
+        backgroundOpacity: 0,
+        padding: EdgeInsets.zero,
+      );
+
+  void _openFullscreenTerminal(Terminal term) {
+    Navigator.of(context).push(MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => Scaffold(
+        backgroundColor: const Color(0xFF0A0D13),
+        body: SafeArea(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: _termView(term),
+                ),
+              ),
+              Positioned(
+                top: 0,
+                right: 0,
+                child: IconButton(
+                  icon: const Icon(Icons.fullscreen_exit,
+                      color: JcTheme.muted, size: 26),
+                  tooltip: 'Exit fullscreen',
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ));
   }
 }
 
