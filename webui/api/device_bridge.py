@@ -870,7 +870,9 @@ _RECV_CHUNK = 65536  # 64 KB per recv; reassembly handles larger messages
 # — protects against a misbehaving device flooding us. 8 MB is enough
 # for an uncompressed-but-downscaled screenshot or a large skill result.
 _MAX_FRAME_BYTES = 8 * 1024 * 1024
-_PING_INTERVAL = 30.0  # send a server-side ping every 30s
+_PING_INTERVAL = 18.0  # server keepalive cadence; a text data ping every ~18s
+                       # keeps cloudflared/Cloudflare from idle-closing the
+                       # mostly-idle bridge (a WS control Ping alone didn't)
 
 
 def _ws_send_text(conn: _DeviceConn, text: str) -> None:
@@ -956,10 +958,14 @@ def _pump(conn: _DeviceConn) -> None:
                 pass  # liveness — already updated last_seen
             elif isinstance(event, CloseConnection):
                 return
-        # Server-side keepalive ping.
+        # Server-side keepalive. A WS CONTROL Ping alone does NOT reset the
+        # cloudflared/Cloudflare idle timer (they count DATA frames), so the
+        # mostly-idle bridge connection was being reaped (~51s with no keepalive,
+        # ~3min with only the client-side data ping). Send a TEXT data frame too.
         now = time.time()
         if now - last_ping >= _PING_INTERVAL:
             try:
+                _ws_send_text(conn, json.dumps({"type": "ping"}))
                 with conn.send_lock:
                     conn.sock.sendall(conn.conn.send(Ping(payload=b"")))
                 last_ping = now
