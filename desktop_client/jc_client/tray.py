@@ -249,6 +249,15 @@ class TrayApp:
                 return _format_status_line(self._svc)
             return _format_supervised_status_line(self._supervised_pid)
 
+        def _sync_text(_item):
+            # Only meaningful when we own the service (in-process read). In
+            # supervised mode there's no IPC to the other process, so the item
+            # is hidden (mirrors the pause/resume supervised fallback).
+            return _format_sync_line(self._svc)
+
+        def _sync_visible(_item):
+            return self._svc is not None
+
         def _pause_label(_item):
             return "Resume" if (self._svc and self._svc.is_paused) else "Pause"
 
@@ -259,6 +268,7 @@ class TrayApp:
 
         return Menu(
             MenuItem(_status_text, None, enabled=False),
+            MenuItem(_sync_text, None, enabled=False, visible=_sync_visible),
             Sep,
             MenuItem("Open dashboard", self._act_open_dashboard),
             MenuItem("Voice Orb", self._act_voice_orb),
@@ -346,6 +356,23 @@ def _format_status_line(svc: Optional[service.Service]) -> str:
     if svc.is_connected:
         return f"● Connected to {creds.server_url}"
     return f"● Reconnecting to {creds.server_url}…"
+
+
+def _format_sync_line(svc: Optional[service.Service]) -> str:
+    """"Sync: N active" / "Sync: idle" for the Coding-Session file sync.
+
+    Reads the in-process service's CodingSyncAgent count. Best-effort: any
+    error (no agent yet, mid-reconnect) renders as idle rather than crashing
+    the menu."""
+    n = 0
+    if svc is not None:
+        try:
+            n = svc.coding_sync_active_count()
+        except Exception:
+            n = 0
+    if n <= 0:
+        return "Sync: idle"
+    return f"Sync: {n} active"
 
 
 def _format_supervised_status_line(pid: Optional[int]) -> str:

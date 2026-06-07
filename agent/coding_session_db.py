@@ -96,7 +96,8 @@ class CodingSessionStore:
 
     def update_session(self, sid: str, **fields) -> None:
         allowed = {"status", "claude_session_id", "title", "tmux_name",
-                   "worktree_path", "branch", "last_activity_at"}
+                   "worktree_path", "branch", "last_activity_at",
+                   "skip_permissions", "sync_config", "cwd"}
         sets = {k: v for k, v in fields.items() if k in allowed}
         if "status" in sets and sets["status"] not in VALID_STATUSES:
             raise ValueError(f"invalid status: {sets['status']!r}")

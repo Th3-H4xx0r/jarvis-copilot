@@ -228,6 +228,8 @@ class CodingSyncAgent:
     Public API
     ----------
     ``handle_frame(frame: dict) -> None``  — dispatch one inbound frame.
+    ``active_count() -> int``              — number of currently-open syncs.
+    ``active_syncs() -> list[str]``        — the open sync_ids (snapshot copy).
     ``close() -> None``                    — stop every watcher, forget all syncs.
     """
 
@@ -240,6 +242,22 @@ class CodingSyncAgent:
         # One watcher thread per open sync, plus a stop-event per sync.
         self._threads: Dict[str, threading.Thread] = {}
         self._stops: Dict[str, threading.Event] = {}
+
+    # ── status (read by the tray) ───────────────────────────────────────
+
+    def active_count(self) -> int:
+        """Number of currently-open syncs. Thread-safe; cheap.
+
+        Read by the tray (via the in-process Service) to surface a
+        "Sync: N active" status line.
+        """
+        with self._lock:
+            return len(self._syncs)
+
+    def active_syncs(self) -> list:
+        """Snapshot list of the currently-open sync_ids. Thread-safe."""
+        with self._lock:
+            return list(self._syncs.keys())
 
     # ── inbound frame dispatch ──────────────────────────────────────────
 

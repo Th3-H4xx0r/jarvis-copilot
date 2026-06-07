@@ -297,6 +297,10 @@ function _codingRenderDetail(session, subagents) {
     const cwd = session.cwd || session.repo_path || '';
     const host = session.host || 'server';
     const hostLabel = host === 'desktop' ? 'desktop' : 'server';
+    let _sc = {}; try { _sc = session.sync_config ? JSON.parse(session.sync_config) : {}; } catch (_) {}
+    const _syncEnabled = !!_sc.enabled;
+    const _syncDevice = _cdgEsc(_sc.device || '');
+    const _syncPath = _cdgEsc(_sc.remote_path || '');
     const termSection = `<div class="cm-section">
            <div class="cm-section-head"><span class="cm-section-title">Live terminal</span><span class="cm-section-count" style="font-weight:400;opacity:.6">${hostLabel} · type here to talk to claude</span></div>
            <div class="cdg-term" id="codingTerm" style="height:460px;background:#0a0d13;border-radius:8px;padding:6px;overflow:hidden"></div>
@@ -312,10 +316,27 @@ function _codingRenderDetail(session, subagents) {
           <span class="cdg-status-text" id="codingStatusText">…</span>
           <button type="button" class="cdg-btn-stop" id="codingStopBtn" onclick="codingStop()">Stop</button>
           <button type="button" class="cdg-btn-primary" id="codingRestartBtn" onclick="codingRestart()" style="display:none">Restart</button>
+          <button type="button" class="cdg-btn-secondary" id="codingSettingsBtn" onclick="codingToggleSettings()">Settings</button>
           <button type="button" class="cdg-btn-secondary" id="codingDeleteBtn" onclick="codingDelete()">Delete</button>
         </div>
       </div>
       <div class="cm-detail-body">
+        <div class="cm-section" id="codingSettingsPanel" style="display:none">
+          <div class="cm-section-head"><span class="cm-section-title">Session settings</span><span class="cm-section-count" style="font-weight:400;opacity:.6">${hostLabel}</span></div>
+          <div class="cdg-hint">Changes to the directory or skip-permissions apply on the next <b>Restart</b>.</div>
+          <label class="cdg-label" for="codingSetCwd">Working directory</label>
+          <input class="cdg-input" id="codingSetCwd" value="${_cdgEsc(cwd)}" autocomplete="off">
+          <label class="cdg-check"><input type="checkbox" id="codingSetSkip" ${session.skip_permissions ? 'checked' : ''}> <span>Dangerously skip permissions</span></label>
+          <label class="cdg-check"><input type="checkbox" id="codingSetSync" onchange="codingToggleSetSyncOpts()" ${_syncEnabled ? 'checked' : ''}> <span>Sync this project with another device</span></label>
+          <div id="codingSetSyncOpts" style="display:${_syncEnabled ? '' : 'none'};margin-left:22px">
+            <label class="cdg-label" for="codingSetSyncDevice">Device</label>
+            <input class="cdg-input" id="codingSetSyncDevice" value="${_syncDevice}" placeholder="paired device name" autocomplete="off">
+            <label class="cdg-label" for="codingSetSyncPath">Folder on that device</label>
+            <input class="cdg-input" id="codingSetSyncPath" value="${_syncPath}" placeholder="~/code/your-project" autocomplete="off">
+          </div>
+          <div class="cdg-form-actions"><button type="button" class="cdg-btn-primary" id="codingSetSaveBtn" onclick="codingSaveSettings()">Save settings</button></div>
+          <div class="cdg-form-err" id="codingSetErr" style="display:none"></div>
+        </div>
         ${termSection}
       </div>`;
     _codingMountTerminal(id);   // server attaches local tmux; desktop streams over the bridge
@@ -443,6 +464,52 @@ async function codingDelete() {
   }
 }
 window.codingDelete = codingDelete;
+
+function codingToggleSettings() {
+  const p = document.getElementById('codingSettingsPanel');
+  if (p) p.style.display = (p.style.display === 'none' || !p.style.display) ? '' : 'none';
+}
+window.codingToggleSettings = codingToggleSettings;
+
+function codingToggleSetSyncOpts() {
+  const on = !!(document.getElementById('codingSetSync') || {}).checked;
+  const o = document.getElementById('codingSetSyncOpts');
+  if (o) o.style.display = on ? '' : 'none';
+}
+window.codingToggleSetSyncOpts = codingToggleSetSyncOpts;
+
+async function codingSaveSettings() {
+  if (!_codingSelectedId) return;
+  const id = _codingSelectedId;
+  const errEl = document.getElementById('codingSetErr');
+  const btn = document.getElementById('codingSetSaveBtn');
+  const cwd = ((document.getElementById('codingSetCwd') || {}).value || '').trim();
+  const skip = !!(document.getElementById('codingSetSkip') || {}).checked;
+  const syncOn = !!(document.getElementById('codingSetSync') || {}).checked;
+  const dev = ((document.getElementById('codingSetSyncDevice') || {}).value || '').trim();
+  const path = ((document.getElementById('codingSetSyncPath') || {}).value || '').trim();
+  if (errEl) errEl.style.display = 'none';
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const payload = { skip_permissions: skip, cwd,
+      sync: { enabled: syncOn, device: dev, remote_path: path } };
+    const res = await api('/api/coding/session/' + encodeURIComponent(id) + '/settings',
+      { method: 'POST', body: JSON.stringify(payload) });
+    if (res && res.ok === false) {
+      if (errEl) { errEl.textContent = res.error || 'Save failed.'; errEl.style.display = ''; }
+      return;
+    }
+    // re-render from the updated row (force shell rebuild)
+    _codingTeardownTerminal();
+    _codingDetailShellId = null;
+    await _codingRefreshDetail();
+  } catch (e) {
+    if (errEl) { errEl.textContent = (e && e.message) || 'Save failed.'; errEl.style.display = ''; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save settings'; }
+  }
+}
+window.codingSaveSettings = codingSaveSettings;
 
 /* ── Polling lifecycle ───────────────────────────────────────────────────── */
 

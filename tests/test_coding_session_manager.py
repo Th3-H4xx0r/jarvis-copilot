@@ -107,6 +107,18 @@ def test_delete_removes_session(tmp_path):
     assert mgr.status(s["id"]) is None
 
 
+def test_update_settings_persists(tmp_path):
+    mgr, _ = _mgr(tmp_path)
+    s = mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None, model=None)
+    r = mgr.update_settings(s["id"], skip_permissions=True,
+                            sync={"enabled": True, "device": "mac", "remote_path": "~/p"})
+    assert r["skip_permissions"] == 1
+    assert '"device": "mac"' in r["sync_config"]
+    # disabling sync clears the config
+    r2 = mgr.update_settings(s["id"], sync={"enabled": False})
+    assert r2["sync_config"] is None
+
+
 def test_launch_blocked_when_preflight_fails(tmp_path):
     store = CodingSessionStore(db_path=str(tmp_path / "c.db"))
 

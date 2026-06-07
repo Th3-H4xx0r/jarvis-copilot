@@ -343,6 +343,115 @@ def test_start_sync_for_launch_noop_when_disabled(tmp_path):
     assert t.sent == []
 
 
+# ── resync_device: re-open sync for running synced sessions on reconnect ─────
+
+
+class FakeStore:
+    """Minimal CodingSessionStore stand-in: list_sessions(status=...) only."""
+
+    def __init__(self, sessions):
+        self._sessions = list(sessions)
+
+    def list_sessions(self, *, status=None):
+        if status is None:
+            return [dict(s) for s in self._sessions]
+        return [dict(s) for s in self._sessions if s.get("status") == status]
+
+
+def test_resync_device_reopens_running_synced_sessions(tmp_path):
+    import json
+
+    bridge, t = make_bridge()
+    store = FakeStore([
+        # running + has a sync_config -> RE-OPENED
+        {"id": "cs_run", "status": "running", "host": "desktop",
+         "cwd": str(tmp_path),
+         "sync_config": json.dumps({"enabled": True,
+                                    "remote_path": "/Users/me/proj"})},
+        # stopped -> NOT re-opened (list_sessions(status='running') excludes it)
+        {"id": "cs_stop", "status": "stopped", "host": "desktop",
+         "cwd": str(tmp_path),
+         "sync_config": json.dumps({"enabled": True})},
+        # running but no sync_config and host != desktop -> NOT re-opened
+        {"id": "cs_srv", "status": "running", "host": "server",
+         "cwd": str(tmp_path), "sync_config": None},
+    ])
+
+    n = cd.resync_device("dev-RS", store=store, bridge=bridge)
+    assert n == 1
+
+    opens = t.frames("coding_sync_open")
+    assert len(opens) == 1
+    f = opens[0]
+    assert f["sync_id"] == "sync-cs_run"
+    assert f["path"] == "/Users/me/proj"  # the desktop's remote path
+    # the session is registered for inbound-frame routing under its sync id
+    assert bridge.sync_for("sync-cs_run") is not None
+
+
+def test_resync_device_desktop_session_without_sync_config(tmp_path):
+    """A desktop-host running session with no explicit sync_config still gets a
+    sync of its cwd (synthesized enabled config)."""
+    bridge, t = make_bridge()
+    store = FakeStore([
+        {"id": "cs_d", "status": "running", "host": "desktop",
+         "cwd": str(tmp_path), "sync_config": None},
+    ])
+    n = cd.resync_device("dev-D2", store=store, bridge=bridge)
+    assert n == 1
+    opens = t.frames("coding_sync_open")
+    assert len(opens) == 1
+    # no explicit remote_path -> the desktop opens the session cwd
+    assert opens[0]["path"] == str(tmp_path)
+    assert opens[0]["sync_id"] == "sync-cs_d"
+
+
+def test_resync_device_noop_when_nothing_synced(tmp_path):
+    bridge, t = make_bridge()
+    store = FakeStore([
+        {"id": "cs_srv", "status": "running", "host": "server",
+         "cwd": str(tmp_path), "sync_config": None},
+    ])
+    assert cd.resync_device("dev-N", store=store, bridge=bridge) == 0
+    assert t.frames("coding_sync_open") == []
+
+
+def test_resync_device_defensive_on_bad_store():
+    bridge, t = make_bridge()
+
+    class Boom:
+        def list_sessions(self, *, status=None):
+            raise RuntimeError("db locked")
+
+    # Must never raise; returns 0 and sends nothing.
+    assert cd.resync_device("dev-B", store=Boom(), bridge=bridge) == 0
+    assert t.sent == []
+
+
+def test_resync_device_blank_device_id_is_noop(tmp_path):
+    bridge, t = make_bridge()
+    store = FakeStore([
+        {"id": "cs_run", "status": "running", "host": "desktop",
+         "cwd": str(tmp_path), "sync_config": '{"enabled": true}'},
+    ])
+    assert cd.resync_device("", store=store, bridge=bridge) == 0
+    assert t.sent == []
+
+
+def test_resync_device_skips_bad_sync_config_json(tmp_path):
+    """A server-host running session whose sync_config is unparseable JSON is
+    skipped (not re-opened) rather than crashing the whole resync."""
+    bridge, t = make_bridge()
+    store = FakeStore([
+        {"id": "cs_bad", "status": "running", "host": "server",
+         "cwd": str(tmp_path), "sync_config": "{not json"},
+    ])
+    # _session_is_synced is True (non-empty sync_config) but the JSON is bad ->
+    # no usable sync dict -> skipped, count 0, no frames.
+    assert cd.resync_device("dev-J", store=store, bridge=bridge) == 0
+    assert t.frames("coding_sync_open") == []
+
+
 # ── device_bridge inbound hook routes coding frames to the handler ───────────
 
 
@@ -378,6 +487,39 @@ def test_send_frame_unknown_device_returns_false():
     from api import device_bridge as db
 
     assert db.send_frame("no-such-device", {"type": "coding_term_input"}) is False
+
+
+def test_device_connect_hook_calls_resync_device(monkeypatch):
+    """The device-connect hook (_trigger_coding_resync) drives resync_device off
+    a background thread; verify it actually invokes it with the device_id."""
+    import threading
+
+    from api import coding_desktop as cd_mod
+    from api import device_bridge as db
+
+    seen = []
+    done = threading.Event()
+
+    def _fake_resync(device_id):
+        seen.append(device_id)
+        done.set()
+        return 0
+
+    monkeypatch.setattr(cd_mod, "resync_device", _fake_resync, raising=True)
+    db._trigger_coding_resync("dev-HOOK")
+    assert done.wait(2.0), "resync hook thread never ran"
+    assert seen == ["dev-HOOK"]
+
+
+def test_device_connect_hook_blank_id_is_noop(monkeypatch):
+    from api import coding_desktop as cd_mod
+    from api import device_bridge as db
+
+    called = []
+    monkeypatch.setattr(cd_mod, "resync_device",
+                        lambda did: called.append(did), raising=True)
+    db._trigger_coding_resync("")  # blank -> no thread, no call
+    assert called == []
 
 
 # ── feed plugs into the real api.terminal SSE/input/resize/close routes ───────

@@ -110,6 +110,11 @@ class FakeManager:
         self.calls.append(("delete", sid))
         self._maybe_raise("delete")
 
+    def update_settings(self, sid, **kw):
+        self.calls.append(("update_settings", sid, kw))
+        self._maybe_raise("update_settings")
+        return {"id": sid, "skip_permissions": 1 if kw.get("skip_permissions") else 0}
+
 
 # ── prefix / matches ────────────────────────────────────────────────────────────
 
@@ -451,3 +456,23 @@ def test_launch_passes_skip_permissions():
                           manager=m)
     launch_call = next(c for c in m.calls if c[0] == "launch")
     assert launch_call[1]["skip_permissions"] is True
+
+
+def test_settings_route_updates():
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "POST", "/session/" + FakeManager.KNOWN + "/settings",
+        {"skip_permissions": True, "cwd": "~/p",
+         "sync": {"enabled": True, "device": "mac", "remote_path": "~/r"}},
+        manager=m)
+    assert status == 200 and body["ok"] is True
+    call = next(c for c in m.calls if c[0] == "update_settings")
+    assert call[2]["skip_permissions"] is True
+    assert call[2]["sync"]["device"] == "mac"
+
+
+def test_settings_route_unknown_session_404():
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "POST", "/session/nope/settings", {"skip_permissions": True}, manager=m)
+    assert status == 404

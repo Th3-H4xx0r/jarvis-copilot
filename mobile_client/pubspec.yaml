@@ -53,6 +53,7 @@ dependencies:
   permission_handler: ^11.3.0     # uniform mobile permission requests
   audioplayers: ^6.0.0            # voice playback
   path_provider: ^2.1.2           # absolute paths for record + caches
+  xterm: ^4.0.0                   # Coding tab live terminal (pure-Dart VT100; fed by the server's PTY over SSE — no native PTY)
 
   # ── Push ─────────────────────────────────────────────────────
   # firebase_messaging covers both APNs (via Firebase) and FCM. We use

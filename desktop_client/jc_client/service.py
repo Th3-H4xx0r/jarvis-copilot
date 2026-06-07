@@ -95,6 +95,21 @@ class Service:
     def is_connected(self) -> bool:
         return self._connected
 
+    def coding_sync_active_count(self) -> int:
+        """Number of currently-open Coding-Session file syncs.
+
+        Read by the tray to surface a "Sync: N active" status line. The
+        CodingSyncAgent is created per-connection (and torn down to None
+        between connections / during a reconnect), so this returns 0 when
+        there is no live agent. Never raises."""
+        agent = self._coding_sync
+        if agent is None:
+            return 0
+        try:
+            return int(agent.active_count())
+        except Exception:
+            return 0
+
     @property
     def status_summary(self) -> dict:
         creds = credentials.load()

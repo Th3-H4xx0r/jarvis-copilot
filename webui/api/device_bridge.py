@@ -412,6 +412,33 @@ def _trigger_relay_autoregister() -> None:
     threading.Thread(target=_rescan, daemon=True, name="relay-autoregister").start()
 
 
+def _trigger_coding_resync(device_id: str) -> None:
+    """When a (desktop) device (re)connects, re-open the file sync for every
+    still-running synced coding session so the manifest-diff reconcile re-checks
+    whether any files need re-syncing.
+
+    Best-effort and fully isolated: runs off the bridge pump thread (so a slow
+    reconcile can't stall the connection) and swallows every error (so it can
+    never break device registration). The resync itself only does meaningful
+    work for desktop/synced sessions — non-desktop devices simply find nothing
+    to re-open."""
+    if not device_id:
+        return
+
+    def _run():
+        try:
+            from api.coding_desktop import resync_device
+
+            n = resync_device(device_id)
+            if n:
+                logger.info("coding resync: re-opened %d sync(s) for device %s",
+                            n, device_id)
+        except Exception as exc:
+            logger.debug("coding resync failed for %s: %s", device_id, exc)
+
+    threading.Thread(target=_run, daemon=True, name="coding-resync").start()
+
+
 # ── Mobile push fallback ───────────────────────────────────────────────────
 #
 # When a mobile client is backgrounded its WS is gone. The bridge falls
@@ -773,6 +800,13 @@ def handle_websocket(handler, parsed) -> bool:
             "device_name": conn.name,
             "ts": time.time(),
         }))
+        # Device-connect hook: a (re)connecting desktop should re-open the file
+        # sync for any running synced coding session so it re-reconciles. Fired
+        # off-thread + fully defensive so it can never break the connection.
+        try:
+            _trigger_coding_resync(conn.device_id)
+        except Exception:
+            pass
         _pump(conn)
     finally:
         _unregister(conn.device_id, conn)

@@ -301,3 +301,30 @@ class CodingSessionManager:
             except Exception:
                 pass
         self.store.delete_session(sid)
+
+    def update_settings(self, sid, *, skip_permissions=None, sync=None,
+                        cwd=None, title=None):
+        """Update a session's stored settings (skip-perms, sync, cwd, title).
+
+        Persists immediately; settings that affect the running process
+        (skip_permissions, cwd) take effect on the next Restart. Returns the
+        updated row.
+        """
+        row = self.store.get_session(sid)
+        if not row:
+            raise KeyError(sid)
+        fields = {}
+        if skip_permissions is not None:
+            fields["skip_permissions"] = 1 if skip_permissions else 0
+        if title is not None:
+            fields["title"] = title
+        if cwd is not None and cwd:
+            fields["cwd"] = _resolve_dir(cwd)
+        if sync is not None:
+            import json as _json
+
+            fields["sync_config"] = (_json.dumps(sync)
+                                     if sync.get("enabled") else None)
+        if fields:
+            self.store.update_session(sid, **fields)
+        return self.store.get_session(sid)

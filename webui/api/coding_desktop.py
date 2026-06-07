@@ -584,6 +584,96 @@ def start_sync_for_launch(device_id: str, *, session_id: str, cwd: str,
     return session
 
 
+def _resolve_store():
+    """The process-wide CodingSessionStore (via the cached server manager).
+
+    Kept lazy + defensive so importing this module never drags in the manager /
+    SQLite layer; resync_device falls back to None if the store is unavailable.
+    """
+    try:
+        from api.coding_routes import default_manager
+
+        return default_manager("server").store
+    except Exception:
+        try:
+            from agent.coding_session_db import CodingSessionStore
+
+            return CodingSessionStore()
+        except Exception:
+            return None
+
+
+def _session_is_synced(session: dict) -> bool:
+    """A session participates in file sync if it's a desktop host OR it carries a
+    non-empty ``sync_config`` (the persisted launch ``sync`` dict)."""
+    if (session.get("host") or "").lower() == "desktop":
+        return True
+    return bool((session.get("sync_config") or "").strip())
+
+
+def resync_device(device_id: str, *, store=None,
+                  bridge: DesktopBridge | None = None) -> int:
+    """Re-open the file sync for every still-running synced session on reconnect.
+
+    Called (best-effort, off-thread) when a desktop device registers/reconnects.
+    For each running coding session that is host='desktop' or carries a
+    ``sync_config``, we re-open a :class:`DesktopSyncSession` against ``device_id``
+    — which re-sends ``coding_sync_open`` so the desktop replies with its current
+    manifest and the manifest-diff reconcile inherently re-checks whether any
+    files need re-syncing. Re-opening reuses the deterministic ``sync-<session_id>``
+    id, so a prior session object for the same id is simply replaced.
+
+    Returns the number of sessions re-opened. Never raises.
+    """
+    if not device_id:
+        return 0
+    store = store or _resolve_store()
+    if store is None:
+        return 0
+    bridge = bridge or get_desktop_bridge()
+    try:
+        running = store.list_sessions(status="running")
+    except Exception:
+        return 0
+
+    import json as _json
+
+    reopened = 0
+    for session in running:
+        try:
+            if not _session_is_synced(session):
+                continue
+            sync = None
+            raw = (session.get("sync_config") or "").strip()
+            if raw:
+                try:
+                    parsed = _json.loads(raw)
+                    if isinstance(parsed, dict):
+                        sync = parsed
+                except Exception:
+                    sync = None
+            # A desktop session with no explicit sync block still wants a sync
+            # of its cwd — synthesize a minimal "enabled" config so
+            # start_sync_for_launch opens it.
+            if sync is None and (session.get("host") or "").lower() == "desktop":
+                sync = {"enabled": True}
+            if not sync:
+                continue
+            session_id = session.get("id")
+            cwd = session.get("cwd") or ""
+            if not session_id or not cwd:
+                continue
+            opened = start_sync_for_launch(
+                device_id, session_id=session_id, cwd=cwd, sync=sync,
+                bridge=bridge)
+            if opened is not None:
+                reopened += 1
+        except Exception:
+            # Never let one bad session abort the rest (or the reconnect).
+            continue
+    return reopened
+
+
 def make_on_launched(device_id: str, bridge: DesktopBridge | None = None):
     """Return an ``on_launched(session_id, cwd, tmux_name, sync)`` closure bound
     to one device — kicks off the file sync after a successful launch."""

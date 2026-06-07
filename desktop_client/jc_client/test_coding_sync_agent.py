@@ -337,6 +337,52 @@ def test_close_stops_watching(tmp_path, agent, sender):
 
 
 # --------------------------------------------------------------------------- #
+# active_count / active_syncs (tray status surface)
+# --------------------------------------------------------------------------- #
+def test_active_count_zero_initially(agent):
+    assert agent.active_count() == 0
+    assert agent.active_syncs() == []
+
+
+def test_active_count_tracks_open_syncs(tmp_path, agent):
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+
+    _open(agent, "s1", a)
+    assert agent.active_count() == 1
+    assert agent.active_syncs() == ["s1"]
+
+    _open(agent, "s2", b)
+    assert agent.active_count() == 2
+    assert set(agent.active_syncs()) == {"s1", "s2"}
+
+
+def test_active_count_drops_on_close(tmp_path, agent):
+    _open(agent, "s1", tmp_path)
+    assert agent.active_count() == 1
+    agent.handle_frame({"type": "coding_sync_close", "sync_id": "s1"})
+    assert agent.active_count() == 0
+    assert agent.active_syncs() == []
+
+
+def test_reopening_same_sync_id_counts_once(tmp_path, agent):
+    _open(agent, "s1", tmp_path)
+    _open(agent, "s1", tmp_path)  # re-open replaces, doesn't double-count
+    assert agent.active_count() == 1
+
+
+def test_active_syncs_returns_independent_copy(tmp_path, agent):
+    _open(agent, "s1", tmp_path)
+    snap = agent.active_syncs()
+    snap.append("mutated")
+    # mutating the returned list must not affect the agent's state
+    assert agent.active_count() == 1
+    assert agent.active_syncs() == ["s1"]
+
+
+# --------------------------------------------------------------------------- #
 # defensiveness
 # --------------------------------------------------------------------------- #
 def test_handle_frame_never_raises_on_garbage(agent, sender):

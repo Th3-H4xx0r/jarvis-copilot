@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:xterm/xterm.dart';
 
 import '../coding/coding_controller.dart';
 import '../coding/coding_models.dart';
@@ -9,15 +11,16 @@ import '../theme.dart';
 import '../widgets/glass.dart';
 
 /// Native Coding tab — a control plane for tmux-backed Claude Code coding
-/// sessions (the server's `coding_sessions` toolset). Lists sessions,
-/// drills into one (status + subagents + a message composer + stop), and
-/// launches new ones from a sheet.
+/// sessions (the server's `coding_sessions` toolset). Lists sessions, drills
+/// into one (status + a live terminal + restart/stop/delete + a per-session
+/// settings sheet), and launches new ones from a sheet (with host / skip-perms
+/// / cross-device sync parity with the WebUI).
 ///
-/// MVP: no live terminal here. The session detail shows status + spawned
-/// subagents and lets you type follow-ups, but the scrolling pane stays on
-/// the host.
-// TODO: live terminal via SSE/tmux-attach — stream the tmux pane (or a
-// transcript SSE feed) into a scrollback view in the detail panel.
+/// Live terminal: we use the pure-Dart `xterm` package's [TerminalView], fed
+/// by the session's SSE `output` stream (POST .../terminal/start then GET
+/// /api/terminal/output). Keystrokes from the view post to /api/terminal/input
+/// and dimension changes to /api/terminal/resize. No native PTY / flutter_pty
+/// is involved — the PTY lives on the server.
 class CodingPage extends StatefulWidget {
   const CodingPage({super.key});
 
@@ -29,17 +32,59 @@ class _CodingPageState extends State<CodingPage> {
   late final CodingSessionsController _c = CodingSessionsController(app.api);
   final _composer = TextEditingController();
 
+  // ── Live terminal (xterm) ──
+  Terminal? _term;
+  String? _termForId; // session id the current Terminal is built for
+  StreamSubscription<String>? _termSub;
+
   @override
   void initState() {
     super.initState();
+    _c.addListener(_onControllerChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _c.loadSessions());
   }
 
   @override
   void dispose() {
+    _c.removeListener(_onControllerChanged);
+    _termSub?.cancel();
     _c.dispose();
     _composer.dispose();
     super.dispose();
+  }
+
+  /// Build/tear-down the xterm [Terminal] in lock-step with the selection.
+  void _onControllerChanged() {
+    final id = _c.selectedId;
+    if (id == null) {
+      if (_term != null) {
+        _termSub?.cancel();
+        _termSub = null;
+        _term = null;
+        _termForId = null;
+      }
+      return;
+    }
+    if (_termForId != id) {
+      _mountTerminal(id);
+    }
+  }
+
+  void _mountTerminal(String id) {
+    _termSub?.cancel();
+    final term = Terminal(maxLines: 4000);
+    // User keystrokes from the view -> server PTY.
+    term.onOutput = (data) => _c.sendTerminalInput(data);
+    // View dimension changes -> server PTY winsize.
+    term.onResize = (w, h, _, __) => _c.resizeTerminal(rows: h, cols: w);
+    _term = term;
+    _termForId = id;
+    // PTY output -> the view's buffer.
+    _termSub = _c.terminalText.listen((text) {
+      if (_termForId == id) term.write(text);
+    });
+    // Attach the server-side PTY and begin streaming.
+    _c.startTerminal(rows: term.viewHeight, cols: term.viewWidth);
   }
 
   void _send() {
@@ -57,6 +102,46 @@ class _CodingPageState extends State<CodingPage> {
       backgroundColor: Colors.transparent,
       builder: (_) => _LaunchSheet(controller: _c),
     );
+  }
+
+  Future<void> _openSettingsSheet() async {
+    final s = _c.selected;
+    if (s == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _SettingsSheet(controller: _c, session: s),
+    );
+  }
+
+  Future<void> _confirmDelete() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: JcTheme.surface,
+        title: const Text('Delete session',
+            style: TextStyle(color: JcTheme.text)),
+        content: const Text(
+          'This stops the session and permanently removes it.',
+          style: TextStyle(color: JcTheme.muted),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: JcTheme.muted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child:
+                const Text('Delete', style: TextStyle(color: JcTheme.danger)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await _c.delete();
+    }
   }
 
   @override
@@ -139,9 +224,10 @@ class _CodingPageState extends State<CodingPage> {
   // ── Selected session detail ───────────────────────────────────
   Widget _buildDetail() {
     final s = _c.selected;
+    final live = s?.isLive ?? false;
     return Column(
       children: [
-        // Header: back + title + status pill
+        // Header: back + title + status pill + settings
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
           child: Row(
@@ -181,33 +267,70 @@ class _CodingPageState extends State<CodingPage> {
               ),
               const SizedBox(width: 8),
               _StatusPill(status: s?.status ?? 'starting'),
+              const SizedBox(width: 8),
+              GlassIconButton(
+                icon: Icons.tune_rounded,
+                iconSize: 20,
+                onTap: s == null ? null : _openSettingsSheet,
+              ),
             ],
           ),
         ),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-            children: [
-              if (_c.error != null) ...[
-                _InlineError(message: _c.error!),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_c.error != null) ...[
+                  _InlineError(message: _c.error!),
+                  const SizedBox(height: 12),
+                ],
+                Row(
+                  children: [
+                    glassSectionLabel('Live terminal'),
+                    const Spacer(),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        '${(s?.host ?? 'server') == 'desktop' ? 'desktop' : 'server'} · type below',
+                        style: const TextStyle(
+                            color: JcTheme.muted, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+                Expanded(child: _buildTerminal()),
                 const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GlassButton(
+                        label: live ? 'Stop' : 'Restart',
+                        icon: live
+                            ? Icons.stop_rounded
+                            : Icons.restart_alt_rounded,
+                        ghost: live,
+                        full: true,
+                        onPressed: _c.busy
+                            ? null
+                            : (live ? _c.stop : _c.restart),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: GlassButton(
+                        label: 'Delete',
+                        icon: Icons.delete_outline_rounded,
+                        ghost: true,
+                        full: true,
+                        onPressed: _c.busy ? null : _confirmDelete,
+                      ),
+                    ),
+                  ],
+                ),
               ],
-              _MetaCard(session: s),
-              const SizedBox(height: 16),
-              _SubagentsSection(
-                subagents: _c.subagents,
-                loading: _c.detailLoading && _c.subagents.isEmpty,
-              ),
-              const SizedBox(height: 16),
-              // TODO: live terminal via SSE/tmux-attach goes here.
-              GlassButton(
-                label: 'Stop session',
-                icon: Icons.stop_rounded,
-                ghost: true,
-                full: true,
-                onPressed: (s != null && s.isLive) ? _c.stop : null,
-              ),
-            ],
+            ),
           ),
         ),
         _MessageComposer(
@@ -218,7 +341,75 @@ class _CodingPageState extends State<CodingPage> {
       ],
     );
   }
+
+  Widget _buildTerminal() {
+    final term = _term;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        color: const Color(0xFF0A0D13),
+        padding: const EdgeInsets.all(6),
+        child: term == null
+            ? const Center(
+                child:
+                    CircularProgressIndicator(strokeWidth: 2, color: JcTheme.muted),
+              )
+            : ListenableBuilder(
+                listenable: _c,
+                builder: (context, _) {
+                  if (_c.terminalError != null) {
+                    return Center(
+                      child: Text(
+                        'Terminal unavailable:\n${_c.terminalError}',
+                        textAlign: TextAlign.center,
+                        style:
+                            const TextStyle(color: JcTheme.danger, fontSize: 12),
+                      ),
+                    );
+                  }
+                  return TerminalView(
+                    term,
+                    theme: _kTermTheme,
+                    textStyle: const TerminalStyle(
+                      fontSize: 12,
+                      fontFamily: 'Menlo',
+                    ),
+                    backgroundOpacity: 0,
+                    padding: EdgeInsets.zero,
+                  );
+                },
+              ),
+      ),
+    );
+  }
 }
+
+// A dark terminal theme close to the WebUI's #0a0d13 pane.
+const TerminalTheme _kTermTheme = TerminalTheme(
+  cursor: Color(0xFFE0E0E0),
+  selection: Color(0x402E6BFF),
+  foreground: Color(0xFFD7DAE0),
+  background: Color(0xFF0A0D13),
+  black: Color(0xFF2E3436),
+  red: Color(0xFFFF6B7E),
+  green: Color(0xFF5BE5A0),
+  yellow: Color(0xFFE9C46A),
+  blue: Color(0xFF6FB0FF),
+  magenta: Color(0xFFB39DFF),
+  cyan: Color(0xFF46E0E0),
+  white: Color(0xFFD3D7CF),
+  brightBlack: Color(0xFF555753),
+  brightRed: Color(0xFFFF8A99),
+  brightGreen: Color(0xFF8AF0C0),
+  brightYellow: Color(0xFFFCE99B),
+  brightBlue: Color(0xFF9CC9FF),
+  brightMagenta: Color(0xFFCBBBFF),
+  brightCyan: Color(0xFF7FF0F0),
+  brightWhite: Color(0xFFEEEEEC),
+  searchHitBackground: Color(0xFFFFFF2B),
+  searchHitBackgroundCurrent: Color(0xFF31FF26),
+  searchHitForeground: Color(0xFF000000),
+);
 
 // ── Sessions list card ──────────────────────────────────────────
 class _SessionCard extends StatelessWidget {
@@ -332,162 +523,6 @@ class _StatusPill extends StatelessWidget {
   }
 }
 
-// ── Detail: metadata card ───────────────────────────────────────
-class _MetaCard extends StatelessWidget {
-  const _MetaCard({required this.session});
-  final CodingSession? session;
-
-  @override
-  Widget build(BuildContext context) {
-    final s = session;
-    if (s == null) return const SizedBox.shrink();
-    return GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _kv('Host', s.host),
-          _kv('Branch', s.branch),
-          _kv('Source', s.source),
-          _kv('Claude session', s.claudeSessionId),
-          _kv('Directory', s.cwd, last: true),
-        ],
-      ),
-    );
-  }
-
-  Widget _kv(String label, String? value, {bool last = false}) {
-    final v = (value ?? '').trim();
-    if (v.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: EdgeInsets.only(bottom: last ? 0 : 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 110,
-            child: Text(
-              label,
-              style: const TextStyle(color: JcTheme.muted, fontSize: 13),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              v,
-              style: const TextStyle(
-                color: JcTheme.text,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Detail: subagents ───────────────────────────────────────────
-class _SubagentsSection extends StatelessWidget {
-  const _SubagentsSection({required this.subagents, required this.loading});
-
-  final List<CodingSubagent> subagents;
-  final bool loading;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        glassSectionLabel('Subagents'),
-        if (loading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
-            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-          )
-        else if (subagents.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-            child: Text(
-              'No subagents spawned yet.',
-              style: TextStyle(color: JcTheme.muted, fontSize: 13),
-            ),
-          )
-        else
-          GlassGroup(
-            children: [
-              for (var i = 0; i < subagents.length; i++)
-                _SubagentRow(
-                  subagent: subagents[i],
-                  last: i == subagents.length - 1,
-                ),
-            ],
-          ),
-      ],
-    );
-  }
-}
-
-class _SubagentRow extends StatelessWidget {
-  const _SubagentRow({required this.subagent, required this.last});
-
-  final CodingSubagent subagent;
-  final bool last;
-
-  @override
-  Widget build(BuildContext context) {
-    final done = subagent.isCompleted;
-    final color = done ? JcTheme.success : JcTheme.primaryBlue;
-    return Column(
-      children: [
-        ListTile(
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-          leading: Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color.withValues(alpha: 0.10),
-              border: Border.all(color: color.withValues(alpha: 0.30)),
-            ),
-            child: Icon(
-              done ? Icons.check_rounded : Icons.hourglass_top_rounded,
-              size: 20,
-              color: color,
-            ),
-          ),
-          title: Text(
-            subagent.displayLabel,
-            style: const TextStyle(
-              color: JcTheme.text,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          subtitle: subagent.description.isEmpty
-              ? null
-              : Text(
-                  subagent.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: JcTheme.muted, fontSize: 12),
-                ),
-          trailing: Text(
-            subagent.status,
-            style: TextStyle(
-              color: color,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        if (!last)
-          const Divider(height: 1, indent: 68, color: JcTheme.glassBorder),
-      ],
-    );
-  }
-}
-
 // ── Detail: message composer ────────────────────────────────────
 class _MessageComposer extends StatelessWidget {
   const _MessageComposer({
@@ -592,34 +627,61 @@ class _LaunchSheet extends StatefulWidget {
 
 class _LaunchSheetState extends State<_LaunchSheet> {
   final _cwd = TextEditingController();
+  final _title = TextEditingController();
+  final _model = TextEditingController();
   final _prompt = TextEditingController();
-  String _model = 'opus';
-  bool _worktree = false;
+  final _syncDevice = TextEditingController();
+  final _syncPath = TextEditingController();
 
-  static const _models = ['opus', 'sonnet', 'haiku'];
+  String _host = 'server';
+  bool _worktree = false;
+  bool _skipPerms = false;
+  bool _sync = false;
 
   @override
   void dispose() {
     _cwd.dispose();
+    _title.dispose();
+    _model.dispose();
     _prompt.dispose();
+    _syncDevice.dispose();
+    _syncPath.dispose();
     super.dispose();
   }
 
   Future<void> _launch() async {
     final cwd = _cwd.text.trim();
+    final prompt = _prompt.text.trim();
     if (cwd.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('A project directory is required')),
+        const SnackBar(content: Text('A working directory is required')),
+      );
+      return;
+    }
+    if (prompt.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('An initial prompt is required')),
       );
       return;
     }
     final nav = Navigator.of(context);
+    final sync = _sync
+        ? CodingSync(
+            enabled: true,
+            device: _syncDevice.text.trim(),
+            remotePath: _syncPath.text.trim(),
+          )
+        : null;
     final session = await widget.controller.launch(
       cwd: cwd,
-      repoPath: _worktree ? cwd : null,
+      repoPath: cwd, // send both keys so either server naming works
       worktree: _worktree,
-      prompt: _prompt.text,
-      model: _model,
+      title: _title.text.trim(),
+      prompt: prompt,
+      model: _model.text.trim(),
+      host: _host,
+      skipPermissions: _skipPerms,
+      sync: sync,
     );
     if (!mounted) return;
     if (session != null) {
@@ -641,23 +703,16 @@ class _LaunchSheetState extends State<_LaunchSheet> {
           color: JcTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+        ),
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: JcTheme.muted.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
+              const _SheetGrabber(),
               const Text(
                 'Launch coding session',
                 style: TextStyle(
@@ -667,61 +722,106 @@ class _LaunchSheetState extends State<_LaunchSheet> {
                 ),
               ),
               const SizedBox(height: 16),
-              const _FieldLabel('Project directory'),
+              const _FieldLabel('Working directory'),
               TextField(
                 controller: _cwd,
                 style: const TextStyle(color: JcTheme.text, fontSize: 14),
                 decoration: const InputDecoration(
-                  hintText: '/abs/path/to/repo',
+                  hintText: '~/code/your-project  (~ expands, created if new)',
                 ),
               ),
               const SizedBox(height: 14),
-              const _FieldLabel('Initial prompt (optional)'),
+              const _FieldLabel('Title (optional)'),
               TextField(
-                controller: _prompt,
-                minLines: 2,
-                maxLines: 5,
+                controller: _title,
                 style: const TextStyle(color: JcTheme.text, fontSize: 14),
                 decoration: const InputDecoration(
-                  hintText: 'What should the session work on?',
+                  hintText: 'What are we building?',
                 ),
               ),
               const SizedBox(height: 14),
-              const _FieldLabel('Model'),
-              Wrap(
-                spacing: 8,
-                children: [
-                  for (final m in _models)
-                    ChoiceChip(
-                      label: Text(m),
-                      selected: _model == m,
-                      onSelected: (_) => setState(() => _model = m),
-                      selectedColor: JcTheme.primaryBlue.withValues(alpha: 0.25),
-                      backgroundColor: JcTheme.glassFill,
-                      labelStyle: TextStyle(
-                        color: _model == m ? JcTheme.text : JcTheme.muted,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      side: const BorderSide(color: JcTheme.glassBorder),
-                    ),
-                ],
+              const _FieldLabel('Model (optional)'),
+              TextField(
+                controller: _model,
+                style: const TextStyle(color: JcTheme.text, fontSize: 14),
+                decoration: const InputDecoration(
+                  hintText: 'e.g. claude-opus-4-8 (blank = server default)',
+                ),
+              ),
+              const SizedBox(height: 14),
+              const _FieldLabel('Run on'),
+              _HostPicker(
+                value: _host,
+                onChanged: (v) => setState(() => _host = v),
               ),
               const SizedBox(height: 6),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
+              _Toggle(
                 value: _worktree,
                 onChanged: (v) => setState(() => _worktree = v),
-                activeThumbColor: JcTheme.primaryBlue,
-                title: const Text(
-                  'Isolate in a git worktree',
-                  style: TextStyle(color: JcTheme.text, fontSize: 14),
+                title: 'Run in an isolated git worktree',
+                subtitle: 'Branches a fresh worktree from the directory above.',
+              ),
+              _Toggle(
+                value: _skipPerms,
+                onChanged: (v) => setState(() => _skipPerms = v),
+                title: 'Dangerously skip permissions',
+                subtitle: 'Autonomous — no approval prompts.',
+              ),
+              _Toggle(
+                value: _sync,
+                onChanged: (v) => setState(() => _sync = v),
+                title: 'Sync this project with another device',
+                subtitle: 'Two-way file sync with a paired device.',
+              ),
+              if (_sync) ...[
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const _FieldLabel('Device'),
+                      TextField(
+                        controller: _syncDevice,
+                        style:
+                            const TextStyle(color: JcTheme.text, fontSize: 14),
+                        decoration: const InputDecoration(
+                          hintText: 'paired device name (e.g. your Mac)',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const _FieldLabel('Folder path on that device'),
+                      TextField(
+                        controller: _syncPath,
+                        style:
+                            const TextStyle(color: JcTheme.text, fontSize: 14),
+                        decoration: const InputDecoration(
+                          hintText: '~/code/your-project',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'On launch: a populated remote folder is pulled to the '
+                        'server; an empty one is pushed to. Two-way sync then '
+                        'keeps them in step.',
+                        style: TextStyle(color: JcTheme.muted, fontSize: 12),
+                      ),
+                    ],
+                  ),
                 ),
-                subtitle: const Text(
-                  'Branches a fresh worktree from the directory above.',
-                  style: TextStyle(color: JcTheme.muted, fontSize: 12),
+              ],
+              const SizedBox(height: 14),
+              const _FieldLabel('Initial prompt'),
+              TextField(
+                controller: _prompt,
+                minLines: 3,
+                maxLines: 6,
+                style: const TextStyle(color: JcTheme.text, fontSize: 14),
+                decoration: const InputDecoration(
+                  hintText: 'Describe the task for the coding agent…',
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
               ListenableBuilder(
                 listenable: widget.controller,
                 builder: (_, __) => GlassButton(
@@ -735,6 +835,262 @@ class _LaunchSheetState extends State<_LaunchSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── Per-session settings sheet ──────────────────────────────────
+class _SettingsSheet extends StatefulWidget {
+  const _SettingsSheet({required this.controller, required this.session});
+  final CodingSessionsController controller;
+  final CodingSession session;
+
+  @override
+  State<_SettingsSheet> createState() => _SettingsSheetState();
+}
+
+class _SettingsSheetState extends State<_SettingsSheet> {
+  late bool _skipPerms = widget.session.skipPermissions;
+  late bool _sync = widget.session.sync?.enabled ?? false;
+  late final _syncPath = TextEditingController(
+      text: widget.session.sync?.remotePath ?? '');
+  late final _cwd =
+      TextEditingController(text: widget.session.cwd ?? '');
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _syncPath.dispose();
+    _cwd.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    final device = widget.session.sync?.device;
+    final ok = await widget.controller.saveSettings(
+      skipPermissions: _skipPerms,
+      cwd: _cwd.text.trim(),
+      sync: CodingSync(
+        enabled: _sync,
+        device: device,
+        remotePath: _syncPath.text.trim(),
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (ok) {
+      Navigator.of(context).pop();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(widget.controller.error ?? 'Save failed')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.session;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: JcTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _SheetGrabber(),
+              const Text(
+                'Session settings',
+                style: TextStyle(
+                  color: JcTheme.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _ReadOnlyKv('Run on', (s.host ?? 'server')),
+              _ReadOnlyKv('Model', s.model ?? 'server default'),
+              const SizedBox(height: 8),
+              const _FieldLabel('Working directory'),
+              TextField(
+                controller: _cwd,
+                style: const TextStyle(color: JcTheme.text, fontSize: 14),
+                decoration: const InputDecoration(hintText: '~/code/project'),
+              ),
+              const SizedBox(height: 6),
+              _Toggle(
+                value: _skipPerms,
+                onChanged: (v) => setState(() => _skipPerms = v),
+                title: 'Dangerously skip permissions',
+                subtitle: 'Autonomous — no approval prompts.',
+              ),
+              _Toggle(
+                value: _sync,
+                onChanged: (v) => setState(() => _sync = v),
+                title: 'Sync with another device',
+                subtitle: (s.sync?.device ?? '').isEmpty
+                    ? 'Two-way file sync.'
+                    : 'Device: ${s.sync!.device}',
+              ),
+              if (_sync) ...[
+                const SizedBox(height: 8),
+                const _FieldLabel('Folder path on that device'),
+                TextField(
+                  controller: _syncPath,
+                  style: const TextStyle(color: JcTheme.text, fontSize: 14),
+                  decoration:
+                      const InputDecoration(hintText: '~/code/your-project'),
+                ),
+              ],
+              const SizedBox(height: 18),
+              GlassButton(
+                label: _saving ? 'Saving…' : 'Save settings',
+                icon: Icons.check_rounded,
+                full: true,
+                onPressed: _saving ? null : _save,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReadOnlyKv extends StatelessWidget {
+  const _ReadOnlyKv(this.label, this.value);
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 90,
+            child: Text(label,
+                style: const TextStyle(color: JcTheme.muted, fontSize: 13)),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: JcTheme.text,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Small shared widgets ────────────────────────────────────────
+class _SheetGrabber extends StatelessWidget {
+  const _SheetGrabber();
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 40,
+        height: 4,
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: JcTheme.muted.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
+}
+
+class _HostPicker extends StatelessWidget {
+  const _HostPicker({required this.value, required this.onChanged});
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget chip(String v, String label) {
+      final sel = value == v;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () => onChanged(v),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 3),
+            padding: const EdgeInsets.symmetric(vertical: 11),
+            decoration: BoxDecoration(
+              color: sel
+                  ? JcTheme.primaryBlue.withValues(alpha: 0.20)
+                  : JcTheme.glassFill,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: sel ? JcTheme.primaryBlue : JcTheme.glassBorder,
+              ),
+            ),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: sel ? JcTheme.text : JcTheme.muted,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        chip('server', 'This server'),
+        chip('desktop', 'My computer'),
+      ],
+    );
+  }
+}
+
+class _Toggle extends StatelessWidget {
+  const _Toggle({
+    required this.value,
+    required this.onChanged,
+    required this.title,
+    this.subtitle,
+  });
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final String title;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      value: value,
+      onChanged: onChanged,
+      activeThumbColor: JcTheme.primaryBlue,
+      title: Text(title,
+          style: const TextStyle(color: JcTheme.text, fontSize: 14)),
+      subtitle: subtitle == null
+          ? null
+          : Text(subtitle!,
+              style: const TextStyle(color: JcTheme.muted, fontSize: 12)),
     );
   }
 }
