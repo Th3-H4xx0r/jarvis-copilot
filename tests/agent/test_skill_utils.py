@@ -197,3 +197,22 @@ class TestSkillMatchesPlatformTermux:
             "agent.skill_utils.is_termux", return_value=False
         ):
             assert skill_matches_platform(fm) is True
+
+
+def test_iter_skill_index_files_survives_symlink_cycle(tmp_path):
+    """A symlink loop under the skills dir must NOT hang the walk (followlinks=True
+    would otherwise loop forever and wedge `cli` import / every chat)."""
+    import os
+
+    skills = tmp_path / "skills"
+    (skills / "a").mkdir(parents=True)
+    (skills / "a" / "SKILL.md").write_text("x", encoding="utf-8")
+    # a -> .. style loop: link 'a/loop' back to the skills root
+    try:
+        os.symlink(skills, skills / "a" / "loop")
+    except OSError:
+        import pytest
+        pytest.skip("symlinks not supported on this platform")
+    found = list(iter_skill_index_files(skills, "SKILL.md"))
+    # Terminates, and still finds the real skill exactly once.
+    assert sum(1 for p in found if p.name == "SKILL.md") == 1

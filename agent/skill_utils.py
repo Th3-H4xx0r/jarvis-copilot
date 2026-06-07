@@ -536,7 +536,22 @@ def iter_skill_index_files(skills_dir: Path, filename: str):
     directories so dependencies cannot register nested skills.
     """
     matches = []
+    # ``followlinks=True`` lets a single stray symlink (a loop, or a link into a
+    # huge tree like a project's node_modules) make this walk run effectively
+    # forever. That is catastrophic here: ``scan_skill_commands`` runs at ``cli``
+    # import time holding the Python import lock, so a runaway walk wedges EVERY
+    # chat ("Thinking…" forever). Track visited real dirs and refuse to re-enter
+    # one — this breaks symlink cycles and avoids re-walking the same tree.
+    seen_real_dirs: set = set()
     for root, dirs, files in os.walk(skills_dir, followlinks=True):
+        try:
+            real_root = os.path.realpath(root)
+        except OSError:
+            real_root = root
+        if real_root in seen_real_dirs:
+            dirs[:] = []          # already walked this real dir — don't recurse
+            continue
+        seen_real_dirs.add(real_root)
         dirs[:] = [d for d in dirs if d not in EXCLUDED_SKILL_DIRS]
         if filename in files:
             matches.append(Path(root) / filename)
