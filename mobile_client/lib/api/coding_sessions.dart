@@ -34,6 +34,24 @@ class CodingSessionsApi {
         .toList(growable: false);
   }
 
+  /// GET /api/devices -> `{ devices: [...] }`.
+  ///
+  /// Paired/registered devices for the sync "Device" dropdown (parity with the
+  /// WebUI). Offline ones are still returned but flagged. Tolerates the body
+  /// being a bare list or missing the `devices` key.
+  Future<List<CodingDevice>> listDevices() async {
+    final resp = await api.get('/api/devices');
+    final data = resp.data;
+    final raw = data is Map
+        ? (data['devices'] as List?) ?? const []
+        : (data is List ? data : const []);
+    return raw
+        .whereType<Map>()
+        .map((m) => CodingDevice.fromJson(Map<String, dynamic>.from(m)))
+        .where((d) => d.id.isNotEmpty)
+        .toList(growable: false);
+  }
+
   /// POST /api/coding/launch -> `{ session: {...} }`.
   ///
   /// Sends `cwd` + `repo_path` (so either server-side naming works), plus the

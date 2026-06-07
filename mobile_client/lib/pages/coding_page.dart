@@ -41,7 +41,10 @@ class _CodingPageState extends State<CodingPage> {
   void initState() {
     super.initState();
     _c.addListener(_onControllerChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _c.loadSessions());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _c.loadSessions();
+      _c.loadDevices();
+    });
   }
 
   @override
@@ -96,6 +99,7 @@ class _CodingPageState extends State<CodingPage> {
   }
 
   Future<void> _openLaunchSheet() async {
+    _c.loadDevices(); // refresh the paired-devices list for the sync dropdown
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -107,6 +111,7 @@ class _CodingPageState extends State<CodingPage> {
   Future<void> _openSettingsSheet() async {
     final s = _c.selected;
     if (s == null) return;
+    _c.loadDevices(); // refresh the paired-devices list for the sync dropdown
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -630,13 +635,13 @@ class _LaunchSheetState extends State<_LaunchSheet> {
   final _title = TextEditingController();
   final _model = TextEditingController();
   final _prompt = TextEditingController();
-  final _syncDevice = TextEditingController();
   final _syncPath = TextEditingController();
 
   String _host = 'server';
   bool _worktree = false;
   bool _skipPerms = false;
   bool _sync = false;
+  String? _syncDevice; // selected device id (null = none chosen)
 
   @override
   void dispose() {
@@ -644,7 +649,6 @@ class _LaunchSheetState extends State<_LaunchSheet> {
     _title.dispose();
     _model.dispose();
     _prompt.dispose();
-    _syncDevice.dispose();
     _syncPath.dispose();
     super.dispose();
   }
@@ -668,7 +672,7 @@ class _LaunchSheetState extends State<_LaunchSheet> {
     final sync = _sync
         ? CodingSync(
             enabled: true,
-            device: _syncDevice.text.trim(),
+            device: (_syncDevice ?? '').trim(),
             remotePath: _syncPath.text.trim(),
           )
         : null;
@@ -781,12 +785,12 @@ class _LaunchSheetState extends State<_LaunchSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const _FieldLabel('Device'),
-                      TextField(
-                        controller: _syncDevice,
-                        style:
-                            const TextStyle(color: JcTheme.text, fontSize: 14),
-                        decoration: const InputDecoration(
-                          hintText: 'paired device name (e.g. your Mac)',
+                      ListenableBuilder(
+                        listenable: widget.controller,
+                        builder: (_, __) => _DeviceDropdown(
+                          devices: widget.controller.devices,
+                          value: _syncDevice,
+                          onChanged: (v) => setState(() => _syncDevice = v),
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -856,6 +860,11 @@ class _SettingsSheetState extends State<_SettingsSheet> {
       text: widget.session.sync?.remotePath ?? '');
   late final _cwd =
       TextEditingController(text: widget.session.cwd ?? '');
+  // Selected device id/name; seeded from the saved sync config. Null = none.
+  late String? _syncDevice = () {
+    final d = (widget.session.sync?.device ?? '').trim();
+    return d.isEmpty ? null : d;
+  }();
   bool _saving = false;
 
   @override
@@ -867,13 +876,12 @@ class _SettingsSheetState extends State<_SettingsSheet> {
 
   Future<void> _save() async {
     setState(() => _saving = true);
-    final device = widget.session.sync?.device;
     final ok = await widget.controller.saveSettings(
       skipPermissions: _skipPerms,
       cwd: _cwd.text.trim(),
       sync: CodingSync(
         enabled: _sync,
-        device: device,
+        device: (_syncDevice ?? '').trim(),
         remotePath: _syncPath.text.trim(),
       ),
     );
@@ -944,6 +952,16 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               ),
               if (_sync) ...[
                 const SizedBox(height: 8),
+                const _FieldLabel('Device'),
+                ListenableBuilder(
+                  listenable: widget.controller,
+                  builder: (_, __) => _DeviceDropdown(
+                    devices: widget.controller.devices,
+                    value: _syncDevice,
+                    onChanged: (v) => setState(() => _syncDevice = v),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 const _FieldLabel('Folder path on that device'),
                 TextField(
                   controller: _syncPath,
@@ -1061,6 +1079,80 @@ class _HostPicker extends StatelessWidget {
         chip('server', 'This server'),
         chip('desktop', 'My computer'),
       ],
+    );
+  }
+}
+
+/// Dropdown of paired/registered devices for the sync "Device" field
+/// (parity with the WebUI). Value = device id; label = name (+ " (offline)"
+/// when not online). A leading "— choose a device —" empty option clears it,
+/// and a previously-saved value missing from the current list is preserved as
+/// a synthetic "… (not connected)" item.
+class _DeviceDropdown extends StatelessWidget {
+  const _DeviceDropdown({
+    required this.devices,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final List<CodingDevice> devices;
+  final String? value;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final sel = (value ?? '').trim();
+    // Match a saved value by id OR name (settings may have stored either).
+    final inList = devices.any((d) => d.id == sel || d.name == sel);
+
+    final items = <DropdownMenuItem<String>>[
+      const DropdownMenuItem<String>(
+        value: '',
+        child: Text(
+          '— choose a device —',
+          style: TextStyle(color: JcTheme.muted, fontSize: 14),
+        ),
+      ),
+      for (final d in devices)
+        DropdownMenuItem<String>(
+          value: d.id,
+          child: Text(
+            d.online ? d.name : '${d.name} (offline)',
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: JcTheme.text, fontSize: 14),
+          ),
+        ),
+      // Preserve a previously-saved value even if its device isn't listed now.
+      if (sel.isNotEmpty && !inList)
+        DropdownMenuItem<String>(
+          value: sel,
+          child: Text(
+            '$sel (not connected)',
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: JcTheme.text, fontSize: 14),
+          ),
+        ),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: JcTheme.glassFill,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: JcTheme.glassBorder),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: sel.isEmpty ? '' : sel,
+          isExpanded: true,
+          dropdownColor: JcTheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          icon: const Icon(Icons.expand_more_rounded, color: JcTheme.muted),
+          style: const TextStyle(color: JcTheme.text, fontSize: 14),
+          items: items,
+          onChanged: (v) => onChanged((v ?? '').isEmpty ? null : v),
+        ),
+      ),
     );
   }
 }

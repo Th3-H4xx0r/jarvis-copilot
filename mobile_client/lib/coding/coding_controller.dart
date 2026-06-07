@@ -29,6 +29,12 @@ class CodingSessionsController extends ChangeNotifier {
   bool loading = false;
   String? error;
 
+  // ── Paired devices (for the sync "Device" dropdown) ───────────
+  /// Paired/registered devices, populated best-effort from `/api/devices`.
+  /// Empty on error; never throws. The launch/settings sheets refresh this
+  /// when they open via [loadDevices].
+  List<CodingDevice> devices = [];
+
   // ── Selected session ──────────────────────────────────────────
   String? selectedId;
   CodingSession? selected;
@@ -70,6 +76,22 @@ class CodingSessionsController extends ChangeNotifier {
       error = 'Could not load coding sessions: $e';
     } finally {
       loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Best-effort refresh of the paired-devices list for the sync dropdown.
+  /// Never throws — on any error the list is left empty. Call when opening the
+  /// launch or settings sheet (and once on init).
+  Future<void> loadDevices() async {
+    try {
+      final next = await _api.listDevices();
+      if (_disposed) return;
+      devices = next;
+      notifyListeners();
+    } catch (_) {
+      if (_disposed) return;
+      devices = const [];
       notifyListeners();
     }
   }

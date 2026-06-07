@@ -123,6 +123,31 @@ class CodingProject {
   }
 }
 
+/// A paired/registered device (`GET /api/devices`), used to populate the
+/// sync "Device" dropdown. Offline devices are still listed but labelled.
+class CodingDevice {
+  const CodingDevice({
+    required this.id,
+    required this.name,
+    this.online = true,
+  });
+
+  final String id;
+  final String name;
+  final bool online;
+
+  factory CodingDevice.fromJson(Map<String, dynamic> j) {
+    final id = (j['id'] ?? j['device_id'] ?? '').toString();
+    final name = _str(j['name']) ?? _str(j['device_name']) ?? (id.isEmpty ? 'device' : id);
+    // Default online=true when absent (mirrors the web's `online !== false`).
+    return CodingDevice(
+      id: id,
+      name: name,
+      online: j['online'] == null ? true : _asBool(j['online']),
+    );
+  }
+}
+
 /// The `/api/coding/session/$id` payload — we only consume `session`
 /// (the `subagents` UI was dropped to match the web).
 class CodingSessionDetail {
