@@ -690,3 +690,110 @@ def test_project_unknown_action_404():
     status, body = handle_coding_request(
         "GET", "/project/" + str(pid) + "/bogus", None, manager=m)
     assert status == 404
+
+
+# ── POST /session/<id>/resume ───────────────────────────────────────────────────
+
+def _add_session(m, row):
+    """Append a session row to the FakeManager so manager.status(id) finds it."""
+    m._sessions.append(dict(row))
+
+
+def test_resume_unknown_session_404():
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "POST", "/session/nope/resume", {}, manager=m)
+    assert status == 404
+    assert "error" in body
+
+
+def test_resume_without_claude_session_id_400():
+    m = FakeManager()
+    _add_session(m, {"id": "sess-noid", "status": "idle",
+                     "source": "discovered-transcript", "host": "desktop",
+                     "claude_session_id": "", "device_id": "dev-1",
+                     "cwd": "/w/n"})
+    status, body = handle_coding_request(
+        "POST", "/session/sess-noid/resume", {}, manager=m)
+    assert status == 400
+    assert "claude_session_id" in body["error"]
+
+
+def test_resume_ok_drives_helper(monkeypatch):
+    from api import coding_desktop as cd
+
+    m = FakeManager()
+    _add_session(m, {"id": "sess-tr", "status": "idle",
+                     "source": "discovered-transcript", "host": "desktop",
+                     "claude_session_id": "csid-abc", "device_id": "dev-1",
+                     "cwd": "/w/hist"})
+
+    seen = {}
+
+    def _fake_resume(row, **kw):
+        seen["row"] = row
+        return {"id": row["id"], "status": "starting", "host": "desktop",
+                "tmux_name": "jc-fresh", "source": "discovered-tmux"}
+
+    monkeypatch.setattr(cd, "resume_discovered_session", _fake_resume, raising=True)
+    # device resolution shouldn't even be needed (the row carries device_id), but
+    # stub it so a fallback can't reach the real bridge.
+    monkeypatch.setattr(cd, "resolve_desktop_device_id",
+                        lambda preferred=None: "dev-1", raising=True)
+
+    status, body = handle_coding_request(
+        "POST", "/session/sess-tr/resume", {}, manager=m)
+    assert status == 200
+    assert body["ok"] is True
+    assert body["session"]["status"] == "starting"
+    assert body["session"]["tmux_name"] == "jc-fresh"
+    # the route passed the row through to the helper with its own device_id
+    assert seen["row"]["device_id"] == "dev-1"
+    assert seen["row"]["claude_session_id"] == "csid-abc"
+
+
+def test_resume_falls_back_to_resolved_device(monkeypatch):
+    """When the row has no device_id, the route resolves the connected desktop."""
+    from api import coding_desktop as cd
+
+    m = FakeManager()
+    _add_session(m, {"id": "sess-nodev", "status": "idle",
+                     "source": "discovered-transcript", "host": "desktop",
+                     "claude_session_id": "csid-z", "device_id": "",
+                     "cwd": "/w/z"})
+
+    monkeypatch.setattr(cd, "resolve_desktop_device_id",
+                        lambda preferred=None: "mac-resolved", raising=True)
+    seen = {}
+
+    def _fake_resume(row, **kw):
+        seen["device_id"] = row.get("device_id")
+        return {"id": row["id"], "status": "starting", "tmux_name": "jc-x",
+                "source": "discovered-tmux"}
+
+    monkeypatch.setattr(cd, "resume_discovered_session", _fake_resume, raising=True)
+    status, body = handle_coding_request(
+        "POST", "/session/sess-nodev/resume", {}, manager=m)
+    assert status == 200
+    assert seen["device_id"] == "mac-resolved"
+
+
+def test_resume_no_device_connected_409(monkeypatch):
+    from api import coding_desktop as cd
+
+    m = FakeManager()
+    _add_session(m, {"id": "sess-off", "status": "idle",
+                     "source": "discovered-transcript", "host": "desktop",
+                     "claude_session_id": "csid-off", "device_id": "",
+                     "cwd": "/w/off"})
+    monkeypatch.setattr(cd, "resolve_desktop_device_id",
+                        lambda preferred=None: None, raising=True)
+    # The helper must never be called when no device is connected.
+    def _boom(*a, **k):
+        raise AssertionError("resume helper should not be called offline")
+    monkeypatch.setattr(cd, "resume_discovered_session", _boom, raising=True)
+
+    status, body = handle_coding_request(
+        "POST", "/session/sess-off/resume", {}, manager=m)
+    assert status == 409
+    assert "error" in body

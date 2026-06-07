@@ -2660,6 +2660,31 @@ body.cdg-term-fs-open .cdg-term-fsbtn{position:fixed;top:12px;right:16px;z-index
 .cdg-badge{font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:var(--radius-pill);border:1px solid var(--border);background:var(--surface-subtle);color:var(--muted);flex-shrink:0;}
 .cdg-badge-desktop{color:#4DD0E1;border-color:rgba(77,208,225,.35);background:rgba(77,208,225,.1);}
 .cdg-badge-discovered{color:#a78bfa;border-color:rgba(167,139,250,.35);background:rgba(167,139,250,.1);}
+/* history = a discovered transcript that isn't currently running (a past session) */
+.cdg-badge-history{color:var(--muted);border-color:var(--border2);background:var(--surface-subtle);opacity:.9;}
+
+/* inline "Resume" affordance on a transcript-only session row */
+.cdg-resume-btn{margin-left:auto;flex-shrink:0;font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:1px 7px;border-radius:var(--radius-pill);border:1px solid var(--accent);background:var(--accent-bg-strong);color:var(--accent-text);cursor:pointer;transition:background .12s;}
+.cdg-resume-btn:hover{background:var(--accent-bg);}
+.cdg-resume-busy{opacity:.6;pointer-events:none;}
+
+/* subtle rescan-discovered control in the sidebar head */
+.cdg-rescan-btn{font-size:0.95rem;line-height:1;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border2);background:var(--surface-subtle);color:var(--muted);border-radius:var(--radius-md);cursor:pointer;transition:background .12s,color .12s,border-color .12s;}
+.cdg-rescan-btn:hover{background:var(--hover-bg);color:var(--text);border-color:var(--accent-bg-strong);}
+.cdg-rescan-btn:disabled{opacity:.6;cursor:default;}
+.cdg-rescan-spin{animation:cdg-spin .8s linear infinite;}
+@keyframes cdg-spin{to{transform:rotate(360deg);}}
+
+/* non-fatal toast for discovered-session actions (pinned to the sidebar head) */
+.cdg-flash{font-size:0.72rem;line-height:1.4;color:var(--warning);background:var(--surface-subtle);border:1px solid var(--border2);border-radius:var(--radius-md);padding:6px 9px;margin:0 2px 4px;}
+
+/* transcript-only (past) session detail pane */
+.cdg-transcript-detail{padding:16px 20px;}
+.cdg-meta{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
+.cdg-meta-row{display:flex;gap:10px;font-size:0.82rem;flex-wrap:wrap;}
+.cdg-meta-key{flex:0 0 100px;color:var(--muted);font-weight:600;text-transform:uppercase;font-size:0.68rem;letter-spacing:.04em;padding-top:1px;}
+.cdg-meta-val{flex:1 1 auto;min-width:0;color:var(--text);word-break:break-word;font-family:'SF Mono',ui-monospace,monospace;font-size:0.8rem;}
+.cdg-transcript-summary{margin-top:5px;font-size:0.86rem;color:var(--text);line-height:1.5;white-space:pre-wrap;word-break:break-word;background:var(--surface-subtle);border:1px solid var(--border);border-radius:var(--radius-md);padding:10px 12px;}
 
 .cdg-btn-danger{color:#ef4444;border-color:var(--border2);}
 .cdg-btn-danger:hover{border-color:#ef4444;color:#ef4444;background:rgba(239,68,68,.08);}
@@ -2674,6 +2699,8 @@ body.cdg-term-fs-open .cdg-term-fsbtn{position:fixed;top:12px;right:16px;z-index
 .cdg-dot-done{background:#22d3ee;}
 .cdg-dot-error{background:#ef4444;}
 .cdg-dot-stopped{background:var(--muted);}
+/* history = a past/transcript-only session: muted, no glow (not running) */
+.cdg-dot-history{background:var(--muted);opacity:.55;}
 
 .cdg-form-card{background:var(--surface-subtle);border:1px solid var(--border);border-radius:var(--radius-card);padding:18px 20px;max-width:620px;}
 .cdg-form-title{font-size:1.02rem;font-weight:700;color:var(--text);margin-bottom:14px;}

@@ -121,6 +121,7 @@ function _codingRenderShell(root) {
       <div class="cdg-side-head">
         <span class="cdg-side-title">Projects</span>
         <div class="cdg-side-actions">
+          <button type="button" class="cdg-rescan-btn" id="codingRescanBtn" onclick="codingRescanDiscovered()" title="Rescan paired devices for tmux + transcript sessions">⟳</button>
           <button type="button" class="cdg-new-btn cdg-new-proj" id="codingNewProjBtn" onclick="codingNewProject()" title="New project">+ Project</button>
           <button type="button" class="cdg-new-btn" id="codingNewBtn" onclick="codingShowLaunch()" title="New coding session">+ Session</button>
         </div>
@@ -173,24 +174,47 @@ function _codingSortSessions(arr) {
       .localeCompare(String((a && (a.last_activity_at || a.created_at)) || '')));
 }
 
+// Is this a transcript-only session that isn't currently running? Such sessions
+// have no live tmux — they're a PAST conversation we can RESUME on the device.
+function _codingIsTranscriptIdle(s) {
+  return s && String(s.source || '') === 'discovered-transcript'
+    && _cdgStatusClass(s.status) !== 'running';
+}
+
 // One session row (used inside both project groups and the ungrouped group).
 function _codingSessionRowHtml(s) {
   const id = String(s.id != null ? s.id : '');
   const title = s.title || s.cwd || s.repo_path || id;
   const sub = s.cwd || s.repo_path || '';
-  const st = _cdgStatusClass(s.status);
+  const source = String(s.source || '');
+  const transcriptIdle = _codingIsTranscriptIdle(s);
+  // Status dot: a transcript-only (idle/past) session gets a muted "history" dot
+  // even if its stored status is "idle"; otherwise use the real status class.
+  const st = transcriptIdle ? 'history' : _cdgStatusClass(s.status);
   const active = String(_codingSelectedId) === id ? ' active' : '';
-  // host/source badge: discovered (external) > desktop > server.
+  // host/source badge: history (idle transcript) > discovered/live (external) >
+  // desktop > server.
   let badgeKind = 'server', badgeLabel = 'server';
-  if (s.external) { badgeKind = 'discovered'; badgeLabel = 'discovered'; }
+  if (transcriptIdle) { badgeKind = 'history'; badgeLabel = 'history'; }
+  else if (s.external) {
+    // A live transcript or a discovered tmux session is currently drivable.
+    badgeKind = 'discovered';
+    badgeLabel = (source === 'discovered-transcript' && _cdgStatusClass(s.status) === 'running') ? 'live' : 'discovered';
+  }
   else if (String(s.host || '').toLowerCase() === 'desktop') { badgeKind = 'desktop'; badgeLabel = 'desktop'; }
   const badge = `<span class="cdg-badge cdg-badge-${badgeKind}">${_cdgEsc(badgeLabel)}</span>`;
+  // For a past (transcript-only) session, surface an inline Resume affordance so
+  // the user can relaunch it on the device without opening the detail pane.
+  const resumeBtn = transcriptIdle
+    ? `<span class="cdg-resume-btn" role="button" tabindex="0" title="Resume this session on the device" onclick="event.stopPropagation();codingResumeSession('${_cdgEsc(id)}')">Resume</span>`
+    : '';
+  const dotTitle = transcriptIdle ? 'past session (not running)' : (s.status || 'idle');
   return `<button class="cdg-item cdg-item-nested${active}" data-id="${_cdgEsc(id)}" onclick="codingOpenSession('${_cdgEsc(id)}')">
       <div class="cdg-item-top">
         <span class="cdg-item-name">${_cdgEsc(title)}</span>
-        <span class="cdg-dot cdg-dot-${st}" title="${_cdgEsc(s.status || 'idle')}"></span>
+        <span class="cdg-dot cdg-dot-${st}" title="${_cdgEsc(dotTitle)}"></span>
       </div>
-      <div class="cdg-item-sub">${badge}<span class="cdg-item-path">${_cdgEsc(sub)}</span></div>
+      <div class="cdg-item-sub">${badge}<span class="cdg-item-path">${_cdgEsc(sub)}</span>${resumeBtn}</div>
     </button>`;
 }
 
@@ -589,6 +613,83 @@ async function codingLaunch() {
 }
 window.codingLaunch = codingLaunch;
 
+/* ── Discovered sessions (resume + rescan) ───────────────────────────────── */
+
+// Resume a transcript-only (past) session: ask the backend to relaunch it on the
+// device. On success it becomes a live tmux session within a few seconds, so we
+// just refresh the list and re-open it (the detail pane will pick up the live
+// terminal once the backend reports it running). Non-fatal on failure (e.g.
+// "device offline") — we surface a message but never break the panel.
+async function codingResumeSession(id) {
+  const sid = String(id);
+  if (!sid) return;
+  // Busy-state the inline Resume affordance (cosmetic — the row re-renders on
+  // refresh). Locate it via the row's data-id rather than a fragile onclick
+  // attribute selector. Also handles the detail-pane Resume button.
+  const esc = (window.CSS && CSS.escape) ? CSS.escape(sid) : sid.replace(/"/g, '\\"');
+  const row = document.querySelector('.cdg-item[data-id="' + esc + '"]');
+  const btn = (row && row.querySelector('.cdg-resume-btn')) || document.getElementById('codingResumeDetailBtn');
+  if (btn) { btn.classList.add('cdg-resume-busy'); btn.textContent = 'Resuming…'; }
+  try {
+    const res = await api('/api/coding/session/' + encodeURIComponent(sid) + '/resume',
+      { method: 'POST', body: JSON.stringify({}) });
+    if (!res || res.ok === false) {
+      const msg = (res && (res.error || res.message)) || 'Could not resume this session (is the device online?).';
+      _codingFlash(msg);
+      if (btn) { btn.classList.remove('cdg-resume-busy'); btn.textContent = 'Resume'; }
+      return;
+    }
+    // The resumed session may keep the same id or be reported under a new one.
+    const sess = (res && res.session) || {};
+    const openId = sess.id != null ? String(sess.id) : sid;
+    await _codingRefreshList();
+    codingOpenSession(openId);
+  } catch (e) {
+    _codingFlash((e && e.message) || 'Could not resume this session.');
+    if (btn) { btn.classList.remove('cdg-resume-busy'); btn.textContent = 'Resume'; }
+  }
+}
+window.codingResumeSession = codingResumeSession;
+
+// Force paired devices to re-scan + re-report their tmux + transcript sessions,
+// then refresh the list. Subtle: spins the rescan button while it runs.
+async function codingRescanDiscovered() {
+  const btn = document.getElementById('codingRescanBtn');
+  if (btn) { btn.classList.add('cdg-rescan-spin'); btn.disabled = true; }
+  try {
+    const res = await api('/api/coding/discover/refresh', { method: 'POST', body: JSON.stringify({}) });
+    if (res && res.ok === false) _codingFlash((res.error || res.message) || 'Rescan request failed.');
+  } catch (e) {
+    _codingFlash((e && e.message) || 'Rescan request failed.');
+  }
+  // Give the device a beat to report back, then refresh (and once more shortly
+  // after, since discovery is async over the bridge).
+  await _codingRefreshList();
+  setTimeout(() => { _codingRefreshList(); }, 2500);
+  if (btn) { btn.classList.remove('cdg-rescan-spin'); btn.disabled = false; }
+}
+window.codingRescanDiscovered = codingRescanDiscovered;
+
+// Tiny non-fatal toast for discovered-session actions. Falls back to a transient
+// banner pinned to the sidebar head (no alert() so it never blocks the UI).
+function _codingFlash(msg) {
+  try {
+    const host = document.getElementById('codingSide') || document.getElementById('codingList');
+    if (!host) return;
+    let el = document.getElementById('codingFlash');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'codingFlash';
+      el.className = 'cdg-flash';
+      host.insertBefore(el, host.firstChild);
+    }
+    el.textContent = String(msg || '');
+    el.style.display = '';
+    clearTimeout(_codingFlash._t);
+    _codingFlash._t = setTimeout(() => { if (el) el.style.display = 'none'; }, 5000);
+  } catch (_) {}
+}
+
 /* ── Session detail (status + subagents + composer + stop) ───────────────── */
 
 async function codingOpenSession(id) {
@@ -624,6 +725,20 @@ function _codingRenderDetail(session, subagents) {
   if (!detail) return;
   const id = String(session.id != null ? session.id : _codingSelectedId || '');
   const subList = Array.isArray(subagents) ? subagents : [];
+
+  // A transcript-only (past, not-running) session has NO live tmux yet. Render a
+  // summary pane with a Resume button instead of trying to attach a dead
+  // terminal. Once Resume relaunches it (status flips to running), the next poll
+  // falls through to the normal live-terminal shell below.
+  if (_codingIsTranscriptIdle(session)) {
+    _codingRenderTranscriptDetail(session, id);
+    return;
+  }
+  // If we WERE showing the transcript shell and the session is now live, drop the
+  // marker so the live-terminal shell rebuilds cleanly.
+  if (_codingDetailShellId === id && detail.querySelector('.cdg-transcript-detail')) {
+    _codingDetailShellId = null;
+  }
 
   // Build the detail SHELL once per session. Subsequent polls only update the
   // dynamic bits (status + subagents) so the live xterm terminal isn't
@@ -681,6 +796,52 @@ function _codingRenderDetail(session, subagents) {
     _codingMountTerminal(id);   // server attaches local tmux; desktop streams over the bridge
   }
   _codingUpdateDetailStatus(session);
+}
+
+// Detail pane for a transcript-only (past) session: a read-only summary plus the
+// Resume affordance. No live terminal. Built once per session (guarded by
+// _codingDetailShellId + the .cdg-transcript-detail marker) so the 4s poll
+// doesn't rebuild/flicker it; when Resume flips it to running the poll falls
+// through to the live-terminal shell instead.
+function _codingRenderTranscriptDetail(session, id) {
+  const detail = document.getElementById('codingDetail');
+  if (!detail) return;
+  // Already showing this transcript's shell → nothing dynamic to update.
+  if (_codingDetailShellId === id && detail.querySelector('.cdg-transcript-detail')) return;
+  _codingTeardownTerminal();          // make sure any prior live terminal is gone
+  _codingDetailShellId = id;          // mark this shell as built for `id`
+  const title = session.title || session.cwd || session.repo_path || id;
+  const cwd = session.cwd || session.repo_path || '';
+  const summary = session.summary || session.last_message || '';
+  const last = session.last_activity_at || session.updated_at || session.created_at || '';
+  const claudeId = session.claude_session_id || '';
+  const rows = [];
+  if (cwd) rows.push(`<div class="cdg-meta-row"><span class="cdg-meta-key">Directory</span><span class="cdg-meta-val">${_cdgEsc(cwd)}</span></div>`);
+  if (last) rows.push(`<div class="cdg-meta-row"><span class="cdg-meta-key">Last activity</span><span class="cdg-meta-val">${_cdgEsc(last)}</span></div>`);
+  if (claudeId) rows.push(`<div class="cdg-meta-row"><span class="cdg-meta-key">Session id</span><span class="cdg-meta-val">${_cdgEsc(claudeId)}</span></div>`);
+  detail.innerHTML = `
+    <div class="cm-detail-head">
+      <div class="cm-detail-titles">
+        <div class="cm-detail-name">${_cdgEsc(title)}</div>
+        <div class="cm-detail-slug">${_cdgEsc(cwd)}</div>
+      </div>
+      <div class="cdg-detail-status">
+        <span class="cdg-dot cdg-dot-history" title="past session (not running)"></span>
+        <span class="cdg-status-text">history</span>
+        <button type="button" class="cdg-btn-primary" id="codingResumeDetailBtn" onclick="codingResumeSession('${_cdgEsc(id)}')">Resume</button>
+        <button type="button" class="cdg-btn-secondary" onclick="codingClearDetail()">Close</button>
+      </div>
+    </div>
+    <div class="cm-detail-body">
+      <div class="cdg-transcript-detail">
+        <div class="cm-section">
+          <div class="cm-section-head"><span class="cm-section-title">Past session</span><span class="cm-section-count" style="font-weight:400;opacity:.6">discovered transcript · not running</span></div>
+          <div class="cdg-hint">This is a previous <code>claude</code> conversation found on the device. It has no live terminal. <b>Resume</b> relaunches it on the device — it becomes a live session in a few seconds, then the terminal appears here.</div>
+          ${rows.length ? `<div class="cdg-meta">${rows.join('')}</div>` : ''}
+          ${summary ? `<div class="cdg-label">Summary</div><div class="cdg-transcript-summary">${_cdgEsc(summary)}</div>` : ''}
+        </div>
+      </div>
+    </div>`;
 }
 
 function _codingUpdateDetailStatus(session) {

@@ -34,6 +34,121 @@ class CodingSessionsApi {
         .toList(growable: false);
   }
 
+  /// GET /api/coding/projects?expand=sessions ->
+  /// `{ projects: [{..., sessions:[...]}], ungrouped: [...] }`.
+  ///
+  /// Each project carries its nested `sessions`; `ungrouped` holds sessions with
+  /// no project (legacy rows + discovered sessions). Returns both so the page
+  /// can render the Projects→Sessions tree (parity with the WebUI sidebar).
+  Future<CodingProjectsView> listProjectsExpanded() async {
+    final resp = await api.get(
+      '/api/coding/projects',
+      query: const {'expand': 'sessions'},
+    );
+    final data = resp.data as Map?;
+    final rawProjects = (data?['projects'] as List?) ?? const [];
+    final rawUngrouped = (data?['ungrouped'] as List?) ?? const [];
+    final projects = rawProjects
+        .whereType<Map>()
+        .map((m) => CodingProject.fromJson(Map<String, dynamic>.from(m)))
+        .toList(growable: false);
+    final ungrouped = rawUngrouped
+        .whereType<Map>()
+        .map((m) => CodingSession.fromJson(Map<String, dynamic>.from(m)))
+        .toList(growable: false);
+    return CodingProjectsView(projects: projects, ungrouped: ungrouped);
+  }
+
+  /// POST /api/coding/projects {name, repo_path} -> `{ ok, project_id }`.
+  Future<String?> createProject({
+    required String name,
+    required String repoPath,
+    String? defaultBranch,
+  }) async {
+    final resp = await api.postJson('/api/coding/projects', {
+      'name': name,
+      'repo_path': repoPath,
+      if (defaultBranch != null && defaultBranch.isNotEmpty)
+        'default_branch': defaultBranch,
+    });
+    final body = resp.data as Map?;
+    return _str(body?['project_id']);
+  }
+
+  /// POST /api/coding/project/$id {name?, default_branch?, sync_enabled?,
+  /// sync_desktop_path?, ignore_rules?, device_id?} — rename / set sync.
+  Future<void> updateProject(
+    String id, {
+    String? name,
+    String? defaultBranch,
+    bool? syncEnabled,
+    String? syncDesktopPath,
+    String? ignoreRules,
+    String? deviceId,
+  }) async {
+    await api.postJson('/api/coding/project/$id', {
+      if (name != null) 'name': name,
+      if (defaultBranch != null) 'default_branch': defaultBranch,
+      if (syncEnabled != null) 'sync_enabled': syncEnabled,
+      if (syncDesktopPath != null) 'sync_desktop_path': syncDesktopPath,
+      if (ignoreRules != null) 'ignore_rules': ignoreRules,
+      if (deviceId != null) 'device_id': deviceId,
+    });
+  }
+
+  /// DELETE /api/coding/project/$id?delete_sessions=0|1 — `delete=true` cascades
+  /// (stop + remove its sessions); otherwise its sessions become Ungrouped.
+  Future<void> deleteProject(String id, {bool cascade = false}) async {
+    await api.deleteJson(
+      '/api/coding/project/$id?delete_sessions=${cascade ? 1 : 0}',
+    );
+  }
+
+  /// POST /api/coding/project/$id/session {cwd?, title?, prompt?, model?, host?,
+  /// skip_permissions?, sync?} -> `{ session }`. cwd defaults server-side to the
+  /// project's repo_path when omitted.
+  Future<CodingSession> launchInProject(
+    String projectId, {
+    String? cwd,
+    String? title,
+    String? prompt,
+    String? model,
+    String? host,
+    bool skipPermissions = false,
+    CodingSync? sync,
+  }) async {
+    final resp = await api.postJson('/api/coding/project/$projectId/session', {
+      if (cwd != null && cwd.isNotEmpty) 'cwd': cwd,
+      if (title != null && title.isNotEmpty) 'title': title,
+      if (prompt != null && prompt.isNotEmpty) 'prompt': prompt,
+      if (model != null && model.isNotEmpty) 'model': model,
+      if (host != null && host.isNotEmpty) 'host': host,
+      if (skipPermissions) 'skip_permissions': true,
+      if (sync != null && sync.enabled) 'sync': sync.toJson(),
+    });
+    final body = resp.data as Map?;
+    final session = (body?['session'] as Map?) ?? body ?? const {};
+    return CodingSession.fromJson(Map<String, dynamic>.from(session));
+  }
+
+  /// POST /api/coding/session/$id/resume -> `{ ok, session? }`. Relaunch a
+  /// discovered-transcript (past) session on its device. The resumed session
+  /// may keep the same id or be reported under a new one.
+  Future<CodingSession?> resume(String id) async {
+    final resp = await api.postJson('/api/coding/session/$id/resume', const {});
+    final body = resp.data as Map?;
+    final session = body?['session'] as Map?;
+    if (session == null) return null;
+    return CodingSession.fromJson(Map<String, dynamic>.from(session));
+  }
+
+  /// POST /api/coding/discover/refresh — ask the paired device to re-scan its
+  /// live tmux + transcript sessions and re-report. Discovery is async over the
+  /// bridge, so callers should refresh the list again shortly after.
+  Future<void> discoverRefresh() async {
+    await api.postJson('/api/coding/discover/refresh', const {});
+  }
+
   /// GET /api/devices -> `{ devices: [...] }`.
   ///
   /// Paired/registered devices for the sync "Device" dropdown (parity with the
@@ -183,4 +298,23 @@ class CodingSessionsApi {
   Future<void> terminalClose(String id) async {
     await api.postJson('/api/terminal/close', {'session_id': id});
   }
+}
+
+/// The expanded `/projects?expand=sessions` payload: projects (each with their
+/// nested sessions) plus the synthetic Ungrouped bucket of project-less
+/// sessions (legacy rows + discovered sessions).
+class CodingProjectsView {
+  const CodingProjectsView({
+    this.projects = const [],
+    this.ungrouped = const [],
+  });
+
+  final List<CodingProject> projects;
+  final List<CodingSession> ungrouped;
+}
+
+String? _str(Object? v) {
+  if (v == null) return null;
+  final s = v.toString();
+  return s.isEmpty ? null : s;
 }

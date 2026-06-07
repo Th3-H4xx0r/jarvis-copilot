@@ -148,7 +148,7 @@ class CodingSessionStore:
         allowed = {"status", "claude_session_id", "title", "tmux_name",
                    "worktree_path", "branch", "last_activity_at",
                    "skip_permissions", "sync_config", "cwd",
-                   "device_id", "external", "project_id"}
+                   "device_id", "external", "project_id", "source"}
         sets = {k: v for k, v in fields.items() if k in allowed}
         if "status" in sets and sets["status"] not in VALID_STATUSES:
             raise ValueError(f"invalid status: {sets['status']!r}")

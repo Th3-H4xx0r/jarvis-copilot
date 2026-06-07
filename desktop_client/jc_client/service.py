@@ -386,7 +386,8 @@ class Service:
                 self._coding_sync.handle_frame(frame)
             return
 
-        if msg_type and msg_type.startswith("coding_discover"):
+        if msg_type and (msg_type.startswith("coding_discover")
+                         or msg_type == "coding_resume"):
             if self._coding_discover:
                 self._coding_discover.handle_frame(frame)
             return

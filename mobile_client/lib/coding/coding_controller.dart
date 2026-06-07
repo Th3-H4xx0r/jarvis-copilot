@@ -24,10 +24,29 @@ class CodingSessionsController extends ChangeNotifier {
 
   static const Duration _refreshInterval = Duration(seconds: 4);
 
-  // ── Sessions list ─────────────────────────────────────────────
+  // ── Projects → Sessions tree ──────────────────────────────────
+  /// Registered projects, each carrying their nested sessions.
+  List<CodingProject> projects = [];
+
+  /// Project-less sessions (the synthetic "Ungrouped" bucket): legacy rows +
+  /// device-discovered sessions.
+  List<CodingSession> ungrouped = [];
+
+  /// Flat session list derived from [projects] + [ungrouped]. Kept so the
+  /// existing selection/terminal code (and any older callers) keep working.
   List<CodingSession> sessions = [];
+
   bool loading = false;
   String? error;
+
+  /// Set of project ids (and the literal `__ungrouped__`) the user has
+  /// collapsed in the tree. UI-only; persists for the controller's lifetime.
+  final Set<String> collapsed = <String>{};
+
+  /// Sentinel key for the synthetic Ungrouped group in [collapsed].
+  static const String ungroupedKey = '__ungrouped__';
+
+  bool busyProjects = false; // project create/update/delete/discover in flight
 
   // ── Paired devices (for the sync "Device" dropdown) ───────────
   /// Paired/registered devices, populated best-effort from `/api/devices`.
@@ -65,14 +84,33 @@ class CodingSessionsController extends ChangeNotifier {
 
   bool get hasSelection => selectedId != null && selectedId!.isNotEmpty;
 
-  // ── Sessions list ─────────────────────────────────────────────
+  // ── Projects → Sessions list ──────────────────────────────────
+  /// Load the Projects→Sessions tree (`/projects?expand=sessions`) and derive
+  /// the flat [sessions] list. Falls back to the flat `/sessions` endpoint when
+  /// the projects payload is empty (older backends) so the page never breaks.
+  /// Named [loadSessions] so the page's existing refresh wiring is unchanged.
   Future<void> loadSessions() async {
     loading = true;
     error = null;
     notifyListeners();
     try {
-      sessions = await _api.listSessions()
-        ..sort((a, b) => (b.createdAt ?? 0).compareTo(a.createdAt ?? 0));
+      final view = await _api.listProjectsExpanded();
+      projects = view.projects;
+      ungrouped = view.ungrouped;
+      final flat = <CodingSession>[
+        for (final p in projects) ...p.sessions,
+        ...ungrouped,
+      ];
+      if (flat.isEmpty) {
+        // Older backend without the projects payload — fall back to flat list.
+        try {
+          ungrouped = await _api.listSessions();
+          flat.addAll(ungrouped);
+        } catch (_) {
+          // keep flat empty; the (empty) projects view still renders fine
+        }
+      }
+      sessions = flat..sort(_bySessionRecency);
       // If the selected session vanished from the list, clear it.
       if (selectedId != null && !sessions.any((s) => s.id == selectedId)) {
         _clearSelection();
@@ -84,6 +122,25 @@ class CodingSessionsController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Newest-first: prefer `last_activity_at`, fall back to `created_at`.
+  static int _bySessionRecency(CodingSession a, CodingSession b) {
+    final ak = a.lastActivityAt ?? a.createdAt?.toString() ?? '';
+    final bk = b.lastActivityAt ?? b.createdAt?.toString() ?? '';
+    return bk.compareTo(ak);
+  }
+
+  /// Toggle a project group's collapsed state in the tree (UI-only).
+  void toggleCollapsed(String key) {
+    if (collapsed.contains(key)) {
+      collapsed.remove(key);
+    } else {
+      collapsed.add(key);
+    }
+    notifyListeners();
+  }
+
+  bool isCollapsed(String key) => collapsed.contains(key);
 
   /// Best-effort refresh of the paired-devices list for the sync dropdown.
   /// Never throws — on any error the list is left empty. Call when opening the
@@ -231,6 +288,173 @@ class CodingSessionsController extends ChangeNotifier {
       launching = false;
       notifyListeners();
     }
+  }
+
+  // ── Projects (create / settings / delete / new-session) ───────
+
+  /// Create a project. Returns its new id (or null on failure / error set).
+  Future<String?> createProject({
+    required String name,
+    required String repoPath,
+    String? defaultBranch,
+  }) async {
+    busyProjects = true;
+    error = null;
+    notifyListeners();
+    try {
+      final id = await _api.createProject(
+        name: name,
+        repoPath: repoPath,
+        defaultBranch: defaultBranch,
+      );
+      await loadSessions();
+      return id;
+    } catch (e) {
+      error = 'Could not create project: ${_msg(e)}';
+      return null;
+    } finally {
+      busyProjects = false;
+      notifyListeners();
+    }
+  }
+
+  /// Rename / set sync / branch / ignore rules on a project. Returns true on
+  /// success.
+  Future<bool> updateProject(
+    String id, {
+    String? name,
+    String? defaultBranch,
+    bool? syncEnabled,
+    String? syncDesktopPath,
+    String? ignoreRules,
+    String? deviceId,
+  }) async {
+    busyProjects = true;
+    error = null;
+    notifyListeners();
+    try {
+      await _api.updateProject(
+        id,
+        name: name,
+        defaultBranch: defaultBranch,
+        syncEnabled: syncEnabled,
+        syncDesktopPath: syncDesktopPath,
+        ignoreRules: ignoreRules,
+        deviceId: deviceId,
+      );
+      await loadSessions();
+      return true;
+    } catch (e) {
+      error = 'Could not save project: ${_msg(e)}';
+      return false;
+    } finally {
+      busyProjects = false;
+      notifyListeners();
+    }
+  }
+
+  /// Delete a project. `cascade` stops + removes its sessions; otherwise they
+  /// become Ungrouped. Returns true on success.
+  Future<bool> deleteProject(String id, {bool cascade = false}) async {
+    busyProjects = true;
+    error = null;
+    notifyListeners();
+    try {
+      await _api.deleteProject(id, cascade: cascade);
+      await loadSessions();
+      return true;
+    } catch (e) {
+      error = 'Could not delete project: ${_msg(e)}';
+      return false;
+    } finally {
+      busyProjects = false;
+      notifyListeners();
+    }
+  }
+
+  /// Launch a new session inside a project (cwd defaults server-side to the
+  /// project's repo_path). On success refreshes the tree and opens the session.
+  Future<CodingSession?> launchInProject(
+    String projectId, {
+    String? cwd,
+    String? title,
+    String? prompt,
+    String? model,
+    String? host,
+    bool skipPermissions = false,
+    CodingSync? sync,
+  }) async {
+    launching = true;
+    error = null;
+    notifyListeners();
+    try {
+      final session = await _api.launchInProject(
+        projectId,
+        cwd: cwd,
+        title: title,
+        prompt: prompt,
+        model: model,
+        host: host,
+        skipPermissions: skipPermissions,
+        sync: sync,
+      );
+      // Make sure the project is expanded so the new session is visible.
+      collapsed.remove(projectId);
+      await loadSessions();
+      if (session.id.isNotEmpty) {
+        await select(session.id);
+      }
+      return session;
+    } catch (e) {
+      error = 'Could not launch session: ${_msg(e)}';
+      return null;
+    } finally {
+      launching = false;
+      notifyListeners();
+    }
+  }
+
+  /// Resume a discovered-transcript (past) session on its device, then refresh.
+  /// On success selects the resumed session (which may carry a new id) so the
+  /// detail pane picks up the live terminal once it reports running. Returns the
+  /// id to open, or null on failure (error is set).
+  Future<String?> resumeSession(String id) async {
+    busy = true;
+    error = null;
+    notifyListeners();
+    try {
+      final resumed = await _api.resume(id);
+      final openId = (resumed != null && resumed.id.isNotEmpty) ? resumed.id : id;
+      await loadSessions();
+      return openId;
+    } catch (e) {
+      error = 'Could not resume session: ${_msg(e)}';
+      return null;
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
+  /// Ask the paired device to re-scan its sessions, then refresh the tree.
+  /// Discovery is async over the bridge, so we refresh now and again shortly
+  /// after. Best-effort: failures surface as [error] but never throw.
+  Future<void> discoverRefresh() async {
+    busyProjects = true;
+    notifyListeners();
+    try {
+      await _api.discoverRefresh();
+    } catch (e) {
+      error = 'Rescan request failed: ${_msg(e)}';
+    } finally {
+      busyProjects = false;
+      notifyListeners();
+    }
+    await loadSessions();
+    // Give the device a beat to report back over the bridge, then refresh again.
+    Future<void>.delayed(const Duration(milliseconds: 2500), () {
+      if (!_disposed) loadSessions();
+    });
   }
 
   // ── Send a message into the session ───────────────────────────

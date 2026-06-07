@@ -359,6 +359,29 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
 
             return _run(_restart)
 
+        # POST /session/<id>/resume  — resume a discovered transcript (history)
+        # session into a live, drivable tmux on its desktop (claude --resume).
+        if action == "resume" and method == "POST":
+            def _resume():
+                row = manager.status(sid)
+                if row is None:
+                    return _err(404, "session not found: " + sid)
+                if not (row.get("claude_session_id") or "").strip():
+                    return _err(400, "session has no claude_session_id to resume")
+                from api.coding_desktop import (
+                    resolve_desktop_device_id, resume_discovered_session)
+
+                device_id = (row.get("device_id") or "").strip() \
+                    or resolve_desktop_device_id()
+                if not device_id:
+                    return _err(409, "desktop client is not connected")
+                # Drive the resume on the row's own device (resume helper resolves
+                # the device again, but pass it through the row so it's honoured).
+                resumed = resume_discovered_session(dict(row, device_id=device_id))
+                return _ok({"ok": True, "session": resumed})
+
+            return _run(_resume)
+
         # POST or DELETE /session/<id>/delete  — stop + permanently remove
         if action == "delete" and method in ("POST", "DELETE"):
             def _delete():

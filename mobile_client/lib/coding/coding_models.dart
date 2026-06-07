@@ -22,6 +22,11 @@ class CodingSession {
     this.skipPermissions = false,
     this.sync,
     this.createdAt,
+    this.projectId,
+    this.external = false,
+    this.deviceId,
+    this.tmuxName,
+    this.lastActivityAt,
   });
 
   final String id;
@@ -31,11 +36,29 @@ class CodingSession {
   final String? cwd;
   final String? branch;
   final String? claudeSessionId;
-  final String? source;
+  final String? source; // chat | manual | discovered-tmux | discovered-transcript
   final String? model;
   final bool skipPermissions;
   final CodingSync? sync;
   final double? createdAt; // epoch seconds (REAL)
+
+  // ── Projects / discovery (Phase 4) ──
+  /// The owning project's id (`null` ⇒ Ungrouped).
+  final String? projectId;
+
+  /// True for device-discovered sessions (a live tmux or a past transcript
+  /// surfaced from a paired desktop). Drives the "discovered/live" badge.
+  final bool external;
+
+  /// The device that owns a discovered session (used by resume, informational).
+  final String? deviceId;
+
+  /// The tmux session name backing a live session (informational).
+  final String? tmuxName;
+
+  /// Last activity timestamp — preferred sort key over [createdAt]. May be an
+  /// epoch number or an ISO/string; kept as a string for robust comparison.
+  final String? lastActivityAt;
 
   factory CodingSession.fromJson(Map<String, dynamic> j) {
     return CodingSession(
@@ -51,6 +74,11 @@ class CodingSession {
       skipPermissions: _asBool(j['skip_permissions']),
       sync: CodingSync.tryFromJson(j['sync']),
       createdAt: _asDouble(j['created_at']),
+      projectId: _str(j['project_id']),
+      external: _asBool(j['external']),
+      deviceId: _str(j['device_id']),
+      tmuxName: _str(j['tmux_name']),
+      lastActivityAt: _str(j['last_activity_at']),
     );
   }
 
@@ -63,6 +91,51 @@ class CodingSession {
   }
 
   bool get isLive => status == 'running' || status == 'starting' || status == 'idle';
+
+  /// Normalised status bucket, mirroring the WebUI's `_cdgStatusClass`.
+  /// running | done | error | stopped | idle.
+  String get statusClass {
+    switch (status.toLowerCase()) {
+      case 'running':
+      case 'active':
+      case 'busy':
+        return 'running';
+      case 'done':
+      case 'completed':
+      case 'finished':
+        return 'done';
+      case 'error':
+      case 'failed':
+        return 'error';
+      case 'stopped':
+      case 'cancelled':
+      case 'canceled':
+        return 'stopped';
+      default:
+        return 'idle';
+    }
+  }
+
+  /// A transcript-only (`discovered-transcript`) session that isn't currently
+  /// running — a PAST conversation with no live tmux. It can be **resumed** on
+  /// its device. Mirrors the WebUI's `_codingIsTranscriptIdle`.
+  bool get isTranscriptIdle =>
+      source == 'discovered-transcript' && statusClass != 'running';
+
+  /// Resolve the host/source badge shown on the session row. Priority:
+  /// history (idle transcript) > discovered/live (external) > desktop > server.
+  /// Mirrors the WebUI badge logic in `_codingSessionRowHtml`.
+  ({String kind, String label}) get badge {
+    if (isTranscriptIdle) return (kind: 'history', label: 'history');
+    if (external) {
+      final live = source == 'discovered-transcript' && statusClass == 'running';
+      return (kind: 'discovered', label: live ? 'live' : 'discovered');
+    }
+    if ((host ?? '').toLowerCase() == 'desktop') {
+      return (kind: 'desktop', label: 'desktop');
+    }
+    return (kind: 'server', label: 'server');
+  }
 }
 
 /// Cross-device file sync config for a session
@@ -96,29 +169,53 @@ class CodingSync {
       };
 }
 
-/// A registered coding project (`GET /api/coding/projects`).
+/// A registered coding project with its nested sessions
+/// (`GET /api/coding/projects?expand=sessions`).
+///
+/// `device_id`/`sync_*`/`ignore_rules` mirror the project's cross-device sync
+/// config (parity with the WebUI project-settings panel). [sessions] is the
+/// `sessions:[...]` array the server nests under each project when expanded.
 class CodingProject {
   CodingProject({
     required this.id,
     required this.name,
     this.repoPath,
     this.host,
+    this.deviceId,
+    this.syncEnabled = false,
+    this.syncDesktopPath,
+    this.ignoreRules,
     this.defaultBranch,
+    this.sessions = const [],
   });
 
   final String id;
   final String name;
   final String? repoPath;
   final String? host;
+  final String? deviceId;
+  final bool syncEnabled;
+  final String? syncDesktopPath;
+  final String? ignoreRules;
   final String? defaultBranch;
+  final List<CodingSession> sessions;
 
   factory CodingProject.fromJson(Map<String, dynamic> j) {
+    final rawSessions = (j['sessions'] as List?) ?? const [];
     return CodingProject(
       id: (j['id'] ?? '').toString(),
       name: (j['name'] ?? '').toString(),
       repoPath: _str(j['repo_path']),
       host: _str(j['host']),
+      deviceId: _str(j['device_id']),
+      syncEnabled: _asBool(j['sync_enabled']),
+      syncDesktopPath: _str(j['sync_desktop_path']),
+      ignoreRules: _str(j['ignore_rules']),
       defaultBranch: _str(j['default_branch']),
+      sessions: rawSessions
+          .whereType<Map>()
+          .map((m) => CodingSession.fromJson(Map<String, dynamic>.from(m)))
+          .toList(growable: false),
     );
   }
 }

@@ -160,11 +160,29 @@ class _CodingPageState extends State<CodingPage> {
         back: false,
         trailing: ListenableBuilder(
           listenable: _c,
-          builder: (_, __) => GlassIconButton(
-            icon: Icons.refresh_rounded,
-            onTap: _c.loading ? null : _c.loadSessions,
-            color: _c.loading ? JcTheme.muted : JcTheme.text,
-          ),
+          builder: (_, __) => _c.hasSelection
+              ? GlassIconButton(
+                  icon: Icons.refresh_rounded,
+                  onTap: _c.loading ? null : _c.loadSessions,
+                  color: _c.loading ? JcTheme.muted : JcTheme.text,
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GlassIconButton(
+                      icon: Icons.radar_rounded,
+                      iconSize: 20,
+                      onTap: _c.busyProjects ? null : _rescanDiscovered,
+                      color: _c.busyProjects ? JcTheme.muted : JcTheme.text,
+                    ),
+                    const SizedBox(width: 8),
+                    GlassIconButton(
+                      icon: Icons.refresh_rounded,
+                      onTap: _c.loading ? null : _c.loadSessions,
+                      color: _c.loading ? JcTheme.muted : JcTheme.text,
+                    ),
+                  ],
+                ),
         ),
       ),
       body: AppBackground(
@@ -181,18 +199,34 @@ class _CodingPageState extends State<CodingPage> {
         listenable: _c,
         builder: (_, __) => _c.hasSelection
             ? const SizedBox.shrink()
-            : FloatingActionButton.extended(
-                onPressed: _c.launching ? null : _openLaunchSheet,
-                backgroundColor: JcTheme.primaryBlue,
-                foregroundColor: Colors.white,
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Launch'),
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  FloatingActionButton.extended(
+                    heroTag: 'coding-new-project',
+                    onPressed: _c.busyProjects ? null : _newProject,
+                    backgroundColor: JcTheme.surfaceAlt,
+                    foregroundColor: JcTheme.text,
+                    icon: const Icon(Icons.create_new_folder_outlined),
+                    label: const Text('Project'),
+                  ),
+                  const SizedBox(height: 12),
+                  FloatingActionButton.extended(
+                    heroTag: 'coding-launch',
+                    onPressed: _c.launching ? null : _openLaunchSheet,
+                    backgroundColor: JcTheme.primaryBlue,
+                    foregroundColor: Colors.white,
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Launch'),
+                  ),
+                ],
               ),
       ),
     );
   }
 
-  // ── Sessions list ─────────────────────────────────────────────
+  // ── Projects → Sessions list ──────────────────────────────────
   Widget _buildList() {
     if (_c.loading && _c.sessions.isEmpty) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2));
@@ -200,29 +234,124 @@ class _CodingPageState extends State<CodingPage> {
     if (_c.error != null && _c.sessions.isEmpty) {
       return _ErrorState(message: _c.error!, onRetry: _c.loadSessions);
     }
+    final hasAnything =
+        _c.projects.isNotEmpty || _c.ungrouped.isNotEmpty || _c.sessions.isNotEmpty;
+    if (!hasAnything) {
+      return RefreshIndicator(
+        onRefresh: _c.loadSessions,
+        child: ListView(
+          children: const [SizedBox(height: 120), _EmptyHint()],
+        ),
+      );
+    }
+
+    // Build the group list: real projects (with actions) then a synthetic
+    // "Ungrouped" bucket of project-less sessions (only when non-empty).
+    final groups = <Widget>[];
+    for (final p in _c.projects) {
+      groups.add(_ProjectGroup(
+        controller: _c,
+        groupKey: p.id,
+        name: p.name.isNotEmpty
+            ? p.name
+            : (p.repoPath ?? 'project ${p.id}'),
+        subtitle: p.repoPath,
+        sessions: p.sessions,
+        collapsed: _c.isCollapsed(p.id),
+        onToggle: () => _c.toggleCollapsed(p.id),
+        onSelect: _c.select,
+        onResume: _resumeSession,
+        onNewSession: () => _newSessionInProject(p),
+        onSettings: () => _openProjectSettings(p),
+      ));
+    }
+    // Older backends: if there are no projects but a flat list exists, fold it
+    // into Ungrouped so nothing is hidden.
+    var loose = _c.ungrouped;
+    if (_c.projects.isEmpty && _c.ungrouped.isEmpty && _c.sessions.isNotEmpty) {
+      loose = _c.sessions;
+    }
+    if (loose.isNotEmpty) {
+      groups.add(_ProjectGroup(
+        controller: _c,
+        groupKey: CodingSessionsController.ungroupedKey,
+        name: 'Ungrouped',
+        subtitle: null,
+        sessions: loose,
+        collapsed: _c.isCollapsed(CodingSessionsController.ungroupedKey),
+        onToggle: () =>
+            _c.toggleCollapsed(CodingSessionsController.ungroupedKey),
+        onSelect: _c.select,
+        onResume: _resumeSession,
+        onNewSession: null, // ungrouped has no project to launch into
+        onSettings: null,
+      ));
+    }
+
     return RefreshIndicator(
       onRefresh: _c.loadSessions,
-      child: _c.sessions.isEmpty
-          ? ListView(
-              children: const [
-                SizedBox(height: 120),
-                _EmptyHint(),
-              ],
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-              itemCount: _c.sessions.length,
-              itemBuilder: (_, i) {
-                final s = _c.sessions[i];
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: _SessionCard(
-                    session: s,
-                    onTap: () => _c.select(s.id),
-                  ),
-                );
-              },
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 160),
+        children: [
+          for (final g in groups)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: g,
             ),
+        ],
+      ),
+    );
+  }
+
+  // ── Project / discovered actions ──────────────────────────────
+  Future<void> _rescanDiscovered() async {
+    await _c.discoverRefresh();
+    if (mounted && _c.error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(_c.error!)));
+    }
+  }
+
+  Future<void> _resumeSession(String id) async {
+    final openId = await _c.resumeSession(id);
+    if (!mounted) return;
+    if (openId != null) {
+      await _c.select(openId);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(_c.error ??
+                'Could not resume this session (is the device online?).')),
+      );
+    }
+  }
+
+  Future<void> _newProject() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _NewProjectSheet(controller: _c),
+    );
+  }
+
+  Future<void> _newSessionInProject(CodingProject project) async {
+    _c.loadDevices(); // refresh the paired-devices list for the sync dropdown
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _LaunchSheet(controller: _c, project: project),
+    );
+  }
+
+  Future<void> _openProjectSettings(CodingProject project) async {
+    _c.loadDevices(); // refresh the paired-devices list for the sync dropdown
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ProjectSettingsSheet(controller: _c, project: project),
     );
   }
 
@@ -473,72 +602,407 @@ const TerminalTheme _kTermTheme = TerminalTheme(
   searchHitForeground: Color(0xFF000000),
 );
 
-// ── Sessions list card ──────────────────────────────────────────
-class _SessionCard extends StatelessWidget {
-  const _SessionCard({required this.session, required this.onTap});
+// ── Project group (collapsible header + nested session rows) ─────
+/// One project group in the tree: a tappable header (caret + name + count +
+/// optional + / ⚙ actions) over its session rows. The synthetic "Ungrouped"
+/// bucket passes [onNewSession]/[onSettings] null so it shows no header actions.
+class _ProjectGroup extends StatelessWidget {
+  const _ProjectGroup({
+    required this.controller,
+    required this.groupKey,
+    required this.name,
+    required this.subtitle,
+    required this.sessions,
+    required this.collapsed,
+    required this.onToggle,
+    required this.onSelect,
+    required this.onResume,
+    required this.onNewSession,
+    required this.onSettings,
+  });
 
-  final CodingSession session;
-  final VoidCallback onTap;
+  final CodingSessionsController controller;
+  final String groupKey;
+  final String name;
+  final String? subtitle;
+  final List<CodingSession> sessions;
+  final bool collapsed;
+  final VoidCallback onToggle;
+  final ValueChanged<String> onSelect;
+  final Future<void> Function(String id) onResume;
+  final VoidCallback? onNewSession;
+  final VoidCallback? onSettings;
 
   @override
   Widget build(BuildContext context) {
-    final live = session.isLive;
+    // Newest-first (last_activity_at, then created_at).
+    final sorted = sessions.toList()
+      ..sort((a, b) {
+        final ak = a.lastActivityAt ?? a.createdAt?.toString() ?? '';
+        final bk = b.lastActivityAt ?? b.createdAt?.toString() ?? '';
+        return bk.compareTo(ak);
+      });
     return GlassCard(
-      padding: const EdgeInsets.all(16),
-      onTap: onTap,
-      child: Row(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: (live ? JcTheme.success : JcTheme.muted)
-                  .withValues(alpha: 0.12),
-              border: Border.all(
-                color: (live ? JcTheme.success : JcTheme.muted)
-                    .withValues(alpha: 0.30),
+          // Header
+          Material(
+            color: Colors.transparent,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+            child: InkWell(
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(22)),
+              onTap: onToggle,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+                child: Row(
+                  children: [
+                    Icon(
+                      collapsed
+                          ? Icons.chevron_right_rounded
+                          : Icons.expand_more_rounded,
+                      size: 22,
+                      color: JcTheme.muted,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: JcTheme.text,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          if ((subtitle ?? '').isNotEmpty)
+                            Text(
+                              subtitle!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: JcTheme.muted,
+                                fontSize: 12,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _CountChip(count: sorted.length),
+                    if (onNewSession != null)
+                      IconButton(
+                        icon: const Icon(Icons.add_rounded,
+                            size: 20, color: JcTheme.muted),
+                        tooltip: 'New session in this project',
+                        onPressed: onNewSession,
+                      ),
+                    if (onSettings != null)
+                      IconButton(
+                        icon: const Icon(Icons.tune_rounded,
+                            size: 18, color: JcTheme.muted),
+                        tooltip: 'Project settings',
+                        onPressed: onSettings,
+                      ),
+                  ],
+                ),
               ),
             ),
-            child: Icon(
-              Icons.terminal_rounded,
-              size: 20,
-              color: live ? JcTheme.success : JcTheme.muted,
-            ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  session.displayTitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: JcTheme.text,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
+          // Body
+          if (!collapsed)
+            if (sorted.isEmpty)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 0, 16, 14),
+                child: Text(
+                  'No sessions yet.',
+                  style: TextStyle(color: JcTheme.muted, fontSize: 13),
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                child: Column(
+                  children: [
+                    for (final s in sorted)
+                      _SessionRow(
+                        session: s,
+                        selected: controller.selectedId == s.id,
+                        onTap: () => onSelect(s.id),
+                        onResume: () => onResume(s.id),
+                      ),
+                  ],
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A small count badge shown in a project header.
+class _CountChip extends StatelessWidget {
+  const _CountChip({required this.count});
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+      decoration: BoxDecoration(
+        color: JcTheme.glassFill,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: JcTheme.glassBorder),
+      ),
+      child: Text(
+        '$count',
+        style: const TextStyle(
+          color: JcTheme.muted,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Nested session row (inside a project group) ─────────────────
+/// One session row. Shows a status dot, title, source/host badge + path, and
+/// (for an idle discovered-transcript session) an inline Resume button instead
+/// of opening the live terminal. A transcript-idle row is NOT tappable-to-open
+/// — it has no live tmux; Resume relaunches it on its device first.
+class _SessionRow extends StatelessWidget {
+  const _SessionRow({
+    required this.session,
+    required this.selected,
+    required this.onTap,
+    required this.onResume,
+  });
+
+  final CodingSession session;
+  final bool selected;
+  final VoidCallback onTap;
+  final Future<void> Function() onResume;
+
+  Color _dotColor(String cls) {
+    switch (cls) {
+      case 'running':
+        return JcTheme.success;
+      case 'done':
+        return JcTheme.primaryBlue;
+      case 'error':
+        return JcTheme.danger;
+      case 'stopped':
+        return JcTheme.muted;
+      default:
+        return JcTheme.muted;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final transcriptIdle = session.isTranscriptIdle;
+    final cls = transcriptIdle ? 'history' : session.statusClass;
+    final dot = transcriptIdle ? JcTheme.muted : _dotColor(cls);
+    final sub = (session.cwd ?? '').trim();
+    final badge = session.badge;
+    return Material(
+      color: selected
+          ? JcTheme.primaryBlue.withValues(alpha: 0.10)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        // Idle transcripts can't open a live terminal — Resume them first.
+        onTap: transcriptIdle ? null : onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: dot,
+                    border: cls == 'running'
+                        ? null
+                        : Border.all(
+                            color: JcTheme.muted.withValues(alpha: 0.5)),
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  [
-                    if ((session.host ?? '').isNotEmpty) session.host!,
-                    if ((session.branch ?? '').isNotEmpty) session.branch!,
-                    if ((session.cwd ?? '').isNotEmpty)
-                      session.cwd!.split('/').last,
-                  ].join(' · '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: JcTheme.muted, fontSize: 12),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      session.displayTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: JcTheme.text,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        _SourceBadge(kind: badge.kind, label: badge.label),
+                        if (sub.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              sub,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: JcTheme.muted,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ] else
+                          const Spacer(),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              if (transcriptIdle) ...[
+                const SizedBox(width: 8),
+                _ResumeButton(onResume: onResume),
+              ] else if (!transcriptIdle)
+                const Padding(
+                  padding: EdgeInsets.only(left: 4),
+                  child: Icon(Icons.chevron_right_rounded,
+                      size: 20, color: JcTheme.muted),
+                ),
+            ],
           ),
-          const SizedBox(width: 8),
-          _StatusPill(status: session.status),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The host/source badge: server / desktop / discovered (or live) / history.
+class _SourceBadge extends StatelessWidget {
+  const _SourceBadge({required this.kind, required this.label});
+  final String kind;
+  final String label;
+
+  Color get _color {
+    switch (kind) {
+      case 'discovered':
+        return JcTheme.cyan;
+      case 'desktop':
+        return JcTheme.accent;
+      case 'history':
+        return JcTheme.muted;
+      case 'server':
+      default:
+        return JcTheme.primaryBlueHi;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _color;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: c.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: c,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.2,
+        ),
+      ),
+    );
+  }
+}
+
+/// Inline Resume affordance for an idle discovered-transcript session, with a
+/// tiny in-flight spinner while the resume request runs.
+class _ResumeButton extends StatefulWidget {
+  const _ResumeButton({required this.onResume});
+  final Future<void> Function() onResume;
+
+  @override
+  State<_ResumeButton> createState() => _ResumeButtonState();
+}
+
+class _ResumeButtonState extends State<_ResumeButton> {
+  bool _busy = false;
+
+  Future<void> _run() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onResume();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: _busy ? null : _run,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: JcTheme.primaryBlue.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: JcTheme.primaryBlue.withValues(alpha: 0.4)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_busy)
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: JcTheme.primaryBlueHi),
+                )
+              else
+                const Icon(Icons.play_arrow_rounded,
+                    size: 16, color: JcTheme.primaryBlueHi),
+              const SizedBox(width: 4),
+              Text(
+                _busy ? 'Resuming…' : 'Resume',
+                style: const TextStyle(
+                  color: JcTheme.primaryBlueHi,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -882,17 +1346,411 @@ class _MessageComposer extends StatelessWidget {
   }
 }
 
-// ── Launch sheet ────────────────────────────────────────────────
-class _LaunchSheet extends StatefulWidget {
-  const _LaunchSheet({required this.controller});
+// ── New-project sheet ───────────────────────────────────────────
+/// Create a project: name + repo path (+ optional default branch). Mirrors the
+/// WebUI's "+ Project" flow (POST /api/coding/projects).
+class _NewProjectSheet extends StatefulWidget {
+  const _NewProjectSheet({required this.controller});
   final CodingSessionsController controller;
+
+  @override
+  State<_NewProjectSheet> createState() => _NewProjectSheetState();
+}
+
+class _NewProjectSheetState extends State<_NewProjectSheet> {
+  final _name = TextEditingController();
+  final _repo = TextEditingController();
+  final _branch = TextEditingController();
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _repo.dispose();
+    _branch.dispose();
+    super.dispose();
+  }
+
+  Future<void> _create() async {
+    final name = _name.text.trim();
+    final repo = _repo.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('A project name is required')),
+      );
+      return;
+    }
+    if (repo.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('A repo path is required')),
+      );
+      return;
+    }
+    setState(() => _saving = true);
+    final id = await widget.controller.createProject(
+      name: name,
+      repoPath: repo,
+      defaultBranch: _branch.text.trim(),
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (id != null) {
+      Navigator.of(context).pop();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content:
+                Text(widget.controller.error ?? 'Could not create project')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: JcTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _SheetGrabber(),
+              const Text(
+                'New project',
+                style: TextStyle(
+                  color: JcTheme.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const _FieldLabel('Project name'),
+              TextField(
+                controller: _name,
+                style: const TextStyle(color: JcTheme.text, fontSize: 14),
+                decoration: const InputDecoration(hintText: 'My project'),
+              ),
+              const SizedBox(height: 14),
+              const _FieldLabel('Repo path on the server'),
+              TextField(
+                controller: _repo,
+                style: const TextStyle(color: JcTheme.text, fontSize: 14),
+                decoration: const InputDecoration(
+                  hintText: '~/code/my-project',
+                ),
+              ),
+              const SizedBox(height: 14),
+              const _FieldLabel('Default branch (optional)'),
+              TextField(
+                controller: _branch,
+                style: const TextStyle(color: JcTheme.text, fontSize: 14),
+                decoration: const InputDecoration(hintText: 'main'),
+              ),
+              const SizedBox(height: 18),
+              GlassButton(
+                label: _saving ? 'Creating…' : 'Create project',
+                icon: Icons.create_new_folder_outlined,
+                full: true,
+                onPressed: _saving ? null : _create,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Project-settings sheet ──────────────────────────────────────
+/// Rename a project, toggle its cross-device sync (device + folder), edit its
+/// default branch + ignore rules, or delete it. Mirrors the WebUI's project
+/// settings panel (POST /project/<id>, DELETE /project/<id>).
+class _ProjectSettingsSheet extends StatefulWidget {
+  const _ProjectSettingsSheet({required this.controller, required this.project});
+  final CodingSessionsController controller;
+  final CodingProject project;
+
+  @override
+  State<_ProjectSettingsSheet> createState() => _ProjectSettingsSheetState();
+}
+
+class _ProjectSettingsSheetState extends State<_ProjectSettingsSheet> {
+  late final _name = TextEditingController(text: widget.project.name);
+  late final _branch =
+      TextEditingController(text: widget.project.defaultBranch ?? '');
+  late final _syncPath =
+      TextEditingController(text: widget.project.syncDesktopPath ?? '');
+  late final _ignore =
+      TextEditingController(text: widget.project.ignoreRules ?? '');
+  late bool _sync = widget.project.syncEnabled;
+  late String? _syncDevice = () {
+    final d = (widget.project.deviceId ?? '').trim();
+    return d.isEmpty ? null : d;
+  }();
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _branch.dispose();
+    _syncPath.dispose();
+    _ignore.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('A project name is required')),
+      );
+      return;
+    }
+    setState(() => _saving = true);
+    final ok = await widget.controller.updateProject(
+      widget.project.id,
+      name: name,
+      defaultBranch: _branch.text.trim(),
+      syncEnabled: _sync,
+      syncDesktopPath: _syncPath.text.trim(),
+      ignoreRules: _ignore.text,
+      deviceId: (_syncDevice ?? '').trim(),
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (ok) {
+      Navigator.of(context).pop();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(widget.controller.error ?? 'Save failed')),
+      );
+    }
+  }
+
+  Future<void> _delete() async {
+    final count = widget.project.sessions.length;
+    final nav = Navigator.of(context);
+    bool? cascade;
+    if (count > 0) {
+      cascade = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: JcTheme.surface,
+          title: const Text('Delete project',
+              style: TextStyle(color: JcTheme.text)),
+          content: Text(
+            'This project has $count session(s).\n\n'
+            'Delete and also STOP + remove its sessions, or keep them '
+            '(they move to Ungrouped)?',
+            style: const TextStyle(color: JcTheme.muted),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child:
+                  const Text('Cancel', style: TextStyle(color: JcTheme.muted)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Keep sessions',
+                  style: TextStyle(color: JcTheme.text)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Delete all',
+                  style: TextStyle(color: JcTheme.danger)),
+            ),
+          ],
+        ),
+      );
+      if (cascade == null) return; // cancelled
+    } else {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: JcTheme.surface,
+          title: const Text('Delete project',
+              style: TextStyle(color: JcTheme.text)),
+          content: const Text('Delete this project?',
+              style: TextStyle(color: JcTheme.muted)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child:
+                  const Text('Cancel', style: TextStyle(color: JcTheme.muted)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child:
+                  const Text('Delete', style: TextStyle(color: JcTheme.danger)),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+      cascade = false;
+    }
+    setState(() => _saving = true);
+    final done =
+        await widget.controller.deleteProject(widget.project.id, cascade: cascade);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (done) {
+      nav.pop();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(widget.controller.error ?? 'Delete failed')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: JcTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _SheetGrabber(),
+              const Text(
+                'Project settings',
+                style: TextStyle(
+                  color: JcTheme.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if ((widget.project.repoPath ?? '').isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  widget.project.repoPath!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: JcTheme.muted, fontSize: 12),
+                ),
+              ],
+              const SizedBox(height: 16),
+              const _FieldLabel('Name'),
+              TextField(
+                controller: _name,
+                style: const TextStyle(color: JcTheme.text, fontSize: 14),
+                decoration: const InputDecoration(hintText: 'Project name'),
+              ),
+              const SizedBox(height: 14),
+              const _FieldLabel('Default branch (optional)'),
+              TextField(
+                controller: _branch,
+                style: const TextStyle(color: JcTheme.text, fontSize: 14),
+                decoration: const InputDecoration(hintText: 'main'),
+              ),
+              const SizedBox(height: 6),
+              _Toggle(
+                value: _sync,
+                onChanged: (v) => setState(() => _sync = v),
+                title: 'Sync this project with a desktop device',
+                subtitle: 'Two-way file sync with a paired device.',
+              ),
+              if (_sync) ...[
+                const SizedBox(height: 8),
+                const _FieldLabel('Device'),
+                ListenableBuilder(
+                  listenable: widget.controller,
+                  builder: (_, __) => _DeviceDropdown(
+                    devices: widget.controller.devices,
+                    value: _syncDevice,
+                    onChanged: (v) => setState(() => _syncDevice = v),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const _FieldLabel('Folder path on that device'),
+                TextField(
+                  controller: _syncPath,
+                  style: const TextStyle(color: JcTheme.text, fontSize: 14),
+                  decoration:
+                      const InputDecoration(hintText: '~/code/your-project'),
+                ),
+              ],
+              const SizedBox(height: 14),
+              const _FieldLabel('Ignore rules (optional, one per line)'),
+              TextField(
+                controller: _ignore,
+                minLines: 3,
+                maxLines: 6,
+                style: const TextStyle(color: JcTheme.text, fontSize: 14),
+                decoration: const InputDecoration(
+                  hintText: 'node_modules/\n.venv/\n*.log',
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: GlassButton(
+                      label: 'Delete',
+                      icon: Icons.delete_outline_rounded,
+                      ghost: true,
+                      full: true,
+                      onPressed: _saving ? null : _delete,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GlassButton(
+                      label: _saving ? 'Saving…' : 'Save',
+                      icon: Icons.check_rounded,
+                      full: true,
+                      onPressed: _saving ? null : _save,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Launch sheet ────────────────────────────────────────────────
+/// Launch a coding session. When [project] is non-null this launches INSIDE
+/// that project (POST /project/<id>/session): the worktree toggle is dropped
+/// (project sessions inherit the project's repo) and the working directory
+/// defaults to the project's repo_path.
+class _LaunchSheet extends StatefulWidget {
+  const _LaunchSheet({required this.controller, this.project});
+  final CodingSessionsController controller;
+  final CodingProject? project;
 
   @override
   State<_LaunchSheet> createState() => _LaunchSheetState();
 }
 
 class _LaunchSheetState extends State<_LaunchSheet> {
-  final _cwd = TextEditingController();
+  late final _cwd =
+      TextEditingController(text: widget.project?.repoPath ?? '');
   final _title = TextEditingController();
   final _model = TextEditingController();
   final _prompt = TextEditingController();
@@ -903,6 +1761,8 @@ class _LaunchSheetState extends State<_LaunchSheet> {
   bool _skipPerms = false;
   bool _sync = false;
   String? _syncDevice; // selected device id (null = none chosen)
+
+  bool get _inProject => widget.project != null;
 
   @override
   void dispose() {
@@ -917,7 +1777,8 @@ class _LaunchSheetState extends State<_LaunchSheet> {
   Future<void> _launch() async {
     final cwd = _cwd.text.trim();
     final prompt = _prompt.text.trim();
-    if (cwd.isEmpty) {
+    // In-project launches may leave cwd blank (server defaults to repo_path).
+    if (!_inProject && cwd.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('A working directory is required')),
       );
@@ -937,17 +1798,31 @@ class _LaunchSheetState extends State<_LaunchSheet> {
             remotePath: _syncPath.text.trim(),
           )
         : null;
-    final session = await widget.controller.launch(
-      cwd: cwd,
-      repoPath: cwd, // send both keys so either server naming works
-      worktree: _worktree,
-      title: _title.text.trim(),
-      prompt: prompt,
-      model: _model.text.trim(),
-      host: _host,
-      skipPermissions: _skipPerms,
-      sync: sync,
-    );
+    final CodingSession? session;
+    if (_inProject) {
+      session = await widget.controller.launchInProject(
+        widget.project!.id,
+        cwd: cwd.isEmpty ? null : cwd,
+        title: _title.text.trim(),
+        prompt: prompt,
+        model: _model.text.trim(),
+        host: _host,
+        skipPermissions: _skipPerms,
+        sync: sync,
+      );
+    } else {
+      session = await widget.controller.launch(
+        cwd: cwd,
+        repoPath: cwd, // send both keys so either server naming works
+        worktree: _worktree,
+        title: _title.text.trim(),
+        prompt: prompt,
+        model: _model.text.trim(),
+        host: _host,
+        skipPermissions: _skipPerms,
+        sync: sync,
+      );
+    }
     if (!mounted) return;
     if (session != null) {
       nav.pop();
@@ -978,16 +1853,20 @@ class _LaunchSheetState extends State<_LaunchSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const _SheetGrabber(),
-              const Text(
-                'Launch coding session',
-                style: TextStyle(
+              Text(
+                _inProject
+                    ? 'New session in “${widget.project!.name}”'
+                    : 'Launch coding session',
+                style: const TextStyle(
                   color: JcTheme.text,
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 16),
-              const _FieldLabel('Working directory'),
+              _FieldLabel(_inProject
+                  ? 'Working directory (blank = project repo)'
+                  : 'Working directory'),
               TextField(
                 controller: _cwd,
                 style: const TextStyle(color: JcTheme.text, fontSize: 14),
@@ -1020,12 +1899,14 @@ class _LaunchSheetState extends State<_LaunchSheet> {
                 onChanged: (v) => setState(() => _host = v),
               ),
               const SizedBox(height: 6),
-              _Toggle(
-                value: _worktree,
-                onChanged: (v) => setState(() => _worktree = v),
-                title: 'Run in an isolated git worktree',
-                subtitle: 'Branches a fresh worktree from the directory above.',
-              ),
+              if (!_inProject)
+                _Toggle(
+                  value: _worktree,
+                  onChanged: (v) => setState(() => _worktree = v),
+                  title: 'Run in an isolated git worktree',
+                  subtitle:
+                      'Branches a fresh worktree from the directory above.',
+                ),
               _Toggle(
                 value: _skipPerms,
                 onChanged: (v) => setState(() => _skipPerms = v),

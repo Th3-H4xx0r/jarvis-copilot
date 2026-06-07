@@ -301,6 +301,20 @@ class DesktopBridge:
             "type": "coding_discover_request",
         })
 
+    def send_resume(self, device_id: str, *, claude_session_id: str, cwd: str,
+                    tmux_name: str) -> bool:
+        """Tell a device to RESUME a discovered (history) transcript session into a
+        live, drivable tmux. The desktop client receives this and launches
+        ``tmux new-session -d -s <tmux_name> -c <cwd> -- claude --resume
+        <claude_session_id>`` (its job, not ours — we only emit the frame), then
+        streams ``coding_term_output`` for the new term_id=<tmux_name>."""
+        return self._transport.send(device_id, {
+            "type": "coding_resume",
+            "claude_session_id": claude_session_id,
+            "cwd": cwd,
+            "tmux_name": tmux_name,
+        })
+
     def register_sync(self, session) -> None:
         with self._lock:
             self._syncs[session.sync_id] = session
@@ -771,46 +785,84 @@ def _resolve_store():
 
 # ── discovered (device-side) coding-session ingest ───────────────────────────
 #
-# A desktop device periodically scans its live ``claude`` tmux sessions and
-# pushes a ``coding_discover`` frame listing them. The server upserts each as a
-# first-class coding-session row (host='desktop', external=1, source starts with
-# 'discovered-tmux') grouped under an auto-created project keyed by the session's
-# cwd, and reconciles ones that vanished to status='stopped' (kept for history).
+# A desktop device periodically scans its live ``claude`` tmux sessions AND its
+# ``~/.claude`` transcript history, and pushes a ``coding_discover`` frame listing
+# both. Two item kinds arrive in the same frame's ``sessions`` list:
+#
+#   {kind:'tmux',       tmux_name, cwd, title, last_activity}
+#       -> a LIVE, drivable claude tmux session. Upserted host='desktop',
+#          external=1, source='discovered-tmux', status='running', keyed by
+#          (device_id, tmux_name). Vanished tmux rows reconcile to 'stopped'.
+#
+#   {kind:'transcript', claude_session_id, cwd, summary, last_activity, live}
+#       -> a claude SESSION HISTORY (resumable via ``claude --resume``). Upserted
+#          host='desktop', external=1, source='discovered-transcript', keyed by
+#          (device_id, claude_session_id). status='running' when ``live`` else
+#          'idle' (idle = resumable history). Transcript rows are HISTORY: they
+#          are NEVER stopped/deleted when absent from a push (a user may prune
+#          ~/.claude). The tmux reconcile (mark-absent-stopped) is scoped to
+#          discovered-tmux rows ONLY and must not touch transcript rows.
+#
+# Both group under an auto-created project keyed by (cwd, device_id).
+#
+# Dedup: a live tmux item and a transcript item can describe the SAME underlying
+# session (same cwd; the transcript carrying the claude_session_id the tmux is
+# running). We prefer the DRIVABLE tmux row and SKIP a transcript with live=true
+# whose cwd already has a discovered-tmux row in THIS batch — so we don't create a
+# confusing idle/running duplicate of a session the user can already drive.
 #
 # Per-device tombstones: when a user deletes a discovered session we record its
-# tmux_name here so the next push doesn't resurrect it. The delete path calls
+# key here so the next push doesn't resurrect it. tmux items are tombstoned by
+# tmux_name; transcript items by claude_session_id. The delete path calls
 # ``dismiss_discovered`` (exposed for that wiring).
 _DISMISSED_DISCOVERED: dict[str, set] = {}
 _DISMISSED_LOCK = threading.Lock()
 
 
-def dismiss_discovered(device_id: str, tmux_name: str) -> None:
-    """Tombstone a (device_id, tmux_name) so ``ingest_discovered`` won't recreate
-    it on the next push (called from the session-delete path)."""
-    if not device_id or not tmux_name:
+def dismiss_discovered(device_id: str, key: str) -> None:
+    """Tombstone a (device_id, key) so ``ingest_discovered`` won't recreate it on
+    the next push (called from the session-delete path). ``key`` is the
+    tmux_name for a discovered-tmux row, or the claude_session_id for a
+    discovered-transcript row."""
+    if not device_id or not key:
         return
     with _DISMISSED_LOCK:
-        _DISMISSED_DISCOVERED.setdefault(str(device_id), set()).add(str(tmux_name))
+        _DISMISSED_DISCOVERED.setdefault(str(device_id), set()).add(str(key))
 
 
-def _is_dismissed(device_id: str, tmux_name: str) -> bool:
+def _is_dismissed(device_id: str, key: str) -> bool:
     with _DISMISSED_LOCK:
-        return str(tmux_name) in _DISMISSED_DISCOVERED.get(str(device_id), set())
+        return str(key) in _DISMISSED_DISCOVERED.get(str(device_id), set())
 
 
 def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
-    """Upsert a desktop device's live ``claude`` tmux sessions as coding-session
-    rows and reconcile ones that disappeared.
+    """Upsert a desktop device's discovered ``claude`` sessions and reconcile.
 
-    For each incoming ``{kind:'tmux', tmux_name, cwd, title, last_activity}``:
-      * group it under a project auto-created for its cwd (the repo_path key, per
-        (cwd, device_id) — we have no git on the server for the device's path),
-      * upsert a row matched by (device_id, tmux_name): an existing row is
-        updated (status='running', title, last_activity_at, project_id,
-        external=1); otherwise a new external 'discovered-tmux' row is created.
-    Any existing discovered row for this device NOT in the incoming set is marked
-    status='stopped' (kept, not deleted, for history). Dismissed (user-deleted)
-    tmux_names are skipped so they're not resurrected.
+    The push carries two item kinds in ``sessions`` (see the module header):
+
+    ``{kind:'tmux', tmux_name, cwd, title, last_activity}`` -> a LIVE tmux:
+      * group under a project auto-created for its cwd (per (cwd, device_id)),
+      * upsert a row matched by (device_id, tmux_name) with source
+        'discovered-tmux', external=1, status='running'.
+      Any discovered-tmux row NOT in this push is reconciled to 'stopped' (kept
+      for history).
+
+    ``{kind:'transcript', claude_session_id, cwd, summary, last_activity, live}``
+    -> a resumable HISTORY:
+      * group under the same per-(cwd, device_id) project,
+      * upsert a row matched by (device_id, claude_session_id) with source
+        'discovered-transcript', external=1, status='running' if ``live`` else
+        'idle'.
+      Transcript rows are HISTORY: they are NEVER stopped/deleted when absent
+      from a push (the user may prune ~/.claude). The tmux 'stopped' reconcile is
+      scoped to discovered-tmux rows ONLY — it never touches transcript rows.
+
+    Dedup: a transcript with ``live=true`` whose cwd already has a discovered-tmux
+    row IN THIS BATCH is SKIPPED — we keep the drivable tmux row and avoid a
+    duplicate idle/running view of a session the user can already drive.
+
+    Dismissed (user-deleted) keys are skipped so they're not resurrected:
+    tmux items by tmux_name, transcript items by claude_session_id.
 
     Never raises — logs and continues on per-item errors. Returns the number of
     rows upserted (created or updated)."""
@@ -819,24 +871,40 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
         return 0
     sessions = sessions or []
 
-    # Existing discovered rows for this device, indexed by tmux_name. We only
-    # ever touch rows this ingest owns (external + source startswith
-    # 'discovered-tmux') so we never disturb Jarvis-launched sessions.
-    existing: dict = {}
+    # Existing discovered rows for this device. tmux rows indexed by tmux_name,
+    # transcript rows by claude_session_id. We only ever touch rows this ingest
+    # owns (external + source startswith 'discovered-') so Jarvis-launched
+    # sessions are never disturbed. The two scopes are kept separate so the tmux
+    # 'stopped' reconcile can't reach a transcript history row.
+    existing_tmux: dict = {}
+    existing_transcript: dict = {}
     try:
         for row in store.list_sessions(device_id=device_id):
             src = (row.get("source") or "")
-            if src.startswith("discovered-tmux") and row.get("external"):
+            if not row.get("external"):
+                continue
+            if src.startswith("discovered-tmux"):
                 name = row.get("tmux_name")
                 if name:
-                    existing[name] = row
+                    existing_tmux[name] = row
+            elif src.startswith("discovered-transcript"):
+                csid = row.get("claude_session_id")
+                if csid:
+                    existing_transcript[csid] = row
     except Exception as exc:  # noqa: BLE001
         log.warning("coding_discover[%s]: list_sessions failed: %s",
                     device_id, exc)
-        existing = {}
+        existing_tmux = {}
+        existing_transcript = {}
 
-    seen: set = set()
+    seen_tmux: set = set()
+    # cwds that have a LIVE tmux item in THIS batch — a transcript with live=true
+    # under one of these is the same drivable session, so we skip it (dedup).
+    live_tmux_cwds: set = set()
     upserted = 0
+
+    # First pass over tmux items so live_tmux_cwds is fully populated before any
+    # transcript dedup decision (push order is not guaranteed).
     for sess in sessions:
         try:
             if not isinstance(sess, dict):
@@ -846,16 +914,17 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             tmux_name = (sess.get("tmux_name") or "").strip()
             if not tmux_name:
                 continue
+            cwd = sess.get("cwd") or ""
+            live_tmux_cwds.add(cwd)
             if _is_dismissed(device_id, tmux_name):
                 # User deleted this one — don't resurrect it.
                 continue
-            seen.add(tmux_name)
-            cwd = sess.get("cwd") or ""
+            seen_tmux.add(tmux_name)
             title = sess.get("title") or tmux_name
             last_activity = sess.get("last_activity")
             pid = store.get_or_create_project_for_path(
                 repo_path=cwd, host="desktop", device_id=device_id)
-            row = existing.get(tmux_name)
+            row = existing_tmux.get(tmux_name)
             if row is not None:
                 # Reparent to the (possibly new) cwd's project AND move the row's
                 # own cwd with it — a tmux session can be re-created under the
@@ -878,14 +947,62 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                     store.update_session(sid, last_activity_at=last_activity)
             upserted += 1
         except Exception as exc:  # noqa: BLE001
-            log.warning("coding_discover[%s]: skipped a session: %s",
+            log.warning("coding_discover[%s]: skipped a tmux session: %s",
                         device_id, exc)
             continue
 
-    # Reconcile: any discovered row we own that wasn't in this push has vanished
-    # from the device — mark it stopped (keep the row for history).
-    for name, row in existing.items():
-        if name in seen:
+    # Second pass: transcript (resumable history) items.
+    for sess in sessions:
+        try:
+            if not isinstance(sess, dict):
+                continue
+            if sess.get("kind") != "transcript":
+                continue
+            csid = (sess.get("claude_session_id") or "").strip()
+            if not csid:
+                continue
+            if _is_dismissed(device_id, csid):
+                # User deleted this one — don't resurrect it.
+                continue
+            cwd = sess.get("cwd") or ""
+            live = bool(sess.get("live"))
+            # Dedup: a LIVE transcript whose cwd already has a tmux item this
+            # batch is the same drivable session — prefer the tmux row, skip this.
+            if live and cwd in live_tmux_cwds:
+                continue
+            from pathlib import Path as _P
+            title = sess.get("summary") or (_P(cwd).name if cwd else "") or csid
+            last_activity = sess.get("last_activity")
+            status = "running" if live else "idle"
+            pid = store.get_or_create_project_for_path(
+                repo_path=cwd, host="desktop", device_id=device_id)
+            row = existing_transcript.get(csid)
+            if row is not None:
+                fields = dict(status=status, title=title, cwd=cwd,
+                              project_id=pid, external=1)
+                if last_activity is not None:
+                    fields["last_activity_at"] = last_activity
+                store.update_session(row["id"], **fields)
+            else:
+                sid = store.create_session(
+                    project_id=pid, host="desktop", cwd=cwd, branch=None,
+                    tmux_name=None, source="discovered-transcript", title=title,
+                    device_id=device_id, external=True, status=status,
+                    claude_session_id=csid)
+                if last_activity is not None:
+                    store.update_session(sid, last_activity_at=last_activity)
+            upserted += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("coding_discover[%s]: skipped a transcript: %s",
+                        device_id, exc)
+            continue
+
+    # Reconcile: any discovered-TMUX row we own that wasn't in this push has
+    # vanished from the device — mark it stopped (keep the row for history).
+    # NOTE: transcript rows are deliberately NOT reconciled here — they're
+    # persistent history and must survive being absent from a push.
+    for name, row in existing_tmux.items():
+        if name in seen_tmux:
             continue
         try:
             if (row.get("status") or "") != "stopped":
@@ -894,6 +1011,53 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             log.warning("coding_discover[%s]: reconcile stop failed for %s: %s",
                         device_id, name, exc)
     return upserted
+
+
+def resume_discovered_session(session_row: dict, *,
+                              bridge: DesktopBridge | None = None,
+                              store=None) -> dict:
+    """Resume a discovered transcript (history) session into a live tmux.
+
+    Allocates a fresh ``tmux_name`` (``jc-<hex>``), sends a ``coding_resume`` frame
+    to the row's ``device_id`` (the desktop launches the resume tmux on receipt:
+    ``tmux new-session -d -s <tmux_name> -c <cwd> -- claude --resume <csid>``),
+    and updates the row to host='desktop', the new tmux_name and
+    status='starting' (until the desktop streams output for term_id=<tmux_name>).
+    Returns the updated row.
+
+    The ``source`` flip to 'discovered-tmux' is requested too — it's about to be a
+    live, drivable tmux — but the store's ``update_session`` only persists its
+    allow-listed columns, so ``source`` stays 'discovered-transcript' under the
+    current store. That's harmless: the tmux 'stopped' reconcile only touches
+    'discovered-tmux'-sourced rows, so a resumed-but-still-transcript row is never
+    wrongly stopped while it spins up.
+
+    Raises ValueError if the row has no ``claude_session_id`` (nothing to resume)
+    or no resolvable ``device_id`` (no desktop to drive it)."""
+    import uuid as _uuid
+
+    bridge = bridge or get_desktop_bridge()
+    store = store or _resolve_store()
+    if store is None:
+        raise RuntimeError("coding session store unavailable")
+
+    sid = session_row.get("id")
+    claude_session_id = (session_row.get("claude_session_id") or "").strip()
+    if not claude_session_id:
+        raise ValueError("session has no claude_session_id to resume")
+    device_id = (session_row.get("device_id") or "").strip() \
+        or (resolve_desktop_device_id() or "")
+    if not device_id:
+        raise ValueError("no desktop device connected to resume on")
+    cwd = session_row.get("cwd") or ""
+
+    tmux_name = "jc-" + _uuid.uuid4().hex[:12]
+    bridge.send_resume(device_id, claude_session_id=claude_session_id,
+                       cwd=cwd, tmux_name=tmux_name)
+    store.update_session(sid, host="desktop", tmux_name=tmux_name,
+                         status="starting", source="discovered-tmux",
+                         device_id=device_id)
+    return store.get_session(sid)
 
 
 def _session_is_synced(session: dict) -> bool:

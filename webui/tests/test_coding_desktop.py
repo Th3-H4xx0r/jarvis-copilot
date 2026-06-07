@@ -769,6 +769,231 @@ def test_ingest_discovered_no_store_is_noop(monkeypatch):
                                            "tmux_name": "c", "cwd": "/w"}]) == 0
 
 
+# ── ingest_discovered: transcript (resumable history) items ──────────────────
+
+
+def test_ingest_transcript_creates_idle_resumable_session(tmp_path, monkeypatch):
+    """A transcript item (no live flag) -> an 'idle' (resumable history) row under
+    the auto-project for its cwd, keyed by claude_session_id."""
+    store = _temp_store(tmp_path)
+    n = _discovered("dev-tr", [
+        {"kind": "transcript", "claude_session_id": "abc123",
+         "cwd": "/Users/me/hist", "summary": "Refactor the parser",
+         "last_activity": 555.0},
+    ], store, monkeypatch)
+    assert n == 1
+
+    rows = store.list_sessions(device_id="dev-tr")
+    assert len(rows) == 1
+    s = rows[0]
+    assert s["claude_session_id"] == "abc123"
+    assert s["source"] == "discovered-transcript"
+    assert s["external"] == 1
+    assert s["host"] == "desktop"
+    assert s["status"] == "idle"           # resumable history, NOT stopped
+    assert s["title"] == "Refactor the parser"
+    assert s["cwd"] == "/Users/me/hist"
+    assert s["last_activity_at"] == 555.0
+    # grouped under the auto-project for (cwd, device_id)
+    proj = store.get_project(s["project_id"])
+    assert proj["repo_path"] == "/Users/me/hist"
+    assert proj["device_id"] == "dev-tr"
+
+
+def test_ingest_transcript_title_falls_back_to_cwd_basename(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    _discovered("dev-trb", [
+        {"kind": "transcript", "claude_session_id": "noSummary",
+         "cwd": "/Users/me/my-repo"},
+    ], store, monkeypatch)
+    row = store.list_sessions(device_id="dev-trb")[0]
+    assert row["title"] == "my-repo"       # basename of cwd when no summary
+
+
+def test_ingest_transcript_live_is_running(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    _discovered("dev-trl", [
+        {"kind": "transcript", "claude_session_id": "live1",
+         "cwd": "/w/live", "summary": "live one", "live": True},
+    ], store, monkeypatch)
+    row = store.list_sessions(device_id="dev-trl")[0]
+    assert row["status"] == "running"
+
+
+def test_ingest_transcript_not_stopped_by_tmux_reconcile(tmp_path, monkeypatch):
+    """Transcript rows are persistent history — the tmux 'mark absent stopped'
+    reconcile must NOT touch them, even when a later push omits them entirely."""
+    store = _temp_store(tmp_path)
+    # First push: one tmux + one transcript, both in /w/x.
+    _discovered("dev-mix", [
+        {"kind": "tmux", "tmux_name": "claude-x", "cwd": "/w/x", "title": "x"},
+        {"kind": "transcript", "claude_session_id": "hist-x", "cwd": "/w/h",
+         "summary": "history"},
+    ], store, monkeypatch)
+    # Second push: only the tmux (transcript pruned from ~/.claude / just absent).
+    _discovered("dev-mix", [
+        {"kind": "tmux", "tmux_name": "claude-x", "cwd": "/w/x", "title": "x"},
+    ], store, monkeypatch)
+
+    rows = {(_r.get("source"), _r.get("claude_session_id") or _r.get("tmux_name")): _r
+            for _r in store.list_sessions(device_id="dev-mix")}
+    tr = rows[("discovered-transcript", "hist-x")]
+    assert tr["status"] == "idle"          # still idle, NOT reconciled to stopped
+
+
+def test_ingest_transcript_second_push_updates_not_duplicates(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    _discovered("dev-tr2", [
+        {"kind": "transcript", "claude_session_id": "dup", "cwd": "/w/d",
+         "summary": "old", "last_activity": 1.0},
+    ], store, monkeypatch)
+    _discovered("dev-tr2", [
+        {"kind": "transcript", "claude_session_id": "dup", "cwd": "/w/d",
+         "summary": "new", "last_activity": 9.0, "live": True},
+    ], store, monkeypatch)
+    rows = store.list_sessions(device_id="dev-tr2")
+    assert len(rows) == 1                  # matched by claude_session_id
+    assert rows[0]["title"] == "new"
+    assert rows[0]["status"] == "running"  # now live
+    assert rows[0]["last_activity_at"] == 9.0
+
+
+def test_ingest_transcript_omitted_last_activity_does_not_wipe(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    _discovered("dev-trla", [
+        {"kind": "transcript", "claude_session_id": "la", "cwd": "/w/la",
+         "summary": "a", "last_activity": 77.0},
+    ], store, monkeypatch)
+    _discovered("dev-trla", [
+        {"kind": "transcript", "claude_session_id": "la", "cwd": "/w/la",
+         "summary": "a"},
+    ], store, monkeypatch)
+    row = store.list_sessions(device_id="dev-trla")[0]
+    assert row["last_activity_at"] == 77.0  # preserved
+
+
+def test_ingest_transcript_dismissed_tombstone_blocks_recreate(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    cd._DISMISSED_DISCOVERED.clear()
+    cd.dismiss_discovered("dev-trd", "csid-gone")   # tombstone by claude_session_id
+    n = _discovered("dev-trd", [
+        {"kind": "transcript", "claude_session_id": "csid-gone", "cwd": "/w/g",
+         "summary": "gone"},
+        {"kind": "transcript", "claude_session_id": "csid-keep", "cwd": "/w/k",
+         "summary": "keep"},
+    ], store, monkeypatch)
+    cd._DISMISSED_DISCOVERED.clear()
+    assert n == 1
+    csids = {r["claude_session_id"] for r in store.list_sessions(device_id="dev-trd")}
+    assert csids == {"csid-keep"}
+
+
+def test_ingest_live_transcript_dedups_against_tmux_in_same_batch(tmp_path, monkeypatch):
+    """A live transcript whose cwd already has a tmux row THIS batch is skipped —
+    we keep the drivable tmux row, not a duplicate."""
+    store = _temp_store(tmp_path)
+    n = _discovered("dev-dedup", [
+        {"kind": "tmux", "tmux_name": "claude-live", "cwd": "/w/same",
+         "title": "live"},
+        {"kind": "transcript", "claude_session_id": "same-csid", "cwd": "/w/same",
+         "summary": "same session", "live": True},
+    ], store, monkeypatch)
+    # Only the tmux row was upserted; the live transcript dup was skipped.
+    assert n == 1
+    rows = store.list_sessions(device_id="dev-dedup")
+    assert len(rows) == 1
+    assert rows[0]["source"] == "discovered-tmux"
+    assert rows[0]["tmux_name"] == "claude-live"
+
+
+def test_ingest_idle_transcript_not_deduped_against_tmux(tmp_path, monkeypatch):
+    """An IDLE (live=false) transcript is real history even if a tmux shares its
+    cwd — it is NOT deduped (it's a different, resumable past session)."""
+    store = _temp_store(tmp_path)
+    n = _discovered("dev-nd", [
+        {"kind": "tmux", "tmux_name": "claude-now", "cwd": "/w/same",
+         "title": "now"},
+        {"kind": "transcript", "claude_session_id": "past-csid", "cwd": "/w/same",
+         "summary": "a past session"},   # live omitted -> idle history
+    ], store, monkeypatch)
+    assert n == 2
+    sources = sorted(r["source"] for r in store.list_sessions(device_id="dev-nd"))
+    assert sources == ["discovered-tmux", "discovered-transcript"]
+
+
+def test_ingest_mixed_batch_both_kinds(tmp_path, monkeypatch):
+    """A batch with both a tmux item and an unrelated transcript ingests both,
+    grouped under their respective per-cwd projects."""
+    store = _temp_store(tmp_path)
+    n = _discovered("dev-both", [
+        {"kind": "tmux", "tmux_name": "claude-t", "cwd": "/w/t", "title": "t"},
+        {"kind": "transcript", "claude_session_id": "h1", "cwd": "/w/h",
+         "summary": "history"},
+    ], store, monkeypatch)
+    assert n == 2
+    rows = store.list_sessions(device_id="dev-both")
+    by_src = {r["source"]: r for r in rows}
+    assert set(by_src) == {"discovered-tmux", "discovered-transcript"}
+    assert by_src["discovered-tmux"]["status"] == "running"
+    assert by_src["discovered-transcript"]["status"] == "idle"
+
+
+# ── send_resume + resume_discovered_session ──────────────────────────────────
+
+
+def test_send_resume_emits_frame():
+    bridge, t = make_bridge()
+    assert bridge.send_resume("dev-R", claude_session_id="abc",
+                              cwd="/w/r", tmux_name="jc-newterm") is True
+    f = t.frames("coding_resume")
+    assert f == [{"type": "coding_resume", "claude_session_id": "abc",
+                  "cwd": "/w/r", "tmux_name": "jc-newterm"}]
+    assert t.sent[0][0] == "dev-R"
+
+
+def test_resume_discovered_session_sends_frame_and_updates_row(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    monkeypatch.setattr(cd, "_resolve_store", lambda: store, raising=True)
+    # Seed an idle discovered-transcript row to resume.
+    _discovered("dev-res", [
+        {"kind": "transcript", "claude_session_id": "resume-me", "cwd": "/w/res",
+         "summary": "resume me"},
+    ], store, monkeypatch)
+    row = store.list_sessions(device_id="dev-res")[0]
+    assert row["status"] == "idle"
+
+    bridge, t = make_bridge()
+    updated = cd.resume_discovered_session(row, bridge=bridge, store=store)
+
+    # A coding_resume frame was sent to the row's device with a fresh jc- tmux name.
+    frames = t.frames("coding_resume")
+    assert len(frames) == 1
+    f = frames[0]
+    assert t.sent[0][0] == "dev-res"
+    assert f["claude_session_id"] == "resume-me"
+    assert f["cwd"] == "/w/res"
+    assert f["tmux_name"].startswith("jc-")
+    # The row was flipped to a starting, drivable tmux.
+    assert updated["status"] == "starting"
+    assert updated["host"] == "desktop"
+    assert updated["tmux_name"] == f["tmux_name"]
+    # source flips to 'discovered-tmux' so the NEXT discovery tick's tmux upsert
+    # (keyed by device_id+tmux_name within the discovered-tmux scope) MATCHES
+    # this row instead of creating a duplicate live row alongside it.
+    assert updated["source"] == "discovered-tmux"
+
+
+def test_resume_discovered_session_requires_claude_session_id(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    bridge, t = make_bridge()
+    import pytest
+    with pytest.raises(ValueError):
+        cd.resume_discovered_session(
+            {"id": "cs_x", "device_id": "dev-x", "cwd": "/w"},
+            bridge=bridge, store=store)
+    assert t.sent == []
+
+
 # ── device_bridge inbound hook routes coding frames to the handler ───────────
 
 
