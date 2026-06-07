@@ -123,12 +123,10 @@ class CodingSessionsController extends ChangeNotifier {
     }
   }
 
-  /// Newest-first: prefer `last_activity_at`, fall back to `created_at`.
-  static int _bySessionRecency(CodingSession a, CodingSession b) {
-    final ak = a.lastActivityAt ?? a.createdAt?.toString() ?? '';
-    final bk = b.lastActivityAt ?? b.createdAt?.toString() ?? '';
-    return bk.compareTo(ak);
-  }
+  /// Newest-first by numeric recency (epoch seconds; a string compare
+  /// mis-ordered these). Prefers `last_activity_at`, falls back to `created_at`.
+  static int _bySessionRecency(CodingSession a, CodingSession b) =>
+      b.recencyTs.compareTo(a.recencyTs);
 
   /// Toggle a project group's collapsed state in the tree (UI-only).
   void toggleCollapsed(String key) {

@@ -635,13 +635,9 @@ class _ProjectGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Newest-first (last_activity_at, then created_at).
+    // Newest-first by numeric recency (last_activity_at, then created_at).
     final sorted = sessions.toList()
-      ..sort((a, b) {
-        final ak = a.lastActivityAt ?? a.createdAt?.toString() ?? '';
-        final bk = b.lastActivityAt ?? b.createdAt?.toString() ?? '';
-        return bk.compareTo(ak);
-      });
+      ..sort((a, b) => b.recencyTs.compareTo(a.recencyTs));
     return GlassCard(
       padding: EdgeInsets.zero,
       child: Column(

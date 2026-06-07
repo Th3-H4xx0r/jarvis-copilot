@@ -86,6 +86,43 @@ function _codingDeviceOptionsHtml(selected) {
   return html;
 }
 
+// Format a last-activity value (epoch seconds OR ms OR an ISO string) into a
+// readable local datetime + a relative suffix. Returns '' for empty input and
+// echoes the raw value back if it can't be parsed.
+function _cdgFmtTime(v) {
+  if (v == null || v === '') return '';
+  let ms;
+  const str = String(v).trim();
+  if (/^[0-9]+(\.[0-9]+)?$/.test(str)) {
+    const n = Number(str);
+    ms = n > 1e12 ? n : n * 1000;   // >1e12 ⇒ already milliseconds
+  } else {
+    ms = Date.parse(str);
+    if (isNaN(ms)) return str;
+  }
+  const date = new Date(ms);
+  if (isNaN(date.getTime())) return str;
+  const abs = date.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+  const rel = _cdgRelTime(Date.now() - ms);
+  return rel ? `${abs} · ${rel}` : abs;
+}
+function _cdgRelTime(diffMs) {
+  if (diffMs < 0) return '';
+  const s = Math.floor(diffMs / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  const d = Math.floor(h / 24);
+  if (d < 30) return d + 'd ago';
+  const mo = Math.floor(d / 30);
+  return mo < 12 ? mo + 'mo ago' : Math.floor(mo / 12) + 'y ago';
+}
+
 function _cdgStatusClass(status) {
   const s = String(status || '').toLowerCase();
   if (s === 'running' || s === 'active' || s === 'busy') return 'running';
@@ -167,11 +204,20 @@ async function _codingRefreshList() {
   }
 }
 
-// Newest-first by last_activity_at (falls back to created_at).
+// Newest-first by last_activity_at (falls back to created_at). NUMERIC compare —
+// these are epoch values (seconds, ms, or an ISO string), so a string compare
+// mis-ordered them.
+function _codingActivityTs(s) {
+  const v = s && (s.last_activity_at != null && s.last_activity_at !== ''
+    ? s.last_activity_at : s.created_at);
+  if (v == null || v === '') return 0;
+  const n = Number(v);
+  if (!isNaN(n)) return n > 1e12 ? n / 1000 : n;   // normalise ms → s
+  const p = Date.parse(String(v));
+  return isNaN(p) ? 0 : p / 1000;
+}
 function _codingSortSessions(arr) {
-  return (arr || []).slice().sort((a, b) =>
-    String((b && (b.last_activity_at || b.created_at)) || '')
-      .localeCompare(String((a && (a.last_activity_at || a.created_at)) || '')));
+  return (arr || []).slice().sort((a, b) => _codingActivityTs(b) - _codingActivityTs(a));
 }
 
 // Is this a transcript-only session that isn't currently running? Such sessions
@@ -817,7 +863,7 @@ function _codingRenderTranscriptDetail(session, id) {
   const claudeId = session.claude_session_id || '';
   const rows = [];
   if (cwd) rows.push(`<div class="cdg-meta-row"><span class="cdg-meta-key">Directory</span><span class="cdg-meta-val">${_cdgEsc(cwd)}</span></div>`);
-  if (last) rows.push(`<div class="cdg-meta-row"><span class="cdg-meta-key">Last activity</span><span class="cdg-meta-val">${_cdgEsc(last)}</span></div>`);
+  if (last) rows.push(`<div class="cdg-meta-row"><span class="cdg-meta-key">Last activity</span><span class="cdg-meta-val">${_cdgEsc(_cdgFmtTime(last))}</span></div>`);
   if (claudeId) rows.push(`<div class="cdg-meta-row"><span class="cdg-meta-key">Session id</span><span class="cdg-meta-val">${_cdgEsc(claudeId)}</span></div>`);
   detail.innerHTML = `
     <div class="cm-detail-head">

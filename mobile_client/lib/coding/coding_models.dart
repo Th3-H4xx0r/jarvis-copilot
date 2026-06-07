@@ -122,6 +122,20 @@ class CodingSession {
   bool get isTranscriptIdle =>
       source == 'discovered-transcript' && statusClass != 'running';
 
+  /// Epoch SECONDS used to sort sessions newest-first. Prefers `last_activity_at`,
+  /// falls back to `created_at`. Handles numeric epochs (seconds OR milliseconds)
+  /// and ISO strings; 0 when unknown. (A plain string compare mis-ordered these.)
+  double get recencyTs {
+    final raw = (lastActivityAt != null && lastActivityAt!.isNotEmpty)
+        ? lastActivityAt!
+        : (createdAt?.toString() ?? '');
+    if (raw.isEmpty) return 0;
+    final n = double.tryParse(raw);
+    if (n != null) return n > 1e12 ? n / 1000 : n; // normalise ms → s
+    final d = DateTime.tryParse(raw);
+    return d == null ? 0 : d.millisecondsSinceEpoch / 1000;
+  }
+
   /// Resolve the host/source badge shown on the session row. Priority:
   /// history (idle transcript) > discovered/live (external) > desktop > server.
   /// Mirrors the WebUI badge logic in `_codingSessionRowHtml`.
