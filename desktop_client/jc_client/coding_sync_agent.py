@@ -21,11 +21,12 @@ agree on manifests and path safety. Keep them in sync if the server's change.
 Frames handled (inbound, via ``handle_frame``) and emitted (via ``send``)
 ========================================================================
 Inbound:
-  coding_sync_open  {sync_id, path, ignore:[...]}
-  coding_sync_get   {sync_id, relpath}
-  coding_sync_file  {sync_id, relpath, b64}
-  coding_sync_rm    {sync_id, relpath}
-  coding_sync_close {sync_id}
+  coding_sync_open     {sync_id, path, ignore:[...]}
+  coding_sync_get      {sync_id, relpath}
+  coding_sync_file     {sync_id, relpath, b64}
+  coding_sync_rm       {sync_id, relpath}
+  coding_sync_progress {sync_id, done, total}   (server-pushed transfer progress)
+  coding_sync_close    {sync_id}
 
 Emitted:
   {"type":"coding_sync_manifest","sync_id":id,"manifest":{relpath:[size,mtime,sha]}}
@@ -60,8 +61,12 @@ log = logging.getLogger(__name__)
 # tray (`jc-client tray`) run as SEPARATE processes that share no memory. To let
 # the tray show a "Syncing changes…" indicator, the service process (this agent)
 # writes a tiny state file that the tray polls. Schema:
-#     {"last_transfer_at": <epoch float>, "active": <int active_count()>}
+#     {"last_transfer_at": <epoch float>, "active": <int active_count()>,
+#      "done": <int>, "total": <int>}
 # `last_transfer_at == 0` means "no transfer / idle" (also written on close()).
+# `done`/`total` are the AGGREGATE (summed across all active syncs) transfer
+# progress pushed by the server via coding_sync_progress frames; the tray shows
+# round(done/total*100)% when total>0. Both reset to 0 on close().
 _SYNC_STATE_FILENAME = "sync_state.json"
 
 # Don't hammer the disk on a burst of file frames — coalesce writes.
@@ -286,6 +291,10 @@ class CodingSyncAgent:
         self._state_lock = threading.Lock()
         self._last_state_write = 0.0     # monotonic-ish epoch of last disk write
         self._last_transfer_at = 0.0     # epoch of most-recent transfer (in mem)
+        # Server-pushed transfer progress, kept PER sync_id; the tray shows the
+        # AGGREGATE (summed) done/total across all active syncs so multiple
+        # concurrent syncs surface combined progress. {sync_id: (done, total)}.
+        self._progress: Dict[str, Tuple[int, int]] = {}
 
     # ── status (read by the tray) ───────────────────────────────────────
 
@@ -317,13 +326,23 @@ class CodingSyncAgent:
 
     # ── cross-process sync indicator (state file) ───────────────────────
 
+    def _aggregate_progress(self) -> Tuple[int, int]:
+        """Sum (done, total) across every sync_id with known progress.
+
+        Aggregate so multiple concurrent syncs surface COMBINED progress in the
+        tray. Thread-safe (snapshots under the main lock)."""
+        with self._lock:
+            done = sum(d for (d, _t) in self._progress.values())
+            total = sum(t for (_d, t) in self._progress.values())
+        return done, total
+
     def _touch_sync_state(self) -> None:
         """Record a transfer and (throttled) flush the state file to disk.
 
-        Called on every sync transfer (get/file/event). Writes are coalesced to
-        at most once per ``_SYNC_STATE_THROTTLE_SEC`` so a burst of file frames
-        doesn't hammer the disk; the in-memory ``_last_transfer_at`` always
-        advances so :meth:`is_syncing` stays accurate between flushes.
+        Called on every sync transfer (get/file/event/progress). Writes are
+        coalesced to at most once per ``_SYNC_STATE_THROTTLE_SEC`` so a burst of
+        frames doesn't hammer the disk; the in-memory ``_last_transfer_at``
+        always advances so :meth:`is_syncing` stays accurate between flushes.
         """
         now = time.time()
         self._last_transfer_at = now
@@ -331,21 +350,26 @@ class CodingSyncAgent:
             if (now - self._last_state_write) < _SYNC_STATE_THROTTLE_SEC:
                 return
             self._last_state_write = now
-            self._write_sync_state(now, self.active_count())
+            done, total = self._aggregate_progress()
+            self._write_sync_state(now, self.active_count(), done, total)
 
     def _clear_sync_state(self) -> None:
         """Write the idle sentinel (``last_transfer_at == 0``) on close."""
         self._last_transfer_at = 0.0
+        with self._lock:
+            self._progress.clear()
         with self._state_lock:
             self._last_state_write = time.time()
-            self._write_sync_state(0.0, 0)
+            self._write_sync_state(0.0, 0, 0, 0)
 
-    def _write_sync_state(self, last_transfer_at: float, active: int) -> None:
+    def _write_sync_state(self, last_transfer_at: float, active: int,
+                          done: int = 0, total: int = 0) -> None:
         """Atomically (temp+rename) write the state file. Best-effort."""
         path = self._state_path
         if not path:
             return
-        payload = {"last_transfer_at": last_transfer_at, "active": int(active)}
+        payload = {"last_transfer_at": last_transfer_at, "active": int(active),
+                   "done": int(done), "total": int(total)}
         try:
             parent = os.path.dirname(path) or "."
             os.makedirs(parent, exist_ok=True)
@@ -380,6 +404,8 @@ class CodingSyncAgent:
                 self._on_file(sync_id, frame)
             elif msg_type == "coding_sync_rm":
                 self._on_rm(sync_id, frame)
+            elif msg_type == "coding_sync_progress":
+                self._on_progress(sync_id, frame)
             elif msg_type == "coding_sync_close":
                 self._on_close(sync_id)
             # Unknown types: ignore (other handlers own them).
@@ -478,12 +504,36 @@ class CodingSyncAgent:
         # Drop from the snapshot so the watcher doesn't re-report the delete.
         self._record_removed(sync_id, relpath)
 
+    def _on_progress(self, sync_id: str, frame: dict) -> None:
+        """Server-pushed transfer progress for ``sync_id``.
+
+        Stores the latest (done, total) for this sync (replacing any prior
+        value — the server sends monotonically-advancing snapshots) and flushes
+        it into the state file so the tray can show a percentage. The tray reads
+        the AGGREGATE across all active syncs (see :meth:`_aggregate_progress`).
+        """
+        if not sync_id:
+            return
+        try:
+            done = int(frame.get("done") or 0)
+            total = int(frame.get("total") or 0)
+        except (TypeError, ValueError):
+            return
+        with self._lock:
+            self._progress[sync_id] = (max(0, done), max(0, total))
+        # Surfacing progress is itself a "transfer happening" signal, so reuse
+        # the throttled state-file flush (which now also writes done/total).
+        self._touch_sync_state()
+
     def _on_close(self, sync_id: str) -> None:
         if not sync_id:
             return
         with self._lock:
             self._stop_watcher_locked(sync_id)
             self._syncs.pop(sync_id, None)
+            # Drop this sync's progress so it no longer feeds the aggregate the
+            # tray shows (a closed sync isn't "in progress" anymore).
+            self._progress.pop(sync_id, None)
 
     def close(self) -> None:
         """Stop every watcher thread and forget all syncs."""

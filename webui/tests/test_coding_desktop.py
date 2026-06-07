@@ -280,6 +280,53 @@ def test_sync_pull_when_remote_has_files(tmp_path):
     assert t.frames("coding_sync_file") == []  # we SENT none (only received)
 
 
+def test_sync_push_emits_progress_frames(tmp_path):
+    # PUSH path: total set up front (done=0), then one increment per file.
+    (tmp_path / "a.txt").write_text("alpha", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("bravo", encoding="utf-8")
+    bridge, t = make_bridge()
+    s = cd.DesktopSyncSession(sync_id="sync-pp", device_id="dev-PP",
+                              root=str(tmp_path), bridge=bridge)
+    bridge.register_sync(s)
+    s.open()
+    bridge.on_frame("dev-PP", {"type": "coding_sync_manifest",
+                               "sync_id": "sync-pp", "manifest": {}})
+    progs = t.frames("coding_sync_progress")
+    # First frame announces the total (done=0); final frame is done==total==2.
+    assert progs[0]["total"] == 2 and progs[0]["done"] == 0
+    assert progs[-1] == {"type": "coding_sync_progress", "sync_id": "sync-pp",
+                         "done": 2, "total": 2}
+    # done advances monotonically and never exceeds total.
+    dones = [p["done"] for p in progs]
+    assert dones == sorted(dones)
+    assert all(p["done"] <= p["total"] for p in progs)
+
+
+def test_sync_pull_emits_progress_on_each_file(tmp_path):
+    bridge, t = make_bridge()
+    s = cd.DesktopSyncSession(sync_id="sync-pq", device_id="dev-PQ",
+                              root=str(tmp_path), bridge=bridge)
+    bridge.register_sync(s)
+    s.open()
+    remote_manifest = {"x.py": (1, 1.0, "h1"), "y.py": (1, 2.0, "h2")}
+    bridge.on_frame("dev-PQ", {"type": "coding_sync_manifest",
+                               "sync_id": "sync-pq", "manifest": remote_manifest})
+    # On manifest: total announced (done=0), no per-file increments yet.
+    progs = t.frames("coding_sync_progress")
+    assert progs[-1] == {"type": "coding_sync_progress", "sync_id": "sync-pq",
+                         "done": 0, "total": 2}
+    # Each inbound file bumps done.
+    bridge.on_frame("dev-PQ", {"type": "coding_sync_file", "sync_id": "sync-pq",
+                               "relpath": "x.py",
+                               "b64": base64.b64encode(b"a").decode()})
+    bridge.on_frame("dev-PQ", {"type": "coding_sync_file", "sync_id": "sync-pq",
+                               "relpath": "y.py",
+                               "b64": base64.b64encode(b"b").decode()})
+    progs = t.frames("coding_sync_progress")
+    assert progs[-1] == {"type": "coding_sync_progress", "sync_id": "sync-pq",
+                         "done": 2, "total": 2}
+
+
 def test_sync_event_modify_pulls_and_delete_applies(tmp_path):
     bridge, t = make_bridge()
     (tmp_path / "gone.txt").write_text("bye", encoding="utf-8")

@@ -267,6 +267,16 @@ class DesktopBridge:
             "path": path, "ignore": list(ignore or []),
         })
 
+    def send_sync_progress(self, device_id: str, sync_id: str,
+                           done: int, total: int) -> bool:
+        """Push transfer progress (done/total files) to the device so its tray
+        can show a sync percentage. OUTBOUND only (server->device); no inbound
+        routing needed for this frame type."""
+        return self._transport.send(device_id, {
+            "type": "coding_sync_progress", "sync_id": sync_id,
+            "done": int(done), "total": int(total),
+        })
+
     def send_sync_get(self, device_id: str, sync_id: str, relpath: str) -> bool:
         return self._transport.send(device_id, {
             "type": "coding_sync_get", "sync_id": sync_id, "relpath": relpath,
@@ -404,6 +414,18 @@ class DesktopSyncSession:
         self.status = "synced"
         self.last_sync_at = time.time()
 
+    def _emit_progress(self) -> None:
+        """Best-effort push of the current (done, total) to the device's tray.
+
+        Sent whenever ``total``/``done`` change so the desktop client can show a
+        sync percentage. Never raises into the sync path (a broken/closed bridge
+        must not abort a transfer)."""
+        try:
+            self.bridge.send_sync_progress(
+                self.device_id, self.sync_id, self.done, self.total)
+        except Exception:
+            pass
+
     def on_manifest(self, remote_manifest: dict) -> None:
         """Got the desktop's manifest — pick a direction and start transfers."""
         local = self.server_manifest()
@@ -413,11 +435,13 @@ class DesktopSyncSession:
             self.direction = plan["direction"]
             self.total = len(plan["files"])
             self.done = 0
+            self._emit_progress()  # total now known (done=0)
             if self.direction == "push":
                 # PUSH: read each server file and send it to the desktop.
                 for rel in plan["files"]:
                     self._push_file(rel)
                     self.done += 1
+                    self._emit_progress()  # per-file push increment
                 self.reconciled.set()
                 self._mark_synced()
             else:
@@ -447,6 +471,7 @@ class DesktopSyncSession:
             self._pending_pull.discard(relpath)
             if self.total:
                 self.done = min(self.total, self.done + 1)
+                self._emit_progress()  # per-file pull increment
             if not self._pending_pull:
                 # initial pull complete OR a single incremental delta applied
                 self.reconciled.set()

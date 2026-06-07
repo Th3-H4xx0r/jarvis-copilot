@@ -457,11 +457,14 @@ def test_state_file_written_on_transfer_with_shape(tmp_path, state_agent,
 
     assert state_file.exists()
     data = json.loads(state_file.read_text())
-    # Exact schema: two keys, the right types/values.
-    assert set(data.keys()) == {"last_transfer_at", "active"}
+    # Exact schema: four keys, the right types/values.
+    assert set(data.keys()) == {"last_transfer_at", "active", "done", "total"}
     assert isinstance(data["last_transfer_at"], (int, float))
     assert data["last_transfer_at"] > 0
     assert data["active"] == 1  # one open sync
+    # No progress frame yet → aggregate done/total are zero.
+    assert data["done"] == 0
+    assert data["total"] == 0
 
 
 def test_state_file_writes_are_throttled(tmp_path, state_agent, state_file):
@@ -489,7 +492,7 @@ def test_close_clears_state_file(tmp_path, sender, state_file):
 
     a.close()
     cleared = json.loads(state_file.read_text())
-    assert cleared == {"last_transfer_at": 0, "active": 0}
+    assert cleared == {"last_transfer_at": 0, "active": 0, "done": 0, "total": 0}
 
 
 def test_state_file_disabled_when_path_none(tmp_path, sender):
@@ -499,3 +502,97 @@ def test_state_file_disabled_when_path_none(tmp_path, sender):
         a._touch_sync_state()  # must be a no-op, no crash, no file
     finally:
         a.close()
+
+
+# --------------------------------------------------------------------------- #
+# coding_sync_progress: server-pushed transfer progress (done/total) → state file
+# --------------------------------------------------------------------------- #
+def test_progress_frame_updates_done_total_and_state_file(tmp_path, state_agent,
+                                                          state_file):
+    _open(state_agent, "s1", tmp_path)
+    state_agent.handle_frame({
+        "type": "coding_sync_progress", "sync_id": "s1",
+        "done": 3, "total": 10,
+    })
+    # In-memory per-sync progress recorded.
+    assert state_agent._progress["s1"] == (3, 10)
+    assert state_agent._aggregate_progress() == (3, 10)
+    # ...and flushed to the state file (schema now has done/total).
+    data = json.loads(state_file.read_text())
+    assert set(data.keys()) == {"last_transfer_at", "active", "done", "total"}
+    assert data["done"] == 3
+    assert data["total"] == 10
+    assert data["last_transfer_at"] > 0
+
+
+def test_progress_latest_value_replaces_prior(tmp_path, state_agent, state_file):
+    _open(state_agent, "s1", tmp_path)
+    state_agent.handle_frame({
+        "type": "coding_sync_progress", "sync_id": "s1", "done": 1, "total": 4,
+    })
+    # A later snapshot for the same sync replaces (does not accumulate).
+    state_agent.handle_frame({
+        "type": "coding_sync_progress", "sync_id": "s1", "done": 4, "total": 4,
+    })
+    assert state_agent._progress["s1"] == (4, 4)
+    assert state_agent._aggregate_progress() == (4, 4)
+
+
+def test_progress_aggregates_across_two_sync_ids(tmp_path, state_agent):
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    _open(state_agent, "s1", a)
+    _open(state_agent, "s2", b)
+
+    state_agent.handle_frame({
+        "type": "coding_sync_progress", "sync_id": "s1", "done": 2, "total": 5,
+    })
+    state_agent.handle_frame({
+        "type": "coding_sync_progress", "sync_id": "s2", "done": 3, "total": 7,
+    })
+    # Aggregate = summed done / summed total across both syncs.
+    assert state_agent._aggregate_progress() == (5, 12)
+
+
+def test_progress_dropped_when_sync_closes(tmp_path, state_agent):
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    _open(state_agent, "s1", a)
+    _open(state_agent, "s2", b)
+    state_agent.handle_frame({
+        "type": "coding_sync_progress", "sync_id": "s1", "done": 2, "total": 5,
+    })
+    state_agent.handle_frame({
+        "type": "coding_sync_progress", "sync_id": "s2", "done": 3, "total": 7,
+    })
+    # Closing s1 removes its contribution from the aggregate.
+    state_agent.handle_frame({"type": "coding_sync_close", "sync_id": "s1"})
+    assert "s1" not in state_agent._progress
+    assert state_agent._aggregate_progress() == (3, 7)
+
+
+def test_progress_ignored_without_sync_id(tmp_path, state_agent):
+    state_agent.handle_frame({
+        "type": "coding_sync_progress", "done": 1, "total": 2,
+    })
+    assert state_agent._progress == {}
+    assert state_agent._aggregate_progress() == (0, 0)
+
+
+def test_close_zeroes_done_total_in_state_file(tmp_path, sender, state_file):
+    a = CodingSyncAgent(sender, poll_interval=3600, state_path=str(state_file))
+    _open(a, "s1", tmp_path)
+    a.handle_frame({
+        "type": "coding_sync_progress", "sync_id": "s1", "done": 5, "total": 9,
+    })
+    assert json.loads(state_file.read_text())["total"] == 9
+
+    a.close()
+    cleared = json.loads(state_file.read_text())
+    assert cleared == {"last_transfer_at": 0, "active": 0, "done": 0, "total": 0}
+    # In-memory progress is cleared too.
+    assert a._progress == {}

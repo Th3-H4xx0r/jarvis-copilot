@@ -43,21 +43,27 @@ _SYNC_STATE_FILENAME = "sync_state.json"
 _SYNC_WINDOW_SEC = 2.5
 
 
-def _read_sync_state() -> tuple[float, int]:
+def _read_sync_state() -> tuple[float, int, int, int]:
     """Read ``sync_state.json`` written by the service's CodingSyncAgent.
 
-    Returns ``(last_transfer_at, active)``; ``(0.0, 0)`` if the file is missing
-    or unreadable. This is the cross-process channel: on macOS the headless
-    service and the tray are different processes, so in-memory ``active_count``
-    isn't visible here — the file is.
+    Returns ``(last_transfer_at, active, done, total)``; ``(0.0, 0, 0, 0)`` if
+    the file is missing or unreadable. This is the cross-process channel: on
+    macOS the headless service and the tray are different processes, so
+    in-memory ``active_count`` isn't visible here — the file is. ``done``/
+    ``total`` are the server-pushed aggregate transfer progress (drive the %).
     """
     path = state_dir() / _SYNC_STATE_FILENAME
     try:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-        return float(data.get("last_transfer_at") or 0.0), int(data.get("active") or 0)
+        return (
+            float(data.get("last_transfer_at") or 0.0),
+            int(data.get("active") or 0),
+            int(data.get("done") or 0),
+            int(data.get("total") or 0),
+        )
     except (OSError, ValueError, TypeError):
-        return 0.0, 0
+        return 0.0, 0, 0, 0
 
 
 def _notify_syncing() -> None:
@@ -167,6 +173,10 @@ class TrayApp:
         # idle→syncing transition (not on every tick while it stays true).
         self._syncing: bool = False
         self._prev_syncing: bool = False
+        # Aggregate transfer progress (server-pushed via sync_state.json), used
+        # to append a percentage to the "Syncing changes…" label.
+        self._sync_done: int = 0
+        self._sync_total: int = 0
 
     # ── Service lifecycle ────────────────────────────────────────────
 
@@ -404,6 +414,18 @@ class TrayApp:
             # so it works even when the service is in a separate process).
             return self._syncing
 
+        def _syncing_label(_item):
+            # "⟳ Syncing changes… N%" when the server has pushed progress
+            # (total>0); just "⟳ Syncing changes…" when the total is unknown.
+            base = "⟳ Syncing changes…"
+            total = self._sync_total
+            if total > 0:
+                pct = round(self._sync_done / total * 100)
+                # Clamp into [0, 100] in case done briefly overshoots/lags total.
+                pct = max(0, min(100, pct))
+                return f"{base} {pct}%"
+            return base
+
         def _pause_label(_item):
             return "Resume" if (self._svc and self._svc.is_paused) else "Pause"
 
@@ -416,8 +438,9 @@ class TrayApp:
             MenuItem(_status_text, None, enabled=False),
             MenuItem(_sync_text, None, enabled=False, visible=_sync_visible),
             # Greyed-out indicator that appears only while files are syncing.
-            # Cross-process (state file), so it shows even when supervised.
-            MenuItem("⟳ Syncing changes…", None, enabled=False,
+            # Cross-process (state file), so it shows even when supervised. The
+            # label appends a percentage when the server has pushed progress.
+            MenuItem(_syncing_label, None, enabled=False,
                      visible=_syncing_visible),
             Sep,
             MenuItem("Open dashboard", self._act_open_dashboard),
@@ -469,13 +492,15 @@ class TrayApp:
         the window. Fires exactly one desktop notification when we cross from
         not-syncing to syncing — never on subsequent ticks while it stays true.
         """
-        last_transfer_at, _active = _read_sync_state()
+        last_transfer_at, _active, done, total = _read_sync_state()
         now = time.time()
         syncing = last_transfer_at > 0.0 and (now - last_transfer_at) < _SYNC_WINDOW_SEC
         if syncing and not self._prev_syncing:
             _notify_syncing()
         self._prev_syncing = syncing
         self._syncing = syncing
+        self._sync_done = done
+        self._sync_total = total
 
     def _refresh_loop(self) -> None:
         while not self._stop.is_set():
