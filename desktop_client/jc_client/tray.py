@@ -18,6 +18,7 @@ with a clear error.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -34,6 +35,65 @@ log = logging.getLogger(__name__)
 
 
 _STATE_REFRESH_SEC = 2.0
+
+# Cross-process Coding-Session sync indicator. The service process (which may be
+# a SEPARATE launchd-supervised process) writes this file via CodingSyncAgent;
+# the tray polls it. Keep these in sync with coding_sync_agent.py.
+_SYNC_STATE_FILENAME = "sync_state.json"
+_SYNC_WINDOW_SEC = 2.5
+
+
+def _read_sync_state() -> tuple[float, int]:
+    """Read ``sync_state.json`` written by the service's CodingSyncAgent.
+
+    Returns ``(last_transfer_at, active)``; ``(0.0, 0)`` if the file is missing
+    or unreadable. This is the cross-process channel: on macOS the headless
+    service and the tray are different processes, so in-memory ``active_count``
+    isn't visible here — the file is.
+    """
+    path = state_dir() / _SYNC_STATE_FILENAME
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return float(data.get("last_transfer_at") or 0.0), int(data.get("active") or 0)
+    except (OSError, ValueError, TypeError):
+        return 0.0, 0
+
+
+def _notify_syncing() -> None:
+    """Send one desktop notification that a sync has started. Best-effort.
+
+    Reuses the same osascript/notify-send/PowerShell backends the client's
+    ``notify`` skill uses, but inline (no skill-registry dependency) so the
+    tray process can fire it directly. Never raises.
+    """
+    title, message = "JarvisCopilot", "Syncing changes…"
+    try:
+        if sys.platform == "darwin":
+            script = f'display notification "{message}" with title "{title}"'
+            subprocess.run(["osascript", "-e", script], check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif sys.platform == "win32":
+            ps = (
+                '$ErrorActionPreference = "SilentlyContinue"; '
+                '[void][Windows.UI.Notifications.ToastNotificationManager, '
+                'Windows.UI.Notifications, ContentType=WindowsRuntime]; '
+                '$T="<toast><visual><binding template=\\"ToastGeneric\\">'
+                f'<text>{title}</text><text>{message}</text>'
+                '</binding></visual></toast>"; '
+                '$x = New-Object Windows.Data.Xml.Dom.XmlDocument; $x.LoadXml($T); '
+                '$n = New-Object Windows.UI.Notifications.ToastNotification($x); '
+                '[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('
+                '"JarvisCopilot").Show($n)'
+            )
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                           check=False, capture_output=True)
+        else:
+            import shutil
+            if shutil.which("notify-send"):
+                subprocess.run(["notify-send", title, message], check=False)
+    except Exception as exc:  # noqa: BLE001 — a missing notifier must not crash the tray
+        log.debug("syncing notification failed: %s", exc)
 
 
 def _read_service_pid() -> Optional[int]:
@@ -101,6 +161,12 @@ class TrayApp:
         # the macOS main run loop with pystray); track it so the menu item can
         # toggle it open/closed.
         self._voice_proc: subprocess.Popen | None = None
+        # Cross-process Coding-Session sync indicator: the latest "syncing?"
+        # value, refreshed each tick from sync_state.json. ``_prev_syncing``
+        # holds the previous tick's value so we fire ONE notification on the
+        # idle→syncing transition (not on every tick while it stays true).
+        self._syncing: bool = False
+        self._prev_syncing: bool = False
 
     # ── Service lifecycle ────────────────────────────────────────────
 
@@ -256,7 +322,20 @@ class TrayApp:
             return _format_sync_line(self._svc)
 
         def _sync_visible(_item):
-            return self._svc is not None
+            # In-process: always show. Supervised (no _svc): show only when the
+            # state file reports active syncs, so the line stays useful without
+            # IPC but doesn't clutter the menu when idle.
+            if self._svc is not None:
+                return True
+            try:
+                return _read_sync_state()[1] > 0
+            except Exception:
+                return False
+
+        def _syncing_visible(_item):
+            # Shown ONLY while a transfer happened recently (cross-process read,
+            # so it works even when the service is in a separate process).
+            return self._syncing
 
         def _pause_label(_item):
             return "Resume" if (self._svc and self._svc.is_paused) else "Pause"
@@ -269,6 +348,10 @@ class TrayApp:
         return Menu(
             MenuItem(_status_text, None, enabled=False),
             MenuItem(_sync_text, None, enabled=False, visible=_sync_visible),
+            # Greyed-out indicator that appears only while files are syncing.
+            # Cross-process (state file), so it shows even when supervised.
+            MenuItem("⟳ Syncing changes…", None, enabled=False,
+                     visible=_syncing_visible),
             Sep,
             MenuItem("Open dashboard", self._act_open_dashboard),
             MenuItem("Voice Orb", self._act_voice_orb),
@@ -310,8 +393,26 @@ class TrayApp:
             except Exception:
                 pass
 
+    def _poll_sync_state(self) -> None:
+        """Refresh the cross-process "syncing" flag and fire the one-shot
+        notification on an idle→syncing transition.
+
+        Reads ``sync_state.json`` (written by the service's CodingSyncAgent in
+        whatever process it lives) and compares the last transfer time against
+        the window. Fires exactly one desktop notification when we cross from
+        not-syncing to syncing — never on subsequent ticks while it stays true.
+        """
+        last_transfer_at, _active = _read_sync_state()
+        now = time.time()
+        syncing = last_transfer_at > 0.0 and (now - last_transfer_at) < _SYNC_WINDOW_SEC
+        if syncing and not self._prev_syncing:
+            _notify_syncing()
+        self._prev_syncing = syncing
+        self._syncing = syncing
+
     def _refresh_loop(self) -> None:
         while not self._stop.is_set():
+            self._poll_sync_state()
             self._refresh_menu()
             if self._stop.wait(_STATE_REFRESH_SEC):
                 break
@@ -361,13 +462,19 @@ def _format_status_line(svc: Optional[service.Service]) -> str:
 def _format_sync_line(svc: Optional[service.Service]) -> str:
     """"Sync: N active" / "Sync: idle" for the Coding-Session file sync.
 
-    Reads the in-process service's CodingSyncAgent count. Best-effort: any
-    error (no agent yet, mid-reconnect) renders as idle rather than crashing
-    the menu."""
+    When we own the service, reads its in-process CodingSyncAgent count. In
+    supervised mode (``svc is None``) there's no IPC, so we fall back to the
+    cross-process state file's ``active`` field. Best-effort: any error (no
+    agent yet, mid-reconnect) renders as idle rather than crashing the menu."""
     n = 0
     if svc is not None:
         try:
             n = svc.coding_sync_active_count()
+        except Exception:
+            n = 0
+    else:
+        try:
+            n = _read_sync_state()[1]
         except Exception:
             n = 0
     if n <= 0:

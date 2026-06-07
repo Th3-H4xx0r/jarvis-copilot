@@ -44,14 +44,48 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import os
 import tempfile
 import threading
+import time
 from fnmatch import fnmatch
 from typing import Callable, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
+
+# ── cross-process sync indicator ──────────────────────────────────────────────
+# On macOS the headless service (`jc-client start --no-tray`) and the menu-bar
+# tray (`jc-client tray`) run as SEPARATE processes that share no memory. To let
+# the tray show a "Syncing changes…" indicator, the service process (this agent)
+# writes a tiny state file that the tray polls. Schema:
+#     {"last_transfer_at": <epoch float>, "active": <int active_count()>}
+# `last_transfer_at == 0` means "no transfer / idle" (also written on close()).
+_SYNC_STATE_FILENAME = "sync_state.json"
+
+# Don't hammer the disk on a burst of file frames — coalesce writes.
+_SYNC_STATE_THROTTLE_SEC = 0.4
+
+# How long after the last transfer the tray should keep showing "syncing".
+_SYNC_WINDOW_SEC = 2.5
+
+# Sentinel so `state_path=None` (disable file) is distinguishable from "default".
+_UNSET = object()
+
+
+def _sync_state_path() -> Optional[str]:
+    """Path to the cross-process sync-state file, or None if unavailable.
+
+    Uses the client's state dir (``~/.jarviscopilot-client/``). Imported lazily
+    so this module stays importable in minimal/test contexts where
+    ``jc_client.logger`` may pull in heavier deps.
+    """
+    try:
+        from jc_client.logger import state_dir
+        return str(state_dir() / _SYNC_STATE_FILENAME)
+    except Exception:  # noqa: BLE001 — never let status I/O break sync
+        return None
 
 # ── replicated pure-filesystem core (mirror of agent/coding_sync.py) ──────────
 # Entry in a manifest: (size_bytes, mtime_seconds, sha256_hex).
@@ -234,7 +268,8 @@ class CodingSyncAgent:
     """
 
     def __init__(self, send: Callable[[dict], None], *,
-                 poll_interval: float = _DEFAULT_POLL_INTERVAL):
+                 poll_interval: float = _DEFAULT_POLL_INTERVAL,
+                 state_path: Optional[str] = _UNSET):
         self._send = send
         self._poll_interval = poll_interval
         self._syncs: Dict[str, _Sync] = {}
@@ -242,6 +277,15 @@ class CodingSyncAgent:
         # One watcher thread per open sync, plus a stop-event per sync.
         self._threads: Dict[str, threading.Thread] = {}
         self._stops: Dict[str, threading.Event] = {}
+        # Cross-process "syncing" indicator state-file bookkeeping. Default
+        # resolves to ~/.jarviscopilot-client/sync_state.json; tests pass an
+        # explicit path. Pass None to disable the file entirely.
+        if state_path is _UNSET:
+            state_path = _sync_state_path()
+        self._state_path: Optional[str] = state_path
+        self._state_lock = threading.Lock()
+        self._last_state_write = 0.0     # monotonic-ish epoch of last disk write
+        self._last_transfer_at = 0.0     # epoch of most-recent transfer (in mem)
 
     # ── status (read by the tray) ───────────────────────────────────────
 
@@ -258,6 +302,66 @@ class CodingSyncAgent:
         """Snapshot list of the currently-open sync_ids. Thread-safe."""
         with self._lock:
             return list(self._syncs.keys())
+
+    def is_syncing(self, now: Optional[float] = None,
+                   window: float = _SYNC_WINDOW_SEC) -> bool:
+        """True if a file transfer happened within ``window`` seconds.
+
+        Mirrors how the tray decides whether to show the "Syncing changes…"
+        indicator (it reads ``last_transfer_at`` from the state file; this
+        reads the same value held in memory). ``now`` is injectable for tests.
+        """
+        if now is None:
+            now = time.time()
+        return self._last_transfer_at > 0.0 and (now - self._last_transfer_at) < window
+
+    # ── cross-process sync indicator (state file) ───────────────────────
+
+    def _touch_sync_state(self) -> None:
+        """Record a transfer and (throttled) flush the state file to disk.
+
+        Called on every sync transfer (get/file/event). Writes are coalesced to
+        at most once per ``_SYNC_STATE_THROTTLE_SEC`` so a burst of file frames
+        doesn't hammer the disk; the in-memory ``_last_transfer_at`` always
+        advances so :meth:`is_syncing` stays accurate between flushes.
+        """
+        now = time.time()
+        self._last_transfer_at = now
+        with self._state_lock:
+            if (now - self._last_state_write) < _SYNC_STATE_THROTTLE_SEC:
+                return
+            self._last_state_write = now
+            self._write_sync_state(now, self.active_count())
+
+    def _clear_sync_state(self) -> None:
+        """Write the idle sentinel (``last_transfer_at == 0``) on close."""
+        self._last_transfer_at = 0.0
+        with self._state_lock:
+            self._last_state_write = time.time()
+            self._write_sync_state(0.0, 0)
+
+    def _write_sync_state(self, last_transfer_at: float, active: int) -> None:
+        """Atomically (temp+rename) write the state file. Best-effort."""
+        path = self._state_path
+        if not path:
+            return
+        payload = {"last_transfer_at": last_transfer_at, "active": int(active)}
+        try:
+            parent = os.path.dirname(path) or "."
+            os.makedirs(parent, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=parent, prefix=".sync-state-")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    json.dump(payload, fh)
+                os.replace(tmp, path)
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+        except Exception as exc:  # noqa: BLE001 — status I/O must never break sync
+            log.debug("coding_sync state-file write failed: %s", exc)
 
     # ── inbound frame dispatch ──────────────────────────────────────────
 
@@ -333,6 +437,8 @@ class CodingSyncAgent:
             "relpath": relpath,
             "b64": base64.b64encode(data).decode("ascii"),
         })
+        # A get → we just shipped file bytes to the server: that's a transfer.
+        self._touch_sync_state()
 
     def _on_file(self, sync_id: str, frame: dict) -> None:
         sync = self._get_sync(sync_id)
@@ -355,6 +461,8 @@ class CodingSyncAgent:
         # Fold this server-driven write into the snapshot so the watcher does
         # NOT echo it back as a local change (avoids an event feedback loop).
         self._record_applied(sync_id, relpath)
+        # A server-driven write landed on disk: that's a transfer.
+        self._touch_sync_state()
 
     def _on_rm(self, sync_id: str, frame: dict) -> None:
         sync = self._get_sync(sync_id)
@@ -386,6 +494,9 @@ class CodingSyncAgent:
             for sid in sync_ids:
                 self._stop_watcher_locked(sid)
             self._syncs.clear()
+        # Clear the cross-process "syncing" indicator so the tray stops showing
+        # it once the connection (and its agent) goes away.
+        self._clear_sync_state()
         # Join outside the lock so a poll in flight (which grabs the lock) can
         # finish and exit cleanly.
         self._join_dead_threads()
@@ -515,6 +626,8 @@ class CodingSyncAgent:
             "relpath": relpath,
             "kind": kind,
         })
+        # A local change is being pushed to the server: that's a transfer.
+        self._touch_sync_state()
 
     def _emit_error(self, sync_id: str, op: str, exc: BaseException,
                     relpath: Optional[str] = None) -> None:

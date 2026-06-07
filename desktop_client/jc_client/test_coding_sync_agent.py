@@ -10,6 +10,7 @@ Run from the ``desktop_client`` directory:
 
 import base64
 import hashlib
+import json
 
 import pytest
 
@@ -49,7 +50,10 @@ def sender():
 def agent(sender):
     # Long poll interval: tests tick _poll_once manually, so the background
     # thread effectively never fires on its own during the test.
-    a = CodingSyncAgent(sender, poll_interval=3600)
+    # state_path=None disables the cross-process sync state file so these
+    # tests don't write to the real ~/.jarviscopilot-client/ dir. The
+    # state-file behaviour is covered separately with an explicit tmp path.
+    a = CodingSyncAgent(sender, poll_interval=3600, state_path=None)
     yield a
     a.close()
 
@@ -395,12 +399,103 @@ def test_send_failure_does_not_propagate(tmp_path):
     def boom(frame):
         raise RuntimeError("connection closed")
 
-    a = CodingSyncAgent(boom, poll_interval=3600)
+    a = CodingSyncAgent(boom, poll_interval=3600, state_path=None)
     try:
         # open builds a manifest then tries to send → send raises internally,
         # must be swallowed.
         a.handle_frame({
             "type": "coding_sync_open", "sync_id": "s1", "path": str(tmp_path),
         })
+    finally:
+        a.close()
+
+
+# --------------------------------------------------------------------------- #
+# cross-process "syncing" indicator: is_syncing() + sync_state.json
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def state_file(tmp_path):
+    return tmp_path / "sync_state.json"
+
+
+@pytest.fixture
+def state_agent(sender, state_file):
+    """Agent that writes its sync-state file into a tmp path (not the real
+    ~/.jarviscopilot-client/). Manual _poll_once ticking via poll_interval."""
+    a = CodingSyncAgent(sender, poll_interval=3600, state_path=str(state_file))
+    yield a
+    a.close()
+
+
+def test_is_syncing_false_before_any_transfer(state_agent):
+    assert state_agent.is_syncing(now=1000.0) is False
+
+
+def test_is_syncing_window_logic(state_agent):
+    # Simulate a transfer at t=100.
+    state_agent._last_transfer_at = 100.0
+    # Inside the default 2.5s window → syncing.
+    assert state_agent.is_syncing(now=100.0) is True
+    assert state_agent.is_syncing(now=102.0) is True
+    # On the boundary / past the window → not syncing.
+    assert state_agent.is_syncing(now=102.5) is False
+    assert state_agent.is_syncing(now=105.0) is False
+    # Custom window is honoured.
+    assert state_agent.is_syncing(now=104.0, window=5.0) is True
+
+
+def test_state_file_written_on_transfer_with_shape(tmp_path, state_agent,
+                                                   state_file):
+    _open(state_agent, "s1", tmp_path)
+    # A server-driven write is a transfer → must flush the state file.
+    state_agent.handle_frame({
+        "type": "coding_sync_file",
+        "sync_id": "s1",
+        "relpath": "a.txt",
+        "b64": base64.b64encode(b"data").decode("ascii"),
+    })
+
+    assert state_file.exists()
+    data = json.loads(state_file.read_text())
+    # Exact schema: two keys, the right types/values.
+    assert set(data.keys()) == {"last_transfer_at", "active"}
+    assert isinstance(data["last_transfer_at"], (int, float))
+    assert data["last_transfer_at"] > 0
+    assert data["active"] == 1  # one open sync
+
+
+def test_state_file_writes_are_throttled(tmp_path, state_agent, state_file):
+    _open(state_agent, "s1", tmp_path)
+    # First transfer flushes the file.
+    state_agent._touch_sync_state()
+    assert state_file.exists()
+    first = json.loads(state_file.read_text())["last_transfer_at"]
+
+    # A rapid burst within the throttle window must NOT rewrite the file, even
+    # though _last_transfer_at advances in memory (is_syncing stays accurate).
+    for _ in range(50):
+        state_agent._touch_sync_state()
+    second = json.loads(state_file.read_text())["last_transfer_at"]
+    assert second == first  # disk value unchanged → throttled
+    # In-memory transfer time still advanced past the on-disk value.
+    assert state_agent._last_transfer_at >= first
+
+
+def test_close_clears_state_file(tmp_path, sender, state_file):
+    a = CodingSyncAgent(sender, poll_interval=3600, state_path=str(state_file))
+    _open(a, "s1", tmp_path)
+    a._touch_sync_state()
+    assert json.loads(state_file.read_text())["last_transfer_at"] > 0
+
+    a.close()
+    cleared = json.loads(state_file.read_text())
+    assert cleared == {"last_transfer_at": 0, "active": 0}
+
+
+def test_state_file_disabled_when_path_none(tmp_path, sender):
+    a = CodingSyncAgent(sender, poll_interval=3600, state_path=None)
+    try:
+        _open(a, "s1", tmp_path)
+        a._touch_sync_state()  # must be a no-op, no crash, no file
     finally:
         a.close()
