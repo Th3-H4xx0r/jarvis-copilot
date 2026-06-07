@@ -333,6 +333,9 @@ _CODING_INBOUND_TYPES = frozenset({
     # Mutagen sync: the desktop pushes status snapshots + actionable errors,
     # and (once per connect) its sync SSH public key to authorize.
     "coding_sync_status", "coding_sync_error", "coding_sync_authorize_key",
+    # Device-side session discovery: the desktop pushes its live `claude` tmux
+    # sessions so the server upserts them as discovered coding-session rows.
+    "coding_discover",
 })
 
 # process-wide handler(device_id: str, frame: dict) -> None, set by DesktopBridge.

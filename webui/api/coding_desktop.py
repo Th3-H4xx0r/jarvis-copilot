@@ -292,6 +292,15 @@ class DesktopBridge:
             "type": "coding_sync_reconcile", "active": active,
         })
 
+    # --- outbound discovery frames ------------------------------------------
+
+    def send_discover_request(self, device_id: str) -> bool:
+        """Ask a device to scan its live ``claude`` tmux sessions and push a
+        ``coding_discover`` frame now (used on reconnect + the Refresh button)."""
+        return self._transport.send(device_id, {
+            "type": "coding_discover_request",
+        })
+
     def register_sync(self, session) -> None:
         with self._lock:
             self._syncs[session.sync_id] = session
@@ -312,6 +321,21 @@ class DesktopBridge:
             self._authorize_sync_key(frame.get("pubkey") or "")
         elif t in ("coding_sync_status", "coding_sync_error"):
             self._route_sync(frame)
+        elif t == "coding_discover":
+            self._route_discover(device_id, frame)
+
+    def _route_discover(self, device_id: str, frame: dict) -> None:
+        """Ingest a device's pushed live ``claude`` tmux sessions.
+
+        The frame may carry its own ``device_id`` (the client's view of itself),
+        but it can be "" — in that case we fall back to ``device_id``, which the
+        device bridge passes as the connection's authoritative device id (every
+        inbound frame arrives on exactly one device's WS, so this is reliable)."""
+        did = (frame.get("device_id") or "").strip() or device_id
+        try:
+            ingest_discovered(did, frame.get("sessions") or [])
+        except Exception as exc:  # never raise into the bridge pump thread
+            log.warning("coding_discover ingest failed for %s: %s", did, exc)
 
     def _route_term_output(self, frame: dict) -> None:
         term_id = frame.get("term_id")
@@ -741,6 +765,125 @@ def _resolve_store():
             return None
 
 
+# ── discovered (device-side) coding-session ingest ───────────────────────────
+#
+# A desktop device periodically scans its live ``claude`` tmux sessions and
+# pushes a ``coding_discover`` frame listing them. The server upserts each as a
+# first-class coding-session row (host='desktop', external=1, source starts with
+# 'discovered-tmux') grouped under an auto-created project keyed by the session's
+# cwd, and reconciles ones that vanished to status='stopped' (kept for history).
+#
+# Per-device tombstones: when a user deletes a discovered session we record its
+# tmux_name here so the next push doesn't resurrect it. The delete path calls
+# ``dismiss_discovered`` (exposed for that wiring).
+_DISMISSED_DISCOVERED: dict[str, set] = {}
+_DISMISSED_LOCK = threading.Lock()
+
+
+def dismiss_discovered(device_id: str, tmux_name: str) -> None:
+    """Tombstone a (device_id, tmux_name) so ``ingest_discovered`` won't recreate
+    it on the next push (called from the session-delete path)."""
+    if not device_id or not tmux_name:
+        return
+    with _DISMISSED_LOCK:
+        _DISMISSED_DISCOVERED.setdefault(str(device_id), set()).add(str(tmux_name))
+
+
+def _is_dismissed(device_id: str, tmux_name: str) -> bool:
+    with _DISMISSED_LOCK:
+        return str(tmux_name) in _DISMISSED_DISCOVERED.get(str(device_id), set())
+
+
+def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
+    """Upsert a desktop device's live ``claude`` tmux sessions as coding-session
+    rows and reconcile ones that disappeared.
+
+    For each incoming ``{kind:'tmux', tmux_name, cwd, title, last_activity}``:
+      * group it under a project auto-created for its cwd (the repo_path key, per
+        (cwd, device_id) — we have no git on the server for the device's path),
+      * upsert a row matched by (device_id, tmux_name): an existing row is
+        updated (status='running', title, last_activity_at, project_id,
+        external=1); otherwise a new external 'discovered-tmux' row is created.
+    Any existing discovered row for this device NOT in the incoming set is marked
+    status='stopped' (kept, not deleted, for history). Dismissed (user-deleted)
+    tmux_names are skipped so they're not resurrected.
+
+    Never raises — logs and continues on per-item errors. Returns the number of
+    rows upserted (created or updated)."""
+    store = store or _resolve_store()
+    if store is None:
+        return 0
+    sessions = sessions or []
+
+    # Existing discovered rows for this device, indexed by tmux_name. We only
+    # ever touch rows this ingest owns (external + source startswith
+    # 'discovered-tmux') so we never disturb Jarvis-launched sessions.
+    existing: dict = {}
+    try:
+        for row in store.list_sessions(device_id=device_id):
+            src = (row.get("source") or "")
+            if src.startswith("discovered-tmux") and row.get("external"):
+                name = row.get("tmux_name")
+                if name:
+                    existing[name] = row
+    except Exception as exc:  # noqa: BLE001
+        log.warning("coding_discover[%s]: list_sessions failed: %s",
+                    device_id, exc)
+        existing = {}
+
+    seen: set = set()
+    upserted = 0
+    for sess in sessions:
+        try:
+            if not isinstance(sess, dict):
+                continue
+            if (sess.get("kind") or "tmux") != "tmux":
+                continue
+            tmux_name = (sess.get("tmux_name") or "").strip()
+            if not tmux_name:
+                continue
+            if _is_dismissed(device_id, tmux_name):
+                # User deleted this one — don't resurrect it.
+                continue
+            seen.add(tmux_name)
+            cwd = sess.get("cwd") or ""
+            title = sess.get("title") or tmux_name
+            last_activity = sess.get("last_activity")
+            pid = store.get_or_create_project_for_path(
+                repo_path=cwd, host="desktop", device_id=device_id)
+            row = existing.get(tmux_name)
+            if row is not None:
+                store.update_session(
+                    row["id"], status="running", title=title,
+                    last_activity_at=last_activity, project_id=pid, external=1)
+            else:
+                sid = store.create_session(
+                    project_id=pid, host="desktop", cwd=cwd, branch=None,
+                    tmux_name=tmux_name, source="discovered-tmux", title=title,
+                    device_id=device_id, external=True, status="running")
+                if last_activity is not None:
+                    # create_session doesn't accept last_activity_at — set it now.
+                    store.update_session(sid, last_activity_at=last_activity)
+            upserted += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("coding_discover[%s]: skipped a session: %s",
+                        device_id, exc)
+            continue
+
+    # Reconcile: any discovered row we own that wasn't in this push has vanished
+    # from the device — mark it stopped (keep the row for history).
+    for name, row in existing.items():
+        if name in seen:
+            continue
+        try:
+            if (row.get("status") or "") != "stopped":
+                store.update_session(row["id"], status="stopped")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("coding_discover[%s]: reconcile stop failed for %s: %s",
+                        device_id, name, exc)
+    return upserted
+
+
 def _session_is_synced(session: dict) -> bool:
     """A session participates in file sync if it's a desktop host OR it carries a
     non-empty ``sync_config`` (the persisted launch ``sync`` dict)."""
@@ -817,6 +960,12 @@ def resync_device(device_id: str, *, store=None,
     # was deleted gets its leftovers cleaned up and the tray count goes to 0.
     try:
         bridge.send_sync_reconcile(device_id, active_sync_ids)
+    except Exception:
+        pass
+    # Ask the (re)connecting device to re-report its live claude tmux sessions so
+    # discovered rows are re-upserted + reconciled. Best-effort.
+    try:
+        bridge.send_discover_request(device_id)
     except Exception:
         pass
     return reopened

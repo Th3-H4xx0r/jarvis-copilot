@@ -549,6 +549,152 @@ def test_resync_device_skips_bad_sync_config_json(tmp_path):
     assert t.frames("coding_sync_start") == []
 
 
+# ── ingest_discovered: upsert + reconcile device-scanned tmux sessions ───────
+
+
+def _temp_store(tmp_path):
+    from agent.coding_session_db import CodingSessionStore
+
+    return CodingSessionStore(db_path=str(tmp_path / "coding.db"))
+
+
+def _discovered(device_id, sessions, store, monkeypatch):
+    """Run ingest_discovered against a real temp store (via _resolve_store)."""
+    monkeypatch.setattr(cd, "_resolve_store", lambda: store, raising=True)
+    return cd.ingest_discovered(device_id, sessions)
+
+
+def test_ingest_discovered_creates_project_and_session(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    n = _discovered("dev-1", [
+        {"kind": "tmux", "tmux_name": "claude-proj", "cwd": "/Users/me/proj",
+         "title": "proj", "last_activity": 1234.5},
+    ], store, monkeypatch)
+    assert n == 1
+
+    sessions = store.list_sessions(device_id="dev-1")
+    assert len(sessions) == 1
+    s = sessions[0]
+    assert s["tmux_name"] == "claude-proj"
+    assert s["host"] == "desktop"
+    assert s["status"] == "running"
+    assert s["source"] == "discovered-tmux"
+    assert s["external"] == 1
+    assert s["title"] == "proj"
+    assert s["cwd"] == "/Users/me/proj"
+    assert s["last_activity_at"] == 1234.5
+
+    # A project was auto-created for the cwd, grouped under (cwd, device_id).
+    pid = s["project_id"]
+    proj = store.get_project(pid)
+    assert proj is not None
+    assert proj["repo_path"] == "/Users/me/proj"
+    assert proj["device_id"] == "dev-1"
+    # Idempotent: re-resolving the same (cwd, device) returns the same project.
+    assert store.get_or_create_project_for_path(
+        repo_path="/Users/me/proj", device_id="dev-1") == pid
+
+
+def test_ingest_discovered_second_push_updates_not_duplicates(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    _discovered("dev-2", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/a",
+         "title": "old title", "last_activity": 10.0},
+    ], store, monkeypatch)
+    # Same (device_id, tmux_name) on the next push -> UPDATE the existing row.
+    _discovered("dev-2", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/a",
+         "title": "new title", "last_activity": 99.0},
+    ], store, monkeypatch)
+
+    rows = store.list_sessions(device_id="dev-2")
+    assert len(rows) == 1  # not duplicated
+    assert rows[0]["title"] == "new title"
+    assert rows[0]["status"] == "running"
+    assert rows[0]["last_activity_at"] == 99.0
+
+
+def test_ingest_discovered_reconciles_vanished_to_stopped(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    _discovered("dev-3", [
+        {"kind": "tmux", "tmux_name": "claude-x", "cwd": "/w/x", "title": "x"},
+        {"kind": "tmux", "tmux_name": "claude-y", "cwd": "/w/y", "title": "y"},
+    ], store, monkeypatch)
+    assert len(store.list_sessions(device_id="dev-3")) == 2
+
+    # Next push omits claude-y -> it must be reconciled to 'stopped' (kept, not
+    # deleted, for history).
+    _discovered("dev-3", [
+        {"kind": "tmux", "tmux_name": "claude-x", "cwd": "/w/x", "title": "x"},
+    ], store, monkeypatch)
+
+    by_name = {r["tmux_name"]: r for r in store.list_sessions(device_id="dev-3")}
+    assert len(by_name) == 2  # nothing deleted
+    assert by_name["claude-x"]["status"] == "running"
+    assert by_name["claude-y"]["status"] == "stopped"
+
+
+def test_ingest_discovered_dismissed_tombstone_blocks_recreate(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    cd._DISMISSED_DISCOVERED.clear()
+    cd.dismiss_discovered("dev-4", "claude-gone")
+    n = _discovered("dev-4", [
+        {"kind": "tmux", "tmux_name": "claude-gone", "cwd": "/w/g", "title": "g"},
+        {"kind": "tmux", "tmux_name": "claude-keep", "cwd": "/w/k", "title": "k"},
+    ], store, monkeypatch)
+    cd._DISMISSED_DISCOVERED.clear()
+    # Only the non-dismissed session is upserted.
+    assert n == 1
+    names = {r["tmux_name"] for r in store.list_sessions(device_id="dev-4")}
+    assert names == {"claude-keep"}
+
+
+def test_ingest_discovered_only_owns_discovered_rows(tmp_path, monkeypatch):
+    """Reconcile must never touch Jarvis-launched (non-discovered) rows even when
+    they share the device_id."""
+    store = _temp_store(tmp_path)
+    pid = store.get_or_create_project_for_path(repo_path="/w/owned",
+                                               device_id="dev-5")
+    owned = store.create_session(
+        project_id=pid, host="desktop", cwd="/w/owned", branch=None,
+        tmux_name="jc-owned", source="launch", title="owned",
+        device_id="dev-5", external=False, status="running")
+    # A push that doesn't mention jc-owned must leave it running.
+    _discovered("dev-5", [
+        {"kind": "tmux", "tmux_name": "claude-disc", "cwd": "/w/disc", "title": "d"},
+    ], store, monkeypatch)
+    assert store.get_session(owned)["status"] == "running"
+
+
+def test_ingest_discovered_blank_device_id_uses_route_fallback(tmp_path, monkeypatch):
+    """_route_discover falls back to the connection device_id when the frame's
+    device_id is blank."""
+    store = _temp_store(tmp_path)
+    monkeypatch.setattr(cd, "_resolve_store", lambda: store, raising=True)
+    bridge, _t = make_bridge()
+    bridge.on_frame("conn-dev", {
+        "type": "coding_discover", "device_id": "",
+        "sessions": [{"kind": "tmux", "tmux_name": "claude-z",
+                      "cwd": "/w/z", "title": "z"}],
+    })
+    rows = store.list_sessions(device_id="conn-dev")
+    assert len(rows) == 1 and rows[0]["tmux_name"] == "claude-z"
+
+
+def test_send_discover_request_emits_frame():
+    bridge, t = make_bridge()
+    assert bridge.send_discover_request("dev-D") is True
+    f = t.frames("coding_discover_request")
+    assert f == [{"type": "coding_discover_request"}]
+    assert t.sent[0][0] == "dev-D"
+
+
+def test_ingest_discovered_no_store_is_noop(monkeypatch):
+    monkeypatch.setattr(cd, "_resolve_store", lambda: None, raising=True)
+    assert cd.ingest_discovered("dev-X", [{"kind": "tmux",
+                                           "tmux_name": "c", "cwd": "/w"}]) == 0
+
+
 # ── device_bridge inbound hook routes coding frames to the handler ───────────
 
 

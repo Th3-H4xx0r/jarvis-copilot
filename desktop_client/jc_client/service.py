@@ -66,9 +66,11 @@ class Service:
         # Per-connection MCP relay manager (Phase 2): tunnels a local Playwright
         # MCP to the server. Created in _connect_and_pump, torn down on drop.
         self._relay = None
-        # Coding Sessions desktop execution + file sync (created per connection).
+        # Coding Sessions desktop execution + file sync + discovery (created
+        # per connection).
         self._coding_term = None
         self._coding_sync = None
+        self._coding_discover = None
 
     # ── public ────────────────────────────────────────────────────────
 
@@ -244,12 +246,20 @@ class Service:
         try:
             from jc_client.coding_sync_mutagen import CodingMutagenAgent
             from jc_client.coding_term import CodingTermManager
+            from jc_client.coding_discover import CodingDiscoverAgent
 
             def _coding_send(f):
                 ws.send_text(json.dumps(f))
 
             self._coding_term = CodingTermManager(send=_coding_send)
             self._coding_sync = CodingMutagenAgent(send=_coding_send)
+            # Discovery: periodically scan for live `claude` tmux sessions and
+            # push them upstream so the server can surface them as coding
+            # sessions. device_id may be "" here — the server fills it from the
+            # bridge in that case.
+            self._coding_discover = CodingDiscoverAgent(
+                send=_coding_send, device_id=(creds.device_id or None))
+            self._coding_discover.start()
             # Authorize this client's sync key on the server so Mutagen's SSH
             # (through the WS<->TCP relay) can connect. Idempotent on both ends.
             try:
@@ -262,6 +272,7 @@ class Service:
             log.warning("coding sessions desktop support unavailable: %s", exc)
             self._coding_term = None
             self._coding_sync = None
+            self._coding_discover = None
 
         # Warm up the browser MCP (chrome_* skills) so the first browser action
         # isn't a cold `npx @playwright/mcp` start + extension attach. Best-effort,
@@ -333,7 +344,8 @@ class Service:
                     pass
                 self._relay = None
             for _mgr_attr, _stop in (("_coding_term", "shutdown_all"),
-                                     ("_coding_sync", "close")):
+                                     ("_coding_sync", "close"),
+                                     ("_coding_discover", "close")):
                 _m = getattr(self, _mgr_attr, None)
                 if _m is not None:
                     try:
@@ -372,6 +384,11 @@ class Service:
         if msg_type and msg_type.startswith("coding_sync_"):
             if self._coding_sync:
                 self._coding_sync.handle_frame(frame)
+            return
+
+        if msg_type and msg_type.startswith("coding_discover"):
+            if self._coding_discover:
+                self._coding_discover.handle_frame(frame)
             return
 
         if msg_type == "mcp_open":

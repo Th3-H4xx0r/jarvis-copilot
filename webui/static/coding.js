@@ -19,8 +19,9 @@
 
 // Module state. Kept on window-adjacent locals (the file is loaded as a plain
 // <script defer>, sharing global scope with the other panel scripts).
-let _codingSessionsCache = [];      // [{id,title,status,cwd,...}]
-let _codingProjectsCache = [];      // [{repo_path,name,...}]
+let _codingSessionsCache = [];      // [{id,title,status,cwd,...}] flat list (all)
+let _codingProjectsCache = [];      // [{id,name,repo_path,sessions:[...],...}]
+let _codingUngroupedCache = [];     // [<session rows with no project>]
 let _codingDevicesCache = [];       // [{id,name,online,...}] paired devices
 let _codingSelectedId = null;       // currently-open session id (string) or null
 let _codingPollTimer = null;        // setInterval handle for the detail poll
@@ -32,6 +33,18 @@ let _codingTermFit = null;          // xterm FitAddon
 let _codingTermResize = null;       // bound window resize handler
 let _codingTermMountedId = null;    // session id the terminal is attached to
 const _CODING_POLL_MS = 4000;       // detail status/subagent refresh cadence
+
+// Per-project collapse state (in-memory, persisted best-effort to localStorage).
+// Default: expanded. A project id present in this set is COLLAPSED.
+const _codingCollapsed = (() => {
+  try {
+    const raw = window.localStorage && localStorage.getItem('cdgCollapsedProjects');
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch (_) { return new Set(); }
+})();
+function _codingPersistCollapsed() {
+  try { localStorage.setItem('cdgCollapsedProjects', JSON.stringify(Array.from(_codingCollapsed))); } catch (_) {}
+}
 
 function _cdgEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
@@ -106,8 +119,11 @@ function _codingRenderShell(root) {
   body.innerHTML = `
     <aside class="cdg-side" id="codingSide">
       <div class="cdg-side-head">
-        <span class="cdg-side-title">Sessions</span>
-        <button type="button" class="cdg-new-btn" id="codingNewBtn" onclick="codingShowLaunch()" title="New coding session">+ New</button>
+        <span class="cdg-side-title">Projects</span>
+        <div class="cdg-side-actions">
+          <button type="button" class="cdg-new-btn cdg-new-proj" id="codingNewProjBtn" onclick="codingNewProject()" title="New project">+ Project</button>
+          <button type="button" class="cdg-new-btn" id="codingNewBtn" onclick="codingShowLaunch()" title="New coding session">+ Session</button>
+        </div>
       </div>
       <div class="cdg-list" id="codingList"><div class="cm-projects-empty">Loading…</div></div>
     </aside>
@@ -120,13 +136,22 @@ async function _codingRefreshList() {
   const list = document.getElementById('codingList');
   if (!list) return;
   try {
-    const [sessRes, projRes, devRes] = await Promise.all([
+    // Projects (with nested sessions) drive the sidebar tree; the flat sessions
+    // list is still fetched as a fallback (older backends / safety) and used to
+    // check whether the selected session still exists.
+    const [projRes, sessRes, devRes] = await Promise.all([
+      api('/api/coding/projects?expand=sessions').catch(() => ({ projects: [], ungrouped: [] })),
       api('/api/coding/sessions').catch(() => ({ sessions: [] })),
-      api('/api/coding/projects').catch(() => ({ projects: [] })),
       api('/api/devices').catch(() => ({ devices: [] })),
     ]);
-    _codingSessionsCache = (sessRes && sessRes.sessions) || [];
     _codingProjectsCache = (projRes && projRes.projects) || [];
+    _codingUngroupedCache = (projRes && projRes.ungrouped) || [];
+    // Build a flat session cache from project+ungrouped (preferred), falling
+    // back to the flat /sessions endpoint if the projects payload was empty.
+    const flat = [];
+    (_codingProjectsCache || []).forEach(p => (p && Array.isArray(p.sessions) ? p.sessions : []).forEach(s => flat.push(s)));
+    (_codingUngroupedCache || []).forEach(s => flat.push(s));
+    _codingSessionsCache = flat.length ? flat : ((sessRes && sessRes.sessions) || []);
     _codingDevicesCache = (devRes && devRes.devices) || [];
     _codingRenderList();
     // Re-open the previously selected session if it still exists; otherwise
@@ -141,30 +166,302 @@ async function _codingRefreshList() {
   }
 }
 
-function _codingRenderList() {
-  const list = document.getElementById('codingList');
-  if (!list) return;
-  const sessions = _codingSessionsCache.slice().sort((a, b) =>
-    String((b && b.created_at) || '').localeCompare(String((a && a.created_at) || '')));
-  if (!sessions.length) {
-    list.innerHTML = '<div class="cm-projects-empty">No coding sessions yet.<br><br>Click <b>+ New</b> to launch a headless <code>claude</code> session against a repo.</div>';
-    return;
-  }
-  list.innerHTML = sessions.map(s => {
-    const id = String(s.id != null ? s.id : '');
-    const title = s.title || s.cwd || s.repo_path || id;
-    const sub = s.cwd || s.repo_path || '';
-    const st = _cdgStatusClass(s.status);
-    const active = String(_codingSelectedId) === id ? ' active' : '';
-    return `<button class="cdg-item${active}" data-id="${_cdgEsc(id)}" onclick="codingOpenSession('${_cdgEsc(id)}')">
+// Newest-first by last_activity_at (falls back to created_at).
+function _codingSortSessions(arr) {
+  return (arr || []).slice().sort((a, b) =>
+    String((b && (b.last_activity_at || b.created_at)) || '')
+      .localeCompare(String((a && (a.last_activity_at || a.created_at)) || '')));
+}
+
+// One session row (used inside both project groups and the ungrouped group).
+function _codingSessionRowHtml(s) {
+  const id = String(s.id != null ? s.id : '');
+  const title = s.title || s.cwd || s.repo_path || id;
+  const sub = s.cwd || s.repo_path || '';
+  const st = _cdgStatusClass(s.status);
+  const active = String(_codingSelectedId) === id ? ' active' : '';
+  // host/source badge: discovered (external) > desktop > server.
+  let badgeKind = 'server', badgeLabel = 'server';
+  if (s.external) { badgeKind = 'discovered'; badgeLabel = 'discovered'; }
+  else if (String(s.host || '').toLowerCase() === 'desktop') { badgeKind = 'desktop'; badgeLabel = 'desktop'; }
+  const badge = `<span class="cdg-badge cdg-badge-${badgeKind}">${_cdgEsc(badgeLabel)}</span>`;
+  return `<button class="cdg-item cdg-item-nested${active}" data-id="${_cdgEsc(id)}" onclick="codingOpenSession('${_cdgEsc(id)}')">
       <div class="cdg-item-top">
         <span class="cdg-item-name">${_cdgEsc(title)}</span>
         <span class="cdg-dot cdg-dot-${st}" title="${_cdgEsc(s.status || 'idle')}"></span>
       </div>
-      <div class="cdg-item-sub">${_cdgEsc(sub)}</div>
+      <div class="cdg-item-sub">${badge}<span class="cdg-item-path">${_cdgEsc(sub)}</span></div>
     </button>`;
-  }).join('');
 }
+
+// One collapsible project group. `pid` may be '' for the synthetic ungrouped
+// group (which has no header actions and is never persisted/collapsible-keyed
+// against a real id — we use the literal '__ungrouped__').
+function _codingProjectGroupHtml(opts) {
+  const pid = String(opts.id == null ? '' : opts.id);
+  const key = opts.key || pid;
+  const name = opts.name || 'Project';
+  const sessions = _codingSortSessions(opts.sessions);
+  const collapsed = _codingCollapsed.has(key);
+  const caret = collapsed ? '▸' : '▾';
+  const count = sessions.length;
+  const rows = sessions.length
+    ? sessions.map(_codingSessionRowHtml).join('')
+    : '<div class="cdg-group-empty">No sessions yet.</div>';
+  const actions = opts.actions
+    ? `<span class="cdg-group-actions">
+         <button type="button" class="cdg-group-act" title="New session in this project" onclick="event.stopPropagation();codingProjectNewSession('${_cdgEsc(pid)}')">+</button>
+         <button type="button" class="cdg-group-act" title="Project settings" onclick="event.stopPropagation();codingProjectSettings('${_cdgEsc(pid)}')">⚙</button>
+       </span>`
+    : '';
+  return `<div class="cdg-group${collapsed ? ' collapsed' : ''}" data-key="${_cdgEsc(key)}">
+      <div class="cdg-group-head" role="button" tabindex="0" onclick="codingToggleProject('${_cdgEsc(key)}')">
+        <span class="cdg-caret">${caret}</span>
+        <span class="cdg-group-name">${_cdgEsc(name)}</span>
+        <span class="cdg-group-count">${count}</span>
+        ${actions}
+      </div>
+      <div class="cdg-group-body"${collapsed ? ' style="display:none"' : ''}>${rows}</div>
+    </div>`;
+}
+
+function _codingRenderList() {
+  const list = document.getElementById('codingList');
+  if (!list) return;
+  const projects = _codingProjectsCache || [];
+  const ungrouped = _codingUngroupedCache || [];
+  // Nothing at all → friendly empty state.
+  if (!projects.length && !ungrouped.length && !_codingSessionsCache.length) {
+    list.innerHTML = '<div class="cm-projects-empty">No projects or sessions yet.<br><br>Click <b>+ Project</b> to create a project, or <b>+ Session</b> to launch a headless <code>claude</code> session against a repo.</div>';
+    return;
+  }
+  let html = '';
+  // Real project groups (with header actions).
+  projects.forEach(p => {
+    if (!p) return;
+    html += _codingProjectGroupHtml({
+      id: p.id,
+      key: String(p.id == null ? (p.name || '') : p.id),
+      name: p.name || p.repo_path || ('project ' + (p.id != null ? p.id : '')),
+      sessions: Array.isArray(p.sessions) ? p.sessions : [],
+      actions: true,
+    });
+  });
+  // Ungrouped bucket — only when non-empty. If the projects payload was empty
+  // but the flat sessions list isn't, fall those sessions into Ungrouped so the
+  // panel still works against older backends.
+  let loose = ungrouped;
+  if (!projects.length && !ungrouped.length && _codingSessionsCache.length) loose = _codingSessionsCache;
+  if (loose && loose.length) {
+    html += _codingProjectGroupHtml({
+      id: '', key: '__ungrouped__', name: 'Ungrouped', sessions: loose, actions: false,
+    });
+  }
+  list.innerHTML = html || '<div class="cm-projects-empty">No projects or sessions yet.</div>';
+}
+
+function codingToggleProject(key) {
+  const k = String(key);
+  if (_codingCollapsed.has(k)) _codingCollapsed.delete(k); else _codingCollapsed.add(k);
+  _codingPersistCollapsed();
+  // Toggle in place (avoids a full re-render / list flicker).
+  const group = document.querySelector('.cdg-group[data-key="' + (window.CSS && CSS.escape ? CSS.escape(k) : k) + '"]');
+  if (group) {
+    const collapsed = _codingCollapsed.has(k);
+    group.classList.toggle('collapsed', collapsed);
+    const body = group.querySelector('.cdg-group-body');
+    const caret = group.querySelector('.cdg-caret');
+    if (body) body.style.display = collapsed ? 'none' : '';
+    if (caret) caret.textContent = collapsed ? '▸' : '▾';
+  } else {
+    _codingRenderList();
+  }
+}
+window.codingToggleProject = codingToggleProject;
+
+/* ── Projects (create / new-session / settings) ──────────────────────────── */
+
+function _codingFindProject(pid) {
+  const key = String(pid == null ? '' : pid);
+  return (_codingProjectsCache || []).find(p => p && String(p.id) === key) || null;
+}
+
+// Create a project. Minimal: name + repo_path via two prompts (matches the
+// existing prompt/confirm idiom used elsewhere in this file).
+async function codingNewProject() {
+  let name = window.prompt('New project name:', '');
+  if (name == null) return;
+  name = name.trim();
+  if (!name) return;
+  let repoPath = window.prompt('Repo path on the server (e.g. ~/code/my-project):', '');
+  if (repoPath == null) return;
+  repoPath = repoPath.trim();
+  try {
+    const res = await api('/api/coding/projects', {
+      method: 'POST', body: JSON.stringify({ name, repo_path: repoPath }),
+    });
+    if (res && res.ok === false) { alert((res.error || res.message) || 'Could not create project.'); return; }
+    await _codingRefreshList();
+  } catch (e) {
+    alert((e && e.message) || 'Could not create project.');
+  }
+}
+window.codingNewProject = codingNewProject;
+
+// Launch a new session inside a project. cwd defaults (server-side) to the
+// project's repo_path, so we POST an empty body and let the backend fill it in.
+// On success we refresh the list and open the new session.
+async function codingProjectNewSession(pid) {
+  const proj = _codingFindProject(pid);
+  const prompt = window.prompt('Initial prompt for the new session' + (proj ? ' in "' + proj.name + '"' : '') + ':', '');
+  if (prompt == null) return;
+  try {
+    const body = {};
+    if (prompt.trim()) body.prompt = prompt.trim();
+    const res = await api('/api/coding/project/' + encodeURIComponent(String(pid)) + '/session', {
+      method: 'POST', body: JSON.stringify(body),
+    });
+    if (res && res.ok === false) { alert((res.error || res.message) || 'Could not launch session.'); return; }
+    const sess = (res && res.session) || {};
+    // Make sure the project is expanded so the new session is visible.
+    _codingCollapsed.delete(String(pid)); _codingPersistCollapsed();
+    await _codingRefreshList();
+    if (sess.id != null) codingOpenSession(String(sess.id));
+  } catch (e) {
+    alert((e && e.message) || 'Could not launch session.');
+  }
+}
+window.codingProjectNewSession = codingProjectNewSession;
+
+// Open a project-settings panel in the DETAIL pane (rename + sync + ignore +
+// delete). Stops any session poll so the pane isn't clobbered.
+function codingProjectSettings(pid) {
+  const proj = _codingFindProject(pid);
+  if (!proj) { alert('Project not found.'); return; }
+  _codingStopPoll();
+  _codingTeardownTerminal();
+  _codingDetailShellId = null;
+  _codingSelectedId = null;
+  document.querySelectorAll('.cdg-item').forEach(b => b.classList.remove('active'));
+  const detail = document.getElementById('codingDetail');
+  if (!detail) return;
+  const id = String(proj.id);
+  const name = _cdgEsc(proj.name || '');
+  const repo = _cdgEsc(proj.repo_path || '');
+  const branch = _cdgEsc(proj.default_branch || '');
+  const syncOn = !!proj.sync_enabled;
+  const syncPath = _cdgEsc(proj.sync_desktop_path || '');
+  const ignore = _cdgEsc(proj.ignore_rules || '');
+  detail.innerHTML = `
+    <div class="cm-detail-head">
+      <div class="cm-detail-titles">
+        <div class="cm-detail-name">Project settings</div>
+        <div class="cm-detail-slug">${repo}</div>
+      </div>
+      <div class="cdg-detail-status">
+        <button type="button" class="cdg-btn-secondary" onclick="codingClearDetail()">Close</button>
+      </div>
+    </div>
+    <div class="cm-detail-body">
+      <div class="cdg-form-card" data-pid="${_cdgEsc(id)}">
+        <div class="cdg-form-title">Edit project</div>
+
+        <label class="cdg-label" for="codingProjName">Name</label>
+        <input class="cdg-input" id="codingProjName" value="${name}" autocomplete="off">
+
+        <label class="cdg-label" for="codingProjBranch">Default branch (optional)</label>
+        <input class="cdg-input" id="codingProjBranch" value="${branch}" placeholder="main" autocomplete="off">
+
+        <label class="cdg-check"><input type="checkbox" id="codingProjSync" onchange="codingToggleProjSyncOpts()" ${syncOn ? 'checked' : ''}> <span>Sync this project with a desktop device</span></label>
+        <div id="codingProjSyncOpts" style="display:${syncOn ? '' : 'none'};margin-left:22px">
+          <label class="cdg-label" for="codingProjSyncDevice">Device</label>
+          <select class="cdg-input" id="codingProjSyncDevice">${_codingDeviceOptionsHtml('')}</select>
+          <label class="cdg-label" for="codingProjSyncPath">Folder path on that device</label>
+          <input class="cdg-input" id="codingProjSyncPath" value="${syncPath}" placeholder="~/code/your-project" autocomplete="off">
+        </div>
+
+        <label class="cdg-label" for="codingProjIgnore">Ignore rules (optional, one per line)</label>
+        <textarea class="cdg-textarea" id="codingProjIgnore" rows="4" placeholder="node_modules/&#10;.venv/&#10;*.log">${ignore}</textarea>
+
+        <div class="cdg-form-actions">
+          <button type="button" class="cdg-btn-secondary cdg-btn-danger" id="codingProjDeleteBtn" onclick="codingDeleteProject('${_cdgEsc(id)}')">Delete project</button>
+          <button type="button" class="cdg-btn-primary" id="codingProjSaveBtn" onclick="codingSaveProject('${_cdgEsc(id)}')">Save</button>
+        </div>
+        <div class="cdg-form-err" id="codingProjErr" style="display:none"></div>
+      </div>
+    </div>`;
+}
+window.codingProjectSettings = codingProjectSettings;
+
+function codingToggleProjSyncOpts() {
+  const on = !!(document.getElementById('codingProjSync') || {}).checked;
+  const o = document.getElementById('codingProjSyncOpts');
+  if (o) o.style.display = on ? '' : 'none';
+}
+window.codingToggleProjSyncOpts = codingToggleProjSyncOpts;
+
+async function codingSaveProject(pid) {
+  const id = String(pid);
+  const errEl = document.getElementById('codingProjErr');
+  const btn = document.getElementById('codingProjSaveBtn');
+  const name = ((document.getElementById('codingProjName') || {}).value || '').trim();
+  const branch = ((document.getElementById('codingProjBranch') || {}).value || '').trim();
+  const syncOn = !!(document.getElementById('codingProjSync') || {}).checked;
+  const syncPath = ((document.getElementById('codingProjSyncPath') || {}).value || '').trim();
+  const ignore = ((document.getElementById('codingProjIgnore') || {}).value || '');
+  const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = ''; } };
+  if (errEl) errEl.style.display = 'none';
+  if (!name) { showErr('Name is required.'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const payload = {
+      name,
+      default_branch: branch,
+      sync_enabled: syncOn,
+      sync_desktop_path: syncPath,
+      ignore_rules: ignore,
+    };
+    const res = await api('/api/coding/project/' + encodeURIComponent(id), {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+    if (res && res.ok === false) { showErr((res.error || res.message) || 'Save failed.'); return; }
+    await _codingRefreshList();
+    codingClearDetail();
+  } catch (e) {
+    showErr((e && e.message) || 'Save failed.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+  }
+}
+window.codingSaveProject = codingSaveProject;
+
+async function codingDeleteProject(pid) {
+  const id = String(pid);
+  const proj = _codingFindProject(id);
+  const cnt = proj && Array.isArray(proj.sessions) ? proj.sessions.length : 0;
+  let cascade = 0;
+  if (cnt > 0) {
+    const stopThem = window.confirm(
+      'Delete project "' + (proj ? proj.name : id) + '"?\n\n' +
+      'OK = also STOP and permanently DELETE its ' + cnt + ' session(s).\n' +
+      'Cancel = keep the sessions (they become Ungrouped).');
+    cascade = stopThem ? 1 : 0;
+    // Confirm the detach path too, so an accidental Cancel doesn't surprise.
+    if (!cascade && !window.confirm('Delete the project but KEEP its sessions (move them to Ungrouped)?')) return;
+  } else if (!window.confirm('Delete project "' + (proj ? proj.name : id) + '"?')) {
+    return;
+  }
+  try {
+    const res = await api('/api/coding/project/' + encodeURIComponent(id) + '?delete_sessions=' + cascade,
+      { method: 'DELETE' });
+    if (res && res.ok === false) { alert((res.error || res.message) || 'Delete failed.'); return; }
+    codingClearDetail();
+    await _codingRefreshList();
+  } catch (e) {
+    alert((e && e.message) || 'Delete failed.');
+  }
+}
+window.codingDeleteProject = codingDeleteProject;
 
 /* ── Launch form ─────────────────────────────────────────────────────────── */
 

@@ -283,6 +283,25 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             return _run(_launch)
         return _err(404, "not found")
 
+    # ── /discover/refresh ──
+    # Ask the connected desktop client to (re)scan its live claude tmux sessions
+    # and push a coding_discover frame now; the server ingests it asynchronously
+    # (see api.coding_desktop.ingest_discovered). No body required.
+    if p == "/discover/refresh":
+        if method == "POST":
+            def _discover_refresh():
+                from api.coding_desktop import (
+                    get_desktop_bridge, resolve_desktop_device_id)
+
+                device_id = resolve_desktop_device_id()
+                if not device_id:
+                    return _ok({"ok": False})
+                get_desktop_bridge().send_discover_request(device_id)
+                return _ok({"ok": True, "device": device_id})
+
+            return _run(_discover_refresh)
+        return _err(404, "not found")
+
     # ── /session/<id>[/message|/stop] ──
     if p.startswith("/session/"):
         tail = p[len("/session/"):]
