@@ -44,12 +44,15 @@ tests; only the on-disk sync apply touches a tmp directory.
 from __future__ import annotations
 
 import base64
+import logging
 import queue
 import threading
 import time
 from pathlib import Path
 
 from agent import coding_sync as sync_core
+
+log = logging.getLogger(__name__)
 
 # ── transport seam ───────────────────────────────────────────────────────────
 
@@ -318,7 +321,8 @@ class DesktopBridge:
             self._route_term_output(frame)
         elif t == "coding_term_exit":
             self._route_term_exit(frame)
-        elif t in ("coding_sync_manifest", "coding_sync_file", "coding_sync_event"):
+        elif t in ("coding_sync_manifest", "coding_sync_file",
+                   "coding_sync_event", "coding_sync_error"):
             self._route_sync(frame)
 
     def _route_term_output(self, frame: dict) -> None:
@@ -357,6 +361,9 @@ class DesktopBridge:
             sync.on_file(frame.get("relpath") or "", frame.get("b64") or "")
         elif t == "coding_sync_event":
             sync.on_event(frame.get("relpath") or "", frame.get("kind") or "")
+        elif t == "coding_sync_error":
+            sync.on_error(frame.get("op") or "", frame.get("error") or "",
+                          frame.get("relpath"))
 
 
 # ── sync session (server side of the synced tunnel) ──────────────────────────
@@ -426,10 +433,24 @@ class DesktopSyncSession:
         except Exception:
             pass
 
+    def on_error(self, op: str, error: str, relpath=None) -> None:
+        """A desktop-side sync op failed — surface it on the status panel + log.
+
+        Without this, a failed ``coding_sync_get``/write on the device vanished
+        silently and the server looked 'idle' forever while nothing transferred.
+        """
+        self.error = f"{op}: {error}" + (f" ({relpath})" if relpath else "")
+        self.status = "error"
+        log.warning("coding_sync[%s] desktop error op=%s relpath=%s: %s",
+                    self.sync_id, op, relpath, error)
+
     def on_manifest(self, remote_manifest: dict) -> None:
         """Got the desktop's manifest — pick a direction and start transfers."""
         local = self.server_manifest()
         plan = sync_core.plan_initial_sync(local, remote_manifest)
+        log.info("coding_sync[%s] manifest: remote=%d local=%d -> %s %d file(s)",
+                 self.sync_id, len(remote_manifest or {}), len(local),
+                 plan["direction"], len(plan["files"]))
         with self._lock:
             self.status = "syncing"
             self.direction = plan["direction"]
@@ -480,16 +501,19 @@ class DesktopSyncSession:
     def on_event(self, relpath: str, kind: str) -> None:
         """Incremental delta after the initial reconcile.
 
-        ``kind`` is 'modified'/'created' -> request the new bytes (pull side);
-        'deleted' -> apply the delete locally. Kept deliberately simple: a
-        modify on the desktop pulls the file down; the watcher/loop is the
-        device's responsibility (it emits these events)."""
+        A create/modify -> request the new bytes (pull side); a delete -> apply
+        the delete locally. The desktop watcher emits 'create'/'modify'/'delete'
+        (singular) — we ALSO accept the past-tense spellings so the two peers
+        can't drift on vocabulary. Kept deliberately simple: a change on the
+        desktop pulls the file down; the watcher/loop is the device's
+        responsibility (it emits these events)."""
         if not relpath:
             return
-        if kind in ("modified", "created", "changed"):
+        k = (kind or "").lower()
+        if k in ("modified", "created", "changed", "modify", "create", "change"):
             self.status = "syncing"
             self.bridge.send_sync_get(self.device_id, self.sync_id, relpath)
-        elif kind in ("deleted", "removed"):
+        elif k in ("deleted", "removed", "delete", "remove"):
             self.status = "syncing"
             try:
                 sync_core.apply_delete(self.root, relpath)
@@ -691,7 +715,7 @@ def sync_status(session_id: str, sync_config=None) -> dict:
     out["device"] = cfg.get("device")
     out["device_online"] = bool(resolve_desktop_device_id(preferred=cfg.get("device")))
     try:
-        sess = get_desktop_bridge().get_sync("sync-" + session_id)
+        sess = get_desktop_bridge().sync_for("sync-" + session_id)
     except Exception:
         sess = None
     if sess is not None:

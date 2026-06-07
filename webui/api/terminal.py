@@ -198,6 +198,24 @@ def start_terminal(session_id: str, workspace: Path, rows: int = 24, cols: int =
         return term
 
 
+def _tmux_set_mouse(name: str) -> None:
+    """Best-effort: enable tmux mouse mode for session ``name``.
+
+    With mouse mode on, the browser/mobile xterm forwards the wheel to tmux as
+    real mouse events (tmux enters copy-mode and scrolls its scrollback) instead
+    of xterm translating the wheel into ↑/↓ arrow keys — which the ``claude``
+    REPL reads as command-history cycling. Idempotent; safe to call per attach.
+    A missing/locked tmux server must never block the attach, so we swallow all
+    errors.
+    """
+    try:
+        subprocess.run(["tmux", "set-option", "-t", name, "mouse", "on"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=5, check=False)
+    except Exception:
+        pass
+
+
 def start_attach_terminal(session_id: str, tmux_name: str,
                           rows: int = 24, cols: int = 80,
                           restart: bool = False) -> TerminalSession:
@@ -221,11 +239,21 @@ def start_attach_terminal(session_id: str, tmux_name: str,
 
     with _LOCK:
         current = _TERMINALS.get(sid)
-        if current and current.is_alive() and not restart:
-            _set_size(current, rows, cols)
-            return current
+        # Single live viewer per coding session. The live terminal is a view of
+        # ONE tmux pane, which can only be a single size at a time and whose
+        # output we fan out through one queue. If two viewers (e.g. web + phone)
+        # attach at once they fight over the pane size — the smaller client wins
+        # and squishes the other — AND race each other draining the output
+        # queue. That is exactly the doubled / condensed / garbled terminal
+        # users hit. So a new attach always TAKES OVER: tear down any existing
+        # attach and re-attach fresh at THIS client's size. The previous
+        # viewer's SSE sees terminal_closed and shows a "reopen to resume" note.
         if current:
             close_terminal(sid)
+
+        # Mouse mode so the wheel scrolls tmux scrollback instead of cycling
+        # the claude REPL's command history (see _tmux_set_mouse).
+        _tmux_set_mouse(name)
 
         master_fd, slave_fd = os.openpty()
         _SAFE_ENV_KEYS = {
@@ -238,7 +266,10 @@ def start_attach_terminal(session_id: str, tmux_name: str,
                     "COLUMNS": str(cols), "LINES": str(rows)})
         home = env.get("HOME") or os.path.expanduser("~") or "/"
         proc = subprocess.Popen(
-            ["tmux", "attach-session", "-t", name],
+            # -d detaches any other client first, guaranteeing this PTY is the
+            # ONLY client so tmux sizes the pane to us (no smallest-client
+            # squish from a leftover/stray attach).
+            ["tmux", "attach-session", "-d", "-t", name],
             cwd=home, env=env,
             stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
             close_fds=True, start_new_session=True,

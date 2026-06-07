@@ -343,6 +343,74 @@ def test_sync_event_modify_pulls_and_delete_applies(tmp_path):
     assert not (tmp_path / "gone.txt").exists()
 
 
+def test_sync_event_singular_kinds_match(tmp_path):
+    """Regression: the desktop watcher emits SINGULAR kinds ('create'/'modify'/
+    'delete'); the server must act on them (it previously only matched the
+    past-tense spellings, so every incremental desktop edit was dropped)."""
+    bridge, t = make_bridge()
+    (tmp_path / "gone.txt").write_text("bye", encoding="utf-8")
+    s = cd.DesktopSyncSession(sync_id="sync-sg", device_id="dev-SG",
+                              root=str(tmp_path), bridge=bridge)
+    bridge.register_sync(s)
+    # 'create' / 'modify' -> request the bytes
+    bridge.on_frame("dev-SG", {"type": "coding_sync_event", "sync_id": "sync-sg",
+                               "relpath": "new.py", "kind": "create"})
+    bridge.on_frame("dev-SG", {"type": "coding_sync_event", "sync_id": "sync-sg",
+                               "relpath": "edited.py", "kind": "modify"})
+    gets = {f["relpath"] for f in t.frames("coding_sync_get")}
+    assert {"new.py", "edited.py"} <= gets
+    # 'delete' -> apply locally
+    bridge.on_frame("dev-SG", {"type": "coding_sync_event", "sync_id": "sync-sg",
+                               "relpath": "gone.txt", "kind": "delete"})
+    assert not (tmp_path / "gone.txt").exists()
+
+
+def test_sync_status_reports_live_registered_session(tmp_path, monkeypatch):
+    """Regression: sync_status must FIND a registered live sync session via the
+    bridge's ``sync_for`` accessor and surface its status/progress. A prior bug
+    called a non-existent ``get_sync`` method, so the lookup always threw and the
+    panel was stuck on 'idle' even while a transfer was running."""
+    import json
+
+    monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda preferred=None: "dev-Z")
+    sess = cd.DesktopSyncSession(sync_id="sync-cs_Z", device_id="dev-Z",
+                                 root=str(tmp_path), bridge=make_bridge()[0])
+    sess.status = "syncing"
+    sess.direction = "pull"
+    sess.total, sess.done = 5, 2
+    cd.get_desktop_bridge().register_sync(sess)
+    try:
+        out = cd.sync_status("cs_Z", json.dumps({"enabled": True, "device": "dev-Z"}))
+    finally:
+        cd.get_desktop_bridge().send_sync_close("dev-Z", "sync-cs_Z")
+    assert out["status"] == "syncing"
+    assert out["direction"] == "pull"
+    assert out["total"] == 5 and out["done"] == 2
+    assert out["device_online"] is True
+
+
+def test_desktop_bridge_has_sync_for_not_get_sync():
+    """Lock the accessor name so sync_status can't silently regress again."""
+    bridge, _t = make_bridge()
+    assert hasattr(bridge, "sync_for")
+    assert not hasattr(bridge, "get_sync")
+
+
+def test_sync_error_frame_surfaces_on_session(tmp_path):
+    """A desktop-side coding_sync_error must reach the session (status=error +
+    message) instead of being dropped by the bridge's inbound whitelist."""
+    bridge, _t = make_bridge()
+    s = cd.DesktopSyncSession(sync_id="sync-er", device_id="dev-ER",
+                              root=str(tmp_path), bridge=bridge)
+    bridge.register_sync(s)
+    bridge.on_frame("dev-ER", {"type": "coding_sync_error", "sync_id": "sync-er",
+                               "op": "coding_sync_get", "error": "OSError: nope",
+                               "relpath": "missing.py"})
+    assert s.status == "error"
+    assert "coding_sync_get" in (s.error or "")
+    assert "missing.py" in (s.error or "")
+
+
 def test_sync_file_refuses_path_traversal(tmp_path):
     bridge, t = make_bridge()
     s = cd.DesktopSyncSession(sync_id="sync-4", device_id="dev-S",

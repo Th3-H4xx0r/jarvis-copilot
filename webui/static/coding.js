@@ -423,7 +423,7 @@ function _codingMountTerminal(id) {
         let text = ''; try { text = (JSON.parse(ev.data) || {}).text || ''; } catch (_) {}
         if (text && _codingTerm) _codingTerm.write(text);
       });
-      es.addEventListener('terminal_closed', () => { if (_codingTerm) _codingTerm.write('\r\n\x1b[90m[detached]\x1b[0m\r\n'); });
+      es.addEventListener('terminal_closed', () => { if (_codingTerm) _codingTerm.write('\r\n\x1b[90m[detached — reopen this session to resume the live terminal]\x1b[0m\r\n'); });
     }).catch(() => { host.textContent = 'terminal failed to start'; });
 }
 

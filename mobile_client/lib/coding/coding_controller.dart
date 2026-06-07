@@ -394,7 +394,8 @@ class CodingSessionsController extends ChangeNotifier {
             }
           } else if (event == 'terminal_closed') {
             if (!_terminalText.isClosed) {
-              _terminalText.add('\r\n\x1b[90m[detached]\x1b[0m\r\n');
+              _terminalText.add(
+                  '\r\n\x1b[90m[detached — reopen this session to resume the live terminal]\x1b[0m\r\n');
             }
           } else if (event == 'terminal_error') {
             final msg = (ev['error'] ?? '').toString();
