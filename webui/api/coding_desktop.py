@@ -382,6 +382,9 @@ class DesktopSyncSession:
         self.status = "opening"
         self.last_sync_at = None
         self.error = None
+        # transfer progress for the WebUI progress bar
+        self.total = 0
+        self.done = 0
 
     # --- lifecycle ----------------------------------------------------------
 
@@ -397,17 +400,26 @@ class DesktopSyncSession:
 
     # --- inbound from device ------------------------------------------------
 
+    def _mark_synced(self) -> None:
+        self.status = "synced"
+        self.last_sync_at = time.time()
+
     def on_manifest(self, remote_manifest: dict) -> None:
         """Got the desktop's manifest — pick a direction and start transfers."""
         local = self.server_manifest()
         plan = sync_core.plan_initial_sync(local, remote_manifest)
         with self._lock:
+            self.status = "syncing"
             self.direction = plan["direction"]
+            self.total = len(plan["files"])
+            self.done = 0
             if self.direction == "push":
                 # PUSH: read each server file and send it to the desktop.
                 for rel in plan["files"]:
                     self._push_file(rel)
+                    self.done += 1
                 self.reconciled.set()
+                self._mark_synced()
             else:
                 # PULL: request each remote file; mark the tree reconciled once
                 # every requested file has arrived.
@@ -416,6 +428,7 @@ class DesktopSyncSession:
                     self.bridge.send_sync_get(self.device_id, self.sync_id, rel)
                 if not self._pending_pull:
                     self.reconciled.set()
+                    self._mark_synced()
 
     def on_file(self, relpath: str, b64: str) -> None:
         """A coding_sync_file arrived from the desktop — write it locally."""
@@ -432,8 +445,12 @@ class DesktopSyncSession:
             return
         with self._lock:
             self._pending_pull.discard(relpath)
-            if self.direction == "pull" and not self._pending_pull:
+            if self.total:
+                self.done = min(self.total, self.done + 1)
+            if not self._pending_pull:
+                # initial pull complete OR a single incremental delta applied
                 self.reconciled.set()
+                self._mark_synced()
 
     def on_event(self, relpath: str, kind: str) -> None:
         """Incremental delta after the initial reconcile.
@@ -445,12 +462,15 @@ class DesktopSyncSession:
         if not relpath:
             return
         if kind in ("modified", "created", "changed"):
+            self.status = "syncing"
             self.bridge.send_sync_get(self.device_id, self.sync_id, relpath)
         elif kind in ("deleted", "removed"):
+            self.status = "syncing"
             try:
                 sync_core.apply_delete(self.root, relpath)
             except ValueError:
                 pass
+            self._mark_synced()
 
     def _push_file(self, relpath: str) -> None:
         try:
@@ -620,6 +640,46 @@ def start_sync_for_session(*, session_id: str, cwd: str, sync: dict | None,
         return None  # chosen device isn't a connected jc-client
     return start_sync_for_launch(device_id, session_id=session_id, cwd=cwd,
                                  sync=sync, bridge=bridge)
+
+
+def sync_status(session_id: str, sync_config=None) -> dict:
+    """Sync status for the WebUI: device, online/offline, status, progress.
+
+    ``status`` is one of: off | disconnected | idle | opening | syncing | synced
+    | error. ``total``/``done`` drive the progress bar while ``syncing``.
+    """
+    import json as _json
+
+    out = {"enabled": False, "device": None, "device_online": False,
+           "status": "off", "direction": None, "total": 0, "done": 0,
+           "last_sync_at": None, "error": None}
+    cfg = {}
+    if sync_config:
+        try:
+            cfg = (_json.loads(sync_config) if isinstance(sync_config, str)
+                   else dict(sync_config))
+        except Exception:
+            cfg = {}
+    if not cfg.get("enabled"):
+        return out
+    out["enabled"] = True
+    out["device"] = cfg.get("device")
+    out["device_online"] = bool(resolve_desktop_device_id(preferred=cfg.get("device")))
+    try:
+        sess = get_desktop_bridge().get_sync("sync-" + session_id)
+    except Exception:
+        sess = None
+    if sess is not None:
+        out["status"] = getattr(sess, "status", "syncing") or "syncing"
+        out["direction"] = getattr(sess, "direction", None)
+        out["total"] = int(getattr(sess, "total", 0) or 0)
+        out["done"] = int(getattr(sess, "done", 0) or 0)
+        out["last_sync_at"] = getattr(sess, "last_sync_at", None)
+        out["error"] = getattr(sess, "error", None)
+    else:
+        # configured but no live sync session yet
+        out["status"] = "idle" if out["device_online"] else "disconnected"
+    return out
 
 
 def _resolve_store():

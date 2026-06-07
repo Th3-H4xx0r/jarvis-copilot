@@ -37,7 +37,8 @@ log = logging.getLogger(__name__)
 
 # Reconnection backoff schedule (seconds).
 _BACKOFF_SECONDS = [1, 2, 4, 8, 16, 32, 60]
-_PING_INTERVAL = 30.0
+_PING_INTERVAL = 20.0  # keepalive cadence; a text ping every 20s stays well
+                       # under the ~50-60s edge idle timeout that was dropping us
 _MAX_CONCURRENT_INVOKES = 8
 # Per-skill watchdog. Stay under the server's invoke_skill default of 30s
 # so the bot gets our error before timing out itself.
@@ -275,8 +276,15 @@ class Service:
         def _pinger() -> None:
             while not ping_stop.wait(_PING_INTERVAL):
                 try:
+                    # A TEXT data frame (not just a WS control PING): edges like
+                    # cloudflared/nginx often only reset their idle timeout on
+                    # DATA frames, so a control ping alone let the connection
+                    # drop every ~50s. Send both.
+                    ws.send_text(json.dumps({"type": "ping"}))
                     ws.send_ping(b"jc")
                 except WsConnectionClosed:
+                    return
+                except Exception:
                     return
 
         ping_thread = threading.Thread(target=_pinger, daemon=True, name="ws-ping")

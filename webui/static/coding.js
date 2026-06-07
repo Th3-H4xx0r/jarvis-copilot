@@ -302,6 +302,7 @@ async function _codingRefreshDetail() {
   if (String(_codingSelectedId) !== String(id)) return;
   if (!res || res.ok === false) return;
   _codingRenderDetail(res.session || {}, res.subagents || []);
+  _codingRefreshSyncStatus(id);
 }
 
 function _codingRenderDetail(session, subagents) {
@@ -360,6 +361,7 @@ function _codingRenderDetail(session, subagents) {
           <div class="cdg-form-actions"><button type="button" class="cdg-btn-primary" id="codingSetSaveBtn" onclick="codingSaveSettings()">Save settings</button></div>
           <div class="cdg-form-err" id="codingSetErr" style="display:none"></div>
         </div>
+        <div id="codingSyncStatus"></div>
         ${termSection}
       </div>`;
     _codingMountTerminal(id);   // server attaches local tmux; desktop streams over the bridge
@@ -487,6 +489,55 @@ async function codingDelete() {
   }
 }
 window.codingDelete = codingDelete;
+
+async function _codingRefreshSyncStatus(id) {
+  const el = document.getElementById('codingSyncStatus');
+  if (!el || String(_codingSelectedId) !== String(id)) return;
+  let st;
+  try { st = await api('/api/coding/session/' + encodeURIComponent(id) + '/sync'); }
+  catch (_) { return; }
+  if (String(_codingSelectedId) !== String(id)) return;
+  if (!st || !st.enabled) { el.innerHTML = ''; return; }
+  const online = !!st.device_online;
+  const status = st.status || 'idle';
+  const syncing = status === 'syncing' || status === 'opening';
+  const dotColor = online ? '#2ecc71' : '#888';
+  // status label + color
+  const labels = { synced: 'Up to date', syncing: 'Syncing…', opening: 'Connecting…',
+    idle: online ? 'Idle' : 'Waiting for device', disconnected: 'Device offline',
+    error: 'Error', off: '' };
+  let label = labels[status] || status;
+  if (!online && status !== 'disconnected') label = 'Device offline';
+  const pct = (syncing && st.total) ? Math.round((st.done / st.total) * 100) : (status === 'synced' ? 100 : 0);
+  const bar = syncing
+    ? `<div style="height:6px;background:#1a1f2b;border-radius:4px;overflow:hidden;margin-top:6px">
+         <div style="height:100%;width:${st.total ? pct : 40}%;background:#3b82f6;border-radius:4px;transition:width .3s"></div>
+       </div>${st.total ? `<div class="cdg-hint">${st.done}/${st.total} files · ${pct}%</div>` : '<div class="cdg-hint">syncing…</div>'}`
+    : '';
+  el.innerHTML = `
+    <div class="cm-section">
+      <div class="cm-section-head">
+        <span class="cm-section-title">Sync</span>
+        <button type="button" class="cdg-btn-secondary" style="font-size:11px;padding:2px 8px" onclick="codingRefreshSync()">Refresh</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="cdg-dot" style="background:${dotColor};width:9px;height:9px;border-radius:50%;display:inline-block"></span>
+        <span>${_cdgEsc(st.device || 'device')}</span>
+        <span style="opacity:.6">${online ? 'online' : 'disconnected'}</span>
+        <span style="margin-left:auto;opacity:.85">${_cdgEsc(label)}</span>
+      </div>
+      ${bar}
+    </div>`;
+}
+
+async function codingRefreshSync() {
+  if (!_codingSelectedId) return;
+  const id = _codingSelectedId;
+  try { await api('/api/coding/session/' + encodeURIComponent(id) + '/sync/refresh', { method: 'POST', body: JSON.stringify({}) }); }
+  catch (_) {}
+  _codingRefreshSyncStatus(id);
+}
+window.codingRefreshSync = codingRefreshSync;
 
 function codingToggleSettings() {
   const p = document.getElementById('codingSettingsPanel');

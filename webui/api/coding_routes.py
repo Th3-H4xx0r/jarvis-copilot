@@ -269,6 +269,41 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
 
             return _run(_delete)
 
+        # GET /session/<id>/sync  — sync status (device, online, progress)
+        if action == "sync" and len(parts) <= 2 and method == "GET":
+            def _sync_get():
+                row = manager.status(sid)
+                if row is None:
+                    return _err(404, "session not found: " + sid)
+                from api.coding_desktop import sync_status
+
+                return _ok(sync_status(sid, row.get("sync_config")))
+
+            return _run(_sync_get)
+
+        # POST /session/<id>/sync/refresh  — re-open the sync (re-reconcile)
+        if (action == "sync" and len(parts) > 2 and parts[2] == "refresh"
+                and method == "POST"):
+            def _sync_refresh():
+                row = manager.status(sid)
+                if row is None:
+                    return _err(404, "session not found: " + sid)
+                import json as _json
+                from api.coding_desktop import start_sync_for_session
+
+                cfg = None
+                if row.get("sync_config"):
+                    try:
+                        cfg = _json.loads(row["sync_config"])
+                    except Exception:
+                        cfg = None
+                start_sync_for_session(session_id=sid, cwd=row.get("cwd"), sync=cfg)
+                from api.coding_desktop import sync_status
+
+                return _ok(sync_status(sid, row.get("sync_config")))
+
+            return _run(_sync_refresh)
+
         # POST /session/<id>/settings  — update stored settings (skip-perms,
         # sync, cwd, title). cwd/skip-perms apply on next Restart.
         if action == "settings" and method == "POST":
