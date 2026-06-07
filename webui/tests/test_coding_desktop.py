@@ -436,6 +436,27 @@ def test_sync_status_reports_live_registered_session(tmp_path, monkeypatch):
     assert out["device_online"] is True
 
 
+def test_sync_status_offline_overrides_stale_syncing(tmp_path, monkeypatch):
+    """If the desktop client is gone, a left-over session still claiming
+    status='syncing' must NOT keep the panel on 'Syncing…' — report
+    'disconnected' so the UI says offline (and last-known progress is kept)."""
+    import json
+
+    monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda preferred=None: None)
+    sess = cd.DesktopSyncSession(sync_id="sync-cs_Off", device_id="dev-Off",
+                                 root=str(tmp_path), bridge=make_bridge()[0])
+    sess.status = "syncing"
+    sess.total, sess.done = 500, 17
+    cd.get_desktop_bridge().register_sync(sess)
+    try:
+        out = cd.sync_status("cs_Off", json.dumps({"enabled": True, "device": "dev-Off"}))
+    finally:
+        cd.get_desktop_bridge().send_sync_close("dev-Off", "sync-cs_Off")
+    assert out["device_online"] is False
+    assert out["status"] == "disconnected"      # not the stale "syncing"
+    assert out["total"] == 500 and out["done"] == 17  # last-known progress kept
+
+
 def test_desktop_bridge_has_sync_for_not_get_sync():
     """Lock the accessor name so sync_status can't silently regress again."""
     bridge, _t = make_bridge()

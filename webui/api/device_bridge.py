@@ -30,6 +30,7 @@ import http.cookies
 import json
 import logging
 import secrets
+import select
 import threading
 import time
 import uuid
@@ -876,6 +877,11 @@ _MAX_FRAME_BYTES = 8 * 1024 * 1024
 _PING_INTERVAL = 18.0  # server keepalive cadence; a text data ping every ~18s
                        # keeps cloudflared/Cloudflare from idle-closing the
                        # mostly-idle bridge (a WS control Ping alone didn't)
+_RECV_POLL = 5.0       # how long the pump waits for inbound data before looping
+                       # to run the keepalive — so an idle connection still pings
+                       # AND an ungraceful disconnect is detected within
+                       # ~_PING_INTERVAL (the keepalive send fails) instead of
+                       # blocking forever in recv() and showing the device online
 
 
 def _ws_send_text(conn: _DeviceConn, text: str) -> None:
@@ -906,61 +912,72 @@ def _pump(conn: _DeviceConn) -> None:
     )
     last_ping = time.time()
     while not conn.closed:
+        # Wait up to _RECV_POLL for inbound data instead of blocking forever in
+        # recv(). This lets the keepalive below fire on an idle connection AND —
+        # critically — lets an UNGRACEFUL disconnect (client killed / network
+        # dropped, no WS close frame) be detected within ~_PING_INTERVAL when
+        # the keepalive send fails, rather than hanging in recv() and leaving the
+        # device wrongly "online" until the OS TCP timeout (many minutes).
         try:
-            data = conn.sock.recv(_RECV_CHUNK)
-        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError,
-                TimeoutError, OSError):
+            ready, _, _ = select.select([conn.sock], [], [], _RECV_POLL)
+        except (OSError, ValueError):
             break
-        if not data:
-            break
-        try:
-            conn.conn.receive_data(data)
-        except Exception as exc:
-            logger.debug("device bridge protocol error: %s", exc)
-            break
-        for event in conn.conn.events():
-            conn.last_seen = time.time()
-            if isinstance(event, TextMessage):
-                # wsproto delivers a TextMessage per recv chunk for a
-                # multi-recv WS frame, with `message_finished=True` only
-                # on the final piece. We must accumulate text until the
-                # message is complete before parsing JSON — otherwise
-                # any payload over ~8 KB (one recv chunk) silently
-                # never reaches _handle_message because partial JSON
-                # fails to parse and we'd `continue`. That was the
-                # source of every "device did not respond before
-                # timeout" we saw for screenshots and large results.
-                conn._text_buf += event.data or ""
-                if not getattr(event, "message_finished", True):
+        if ready:
+            try:
+                data = conn.sock.recv(_RECV_CHUNK)
+            except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError,
+                    TimeoutError, OSError):
+                break
+            if not data:
+                break
+            try:
+                conn.conn.receive_data(data)
+            except Exception as exc:
+                logger.debug("device bridge protocol error: %s", exc)
+                break
+            for event in conn.conn.events():
+                conn.last_seen = time.time()
+                if isinstance(event, TextMessage):
+                    # wsproto delivers a TextMessage per recv chunk for a
+                    # multi-recv WS frame, with `message_finished=True` only
+                    # on the final piece. We must accumulate text until the
+                    # message is complete before parsing JSON — otherwise
+                    # any payload over ~8 KB (one recv chunk) silently
+                    # never reaches _handle_message because partial JSON
+                    # fails to parse and we'd `continue`. That was the
+                    # source of every "device did not respond before
+                    # timeout" we saw for screenshots and large results.
+                    conn._text_buf += event.data or ""
+                    if not getattr(event, "message_finished", True):
+                        continue
+                    raw = conn._text_buf
+                    conn._text_buf = ""
+                    if len(raw) > _MAX_FRAME_BYTES:
+                        logger.warning(
+                            "device %s sent oversize frame (%d B > %d) — dropping",
+                            conn.device_id, len(raw), _MAX_FRAME_BYTES,
+                        )
+                        continue
+                    try:
+                        msg = json.loads(raw or "{}")
+                    except Exception as exc:
+                        logger.debug("bad json frame from device %s: %s", conn.device_id, exc)
+                        continue
+                    _handle_message(conn, msg)
+                elif isinstance(event, BytesMessage):
+                    # Binary frames aren't part of the bridge protocol yet.
+                    # Drop silently — devices shouldn't send these.
                     continue
-                raw = conn._text_buf
-                conn._text_buf = ""
-                if len(raw) > _MAX_FRAME_BYTES:
-                    logger.warning(
-                        "device %s sent oversize frame (%d B > %d) — dropping",
-                        conn.device_id, len(raw), _MAX_FRAME_BYTES,
-                    )
-                    continue
-                try:
-                    msg = json.loads(raw or "{}")
-                except Exception as exc:
-                    logger.debug("bad json frame from device %s: %s", conn.device_id, exc)
-                    continue
-                _handle_message(conn, msg)
-            elif isinstance(event, BytesMessage):
-                # Binary frames aren't part of the bridge protocol yet.
-                # Drop silently — devices shouldn't send these.
-                continue
-            elif isinstance(event, Ping):
-                try:
-                    with conn.send_lock:
-                        conn.sock.sendall(conn.conn.send(Pong(payload=event.payload)))
-                except Exception:
+                elif isinstance(event, Ping):
+                    try:
+                        with conn.send_lock:
+                            conn.sock.sendall(conn.conn.send(Pong(payload=event.payload)))
+                    except Exception:
+                        return
+                elif isinstance(event, Pong):
+                    pass  # liveness — already updated last_seen
+                elif isinstance(event, CloseConnection):
                     return
-            elif isinstance(event, Pong):
-                pass  # liveness — already updated last_seen
-            elif isinstance(event, CloseConnection):
-                return
         # Server-side keepalive. A WS CONTROL Ping alone does NOT reset the
         # cloudflared/Cloudflare idle timer (they count DATA frames), so the
         # mostly-idle bridge connection was being reaped (~51s with no keepalive,

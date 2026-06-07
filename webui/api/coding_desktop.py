@@ -740,16 +740,24 @@ def sync_status(session_id: str, sync_config=None) -> dict:
         sess = get_desktop_bridge().sync_for("sync-" + session_id)
     except Exception:
         sess = None
+    # Surface last-known progress/direction from any session object we have, but
+    # the STATUS must reflect device liveness first: if the desktop client is
+    # gone, a left-over session still holding status="syncing" is stale — report
+    # "disconnected" (not a frozen "Syncing…") so the panel says offline and the
+    # next reconnect/Refresh re-reconciles.
     if sess is not None:
-        out["status"] = getattr(sess, "status", "syncing") or "syncing"
         out["direction"] = getattr(sess, "direction", None)
         out["total"] = int(getattr(sess, "total", 0) or 0)
         out["done"] = int(getattr(sess, "done", 0) or 0)
         out["last_sync_at"] = getattr(sess, "last_sync_at", None)
         out["error"] = getattr(sess, "error", None)
+    if not out["device_online"]:
+        out["status"] = "disconnected"
+    elif sess is not None:
+        out["status"] = getattr(sess, "status", "syncing") or "syncing"
     else:
-        # configured but no live sync session yet
-        out["status"] = "idle" if out["device_online"] else "disconnected"
+        # configured, device online, but no live sync session yet
+        out["status"] = "idle"
     return out
 
 
