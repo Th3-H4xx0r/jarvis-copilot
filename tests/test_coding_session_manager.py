@@ -224,3 +224,27 @@ def test_worktree_cleaned_up_when_tmux_fails(tmp_path):
     # the orphan worktree was rolled back and unlinked from the row
     assert rows[-1]["worktree_path"] is None
     assert not (repo / ".jc-worktrees").exists() or not any((repo / ".jc-worktrees").iterdir())
+
+
+def test_sync_starter_fires_for_any_host(tmp_path):
+    store = CodingSessionStore(db_path=str(tmp_path / "c.db"))
+    calls = []
+    mgr = CodingSessionManager(
+        store=store, driver=FakeDriver(), plugin_dir="/p",
+        memory_loader=lambda: ("m", "u"), context_root=str(tmp_path / "ctx"),
+        sync_starter=lambda **kw: calls.append(kw))
+    mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None, model=None,
+               sync={"enabled": True, "device": "mac", "remote_path": "~/p"})
+    assert calls and calls[0]["sync"]["device"] == "mac"
+    assert calls[0]["cwd"] == str(tmp_path)
+
+
+def test_sync_starter_not_fired_without_sync(tmp_path):
+    store = CodingSessionStore(db_path=str(tmp_path / "c.db"))
+    calls = []
+    mgr = CodingSessionManager(
+        store=store, driver=FakeDriver(), plugin_dir="/p",
+        memory_loader=lambda: ("m", "u"), context_root=str(tmp_path / "ctx"),
+        sync_starter=lambda **kw: calls.append(kw))
+    mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None, model=None)
+    assert calls == []

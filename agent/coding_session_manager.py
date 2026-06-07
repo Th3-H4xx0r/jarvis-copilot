@@ -56,7 +56,8 @@ def _scan_memory(text: str) -> str:
 
 class CodingSessionManager:
     def __init__(self, *, store, driver, plugin_dir, memory_loader,
-                 long_term_recall=None, context_root=None, session_capturer=None):
+                 long_term_recall=None, context_root=None, session_capturer=None,
+                 sync_starter=None):
         self.store = store
         self.driver = driver
         self.plugin_dir = plugin_dir
@@ -66,6 +67,10 @@ class CodingSessionManager:
         # (cwd, since_ts) -> claude session uuid | None. None = skip capture
         # (kept injectable so unit tests don't poll the real ~/.claude/projects).
         self.session_capturer = session_capturer
+        # sync_starter(session_id, cwd, sync) — kicks the file sync for a session
+        # that opted in, regardless of host (server OR desktop). Injected by the
+        # webui (coding_routes); None in unit tests / non-sync contexts.
+        self.sync_starter = sync_starter
 
     def _context_path(self, sid: str) -> Path:
         return self.context_root / sid / "JARVIS-CONTEXT.md"
@@ -160,14 +165,14 @@ class CodingSessionManager:
             err = (getattr(res, "stderr", "") or "tmux new-session failed").strip()
             raise RuntimeError(f"failed to start session: {err}")
         self.store.update_session(sid, status="running", last_activity_at=time.time())
-        # 3b. Optional host hook after a successful start (desktop sessions use
-        #     this to kick off the bidirectional file sync over the bridge).
-        #     LocalDriver doesn't define it, so server sessions are unaffected.
-        on_launched = getattr(self.driver, "on_launched", None)
-        if callable(on_launched):
+        # 3b. Kick off the bidirectional file sync for ANY host (server OR
+        #     desktop) whenever the session opted into syncing. Previously this
+        #     only fired via DesktopDriver.on_launched, so a SERVER-host session
+        #     with a sync config never synced — the user's exact bug.
+        if sync and self.sync_starter and (
+                sync.get("enabled") or sync.get("device") or sync.get("remote_path")):
             try:
-                on_launched(session_id=sid, cwd=cwd, tmux_name=tmux_name,
-                            sync=sync)
+                self.sync_starter(session_id=sid, cwd=cwd, sync=sync)
             except Exception:
                 pass
         # 4. best-effort: recover the claude session UUID (enables --resume +

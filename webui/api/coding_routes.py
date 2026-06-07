@@ -48,6 +48,17 @@ def default_manager(host: str = "server"):
         from tools.coding_session_tool import _mgr
 
         base = _mgr()  # fully-configured server (LocalDriver) manager
+
+        def _sync_starter(*, session_id, cwd, sync):
+            # Kick the file sync for a session that opted in, on EITHER host.
+            from api.coding_desktop import start_sync_for_session
+
+            start_sync_for_session(session_id=session_id, cwd=cwd, sync=sync)
+
+        # Server-host sessions can sync too (claude on the server, files mirrored
+        # to the chosen desktop) — wire the starter onto the server manager.
+        base.sync_starter = _sync_starter
+
         if host == "server":
             _MANAGERS["server"] = base
         else:
@@ -66,28 +77,18 @@ def default_manager(host: str = "server"):
                     return None
                 return make_bridge_run(device_id)
 
-            def _desktop_on_launched(*, session_id, cwd, tmux_name, sync):
-                # After a successful start, kick off the bidirectional file sync
-                # against the same desktop client that ran tmux+claude.
-                from api.coding_desktop import (
-                    make_on_launched, resolve_desktop_device_id)
-
-                device_id = resolve_desktop_device_id()
-                if not device_id:
-                    return
-                make_on_launched(device_id)(
-                    session_id=session_id, cwd=cwd, tmux_name=tmux_name,
-                    sync=sync)
-
+            # Sync is kicked by the manager's sync_starter for ALL hosts now,
+            # so the desktop driver no longer kicks it via on_launched (avoids a
+            # double-sync). on_launched_fn stays None.
             _MANAGERS["desktop"] = CodingSessionManager(
                 store=base.store,
                 driver=DesktopDriver(
-                    bridge_run_factory=_desktop_bridge_run_factory,
-                    on_launched_fn=_desktop_on_launched),
+                    bridge_run_factory=_desktop_bridge_run_factory),
                 plugin_dir=base.plugin_dir, memory_loader=base.memory_loader,
                 long_term_recall=base.long_term_recall,
                 context_root=str(base.context_root),
-                session_capturer=base.session_capturer)
+                session_capturer=base.session_capturer,
+                sync_starter=_sync_starter)
     return _MANAGERS[host]
 
 

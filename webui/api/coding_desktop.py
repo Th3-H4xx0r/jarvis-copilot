@@ -378,6 +378,10 @@ class DesktopSyncSession:
         # files we still expect to receive (pull) before the tree is whole
         self._pending_pull: set = set()
         self._lock = threading.RLock()
+        # status surfaced to the WebUI: opening | syncing | synced | error
+        self.status = "opening"
+        self.last_sync_at = None
+        self.error = None
 
     # --- lifecycle ----------------------------------------------------------
 
@@ -480,27 +484,48 @@ def get_desktop_bridge() -> DesktopBridge:
         return _BRIDGE
 
 
-def resolve_desktop_device_id() -> str | None:
-    """device_id of a connected desktop client, else None.
+def resolve_desktop_device_id(preferred: str | None = None) -> str | None:
+    """device_id of a connected jc-client (bridge-WS) device, else None.
 
-    Prefers a relay-capable device (the jc-client advertises MCP relay), then
-    falls back to any device whose pairing record kind is 'desktop'. Runs in the
-    webui process, so it reads the in-memory bridge registry directly.
+    Any device holding a live device-bridge WebSocket IS the jc-client desktop
+    agent (browser-paired devices don't hold a bridge connection), so a
+    non-empty ``connected_device_ids()`` is the real signal — NOT relay
+    capability (off by default) or pairing ``kind`` (often unset).
+
+    ``preferred`` (a device id OR name, e.g. the sync config's chosen device) is
+    honoured first when it's currently connected.
     """
     try:
         from api import device_bridge
+
+        connected = list(device_bridge.connected_device_ids())
     except Exception:
         return None
-    # 1. a connected relay-capable device is almost certainly the jc desktop client
+    if not connected:
+        return None
+    # 1. honour the explicitly-chosen device (by id or name) if it's connected
+    if preferred:
+        if preferred in connected:
+            return preferred
+        try:
+            from api.pairing import list_devices
+
+            for d in list_devices():
+                if d.get("id") in connected and (
+                        d.get("id") == preferred
+                        or (d.get("name") or "") == preferred
+                        or (d.get("device_name") or "") == preferred):
+                    return d["id"]
+        except Exception:
+            pass
+    # 2. prefer a relay-capable / kind=='desktop' connected device
     try:
         caps = device_bridge.relay_capable_devices()
-        if caps:
+        if caps and caps[0].get("device_id") in connected:
             return caps[0]["device_id"]
     except Exception:
         pass
-    # 2. any connected device whose pairing record kind == 'desktop'
     try:
-        connected = set(device_bridge.connected_device_ids())
         from api.pairing import list_devices
 
         for d in list_devices():
@@ -508,14 +533,8 @@ def resolve_desktop_device_id() -> str | None:
                 return d["id"]
     except Exception:
         pass
-    # 3. last resort: the single connected device, if there's exactly one
-    try:
-        connected = device_bridge.connected_device_ids()
-        if len(connected) == 1:
-            return connected[0]
-    except Exception:
-        pass
-    return None
+    # 3. any connected bridge device is a jc-client agent
+    return connected[0]
 
 
 class _BridgeRunResult:
@@ -582,6 +601,25 @@ def start_sync_for_launch(device_id: str, *, session_id: str, cwd: str,
     bridge.register_sync(session)
     session.open()  # coding_sync_open -> device replies with coding_sync_manifest
     return session
+
+
+def start_sync_for_session(*, session_id: str, cwd: str, sync: dict | None,
+                           bridge: DesktopBridge | None = None):
+    """Open a file sync for a session that opted in — works for ANY host
+    (server OR desktop), resolving the device chosen in the sync config.
+
+    Returns the DesktopSyncSession, or None when sync is off OR no matching
+    desktop client (jc-client) is currently connected to sync with.
+    """
+    if not sync:
+        return None
+    if not (sync.get("enabled") or sync.get("device") or sync.get("remote_path")):
+        return None
+    device_id = resolve_desktop_device_id(preferred=sync.get("device"))
+    if not device_id:
+        return None  # chosen device isn't a connected jc-client
+    return start_sync_for_launch(device_id, session_id=session_id, cwd=cwd,
+                                 sync=sync, bridge=bridge)
 
 
 def _resolve_store():
