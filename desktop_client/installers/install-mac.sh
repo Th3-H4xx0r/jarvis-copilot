@@ -79,6 +79,15 @@ case ":$PATH:" in
         ;;
 esac
 
+# --- Mutagen sync engine (coding-session file sync) -------------------------
+# Fetched here so coding sessions can sync a project folder right after pairing.
+# Best-effort: a network hiccup must not fail the whole install — `jc-client
+# update` and the first sync both re-attempt it.
+info "Installing Mutagen sync engine (for coding-session file sync) ..."
+if ! "$VENV_DIR/bin/jc-client" install-mutagen; then
+    warn "Mutagen not installed (no network?) — run 'jc-client install-mutagen' later; coding-session sync needs it."
+fi
+
 # --- LaunchAgent ------------------------------------------------------------
 # Runs the service in the foreground so it's directly supervised.
 # We used to run the tray (which spawned the service as a daemon thread),

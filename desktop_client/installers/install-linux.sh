@@ -103,6 +103,14 @@ case ":$PATH:" in
         ;;
 esac
 
+# --- Mutagen sync engine (coding-session file sync) -------------------------
+# Best-effort: a network hiccup must not fail the install — `jc-client update`
+# and the first sync both re-attempt it.
+info "Installing Mutagen sync engine (for coding-session file sync) ..."
+if ! "$VENV_DIR/bin/jc-client" install-mutagen; then
+    warn "Mutagen not installed (no network?) — run 'jc-client install-mutagen' later; coding-session sync needs it."
+fi
+
 # --- systemd --user unit ----------------------------------------------------
 UNIT_DIR="$HOME/.config/systemd/user"
 mkdir -p "$UNIT_DIR"

@@ -75,6 +75,15 @@ if (-not (Test-Path $VenvPy)) {
 Info "Installing jarviscopilot-client ..."
 & $VenvPy -m pip install -e (Join-Path $SrcDir 'desktop_client') -q --progress-bar off
 
+# --- Mutagen sync engine (coding-session file sync) -------------------------
+# Best-effort: a network hiccup must not fail the install — `jc-client update`
+# and the first sync both re-attempt it.
+Info "Installing Mutagen sync engine (for coding-session file sync) ..."
+$JcExeEarly = Join-Path $VenvDir 'Scripts\jc-client.exe'
+try { & $JcExeEarly install-mutagen } catch {
+    Warn "Mutagen not installed (no network?) — run 'jc-client install-mutagen' later; coding-session sync needs it."
+}
+
 # --- PATH shim --------------------------------------------------------------
 $JcExe   = Join-Path $VenvDir 'Scripts\jc-client.exe'
 $ShimDir = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
