@@ -44,12 +44,21 @@ class _CodingPageState extends State<CodingPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _c.loadSessions();
       _c.loadDevices();
-      _c.setListPolling(true); // keep session dots live while the tab is open
     });
+    // Poll the list for live status only while the Coding tab is actually
+    // visible (every page lives forever in NavShell's IndexedStack, so initState
+    // alone would poll for the whole app lifetime).
+    app.activeTabIndex.addListener(_onTabVisibility);
+    _onTabVisibility();
+  }
+
+  void _onTabVisibility() {
+    _c.setListPolling(app.activeTabIndex.value == app.kCodingTabIndex);
   }
 
   @override
   void dispose() {
+    app.activeTabIndex.removeListener(_onTabVisibility);
     _c.removeListener(_onControllerChanged);
     _termSub?.cancel();
     _c.dispose();
@@ -850,7 +859,7 @@ class _SessionRow extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: dot,
-                    border: cls == 'running'
+                    border: session.statusClass == 'running'
                         ? null
                         : Border.all(
                             color: JcTheme.muted.withValues(alpha: 0.5)),

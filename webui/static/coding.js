@@ -137,12 +137,18 @@ function _cdgStatusClass(status) {
 // green / purple / grey). Non-running statuses keep their lifecycle class.
 function _cdgDisplayState(s) {
   if (_codingIsTranscriptIdle(s)) return 'history';
-  const cls = _cdgStatusClass(s.status);
-  if (cls === 'running') {
+  const status = String((s && s.status) || '').toLowerCase();
+  const cls = _cdgStatusClass(status);
+  // Refine ANY live session (running/starting/idle lifecycle) — the server
+  // detects activity_state for all of them, so a permission prompt on an
+  // idle/starting session must still read as waiting, not grey.
+  const live = status === 'running' || status === 'starting' || status === 'idle';
+  if (live) {
     const act = String((s && s.activity_state) || '').toLowerCase();
     if (act === 'waiting') return 'waiting';
+    if (act === 'working') return 'working';
     if (act === 'idle') return 'idle';
-    return 'working';  // 'working', or running with an unknown sub-state
+    return cls === 'running' ? 'working' : 'idle';
   }
   return cls;
 }
@@ -1429,5 +1435,5 @@ function _codingStopStatusPoll() {
 
 // Cleared from panels.js when the panel is switched away (mirrors how other
 // panels stop their timers), but also self-guards inside the interval above.
-function onCodingPanelLeave() { _codingStopPoll(); _codingTeardownTerminal(); _codingDetailShellId = null; }
+function onCodingPanelLeave() { _codingStopPoll(); _codingStopStatusPoll(); _codingTeardownTerminal(); _codingDetailShellId = null; }
 window.onCodingPanelLeave = onCodingPanelLeave;

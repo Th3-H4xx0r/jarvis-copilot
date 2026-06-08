@@ -43,6 +43,7 @@ class _NavShellState extends State<NavShell> {
     // Cold launch via the Siri intent: the request may already be latched
     // before we mounted, so honour it as the initial tab.
     if (app.voiceLaunchRequested.value) _index = 1;
+    app.activeTabIndex.value = _index;
     app.voiceLaunchRequested.addListener(_onVoiceLaunch);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybePromptAccessibility();
@@ -60,6 +61,7 @@ class _NavShellState extends State<NavShell> {
   void _onVoiceLaunch() {
     if (mounted && app.voiceLaunchRequested.value && _index != 1) {
       setState(() => _index = 1);
+      app.activeTabIndex.value = 1;
     }
   }
 
@@ -122,7 +124,10 @@ class _NavShellState extends State<NavShell> {
       bottomNavigationBar: _GlassNavBar(
         index: _index,
         tabs: _tabs,
-        onTap: (i) => setState(() => _index = i),
+        onTap: (i) {
+          setState(() => _index = i);
+          app.activeTabIndex.value = i;
+        },
       ),
     );
   }

@@ -26,7 +26,6 @@ _WAITING_MARKERS = (
     "do you want to delete",
     "❯ 1.",
     "1. yes",
-    "would you like to",
     "(y/n)",
     "press enter to continue",
 )

@@ -54,6 +54,12 @@ VoiceController get voiceController => _voiceController ??= VoiceController(api)
 /// before NavShell/VoicePage have mounted to hear it.
 final ValueNotifier<bool> voiceLaunchRequested = ValueNotifier<bool>(false);
 
+/// Current bottom-nav tab index, so app-wide pages can gate work on visibility
+/// (every page lives forever in NavShell's IndexedStack). [kCodingTabIndex] is
+/// the Coding tab's slot in NavShell._pages.
+final ValueNotifier<int> activeTabIndex = ValueNotifier<int>(0);
+const int kCodingTabIndex = 4;
+
 void requestVoiceLaunch() {
   // Re-arm even if a stale `true` is sitting there, so the listeners
   // (and the on-mount checks) reliably fire.

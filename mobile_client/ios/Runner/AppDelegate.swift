@@ -530,7 +530,7 @@ enum LiveActivityManager {
         let content = ActivityContent(state: state, staleDate: nil)
         if let existing = Activity<JarvisActivityAttributes>.activities.first {
             Task { await existing.update(content) }
-        } else if state.mode == "coding" || state.state != "idle" {
+        } else if (state.mode == "coding" && state.sessionTotal > 0) || state.state != "idle" {
             // Spin one up when something is happening: a live voice turn OR live
             // coding sessions (the latter is the auto-launch path — the activity
             // appears without the user ever opening the Voice screen).

@@ -60,3 +60,10 @@ def test_idle_prompt_with_esc_hint_not_working():
     # The permission box's option 3 contains "(esc)" — that must NOT be read as
     # the working signal "esc to interrupt".
     assert classify_pane("3. No, and tell Claude what to do (esc)\n> ") == "idle"
+
+
+def test_prose_question_while_working_is_working():
+    # A streamed "Would you like…" question while the spinner is up must NOT be
+    # misread as a permission prompt (regression for the tightened markers).
+    pane = "✻ Working… (esc to interrupt)\nWould you like me to also update the tests?"
+    assert classify_pane(pane) == "working"

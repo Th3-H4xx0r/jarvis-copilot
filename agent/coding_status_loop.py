@@ -38,7 +38,9 @@ def run_status_tick(manager, *, classify=classify_pane) -> int:
         rows = manager.store.list_sessions()
     except Exception:
         return 0
-    driver = manager.driver
+    capture = getattr(manager.driver, "capture_pane", None)
+    if not callable(capture):
+        return 0  # a driver without pane capture (e.g. a future host) → no-op
     updated = 0
     for row in rows:
         try:
@@ -49,7 +51,7 @@ def run_status_tick(manager, *, classify=classify_pane) -> int:
             tmux_name = row.get("tmux_name")
             if not tmux_name:
                 continue
-            state = classify(driver.capture_pane(tmux_name=tmux_name))
+            state = classify(capture(tmux_name=tmux_name))
             if state != row.get("activity_state"):
                 manager.store.update_session(row["id"], activity_state=state)
                 updated += 1

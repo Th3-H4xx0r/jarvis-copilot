@@ -95,6 +95,9 @@ def compute_usage(*, now: float, home: str | None = None) -> dict | None:
     cutoff_5h = now - _FIVE_HOURS
     tok_5h = tok_week = 0
     earliest_5h = earliest_week = None
+    # Dedup by message id: discovery mirrors Mac session transcripts into this
+    # same dir, so the same message can appear in two files — count it once.
+    seen: set = set()
     try:
         files = glob.glob(os.path.join(proj, "**", "*.jsonl"), recursive=True)
     except OSError:
@@ -120,6 +123,11 @@ def compute_usage(*, now: float, home: str | None = None) -> dict | None:
                     ts = _parse_ts(obj.get("timestamp"))
                     if ts is None or ts < cutoff_week:
                         continue
+                    uid = obj.get("uuid") or obj.get("requestId")
+                    if uid is not None:
+                        if uid in seen:
+                            continue
+                        seen.add(uid)
                     n = _entry_tokens(obj)
                     if n <= 0:
                         continue

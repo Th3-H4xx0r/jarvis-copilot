@@ -135,7 +135,7 @@ def tmux_capture_argv(tmux_name: str, lines: int = 80) -> list:
 _WAITING_MARKERS = (
     "do you want to proceed", "do you want to run",
     "do you want to make this edit", "do you want to create",
-    "do you want to delete", "❯ 1.", "1. yes", "would you like to",
+    "do you want to delete", "❯ 1.", "1. yes",
     "(y/n)", "press enter to continue",
 )
 _WORKING_MARKERS = (

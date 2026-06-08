@@ -517,7 +517,7 @@ struct JarvisLiveActivity: Widget {
                 }
             } compactLeading: {
                 if st.mode == "coding" {
-                    Circle().fill(jcCodingColor(jcSpotlight(st.sessions)?.state ?? "working"))
+                    Circle().fill(jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
                         .frame(width: 18, height: 18)
                 } else {
                     JarvisOrb(state: st.state, size: 24)
@@ -535,7 +535,7 @@ struct JarvisLiveActivity: Widget {
                 }
             } minimal: {
                 if st.mode == "coding" {
-                    Circle().fill(jcCodingColor(jcSpotlight(st.sessions)?.state ?? "working"))
+                    Circle().fill(jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
                         .frame(width: 18, height: 18)
                 } else {
                     JarvisOrb(state: st.state, size: 22)

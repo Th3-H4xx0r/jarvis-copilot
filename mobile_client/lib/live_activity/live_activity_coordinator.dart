@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
@@ -121,6 +122,7 @@ class LiveActivityCoordinator {
   }
 
   Future<void> _refreshCoding() async {
+    if (!Credentials.instance.isPaired) return; // nothing to fetch yet
     try {
       final res = await _api.listSessionsWithUsage();
       _applyCoding(res.sessions, res.usage);
@@ -188,27 +190,13 @@ class LiveActivityCoordinator {
       'usage5Resets': coding ? _usage5Resets : '',
       'usageWeekResets': coding ? _usageWeekResets : '',
     };
-    final sig = _signature(args);
+    // Collision-proof dedupe: encode the structured args (a session title with a
+    // delimiter char can't fake-match like a join() would).
+    final sig = jsonEncode(args);
     if (sig == _lastSig) return; // nothing changed → don't churn the activity
     _lastSig = sig;
     LiveActivity.update(args);
   }
-
-  static String _signature(Map<String, dynamic> a) => [
-        a['state'],
-        a['transcript'],
-        a['activity'],
-        a['connected'],
-        (a['devices'] as List).join(','),
-        a['mode'],
-        (a['sessions'] as List).join('|'),
-        a['sessionTotal'],
-        a['waitingCount'],
-        a['usage5'],
-        a['usageWeek'],
-        a['usage5Resets'],
-        a['usageWeekResets'],
-      ].join('§');
 
   static String _sanitize(String s) {
     var t = s.replaceAll('\u{1f}', ' ').trim();

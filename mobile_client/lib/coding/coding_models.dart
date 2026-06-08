@@ -127,14 +127,22 @@ class CodingSession {
   /// states pass through. Mirrors the WebUI's `_cdgDisplayState`.
   String get liveState {
     if (isTranscriptIdle) return 'history';
-    if (statusClass == 'running') {
+    // The server detects activity_state for any LIVE session (running, starting,
+    // or idle lifecycle), so refine all of them — not just 'running' — otherwise
+    // a session whose lifecycle is idle/starting but whose pane is a permission
+    // prompt would wrongly show grey instead of the purple "waiting" signal.
+    if (isLive) {
       switch ((activityState ?? '').toLowerCase()) {
         case 'waiting':
           return 'waiting';
+        case 'working':
+          return 'working';
         case 'idle':
           return 'idle';
         default:
-          return 'working';
+          // No detected sub-state yet: a running session is presumably working;
+          // a starting/idle lifecycle with no pane reading stays idle.
+          return statusClass == 'running' ? 'working' : 'idle';
       }
     }
     return statusClass;
