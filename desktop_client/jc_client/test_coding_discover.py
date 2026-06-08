@@ -1098,3 +1098,29 @@ def test_transcript_put_rejects_decompression_bomb(tmp_path, monkeypatch):
     path = os.path.join(_claude_projects_dir(home),
                         _encode_project_dir(cwd), "sess-bomb.jsonl")
     assert not os.path.exists(path)
+
+
+# ── tmux row enrichment with claude_session_id (offline-resume support) ──────
+
+def test_enrich_tmux_with_csids_newest_wins():
+    from jc_client.coding_discover import _enrich_tmux_with_csids
+    tmux = [{"kind": "tmux", "tmux_name": "jc-a", "cwd": "/Users/me/proj"},
+            {"kind": "tmux", "tmux_name": "jc-b", "cwd": "/Users/me/other"}]
+    transcripts = [
+        {"kind": "transcript", "claude_session_id": "old", "cwd": "/Users/me/proj",
+         "last_activity": 100.0},
+        {"kind": "transcript", "claude_session_id": "new", "cwd": "/Users/me/proj",
+         "last_activity": 200.0},  # newest in this cwd -> wins
+    ]
+    _enrich_tmux_with_csids(tmux, transcripts)
+    assert tmux[0]["claude_session_id"] == "new"
+    assert "claude_session_id" not in tmux[1]  # no transcript for its cwd
+
+
+def test_enrich_tmux_does_not_overwrite_existing_csid():
+    from jc_client.coding_discover import _enrich_tmux_with_csids
+    tmux = [{"kind": "tmux", "tmux_name": "jc-a", "cwd": "/p",
+             "claude_session_id": "already"}]
+    _enrich_tmux_with_csids(
+        tmux, [{"claude_session_id": "other", "cwd": "/p", "last_activity": 9.0}])
+    assert tmux[0]["claude_session_id"] == "already"

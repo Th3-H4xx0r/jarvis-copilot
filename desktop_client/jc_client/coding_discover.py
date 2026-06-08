@@ -22,7 +22,9 @@ Outbound (client -> server), via ``send``::
      "scanned_at": <float epoch>,
      "sessions": [
         {"kind": "tmux", "tmux_name": <str>, "cwd": <str>,
-         "title": <str>, "last_activity": <float epoch>},
+         "title": <str>, "last_activity": <float epoch>,
+         "claude_session_id": <str|absent>},   # the cwd's newest transcript id
+
         {"kind": "transcript", "claude_session_id": <str>, "cwd": <str>,
          "summary": <str>, "last_activity": <float epoch>, "live": <bool>},
         ...
@@ -197,6 +199,35 @@ def _to_wire(sess: dict) -> dict:
         "title": title,
         "last_activity": float(sess.get("last_activity") or 0.0),
     }
+
+
+def _enrich_tmux_with_csids(tmux_sessions: list, transcripts: list) -> None:
+    """Stamp each live tmux session with the ``claude_session_id`` of the NEWEST
+    transcript in the SAME cwd (in place).
+
+    A bare tmux discovery item carries no session id, so if the Mac goes offline
+    the server can't resume that row (no id to ``--resume``). Claude writes a
+    transcript per live session in the same cwd, so the newest transcript's id IS
+    the session running in that tmux — copy it across so one row serves both
+    ADOPT (live attach) and RESUME-to-server (offline fallback)."""
+    by_cwd: dict = {}
+    for tr in transcripts or []:
+        if not isinstance(tr, dict):
+            continue
+        csid = (tr.get("claude_session_id") or "").strip()
+        cwd = _norm_cwd(tr.get("cwd") or "")
+        if not (csid and cwd):
+            continue
+        ts = float(tr.get("last_activity") or 0.0)
+        prev = by_cwd.get(cwd)
+        if prev is None or ts >= prev[0]:
+            by_cwd[cwd] = (ts, csid)
+    for s in tmux_sessions or []:
+        if not isinstance(s, dict) or s.get("claude_session_id"):
+            continue
+        hit = by_cwd.get(_norm_cwd(s.get("cwd") or ""))
+        if hit:
+            s["claude_session_id"] = hit[1]
 
 
 # ── transcript (Claude Code session store) scan ───────────────────────────────
@@ -920,6 +951,9 @@ class CodingDiscoverAgent:
         tmux_sessions = self._scan_tmux()
         live_cwds = [s.get("cwd") for s in tmux_sessions if s.get("cwd")]
         transcripts = self._scan_transcripts(live_cwds)
+        # Give each live tmux row the claude_session_id of its cwd's newest
+        # transcript, so an OFFLINE Mac session can still be resumed on the server.
+        _enrich_tmux_with_csids(tmux_sessions, transcripts)
         return tmux_sessions + transcripts
 
     def _scan_tmux(self) -> list:

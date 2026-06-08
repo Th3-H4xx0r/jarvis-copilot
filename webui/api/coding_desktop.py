@@ -1331,6 +1331,10 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             seen_tmux.add(tmux_name)
             title = sess.get("title") or tmux_name
             last_activity = sess.get("last_activity")
+            # The cwd's newest transcript id (added by the device so an OFFLINE
+            # Mac session can still be resumed on the server). Owning it here also
+            # lets the transcript pass dedup the live-transcript copy of it.
+            csid = (sess.get("claude_session_id") or "").strip()
             pid = _project_for_discovered_cwd(cwd)
             row = existing_tmux.get(tmux_name)
             if row is not None:
@@ -1344,15 +1348,20 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                               project_id=pid, external=1)
                 if last_activity is not None:
                     fields["last_activity_at"] = last_activity
+                if csid:  # never wipe a known csid with an empty re-report
+                    fields["claude_session_id"] = csid
                 store.update_session(row["id"], **fields)
             else:
                 sid = store.create_session(
                     project_id=pid, host="desktop", cwd=cwd, branch=None,
                     tmux_name=tmux_name, source="discovered-tmux", title=title,
-                    device_id=device_id, external=True, status="running")
+                    device_id=device_id, external=True, status="running",
+                    claude_session_id=csid or None)
                 if last_activity is not None:
                     # create_session doesn't accept last_activity_at — set it now.
                     store.update_session(sid, last_activity_at=last_activity)
+            if csid:
+                tmux_owned_csids.add(csid)  # so the transcript pass dedups it
             upserted += 1
         except Exception as exc:  # noqa: BLE001
             log.warning("coding_discover[%s]: skipped a tmux session: %s",
@@ -1589,13 +1598,16 @@ def adopt_discovered_tmux(session_id: str, *, bridge: DesktopBridge | None = Non
     cwd = row.get("cwd") or ""
     # `new-session -A` = attach-or-create (resilient if the session momentarily
     # vanished). NOT `-D`, so the Mac's own terminal stays attached (co-viewing).
-    # KNOWN TRADEOFF: with two clients attached, tmux sizes the pane to the
-    # smallest, so a small phone viewport can shrink the Mac's view. A future
-    # `set-option -g window-size latest` would fix it, but it's left out here to
-    # keep the attach command minimal/reliable (the desktop execs argv directly).
+    # The chained `; set-option -g window-size latest` sizes the pane to the
+    # most-recently-active client, so a small phone viewport doesn't shrink the
+    # Mac's view. The `;` is a literal argv element — tmux's own command
+    # separator (the desktop execs argv directly, no shell). It runs AFTER the
+    # attach, so on an old tmux lacking `window-size` it's a harmless no-op that
+    # can't break the attach (which already succeeded).
     argv = ["tmux", "new-session", "-A", "-s", tmux_name]
     if cwd:
         argv += ["-c", cwd]
+    argv += [";", "set-option", "-g", "window-size", "latest"]
     ok = bridge.send_term_open(device_id, term_id=term_id, cwd=cwd, argv=argv, env={})
     if not ok:
         return {"ok": False, "offline": True}

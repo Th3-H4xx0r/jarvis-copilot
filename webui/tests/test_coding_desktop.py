@@ -1729,9 +1729,11 @@ def test_adopt_sends_tmux_attach_open_and_feed(tmp_path):
     assert len(opens) == 1
     o = opens[0]
     assert o["term_id"] == "jc-abc123"
-    # attach-or-create to the EXISTING tmux (co-view; no -D, so the Mac stays on)
+    # attach-or-create to the EXISTING tmux (co-view; no -D, so the Mac stays on),
+    # then size the pane to the most-recent client (window-size latest).
     assert o["argv"] == ["tmux", "new-session", "-A", "-s", "jc-abc123",
-                         "-c", "/Users/me/proj"]
+                         "-c", "/Users/me/proj",
+                         ";", "set-option", "-g", "window-size", "latest"]
     assert "-D" not in o["argv"]
 
 
@@ -1791,3 +1793,43 @@ def test_on_device_disconnect_closes_feeds():
                              store=_discovered_tmux_store("dev-mac"))
     bridge2.on_device_disconnect("dev-other")
     assert not bridge2.feed_for("jc-abc123").closed.is_set()
+
+
+# ── discovered-tmux carries claude_session_id (offline-resume support) ────────
+
+def test_ingest_tmux_persists_claude_session_id(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    _discovered("dev-csid", [
+        {"kind": "tmux", "tmux_name": "jc-live", "cwd": "/w/p",
+         "title": "p", "last_activity": 5.0, "claude_session_id": "sess-77"},
+    ], store, monkeypatch)
+    s = store.list_sessions(device_id="dev-csid")[0]
+    assert s["source"] == "discovered-tmux"
+    assert s["claude_session_id"] == "sess-77"  # resumable when the Mac goes offline
+
+
+def test_ingest_tmux_csid_dedups_matching_live_transcript(tmp_path, monkeypatch):
+    # A live tmux carrying csid X + a live transcript ALSO reporting X (same cwd)
+    # must collapse to ONE drivable tmux row (no duplicate history copy).
+    store = _temp_store(tmp_path)
+    _discovered("dev-d", [
+        {"kind": "tmux", "tmux_name": "jc-live", "cwd": "/w/p",
+         "title": "p", "last_activity": 5.0, "claude_session_id": "X"},
+        {"kind": "transcript", "claude_session_id": "X", "cwd": "/w/p",
+         "summary": "hist", "last_activity": 5.0, "live": True},
+    ], store, monkeypatch)
+    rows = store.list_sessions(device_id="dev-d")
+    assert len(rows) == 1
+    assert rows[0]["source"] == "discovered-tmux"
+    assert rows[0]["claude_session_id"] == "X"
+
+
+def test_ingest_tmux_empty_csid_does_not_wipe_existing(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    _discovered("dev-w", [
+        {"kind": "tmux", "tmux_name": "jc-x", "cwd": "/w/p",
+         "claude_session_id": "keep"}], store, monkeypatch)
+    # a later push without the csid must not erase it
+    _discovered("dev-w", [
+        {"kind": "tmux", "tmux_name": "jc-x", "cwd": "/w/p"}], store, monkeypatch)
+    assert store.list_sessions(device_id="dev-w")[0]["claude_session_id"] == "keep"
