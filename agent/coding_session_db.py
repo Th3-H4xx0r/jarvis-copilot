@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS coding_sessions (
   sync_config TEXT, activity_state TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON coding_sessions(status);
+CREATE TABLE IF NOT EXISTS la_push_tokens (
+  token TEXT PRIMARY KEY, device_id TEXT, updated_at REAL NOT NULL
+);
 """
 
 VALID_STATUSES = {"starting", "running", "idle", "stopped", "error"}
@@ -190,6 +193,37 @@ class CodingSessionStore:
         q += " ORDER BY created_at ASC"
         with self._conn() as c:
             return [dict(r) for r in c.execute(q, tuple(args)).fetchall()]
+
+    # --- live-activity push tokens ------------------------------------------
+
+    def upsert_la_token(self, token: str, device_id: str | None = None) -> None:
+        """Store a Live Activity push token. One token per device: a new token
+        from the same device replaces that device's older tokens (iOS rotates
+        the token each time it issues a fresh activity)."""
+        token = (token or "").strip()
+        if not token:
+            return
+        now = time.time()
+        with self._conn() as c:
+            if device_id:
+                c.execute(
+                    "DELETE FROM la_push_tokens WHERE device_id=? AND token<>?",
+                    (device_id, token))
+            c.execute(
+                "INSERT INTO la_push_tokens(token,device_id,updated_at) "
+                "VALUES(?,?,?) ON CONFLICT(token) DO UPDATE SET "
+                "device_id=excluded.device_id, updated_at=excluded.updated_at",
+                (token, device_id, now))
+
+    def list_la_tokens(self) -> list[dict]:
+        with self._conn() as c:
+            return [dict(r) for r in c.execute(
+                "SELECT token, device_id, updated_at FROM la_push_tokens"
+            ).fetchall()]
+
+    def delete_la_token(self, token: str) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM la_push_tokens WHERE token=?", (token,))
 
     # --- projects -----------------------------------------------------------
 

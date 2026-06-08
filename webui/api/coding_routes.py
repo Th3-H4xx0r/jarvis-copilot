@@ -274,6 +274,21 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             return _run(lambda: _ok({"usage": _coding_usage()}))
         return _err(404, "not found")
 
+    # ── /la-token ── register the iOS Live Activity push token (for APNs
+    # push-to-update, so the activity stays live while the app is suspended).
+    if p == "/la-token":
+        if method == "POST":
+            token = ((body or {}).get("token") or "").strip()
+            device_id = ((body or {}).get("device_id") or "").strip()
+            if not token:
+                return _err(400, "token required")
+
+            def _store():
+                manager.store.upsert_la_token(token, device_id or None)
+                return _ok({"ok": True})
+            return _run(_store)
+        return _err(404, "not found")
+
     # ── /launch ──
     if p == "/launch":
         if method == "POST":

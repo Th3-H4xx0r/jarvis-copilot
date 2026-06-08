@@ -26,7 +26,11 @@ class FakeStore:
         self.deleted_projects = []
         self.detached = []          # (sid,) where project_id was nulled
         self.sessions = []          # rows used by list_sessions/update_session
+        self.la_tokens = []         # (token, device_id) from upsert_la_token
         self._next = 1
+
+    def upsert_la_token(self, token, device_id=None):
+        self.la_tokens.append((token, device_id))
 
     def create_project(self, *, name, repo_path, host="server", default_branch=None):
         # String id mirroring the real store's "cp_..." convention — path
@@ -903,3 +907,18 @@ def test_get_usage_endpoint(monkeypatch):
     status, body = handle_coding_request("GET", "/usage", None, manager=m)
     assert status == 200
     assert body["usage"] == {"five_hour_pct": 12, "weekly_pct": 3}
+
+
+def test_post_la_token_stores():
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "POST", "/la-token", {"token": "deadbeef", "device_id": "dev1"}, manager=m)
+    assert status == 200 and body["ok"] is True
+    assert m.store.la_tokens == [("deadbeef", "dev1")]
+
+
+def test_post_la_token_requires_token():
+    m = FakeManager()
+    status, body = handle_coding_request("POST", "/la-token", {}, manager=m)
+    assert status == 400
+    assert m.store.la_tokens == []

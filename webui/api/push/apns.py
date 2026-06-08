@@ -180,3 +180,79 @@ def send_apns(push_token: str, payload: dict, *, timeout: float = 10.0,
         }
     except Exception as exc:
         return {"ok": False, "error": f"APNs send: {exc}"}
+
+
+# ── Live Activity push (ActivityKit) ─────────────────────────────────────────
+# A Live Activity has its OWN push token (separate from the device push token);
+# the app reports it via /api/coding/la-token. The push-type is "liveactivity"
+# and the topic gets a ".push-type.liveactivity" suffix; the body's
+# aps.content-state must match the Swift ContentState's Codable keys exactly.
+
+
+def la_topic(cfg: dict) -> str:
+    return f"{cfg['topic']}.push-type.liveactivity"
+
+
+def _apns_la_headers(cfg: dict, jwt: str, *, priority: int) -> dict:
+    return {
+        "authorization": f"bearer {jwt}",
+        "apns-topic": la_topic(cfg),
+        "apns-push-type": "liveactivity",
+        "apns-priority": str(priority),
+        "apns-expiration": "0",
+        "content-type": "application/json",
+    }
+
+
+def build_la_aps(content_state: dict, *, event: str = "update",
+                 stale_after: Optional[int] = None,
+                 dismissal_after: Optional[int] = None,
+                 now: Optional[int] = None) -> dict:
+    """The ``aps`` dict for a Live Activity update/end push."""
+    ts = int(time.time()) if now is None else int(now)
+    aps: dict = {"timestamp": ts, "event": event,
+                 "content-state": content_state or {}}
+    if stale_after is not None:
+        aps["stale-date"] = ts + int(stale_after)
+    if event == "end" and dismissal_after is not None:
+        aps["dismissal-date"] = ts + int(dismissal_after)
+    return aps
+
+
+def send_live_activity(push_token: str, content_state: dict, *,
+                       event: str = "update", timeout: float = 10.0,
+                       priority: int = 10,
+                       stale_after: Optional[int] = 3600) -> dict:
+    """Push a Live Activity content-state update (or ``event="end"``) via APNs."""
+    if not _KEY_FILE.exists():
+        return {"ok": False, "error": "APNs auth key not configured"}
+    cfg = _load_config()
+    if not cfg:
+        return {"ok": False, "error": "APNs config missing or invalid"}
+    if not _have_httpx():
+        return {"ok": False, "error": "APNs requires httpx[http2]"}
+    try:
+        jwt = _get_jwt(cfg)
+    except Exception as exc:
+        logger.warning("APNs JWT sign failed: %s", exc)
+        return {"ok": False, "error": f"APNs JWT: {exc}"}
+
+    body = {"aps": build_la_aps(content_state, event=event,
+                                stale_after=stale_after)}
+    use_sandbox = bool(cfg.get("use_sandbox"))
+    host = "api.sandbox.push.apple.com" if use_sandbox else "api.push.apple.com"
+    url = f"https://{host}/3/device/{push_token}"
+    headers = _apns_la_headers(cfg, jwt, priority=priority)
+    import httpx
+    try:
+        with httpx.Client(http2=True, timeout=timeout) as client:
+            r = client.post(url, headers=headers, content=json.dumps(body))
+        if r.status_code == 200:
+            return {"ok": True}
+        return {
+            "ok": False,
+            "error": f"APNs HTTP {r.status_code}: {r.text[:200]}",
+            "status": r.status_code,
+        }
+    except Exception as exc:
+        return {"ok": False, "error": f"APNs send: {exc}"}

@@ -296,3 +296,20 @@ def test_activity_state_round_trips(tmp_path):
     # clearing it (offline) is allowed
     s.update_session(sid, activity_state=None)
     assert s.get_session(sid)["activity_state"] is None
+
+
+def test_la_token_upsert_list_delete(tmp_path):
+    s = _store(str(tmp_path))
+    s.upsert_la_token("tok1", "devA")
+    s.upsert_la_token("tok2", "devB")
+    toks = {r["token"] for r in s.list_la_tokens()}
+    assert toks == {"tok1", "tok2"}
+    # a new token from the same device replaces the old one
+    s.upsert_la_token("tok1b", "devA")
+    toks = {r["token"] for r in s.list_la_tokens()}
+    assert toks == {"tok1b", "tok2"}
+    s.delete_la_token("tok2")
+    assert {r["token"] for r in s.list_la_tokens()} == {"tok1b"}
+    # blank token is ignored
+    s.upsert_la_token("", "devA")
+    assert {r["token"] for r in s.list_la_tokens()} == {"tok1b"}
