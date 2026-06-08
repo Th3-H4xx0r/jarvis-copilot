@@ -231,10 +231,12 @@ def test_start_sync_for_launch_sends_start(tmp_path):
     starts = t.frames("coding_sync_start")
     assert len(starts) == 1
     f = starts[0]
-    assert f["sync_id"] == "sync-cs_L"
+    # sync id is keyed by the FOLDER-PAIR (device+local+remote), not the session
+    pair = cd.repo_sync_id("dev-L", "/Users/me/proj", "/root/proj")
+    assert f["sync_id"] == pair
     assert f["local_path"] == "/Users/me/proj"   # the DESKTOP's folder
     assert f["remote_path"] == "/root/proj"       # the server's cwd
-    assert bridge.sync_for("sync-cs_L") is s
+    assert bridge.sync_for(pair) is s
 
 
 def test_start_sync_for_launch_noop_when_disabled(tmp_path):
@@ -482,10 +484,11 @@ def test_resync_device_reopens_running_synced_sessions(tmp_path):
     opens = t.frames("coding_sync_start")
     assert len(opens) == 1
     f = opens[0]
-    assert f["sync_id"] == "sync-cs_run"
+    pair = cd.repo_sync_id("dev-RS", "/Users/me/proj", str(tmp_path))
+    assert f["sync_id"] == pair
     assert f["local_path"] == "/Users/me/proj"  # the desktop's folder
     # the session is registered for inbound-frame routing under its sync id
-    assert bridge.sync_for("sync-cs_run") is not None
+    assert bridge.sync_for(pair) is not None
 
 
 def test_resync_device_desktop_session_without_sync_config(tmp_path):
@@ -502,7 +505,7 @@ def test_resync_device_desktop_session_without_sync_config(tmp_path):
     assert len(opens) == 1
     # no explicit remote_path -> the desktop opens the session cwd
     assert opens[0]["local_path"] == str(tmp_path)
-    assert opens[0]["sync_id"] == "sync-cs_d"
+    assert opens[0]["sync_id"] == cd.repo_sync_id("dev-D2", str(tmp_path), str(tmp_path))
 
 
 def test_resync_device_noop_when_nothing_synced(tmp_path):
@@ -1639,3 +1642,70 @@ def test_reconcile_no_transcript_meta_is_noop(tmp_path):
     row = {"id": "s1", "cwd": "/x", "sync_config": '{"enabled": true}'}  # no transcript
     res = cd.reconcile_session_transcript("s1", store=_OneSessionStore(row), bridge=bridge)
     assert res == "no-transcript"
+
+
+# ── repo-sync dedup by folder-pair (one Mutagen sync per project) ────────────
+
+class _MultiStore:
+    """get_session + list_sessions over a fixed row list (for dedup tests)."""
+    def __init__(self, rows):
+        self._rows = list(rows)
+    def get_session(self, sid):
+        return next((dict(r) for r in self._rows if r.get("id") == sid), None)
+    def list_sessions(self, *, status=None):
+        return [dict(r) for r in self._rows
+                if status is None or r.get("status") == status]
+
+
+def test_sibling_sessions_share_one_repo_sync(tmp_path):
+    bridge, t = make_bridge()
+    sync = {"enabled": True, "remote_path": "/Users/me/proj"}
+    a = cd.start_sync_for_launch("dev-X", session_id="cs_a", cwd="/root/proj",
+                                 sync=sync, bridge=bridge)
+    b = cd.start_sync_for_launch("dev-X", session_id="cs_b", cwd="/root/proj",
+                                 sync=sync, bridge=bridge)
+    # same folder-pair -> same object reused, only ONE coding_sync_start sent
+    assert a is b
+    assert len(t.frames("coding_sync_start")) == 1
+
+
+def test_resync_dedups_active_set_by_pair(tmp_path):
+    import json
+    bridge, t = make_bridge()
+    cfg = json.dumps({"enabled": True, "remote_path": "/Users/me/proj"})
+    store = _MultiStore([
+        {"id": "cs_a", "status": "running", "host": "server",
+         "cwd": "/root/proj", "device_id": "dev-X", "sync_config": cfg},
+        {"id": "cs_b", "status": "running", "host": "server",
+         "cwd": "/root/proj", "device_id": "dev-X", "sync_config": cfg},
+    ])
+    cd.resync_device("dev-X", store=store, bridge=bridge)
+    # two sessions, same project -> ONE sync started + ONE active id
+    assert len(t.frames("coding_sync_start")) == 1
+    recon = t.frames("coding_sync_reconcile")[-1]
+    pair = cd.repo_sync_id("dev-X", "/Users/me/proj", "/root/proj")
+    assert recon["active"] == [pair]
+
+
+def test_stop_keeps_shared_sync_until_last_session(tmp_path):
+    import json
+    bridge, t = make_bridge()
+    cfg = json.dumps({"enabled": True, "remote_path": "/Users/me/proj"})
+    rows = [
+        {"id": "cs_a", "status": "running", "cwd": "/root/proj",
+         "device_id": "dev-X", "sync_config": cfg},
+        {"id": "cs_b", "status": "running", "cwd": "/root/proj",
+         "device_id": "dev-X", "sync_config": cfg},
+    ]
+    store = _MultiStore(rows)
+    cd.start_sync_for_launch("dev-X", session_id="cs_a", cwd="/root/proj",
+                             sync={"enabled": True, "remote_path": "/Users/me/proj"},
+                             bridge=bridge)
+    # stop cs_a while cs_b is still running on the same pair -> NO sync_stop
+    cd.stop_sync_for_session("cs_a", store=store, bridge=bridge)
+    assert not t.frames("coding_sync_stop")
+    # now cs_b is the only one left; stopping it tears the sync down
+    rows[0]["status"] = "stopped"
+    cd.stop_sync_for_session("cs_b", store=store, bridge=bridge)
+    pair = cd.repo_sync_id("dev-X", "/Users/me/proj", "/root/proj")
+    assert any(f["sync_id"] == pair for f in t.frames("coding_sync_stop"))

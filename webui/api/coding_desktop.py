@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import hashlib
 import logging
 import os
 import queue
@@ -798,6 +799,42 @@ def make_bridge_run(device_id: str, bridge: DesktopBridge | None = None):
     return _run
 
 
+def repo_sync_id(device_id: str, local_path: str, remote_path: str) -> str:
+    """Deterministic sync id for a repo file-sync, keyed by the FOLDER-PAIR
+    (device + local folder + remote folder) rather than the session.
+
+    A repo's working dir is per-PROJECT, not per-session — so every coding
+    session that syncs the same ``(device, local, remote)`` triple shares ONE
+    Mutagen sync instead of each spinning up its own (which is what left N
+    overlapping ``jc-sync-cs-*`` syncs fighting over the same two directories)."""
+    key = "\x00".join((str(device_id or ""), str(local_path or ""),
+                       str(remote_path or "")))
+    return "sync-" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+
+
+def _row_repo_sync_id(row: dict, sync_config=None) -> str | None:
+    """The repo_sync_id for a session ROW (device + the desktop folder from its
+    sync_config + the server cwd), or None if the row has no usable sync."""
+    import json as _json
+    cfg = {}
+    raw = sync_config if sync_config is not None else (row.get("sync_config") or "")
+    if isinstance(raw, dict):
+        cfg = raw
+    elif raw:
+        try:
+            cfg = _json.loads(raw) or {}
+        except Exception:
+            cfg = {}
+    if not (cfg.get("enabled") or cfg.get("device") or cfg.get("remote_path")):
+        return None
+    device_id = (row.get("device_id") or "").strip() or (cfg.get("device") or "").strip()
+    cwd = row.get("cwd") or ""
+    local_path = cfg.get("remote_path") or cwd
+    if not (device_id and cwd):
+        return None
+    return repo_sync_id(device_id, local_path, cwd)
+
+
 def start_sync_for_launch(device_id: str, *, session_id: str, cwd: str,
                           sync: dict | None,
                           bridge: DesktopBridge | None = None):
@@ -807,15 +844,23 @@ def start_sync_for_launch(device_id: str, *, session_id: str, cwd: str,
     the path on the user's machine) and the server session's cwd
     (``remote_path`` on the Mutagen ``jc-hermes`` ssh alias). Returns the session
     (or None when sync is off).
+
+    The sync is keyed by the FOLDER-PAIR (``repo_sync_id``), so sibling sessions
+    on the same project reuse the one sync instead of opening duplicates.
     """
     if not sync:
         return None
     if not (sync.get("enabled") or sync.get("device") or sync.get("remote_path")):
         return None
     bridge = bridge or get_desktop_bridge()
-    sync_id = "sync-" + session_id
     ignore = sync.get("ignore") if isinstance(sync.get("ignore"), list) else None
     local_path = sync.get("remote_path") or cwd  # the DESKTOP's folder
+    sync_id = repo_sync_id(device_id, local_path, cwd)
+    # If a healthy sync for this exact folder-pair already exists (a sibling
+    # session opened it), reuse it — don't open a duplicate Mutagen session.
+    existing = bridge.sync_for(sync_id)
+    if existing is not None and existing.status not in ("error", "disconnected"):
+        return existing
     session = MutagenSyncSession(
         sync_id=sync_id, device_id=device_id, local_path=local_path,
         remote_path=cwd, bridge=bridge, ignore=ignore)
@@ -847,17 +892,38 @@ def start_sync_for_session(*, session_id: str, cwd: str, sync: dict | None,
                                  sync=sync, bridge=bridge)
 
 
-def stop_sync_for_session(session_id: str, *, bridge: DesktopBridge | None = None) -> None:
-    """Stop the file sync for a session that's being deleted/stopped — tell the
-    desktop to terminate its Mutagen sync + poller so the tray count drops
-    immediately (the reconcile-on-reconnect is the backstop). Never raises."""
+def stop_sync_for_session(session_id: str, *, store=None,
+                          bridge: DesktopBridge | None = None) -> None:
+    """Stop the file sync for a session being deleted/stopped — UNLESS a sibling
+    session still shares its folder-pair sync.
+
+    The repo sync is keyed by the folder-pair (``repo_sync_id``) and shared by
+    every session on that project, so we must NOT terminate it while another
+    RUNNING session still needs it. Only when this is the last session on the
+    pair do we tell the desktop to stop the Mutagen sync. Never raises."""
     if not session_id:
         return
     try:
         bridge = bridge or get_desktop_bridge()
     except Exception:
         return
-    sync_id = "sync-" + str(session_id)
+    store = store or _resolve_store()
+    row = store.get_session(session_id) if store is not None else None
+    sync_id = _row_repo_sync_id(row) if row else None
+    if sync_id is None:
+        # No folder-pair info (no row / no sync) — fall back to the legacy id so
+        # a pre-existing per-session sync still gets cleaned up.
+        sync_id = "sync-" + str(session_id)
+    else:
+        # Keep the shared sync alive if ANOTHER running session uses the pair.
+        try:
+            for other in (store.list_sessions(status="running") or []):
+                if other.get("id") == session_id:
+                    continue
+                if _row_repo_sync_id(other) == sync_id:
+                    return  # a sibling still needs this sync — leave it running
+        except Exception:  # noqa: BLE001
+            pass
     sess = bridge.sync_for(sync_id)
     if sess is not None:
         try:
@@ -971,11 +1037,14 @@ def reconcile_session_transcript(session_id: str, *, store=None,
         return f"error: {exc}"
 
 
-def sync_status(session_id: str, sync_config=None) -> dict:
+def sync_status(session_id: str, sync_config=None, cwd: str | None = None) -> dict:
     """Sync status for the WebUI: device, online/offline, status, progress.
 
     ``status`` is one of: off | disconnected | idle | opening | syncing | synced
     | error. ``total``/``done`` drive the progress bar while ``syncing``.
+
+    ``cwd`` (the session's server cwd) lets us resolve the shared FOLDER-PAIR
+    sync (``repo_sync_id``); without it we fall back to the legacy per-session id.
     """
     import json as _json
 
@@ -994,8 +1063,14 @@ def sync_status(session_id: str, sync_config=None) -> dict:
     out["enabled"] = True
     out["device"] = cfg.get("device")
     out["device_online"] = bool(resolve_desktop_device_id(preferred=cfg.get("device")))
+    sid = None
+    if cwd:
+        sid = _row_repo_sync_id({"cwd": cwd, "device_id": ""}, sync_config=cfg)
     try:
-        sess = get_desktop_bridge().sync_for("sync-" + session_id)
+        bridge = get_desktop_bridge()
+        sess = bridge.sync_for(sid) if sid else None
+        if sess is None:  # legacy fallback (pre folder-pair keying)
+            sess = bridge.sync_for("sync-" + session_id)
     except Exception:
         sess = None
     # Surface last-known progress/direction from any session object we have, but
@@ -1506,11 +1581,15 @@ def resync_device(device_id: str, *, store=None,
             cwd = session.get("cwd") or ""
             if not session_id or not cwd:
                 continue
-            active_sync_ids.append("sync-" + str(session_id))
             opened = start_sync_for_launch(
                 device_id, session_id=session_id, cwd=cwd, sync=sync,
                 bridge=bridge)
             if opened is not None:
+                # The sync is keyed by the folder-pair, so sibling sessions
+                # collapse to ONE id here (a set) — the desktop then runs one
+                # Mutagen sync per project, not one per session.
+                if opened.sync_id not in active_sync_ids:
+                    active_sync_ids.append(opened.sync_id)
                 reopened += 1
         except Exception:
             # Never let one bad session abort the rest (or the reconnect).

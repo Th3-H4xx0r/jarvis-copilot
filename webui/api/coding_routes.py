@@ -442,7 +442,7 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     return _err(404, "session not found: " + sid)
                 from api.coding_desktop import sync_status
 
-                return _ok(sync_status(sid, row.get("sync_config")))
+                return _ok(sync_status(sid, row.get("sync_config"), cwd=row.get("cwd")))
 
             return _run(_sync_get)
 
@@ -465,7 +465,7 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 start_sync_for_session(session_id=sid, cwd=row.get("cwd"), sync=cfg)
                 from api.coding_desktop import sync_status
 
-                return _ok(sync_status(sid, row.get("sync_config")))
+                return _ok(sync_status(sid, row.get("sync_config"), cwd=row.get("cwd")))
 
             return _run(_sync_refresh)
 
