@@ -70,10 +70,13 @@ done
 info "Using Python: $PY"
 
 # --- Clone or fast-forward update -------------------------------------------
-# git pull --ff-only refuses to merge or rebase, so a local commit on this
-# branch is preserved. The script exits with an error if the user has
-# in-progress local work that conflicts with upstream — better than silently
-# overwriting their changes.
+# git pull --ff-only refuses to merge or rebase, so REAL local work is never
+# silently overwritten. The one exception we auto-recover from: a divergent
+# local commit whose CONTENT already matches origin (e.g. an accidental/stale
+# commit on this pull-only deployment clone that later landed on origin under a
+# different SHA). In that case a `git reset --hard` loses nothing, so we realign
+# automatically instead of dying. Anything with genuinely different content
+# still stops with a clear manual-resolve message.
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     info "Updating existing checkout at $INSTALL_DIR ..."
     (
@@ -87,7 +90,17 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
         else
             info "Local: $local_sha"
             info "Remote: $remote_sha"
-            git pull --ff-only origin "$BRANCH" || die "git pull --ff-only failed. Local commits diverge from origin/$BRANCH. Resolve manually."
+            if ! git pull --ff-only origin "$BRANCH"; then
+                # Diverged. If the working tree is already content-identical to
+                # origin/$BRANCH (redundant/stale local commit, no real changes),
+                # realigning is safe and automatic. Otherwise refuse.
+                if git diff --quiet "origin/$BRANCH" --; then
+                    info "Local diverges but content matches origin -- realigning (git reset --hard)."
+                    git reset --hard "origin/$BRANCH" --quiet || die "git reset --hard origin/$BRANCH failed."
+                else
+                    die "git pull --ff-only failed: local commits diverge from origin/$BRANCH with real changes. Resolve manually (e.g. 'cd $INSTALL_DIR && git reset --hard origin/$BRANCH' to discard them)."
+                fi
+            fi
         fi
     )
 else
