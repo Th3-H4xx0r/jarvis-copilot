@@ -98,7 +98,7 @@ def start_status_loop(manager, *, interval: float = 4.0):
         try:
             from agent.coding_la_push import push_coding_update
             from agent.coding_usage import get_usage
-            push_coding_update(mgr.store, usage=get_usage())
+            push_coding_update(mgr.store, usage=get_usage(mgr.store))
         except Exception:
             pass
 

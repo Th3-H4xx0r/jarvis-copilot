@@ -45,6 +45,21 @@ CREATE INDEX IF NOT EXISTS idx_sessions_status ON coding_sessions(status);
 CREATE TABLE IF NOT EXISTS la_push_tokens (
   token TEXT PRIMARY KEY, device_id TEXT, updated_at REAL NOT NULL
 );
+-- Single-row (id=1) cache of the latest Claude account usage snapshot, so the
+-- WebUI/Live-Activity rings survive a webui restart and read instantly without
+-- blocking on the OAuth usage API. Reset times are stored as ABSOLUTE epoch
+-- seconds; the "Xh Ym" countdown is recomputed at read time so it never goes stale.
+CREATE TABLE IF NOT EXISTS coding_usage_snapshot (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  five_hour_pct INTEGER, weekly_pct INTEGER,
+  five_hour_reset_at REAL, weekly_reset_at REAL,
+  available INTEGER NOT NULL DEFAULT 0, fetched_at REAL NOT NULL
+);
+-- Key/value JSON settings for the Code Master control plane (notification
+-- channel matrix, usage-display toggle, …). One row per logical key.
+CREATE TABLE IF NOT EXISTS coding_settings (
+  key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL
+);
 """
 
 VALID_STATUSES = {"starting", "running", "idle", "stopped", "error"}
@@ -224,6 +239,69 @@ class CodingSessionStore:
     def delete_la_token(self, token: str) -> None:
         with self._conn() as c:
             c.execute("DELETE FROM la_push_tokens WHERE token=?", (token,))
+
+    # --- account usage snapshot ---------------------------------------------
+
+    def upsert_usage_snapshot(self, *, five_hour_pct, weekly_pct,
+                              five_hour_reset_at, weekly_reset_at,
+                              available, fetched_at) -> None:
+        """Persist the latest account-usage snapshot (single row, id=1).
+
+        Percentages are 0-100 ints or None; reset times are ABSOLUTE epoch
+        seconds or None. ``available`` is whether the OAuth usage API returned
+        anything (False → rings render '—')."""
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO coding_usage_snapshot("
+                "id, five_hour_pct, weekly_pct, five_hour_reset_at, "
+                "weekly_reset_at, available, fetched_at) "
+                "VALUES(1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                "five_hour_pct=excluded.five_hour_pct, "
+                "weekly_pct=excluded.weekly_pct, "
+                "five_hour_reset_at=excluded.five_hour_reset_at, "
+                "weekly_reset_at=excluded.weekly_reset_at, "
+                "available=excluded.available, fetched_at=excluded.fetched_at",
+                (five_hour_pct, weekly_pct, five_hour_reset_at, weekly_reset_at,
+                 1 if available else 0, fetched_at))
+
+    def get_usage_snapshot(self) -> dict | None:
+        """The persisted usage snapshot row, or None if none stored yet."""
+        with self._conn() as c:
+            r = c.execute(
+                "SELECT five_hour_pct, weekly_pct, five_hour_reset_at, "
+                "weekly_reset_at, available, fetched_at "
+                "FROM coding_usage_snapshot WHERE id=1").fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        d["available"] = bool(d.get("available"))
+        return d
+
+    # --- settings (key/value JSON) ------------------------------------------
+
+    def get_setting(self, key: str, default=None):
+        """Read a JSON setting by key, or ``default`` if unset/corrupt."""
+        import json as _json
+        with self._conn() as c:
+            r = c.execute("SELECT value FROM coding_settings WHERE key=?",
+                          (key,)).fetchone()
+        if not r:
+            return default
+        try:
+            return _json.loads(r["value"])
+        except (ValueError, TypeError):
+            return default
+
+    def set_setting(self, key: str, value) -> None:
+        """Write a JSON-serialisable setting by key (upsert)."""
+        import json as _json
+        now = time.time()
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO coding_settings(key, value, updated_at) "
+                "VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET "
+                "value=excluded.value, updated_at=excluded.updated_at",
+                (key, _json.dumps(value), now))
 
     # --- projects -----------------------------------------------------------
 

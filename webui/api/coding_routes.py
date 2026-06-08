@@ -30,7 +30,10 @@ exception (with ``{"error": str(e)}``).
 """
 from __future__ import annotations
 
+import logging
 from urllib.parse import parse_qs, urlsplit
+
+log = logging.getLogger(__name__)
 
 CODING_PATH_PREFIX = "/api/coding"
 
@@ -61,7 +64,9 @@ def _match_live_session(store, *, tmux_name="", claude_session_id="", cwd=""):
          session row's join key on BOTH hosts (Jarvis ``jc-xxxx`` or a
          discovered Mac session name).
       2. claude_session_id — when the hook ran outside tmux.
-      3. cwd — only when it identifies exactly ONE live row (never guess).
+      3. cwd — exactly ONE live row wins outright; if several live rows share
+         the cwd, the MOST-RECENTLY-ACTIVE one wins (rather than giving up — a
+         no-match here was the cause of LA/WebUI lagging the Telegram hook).
     Only ever matches a *live* row, so a stale hook can't revive a stopped one.
     """
     try:
@@ -81,7 +86,23 @@ def _match_live_session(store, *, tmux_name="", claude_session_id="", cwd=""):
         hits = [r for r in live if r.get("cwd") == cwd]
         if len(hits) == 1:
             return hits[0]
+        if len(hits) > 1:
+            # Ambiguous cwd → pick the most-recently-active live row so the
+            # instant path still fires instead of falling back to the poll.
+            return max(hits, key=_recency_key)
     return None
+
+
+def _recency_key(row) -> float:
+    """Best available recency for a session row (last_activity_at, else updated/created)."""
+    for k in ("last_activity_at", "updated_at", "created_at"):
+        v = row.get(k)
+        try:
+            n = float(v)
+            return n / 1000.0 if n > 1e12 else n
+        except (TypeError, ValueError):
+            continue
+    return 0.0
 
 
 def _push_coding_now(store) -> None:
@@ -160,12 +181,161 @@ def _push_device_alert(title: str, body: str) -> int:
     return sent
 
 
+# ── Code Master notification settings + dispatch ─────────────────────────────
+# A coding lifecycle event maps to a settings "event key"; each key carries a
+# per-channel on/off matrix. Edited from the WebUI Code Master settings panel
+# and stored in the coding DB (coding_settings["notifications"]).
+_EVENT_NOTIFY_KEY = {"stop": "finished", "notification": "needs_input",
+                     "error": "error"}
+_NOTIFY_CHANNELS = ("telegram", "mobile", "toast")
+_DEFAULT_NOTIFY_SETTINGS = {
+    "events": {
+        "finished":    {"telegram": True, "mobile": True, "toast": True},
+        "needs_input": {"telegram": True, "mobile": True, "toast": True},
+        "error":       {"telegram": True, "mobile": True, "toast": True},
+    },
+    "usage_display": True,
+}
+
+
+def _merge_notify_settings(stored) -> dict:
+    """Overlay stored settings on the defaults so new events/channels added in a
+    later release still have a value. Unknown keys in ``stored`` are ignored."""
+    out = {
+        "events": {k: dict(v) for k, v in _DEFAULT_NOTIFY_SETTINGS["events"].items()},
+        "usage_display": _DEFAULT_NOTIFY_SETTINGS["usage_display"],
+    }
+    if not isinstance(stored, dict):
+        return out
+    ev = stored.get("events")
+    if isinstance(ev, dict):
+        for ekey, chans in ev.items():
+            if ekey in out["events"] and isinstance(chans, dict):
+                for ch in _NOTIFY_CHANNELS:
+                    if ch in chans:
+                        out["events"][ekey][ch] = bool(chans[ch])
+    if "usage_display" in stored:
+        out["usage_display"] = bool(stored["usage_display"])
+    return out
+
+
+def _coding_settings(store) -> dict:
+    """The effective Code Master settings (defaults overlaid with stored)."""
+    stored = None
+    try:
+        stored = store.get_setting("notifications", None)
+    except Exception:
+        stored = None
+    return _merge_notify_settings(stored)
+
+
+def _coding_notify_target() -> str:
+    """Resolve where a coding notification should go, server-side.
+
+    Order: (1) the cron auto-delivery target when running inside a scheduled job;
+    (2) the user's configured messaging home channel — a BARE platform name
+    resolves to its home channel in send_message_tool (e.g. "telegram"), which is
+    exactly what the old client-side ``jc-client notify`` (``notify_target``)
+    did. Returns "" when nothing is configured. Never raises."""
+    try:
+        from tools.send_message_tool import _get_cron_auto_delivery_target
+        t = _get_cron_auto_delivery_target()
+        if t:
+            ref = f"{t['platform']}:{t['chat_id']}"
+            return ref + (f":{t['thread_id']}" if t.get("thread_id") else "")
+    except Exception:
+        pass
+    try:
+        from gateway.config import Platform, load_gateway_config
+        cfg = load_gateway_config()
+        configured = []
+        for plat in Platform:
+            try:
+                if cfg.get_home_channel(plat):
+                    configured.append(str(getattr(plat, "value", plat)).lower())
+            except Exception:
+                continue
+        if "telegram" in configured:
+            return "telegram"
+        if configured:
+            return configured[0]
+    except Exception:
+        pass
+    return ""
+
+
+def _send_coding_telegram(text: str) -> bool:
+    """Send a coding notification to the user's messaging channel (Telegram/etc.)
+    server-side, the same destination the old notify.sh hook used. Never raises."""
+    try:
+        import json as _json
+
+        from tools.send_message_tool import send_message_tool
+        target = _coding_notify_target()
+        if not target:
+            return False
+        res = _json.loads(send_message_tool(
+            {"action": "send", "target": target, "message": text}))
+        return bool(res.get("success"))
+    except Exception:
+        return False
+
+
+def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> dict:
+    """Fan a coding lifecycle event out to the channels enabled in settings:
+    Telegram, mobile push banner, and a WebUI toast. Fires regardless of whether
+    the session row was matched (so notifications stay reliable even if the LA
+    state-update couldn't bind a row); the label falls back to the cwd folder.
+    Returns {channel: bool} for observability. Never raises."""
+    ekey = _EVENT_NOTIFY_KEY.get(event)
+    if not ekey:
+        return {}
+    try:
+        chans = _coding_settings(store)["events"].get(ekey, {})
+    except Exception:
+        chans = {}
+    title, label = _coding_alert_text(store, row, event) if row is not None else \
+        (("✅ Claude finished" if event == "stop" else "🔔 Claude needs you"),
+         _folder_label(cwd))
+    sent = {}
+    if chans.get("telegram"):
+        sent["telegram"] = _send_coding_telegram(f"{title} — {label}")
+    if chans.get("mobile"):
+        try:
+            sent["mobile"] = _push_device_alert(title, label) > 0
+        except Exception:
+            sent["mobile"] = False
+    if chans.get("toast"):
+        try:
+            _notify_webui_event(event=event, label=label, title=title)
+            sent["toast"] = True
+        except Exception:
+            sent["toast"] = False
+    return sent
+
+
+def _notify_webui_event(*, event: str, label: str, title: str) -> None:
+    """SSE-push a coding-event payload so open browsers show a toast (and refetch)."""
+    try:
+        from api import coding_events
+        coding_events.notify({"type": "coding-event", "event": event,
+                              "label": label, "title": title})
+    except Exception:
+        pass
+
+
 def _coding_usage():
     """Best-effort {five_hour_pct, weekly_pct, ...} for the usage rings, or None.
-    Never raises (so a usage hiccup can't break the sessions list)."""
+    Non-blocking (reads the cached/persisted snapshot, never hits the network),
+    so a usage hiccup can't break or slow the sessions list. Never raises."""
     try:
         from agent.coding_usage import get_usage
-        return get_usage()
+        store = None
+        try:
+            store = default_manager().store  # cold-start fallback: read DB snapshot
+        except Exception:
+            store = None
+        return get_usage(store)
     except Exception:
         return None
 
@@ -397,6 +567,20 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             return _run(lambda: _ok({"usage": _coding_usage()}))
         return _err(404, "not found")
 
+    # ── /settings ── Code Master notification matrix + usage-display toggle.
+    # GET returns the effective settings (defaults overlaid with stored); POST
+    # validates against the known events/channels and persists.
+    if p == "/settings":
+        if method == "GET":
+            return _run(lambda: _ok({"settings": _coding_settings(manager.store)}))
+        if method == "POST":
+            def _save_settings():
+                merged = _merge_notify_settings(body if isinstance(body, dict) else {})
+                manager.store.set_setting("notifications", merged)
+                return _ok({"ok": True, "settings": merged})
+            return _run(_save_settings)
+        return _err(404, "not found")
+
     # ── /la-token ── register the iOS Live Activity push token (for APNs
     # push-to-update, so the activity stays live while the app is suspended).
     if p == "/la-token":
@@ -576,23 +760,30 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             row = _match_live_session(
                 manager.store, tmux_name=tmux_name,
                 claude_session_id=csid, cwd=cwd)
-            if row is None:
-                return _ok({"ok": True, "matched": False})
-            changed = row.get("activity_state") != state
-            if changed:
-                manager.store.update_session(row["id"], activity_state=state)
-                # Fan the new state out instantly. Only on a real transition,
-                # so a repeated hook (same state) costs nothing.
-                _push_coding_now(manager.store)
-                _notify_webui()
-            # A VISIBLE phone banner for the edges the user must see (finished /
-            # needs-input) — these land even when the app is force-quit, unlike
-            # the silent wake / WS bridge. Mirrors the Telegram notify.sh hook.
+            matched = row is not None
+            changed = False
+            if matched:
+                changed = row.get("activity_state") != state
+                if changed:
+                    manager.store.update_session(row["id"], activity_state=state)
+                    # Fan the new state out INSTANTLY: LA force-push + WebUI SSE.
+                    # Only on a real transition, so a repeated hook costs nothing.
+                    _push_coding_now(manager.store)
+                    _notify_webui()
+            # Notifications for the edges the user must see (finished/needs-input),
+            # gated by the Code Master settings matrix (Telegram + mobile + toast).
+            # Fire even when the row couldn't be matched so they stay reliable.
+            sent = {}
             if event in ("stop", "notification"):
-                title, body = _coding_alert_text(manager.store, row, event)
-                _push_device_alert(title, body)
-            return _ok({"ok": True, "matched": True, "session_id": row["id"],
-                        "state": state, "changed": changed})
+                sent = _dispatch_coding_notifications(
+                    manager.store, event=event, row=row, cwd=cwd)
+            # Diagnosis breadcrumb: confirms the instant path matched + pushed,
+            # vs falling back to the reconcile poll (the old lag cause).
+            log.info("coding activity-event: event=%s state=%s matched=%s "
+                     "changed=%s notified=%s", event, state, matched, changed, sent)
+            return _ok({"ok": True, "matched": matched,
+                        "session_id": row["id"] if row else None,
+                        "state": state, "changed": changed, "notified": sent})
 
         return _run(_activity_event)
 

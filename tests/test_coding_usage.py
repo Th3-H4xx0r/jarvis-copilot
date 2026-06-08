@@ -1,93 +1,160 @@
-import json
-import os
-from datetime import datetime, timezone
+"""Tests for the accurate (OAuth usage API) coding usage provider.
+
+The provider fetches Anthropic's real subscription-limit utilization; these
+tests inject a fake ``fetch`` so they never hit the network, and reset the shared
+module cache between cases.
+"""
+import pytest
 
 from agent import coding_usage
 
 
-def _iso(ts: float) -> str:
-    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-
-
-def _usage_entry(ts, inp, out, cache_create=0):
-    return {"timestamp": _iso(ts), "message": {"usage": {
-        "input_tokens": inp, "output_tokens": out,
-        "cache_creation_input_tokens": cache_create,
-        "cache_read_input_tokens": 999999}}}  # cache_read excluded
-
-
-def _write_transcript(home, name, entries):
-    proj = os.path.join(home, ".claude", "projects", "-x-proj")
-    os.makedirs(proj, exist_ok=True)
-    with open(os.path.join(proj, name), "w") as f:
-        for e in entries:
-            f.write(json.dumps(e) + "\n")
-
-
+@pytest.fixture(autouse=True)
 def _reset_cache():
-    coding_usage._cache.update({"at": 0.0, "val": None})
+    coding_usage._cache = None
+    yield
+    coding_usage._cache = None
 
 
-def test_compute_usage_buckets(tmp_path, monkeypatch):
-    home = str(tmp_path)
-    now = 1_000_000.0
-    monkeypatch.setenv("JC_CODING_5H_BUDGET", "1000")
-    monkeypatch.setenv("JC_CODING_WEEK_BUDGET", "10000")
-    _write_transcript(home, "a.jsonl", [
-        _usage_entry(now - 60, 100, 50),       # in 5h -> 150
-        _usage_entry(now - 2 * 3600, 100, 0),  # in 5h -> 100
-        _usage_entry(now - 2 * 86400, 500, 0),  # week only -> 500
-        _usage_entry(now - 10 * 86400, 9999, 0),  # older than a week -> ignored
-    ])
-    u = coding_usage.compute_usage(now=now, home=home)
-    assert u["five_hour_tokens"] == 250
-    assert u["weekly_tokens"] == 750
-    assert u["five_hour_pct"] == 25     # 250 / 1000
-    assert u["weekly_pct"] == 8         # round(100 * 750 / 10000) = 8
+# ── compute_usage: payload → snapshot ────────────────────────────────────────
+
+def test_compute_usage_maps_payload():
+    payload = {
+        "five_hour": {"utilization": 0.47, "resets_at": "2026-06-08T22:00:00Z"},
+        "seven_day": {"utilization": 23, "resets_at": "2026-06-13T00:00:00Z"},
+    }
+    snap = coding_usage.compute_usage(now=1000.0, fetch=lambda: payload)
+    assert snap["five_hour_pct"] == 47    # 0.47 fraction → 47%
+    assert snap["weekly_pct"] == 23       # already 0-100 → kept
+    assert snap["available"] is True
+    assert snap["five_hour_reset_at"] is not None
+    assert snap["weekly_reset_at"] is not None
 
 
-def test_compute_usage_clamps_to_100(tmp_path, monkeypatch):
-    home = str(tmp_path)
-    now = 1_000_000.0
-    monkeypatch.setenv("JC_CODING_5H_BUDGET", "100")
-    _write_transcript(home, "a.jsonl", [_usage_entry(now - 60, 9999, 0)])
-    u = coding_usage.compute_usage(now=now, home=home)
-    assert u["five_hour_pct"] == 100
+def test_compute_usage_transient_error_returns_none():
+    # A transient fetch failure must NOT produce a snapshot (so the caller keeps
+    # the last good one).
+    assert coding_usage.compute_usage(now=1.0, fetch=lambda: None) is None
 
 
-def test_cache_creation_counted_cache_read_excluded(tmp_path):
-    home = str(tmp_path)
-    now = 1_000_000.0
-    _write_transcript(home, "a.jsonl", [_usage_entry(now - 60, 10, 20, cache_create=5)])
-    u = coding_usage.compute_usage(now=now, home=home)
-    assert u["five_hour_tokens"] == 35  # 10+20+5, the 999999 cache_read ignored
+def test_compute_usage_non_oauth_is_unavailable():
+    # A definitive "no usage" (API-key account) → available=False, persistable.
+    snap = coding_usage.compute_usage(now=1.0, fetch=lambda: {})
+    assert snap is not None
+    assert snap["available"] is False
+    assert snap["five_hour_pct"] is None
 
 
-def test_get_usage_none_without_store(tmp_path):
-    _reset_cache()
-    assert coding_usage.get_usage(now=123.0, home=str(tmp_path), force=True) is None
+def test_pct_clamps_and_rounds():
+    assert coding_usage._pct(0.47) == 47      # fraction → percent
+    assert coding_usage._pct(23) == 23        # already 0-100 → kept
+    assert coding_usage._pct(150) == 100      # over-100 clamps
+    assert coding_usage._pct(0.0) == 0
+    assert coding_usage._pct(0.999) == 100    # 99.9 → 100
+    assert coding_usage._pct(None) is None
+    assert coding_usage._pct("bad") is None
 
 
-def test_get_usage_caches_within_ttl(tmp_path):
-    home = str(tmp_path)
-    now = 1_000_000.0
-    _write_transcript(home, "a.jsonl", [_usage_entry(now - 60, 100, 50)])
-    _reset_cache()
-    u1 = coding_usage.get_usage(now=now, home=home, force=True)
-    assert u1 is not None
-    # within TTL it returns the cached value even pointed at an empty home
-    u2 = coding_usage.get_usage(now=now + 10, home=str(tmp_path / "nope"))
-    assert u2 is u1
+# ── _to_usage_dict / get_usage: snapshot → consumer dict ─────────────────────
+
+def test_to_usage_dict_none_when_unavailable():
+    assert coding_usage._to_usage_dict(None, now=1.0) is None
+    assert coding_usage._to_usage_dict({"available": False}, now=1.0) is None
 
 
-def test_malformed_lines_ignored(tmp_path):
-    home = str(tmp_path)
-    now = 1_000_000.0
-    proj = os.path.join(home, ".claude", "projects", "-x")
-    os.makedirs(proj, exist_ok=True)
-    with open(os.path.join(proj, "a.jsonl"), "w") as f:
-        f.write("not json but has usage keyword\n")
-        f.write(json.dumps({"timestamp": "garbage", "usage": {"input_tokens": 5}}) + "\n")
-        f.write(json.dumps(_usage_entry(now - 30, 7, 3)) + "\n")
-    u = coding_usage.compute_usage(now=now, home=home)
-    assert u["five_hour_tokens"] == 10  # only the well-formed, timestamped entry
+def test_get_usage_reset_strings_from_absolute_ts():
+    coding_usage._cache = {
+        "five_hour_pct": 47, "weekly_pct": 23,
+        "five_hour_reset_at": 1000.0 + 2 * 3600 + 30 * 60,  # 2h30m out
+        "weekly_reset_at": 1000.0 + 3 * 86400,              # 3d out
+        "available": True, "fetched_at": 1000.0,
+    }
+    d = coding_usage.get_usage(now=1000.0)
+    assert d["five_hour_pct"] == 47
+    assert d["weekly_pct"] == 23
+    assert d["five_hour_resets"] == "2h 30m"
+    assert d["weekly_resets"] == "3d"
+
+
+def test_get_usage_none_when_no_snapshot():
+    assert coding_usage.get_usage(now=1.0) is None
+
+
+# ── refresh: fetch + persist + cache, transient-safe ─────────────────────────
+
+class _FakeStore:
+    def __init__(self, snap=None):
+        self.saved = None
+        self._snap = snap
+
+    def upsert_usage_snapshot(self, **kw):
+        self.saved = kw
+
+    def get_usage_snapshot(self):
+        return self._snap
+
+
+def test_refresh_persists_and_caches():
+    store = _FakeStore()
+    payload = {"five_hour": {"utilization": 0.5, "resets_at": None},
+               "seven_day": {"utilization": 0.1, "resets_at": None}}
+    snap = coding_usage.refresh(store, now=1000.0, fetch=lambda: payload)
+    assert snap["five_hour_pct"] == 50
+    assert store.saved["five_hour_pct"] == 50
+    assert store.saved["available"] in (1, True)
+    # cache now serves reads
+    assert coding_usage.get_usage(now=1000.0)["five_hour_pct"] == 50
+
+
+def test_refresh_transient_keeps_last_and_does_not_persist():
+    coding_usage._cache = {
+        "five_hour_pct": 47, "weekly_pct": None,
+        "five_hour_reset_at": None, "weekly_reset_at": None,
+        "available": True, "fetched_at": 1.0,
+    }
+
+    class _Boom:
+        def upsert_usage_snapshot(self, **kw):
+            raise AssertionError("must not persist on a transient error")
+
+    snap = coding_usage.refresh(_Boom(), now=2.0, fetch=lambda: None)
+    assert snap["five_hour_pct"] == 47  # unchanged
+
+
+def test_get_usage_reads_db_on_cold_cache():
+    snap = {"five_hour_pct": 12, "weekly_pct": 3,
+            "five_hour_reset_at": None, "weekly_reset_at": None,
+            "available": True, "fetched_at": 1.0}
+    store = _FakeStore(snap=snap)
+    d = coding_usage.get_usage(store, now=1.0)
+    assert d["five_hour_pct"] == 12
+    assert d["weekly_pct"] == 3
+
+
+# ── _fetch_oauth_usage token classification (transient vs definitive) ─────────
+
+def test_fetch_oauth_usage_no_token_is_transient(monkeypatch):
+    import agent.anthropic_adapter as aa
+    monkeypatch.setattr(aa, "resolve_anthropic_token", lambda: "")
+    monkeypatch.setattr(aa, "_is_oauth_token", lambda t: True)
+    # Empty token may be a transient OAuth-refresh blip → None (keep last good),
+    # NOT {} (which would clobber the cache to "unavailable").
+    assert coding_usage._fetch_oauth_usage() is None
+
+
+def test_fetch_oauth_usage_token_error_is_transient(monkeypatch):
+    import agent.anthropic_adapter as aa
+
+    def _boom():
+        raise RuntimeError("oauth refresh failed")
+
+    monkeypatch.setattr(aa, "resolve_anthropic_token", _boom)
+    monkeypatch.setattr(aa, "_is_oauth_token", lambda t: True)
+    assert coding_usage._fetch_oauth_usage() is None
+
+
+def test_fetch_oauth_usage_non_oauth_is_definitively_unavailable(monkeypatch):
+    import agent.anthropic_adapter as aa
+    monkeypatch.setattr(aa, "resolve_anthropic_token", lambda: "sk-ant-apikey")
+    monkeypatch.setattr(aa, "_is_oauth_token", lambda t: False)
+    assert coding_usage._fetch_oauth_usage() == {}

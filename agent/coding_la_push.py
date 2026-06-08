@@ -131,11 +131,15 @@ def build_coding_content_state(store, usage=None):
         "usage5": -1, "usageWeek": -1, "usage5Resets": "", "usageWeekResets": "",
     }
     if usage:
-        try:
-            cs["usage5"] = int(usage.get("five_hour_pct", -1))
-            cs["usageWeek"] = int(usage.get("weekly_pct", -1))
-        except (TypeError, ValueError):
-            pass
+        # Set each ring independently so a missing window (e.g. weekly absent)
+        # doesn't blank the other. -1 renders as "—" on the device.
+        def _as_pct(v):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return -1
+        cs["usage5"] = _as_pct(usage.get("five_hour_pct", -1))
+        cs["usageWeek"] = _as_pct(usage.get("weekly_pct", -1))
         cs["usage5Resets"] = str(usage.get("five_hour_resets") or "")
         cs["usageWeekResets"] = str(usage.get("weekly_resets") or "")
     return cs

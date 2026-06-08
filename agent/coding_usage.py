@@ -1,79 +1,42 @@
-"""Best-effort Claude usage provider for the coding Live Activity (the 5-hour +
-weekly usage rings).
+"""Accurate Claude account usage for the coding rings (5-hour + weekly).
 
-SPIKE RESULT: there is no non-interactive Claude CLI command for the subscription
-limit percentage — it lives only in the interactive ``/usage`` view, fetched live
-from Anthropic and never written to a local file (``~/.claude/stats-cache.json``
-holds only *stale daily* token aggregates). So this computes an ESTIMATE from the
-data the CLI itself writes: per-message token usage in the transcript store
-(``~/.claude/projects/**/*.jsonl``), summed over the trailing 5 hours and 7 days,
-expressed as a percentage of a configurable token budget.
+The numbers shown are the REAL subscription-limit utilization that Claude Code's
+interactive ``/usage`` view shows, fetched live from Anthropic's OAuth usage API
+(``GET https://api.anthropic.com/api/oauth/usage``) — the same endpoint the
+provider-quota card uses (see ``agent/account_usage.py``). This replaces the old
+transcript-token ÷ guessed-budget ESTIMATE, which was relative to a made-up
+budget and therefore inaccurate.
 
-The budgets are env-tunable (``JC_CODING_5H_BUDGET`` / ``JC_CODING_WEEK_BUDGET``)
-because the true plan limits are not published as token counts — the percentage
-is relative to the configured budget, not the official limit. ``get_usage``
-returns ``None`` on any failure; the UI then renders the rings empty ("—").
+Design (so the hot path never blocks on a 15s HTTP call):
+  - ``compute_usage`` does the blocking fetch and maps it to a snapshot.
+  - ``refresh`` calls it and persists the snapshot (in-memory + the coding DB),
+    leaving the last good value in place on a transient error.
+  - ``start_refresher`` runs ``refresh`` on a daemon thread every ~60s.
+  - ``get_usage`` is a NON-BLOCKING read of the cache/DB; the status loop and the
+    instant ``/activity-event`` push call it, so they never wait on the network.
+
+Reset hints are stored as ABSOLUTE epoch seconds and the "Xh Ym" countdown is
+recomputed at read time, so it stays correct between fetches. The usage API is
+OAuth-only: with an API-key (non-OAuth) account, or on any failure, the snapshot
+is ``available=False`` and ``get_usage`` returns ``None`` so the rings render "—"
+(never a fabricated number).
 """
 from __future__ import annotations
 
-import glob
-import json
-import os
+import threading
 import time
-from datetime import datetime
 
 _FIVE_HOURS = 5 * 3600
 _WEEK = 7 * 24 * 3600
-_CACHE_TTL = 60.0
+_OAUTH_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 
-# Order-of-magnitude defaults, NOT official limits (tune via env).
-_DEFAULT_5H_BUDGET = 8_000_000
-_DEFAULT_WEEK_BUDGET = 120_000_000
-
-_cache = {"at": 0.0, "val": None}
-
-
-def _budget(env_key: str, default: int) -> int:
-    try:
-        v = int(os.environ.get(env_key, "") or 0)
-    except (TypeError, ValueError):
-        return default
-    return v if v > 0 else default
-
-
-def _claude_projects_dir(home: str | None) -> str:
-    base = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(
-        home or os.path.expanduser("~"), ".claude")
-    return os.path.join(base, "projects")
-
-
-def _parse_ts(s) -> float | None:
-    if not isinstance(s, str) or not s:
-        return None
-    try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
-    except ValueError:
-        return None
-
-
-def _entry_tokens(obj: dict) -> int:
-    """Billable-ish token count for one transcript line (input + output + cache
-    creation; cache *reads* are excluded as they're cheap and would inflate)."""
-    msg = obj.get("message")
-    usage = msg.get("usage") if isinstance(msg, dict) else None
-    if not isinstance(usage, dict):
-        usage = obj.get("usage")
-    if not isinstance(usage, dict):
-        return 0
-    try:
-        return (int(usage.get("input_tokens") or 0)
-                + int(usage.get("output_tokens") or 0)
-                + int(usage.get("cache_creation_input_tokens") or 0))
-    except (TypeError, ValueError):
-        return 0
+# In-memory snapshot, shared by the refresher (writer) and get_usage (readers).
+_lock = threading.Lock()
+_cache: dict | None = None
 
 
 def _fmt_reset(seconds: float) -> str:
+    """A compact "Xd Yh" / "Xh Ym" / "Xm" countdown string."""
     seconds = max(0, int(seconds))
     if seconds >= 86400:
         d, h = seconds // 86400, (seconds % 86400) // 3600
@@ -84,88 +47,212 @@ def _fmt_reset(seconds: float) -> str:
     return f"{m}m"
 
 
-def compute_usage(*, now: float, home: str | None = None) -> dict | None:
-    """Sum recent transcript token usage into 5-hour and weekly buckets and
-    derive percentages + reset hints. Returns None when there's no transcript
-    store. Pure-ish (clock injected) for testing."""
-    proj = _claude_projects_dir(home)
-    if not os.path.isdir(proj):
+def _parse_dt_epoch(value) -> float | None:
+    """ISO-8601 (or epoch) → epoch seconds, or None."""
+    if value in (None, ""):
         return None
-    cutoff_week = now - _WEEK
-    cutoff_5h = now - _FIVE_HOURS
-    tok_5h = tok_week = 0
-    earliest_5h = earliest_week = None
-    # Dedup by message id: discovery mirrors Mac session transcripts into this
-    # same dir, so the same message can appear in two files — count it once.
-    seen: set = set()
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        from datetime import datetime, timezone
+        text = value.strip()
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(text)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except ValueError:
+            return None
+    return None
+
+
+def _pct(util) -> int | None:
+    """Anthropic ``utilization`` (0-1 fraction OR already 0-100) → clamped int %."""
+    if util is None:
+        return None
     try:
-        files = glob.glob(os.path.join(proj, "**", "*.jsonl"), recursive=True)
-    except OSError:
+        v = float(util)
+    except (TypeError, ValueError):
         return None
-    for path in files:
-        try:
-            if os.path.getmtime(path) < cutoff_week:
-                continue  # whole file is older than the window
-        except OSError:
-            continue
-        try:
-            with open(path, "r", errors="replace") as f:
-                for line in f:
-                    # Cheap pre-filter before the JSON parse.
-                    if '"usage"' not in line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                    except ValueError:
-                        continue
-                    if not isinstance(obj, dict):
-                        continue
-                    ts = _parse_ts(obj.get("timestamp"))
-                    if ts is None or ts < cutoff_week:
-                        continue
-                    uid = obj.get("uuid") or obj.get("requestId")
-                    if uid is not None:
-                        if uid in seen:
-                            continue
-                        seen.add(uid)
-                    n = _entry_tokens(obj)
-                    if n <= 0:
-                        continue
-                    tok_week += n
-                    earliest_week = ts if earliest_week is None else min(earliest_week, ts)
-                    if ts >= cutoff_5h:
-                        tok_5h += n
-                        earliest_5h = ts if earliest_5h is None else min(earliest_5h, ts)
-        except OSError:
-            continue
-    b5 = _budget("JC_CODING_5H_BUDGET", _DEFAULT_5H_BUDGET)
-    bw = _budget("JC_CODING_WEEK_BUDGET", _DEFAULT_WEEK_BUDGET)
-    five_pct = max(0, min(100, round(100 * tok_5h / b5))) if b5 else 0
-    week_pct = max(0, min(100, round(100 * tok_week / bw))) if bw else 0
-    five_reset = _fmt_reset((earliest_5h + _FIVE_HOURS) - now) \
-        if earliest_5h is not None else _fmt_reset(_FIVE_HOURS)
-    week_reset = _fmt_reset((earliest_week + _WEEK) - now) \
-        if earliest_week is not None else _fmt_reset(_WEEK)
+    if v <= 1:
+        v *= 100
+    return max(0, min(100, round(v)))
+
+
+def _fetch_oauth_usage() -> dict | None:
+    """Raw payload from the Anthropic OAuth usage API.
+
+    Returns the JSON dict on success, ``{}`` when the account isn't OAuth-backed
+    (a definitive "no usage available"), or ``None`` on a transient error
+    (network/HTTP) so the caller can keep the last good snapshot.
+    """
+    try:
+        from agent.anthropic_adapter import _is_oauth_token, resolve_anthropic_token
+    except Exception:
+        return None
+    try:
+        token = (resolve_anthropic_token() or "").strip()
+    except Exception:
+        return None  # transient (e.g. an OAuth refresh hiccup) — keep last good
+    if not token:
+        # Couldn't resolve a token. This can be a transient OAuth-refresh failure,
+        # so treat it as transient (None) rather than definitively unavailable —
+        # don't clobber the last good cached/persisted snapshot over a blip.
+        return None
+    if not _is_oauth_token(token):
+        return {}  # definitively unavailable: an API-key (non-OAuth) account
+    try:
+        import httpx
+    except Exception:
+        return None
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "anthropic-beta": "oauth-2025-04-20",
+        "User-Agent": "claude-code/2.1.0",
+    }
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            r = client.get(_OAUTH_USAGE_URL, headers=headers)
+            r.raise_for_status()
+        return r.json() or {}
+    except Exception:
+        return None  # transient → keep last good snapshot
+
+
+def compute_usage(*, now: float | None = None, fetch=_fetch_oauth_usage) -> dict | None:
+    """Fetch + map account usage into a persistable snapshot.
+
+    Returns a snapshot dict ``{five_hour_pct, weekly_pct, five_hour_reset_at,
+    weekly_reset_at, available, fetched_at}`` (pcts are ints or None; reset_at is
+    absolute epoch seconds or None). Returns ``None`` ONLY on a transient fetch
+    error, so the refresher leaves the last good snapshot untouched. A non-OAuth
+    account yields ``available=False`` (a definitive, persistable result).
+    """
+    now = time.time() if now is None else now
+    payload = fetch()
+    if payload is None:
+        return None  # transient error → don't clobber the cache
+    five = payload.get("five_hour") or {}
+    week = payload.get("seven_day") or {}
+    five_pct = _pct(five.get("utilization"))
+    week_pct = _pct(week.get("utilization"))
     return {
         "five_hour_pct": five_pct,
         "weekly_pct": week_pct,
-        "five_hour_resets": five_reset,
-        "weekly_resets": week_reset,
-        "five_hour_tokens": tok_5h,
-        "weekly_tokens": tok_week,
+        "five_hour_reset_at": _parse_dt_epoch(five.get("resets_at")),
+        "weekly_reset_at": _parse_dt_epoch(week.get("resets_at")),
+        "available": five_pct is not None or week_pct is not None,
+        "fetched_at": now,
     }
 
 
-def get_usage(*, now=None, home=None, force=False) -> dict | None:
-    """Cached (~60s) usage snapshot, or None. Never raises."""
+def _to_usage_dict(snap: dict | None, *, now: float) -> dict | None:
+    """Render a stored snapshot into the consumer dict (LA + WebUI), or None.
+
+    ``None`` when there's no usable snapshot, so the rings show "—". Reset
+    countdowns are computed fresh from the absolute reset timestamps."""
+    if not snap or not snap.get("available"):
+        return None
+    five_pct = snap.get("five_hour_pct")
+    week_pct = snap.get("weekly_pct")
+
+    def _reset_str(reset_at):
+        if reset_at is None:
+            return ""
+        return _fmt_reset(float(reset_at) - now)
+
+    return {
+        "five_hour_pct": int(five_pct) if five_pct is not None else -1,
+        "weekly_pct": int(week_pct) if week_pct is not None else -1,
+        "five_hour_resets": _reset_str(snap.get("five_hour_reset_at")),
+        "weekly_resets": _reset_str(snap.get("weekly_reset_at")),
+        "five_hour_reset_at": snap.get("five_hour_reset_at"),
+        "weekly_reset_at": snap.get("weekly_reset_at"),
+        "available": True,
+        "fetched_at": snap.get("fetched_at"),
+    }
+
+
+def refresh(store=None, *, now: float | None = None, fetch=_fetch_oauth_usage) -> dict | None:
+    """Fetch a fresh snapshot, update the in-memory cache + persist to the store.
+
+    Leaves the last good snapshot in place on a transient error. Returns the
+    snapshot it stored (or the existing one). Never raises."""
+    global _cache
     now = time.time() if now is None else now
-    if (not force and _cache["val"] is not None
-            and (now - _cache["at"]) < _CACHE_TTL):
-        return _cache["val"]
     try:
-        val = compute_usage(now=now, home=home)
+        snap = compute_usage(now=now, fetch=fetch)
     except Exception:
-        val = None
-    _cache["at"] = now
-    _cache["val"] = val
-    return val
+        snap = None
+    if snap is None:
+        with _lock:
+            return _cache
+    with _lock:
+        _cache = snap
+    if store is not None:
+        try:
+            store.upsert_usage_snapshot(
+                five_hour_pct=snap["five_hour_pct"],
+                weekly_pct=snap["weekly_pct"],
+                five_hour_reset_at=snap["five_hour_reset_at"],
+                weekly_reset_at=snap["weekly_reset_at"],
+                available=snap["available"],
+                fetched_at=snap["fetched_at"])
+        except Exception:
+            pass
+    return snap
+
+
+def get_usage(store=None, *, now: float | None = None) -> dict | None:
+    """NON-BLOCKING usage snapshot for the rings, or None ("—"). Never fetches.
+
+    Reads the in-memory cache; on a cold cache (e.g. right after a webui
+    restart) falls back to the persisted DB snapshot if ``store`` is given.
+    Never raises."""
+    global _cache
+    now = time.time() if now is None else now
+    with _lock:
+        snap = _cache
+    if snap is None and store is not None:
+        try:
+            snap = store.get_usage_snapshot()
+        except Exception:
+            snap = None
+        if snap is not None:
+            with _lock:
+                # Seed the cache so subsequent reads don't re-hit the DB.
+                if _cache is None:
+                    _cache = snap
+    try:
+        return _to_usage_dict(snap, now=now)
+    except Exception:
+        return None
+
+
+def start_refresher(store, *, interval: float = 60.0):
+    """Start the background usage poller on a daemon thread.
+
+    Does one immediate refresh, then refreshes every ``interval`` seconds.
+    Returns ``(thread, stop_event)``; call ``stop_event.set()`` to stop."""
+    stop_event = threading.Event()
+
+    def _loop():
+        # Seed from the DB immediately so a cold start isn't blank, then fetch.
+        try:
+            get_usage(store)
+        except Exception:
+            pass
+        while not stop_event.is_set():
+            try:
+                refresh(store)
+            except Exception:
+                pass
+            stop_event.wait(interval)
+
+    t = threading.Thread(target=_loop, daemon=True, name="coding-usage")
+    t.start()
+    return t, stop_event

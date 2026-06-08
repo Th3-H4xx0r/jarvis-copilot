@@ -196,11 +196,13 @@ function _codingRenderShell(root) {
       <div class="cdg-side-head">
         <span class="cdg-side-title">Projects</span>
         <div class="cdg-side-actions">
+          <button type="button" class="cdg-rescan-btn" id="codingCmSettingsBtn" onclick="codingCodeMasterSettings()" title="Code Master settings (notifications + usage)">⚙</button>
           <button type="button" class="cdg-rescan-btn" id="codingRescanBtn" onclick="codingRescanDiscovered()" title="Rescan paired devices for tmux + transcript sessions">⟳</button>
           <button type="button" class="cdg-new-btn cdg-new-proj" id="codingNewProjBtn" onclick="codingNewProject()" title="New project">+ Project</button>
           <button type="button" class="cdg-new-btn" id="codingNewBtn" onclick="codingShowLaunch()" title="New coding session">+ Session</button>
         </div>
       </div>
+      <div class="cdg-usage" id="codingUsage" style="display:none"></div>
       <div class="cdg-list" id="codingList"><div class="cm-projects-empty">Loading…</div></div>
     </aside>
     <section class="cdg-detail" id="codingDetail">
@@ -230,6 +232,13 @@ async function _codingRefreshList() {
     _codingSessionsCache = flat.length ? flat : ((sessRes && sessRes.sessions) || []);
     _codingDevicesCache = (devRes && devRes.devices) || [];
     _codingRenderList();
+    _codingRenderUsage((sessRes && sessRes.usage) || null);
+    if (_codingSettingsCache === null) {  // lazily learn the usage_display toggle
+      api('/api/coding/settings').then(r => {
+        _codingSettingsCache = (r && r.settings) || {};
+        _codingRenderUsage((sessRes && sessRes.usage) || null);
+      }).catch(() => { _codingSettingsCache = {}; });
+    }
     // Re-open the previously selected session if it still exists; otherwise
     // show the launch form so the panel is never just an empty pane.
     if (_codingSelectedId && _codingSessionsCache.some(s => String(s.id) === String(_codingSelectedId))) {
@@ -241,6 +250,122 @@ async function _codingRefreshList() {
     list.innerHTML = '<div class="cm-projects-empty">Couldn\'t load coding sessions (is JarvisCopilot reachable?)</div>';
   }
 }
+
+// Code Master settings (notification matrix + usage_display), fetched lazily.
+let _codingSettingsCache = null;
+
+// Render the 5-hour + weekly account-usage rings in the sidebar from the
+// {five_hour_pct, weekly_pct, *_resets} block (or null → "—"). Hidden when the
+// Code Master usage_display toggle is off.
+function _codingRenderUsage(usage) {
+  const el = document.getElementById('codingUsage');
+  if (!el) return;
+  if (_codingSettingsCache && _codingSettingsCache.usage_display === false) {
+    el.style.display = 'none';
+    return;
+  }
+  const bar = (label, pct, resets) => {
+    const has = typeof pct === 'number' && pct >= 0;
+    const val = has ? Math.max(0, Math.min(100, pct)) : 0;
+    const txt = has ? (val + '%') : '—';
+    const hue = val >= 90 ? 0 : (val >= 75 ? 35 : 145);  // red / amber / green
+    const reset = (has && resets)
+      ? `<span style="opacity:.5;font-size:10px;margin-left:4px">${_cdgEsc(resets)}</span>` : '';
+    return `<div style="display:flex;align-items:center;gap:6px;font-size:11px;padding:1px 0" title="${_cdgEsc(label)} account usage">
+        <span style="width:30px;opacity:.7">${_cdgEsc(label)}</span>
+        <span style="flex:1;height:6px;border-radius:3px;background:rgba(127,127,127,.22);overflow:hidden">
+          <span style="display:block;height:100%;width:${val}%;background:hsl(${hue},65%,46%)"></span>
+        </span>
+        <span style="width:30px;text-align:right;opacity:.85">${txt}</span>${reset}
+      </div>`;
+  };
+  const u = usage || {};
+  el.innerHTML = bar('5h', u.five_hour_pct, u.five_hour_resets)
+    + bar('Wk', u.weekly_pct, u.weekly_resets);
+  el.style.padding = '4px 12px 6px';
+  el.style.display = '';
+}
+
+// Code Master settings panel: per-event × per-channel notification matrix +
+// the usage-display toggle. Rendered in the detail pane.
+async function codingCodeMasterSettings() {
+  const detail = document.getElementById('codingDetail');
+  if (!detail) return;
+  document.querySelectorAll('.cdg-item').forEach(b => b.classList.remove('active'));
+  detail.innerHTML = '<div class="cm-detail-body"><div class="cm-empty">Loading settings…</div></div>';
+  let settings;
+  try {
+    const res = await api('/api/coding/settings');
+    settings = (res && res.settings) || {};
+  } catch (e) {
+    detail.innerHTML = '<div class="cm-detail-body"><div class="cm-empty">Couldn\'t load settings.</div></div>';
+    return;
+  }
+  _codingSettingsCache = settings;
+  const events = [
+    ['finished', 'Finished'],
+    ['needs_input', 'Needs input'],
+    ['error', 'Error'],
+  ];
+  const channels = [['telegram', 'Telegram'], ['mobile', 'Mobile push'], ['toast', 'WebUI toast']];
+  const ev = (settings.events) || {};
+  const cell = (ekey, ch) => {
+    const on = !!((ev[ekey] || {})[ch]);
+    return `<td style="text-align:center;padding:6px 10px">
+      <input type="checkbox" data-ev="${ekey}" data-ch="${ch}" ${on ? 'checked' : ''}></td>`;
+  };
+  const rows = events.map(([ekey, elabel]) => `
+    <tr><td style="padding:6px 10px;opacity:.85">${elabel}</td>
+      ${channels.map(([ch]) => cell(ekey, ch)).join('')}
+    </tr>`).join('');
+  const head = channels.map(([, lbl]) => `<th style="padding:6px 10px;font-weight:500;opacity:.7">${lbl}</th>`).join('');
+  detail.innerHTML = `
+    <div class="cm-detail-body">
+      <div class="cm-detail-name">Code Master settings</div>
+      <div class="cm-section">
+        <div class="cm-section-head"><span class="cm-section-title">Notifications</span></div>
+        <p style="opacity:.6;font-size:12px;margin:.2em 0 .6em">Which coding events notify you, and on which channels.</p>
+        <table style="border-collapse:collapse;font-size:13px">
+          <thead><tr><th style="padding:6px 10px"></th>${head}</tr></thead>
+          <tbody id="cmNotifyMatrix">${rows}</tbody>
+        </table>
+      </div>
+      <div class="cm-section">
+        <div class="cm-section-head"><span class="cm-section-title">Usage rings</span></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="cmUsageDisplay" ${settings.usage_display === false ? '' : 'checked'}>
+          Show the 5-hour / weekly account-usage rings
+        </label>
+      </div>
+      <div class="cdg-form-actions">
+        <button type="button" class="cdg-btn-primary" id="cmSaveBtn" onclick="codingSaveCodeMaster()">Save settings</button>
+      </div>
+    </div>`;
+}
+window.codingCodeMasterSettings = codingCodeMasterSettings;
+
+async function codingSaveCodeMaster() {
+  const btn = document.getElementById('cmSaveBtn');
+  const events = {};
+  document.querySelectorAll('#cmNotifyMatrix input[type=checkbox]').forEach(cb => {
+    const e = cb.getAttribute('data-ev'), c = cb.getAttribute('data-ch');
+    if (!e || !c) return;
+    (events[e] = events[e] || {})[c] = cb.checked;
+  });
+  const usageEl = document.getElementById('cmUsageDisplay');
+  const payload = { events, usage_display: usageEl ? usageEl.checked : true };
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const res = await api('/api/coding/settings', { method: 'POST', body: JSON.stringify(payload) });
+    _codingSettingsCache = (res && res.settings) || payload;
+    _codingFlash('Code Master settings saved');
+  } catch (e) {
+    _codingFlash('Couldn\'t save settings');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save settings'; }
+  }
+}
+window.codingSaveCodeMaster = codingSaveCodeMaster;
 
 // Newest-first by last_activity_at (falls back to created_at). NUMERIC compare —
 // these are epoch values (seconds, ms, or an ISO string), so a string compare
@@ -1423,6 +1548,7 @@ async function _codingPollStatusOnce() {
   try {
     const res = await api('/api/coding/sessions');
     const sessions = (res && res.sessions) || [];
+    _codingRenderUsage((res && res.usage) || null);
     // Structure signature: which sessions exist + their name/source/project.
     // If it changed (a session appeared/vanished/was renamed), do a FULL refresh
     // so the list goes live; otherwise just update the dots in place (smooth).
@@ -1458,7 +1584,17 @@ function _codingStopStatusPoll() {
  * this stream can't connect (mirrors the kanban events SSE). Nudges are
  * coalesced so a burst (e.g. several sessions finishing at once) is one refresh.
  */
-function _codingOnEventNudge() {
+function _codingOnEventNudge(e) {
+  // A coding-event payload (finished / needs-input) → show an in-browser toast.
+  try {
+    if (e && e.data) {
+      const d = JSON.parse(e.data);
+      if (d && d.type === 'coding-event') {
+        const t = d.title || (d.event === 'stop' ? '✅ Claude finished' : '🔔 Claude needs you');
+        _codingFlash(`${t}${d.label ? ' — ' + d.label : ''}`);
+      }
+    }
+  } catch (_) { /* malformed payload — ignore, the refetch below still runs */ }
   if (_codingEventsDebounce) return;   // a refresh is already scheduled
   _codingEventsDebounce = setTimeout(() => {
     _codingEventsDebounce = null;

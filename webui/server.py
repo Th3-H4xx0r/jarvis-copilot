@@ -524,10 +524,17 @@ def main() -> None:
     # Web UI, mobile, and the iOS Live Activity see live status. Desktop-host
     # sessions are classified Mac-side and reported via the discovery push.
     _coding_status_stop = None
+    _coding_usage_stop = None
     try:
         from agent.coding_status_loop import start_status_loop
         from tools.coding_session_tool import _mgr
-        _coding_status_thread, _coding_status_stop = start_status_loop(_mgr())
+        _mgr_inst = _mgr()
+        _coding_status_thread, _coding_status_stop = start_status_loop(_mgr_inst)
+        # Background poller for accurate Claude account usage (5h/weekly rings):
+        # fetches the OAuth usage API ~every 60s and persists it, so get_usage()
+        # on the status/activity hot path stays non-blocking.
+        from agent.coding_usage import start_refresher as start_usage_refresher
+        _coding_usage_thread, _coding_usage_stop = start_usage_refresher(_mgr_inst.store)
     except Exception as e:
         print(f'[!!] WARNING: Coding status loop failed to start: {e}', flush=True)
 
@@ -568,6 +575,12 @@ def main() -> None:
                 _coding_status_stop.set()
         except Exception:
             logger.debug("Failed to stop coding status loop during shutdown")
+        # Stop the coding usage refresher on shutdown
+        try:
+            if _coding_usage_stop is not None:
+                _coding_usage_stop.set()
+        except Exception:
+            logger.debug("Failed to stop coding usage refresher during shutdown")
 
 if __name__ == '__main__':
     main()
