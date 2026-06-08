@@ -471,6 +471,41 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             return _run(_la_debug_push)
         return _err(404, "not found")
 
+    # ── /test-alert ── send a VISIBLE banner to every registered mobile device,
+    # to verify the notification path (reaches a force-quit phone, unlike the
+    # silent LA push). Reports the per-device APNs result so a MISSING device
+    # notification token (separate from the LA token) is plainly visible.
+    if p == "/test-alert":
+        if method == "POST":
+            def _test_alert():
+                from api.pairing import list_devices
+                from api import push as push_mod
+                try:
+                    devices = list_devices()
+                except Exception:
+                    devices = []
+                mobile = [d for d in devices
+                          if (d.get("kind") or "").lower().startswith("mobile")]
+                results = []
+                for d in mobile:
+                    name = d.get("name") or d.get("id") or "device"
+                    token = (d.get("push_token") or "").strip()
+                    kind = (d.get("push_kind") or "").strip().lower()
+                    if not token or kind not in ("fcm", "apns"):
+                        results.append({"device": name, "ok": False,
+                                        "error": "no notification token registered"})
+                        continue
+                    res = push_mod.send(
+                        kind, token, {"type": "coding", "test": True},
+                        alert={"title": "JarvisCopilot",
+                               "body": "🔔 Test notification — reachable when closed"})
+                    results.append({"device": name, "kind": kind, **res})
+                return _ok({"mobile_devices": len(mobile),
+                            "sent": sum(1 for r in results if r.get("ok")),
+                            "results": results})
+            return _run(_test_alert)
+        return _err(404, "not found")
+
     # ── /launch ──
     if p == "/launch":
         if method == "POST":
