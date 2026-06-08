@@ -1215,3 +1215,13 @@ def test_known_claude_session_kept_when_pane_loses_markers():
     state["pane"] = "npm test\nlots of output...\nPASS"  # Claude UI scrolled away
     second = [s["tmux_name"] for s in agent.scan() if s["kind"] == "tmux"]
     assert second == ["sess-y"]  # still kept via the known-claude set
+
+
+def test_is_claude_pane_recognizes_custom_statusline():
+    from jc_client.coding_discover import is_claude_pane
+    # The user's pane: a custom statusline + the bypass-permissions footer — must
+    # be detected even though pane_current_command isn't 'claude'.
+    pane = ("Opus 4.8 (1M context) | effort:xhigh | 5h:[..]19% | ctx:3%\n"
+            "bypass permissions on (shift+tab to cycle) · for agents")
+    assert is_claude_pane(pane) is True
+    assert is_claude_pane("pranav@mac ~ % ls\nfile1 file2") is False

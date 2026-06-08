@@ -164,9 +164,11 @@ _CLAUDE_PANE_MARKERS = (
     "esc to interrupt",
     "esc to stop",
     "for shortcuts",          # the idle footer "? for shortcuts"
+    "shift+tab to cycle",     # the permission-mode cycler footer
+    "bypass permissions",     # matches "bypass permissions on" / "bypassing…"
+    "accept edits",           # "⏵⏵ accept edits on/off"
+    "plan mode on",           # the plan-mode footer
     "auto-compact",           # "Context left until auto-compact"
-    "bypassing permissions",
-    "accept edits on",        # the "⏵⏵ accept edits on" mode line
     "welcome to claude",
     "/help for help",
 )
