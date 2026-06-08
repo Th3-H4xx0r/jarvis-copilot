@@ -1225,3 +1225,9 @@ def test_is_claude_pane_recognizes_custom_statusline():
             "bypass permissions on (shift+tab to cycle) · for agents")
     assert is_claude_pane(pane) is True
     assert is_claude_pane("pranav@mac ~ % ls\nfile1 file2") is False
+
+
+def test_classify_working_spinner_custom_fork():
+    from jc_client.coding_discover import classify_pane
+    pane = "✽ Precipitating… (35s · ↑ 2.4k tokens · thinking with xhigh effort)\n❯ "
+    assert classify_pane(pane) == "working"

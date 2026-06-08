@@ -110,11 +110,28 @@ class LiveActivityCoordinator {
 
   // ── coding poll ──
 
+  DateTime _lastBgPoll = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _bgPollInterval = Duration(seconds: 30);
+
   void _startPoll() {
     _stopPoll();
     _poll = Timer.periodic(_pollInterval, (_) {
-      if (!_enabled || !AppLifecycle.isForeground) return;
-      unawaited(_refreshCoding());
+      if (!_enabled) return;
+      if (AppLifecycle.isForeground) {
+        unawaited(_refreshCoding());
+        return;
+      }
+      // Backgrounded: this only fires while the app is still ALIVE in the
+      // background (a location/audio background mode keeps it running; otherwise
+      // iOS suspends it and the timer is frozen). Poll less often to save
+      // battery, so the Live Activity still auto-updates while the app lives.
+      // For true always-live updates with the app fully suspended/closed, an
+      // APNs push-to-update path is required (not built — foreground-driven v1).
+      final now = DateTime.now();
+      if (now.difference(_lastBgPoll) >= _bgPollInterval) {
+        _lastBgPoll = now;
+        unawaited(_refreshCoding());
+      }
     });
   }
 

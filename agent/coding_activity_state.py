@@ -15,6 +15,8 @@ signal to surface.
 """
 from __future__ import annotations
 
+import re
+
 # A permission / numbered-choice prompt. These strings are specific to Claude
 # Code's confirmation UI ("Do you want to proceed?" + a "❯ 1. Yes" list) so they
 # don't fire on ordinary assistant prose.
@@ -40,6 +42,13 @@ _WORKING_MARKERS = (
     "ctrl+b to run in background",
 )
 
+# The live "spinner" status line — a parenthesized elapsed time followed by a
+# middot, e.g. "(35s · ↑ 2.4k tokens · …)". Present in BOTH standard Claude Code
+# and custom forks (whose verb/suffix differ but this prefix doesn't), so it's
+# the robust "actively working" signal — more reliable than the "esc to
+# interrupt" hint, which some forks omit.
+_WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*·")
+
 
 def classify_pane(text: str) -> str:
     """Return ``"working" | "waiting" | "idle"`` for a captured tmux pane."""
@@ -48,6 +57,6 @@ def classify_pane(text: str) -> str:
     low = text.lower()
     if any(m in low for m in _WAITING_MARKERS):
         return "waiting"
-    if any(m in low for m in _WORKING_MARKERS):
+    if any(m in low for m in _WORKING_MARKERS) or _WORKING_SPINNER_RE.search(text):
         return "working"
     return "idle"

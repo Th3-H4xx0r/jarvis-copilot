@@ -67,3 +67,10 @@ def test_prose_question_while_working_is_working():
     # misread as a permission prompt (regression for the tightened markers).
     pane = "✻ Working… (esc to interrupt)\nWould you like me to also update the tests?"
     assert classify_pane(pane) == "working"
+
+
+def test_working_spinner_without_esc_hint():
+    # Custom Claude forks omit "esc to interrupt" but still show the spinner with
+    # a parenthesized elapsed time, e.g. "(35s · ↑ 2.4k tokens · thinking …)".
+    pane = "✽ Precipitating… (35s · ↑ 2.4k tokens · thinking with xhigh effort)\n❯ "
+    assert classify_pane(pane) == "working"

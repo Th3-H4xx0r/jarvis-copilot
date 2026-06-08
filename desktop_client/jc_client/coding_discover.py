@@ -67,6 +67,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import subprocess
 import threading
 import time
@@ -141,6 +142,11 @@ _WAITING_MARKERS = (
 _WORKING_MARKERS = (
     "esc to interrupt", "esc to stop", "ctrl+b to run in background",
 )
+# The live spinner status line — a parenthesized elapsed time + middot, e.g.
+# "(35s · ↑ 2.4k tokens · …)". Present in standard Claude AND custom forks (whose
+# verb/suffix differ but this prefix doesn't), so it's the robust "working"
+# signal — more reliable than "esc to interrupt", which some forks omit.
+_WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*·")
 
 
 def classify_pane(text: str) -> str:
@@ -150,7 +156,7 @@ def classify_pane(text: str) -> str:
     low = text.lower()
     if any(m in low for m in _WAITING_MARKERS):
         return "waiting"
-    if any(m in low for m in _WORKING_MARKERS):
+    if any(m in low for m in _WORKING_MARKERS) or _WORKING_SPINNER_RE.search(text):
         return "working"
     return "idle"
 
