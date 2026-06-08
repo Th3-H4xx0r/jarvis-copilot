@@ -298,6 +298,22 @@ class DesktopBridge:
         with self._lock:
             return self._feeds.get(term_id)
 
+    def on_device_disconnect(self, device_id: str) -> None:
+        """A desktop dropped its WS — close any terminal feeds bound to it so
+        their SSE ends ("[detached — reopen…]") instead of hanging on a frozen
+        stream. The device's tmux+claude keep running; reconnect re-adopts."""
+        device_id = str(device_id or "")
+        if not device_id:
+            return
+        with self._lock:
+            feeds = [f for f in self._feeds.values()
+                     if f.device_id == device_id and not f.closed.is_set()]
+        for feed in feeds:
+            try:
+                feed.on_exit(None)
+            except Exception:  # noqa: BLE001
+                pass
+
     # --- outbound sync frames -----------------------------------------------
 
     def send_sync_start(self, device_id: str, *, sync_id: str, local_path: str,

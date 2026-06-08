@@ -1773,3 +1773,21 @@ def test_launched_desktop_feed_does_not_close_on_detach():
                               rows=24, cols=80)  # detach_closes_term defaults False
     feed.feed_close()
     assert not any(f["type"] == "coding_term_close" for (_d, f) in t.sent)
+
+
+def test_on_device_disconnect_closes_feeds():
+    # A Mac WS drop must end the adopted feed's SSE (closed set + terminal_closed)
+    # so the viewer sees "[detached]" instead of a frozen stream.
+    bridge, t = make_bridge()
+    cd.adopt_discovered_tmux("cs_adopt", bridge=bridge,
+                             store=_discovered_tmux_store("dev-mac"))
+    feed = bridge.feed_for("jc-abc123")
+    assert feed is not None and not feed.closed.is_set()
+    bridge.on_device_disconnect("dev-mac")
+    assert feed.closed.is_set()
+    # a different device's disconnect leaves it alone (re-adopt a fresh one)
+    bridge2, t2 = make_bridge()
+    cd.adopt_discovered_tmux("cs_adopt", bridge=bridge2,
+                             store=_discovered_tmux_store("dev-mac"))
+    bridge2.on_device_disconnect("dev-other")
+    assert not bridge2.feed_for("jc-abc123").closed.is_set()

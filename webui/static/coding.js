@@ -1105,7 +1105,29 @@ function _codingMountTerminal(id) {
         if (text && _codingTerm) _codingTerm.write(text);
       });
       es.addEventListener('terminal_closed', () => { if (_codingTerm) _codingTerm.write('\r\n\x1b[90m[detached — reopen this session to resume the live terminal]\x1b[0m\r\n'); });
-    }).catch(() => { host.textContent = 'terminal failed to start'; });
+    }).catch((e) => {
+      if (_codingDetailShellId !== id) return;
+      // A discovered Mac session whose device is OFFLINE can't be attached live
+      // (no process to attach to) — offer resume-to-server instead.
+      let body = {}; try { body = JSON.parse((e && e.body) || '{}'); } catch (_) {}
+      if (e && e.status === 409 && body.can_resume) {
+        host.innerHTML = '';
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'padding:16px;color:#cbd5e1;font-size:13px;line-height:1.5;';
+        wrap.innerHTML = 'Your Mac is offline, so the live session can’t be attached. ' +
+          'You can <b>resume it on the server</b> to keep working (it continues from the synced transcript).';
+        const btn = document.createElement('button');
+        btn.textContent = 'Resume on server';
+        btn.style.cssText = 'margin-top:12px;';
+        btn.className = 'btn';
+        btn.onclick = () => { try { codingResumeSession(id); } catch (_) {} };
+        wrap.appendChild(document.createElement('br'));
+        wrap.appendChild(btn);
+        host.appendChild(wrap);
+        return;
+      }
+      host.textContent = (e && e.message) || 'terminal failed to start';
+    });
 }
 
 function _codingTeardownTerminal() {

@@ -121,6 +121,13 @@ def _safe_close(conn: _DeviceConn) -> None:
                 cb("closed", {"reason": "device disconnected"})
             except Exception:
                 pass
+    # Close any coding terminal feeds bound to this device so their SSE ends
+    # instead of freezing on a dead stream (the device's tmux+claude survive).
+    try:
+        from api.coding_desktop import get_desktop_bridge
+        get_desktop_bridge().on_device_disconnect(conn.device_id)
+    except Exception:
+        pass
 
 
 # ── Public API used by routes ───────────────────────────────────────────────

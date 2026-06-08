@@ -650,7 +650,15 @@ class CodingSessionsController extends ChangeNotifier {
         cancelOnError: false,
       );
     } catch (e) {
-      terminalError = _msg(e);
+      // A discovered Mac session whose device is OFFLINE can't be attached live
+      // (no process to attach to) — point the user at resume-to-server.
+      final offline = e is DioException &&
+          e.response?.statusCode == 409 &&
+          e.response?.data is Map &&
+          (e.response!.data as Map)['can_resume'] == true;
+      terminalError = offline
+          ? 'Your Mac is offline — resume this session on the server to keep working.'
+          : _msg(e);
       _terminalId = null;
     } finally {
       terminalStarting = false;
