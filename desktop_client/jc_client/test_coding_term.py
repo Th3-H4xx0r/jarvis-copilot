@@ -90,6 +90,37 @@ class TestCodingTermPosix(unittest.TestCase):
         self.assertEqual(exits[0]["term_id"], tid)
         self.assertEqual(exits[0]["code"], 0)
 
+    def test_reopen_replaces_existing_pty(self):
+        """A second coding_term_open for the SAME term_id REPLACES the PTY. The old
+        bug silently ignored the re-open, leaving the web 'reopen terminal' action
+        permanently dead. The replaced PTY is closed WITHOUT a spurious exit frame;
+        the new PTY actually runs."""
+        tid = "t-reopen"
+        # First PTY: a long-lived `cat`.
+        self.mgr.handle_frame({"type": "coding_term_open", "term_id": tid,
+                               "argv": ["cat"], "env": {}})
+        time.sleep(0.15)  # let the first PTY come up
+        # Re-open the SAME term_id with a DIFFERENT program.
+        self.mgr.handle_frame({
+            "type": "coding_term_open", "term_id": tid,
+            "argv": ["/bin/sh", "-c", "printf SECOND; sleep 0.3"], "env": {}})
+        # The new PTY ran (old behavior would have ignored the re-open → no SECOND).
+        self.assertTrue(
+            _wait_until(lambda: "SECOND" in self.rec.output_text(tid)),
+            f"re-open did not start a new PTY; got {self.rec.output_text(tid)!r}",
+        )
+        # Exactly ONE exit frame — the SECOND program's clean exit. The replaced
+        # first PTY's teardown is suppressed (closing=True), and its reader must
+        # NOT have evicted the new term from the registry.
+        self.assertTrue(_wait_until(
+            lambda: [f for f in self.rec.of_type("coding_term_exit")
+                     if f.get("term_id") == tid]))
+        time.sleep(0.1)
+        exits = [f for f in self.rec.of_type("coding_term_exit")
+                 if f.get("term_id") == tid]
+        self.assertEqual(len(exits), 1, f"expected exactly 1 exit, got {exits}")
+        self.assertEqual(exits[0]["code"], 0)
+
     def test_input_is_echoed_back_as_output(self):
         """`cat` echoes stdin → we see our bytes come back as output frames."""
         tid = "t-cat"

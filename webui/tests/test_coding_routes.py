@@ -68,6 +68,10 @@ class FakeStore:
         out = list(self.sessions)
         if project_id is not None:
             out = [s for s in out if s.get("project_id") == project_id]
+        if status is not None:
+            out = [s for s in out if s.get("status") == status]
+        if device_id is not None:
+            out = [s for s in out if s.get("device_id") == device_id]
         return out
 
     def update_session(self, sid, **fields):
@@ -100,12 +104,13 @@ class FakeManager:
 
     def launch(self, *, cwd, title, initial_prompt, model,
                worktree=False, repo_path=None, skip_permissions=False, sync=None,
-               project_id=None):
+               project_id=None, resume_session_id=None):
         self.calls.append(
             ("launch", dict(cwd=cwd, title=title, initial_prompt=initial_prompt,
                             model=model, worktree=worktree, repo_path=repo_path,
                             skip_permissions=skip_permissions, sync=sync,
-                            project_id=project_id)))
+                            project_id=project_id,
+                            resume_session_id=resume_session_id)))
         self._maybe_raise("launch")
         return {"id": "sess-new", "status": "running", "cwd": cwd,
                 "title": title, "project_id": project_id}
@@ -686,6 +691,133 @@ def test_launch_in_project_selects_host_manager():
     assert picked["h"] == "desktop"
     assert any(c[0] == "launch" for c in desktop.calls)
     assert not any(c[0] == "launch" for c in server.calls)
+
+
+def _set_project_sync(store, pid, **fields):
+    """Mutate a project's sync columns directly (bypassing the reconcile that the
+    POST handler would trigger), so a launch test starts from a synced project."""
+    for p in store.projects:
+        if p["id"] == pid:
+            p.update(fields)
+
+
+def test_launch_in_project_inherits_project_sync_when_form_omits_it():
+    m = FakeManager()
+    pid = m.store.create_project(name="p", repo_path="/the/repo")
+    _set_project_sync(m.store, pid, sync_enabled=1, device_id="dev-x",
+                      sync_desktop_path="/Users/me/proj",
+                      ignore_rules='["node_modules", ".venv"]')
+    # No sync in the launch body -> inherit the PROJECT defaults.
+    status, body = handle_coding_request(
+        "POST", "/project/" + str(pid) + "/session", {"prompt": "go"}, manager=m)
+    assert status == 200 and body["ok"] is True
+    _, kw = next(c for c in m.calls if c[0] == "launch")
+    assert kw["sync"] == {"enabled": True, "device": "dev-x",
+                          "remote_path": "/Users/me/proj",
+                          "ignore": ["node_modules", ".venv"]}
+
+
+def test_launch_in_project_form_sync_overrides_project():
+    m = FakeManager()
+    pid = m.store.create_project(name="p", repo_path="/the/repo")
+    _set_project_sync(m.store, pid, sync_enabled=1, device_id="dev-x",
+                      sync_desktop_path="/Users/me/proj")
+    # An explicit sync in the body wins over the project default.
+    handle_coding_request(
+        "POST", "/project/" + str(pid) + "/session",
+        {"prompt": "go", "sync": {"enabled": False}}, manager=m)
+    _, kw = next(c for c in m.calls if c[0] == "launch")
+    assert kw["sync"] == {"enabled": False}
+
+
+def test_launch_in_project_no_project_sync_passes_none():
+    m = FakeManager()
+    pid = m.store.create_project(name="p", repo_path="/the/repo")  # no sync set
+    handle_coding_request(
+        "POST", "/project/" + str(pid) + "/session", {"prompt": "go"}, manager=m)
+    _, kw = next(c for c in m.calls if c[0] == "launch")
+    assert kw["sync"] is None
+
+
+def test_project_sync_change_reconciles_running_children(monkeypatch):
+    import api.coding_desktop as cd
+    started, stopped = [], []
+    monkeypatch.setattr(cd, "start_sync_for_session",
+                        lambda *, session_id, cwd, sync: started.append(
+                            (session_id, cwd, sync)))
+    monkeypatch.setattr(cd, "stop_sync_for_session",
+                        lambda sid, **kw: stopped.append(sid))
+    m = FakeManager()
+    pid = m.store.create_project(name="p", repo_path="/r")
+    m.store.sessions = [
+        {"id": "run1", "project_id": pid, "status": "running",
+         "source": "chat", "cwd": "/r"},
+        {"id": "run2", "project_id": pid, "status": "running",
+         "source": None, "cwd": "/r2"},
+        {"id": "disc", "project_id": pid, "status": "running",
+         "source": "discovered-tmux", "cwd": "/m"},     # skipped (device-native)
+        {"id": "stop1", "project_id": pid, "status": "stopped",
+         "source": "chat", "cwd": "/r"},                # skipped (not running)
+    ]
+    status, body = handle_coding_request(
+        "POST", "/project/" + str(pid),
+        {"sync_enabled": True, "device_id": "dev-x",
+         "sync_desktop_path": "/Users/me/proj"}, manager=m)
+    assert status == 200 and body["ok"] is True
+    # Both LAUNCHED running children got the sync started; the discovered + stopped
+    # ones were skipped.
+    assert {s[0] for s in started} == {"run1", "run2"}
+    assert stopped == []
+    # Each got the project sync dict persisted onto its row.
+    import json
+    expect = {"enabled": True, "device": "dev-x",
+              "remote_path": "/Users/me/proj", "ignore": []}
+    for sid in ("run1", "run2"):
+        row = next(s for s in m.store.sessions if s["id"] == sid)
+        assert json.loads(row["sync_config"]) == expect
+
+
+def test_project_sync_disable_stops_running_children(monkeypatch):
+    import api.coding_desktop as cd
+    started, stopped = [], []
+    monkeypatch.setattr(cd, "start_sync_for_session",
+                        lambda *, session_id, cwd, sync: started.append(session_id))
+    monkeypatch.setattr(cd, "stop_sync_for_session",
+                        lambda sid, **kw: stopped.append(sid))
+    m = FakeManager()
+    pid = m.store.create_project(name="p", repo_path="/r")
+    _set_project_sync(m.store, pid, sync_enabled=1, device_id="dev-x",
+                      sync_desktop_path="/p")
+    m.store.sessions = [
+        {"id": "run1", "project_id": pid, "status": "running",
+         "source": "chat", "cwd": "/r", "sync_config": "{}"},
+    ]
+    # Turn sync OFF but LEAVE the device/path set (the real UI keeps the device
+    # dropdown's value when you uncheck sync). sync_enabled is authoritative, so
+    # _project_sync is None -> STOP, not start (regression guard for the bug where
+    # a leftover device kept sync alive).
+    handle_coding_request(
+        "POST", "/project/" + str(pid), {"sync_enabled": False}, manager=m)
+    assert stopped == ["run1"] and started == []
+    row = next(s for s in m.store.sessions if s["id"] == "run1")
+    assert row["sync_config"] is None
+
+
+def test_project_rename_only_does_not_reconcile_sync(monkeypatch):
+    # A non-sync field change must NOT touch running children's sync.
+    import api.coding_desktop as cd
+    touched = []
+    monkeypatch.setattr(cd, "start_sync_for_session",
+                        lambda **kw: touched.append("start"))
+    monkeypatch.setattr(cd, "stop_sync_for_session",
+                        lambda *a, **kw: touched.append("stop"))
+    m = FakeManager()
+    pid = m.store.create_project(name="p", repo_path="/r")
+    m.store.sessions = [{"id": "run1", "project_id": pid, "status": "running",
+                         "source": "chat", "cwd": "/r"}]
+    handle_coding_request(
+        "POST", "/project/" + str(pid), {"name": "Renamed"}, manager=m)
+    assert touched == []
 
 
 def test_project_unknown_action_404():

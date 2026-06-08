@@ -129,6 +129,77 @@ def _folder_label(cwd) -> str:
     return str(cwd or "").rstrip("/").split("/")[-1] or "session"
 
 
+def _parse_ignore_rules(raw) -> list:
+    """Project ``ignore_rules`` is stored as TEXT — accept a JSON list or a
+    newline-separated string and normalise to a list of patterns."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    s = str(raw).strip()
+    if not s:
+        return []
+    try:
+        import json as _json
+        v = _json.loads(s)
+        if isinstance(v, list):
+            return [str(x) for x in v]
+    except Exception:
+        pass
+    return [ln.strip() for ln in s.splitlines() if ln.strip()]
+
+
+def _project_sync(proj) -> dict | None:
+    """Translate a project's stored sync columns into a session ``sync`` dict (the
+    shape manager.launch / start_sync_for_session expect), or None when the
+    project's sync is OFF. ``sync_enabled`` is the AUTHORITATIVE switch — a left-
+    over device/path (e.g. the user unchecked sync but the device dropdown kept
+    its value) must NOT keep sync alive, so we gate solely on ``enabled``."""
+    if not isinstance(proj, dict):
+        return None
+    if not bool(proj.get("sync_enabled")):
+        return None
+    device = (proj.get("device_id") or "").strip()
+    remote = (proj.get("sync_desktop_path") or "").strip()
+    return {"enabled": True, "device": device or None,
+            "remote_path": remote or None,
+            "ignore": _parse_ignore_rules(proj.get("ignore_rules"))}
+
+
+def _reconcile_project_sync(manager, pid: str, proj) -> None:
+    """Apply a project's (now-updated) sync settings to every RUNNING child
+    session: persist the project sync dict onto each session and start/stop its
+    file sync to match. The project is authoritative — changing it pushes to all
+    current children. Scoped to LAUNCHED sessions (a discovered session already
+    lives on the device; we don't retro-sync someone's live Mac tmux). Best-
+    effort; never raises into the request."""
+    try:
+        from api.coding_desktop import (start_sync_for_session,
+                                        stop_sync_for_session)
+    except Exception:
+        return
+    sync = _project_sync(proj)
+    try:
+        rows = manager.store.list_sessions(project_id=pid, status="running")
+    except Exception:
+        rows = []
+    import json as _json
+    for row in rows:
+        sid = row.get("id")
+        if not sid or (row.get("source") or "").startswith("discovered"):
+            continue
+        try:
+            if sync:
+                manager.store.update_session(sid, sync_config=_json.dumps(sync))
+                start_sync_for_session(session_id=sid,
+                                       cwd=row.get("cwd") or "", sync=sync)
+            else:
+                manager.store.update_session(sid, sync_config=None)
+                stop_sync_for_session(sid)
+        except Exception:  # noqa: BLE001
+            continue
+
+
 def _coding_alert_text(store, row, event) -> tuple[str, str]:
     """(title, body) for a coding-event phone banner — mirrors the wording of
     the Telegram notify.sh hook. Labelled by project name, else the cwd folder."""
@@ -507,8 +578,16 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                           ("name", "default_branch", "sync_enabled",
                            "sync_desktop_path", "ignore_rules", "device_id")
                           if k in body}
+                sync_changed = any(
+                    k in fields for k in ("sync_enabled", "sync_desktop_path",
+                                          "ignore_rules", "device_id"))
                 manager.store.update_project(pid, **fields)
-                return _ok({"ok": True, "project": manager.store.get_project(pid)})
+                proj = manager.store.get_project(pid)
+                # Project sync settings are authoritative: a change retro-applies
+                # to every running child session (start/stop sync to match).
+                if sync_changed:
+                    _reconcile_project_sync(manager, pid, proj)
+                return _ok({"ok": True, "project": proj})
 
             return _run(_update_project)
 
@@ -541,12 +620,18 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 host = body.get("host") or proj.get("host") or "server"
                 launch_mgr = manager_for_host(host) if manager_for_host else manager
                 cwd = body.get("cwd") or proj.get("repo_path")
+                # The launch form may override sync; otherwise inherit the
+                # PROJECT's sync defaults so every child of a synced project syncs.
+                sync = body.get("sync")
+                if sync is None:
+                    sync = _project_sync(proj)
                 session = launch_mgr.launch(
                     cwd=cwd, title=body.get("title"),
                     initial_prompt=body.get("prompt"), model=body.get("model"),
                     project_id=pid,
                     skip_permissions=bool(body.get("skip_permissions")),
-                    sync=body.get("sync"))
+                    sync=sync,
+                    resume_session_id=body.get("resume_session_id"))
                 return _ok({"ok": True, "session": session})
 
             return _run(_launch_in_project)
@@ -711,8 +796,10 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     cwd=cwd, title=body.get("title"),
                     initial_prompt=body.get("prompt"), model=body.get("model"),
                     worktree=worktree, repo_path=repo_path,
+                    project_id=body.get("project_id"),
                     skip_permissions=bool(body.get("skip_permissions")),
-                    sync=body.get("sync"))
+                    sync=body.get("sync"),
+                    resume_session_id=body.get("resume_session_id"))
                 return _ok({"ok": True, "session": session})
 
             return _run(_launch)
@@ -1003,13 +1090,16 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                         return _ok({"ok": True, "session_id": sid,
                                     "running": res.get("running", True)})
                     # A Jarvis-LAUNCHED desktop session already runs tmux+claude
-                    # and streams coding_term_output; just attach a feed.
+                    # and streams coding_term_output; just attach a feed. fresh=True
+                    # drops a stale CLOSED feed left by a prior WS drop so a reopen
+                    # after the Mac reconnects re-wires cleanly (the manager-owned
+                    # tmux+claude keep streaming) instead of returning the dead feed.
                     device_id = resolve_desktop_device_id()
                     if not device_id:
                         return _err(409, "desktop client is not connected")
                     feed = get_desktop_bridge().attach_feed(
                         session_id=sid, device_id=device_id, term_id=tmux_name,
-                        rows=rows, cols=cols)
+                        rows=rows, cols=cols, fresh=True)
                     return _ok({"ok": True, "session_id": sid,
                                 "running": feed.is_alive()})
                 if host != "server":

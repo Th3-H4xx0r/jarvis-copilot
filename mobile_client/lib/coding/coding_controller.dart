@@ -673,10 +673,22 @@ class CodingSessionsController extends ChangeNotifier {
               _terminalText.add(text);
             }
           } else if (event == 'terminal_closed') {
+            final reason = (ev['reason'] ?? '').toString();
             if (!_terminalText.isClosed) {
-              _terminalText.add(
-                  '\r\n\x1b[90m[detached — reopen this session to resume the live terminal]\x1b[0m\r\n');
+              final msg = reason == 'ended'
+                  ? '[session ended — claude is no longer running; reopen to relaunch]'
+                  : reason == 'disconnected'
+                      ? '[disconnected — your Mac dropped its connection; reopen when it’s back]'
+                      : '[detached — reopen this session to resume the live terminal]';
+              _terminalText.add('\r\n\x1b[90m$msg\x1b[0m\r\n');
             }
+            // Reset the attach guard so re-tapping the session re-attaches (the
+            // old bug: _terminalId stayed set, so reopen was a no-op forever).
+            _terminalSub?.cancel();
+            _terminalSub = null;
+            _terminalId = null;
+            terminalStarting = false;
+            notifyListeners();
           } else if (event == 'terminal_error') {
             final msg = (ev['error'] ?? '').toString();
             if (msg.isNotEmpty && !_terminalText.isClosed) {

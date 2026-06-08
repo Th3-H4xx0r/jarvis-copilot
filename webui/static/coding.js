@@ -24,6 +24,7 @@ let _codingProjectsCache = [];      // [{id,name,repo_path,sessions:[...],...}]
 let _codingUngroupedCache = [];     // [<session rows with no project>]
 let _codingDevicesCache = [];       // [{id,name,online,...}] paired devices
 let _codingSelectedId = null;       // currently-open session id (string) or null
+let _codingCurrentSession = null;   // last-rendered detail session (for the ended panel)
 let _codingPollTimer = null;        // setInterval handle for the detail poll
 let _codingLoaded = false;          // idempotency guard for the one-time shell render
 let _codingDetailShellId = null;    // session id the detail shell is built for
@@ -388,6 +389,16 @@ function _codingSortSessions(arr) {
 function _codingIsTranscriptIdle(s) {
   return s && String(s.source || '') === 'discovered-transcript'
     && _cdgStatusClass(s.status) !== 'running';
+}
+
+// A DISCOVERED live (tmux) session that has ENDED — the user quit claude / the
+// tmux session is gone, so the server reconciled it to stopped. It has no live
+// terminal to attach; show the "session ended" panel (Resume / Relaunch) instead
+// of dumping the user into a dead terminal.
+function _codingIsEnded(s) {
+  return s && String(s.source || '').startsWith('discovered')
+    && String(s.source || '') !== 'discovered-transcript'
+    && _cdgStatusClass(s.status) === 'stopped';
 }
 
 // One session row (used inside both project groups and the ungrouped group).
@@ -1031,6 +1042,62 @@ async function codingResumeSession(id) {
 }
 window.codingResumeSession = codingResumeSession;
 
+// Relaunch an ENDED discovered session ON THE DEVICE: start a fresh desktop
+// session at the same cwd, continuing the same conversation (claude --continue
+// via resume_session_id). Routes through the project-scoped launch when the
+// session belongs to a project, so it inherits the project's sync settings.
+async function codingRelaunchDevice(id) {
+  const sid = String(id || '');
+  if (!sid) return;
+  const s = (_codingCurrentSession && String(_codingCurrentSession.id) === sid)
+    ? _codingCurrentSession : null;
+  const cwd = (s && (s.cwd || s.repo_path)) || '';
+  if (!cwd) {
+    // Launch requires a cwd; without it the server 400s. Resume-on-server (which
+    // works off the transcript) is the fallback here.
+    _codingFlash('Can’t relaunch — this session has no folder. Try “Resume on server”.');
+    return;
+  }
+  const csid = (s && s.claude_session_id) || '';
+  const pid = (s && s.project_id) || null;
+  const btn = document.querySelector('.cdg-ended-actions .cdg-btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Relaunching…'; }
+  try {
+    const body = { host: 'desktop', cwd: cwd };
+    if (s && s.title) body.title = s.title;
+    if (csid) body.resume_session_id = csid;
+    const path = pid
+      ? ('/api/coding/project/' + encodeURIComponent(pid) + '/session')
+      : '/api/coding/launch';
+    if (!pid) body.project_id = null;
+    const res = await api(path, { method: 'POST', body: JSON.stringify(body) });
+    if (!res || res.ok === false) {
+      _codingFlash((res && (res.error || res.message)) || 'Could not relaunch on the device (is it online?).');
+      if (btn) { btn.disabled = false; btn.textContent = 'Relaunch on device'; }
+      return;
+    }
+    const sess = (res && res.session) || {};
+    await _codingRefreshList();
+    if (sess.id != null) codingOpenSession(String(sess.id));
+  } catch (e) {
+    _codingFlash('Relaunch failed: ' + ((e && e.message) || e));
+    if (btn) { btn.disabled = false; btn.textContent = 'Relaunch on device'; }
+  }
+}
+window.codingRelaunchDevice = codingRelaunchDevice;
+
+// Force a fresh attach attempt for a session whose terminal detached/ended. Tears
+// down any stale mount and re-opens the session, so a session that's come back
+// re-mounts (and one that's still ended falls back to the ended panel).
+function codingReopenTerminal(id) {
+  const sid = String(id || _codingSelectedId || '');
+  if (!sid) return;
+  _codingTeardownTerminal();
+  _codingDetailShellId = null;       // force a rebuild + a fresh terminal/start
+  codingOpenSession(sid);
+}
+window.codingReopenTerminal = codingReopenTerminal;
+
 // Force paired devices to re-scan + re-report their tmux + transcript sessions,
 // then refresh the list. Subtle: spins the rescan button while it runs.
 async function codingRescanDiscovered() {
@@ -1105,6 +1172,7 @@ function _codingRenderDetail(session, subagents) {
   if (!detail) return;
   const id = String(session.id != null ? session.id : _codingSelectedId || '');
   const subList = Array.isArray(subagents) ? subagents : [];
+  _codingCurrentSession = session;   // cached for the ended panel's actions
 
   // A transcript-only (past, not-running) session has NO live tmux yet. Render a
   // summary pane with a Resume button instead of trying to attach a dead
@@ -1112,6 +1180,12 @@ function _codingRenderDetail(session, subagents) {
   // falls through to the normal live-terminal shell below.
   if (_codingIsTranscriptIdle(session)) {
     _codingRenderTranscriptDetail(session, id);
+    return;
+  }
+  // A discovered live session that ENDED (claude quit / tmux gone). No terminal
+  // to attach — show the ended panel (Resume on server / Relaunch on device).
+  if (_codingIsEnded(session)) {
+    _codingRenderEndedDetail(session, id);
     return;
   }
   // If we WERE showing the transcript shell and the session is now live, drop the
@@ -1224,6 +1298,45 @@ function _codingRenderTranscriptDetail(session, id) {
     </div>`;
 }
 
+// Detail pane for a DISCOVERED live session that ENDED (claude quit / tmux gone).
+// No live terminal — offer the recovery actions instead of a dead terminal.
+// Built once per session (guarded by _codingDetailShellId + the .cdg-ended-detail
+// marker) so the 4s poll doesn't rebuild/flicker it.
+function _codingRenderEndedDetail(session, id) {
+  const detail = document.getElementById('codingDetail');
+  if (!detail) return;
+  if (_codingDetailShellId === id && detail.querySelector('.cdg-ended-detail')) return;
+  _codingTeardownTerminal();          // make sure any prior live terminal is gone
+  _codingDetailShellId = id;          // mark this shell as built for `id`
+  const title = session.title || session.cwd || session.repo_path || id;
+  const cwd = session.cwd || session.repo_path || '';
+  detail.innerHTML = `
+    <div class="cm-detail-head">
+      <div class="cm-detail-titles">
+        <div class="cm-detail-name">${_cdgEsc(title)}</div>
+        <div class="cm-detail-slug">${_cdgEsc(cwd)}</div>
+      </div>
+      <div class="cdg-detail-status">
+        <span class="cdg-dot cdg-dot-stopped" title="session ended (not running)"></span>
+        <span class="cdg-status-text">ended</span>
+        <button type="button" class="cdg-btn-secondary" onclick="codingClearDetail()">Close</button>
+      </div>
+    </div>
+    <div class="cm-detail-body">
+      <div class="cdg-ended-detail">
+        <div class="cm-section">
+          <div class="cm-section-head"><span class="cm-section-title">Session ended</span><span class="cm-section-count" style="font-weight:400;opacity:.6">claude is no longer running on this device</span></div>
+          <div class="cdg-hint">The live <code>claude</code> for this session has stopped (its tmux session ended). There's no live terminal to attach. You can <b>relaunch it on the device</b> to keep working there, or <b>resume it on the server</b> (it continues from the synced transcript).</div>
+          <div class="cdg-ended-actions" style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">
+            <button type="button" class="cdg-btn-primary" onclick="codingRelaunchDevice('${_cdgEsc(id)}')">Relaunch on device</button>
+            <button type="button" class="cdg-btn-secondary" onclick="codingResumeSession('${_cdgEsc(id)}')">Resume on server</button>
+            <button type="button" class="cdg-btn-secondary" onclick="codingReopenTerminal('${_cdgEsc(id)}')">Reopen terminal</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
 function _codingUpdateDetailStatus(session) {
   // lifecycle class drives the Stop/Restart affordance; the display state
   // (working/waiting/idle) drives the dot + text.
@@ -1277,7 +1390,28 @@ function _codingMountTerminal(id) {
         let text = ''; try { text = (JSON.parse(ev.data) || {}).text || ''; } catch (_) {}
         if (text && _codingTerm) _codingTerm.write(text);
       });
-      es.addEventListener('terminal_closed', () => { if (_codingTerm) _codingTerm.write('\r\n\x1b[90m[detached — reopen this session to resume the live terminal]\x1b[0m\r\n'); });
+      es.addEventListener('terminal_closed', (ev) => {
+        let reason = '';
+        try { reason = (JSON.parse(ev.data) || {}).reason || ''; } catch (_) {}
+        // The live PTY ended. Reset the mount state so the session can be RE-mounted
+        // (the old bug: state stayed set, so re-selecting / the poll was a no-op
+        // forever and the detached banner was sticky).
+        const wasId = id;
+        try { if (_codingTermES) _codingTermES.close(); } catch (_) {}
+        _codingTermES = null;
+        _codingTermMountedId = null;
+        _codingDetailShellId = null;     // force the next render to rebuild the shell
+        if (reason === 'ended') {
+          // claude/tmux is gone (e.g. you ctrl-C'd it). The server reconciled the
+          // row to stopped — refresh to the ended panel (Resume / Relaunch).
+          if (String(_codingSelectedId || '') === String(wasId)) _codingRefreshDetail();
+          return;
+        }
+        const msg = reason === 'disconnected'
+          ? '[disconnected — your Mac dropped its connection; reopen when it’s back]'
+          : '[detached — reopen this session to resume the live terminal]';
+        if (_codingTerm) _codingTerm.write('\r\n\x1b[90m' + msg + '\x1b[0m\r\n');
+      });
     }).catch((e) => {
       if (_codingDetailShellId !== id) return;
       // A discovered Mac session whose device is OFFLINE can't be attached live

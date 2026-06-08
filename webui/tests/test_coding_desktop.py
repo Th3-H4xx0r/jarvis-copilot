@@ -1729,12 +1729,14 @@ def test_adopt_sends_tmux_attach_open_and_feed(tmp_path):
     assert len(opens) == 1
     o = opens[0]
     assert o["term_id"] == "jc-abc123"
-    # attach-or-create to the EXISTING tmux (co-view; no -D, so the Mac stays on),
-    # then size the pane to the most-recent client (window-size latest).
-    assert o["argv"] == ["tmux", "new-session", "-A", "-s", "jc-abc123",
-                         "-c", "/Users/me/proj",
+    # attach-session to the EXISTING tmux (co-view; no -D, so the Mac stays on),
+    # then size the pane to the most-recent client (window-size latest). NOT
+    # `new-session -A`: a gone tmux must fail loudly so we show the ended panel,
+    # not silently spawn an empty shell.
+    assert o["argv"] == ["tmux", "attach-session", "-t", "jc-abc123",
                          ";", "set-option", "-g", "window-size", "latest"]
     assert "-D" not in o["argv"]
+    assert "new-session" not in o["argv"]
 
 
 def test_adopt_offline_when_device_disconnected():
@@ -1742,6 +1744,105 @@ def test_adopt_offline_when_device_disconnected():
     res = cd.adopt_discovered_tmux("cs_adopt", bridge=bridge,
                                    store=_discovered_tmux_store())
     assert res == {"ok": False, "offline": True}
+
+
+class _RecordingStore:
+    """get_session + update_session + list_sessions over one mutable row."""
+
+    def __init__(self, row):
+        self._row = dict(row)
+        self.updates = []  # [(sid, fields)]
+
+    def get_session(self, sid):
+        return dict(self._row) if self._row.get("id") == sid else None
+
+    def update_session(self, sid, **fields):
+        if self._row.get("id") == sid:
+            self._row.update(fields)
+        self.updates.append((sid, fields))
+
+    def list_sessions(self, *, status=None, project_id=None, device_id=None):
+        r = self._row
+        if status and r.get("status") != status:
+            return []
+        return [dict(r)]
+
+
+def _adopted_exit_terminal_closed(feed):
+    """Drain a feed's queued events and return the terminal_closed payload."""
+    import queue as _q
+    payload = None
+    while True:
+        try:
+            ev, p = feed.output.get_nowait()
+        except _q.Empty:
+            break
+        if ev == "terminal_closed":
+            payload = p
+    return payload
+
+
+def test_term_exit_on_adopted_feed_marks_ended_and_reconciles(monkeypatch):
+    # The user quit claude -> its tmux ended -> the client sends coding_term_exit.
+    # On an ADOPTED discovered feed this must: mark ended, emit terminal_closed with
+    # reason="ended", and reconcile the discovered row to stopped immediately.
+    store = _RecordingStore({"id": "cs_adopt", "source": "discovered-tmux",
+                             "host": "desktop", "status": "running",
+                             "tmux_name": "jc-abc123", "cwd": "/Users/me/proj",
+                             "device_id": "dev-mac", "activity_state": "working"})
+    monkeypatch.setattr(cd, "_resolve_store", lambda: store)
+    bridge, t = make_bridge()
+    cd.adopt_discovered_tmux("cs_adopt", bridge=bridge, store=store)
+    feed = bridge.feed_for("jc-abc123")
+    assert feed is not None and feed.ended is False
+    # Inject the exit frame the device sends when the attach PTY ends.
+    bridge._route_term_exit({"type": "coding_term_exit",
+                             "term_id": "jc-abc123", "code": 1})
+    assert feed.ended is True
+    payload = _adopted_exit_terminal_closed(feed)
+    assert payload is not None and payload.get("reason") == "ended"
+    # The row was reconciled to stopped (+ activity cleared) right away.
+    assert store._row["status"] == "stopped"
+    assert store._row["activity_state"] is None
+    assert any(f.get("status") == "stopped" for (_sid, f) in store.updates)
+
+
+def test_on_device_disconnect_reason_disconnected_no_reconcile(monkeypatch):
+    # A WS drop is a reconnectable detach, NOT a session end: reason=disconnected
+    # and the row is NOT reconciled to stopped (the Mac's tmux+claude survive).
+    store = _RecordingStore({"id": "cs_adopt", "source": "discovered-tmux",
+                             "host": "desktop", "status": "running",
+                             "tmux_name": "jc-abc123", "cwd": "/Users/me/proj",
+                             "device_id": "dev-mac", "activity_state": "working"})
+    monkeypatch.setattr(cd, "_resolve_store", lambda: store)
+    bridge, t = make_bridge()
+    cd.adopt_discovered_tmux("cs_adopt", bridge=bridge, store=store)
+    feed = bridge.feed_for("jc-abc123")
+    bridge.on_device_disconnect("dev-mac")
+    assert feed.closed.is_set()
+    assert feed.ended is False           # a disconnect is not an "ended"
+    payload = _adopted_exit_terminal_closed(feed)
+    assert payload is not None and payload.get("reason") == "disconnected"
+    assert store._row["status"] == "running"   # NOT reconciled to stopped
+    # on_device_disconnect DOES clear the live activity_state (existing behavior),
+    # but must never flip the lifecycle status.
+    assert not any(f.get("status") == "stopped" for (_sid, f) in store.updates)
+
+
+def test_fresh_adopt_clears_stale_pending_exit():
+    # A stale exit buffered from a PREVIOUS (dead) attach must NOT instantly close
+    # a brand-new adopt — fresh=True clears it so a relaunched/alive session
+    # attaches cleanly (the old bug flashed detached on every reopen).
+    bridge, t = make_bridge()
+    # Simulate a leftover pending exit for this term_id (no live feed yet).
+    bridge._route_term_exit({"type": "coding_term_exit",
+                             "term_id": "jc-abc123", "code": 0})
+    assert "jc-abc123" in bridge._pending_exit
+    cd.adopt_discovered_tmux("cs_adopt", bridge=bridge,
+                             store=_discovered_tmux_store())
+    feed = bridge.feed_for("jc-abc123")
+    assert feed is not None and not feed.closed.is_set()  # NOT instantly closed
+    assert "jc-abc123" not in bridge._pending_exit
 
 
 def test_adopt_rejects_non_discovered():

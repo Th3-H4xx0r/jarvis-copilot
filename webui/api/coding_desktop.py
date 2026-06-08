@@ -119,11 +119,15 @@ class DesktopTerminalFeed:
         self.rows = rows
         self.cols = cols
         # ADOPTED (discovered-tmux) sessions: the desktop PTY is a throwaway tmux
-        # CLIENT (`tmux new-session -A`) attached to the user's existing session,
+        # CLIENT (`tmux attach-session`) attached to the user's existing session,
         # so on viewer detach we close it (kills only that attach client; the
         # tmux session + claude survive). LAUNCHED desktop sessions own their PTY,
         # so a detach must NOT close it (a tab-close shouldn't kill claude).
         self.detach_closes_term = bool(detach_closes_term)
+        # Set when the underlying tmux/claude is gone (an unsolicited exit on an
+        # adopted feed) so the bridge can reconcile the row + the UI can show the
+        # "session ended" panel rather than a dead terminal.
+        self.ended = False
         self.output: queue.Queue = queue.Queue(maxsize=self._MAX_QUEUE)
         self.closed = threading.Event()
         self.proc = _FakeProc()
@@ -155,10 +159,17 @@ class DesktopTerminalFeed:
         if data:
             self.put_output("output", {"text": data})
 
-    def on_exit(self, code) -> None:
+    def on_exit(self, code, *, reason: str | None = None) -> None:
         self.proc.set_exit(code)
         self.closed.set()
-        self.put_output("terminal_closed", {"exit_code": self.proc.poll()})
+        if reason == "ended":
+            self.ended = True
+        # ``reason`` tells the web/mobile viewer WHY the live stream ended so it
+        # can react: "ended" -> the tmux/claude is gone, show the relaunch panel;
+        # "disconnected" -> the Mac dropped its WS (tmux survives), show reconnect;
+        # "" / None -> a plain detach (legacy banner).
+        self.put_output("terminal_closed",
+                        {"exit_code": self.proc.poll(), "reason": reason or ""})
 
     # --- feed_* overrides used by api.terminal write/resize/close ------------
 
@@ -269,17 +280,30 @@ class DesktopBridge:
 
     def attach_feed(self, *, session_id: str, device_id: str, term_id: str,
                     rows: int = 24, cols: int = 80,
-                    detach_closes_term: bool = False) -> DesktopTerminalFeed:
+                    detach_closes_term: bool = False,
+                    fresh: bool = False) -> DesktopTerminalFeed:
         """Create (or return) the feed for ``term_id`` and replay buffered output.
 
         Registers the feed in api.terminal's registry under ``session_id`` so the
         existing SSE/input/resize/close routes drive it. ``detach_closes_term``
         marks an ADOPTED throwaway attach-client PTY (closed on viewer detach).
+
+        ``fresh`` (set by a brand-new adopt) drops a stale CLOSED feed and clears
+        any buffered exit/replay from a previous, now-dead attach — so a
+        relaunched/still-alive session attaches cleanly and a truly-gone one
+        re-signals "ended" via a NEW exit frame instead of an instantly-replayed
+        stale one (which made every reopen flash detached forever).
         """
         from api import terminal as term_mod
 
         with self._lock:
             feed = self._feeds.get(term_id)
+            if feed is not None and fresh and feed.closed.is_set():
+                self._feeds.pop(term_id, None)
+                feed = None
+            if fresh:
+                self._replay.pop(term_id, None)
+                self._pending_exit.pop(term_id, None)
             if feed is None:
                 feed = DesktopTerminalFeed(
                     session_id=session_id, device_id=device_id, term_id=term_id,
@@ -290,7 +314,8 @@ class DesktopBridge:
                 for chunk in self._replay.pop(term_id, []):
                     feed.on_output(chunk)
                 if term_id in self._pending_exit:
-                    feed.on_exit(self._pending_exit.pop(term_id))
+                    feed.on_exit(self._pending_exit.pop(term_id),
+                                 reason="ended" if detach_closes_term else None)
         term_mod.register_terminal(session_id, feed)
         return feed
 
@@ -310,7 +335,10 @@ class DesktopBridge:
                      if f.device_id == device_id and not f.closed.is_set()]
         for feed in feeds:
             try:
-                feed.on_exit(None)
+                # The Mac dropped its WS but its tmux+claude keep running — this is
+                # a reconnectable detach, NOT a session end, so reason=disconnected
+                # (the UI offers reconnect, and we must NOT reconcile to stopped).
+                feed.on_exit(None, reason="disconnected")
             except Exception:  # noqa: BLE001
                 pass
         # Clear the live activity_state of this device's discovered sessions so
@@ -588,7 +616,41 @@ class DesktopBridge:
             if feed is None:
                 self._pending_exit[term_id] = 0 if code is None else int(code)
                 return
-        feed.on_exit(code)
+        # An UNSOLICITED exit on an ADOPTED discovered feed means the user's tmux
+        # session ended (they quit claude / killed the pane). A clean viewer detach
+        # never reaches here — the client suppresses the exit frame for a close WE
+        # initiated. So treat it as "ended": tell the viewer (reason) AND flip the
+        # discovered row to stopped now, instead of waiting up to ~5s for the next
+        # discovery push to reconcile it (the window where the old UI re-attached
+        # to a dead target and got stuck on the detached banner).
+        ended = bool(getattr(feed, "detach_closes_term", False))
+        feed.on_exit(code, reason="ended" if ended else None)
+        if ended:
+            self._reconcile_session_ended(feed.session_id)
+
+    def _reconcile_session_ended(self, session_id: str) -> None:
+        """Flip a discovered session whose live tmux just ended to ``stopped`` (and
+        clear its live ``activity_state``) so the UI shows the "session ended"
+        panel immediately instead of re-attaching to a dead target. Scoped to
+        discovered rows — LAUNCHED sessions are owned by the manager's lifecycle.
+        Best-effort; never raises into the bridge pump thread."""
+        try:
+            store = _resolve_store()
+            if store is None:
+                return
+            row = store.get_session(session_id)
+            if row is None:
+                return
+            # Only an adopted discovered-TMUX row owns a live attach feed; never
+            # touch a discovered-TRANSCRIPT row (those are never reconciled to
+            # stopped) or a launched/server row (manager owns its lifecycle).
+            if (row.get("source") or "") != "discovered-tmux":
+                return
+            if row.get("status") != "stopped":
+                store.update_session(session_id, status="stopped",
+                                     activity_state=None)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _authorize_sync_key(self, pubkey: str) -> None:
         """Add the desktop's sync SSH public key to the server's authorized_keys
@@ -1587,7 +1649,7 @@ def adopt_discovered_tmux(session_id: str, *, bridge: DesktopBridge | None = Non
     """ATTACH web/phone to a discovered LIVE Mac ``claude`` tmux session — ONE
     process, perfectly in sync (no fork, unlike resume-to-server).
 
-    Tells the desktop to open a PTY that ``tmux new-session -A``-attaches to the
+    Tells the desktop to open a PTY that ``tmux attach-session``-attaches to the
     user's already-running tmux, then wires a :class:`DesktopTerminalFeed` so the
     existing ``/api/terminal/*`` SSE/input/resize routes stream it. The attach is
     a SEPARATE tmux client (not ``-d``), so the Mac's own terminal stays attached
@@ -1616,24 +1678,24 @@ def adopt_discovered_tmux(session_id: str, *, bridge: DesktopBridge | None = Non
         return {"ok": False, "offline": True}
     term_id = tmux_name
     cwd = row.get("cwd") or ""
-    # `new-session -A` = attach-or-create (resilient if the session momentarily
-    # vanished). NOT `-D`, so the Mac's own terminal stays attached (co-viewing).
-    # The chained `; set-option -g window-size latest` sizes the pane to the
-    # most-recently-active client, so a small phone viewport doesn't shrink the
-    # Mac's view. The `;` is a literal argv element — tmux's own command
-    # separator (the desktop execs argv directly, no shell). It runs AFTER the
-    # attach, so on an old tmux lacking `window-size` it's a harmless no-op that
-    # can't break the attach (which already succeeded).
-    argv = ["tmux", "new-session", "-A", "-s", tmux_name]
-    if cwd:
-        argv += ["-c", cwd]
-    argv += [";", "set-option", "-g", "window-size", "latest"]
+    # `attach-session` attaches to the user's EXISTING tmux. NOT `-D`, so the Mac's
+    # own terminal stays attached (co-viewing). The chained `; set-option -g
+    # window-size latest` sizes the pane to the most-recently-active client, so a
+    # small phone viewport doesn't shrink the Mac's view. The `;` is a literal
+    # argv element — tmux's command separator (the desktop execs argv directly, no
+    # shell). We deliberately do NOT use `new-session -A` (attach-OR-create): once
+    # the user quits claude and the tmux session is gone, `-A` would silently spawn
+    # an EMPTY shell and mask that the session ended; plain `attach-session` exits
+    # non-zero ("can't find session") which the client reports as coding_term_exit,
+    # letting us surface a clean "ended" state + offer relaunch.
+    argv = ["tmux", "attach-session", "-t", tmux_name,
+            ";", "set-option", "-g", "window-size", "latest"]
     ok = bridge.send_term_open(device_id, term_id=term_id, cwd=cwd, argv=argv, env={})
     if not ok:
         return {"ok": False, "offline": True}
     feed = bridge.attach_feed(session_id=session_id, device_id=device_id,
                               term_id=term_id, rows=rows, cols=cols,
-                              detach_closes_term=True)
+                              detach_closes_term=True, fresh=True)
     return {"ok": True, "running": feed.is_alive()}
 
 

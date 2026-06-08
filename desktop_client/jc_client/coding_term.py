@@ -298,9 +298,27 @@ class CodingTermManager:
             log.warning("coding_term_open missing term_id")
             return
         with self._lock:
-            if term_id in self._terms:
-                log.info("coding_term_open: %s already open — ignoring", term_id)
-                return
+            existing = self._terms.get(term_id)
+            if existing is not None:
+                # A fresh open for a term_id we already hold = the server wants a
+                # NEW attach (e.g. the viewer reopened the live terminal). Replace
+                # the old PTY instead of silently ignoring the open — ignoring left
+                # "reopen" permanently dead. Mark it closing BEFORE it leaves the
+                # registry, so if the old child happens to die in this window its
+                # reader still sees closing=True and does NOT emit a spurious
+                # coding_term_exit (which the server would read as the session
+                # ending). Both mutations under one lock so the flag can't be
+                # observed-as-False after eviction.
+                existing.closing = True
+                self._terms.pop(term_id, None)
+        if existing is not None:
+            try:
+                existing.pty.close()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("coding_term_open replace: closing old %s failed: %s",
+                          term_id, exc)
+            log.info("coding_term_open: %s re-opened — replaced existing PTY",
+                     term_id)
         argv = frame.get("argv")
         if not isinstance(argv, list) or not argv or not all(
             isinstance(a, str) for a in argv
@@ -408,13 +426,17 @@ class CodingTermManager:
         except Exception as exc:  # noqa: BLE001
             log.debug("coding_term output pump ended for %s: %s", term_id, exc)
         finally:
-            # Drop from the registry if still present (child exited on its own).
+            # Drop from the registry ONLY if it's still THIS term (a re-open may
+            # have replaced us under the same term_id — we must not evict the new
+            # PTY). ``mine`` = the registry entry was ours (child exited on its own).
             with self._lock:
-                still = self._terms.pop(term_id, None)
+                mine = self._terms.get(term_id) is term
+                if mine:
+                    self._terms.pop(term_id, None)
             if not term.closing:
                 code = _safe_poll(term.pty)
                 # Free the master fd now that the pump is done with it.
-                if still is not None:
+                if mine:
                     try:
                         term.pty.close()
                     except Exception:  # noqa: BLE001
