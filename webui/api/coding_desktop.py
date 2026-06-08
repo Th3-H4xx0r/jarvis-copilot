@@ -110,7 +110,7 @@ class DesktopTerminalFeed:
     _MAX_QUEUE = 2000
 
     def __init__(self, *, session_id, device_id, term_id, bridge,
-                 rows: int = 24, cols: int = 80):
+                 rows: int = 24, cols: int = 80, detach_closes_term: bool = False):
         self.session_id = str(session_id)
         self.device_id = str(device_id)
         self.term_id = str(term_id)
@@ -118,6 +118,12 @@ class DesktopTerminalFeed:
         self.workspace = ""  # parity field; the real cwd lives on the device
         self.rows = rows
         self.cols = cols
+        # ADOPTED (discovered-tmux) sessions: the desktop PTY is a throwaway tmux
+        # CLIENT (`tmux new-session -A`) attached to the user's existing session,
+        # so on viewer detach we close it (kills only that attach client; the
+        # tmux session + claude survive). LAUNCHED desktop sessions own their PTY,
+        # so a detach must NOT close it (a tab-close shouldn't kill claude).
+        self.detach_closes_term = bool(detach_closes_term)
         self.output: queue.Queue = queue.Queue(maxsize=self._MAX_QUEUE)
         self.closed = threading.Event()
         self.proc = _FakeProc()
@@ -168,8 +174,16 @@ class DesktopTerminalFeed:
     def feed_close(self) -> None:
         # Detach the viewer; the desktop tmux+claude keeps running (parity with
         # the server-host "attach" terminal, which detaches rather than kills).
-        # We do NOT send coding_term_close here so the session survives a tab
-        # close; the session lifecycle (stop/delete) sends the close frame.
+        # For an ADOPTED session, also close the throwaway attach-client PTY so it
+        # doesn't linger as a phantom tmux client (the user's tmux+claude survive,
+        # since we attach a SEPARATE client, not the original). For a LAUNCHED
+        # session we do NOT send the close (a tab-close must not kill claude — the
+        # session lifecycle (stop/delete) sends the close frame).
+        if self.detach_closes_term:
+            try:
+                self._bridge.send_term_close(self.device_id, self.term_id)
+            except Exception:  # noqa: BLE001
+                pass
         self.closed.set()
 
 
@@ -254,11 +268,13 @@ class DesktopBridge:
     # --- terminal feed lifecycle --------------------------------------------
 
     def attach_feed(self, *, session_id: str, device_id: str, term_id: str,
-                    rows: int = 24, cols: int = 80) -> DesktopTerminalFeed:
+                    rows: int = 24, cols: int = 80,
+                    detach_closes_term: bool = False) -> DesktopTerminalFeed:
         """Create (or return) the feed for ``term_id`` and replay buffered output.
 
         Registers the feed in api.terminal's registry under ``session_id`` so the
-        existing SSE/input/resize/close routes drive it.
+        existing SSE/input/resize/close routes drive it. ``detach_closes_term``
+        marks an ADOPTED throwaway attach-client PTY (closed on viewer detach).
         """
         from api import terminal as term_mod
 
@@ -267,7 +283,8 @@ class DesktopBridge:
             if feed is None:
                 feed = DesktopTerminalFeed(
                     session_id=session_id, device_id=device_id, term_id=term_id,
-                    bridge=self, rows=rows, cols=cols)
+                    bridge=self, rows=rows, cols=cols,
+                    detach_closes_term=detach_closes_term)
                 self._feeds[term_id] = feed
                 # Replay any output that arrived before the viewer attached.
                 for chunk in self._replay.pop(term_id, []):
@@ -1518,6 +1535,58 @@ def resume_discovered_to_server(session_id: str, *, manager,
     if warning:
         out["warning"] = warning
     return out
+
+
+def adopt_discovered_tmux(session_id: str, *, bridge: DesktopBridge | None = None,
+                          store=None, rows: int = 24, cols: int = 80) -> dict:
+    """ATTACH web/phone to a discovered LIVE Mac ``claude`` tmux session — ONE
+    process, perfectly in sync (no fork, unlike resume-to-server).
+
+    Tells the desktop to open a PTY that ``tmux new-session -A``-attaches to the
+    user's already-running tmux, then wires a :class:`DesktopTerminalFeed` so the
+    existing ``/api/terminal/*`` SSE/input/resize routes stream it. The attach is
+    a SEPARATE tmux client (not ``-d``), so the Mac's own terminal stays attached
+    too; ``window-size latest`` makes the pane follow the most-recent client so a
+    small phone viewport doesn't shrink the Mac's view.
+
+    Returns ``{"ok": True, "running": bool}`` on success, or
+    ``{"ok": False, "offline": True}`` when no desktop client is connected (the
+    caller should offer resume-to-server instead). Never raises.
+    """
+    bridge = bridge or get_desktop_bridge()
+    store = store or _resolve_store()
+    if store is None:
+        return {"ok": False, "error": "store unavailable"}
+    row = store.get_session(session_id)
+    if row is None:
+        raise KeyError(session_id)
+    if not (row.get("source") or "").startswith("discovered"):
+        raise ValueError("only discovered sessions can be adopted")
+    tmux_name = (row.get("tmux_name") or "").strip()
+    if not tmux_name:
+        raise ValueError("session has no tmux session to attach to")
+    device_id = (row.get("device_id") or "").strip() \
+        or (resolve_desktop_device_id() or "")
+    if not device_id:
+        return {"ok": False, "offline": True}
+    term_id = tmux_name
+    cwd = row.get("cwd") or ""
+    # `new-session -A` = attach-or-create (resilient if the session momentarily
+    # vanished). NOT `-D`, so the Mac's own terminal stays attached (co-viewing).
+    # KNOWN TRADEOFF: with two clients attached, tmux sizes the pane to the
+    # smallest, so a small phone viewport can shrink the Mac's view. A future
+    # `set-option -g window-size latest` would fix it, but it's left out here to
+    # keep the attach command minimal/reliable (the desktop execs argv directly).
+    argv = ["tmux", "new-session", "-A", "-s", tmux_name]
+    if cwd:
+        argv += ["-c", cwd]
+    ok = bridge.send_term_open(device_id, term_id=term_id, cwd=cwd, argv=argv, env={})
+    if not ok:
+        return {"ok": False, "offline": True}
+    feed = bridge.attach_feed(session_id=session_id, device_id=device_id,
+                              term_id=term_id, rows=rows, cols=cols,
+                              detach_closes_term=True)
+    return {"ok": True, "running": feed.is_alive()}
 
 
 def _session_is_synced(session: dict) -> bool:

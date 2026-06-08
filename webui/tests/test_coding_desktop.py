@@ -1709,3 +1709,67 @@ def test_stop_keeps_shared_sync_until_last_session(tmp_path):
     cd.stop_sync_for_session("cs_b", store=store, bridge=bridge)
     pair = cd.repo_sync_id("dev-X", "/Users/me/proj", "/root/proj")
     assert any(f["sync_id"] == pair for f in t.frames("coding_sync_stop"))
+
+
+# ── adopt a discovered live Mac tmux (single-process attach) ─────────────────
+
+def _discovered_tmux_store(connected_device="dev-mac"):
+    row = {"id": "cs_adopt", "source": "discovered-tmux", "host": "desktop",
+           "status": "running", "tmux_name": "jc-abc123",
+           "cwd": "/Users/me/proj", "device_id": connected_device}
+    return _OneSessionStore(row)
+
+
+def test_adopt_sends_tmux_attach_open_and_feed(tmp_path):
+    bridge, t = make_bridge()
+    res = cd.adopt_discovered_tmux("cs_adopt", bridge=bridge,
+                                   store=_discovered_tmux_store())
+    assert res["ok"] is True
+    opens = t.frames("coding_term_open")
+    assert len(opens) == 1
+    o = opens[0]
+    assert o["term_id"] == "jc-abc123"
+    # attach-or-create to the EXISTING tmux (co-view; no -D, so the Mac stays on)
+    assert o["argv"] == ["tmux", "new-session", "-A", "-s", "jc-abc123",
+                         "-c", "/Users/me/proj"]
+    assert "-D" not in o["argv"]
+
+
+def test_adopt_offline_when_device_disconnected():
+    bridge, t = make_bridge(connected=False)  # send returns False
+    res = cd.adopt_discovered_tmux("cs_adopt", bridge=bridge,
+                                   store=_discovered_tmux_store())
+    assert res == {"ok": False, "offline": True}
+
+
+def test_adopt_rejects_non_discovered():
+    bridge, t = make_bridge()
+    store = _OneSessionStore({"id": "cs_adopt", "source": "chat",
+                              "tmux_name": "x", "cwd": "/c", "device_id": "d"})
+    try:
+        cd.adopt_discovered_tmux("cs_adopt", bridge=bridge, store=store)
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "discovered" in str(e)
+
+
+def test_adopted_feed_closes_attach_pty_on_detach():
+    # An adopted feed is a throwaway tmux client: detaching sends coding_term_close
+    # (kills only the attach PTY; the user's tmux+claude survive).
+    bridge, t = make_bridge()
+    cd.adopt_discovered_tmux("cs_adopt", bridge=bridge,
+                             store=_discovered_tmux_store())
+    feed = bridge.feed_for("jc-abc123")
+    assert feed is not None and feed.detach_closes_term is True
+    feed.feed_close()
+    assert any(f["type"] == "coding_term_close" and f["term_id"] == "jc-abc123"
+               for (_d, f) in t.sent)
+
+
+def test_launched_desktop_feed_does_not_close_on_detach():
+    # A LAUNCHED desktop feed must NOT close on detach (a tab-close can't kill claude).
+    bridge, t = make_bridge()
+    feed = bridge.attach_feed(session_id="cs_l", device_id="d", term_id="jc-l",
+                              rows=24, cols=80)  # detach_closes_term defaults False
+    feed.feed_close()
+    assert not any(f["type"] == "coding_term_close" for (_d, f) in t.sent)

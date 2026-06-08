@@ -500,12 +500,26 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 rows = int(body.get("rows") or 24)
                 cols = int(body.get("cols") or 80)
                 if host == "desktop":
-                    # The desktop client already runs tmux+claude and streams
-                    # coding_term_output; attach a feed so the existing
-                    # /api/terminal/{output,input,resize,close} routes drive it.
                     from api.coding_desktop import (
-                        get_desktop_bridge, resolve_desktop_device_id)
+                        adopt_discovered_tmux, get_desktop_bridge,
+                        resolve_desktop_device_id)
 
+                    # A DISCOVERED live Mac tmux session: ADOPT it — tell the
+                    # desktop to open a PTY attached to the user's existing tmux,
+                    # so web/phone drive the SAME live claude (one process, no
+                    # fork). If the Mac is offline, signal the front-end to offer
+                    # resume-to-server instead.
+                    if (session.get("source") or "").startswith("discovered"):
+                        res = adopt_discovered_tmux(sid, rows=rows, cols=cols)
+                        if not res.get("ok"):
+                            # 409 + can_resume so the front-end offers
+                            # resume-to-server when the Mac is offline.
+                            return 409, {"error": "desktop is offline",
+                                         "can_resume": True}
+                        return _ok({"ok": True, "session_id": sid,
+                                    "running": res.get("running", True)})
+                    # A Jarvis-LAUNCHED desktop session already runs tmux+claude
+                    # and streams coding_term_output; just attach a feed.
                     device_id = resolve_desktop_device_id()
                     if not device_id:
                         return _err(409, "desktop client is not connected")
