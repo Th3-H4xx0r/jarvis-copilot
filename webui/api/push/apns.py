@@ -55,8 +55,13 @@ def _load_config() -> Optional[dict]:
 
 
 def _have_httpx() -> bool:
+    """True only if httpx AND HTTP/2 support are available. APNs is HTTP/2-only,
+    so httpx installed without the ``[http2]`` extra (the ``h2`` package) can't
+    reach Apple — checking ``import httpx`` alone gives a false positive that
+    silently breaks every push at send time."""
     try:
         import httpx  # noqa: F401
+        import h2  # noqa: F401  # httpx needs this for http2=True
         return True
     except ImportError:
         return False

@@ -34,7 +34,10 @@ dependencies = [
   "openai==2.24.0",
   "python-dotenv==1.2.2",
   "fire==0.7.1",
-  "httpx[socks]==0.28.1",
+  # [http2] pulls in `h2` — REQUIRED for APNs (HTTP/2-only). Without it,
+  # every APNs push (Live Activity + device notifications) fails at send time
+  # with "Using http2=True, but the 'h2' package is not installed".
+  "httpx[socks,http2]==0.28.1",
   "rich==14.3.3",
   "tenacity==9.1.4",
   "pyyaml==6.0.3",
