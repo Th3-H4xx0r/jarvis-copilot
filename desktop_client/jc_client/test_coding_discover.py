@@ -1019,3 +1019,82 @@ def test_transcript_get_send_failure_does_not_raise(tmp_path):
                                 clock=FakeClock(), home_dir=home)
     agent.handle_frame({"type": "coding_transcript_get", "req_id": "rsf",
                         "claude_session_id": "sess-sf", "cwd": cwd})
+
+
+# ── transcript RECEIVE (coding_transcript_put) ───────────────────────────────
+
+def _put_frames(req_id, csid, cwd, raw, *, chunk_b64=None):
+    from jc_client.coding_discover import _TRANSCRIPT_CHUNK_B64
+    chunk = chunk_b64 or _TRANSCRIPT_CHUNK_B64
+    payload = base64.b64encode(gzip.compress(raw)).decode("ascii")
+    frames, seq, pos = [], 0, 0
+    while True:
+        piece = payload[pos:pos + chunk]
+        pos += chunk
+        eof = pos >= len(payload)
+        frames.append({"type": "coding_transcript_put", "req_id": req_id,
+                       "claude_session_id": csid, "cwd": cwd, "seq": seq,
+                       "eof": eof, "content_b64": piece})
+        seq += 1
+        if eof:
+            break
+    return frames
+
+
+def _read_put(home, cwd, csid):
+    from jc_client.coding_discover import (_claude_projects_dir,
+                                           _encode_project_dir)
+    path = os.path.join(_claude_projects_dir(home),
+                        _encode_project_dir(cwd), csid + ".jsonl")
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+def test_transcript_put_writes_file(tmp_path):
+    home = str(tmp_path)
+    cwd = _real("putproj")
+    body = (b'{"type":"user"}\n{"type":"assistant"}\n') * 30
+    agent = _transcript_agent([], home)
+    for fr in _put_frames("p1", "sess-put-1", cwd, body):
+        agent.handle_frame(fr)
+    assert _read_put(home, cwd, "sess-put-1") == body
+
+
+def test_transcript_put_multichunk_reassembles(tmp_path):
+    home = str(tmp_path)
+    cwd = _real("putbig")
+    body = (b'{"k":"v","pad":"' + b'x' * 500 + b'"}\n') * 400
+    agent = _transcript_agent([], home)
+    frames = _put_frames("pb", "sess-big", cwd, body, chunk_b64=64)
+    assert len(frames) > 1
+    for fr in frames:
+        agent.handle_frame(fr)
+    assert _read_put(home, cwd, "sess-big") == body
+
+
+def test_transcript_put_rejects_bad_session_id(tmp_path):
+    home = str(tmp_path)
+    cwd = _real("putbad")
+    agent = _transcript_agent([], home)
+    for fr in _put_frames("pbad", "../evil", cwd, b"x\n"):
+        agent.handle_frame(fr)
+    hits = []
+    for root, _dirs, files in os.walk(home):
+        hits += [f for f in files if f.endswith(".jsonl")]
+    assert hits == []
+
+
+def test_transcript_put_rejects_decompression_bomb(tmp_path, monkeypatch):
+    import jc_client.coding_discover as cd
+    monkeypatch.setattr(cd, "_TRANSCRIPT_PUT_MAX_RAW_BYTES", 1024)
+    home = str(tmp_path)
+    cwd = _real("putbomb")
+    bomb = b"A" * (50 * 1024)
+    agent = _transcript_agent([], home)
+    for fr in _put_frames("pbomb", "sess-bomb", cwd, bomb):
+        agent.handle_frame(fr)
+    from jc_client.coding_discover import (_claude_projects_dir,
+                                           _encode_project_dir)
+    path = os.path.join(_claude_projects_dir(home),
+                        _encode_project_dir(cwd), "sess-bomb.jsonl")
+    assert not os.path.exists(path)

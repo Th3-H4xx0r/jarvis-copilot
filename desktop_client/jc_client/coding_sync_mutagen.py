@@ -133,25 +133,7 @@ class CodingMutagenAgent:
         local = str(frame.get("local_path") or "")
         remote = str(frame.get("remote_path") or "")
         ignore = frame.get("ignore") if isinstance(frame.get("ignore"), list) else None
-        transcript = frame.get("transcript") if isinstance(frame.get("transcript"), dict) else None
-        if transcript and transcript.get("csid") and transcript.get("device_cwd"):
-            # A scoped transcript sync: resolve the Mac's OWN transcript dir here
-            # (its realpath / CLAUDE_CONFIG_DIR can't be known server-side) and
-            # scope the sync to just <csid>.jsonl. Overrides the frame's local
-            # path/ignore (which were best-effort).
-            try:
-                from jc_client.coding_discover import (_claude_projects_dir,
-                                                       _encode_project_dir)
-                local = os.path.join(
-                    _claude_projects_dir(os.path.expanduser("~")),
-                    _encode_project_dir(str(transcript["device_cwd"])))
-                os.makedirs(local, exist_ok=True)  # Mutagen needs a dir to watch
-                ignore = ["*", "!" + str(transcript["csid"]) + ".jsonl"]
-            except Exception as exc:  # noqa: BLE001
-                self._emit_error(sync_id, f"transcript path resolve failed: {exc}")
-                return
-        else:
-            local = os.path.expanduser(local)
+        local = os.path.expanduser(local)
         if not sync_id or not local or not remote:
             return
         # Make sure the Mutagen engine is installed (self-heal if a `jc-client

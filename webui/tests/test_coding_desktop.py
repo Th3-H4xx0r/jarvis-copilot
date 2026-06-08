@@ -1549,96 +1549,93 @@ def _drain_events(feed):
     return items
 
 
-# ── scoped transcript sync (second Mutagen sync, two-way) ────────────────────
+# ── open/close-only transcript reconcile (newest-wins) ───────────────────────
 
-def _starts(t):
-    return t.frames("coding_sync_start")
-
-
-def test_start_sync_for_launch_opens_scoped_transcript_sync(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
-    from agent.coding_session_capture import encode_project_dir
-    server_cwd = str(tmp_path / "srvproj")
-    os.makedirs(server_cwd, exist_ok=True)
-    bridge, t = make_bridge()
-    s = cd.start_sync_for_launch(
-        "dev-R", session_id="cs_R", cwd=server_cwd,
-        sync={"enabled": True, "remote_path": "/Users/me/proj",
-              "transcript": {"csid": "csid-9", "device_cwd": "/Users/me/proj"}},
-        bridge=bridge)
-    assert s is not None and s.transcript_sync is not None
-    # both syncs registered
-    assert bridge.sync_for("sync-cs_R") is s
-    assert bridge.sync_for("sync-tx-cs_R") is s.transcript_sync
-    starts = _starts(t)
-    # the repo sync (no transcript field) + the scoped transcript sync (carries it)
-    repo = [f for f in starts if f["sync_id"] == "sync-cs_R"][0]
-    tx = [f for f in starts if f["sync_id"] == "sync-tx-cs_R"][0]
-    assert "transcript" not in repo
-    assert tx["transcript"] == {"csid": "csid-9", "device_cwd": "/Users/me/proj"}
-    # the server (beta) side points at the server's encoded transcript dir
-    server_dir = str(tmp_path / "projects" / encode_project_dir(server_cwd))
-    assert tx["remote_path"] == server_dir
+import base64 as _b64
+import gzip as _gz
 
 
-def test_start_sync_for_launch_no_transcript_sync_without_block(tmp_path):
-    bridge, t = make_bridge()
-    s = cd.start_sync_for_launch(
-        "dev-NP", session_id="cs_NP", cwd=str(tmp_path),
-        sync={"enabled": True, "remote_path": "/Users/me/proj"}, bridge=bridge)
-    assert s is not None and s.transcript_sync is None
-    assert bridge.sync_for("sync-tx-cs_NP") is None
+class _OneSessionStore:
+    def __init__(self, row):
+        self._row = row
+
+    def get_session(self, sid):
+        return dict(self._row) if self._row and self._row.get("id") == sid else None
 
 
-def test_close_cascades_to_transcript_sync(tmp_path, monkeypatch):
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
-    server_cwd = str(tmp_path / "p")
-    os.makedirs(server_cwd, exist_ok=True)
-    bridge, t = make_bridge()
-    s = cd.start_sync_for_launch(
-        "dev-C", session_id="cs_C", cwd=server_cwd,
-        sync={"enabled": True, "remote_path": "/Users/me/p",
-              "transcript": {"csid": "cc", "device_cwd": "/Users/me/p"}},
-        bridge=bridge)
-    s.close()
-    # a sync_stop went out for BOTH the repo sync and the transcript sync
-    stopped = {f["sync_id"] for f in t.frames("coding_sync_stop")}
-    assert "sync-cs_C" in stopped and "sync-tx-cs_C" in stopped
-    assert s.transcript_sync is None
+def _server_tx(tmp_path, server_cwd, csid, body):
+    from agent.coding_session_capture import claude_projects_dir, encode_project_dir
+    d = claude_projects_dir() / encode_project_dir(server_cwd)
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / (csid + ".jsonl")
+    p.write_bytes(body)
+    return p
 
 
-def test_stop_sync_for_session_fallback_stops_both(monkeypatch):
-    # No live session object -> still tells the device to stop repo AND tx syncs.
-    bridge, t = make_bridge()
-    monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda *a, **k: "dev-Z")
-    cd.stop_sync_for_session("cs_F", bridge=bridge)
-    stopped = {f["sync_id"] for f in t.frames("coding_sync_stop")}
-    assert stopped == {"sync-cs_F", "sync-tx-cs_F"}
-
-
-def test_transcript_sync_id_named_for_orphan_reaper():
-    # Must start with "sync-" so its Mutagen name (jc-sync-tx-...) is still caught
-    # by the client's jc-sync-* orphan scan.
-    assert cd.transcript_sync_id("abc") == "sync-tx-abc"
-
-
-def test_resync_device_includes_transcript_sync_in_active_set(tmp_path, monkeypatch):
-    # A resumed session (sync_config carries a transcript block) must have BOTH
-    # its repo sync and its scoped transcript sync in the reconcile active set,
-    # so the device doesn't reap the transcript sync as an orphan.
+def _row(server_cwd, csid="cc", device="dev"):
     import json
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
-    server_cwd = str(tmp_path / "rp")
-    os.makedirs(server_cwd, exist_ok=True)
+    return {"id": "s1", "cwd": server_cwd, "device_id": device,
+            "sync_config": json.dumps({"enabled": True, "device": device,
+                                       "transcript": {"csid": csid,
+                                                      "device_cwd": "/Users/me/p"}})}
+
+
+def test_push_transcript_roundtrip():
     bridge, t = make_bridge()
-    store = FakeStore([
-        {"id": "cs_res", "status": "running", "host": "server", "cwd": server_cwd,
-         "sync_config": json.dumps({"enabled": True, "remote_path": "/Users/me/rp",
-                                    "transcript": {"csid": "rr",
-                                                   "device_cwd": "/Users/me/rp"}})},
-    ])
-    cd.resync_device("dev-RT", store=store, bridge=bridge)
-    recon = t.frames("coding_sync_reconcile")
-    assert recon, "no reconcile frame sent"
-    active = set(recon[-1]["active"])
-    assert "sync-cs_res" in active and "sync-tx-cs_res" in active
+    body = (b'{"x":1}\n') * 100
+    ok = bridge.push_transcript("dev", claude_session_id="cc", cwd="/Users/me/p",
+                                raw=body)
+    assert ok is True
+    puts = t.frames("coding_transcript_put")
+    assert puts and puts[-1]["eof"] is True
+    blob = b"".join(_b64.b64decode(f["content_b64"])
+                    for f in sorted(puts, key=lambda f: f["seq"]))
+    assert _gz.decompress(blob) == body
+
+
+def test_reconcile_pulls_when_device_newer(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    server_cwd = str(tmp_path / "srv"); os.makedirs(server_cwd, exist_ok=True)
+    sp = _server_tx(tmp_path, server_cwd, "cc", b'{"a":1}\n')          # 1 line
+    bridge, t = make_bridge()
+    monkeypatch.setattr(bridge, "request_transcript",
+                        lambda *a, **k: b'{"a":1}\n{"b":2}\n{"c":3}\n')  # 3 lines
+    res = cd.reconcile_session_transcript("s1", store=_OneSessionStore(_row(server_cwd)),
+                                          bridge=bridge)
+    assert "pulled device->server" in res
+    assert sp.read_bytes() == b'{"a":1}\n{"b":2}\n{"c":3}\n'   # server got device's
+    assert not t.frames("coding_transcript_put")              # nothing pushed out
+
+
+def test_reconcile_pushes_when_server_newer(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    server_cwd = str(tmp_path / "srv"); os.makedirs(server_cwd, exist_ok=True)
+    _server_tx(tmp_path, server_cwd, "cc", b'{"a":1}\n{"b":2}\n{"c":3}\n')  # 3 lines
+    bridge, t = make_bridge()
+    monkeypatch.setattr(bridge, "request_transcript", lambda *a, **k: b'{"a":1}\n')  # 1
+    res = cd.reconcile_session_transcript("s1", store=_OneSessionStore(_row(server_cwd)),
+                                          bridge=bridge)
+    assert "pushed server->device" in res
+    puts = t.frames("coding_transcript_put")
+    blob = b"".join(_b64.b64decode(f["content_b64"])
+                    for f in sorted(puts, key=lambda f: f["seq"]))
+    assert _gz.decompress(blob) == b'{"a":1}\n{"b":2}\n{"c":3}\n'  # server's pushed out
+
+
+def test_reconcile_in_sync_does_nothing(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    server_cwd = str(tmp_path / "srv"); os.makedirs(server_cwd, exist_ok=True)
+    _server_tx(tmp_path, server_cwd, "cc", b'{"a":1}\n{"b":2}\n')
+    bridge, t = make_bridge()
+    monkeypatch.setattr(bridge, "request_transcript", lambda *a, **k: b'{"a":1}\n{"b":2}\n')
+    res = cd.reconcile_session_transcript("s1", store=_OneSessionStore(_row(server_cwd)),
+                                          bridge=bridge)
+    assert "in-sync" in res
+    assert not t.frames("coding_transcript_put")
+
+
+def test_reconcile_no_transcript_meta_is_noop(tmp_path):
+    bridge, t = make_bridge()
+    row = {"id": "s1", "cwd": "/x", "sync_config": '{"enabled": true}'}  # no transcript
+    res = cd.reconcile_session_transcript("s1", store=_OneSessionStore(row), bridge=bridge)
+    assert res == "no-transcript"

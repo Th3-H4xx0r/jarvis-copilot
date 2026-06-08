@@ -345,6 +345,14 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 if manager.status(sid) is None:
                     return _err(404, "session not found: " + sid)
                 manager.stop(sid)
+                # Sync the (now-final) transcript OUT to the device so a later
+                # local `claude --resume` on the Mac sees this session's turns.
+                # One-shot, AFTER claude exits — never during live running.
+                try:
+                    from api.coding_desktop import reconcile_session_transcript
+                    reconcile_session_transcript(sid)
+                except Exception:
+                    pass
                 return _ok({"ok": True})
 
             return _run(_stop)
@@ -354,6 +362,14 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             def _restart():
                 if manager.status(sid) is None:
                     return _err(404, "session not found: " + sid)
+                # Pull the device's latest transcript IN first (newest-wins), so
+                # `claude --continue` picks up changes made on the Mac since this
+                # server session last ran. One-shot, BEFORE claude starts.
+                try:
+                    from api.coding_desktop import reconcile_session_transcript
+                    reconcile_session_transcript(sid)
+                except Exception:
+                    pass
                 session = manager.restart(sid)
                 return _ok({"ok": True, "session": session})
 
