@@ -120,6 +120,41 @@ def tmux_list_argv() -> list:
     return ["tmux", "list-sessions", "-F", _TMUX_FORMAT]
 
 
+def tmux_capture_argv(tmux_name: str, lines: int = 80) -> list:
+    """argv to print the last ``lines`` rows of a tmux pane to stdout (for live
+    activity classification). ``-p`` -> stdout; ``-S -N`` includes N scrollback
+    rows so a prompt that scrolled up a line is still seen."""
+    return ["tmux", "capture-pane", "-p", "-t", tmux_name, "-S", f"-{lines}"]
+
+
+# ── live activity_state classifier ─────────────────────────────────────────────
+# Replicated VERBATIM from ``agent/coding_activity_state.classify_pane`` — the
+# desktop client can't import ``agent/``. KEEP THE TWO IN SYNC. working = Claude
+# is processing ("esc to interrupt"); waiting = blocked on the user (a permission
+# / choice prompt); idle = at rest. Precedence: waiting > working > idle.
+_WAITING_MARKERS = (
+    "do you want to proceed", "do you want to run",
+    "do you want to make this edit", "do you want to create",
+    "do you want to delete", "❯ 1.", "1. yes", "would you like to",
+    "(y/n)", "press enter to continue",
+)
+_WORKING_MARKERS = (
+    "esc to interrupt", "esc to stop", "ctrl+b to run in background",
+)
+
+
+def classify_pane(text: str) -> str:
+    """Return ``"working" | "waiting" | "idle"`` for a captured tmux pane."""
+    if not text:
+        return "idle"
+    low = text.lower()
+    if any(m in low for m in _WAITING_MARKERS):
+        return "waiting"
+    if any(m in low for m in _WORKING_MARKERS):
+        return "working"
+    return "idle"
+
+
 def parse_tmux_list(stdout: str) -> list:
     """Parse ``tmux list-sessions -F '...'`` output (see ``_TMUX_FORMAT``).
 
@@ -956,6 +991,18 @@ class CodingDiscoverAgent:
         _enrich_tmux_with_csids(tmux_sessions, transcripts)
         return tmux_sessions + transcripts
 
+    def _classify_tmux(self, tmux_name: str) -> Optional[str]:
+        """Capture the session's pane and classify it (working/waiting/idle), or
+        ``None`` on any failure (the server treats None as "unknown", never a
+        spurious state). Never raises — discovery must degrade gracefully."""
+        try:
+            rc, out, _err = self._run(tmux_capture_argv(tmux_name))
+        except Exception:  # noqa: BLE001 — discovery must never raise
+            return None
+        if rc not in (0, None):
+            return None
+        return classify_pane(out)
+
     def _scan_tmux(self) -> list:
         """Live tmux ``claude`` / ``jc-*`` sessions in the wire shape; ``[]`` on
         any error (no tmux, non-zero rc, parse failure)."""
@@ -984,7 +1031,9 @@ class CodingDiscoverAgent:
             if not _cwd_is_visible_dir(str(s.get("cwd") or "")):
                 filtered += 1
                 continue
-            kept.append(_to_wire(s))
+            wire = _to_wire(s)
+            wire["activity_state"] = self._classify_tmux(wire["tmux_name"])
+            kept.append(wire)
         if filtered:
             log.debug("coding_discover: filtered %d tmux session(s) with "
                       "hidden/nonexistent cwd", filtered)

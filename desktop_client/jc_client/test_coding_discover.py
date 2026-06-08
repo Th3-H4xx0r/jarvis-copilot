@@ -135,7 +135,8 @@ def test_scan_keeps_only_claude_or_jc():
     # all in the wire shape
     for s in sessions:
         assert s["kind"] == "tmux"
-        assert set(s) == {"kind", "tmux_name", "cwd", "title", "last_activity"}
+        assert set(s) == {"kind", "tmux_name", "cwd", "title",
+                          "last_activity", "activity_state"}
     # title defaults to the cwd basename
     by_name = {s["tmux_name"]: s for s in sessions}
     assert by_name["jc-abc"]["title"] == "proj"
@@ -1124,3 +1125,49 @@ def test_enrich_tmux_does_not_overwrite_existing_csid():
     _enrich_tmux_with_csids(
         tmux, [{"claude_session_id": "other", "cwd": "/p", "last_activity": 9.0}])
     assert tmux[0]["claude_session_id"] == "already"
+
+
+# ── live activity_state classification ────────────────────────────────────────
+
+
+def test_classify_pane_basic():
+    from jc_client.coding_discover import classify_pane
+    assert classify_pane("✻ Running… (esc to interrupt)") == "working"
+    assert classify_pane("Do you want to proceed?\n❯ 1. Yes") == "waiting"
+    assert classify_pane("> ready") == "idle"
+    assert classify_pane("") == "idle"
+
+
+def test_scan_classifies_activity_state():
+    proj = _real("act")
+    listing = f"jc-act\t{proj}\tclaude\t1717800000\n"
+    panes = {"jc-act": "✻ Running… (esc to interrupt)"}
+
+    def runner(argv):
+        if argv[:2] == ["tmux", "list-sessions"]:
+            return 0, listing, ""
+        if argv[:2] == ["tmux", "capture-pane"]:
+            return 0, panes.get(argv[4], ""), ""  # argv[4] = the -t target name
+        return 1, "", ""
+
+    agent = CodingDiscoverAgent(send=lambda f: None, device_id="dev1",
+                                runner=runner, clock=FakeClock(),
+                                home_dir=_EMPTY_HOME)
+    rows = [s for s in agent.scan() if s["kind"] == "tmux"]
+    assert len(rows) == 1
+    assert rows[0]["activity_state"] == "working"
+
+
+def test_scan_activity_state_none_on_capture_failure():
+    proj = _real("act2")
+    listing = f"jc-act2\t{proj}\tclaude\t1717800000\n"
+
+    def runner(argv):
+        if argv[:2] == ["tmux", "list-sessions"]:
+            return 0, listing, ""
+        return 1, "", "no pane"  # capture-pane fails -> None, never raises
+
+    agent = CodingDiscoverAgent(send=lambda f: None, runner=runner,
+                                clock=FakeClock(), home_dir=_EMPTY_HOME)
+    rows = [s for s in agent.scan() if s["kind"] == "tmux"]
+    assert rows and rows[0]["activity_state"] is None

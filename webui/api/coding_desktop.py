@@ -313,6 +313,19 @@ class DesktopBridge:
                 feed.on_exit(None)
             except Exception:  # noqa: BLE001
                 pass
+        # Clear the live activity_state of this device's discovered sessions so
+        # the Web UI / mobile / Live Activity stop showing a ghost working/waiting
+        # while the Mac is gone. The lifecycle `status` is left untouched — the
+        # next discovery push (on reconnect) reconciles it.
+        try:
+            store = _resolve_store()
+            if store is not None:
+                for row in store.list_sessions(device_id=device_id):
+                    if (row.get("source") == "discovered-tmux"
+                            and row.get("activity_state") is not None):
+                        store.update_session(row["id"], activity_state=None)
+        except Exception:  # noqa: BLE001
+            pass
 
     # --- outbound sync frames -----------------------------------------------
 
@@ -1335,6 +1348,9 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             # Mac session can still be resumed on the server). Owning it here also
             # lets the transcript pass dedup the live-transcript copy of it.
             csid = (sess.get("claude_session_id") or "").strip()
+            # Live working/waiting/idle classified Mac-side (None = capture
+            # failed / old client → leave any known state unchanged, don't wipe).
+            act = sess.get("activity_state")
             pid = _project_for_discovered_cwd(cwd)
             row = existing_tmux.get(tmux_name)
             if row is not None:
@@ -1350,6 +1366,8 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                     fields["last_activity_at"] = last_activity
                 if csid:  # never wipe a known csid with an empty re-report
                     fields["claude_session_id"] = csid
+                if act is not None:
+                    fields["activity_state"] = act
                 store.update_session(row["id"], **fields)
             else:
                 sid = store.create_session(
@@ -1360,6 +1378,8 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                 if last_activity is not None:
                     # create_session doesn't accept last_activity_at — set it now.
                     store.update_session(sid, last_activity_at=last_activity)
+                if act is not None:
+                    store.update_session(sid, activity_state=act)
             if csid:
                 tmux_owned_csids.add(csid)  # so the transcript pass dedups it
             upserted += 1

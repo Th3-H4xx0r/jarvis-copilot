@@ -1833,3 +1833,46 @@ def test_ingest_tmux_empty_csid_does_not_wipe_existing(tmp_path, monkeypatch):
     _discovered("dev-w", [
         {"kind": "tmux", "tmux_name": "jc-x", "cwd": "/w/p"}], store, monkeypatch)
     assert store.list_sessions(device_id="dev-w")[0]["claude_session_id"] == "keep"
+
+
+# ── activity_state: live working/waiting/idle from the Mac ───────────────────
+
+
+def test_ingest_discovered_writes_activity_state(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    _discovered("dev-act", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/a", "title": "a",
+         "activity_state": "working"},
+    ], store, monkeypatch)
+    assert store.list_sessions(device_id="dev-act")[0]["activity_state"] == "working"
+    # next push updates it
+    _discovered("dev-act", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/a", "title": "a",
+         "activity_state": "waiting"},
+    ], store, monkeypatch)
+    assert store.list_sessions(device_id="dev-act")[0]["activity_state"] == "waiting"
+    # a push WITHOUT activity_state (capture failed / old client) must NOT wipe it
+    _discovered("dev-act", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/a", "title": "a"},
+    ], store, monkeypatch)
+    assert store.list_sessions(device_id="dev-act")[0]["activity_state"] == "waiting"
+
+
+def test_on_device_disconnect_clears_activity_state(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    _discovered("dev-on", [
+        {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/a", "title": "a",
+         "activity_state": "working"},
+    ], store, monkeypatch)
+    _discovered("dev-other", [
+        {"kind": "tmux", "tmux_name": "claude-b", "cwd": "/w/b", "title": "b",
+         "activity_state": "working"},
+    ], store, monkeypatch)
+    monkeypatch.setattr(cd, "_resolve_store", lambda: store, raising=True)
+    cd.get_desktop_bridge().on_device_disconnect("dev-on")
+    # the disconnected device's row is cleared; lifecycle status is untouched...
+    row = store.list_sessions(device_id="dev-on")[0]
+    assert row["activity_state"] is None
+    assert row["status"] == "running"
+    # ...and a DIFFERENT device's session is left intact.
+    assert store.list_sessions(device_id="dev-other")[0]["activity_state"] == "working"
