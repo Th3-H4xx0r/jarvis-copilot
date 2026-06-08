@@ -27,6 +27,7 @@ class CodingSession {
     this.deviceId,
     this.tmuxName,
     this.lastActivityAt,
+    this.activityState,
   });
 
   final String id;
@@ -60,6 +61,10 @@ class CodingSession {
   /// epoch number or an ISO/string; kept as a string for robust comparison.
   final String? lastActivityAt;
 
+  /// Live activity sub-state of a running session: `working | waiting | idle`
+  /// (server-detected from the tmux pane). `null` = unknown / not running.
+  final String? activityState;
+
   factory CodingSession.fromJson(Map<String, dynamic> j) {
     return CodingSession(
       id: (j['id'] ?? '').toString(),
@@ -79,6 +84,7 @@ class CodingSession {
       deviceId: _str(j['device_id']),
       tmuxName: _str(j['tmux_name']),
       lastActivityAt: _str(j['last_activity_at']),
+      activityState: _str(j['activity_state']),
     );
   }
 
@@ -114,6 +120,24 @@ class CodingSession {
       default:
         return 'idle';
     }
+  }
+
+  /// Display state for the dot/label: a live (running) session refines into
+  /// `working | waiting | idle` via [activityState] (Scheme 4); other lifecycle
+  /// states pass through. Mirrors the WebUI's `_cdgDisplayState`.
+  String get liveState {
+    if (isTranscriptIdle) return 'history';
+    if (statusClass == 'running') {
+      switch ((activityState ?? '').toLowerCase()) {
+        case 'waiting':
+          return 'waiting';
+        case 'idle':
+          return 'idle';
+        default:
+          return 'working';
+      }
+    }
+    return statusClass;
   }
 
   /// A transcript-only (`discovered-transcript`) session that isn't currently

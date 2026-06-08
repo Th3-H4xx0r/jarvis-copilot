@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../api/coding_sessions.dart';
 import '../services/api_client.dart';
+import '../services/app_lifecycle.dart';
 import 'coding_models.dart';
 
 /// Drives the native Coding tab. Owns the sessions list, the selected
@@ -263,6 +264,45 @@ class CodingSessionsController extends ChangeNotifier {
   void _stopPolling() {
     _poll?.cancel();
     _poll = null;
+  }
+
+  // ── Quiet list poll (live status while the tab is open) ───────────────────
+  Timer? _listPoll;
+  static const Duration _listPollInterval = Duration(seconds: 5);
+
+  /// Start/stop a quiet periodic refresh of the whole sessions list so the dots
+  /// stay live (working/waiting/idle) without a pull-to-refresh. Quiet = no
+  /// loading spinner; only ticks while the app is in the foreground.
+  void setListPolling(bool on) {
+    _listPoll?.cancel();
+    _listPoll = null;
+    if (on && !_disposed) {
+      _listPoll = Timer.periodic(_listPollInterval, (_) {
+        if (AppLifecycle.isForeground) _refreshSessionsQuiet();
+      });
+    }
+  }
+
+  Future<void> _refreshSessionsQuiet() async {
+    if (_disposed) return;
+    try {
+      final view = await _api.listProjectsExpanded();
+      if (_disposed) return;
+      final flat = <CodingSession>[
+        for (final p in view.projects) ...p.sessions,
+        ...view.ungrouped,
+      ];
+      if (flat.isEmpty) return; // don't wipe a good list on an empty/old payload
+      projects = view.projects;
+      ungrouped = view.ungrouped;
+      sessions = flat..sort(_bySessionRecency);
+      if (selectedId != null && !sessions.any((s) => s.id == selectedId)) {
+        _clearSelection();
+      }
+      notifyListeners();
+    } catch (_) {
+      // transient — keep current data, retry next tick
+    }
   }
 
   // ── Launch ────────────────────────────────────────────────────
@@ -707,6 +747,7 @@ class CodingSessionsController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _stopPolling();
+    _listPoll?.cancel();
     _teardownTerminal();
     _terminalText.close();
     super.dispose();

@@ -132,6 +132,34 @@ function _cdgStatusClass(status) {
   return 'idle';
 }
 
+// Display state for the dot/label. A live (running) session refines into
+// working / waiting / idle via its server-detected activity_state (Scheme 4:
+// green / purple / grey). Non-running statuses keep their lifecycle class.
+function _cdgDisplayState(s) {
+  if (_codingIsTranscriptIdle(s)) return 'history';
+  const cls = _cdgStatusClass(s.status);
+  if (cls === 'running') {
+    const act = String((s && s.activity_state) || '').toLowerCase();
+    if (act === 'waiting') return 'waiting';
+    if (act === 'idle') return 'idle';
+    return 'working';  // 'working', or running with an unknown sub-state
+  }
+  return cls;
+}
+
+function _cdgStateLabel(state) {
+  switch (state) {
+    case 'working': return 'working';
+    case 'waiting': return 'waiting for you';
+    case 'idle': return 'idle';
+    case 'history': return 'past session (not running)';
+    case 'done': return 'done';
+    case 'error': return 'error';
+    case 'stopped': return 'stopped';
+    default: return state || 'idle';
+  }
+}
+
 /**
  * Entry point — wired into panels.js switchPanel() lazy-load dispatch.
  * Idempotent: renders the static shell once, then (re)loads the list every
@@ -145,6 +173,7 @@ async function loadCoding() {
     _codingLoaded = true;
   }
   await _codingRefreshList();
+  _codingStartStatusPoll();   // keep the sidebar's live status fresh
 }
 window.loadCoding = loadCoding;
 
@@ -234,9 +263,9 @@ function _codingSessionRowHtml(s) {
   const sub = s.cwd || s.repo_path || '';
   const source = String(s.source || '');
   const transcriptIdle = _codingIsTranscriptIdle(s);
-  // Status dot: a transcript-only (idle/past) session gets a muted "history" dot
-  // even if its stored status is "idle"; otherwise use the real status class.
-  const st = transcriptIdle ? 'history' : _cdgStatusClass(s.status);
+  // Status dot: a transcript-only (idle/past) session gets a muted "history" dot;
+  // a live session refines into working/waiting/idle via its activity_state.
+  const st = _cdgDisplayState(s);
   const active = String(_codingSelectedId) === id ? ' active' : '';
   // host/source badge: history (idle transcript) > discovered/live (external) >
   // desktop > server.
@@ -254,11 +283,16 @@ function _codingSessionRowHtml(s) {
   const resumeBtn = transcriptIdle
     ? `<span class="cdg-resume-btn" role="button" tabindex="0" title="Resume this session on the device" onclick="event.stopPropagation();codingResumeSession('${_cdgEsc(id)}')">Resume</span>`
     : '';
-  const dotTitle = transcriptIdle ? 'past session (not running)' : (s.status || 'idle');
+  const dotTitle = _cdgStateLabel(st);
+  // A small coloured word for the two actionable live states (the ones you care
+  // about at a glance); other states stay dot-only to keep the row clean.
+  const stateChip = (st === 'waiting' || st === 'working')
+    ? `<span class="cdg-item-state cdg-state-${st}">${_cdgEsc(_cdgStateLabel(st))}</span>`
+    : '';
   return `<button class="cdg-item cdg-item-nested${active}" data-id="${_cdgEsc(id)}" onclick="codingOpenSession('${_cdgEsc(id)}')">
       <div class="cdg-item-top">
         <span class="cdg-item-name">${_cdgEsc(title)}</span>
-        <span class="cdg-dot cdg-dot-${st}" title="${_cdgEsc(dotTitle)}"></span>
+        ${stateChip}<span class="cdg-dot cdg-dot-${st}" title="${_cdgEsc(dotTitle)}"></span>
       </div>
       <div class="cdg-item-sub">${badge}<span class="cdg-item-path">${_cdgEsc(sub)}</span>${resumeBtn}</div>
     </button>`;
@@ -1055,14 +1089,17 @@ function _codingRenderTranscriptDetail(session, id) {
 }
 
 function _codingUpdateDetailStatus(session) {
-  const st = _cdgStatusClass(session.status);
+  // lifecycle class drives the Stop/Restart affordance; the display state
+  // (working/waiting/idle) drives the dot + text.
+  const lifecycle = _cdgStatusClass(session.status);
+  const st = _cdgDisplayState(session);
   const dot = document.getElementById('codingStatusDot');
   const txt = document.getElementById('codingStatusText');
   const stop = document.getElementById('codingStopBtn');
   const restart = document.getElementById('codingRestartBtn');
   if (dot) dot.className = 'cdg-dot cdg-dot-' + st;
-  if (txt) txt.textContent = session.status || 'idle';
-  const running = (st === 'running' || st === 'idle');
+  if (txt) txt.textContent = _cdgStateLabel(st);
+  const running = (lifecycle === 'running' || lifecycle === 'idle');
   if (stop) stop.style.display = running ? '' : 'none';
   if (restart) restart.style.display = running ? 'none' : '';
 }
@@ -1339,6 +1376,55 @@ function _codingStartPoll() {
 
 function _codingStopPoll() {
   if (_codingPollTimer) { clearInterval(_codingPollTimer); _codingPollTimer = null; }
+}
+
+/* ── Live list-status poll ──────────────────────────────────────────────────
+ * Keeps every visible session's dot + state chip live (working/waiting/idle)
+ * while the Coding panel is shown — independent of which session is selected.
+ * Updates the dots IN PLACE (no innerHTML rebuild) so it never disrupts the
+ * user's clicking/scrolling. New/removed sessions still come in via the full
+ * _codingRefreshList() on panel-open + after mutations.
+ */
+let _codingStatusPollTimer = null;
+const _CODING_STATUS_POLL_MS = 5000;
+
+function _codingApplyLiveStatus(sessions) {
+  for (const s of (sessions || [])) {
+    const id = String(s && s.id != null ? s.id : '');
+    if (!id) continue;
+    const item = document.querySelector(`.cdg-item[data-id="${CSS.escape(id)}"]`);
+    if (!item) continue;
+    const st = _cdgDisplayState(s);
+    const dot = item.querySelector('.cdg-dot');
+    if (dot) { dot.className = 'cdg-dot cdg-dot-' + st; dot.title = _cdgStateLabel(st); }
+    let chip = item.querySelector('.cdg-item-state');
+    if (st === 'waiting' || st === 'working') {
+      if (!chip && dot) { chip = document.createElement('span'); dot.parentNode.insertBefore(chip, dot); }
+      if (chip) { chip.className = 'cdg-item-state cdg-state-' + st; chip.textContent = _cdgStateLabel(st); }
+    } else if (chip) {
+      chip.remove();
+    }
+  }
+}
+
+async function _codingPollStatusOnce() {
+  try {
+    const res = await api('/api/coding/sessions');
+    _codingApplyLiveStatus(res && res.sessions);
+  } catch (_) { /* transient — retry next tick */ }
+}
+
+function _codingStartStatusPoll() {
+  _codingStopStatusPoll();
+  _codingStatusPollTimer = setInterval(() => {
+    if (typeof _currentPanel === 'string' && _currentPanel !== 'coding') { _codingStopStatusPoll(); return; }
+    if (typeof document !== 'undefined' && document.hidden) return;
+    _codingPollStatusOnce();
+  }, _CODING_STATUS_POLL_MS);
+}
+
+function _codingStopStatusPoll() {
+  if (_codingStatusPollTimer) { clearInterval(_codingStatusPollTimer); _codingStatusPollTimer = null; }
 }
 
 // Cleared from panels.js when the panel is switched away (mirrors how other

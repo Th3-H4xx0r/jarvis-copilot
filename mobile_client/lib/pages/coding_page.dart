@@ -44,6 +44,7 @@ class _CodingPageState extends State<CodingPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _c.loadSessions();
       _c.loadDevices();
+      _c.setListPolling(true); // keep session dots live while the tab is open
     });
   }
 
@@ -796,14 +797,21 @@ class _SessionRow extends StatelessWidget {
   final VoidCallback onTap;
   final Future<void> Function() onResume;
 
+  // Live activity states (Scheme 4): working green, waiting purple, idle grey.
   Color _dotColor(String cls) {
     switch (cls) {
+      case 'working':
+        return const Color(0xFF34D399);
+      case 'waiting':
+        return const Color(0xFFC084FC);
       case 'running':
         return JcTheme.success;
       case 'done':
         return JcTheme.primaryBlue;
       case 'error':
         return JcTheme.danger;
+      case 'idle':
+        return const Color(0xFF838B97);
       case 'stopped':
         return JcTheme.muted;
       default:
@@ -814,8 +822,10 @@ class _SessionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final transcriptIdle = session.isTranscriptIdle;
-    final cls = transcriptIdle ? 'history' : session.statusClass;
-    final dot = transcriptIdle ? JcTheme.muted : _dotColor(cls);
+    // liveState refines a running session into working/waiting/idle and returns
+    // 'history' for an idle transcript.
+    final cls = session.liveState;
+    final dot = _dotColor(cls);
     final sub = (session.cwd ?? '').trim();
     final badge = session.badge;
     return Material(
