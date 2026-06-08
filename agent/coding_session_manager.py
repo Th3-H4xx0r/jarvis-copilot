@@ -390,8 +390,26 @@ class CodingSessionManager:
         if sync is not None:
             import json as _json
 
-            fields["sync_config"] = (_json.dumps(sync)
-                                     if sync.get("enabled") else None)
+            if sync.get("enabled"):
+                # Merge the user-editable keys over the EXISTING config so opaque
+                # keys set at launch survive a settings save. In particular the
+                # ``transcript`` block (added when a discovered session is resumed
+                # to the server) drives the server->Mac transcript push-back; the
+                # settings UI never sends it, so a wholesale replace would drop it
+                # and silently stop the Mac copy from staying current.
+                merged = {}
+                prior_raw = (row.get("sync_config") or "").strip()
+                if prior_raw:
+                    try:
+                        parsed = _json.loads(prior_raw)
+                        if isinstance(parsed, dict):
+                            merged.update(parsed)
+                    except Exception:
+                        pass
+                merged.update(sync)
+                fields["sync_config"] = _json.dumps(merged)
+            else:
+                fields["sync_config"] = None
         if fields:
             self.store.update_session(sid, **fields)
         return self.store.get_session(sid)

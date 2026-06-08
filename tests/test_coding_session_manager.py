@@ -157,6 +157,24 @@ def test_update_settings_persists(tmp_path):
     assert r2["sync_config"] is None
 
 
+def test_update_settings_preserves_opaque_sync_keys(tmp_path):
+    # A settings save (which only sends enabled/device/remote_path) must NOT drop
+    # opaque keys like ``transcript`` that drive the server->Mac push-back.
+    import json
+    mgr, _ = _mgr(tmp_path)
+    s = mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None, model=None,
+                   sync={"enabled": True, "device": "mac", "remote_path": "/Users/me/p",
+                         "transcript": {"csid": "abc", "device_cwd": "/Users/me/p"}})
+    # the UI re-saves sync WITHOUT the transcript block
+    r = mgr.update_settings(s["id"],
+                            sync={"enabled": True, "device": "mac2",
+                                  "remote_path": "/Users/me/p"})
+    cfg = json.loads(r["sync_config"])
+    assert cfg["device"] == "mac2"                     # user edit applied
+    assert cfg["transcript"] == {"csid": "abc",        # opaque key preserved
+                                 "device_cwd": "/Users/me/p"}
+
+
 def test_launch_blocked_when_preflight_fails(tmp_path):
     store = CodingSessionStore(db_path=str(tmp_path / "c.db"))
 

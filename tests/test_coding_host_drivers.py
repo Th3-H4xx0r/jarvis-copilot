@@ -8,18 +8,27 @@ def test_claude_argv_adds_mcp_config_when_given():
                          initial_prompt=None, mcp_config="/tmp/cs_1/mcp.json")
     assert "--mcp-config" in argv
     assert argv[argv.index("--mcp-config") + 1] == "/tmp/cs_1/mcp.json"
+    # --strict-mcp-config rides along with a per-session config so the plugin's
+    # own jc-client mcp-serve (absent on the server) is IGNORED, not ENOENT'd.
+    assert "--strict-mcp-config" in argv
     # omitted when not given
     argv2 = d.claude_argv(plugin_dir="/p", context_file="/c.md", model=None,
                           initial_prompt=None)
     assert "--mcp-config" not in argv2
+    # ...and so is strict: a desktop-host session (mcp_config=None) keeps the
+    # plugin's jc-client mcp-serve, which strict would have suppressed.
+    assert "--strict-mcp-config" not in argv2
 
 
 def test_local_driver_mcp_servers_runs_server_side_module():
+    import sys
     d = LocalDriver()
     cfg = d.mcp_servers(cwd="/work", repo_root="/repo")
     srv = cfg["mcpServers"]["jarviscopilot-code-assist"]
-    # server host runs the LOCAL-store MCP, not the desktop's jc-client binary
-    assert srv["command"] == "python3"
+    # server host runs the LOCAL-store MCP, not the desktop's jc-client binary.
+    # The command is THIS interpreter (the venv python that actually has `mcp`),
+    # NOT bare "python3" (the system python lacks mcp.server.fastmcp).
+    assert srv["command"] == (sys.executable or "python3")
     assert srv["args"] == ["-m", "agent.coding_mcp_server"]
     assert srv["env"]["PYTHONPATH"] == "/repo"
 

@@ -70,7 +70,9 @@ class LocalDriver(HostDriver):
         """argv that starts a real agentic claude session.
 
         Deliberately omits the inference-shim's crippling flags (``--tools ""``,
-        ``--no-session-persistence``, ``--strict-mcp-config``). ``--plugin-dir``
+        ``--no-session-persistence``). ``--strict-mcp-config`` is added ONLY
+        alongside a per-session ``--mcp-config`` (see ``mcp_config`` below).
+        ``--plugin-dir``
         makes the jarviscopilot-code-assist plugin available; the Jarvis memory
         seed is fed via ``--append-system-prompt-file`` (an absolute path).
         Returned as argv (no shell), so no value needs shell-quoting.
@@ -105,7 +107,13 @@ class LocalDriver(HostDriver):
             "--append-system-prompt-file", context_file,
         ]
         if mcp_config:
-            argv += ["--mcp-config", mcp_config]
+            # --strict-mcp-config so this session loads ONLY the per-session
+            # config (the host-appropriate python MCP), IGNORING the plugin's own
+            # `.mcp.json` (which runs `jc-client mcp-serve` — present on the
+            # desktop but ABSENT on the server, where without strict it ENOENTs
+            # and shows "MCP failed"). Desktop-host sessions pass mcp_config=None
+            # and so keep the plugin's jc-client server (the one the Mac runs).
+            argv += ["--mcp-config", mcp_config, "--strict-mcp-config"]
         # --continue (latest in cwd) wins over --resume <id> if both are somehow
         # passed; they are otherwise mutually exclusive callers.
         if resume:
