@@ -697,8 +697,16 @@ Runner = Callable[[list], tuple]
 
 def _default_runner(argv: list) -> tuple:
     try:
+        # A launchd-started jc-client inherits a MINIMAL PATH
+        # (/usr/bin:/bin:/usr/sbin:/sbin), which excludes Homebrew — so a tmux at
+        # /opt/homebrew/bin would be unfindable and live discovery would silently
+        # find nothing (the session would only surface via the transcript scan).
+        # Augment PATH with the common install dirs so `tmux` resolves.
+        env = dict(os.environ)
+        extra = "/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin"
+        env["PATH"] = (env.get("PATH", "") + os.pathsep + extra).lstrip(os.pathsep)
         p = subprocess.run(argv, capture_output=True, text=True,
-                           timeout=_TMUX_TIMEOUT)
+                           timeout=_TMUX_TIMEOUT, env=env)
         return p.returncode, p.stdout or "", p.stderr or ""
     except FileNotFoundError:
         # tmux not installed -> behave like "no sessions".

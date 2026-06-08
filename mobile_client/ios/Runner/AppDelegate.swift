@@ -513,6 +513,7 @@ enum LiveActivityManager {
             mode: (args["mode"] as? String) ?? "voice",
             sessions: sessions,
             sessionTotal: (args["sessionTotal"] as? Int) ?? sessions.count,
+            entryTotal: (args["entryTotal"] as? Int) ?? sessions.count,
             waitingCount: (args["waitingCount"] as? Int) ?? 0,
             usage5: (args["usage5"] as? Int) ?? -1,
             usageWeek: (args["usageWeek"] as? Int) ?? -1,

@@ -33,8 +33,12 @@ struct JarvisActivityAttributes: ActivityAttributes {
         /// Up to ~4 spotlight sessions, each encoded "name\u{1f}state" where
         /// state ∈ working|waiting|idle. Decoded by the widget.
         var sessions: [String] = []
-        /// Total live sessions (may exceed sessions.count → drives "+N").
+        /// Total live sessions (drives the header "N sessions").
         var sessionTotal: Int = 0
+        /// Total legend ENTRIES (projects + ungrouped sessions) — drives the
+        /// "+N more" overflow (sessions is capped at 4). Distinct from
+        /// sessionTotal because a project can hold several sessions.
+        var entryTotal: Int = 0
         /// How many sessions are waiting on you (drives the header accent).
         var waitingCount: Int = 0
         /// 5-hour / weekly usage percent, 0–100 (-1 = unknown → render "—").

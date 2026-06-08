@@ -51,7 +51,8 @@ class LiveActivityCoordinator {
 
   // ── last coding snapshot ──
   List<String> _sessions = const []; // "name\u{1f}state", ≤4, spotlight-sorted
-  int _sessionTotal = 0;
+  int _sessionTotal = 0; // total live sessions (header "N sessions")
+  int _entryTotal = 0; // total legend rows = projects + ungrouped ("+N more")
   int _waitingCount = 0;
   int _usage5 = -1;
   int _usageWeek = -1;
@@ -183,6 +184,7 @@ class LiveActivityCoordinator {
       return b.recency.compareTo(a.recency); // newer first within a tier
     });
     _sessionTotal = total;
+    _entryTotal = entries.length;
     _waitingCount = waiting;
     _sessions = entries
         .take(4)
@@ -229,6 +231,7 @@ class LiveActivityCoordinator {
       'mode': mode,
       'sessions': coding ? _sessions : const <String>[],
       'sessionTotal': coding ? _sessionTotal : 0,
+      'entryTotal': coding ? _entryTotal : 0,
       'waitingCount': coding ? _waitingCount : 0,
       'usage5': coding ? _usage5 : -1,
       'usageWeek': coding ? _usageWeek : -1,

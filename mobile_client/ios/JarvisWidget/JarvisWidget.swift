@@ -440,7 +440,7 @@ struct JarvisCodingBody: View {
         VStack(alignment: .leading, spacing: 11) {
             JCHeader(st: st)
             JCSegBar(sessions: sessions)
-            JCLegend(sessions: sessions, total: st.sessionTotal)
+            JCLegend(sessions: sessions, total: st.entryTotal)
         }
     }
 }
@@ -502,7 +502,7 @@ struct JarvisLiveActivity: Widget {
                     if st.mode == "coding" {
                         VStack(alignment: .leading, spacing: 9) {
                             JCSegBar(sessions: jcDecodeSessions(st.sessions))
-                            JCLegend(sessions: jcDecodeSessions(st.sessions), total: st.sessionTotal)
+                            JCLegend(sessions: jcDecodeSessions(st.sessions), total: st.entryTotal)
                         }
                     } else {
                         // Both the expanded island AND the lock-screen banner are
