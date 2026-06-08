@@ -410,8 +410,13 @@ class _CodingPageState extends State<CodingPage> {
             ],
           ),
         ),
+        // The body SCROLLS as a page (so the sync card, buttons, etc. are always
+        // reachable even with the keyboard up / a tall error), while the live
+        // terminal keeps its OWN scrollback inside a generous fixed-height box —
+        // dragging on the terminal scrolls the terminal; dragging elsewhere
+        // scrolls the page.
         Expanded(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -441,7 +446,11 @@ class _CodingPageState extends State<CodingPage> {
                     ),
                   ],
                 ),
-                Expanded(child: _buildTerminal()),
+                SizedBox(
+                  height: (MediaQuery.of(context).size.height * 0.45)
+                      .clamp(240.0, 560.0),
+                  child: _buildTerminal(),
+                ),
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -470,6 +479,7 @@ class _CodingPageState extends State<CodingPage> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
               ],
             ),
           ),

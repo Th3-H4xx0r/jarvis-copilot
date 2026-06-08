@@ -198,13 +198,31 @@ class CodingSessionsController extends ChangeNotifier {
       selected = detail.session;
       error = null;
     } catch (e) {
-      if (selectedId == id) error = 'Could not load session: $e';
+      if (selectedId != id) return;
+      // This runs on EVERY poll tick, so a single transient blip (a 5xx from
+      // the edge when the webui is momentarily busy, or a dropped connection)
+      // must NOT flash a scary banner while we already have the session loaded
+      // — keep showing the cached detail; the next tick recovers. Only surface
+      // an error when there's nothing to show yet, or it's a real failure
+      // (e.g. a 404 for a deleted session).
+      if (selected != null && _isTransient(e)) return;  // silent, keep cached
+      error = 'Could not load session: ${_msg(e)}';
     } finally {
       if (selectedId == id) {
         detailLoading = false;
         if (!_disposed) notifyListeners();
       }
     }
+  }
+
+  /// A transient, self-recovering failure (a 5xx from the edge/upstream while
+  /// the webui is briefly busy, or a connection/timeout) vs. a real error worth
+  /// surfacing (4xx). Used so poll-driven refreshes don't flash error banners.
+  bool _isTransient(Object e) {
+    if (e is! DioException) return false;
+    final code = e.response?.statusCode;
+    if (code != null) return code >= 500;  // 502/503/504 etc.
+    return e.type != DioExceptionType.badResponse;  // no response = conn/timeout
   }
 
   /// Poll the live sync status for the selected session. Best-effort: a missing
