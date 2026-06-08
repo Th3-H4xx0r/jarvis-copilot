@@ -42,6 +42,16 @@ class CodingSessionsApi {
     );
   }
 
+  /// POST /api/coding/la-token — register the iOS Live Activity push token so
+  /// the server can keep the activity live (APNs push-to-update) while the app
+  /// is suspended.
+  Future<void> registerLaToken(String token, {String? deviceId}) async {
+    await api.postJson('/api/coding/la-token', {
+      'token': token,
+      if (deviceId != null && deviceId.isNotEmpty) 'device_id': deviceId,
+    });
+  }
+
   /// GET /api/coding/usage -> `{usage: {five_hour_pct, weekly_pct, ...}|null}`.
   Future<Map<String, dynamic>?> getUsage() async {
     final resp = await api.get('/api/coding/usage');

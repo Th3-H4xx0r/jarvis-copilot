@@ -256,6 +256,12 @@ import AppIntents
                 result(false)  // Live Activities need iOS 16.2+
             }
         }
+        // Capture each activity's APNs push token and forward it to Dart (which
+        // registers it with the server for push-to-update while suspended).
+        if #available(iOS 16.2, *) {
+            LiveActivityManager.channel = liveActivityChannel
+            LiveActivityManager.startPushTokenObservation()
+        }
 
         if let pending = pendingDeepLink {
             pendingDeepLink = nil
@@ -536,8 +542,12 @@ enum LiveActivityManager {
             // coding sessions (the latter is the auto-launch path — the activity
             // appears without the user ever opening the Voice screen).
             do {
-                _ = try Activity.request(
-                    attributes: JarvisActivityAttributes(title: "JARVIS"), content: content)
+                // pushType: .token issues an APNs push token (pushTokenUpdates)
+                // so the server can update the activity while the app is suspended.
+                let activity = try Activity.request(
+                    attributes: JarvisActivityAttributes(title: "JARVIS"),
+                    content: content, pushType: .token)
+                observe(activity)  // capture its APNs push token for push-to-update
             } catch {
                 print("[LiveActivity] start failed: \(error)")
             }
@@ -548,6 +558,37 @@ enum LiveActivityManager {
         Task {
             for activity in Activity<JarvisActivityAttributes>.activities {
                 await activity.end(nil, dismissalPolicy: .immediate)
+            }
+        }
+    }
+
+    // ── APNs push-to-update token capture ────────────────────────────────────
+    static var channel: FlutterMethodChannel?
+    private static var observedIds = Set<String>()
+
+    /// Observe push tokens for every current + future activity and forward each
+    /// to Dart as "laPushToken". The per-activity token is what APNs uses to
+    /// push-to-update the Live Activity while the app is suspended/closed.
+    static func startPushTokenObservation() {
+        Task {
+            for activity in Activity<JarvisActivityAttributes>.activities {
+                observe(activity)
+            }
+            for await activity in Activity<JarvisActivityAttributes>.activityUpdates {
+                observe(activity)
+            }
+        }
+    }
+
+    fileprivate static func observe(_ activity: Activity<JarvisActivityAttributes>) {
+        if observedIds.contains(activity.id) { return }
+        observedIds.insert(activity.id)
+        Task {
+            for await tokenData in activity.pushTokenUpdates {
+                let hex = tokenData.map { String(format: "%02x", $0) }.joined()
+                await MainActor.run {
+                    channel?.invokeMethod("laPushToken", arguments: ["token": hex])
+                }
             }
         }
     }

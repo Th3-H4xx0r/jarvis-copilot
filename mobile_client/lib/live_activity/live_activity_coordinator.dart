@@ -18,6 +18,18 @@ class LiveActivity {
       unawaited(_ch.invokeMethod<void>('update', args).catchError((_) {}));
   static void end() =>
       unawaited(_ch.invokeMethod<void>('end').catchError((_) {}));
+
+  /// Native pushes the per-activity APNs token here (for push-to-update).
+  static void setPushTokenHandler(void Function(String token) cb) {
+    _ch.setMethodCallHandler((call) async {
+      if (call.method == 'laPushToken') {
+        final args = call.arguments;
+        final t = (args is Map ? (args['token'] ?? '') : '').toString();
+        if (t.isNotEmpty) cb(t);
+      }
+      return null;
+    });
+  }
 }
 
 /// The SINGLE owner of the JARVIS Live Activity. Voice and coding both report
@@ -30,6 +42,19 @@ class LiveActivity {
 class LiveActivityCoordinator {
   LiveActivityCoordinator(this._api) {
     instance = this;
+    // Receive the per-activity APNs push token from native and register it so
+    // the server can push-to-update the activity while the app is suspended.
+    LiveActivity.setPushTokenHandler(_onPushToken);
+  }
+
+  String _lastToken = '';
+
+  void _onPushToken(String token) {
+    if (token == _lastToken) return; // tokens rotate; only register changes
+    _lastToken = token;
+    unawaited(_api
+        .registerLaToken(token, deviceId: Credentials.instance.deviceId)
+        .catchError((_) {}));
   }
 
   /// Set in the constructor so VoiceController can reach the coordinator without
