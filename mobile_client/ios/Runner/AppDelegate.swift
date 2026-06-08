@@ -541,15 +541,22 @@ enum LiveActivityManager {
             // Spin one up when something is happening: a live voice turn OR live
             // coding sessions (the latter is the auto-launch path — the activity
             // appears without the user ever opening the Voice screen).
+            // Try to start WITH a push token (enables APNs push-to-update). If
+            // the app isn't entitled for push — e.g. a free Apple account with no
+            // Push Notifications capability — that request FAILS, so fall back to
+            // a normal activity. Otherwise the Live Activity wouldn't appear at
+            // all (foreground-driven updates still work without a token).
+            let attrs = JarvisActivityAttributes(title: "JARVIS")
             do {
-                // pushType: .token issues an APNs push token (pushTokenUpdates)
-                // so the server can update the activity while the app is suspended.
                 let activity = try Activity.request(
-                    attributes: JarvisActivityAttributes(title: "JARVIS"),
-                    content: content, pushType: .token)
+                    attributes: attrs, content: content, pushType: .token)
                 observe(activity)  // capture its APNs push token for push-to-update
             } catch {
-                print("[LiveActivity] start failed: \(error)")
+                do {
+                    _ = try Activity.request(attributes: attrs, content: content)
+                } catch {
+                    print("[LiveActivity] start failed: \(error)")
+                }
             }
         }
     }
