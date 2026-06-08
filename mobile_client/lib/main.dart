@@ -135,7 +135,8 @@ Future<void> main() async {
 
   ws.attachRunner(runner);
   unawaited(ws.start());
-  unawaited(push.start());
+  unawaited(push.start());      // FCM path (Android; iOS when Firebase configured)
+  unawaited(push.startApns());  // direct-APNs path (iOS, no Firebase)
 
   // Notify the user when the bridge drops / restores its server connection.
   connectionMonitor = ConnectionMonitor(ws.connected)..start();

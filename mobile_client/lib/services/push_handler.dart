@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter/widgets.dart' show WidgetsFlutterBinding;
 
 import '../skills/common.dart' as common_skills;
@@ -83,6 +84,31 @@ class PushHandler {
     FirebaseMessaging.onMessageOpenedApp.listen((_) => _drainQueue());
   }
 
+  /// Direct-APNs path (iOS, no Firebase): native captures the device token +
+  /// silent pushes and forwards them over `jarviscopilot/apnspush`. The token is
+  /// registered with `push_kind="apns"` (a REAL APNs token, unlike the old FCM
+  /// path), so the server's direct-APNs sender can reach this device. Taps need
+  /// nothing here — tapping foregrounds the app and the lifecycle observer calls
+  /// [drainNow].
+  Future<void> startApns() async {
+    if (!Platform.isIOS) return;
+    const ch = MethodChannel('jarviscopilot/apnspush');
+    ch.setMethodCallHandler((call) async {
+      final args = call.arguments;
+      switch (call.method) {
+        case 'apnsToken':
+          final t = (args is Map ? (args['token'] ?? '') : '').toString();
+          if (t.isNotEmpty) await _registerToken(t);
+          break;
+        case 'pushReceived':
+          final fg = args is Map && args['foreground'] == true;
+          await _drainQueue(foreground: fg);
+          break;
+      }
+      return null;
+    });
+  }
+
   Future<void> _registerToken(String token) async {
     final platform = Platform.isIOS ? 'ios' : 'android';
     // FCM tokens cover both platforms; the server only uses our hint
@@ -115,15 +141,18 @@ class PushHandler {
   /// Pull queued invokes from the server, execute them, post results. This is
   /// the FOREGROUND drain (app is in front, e.g. resumed or a notification tap),
   /// so it asks for foreground-required invokes too.
-  Future<void> _drainQueue() async {
+  Future<void> _drainQueue({bool foreground = true}) async {
     try {
-      final pollResp =
-          await api.postJson('/api/devices/mobile/poll', pollBody(foreground: true));
+      final pollResp = await api.postJson(
+          '/api/devices/mobile/poll', pollBody(foreground: foreground));
       final body = pollResp.data;
       if (body is! Map) return;
       final invokes = (body['invokes'] as List?) ?? const [];
       for (final raw in invokes) {
         if (raw is! Map) continue;
+        // A background (silent-push) drain must NOT run foreground-required
+        // skills — they wait for a notification tap to bring the app forward.
+        if (!foreground && raw['requires_foreground'] == true) continue;
         final callId = (raw['call_id'] ?? '').toString();
         final skill = (raw['skill'] ?? '').toString();
         final args = (raw['args'] is Map)

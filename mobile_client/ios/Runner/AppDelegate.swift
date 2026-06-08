@@ -263,6 +263,15 @@ import AppIntents
             LiveActivityManager.startPushTokenObservation()
         }
 
+        // Direct-APNs push channel: native forwards the device token + silent
+        // pushes to Dart (jarviscopilot/apnspush).
+        AppDelegate.pushChannel = FlutterMethodChannel(
+            name: "jarviscopilot/apnspush",
+            binaryMessenger: controller.binaryMessenger)
+        if let hex = AppDelegate.pendingApnsTokenHex {
+            AppDelegate.pushChannel?.invokeMethod("apnsToken", arguments: ["token": hex])
+        }
+
         if let pending = pendingDeepLink {
             pendingDeepLink = nil
             DispatchQueue.main.async { [weak self] in
@@ -466,20 +475,45 @@ import AppIntents
         fireStartVoiceIfPending()
     }
 
-    // ── Silent push wakeup ───────────────────────────────────────
-    //
-    // FCM forwards `content-available:1` pushes here. We get ~30s of
-    // background time. firebase_messaging delivers the same payload to
-    // Dart in parallel; calling super completes the OS handler on the
-    // main queue.
+    // ── Direct APNs (no Firebase): token capture + silent-push wake ──────────
+    // FirebaseAppDelegateProxyEnabled=NO (Info.plist) lets these AppDelegate
+    // methods own push. The per-device APNs token + silent pushes go to Dart via
+    // `pushChannel`; notification TAPS need no handler here — tapping foregrounds
+    // the app, and the lifecycle `resumed` observer in main.dart drains the queue.
+    static var pushChannel: FlutterMethodChannel?
+    // The token can arrive before the Flutter channel is wired (registration is
+    // async), so stash it and flush when the channel is set up.
+    static var pendingApnsTokenHex: String?
+
+    override func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        AppDelegate.pendingApnsTokenHex = hex
+        AppDelegate.pushChannel?.invokeMethod("apnsToken", arguments: ["token": hex])
+    }
+
+    override func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        print("[push] APNs registration failed: \(error)")
+    }
+
+    // Silent (content-available) push → wake & drain the server's queued work,
+    // completing when Dart replies (within the ~30s iOS background budget).
     override func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        super.application(application,
-                          didReceiveRemoteNotification: userInfo,
-                          fetchCompletionHandler: completionHandler)
+        guard let ch = AppDelegate.pushChannel else {
+            completionHandler(.noData); return
+        }
+        ch.invokeMethod("pushReceived", arguments: ["foreground": false]) { _ in
+            completionHandler(.newData)
+        }
     }
 }
 
