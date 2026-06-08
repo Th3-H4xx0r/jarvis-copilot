@@ -714,6 +714,38 @@ def cmd_notify(args) -> int:
     return 0
 
 
+def cmd_coding_event(args) -> int:
+    """Report a Claude Code lifecycle event for the live coding session so the
+    iOS Live Activity (force APNs push) and the WebUI (SSE) update INSTANTLY,
+    instead of waiting for the server's 4-5s poll to rediscover it.
+
+    Hook-safe: silent no-op + exit 0 on any problem so it never disrupts Claude.
+    Unlike `notify`, this is NOT gated on a messaging target — it drives the
+    live status regardless of whether Telegram/etc. is configured.
+    """
+    from jc_client import credentials
+    from jc_client.protocol import HttpClient
+    creds = credentials.load()
+    if not creds.paired:
+        return 0
+    body = {"event": args.event}
+    if args.tmux:
+        body["tmux_name"] = args.tmux
+    if args.cwd:
+        body["cwd"] = args.cwd
+    if getattr(args, "session_id", ""):
+        body["claude_session_id"] = args.session_id
+    http = HttpClient(creds.server_url, cookie=creds.cookie,
+                      expected_fingerprint=creds.cert_fingerprint,
+                      cf_client_id=creds.cf_client_id,
+                      cf_client_secret=creds.cf_client_secret)
+    try:
+        http.request_json("POST", "/api/coding/activity-event", body)
+    except Exception:
+        pass  # never let a status ping disrupt a hook
+    return 0
+
+
 def cmd_update(args) -> int:
     """Pull the latest client code and reinstall — same as re-running the installer.
 
@@ -879,6 +911,19 @@ def _build_parser() -> argparse.ArgumentParser:
     nt.add_argument("--target", default="", help="send_message target (default: configured notify_target)")
     nt.add_argument("--list", action="store_true", help="List available messaging targets")
     nt.set_defaults(func=cmd_notify)
+
+    ce = sub.add_parser(
+        "coding-event",
+        help="Report a Claude lifecycle event for the live coding session "
+             "(instant Live Activity + WebUI update)")
+    ce.add_argument("--event", required=True,
+                    choices=["stop", "notification", "user_prompt_submit"])
+    ce.add_argument("--tmux", default="",
+                    help="tmux session name (from `tmux display -p '#S'`)")
+    ce.add_argument("--cwd", default="", help="session working directory")
+    ce.add_argument("--session-id", dest="session_id", default="",
+                    help="claude session id (fallback match when outside tmux)")
+    ce.set_defaults(func=cmd_coding_event)
 
     upd = sub.add_parser("update", help="Pull the latest client code and reinstall")
     upd.add_argument("--branch", default=None,

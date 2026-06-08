@@ -29,6 +29,8 @@ let _codingLoaded = false;          // idempotency guard for the one-time shell 
 let _codingDetailShellId = null;    // session id the detail shell is built for
 let _codingTerm = null;             // xterm instance for the live terminal
 let _codingTermES = null;           // EventSource for terminal output
+let _codingEventsES = null;         // EventSource for instant state-change nudges
+let _codingEventsDebounce = null;   // coalesces nudge bursts into one refresh
 let _codingTermFit = null;          // xterm FitAddon
 let _codingTermResize = null;       // bound window resize handler
 let _codingTermMountedId = null;    // session id the terminal is attached to
@@ -179,7 +181,8 @@ async function loadCoding() {
     _codingLoaded = true;
   }
   await _codingRefreshList();
-  _codingStartStatusPoll();   // keep the sidebar's live status fresh
+  _codingStartStatusPoll();    // sidebar status fallback (if SSE drops)
+  _codingStartEventsStream();  // instant push updates (primary path)
 }
 window.loadCoding = loadCoding;
 
@@ -1448,7 +1451,41 @@ function _codingStopStatusPoll() {
   if (_codingStatusPollTimer) { clearInterval(_codingStatusPollTimer); _codingStatusPollTimer = null; }
 }
 
+/* ── Instant state-change stream (SSE) ───────────────────────────────────────
+ * The primary update path: the server pushes a nudge the moment any session's
+ * activity_state or lifecycle changes (hook-driven), so the panel updates
+ * INSTANTLY instead of on the 4-5s poll. The polls above stay as a fallback if
+ * this stream can't connect (mirrors the kanban events SSE). Nudges are
+ * coalesced so a burst (e.g. several sessions finishing at once) is one refresh.
+ */
+function _codingOnEventNudge() {
+  if (_codingEventsDebounce) return;   // a refresh is already scheduled
+  _codingEventsDebounce = setTimeout(() => {
+    _codingEventsDebounce = null;
+    if (typeof _currentPanel === 'string' && _currentPanel !== 'coding') return;
+    _codingPollStatusOnce();                       // list dots + structure
+    if (_codingSelectedId) _codingRefreshDetail(); // the open session
+  }, 120);
+}
+
+function _codingStartEventsStream() {
+  _codingStopEventsStream();
+  if (typeof EventSource === 'undefined') return;  // poll fallback covers it
+  try {
+    const url = new URL('/api/coding/events/stream', document.baseURI || location.href);
+    const es = new EventSource(url.href, { withCredentials: true });
+    es.addEventListener('coding', _codingOnEventNudge);
+    // On error EventSource auto-reconnects; the polls remain as the backstop.
+    _codingEventsES = es;
+  } catch (_) { /* leave the polls as the sole update path */ }
+}
+
+function _codingStopEventsStream() {
+  if (_codingEventsES) { try { _codingEventsES.close(); } catch (_) {} _codingEventsES = null; }
+  if (_codingEventsDebounce) { clearTimeout(_codingEventsDebounce); _codingEventsDebounce = null; }
+}
+
 // Cleared from panels.js when the panel is switched away (mirrors how other
 // panels stop their timers), but also self-guards inside the interval above.
-function onCodingPanelLeave() { _codingStopPoll(); _codingStopStatusPoll(); _codingTeardownTerminal(); _codingDetailShellId = null; }
+function onCodingPanelLeave() { _codingStopPoll(); _codingStopStatusPoll(); _codingStopEventsStream(); _codingTeardownTerminal(); _codingDetailShellId = null; }
 window.onCodingPanelLeave = onCodingPanelLeave;

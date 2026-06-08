@@ -57,6 +57,16 @@ def run_status_tick(manager, *, classify=classify_pane) -> int:
                 updated += 1
         except Exception:
             continue
+    if updated:
+        # A poll-detected change (a session whose hook didn't fire, or a
+        # correction) should also reach the WebUI instantly, not on its next
+        # 5s browser poll. Lazy + best-effort so the loop never depends on the
+        # webui layer being importable.
+        try:
+            from api import coding_events
+            coding_events.notify()
+        except Exception:
+            pass
     return updated
 
 

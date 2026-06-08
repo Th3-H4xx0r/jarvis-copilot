@@ -165,21 +165,34 @@ def push_coding_update(store, *, usage=None, force=False, sender=None) -> int:
         except Exception:
             return 0
     pushed = 0
+    failures = []
     for t in tokens:
         tok = t.get("token")
         if not tok:
             continue
         try:
             res = sender(tok, cs, event="update")
-        except Exception:
+        except Exception as exc:
+            failures.append(f"raised:{exc}")
+            log.warning("coding LA push raised for token …%s: %s",
+                        str(tok)[-6:], exc)
             continue
         if res.get("ok"):
             pushed += 1
-        elif res.get("status") in (400, 410):
-            # BadDeviceToken / Unregistered → drop the stale token.
-            try:
-                store.delete_la_token(tok)
-            except Exception:
-                pass
+        else:
+            # Surface WHY a push failed — previously swallowed, which hid the
+            # most common cause: a sandbox/production token-vs-host mismatch
+            # (HTTP 400 BadDeviceToken). Without this log there was no signal.
+            failures.append(f"status={res.get('status')}:{res.get('error')}")
+            log.warning("coding LA push failed (token …%s): status=%s error=%s",
+                        str(tok)[-6:], res.get("status"), res.get("error"))
+            if res.get("status") in (400, 410):
+                # BadDeviceToken / Unregistered → drop the stale token.
+                try:
+                    store.delete_la_token(tok)
+                except Exception:
+                    pass
     _last_sig["v"] = sig
+    log.info("coding LA push: %d/%d token(s) ok%s", pushed, len(tokens),
+             ("; failures=" + "; ".join(failures)) if failures else "")
     return pushed

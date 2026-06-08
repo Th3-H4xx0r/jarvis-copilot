@@ -36,6 +36,129 @@ CODING_PATH_PREFIX = "/api/coding"
 
 _MANAGERS: dict = {}
 
+# Lifecycle statuses for which a live activity_state is meaningful (mirrors
+# agent.coding_status_loop / agent.coding_la_push). A stopped/errored row has no
+# live pane, so a stray hook for it must NOT revive it.
+_LIVE_STATUSES = {"running", "starting", "idle"}
+
+# Claude Code hook event → the live activity_state it announces. A finishing
+# Stop means "back at the prompt" (idle); a Notification means "needs you"
+# (waiting); a submitted prompt means Claude is now "working". Both snake_case
+# and camelCase are tolerated so the hook can pass the raw Claude event name.
+_EVENT_STATE = {
+    "stop": "idle",
+    "notification": "waiting",
+    "user_prompt_submit": "working",
+    "userpromptsubmit": "working",
+}
+
+
+def _match_live_session(store, *, tmux_name="", claude_session_id="", cwd=""):
+    """Resolve the live coding-session row a hook fired from, or None.
+
+    Match priority, most-specific first:
+      1. tmux session name — the hook reads it from ``$TMUX`` and it's the
+         session row's join key on BOTH hosts (Jarvis ``jc-xxxx`` or a
+         discovered Mac session name).
+      2. claude_session_id — when the hook ran outside tmux.
+      3. cwd — only when it identifies exactly ONE live row (never guess).
+    Only ever matches a *live* row, so a stale hook can't revive a stopped one.
+    """
+    try:
+        rows = store.list_sessions()
+    except Exception:
+        return None
+    live = [r for r in rows if r.get("status") in _LIVE_STATUSES]
+    if tmux_name:
+        for r in live:
+            if r.get("tmux_name") == tmux_name:
+                return r
+    if claude_session_id:
+        for r in live:
+            if r.get("claude_session_id") == claude_session_id:
+                return r
+    if cwd:
+        hits = [r for r in live if r.get("cwd") == cwd]
+        if len(hits) == 1:
+            return hits[0]
+    return None
+
+
+def _push_coding_now(store) -> None:
+    """Force an immediate APNs Live-Activity push (bypasses the poll tick)."""
+    try:
+        from agent.coding_la_push import push_coding_update
+
+        push_coding_update(store, usage=_coding_usage(), force=True)
+    except Exception:
+        pass
+
+
+def _notify_webui() -> None:
+    """Nudge connected browsers (SSE) to refetch now. Never raises."""
+    try:
+        from api import coding_events
+
+        coding_events.notify()
+    except Exception:
+        pass
+
+
+def _folder_label(cwd) -> str:
+    return str(cwd or "").rstrip("/").split("/")[-1] or "session"
+
+
+def _coding_alert_text(store, row, event) -> tuple[str, str]:
+    """(title, body) for a coding-event phone banner — mirrors the wording of
+    the Telegram notify.sh hook. Labelled by project name, else the cwd folder."""
+    label = ""
+    try:
+        pid = row.get("project_id")
+        if pid and hasattr(store, "get_project"):
+            proj = store.get_project(pid) or {}
+            label = (proj.get("name") or "").strip()
+    except Exception:
+        label = ""
+    if not label:
+        label = _folder_label(row.get("cwd"))
+    if event == "stop":
+        return ("✅ Claude finished", label)
+    return ("🔔 Claude needs you", label)
+
+
+def _push_device_alert(title: str, body: str) -> int:
+    """Send a VISIBLE banner to every registered mobile device, so a coding
+    event reaches the phone even when the app is force-quit (unlike the silent
+    wake / WS bridge, which iOS won't deliver to a terminated app). Tapping the
+    banner relaunches the app — which reconnects the bridge. Best-effort; never
+    raises. Returns the number of devices the push reached.
+    """
+    sent = 0
+    try:
+        from api.pairing import list_devices
+        from api import push as push_mod
+    except Exception:
+        return 0
+    try:
+        devices = list_devices()
+    except Exception:
+        return 0
+    for d in devices:
+        try:
+            token = (d.get("push_token") or "").strip()
+            kind = (d.get("push_kind") or "").strip().lower()
+            if not token or kind not in ("fcm", "apns"):
+                continue
+            if not (d.get("kind") or "").strip().lower().startswith("mobile"):
+                continue
+            res = push_mod.send(kind, token, {"type": "coding"},
+                                alert={"title": title, "body": body})
+            if res.get("ok"):
+                sent += 1
+        except Exception:
+            continue
+    return sent
+
 
 def _coding_usage():
     """Best-effort {five_hour_pct, weekly_pct, ...} for the usage rings, or None.
@@ -289,6 +412,65 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             return _run(_store)
         return _err(404, "not found")
 
+    # ── /la-debug ── diagnose why the Live Activity isn't push-updating.
+    # GET  → {apns_configured, use_sandbox, topic, la_token_count, has_content}.
+    # POST → send a RAW test push to each registered token and return the exact
+    #        APNs result per token (status/error) WITHOUT deleting any token, so
+    #        a sandbox/prod mismatch (HTTP 400 BadDeviceToken) is plainly visible.
+    if p == "/la-debug":
+        if method == "GET":
+            def _la_debug():
+                from agent.coding_la_push import build_coding_content_state
+                cfg, apns_ok = {}, False
+                try:
+                    from api.push.apns import _load_config, apns_configured
+                    cfg = _load_config() or {}
+                    apns_ok = apns_configured()
+                except Exception:
+                    pass
+                try:
+                    tokens = manager.store.list_la_tokens()
+                except Exception:
+                    tokens = []
+                cs = build_coding_content_state(manager.store, _coding_usage())
+                return _ok({
+                    "apns_configured": apns_ok,
+                    "use_sandbox": bool(cfg.get("use_sandbox")),
+                    "apns_topic": cfg.get("topic"),
+                    "la_token_count": len(tokens),
+                    "la_token_tails": [str(t.get("token"))[-6:] for t in tokens],
+                    "has_content_state": cs is not None,
+                    "content_state": cs,
+                })
+            return _run(_la_debug)
+        if method == "POST":
+            def _la_debug_push():
+                from agent.coding_la_push import build_coding_content_state
+                from api.push.apns import send_live_activity
+                try:
+                    tokens = manager.store.list_la_tokens()
+                except Exception:
+                    tokens = []
+                cs = build_coding_content_state(manager.store, _coding_usage()) or {
+                    "state": "idle", "transcript": "", "activity": "",
+                    "connected": True, "devices": [], "mode": "coding",
+                    "sessions": [], "sessionTotal": 0, "entryTotal": 0,
+                    "waitingCount": 0, "usage5": -1, "usageWeek": -1,
+                    "usage5Resets": "", "usageWeekResets": "",
+                }
+                results = []
+                for t in tokens:
+                    tok = t.get("token")
+                    if not tok:
+                        continue
+                    res = send_live_activity(tok, cs, event="update")
+                    results.append({"token_tail": str(tok)[-6:], **res})
+                return _ok({"token_count": len(tokens),
+                            "pushed": sum(1 for r in results if r.get("ok")),
+                            "results": results})
+            return _run(_la_debug_push)
+        return _err(404, "not found")
+
     # ── /launch ──
     if p == "/launch":
         if method == "POST":
@@ -335,6 +517,49 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
 
             return _run(_discover_refresh)
         return _err(404, "not found")
+
+    # ── /activity-event ── INSTANT, hook-driven activity_state update.
+    # A Claude Code Stop/Notification/UserPromptSubmit hook (via `jc-client
+    # coding-event`) reports the live transition the moment it happens, so the
+    # iOS Live Activity (force APNs push) and the WebUI (SSE) update INSTANTLY
+    # instead of waiting for the 4-5s poll loops to rediscover it. The poll
+    # loops stay as the reconciling backstop (and cover any session whose hooks
+    # don't fire). Reaches this same endpoint from BOTH hosts: a server-host
+    # hook POSTs to localhost; a Mac-host hook POSTs over the jc-client tunnel.
+    if p == "/activity-event":
+        if method != "POST":
+            return _err(404, "not found")
+        event = (body.get("event") or "").strip().lower()
+        state = _EVENT_STATE.get(event)
+        if state is None:
+            return _err(400, "unknown event: " + (event or "(empty)"))
+        tmux_name = (body.get("tmux_name") or "").strip()
+        csid = (body.get("claude_session_id") or "").strip()
+        cwd = (body.get("cwd") or "").strip()
+
+        def _activity_event():
+            row = _match_live_session(
+                manager.store, tmux_name=tmux_name,
+                claude_session_id=csid, cwd=cwd)
+            if row is None:
+                return _ok({"ok": True, "matched": False})
+            changed = row.get("activity_state") != state
+            if changed:
+                manager.store.update_session(row["id"], activity_state=state)
+                # Fan the new state out instantly. Only on a real transition,
+                # so a repeated hook (same state) costs nothing.
+                _push_coding_now(manager.store)
+                _notify_webui()
+            # A VISIBLE phone banner for the edges the user must see (finished /
+            # needs-input) — these land even when the app is force-quit, unlike
+            # the silent wake / WS bridge. Mirrors the Telegram notify.sh hook.
+            if event in ("stop", "notification"):
+                title, body = _coding_alert_text(manager.store, row, event)
+                _push_device_alert(title, body)
+            return _ok({"ok": True, "matched": True, "session_id": row["id"],
+                        "state": state, "changed": changed})
+
+        return _run(_activity_event)
 
     # ── /session/<id>[/message|/stop] ──
     if p.startswith("/session/"):

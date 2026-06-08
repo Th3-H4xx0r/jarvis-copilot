@@ -3451,6 +3451,11 @@ def handle_get(handler, parsed) -> bool:
         if handle_edge_get(handler, parsed):
             return True
 
+    # Instant coding-session updates over SSE — MUST be matched before the
+    # generic /api/coding GET below (which returns a JSON tuple, not a stream).
+    if parsed.path == "/api/coding/events/stream":
+        return _handle_coding_events_sse_stream(handler, parsed)
+
     if parsed.path.startswith("/api/coding"):
         from api.coding_routes import (
             CODING_PATH_PREFIX, default_manager, handle_coding_request)
@@ -4667,6 +4672,16 @@ def handle_post(handler, parsed) -> bool:
         status, payload = handle_coding_request(
             "POST", sub, body, manager=default_manager(),
             manager_for_host=default_manager)
+        # Nudge connected browsers to refetch immediately after any successful
+        # mutation (launch/message/stop/restart/delete/…) so the list + detail
+        # go live without waiting for the poll. activity-event already nudged
+        # internally (on a real change); a second nudge here is harmless.
+        if status == 200:
+            try:
+                from api import coding_events
+                coding_events.notify()
+            except Exception:
+                pass
         return j(handler, payload, status=status)
 
     if parsed.path == "/api/session/recovery/repair-safe":
@@ -6431,6 +6446,12 @@ def handle_delete(handler, parsed) -> bool:
         status, payload = handle_coding_request(
             "DELETE", sub, body, manager=default_manager(),
             manager_for_host=default_manager)
+        if status == 200:
+            try:
+                from api import coding_events
+                coding_events.notify()
+            except Exception:
+                pass
         return j(handler, payload, status=status)
 
     if parsed.path.startswith("/api/kanban/"):
@@ -7402,6 +7423,50 @@ def _handle_clarify_sse_stream(handler, parsed):
         pass
     finally:
         clarify_sse_unsubscribe(sid, q)
+
+
+def _handle_coding_events_sse_stream(handler, parsed):
+    """SSE feed of coding-session change nudges (instant WebUI updates).
+
+    Long-lived connection that pushes a ``coding`` event the moment any
+    session's activity_state or lifecycle changes (hook-driven via
+    ``/api/coding/activity-event``, the server poll backstop, or a lifecycle
+    mutation), replacing the browser's 4-5s poll as the primary update path.
+    The payload is just a nudge; the front-end refetches ``/sessions`` and the
+    selected ``/session/<id>``. The front-end keeps its poll as a fallback if
+    this stream fails (same pattern as the kanban events SSE).
+    """
+    from api import coding_events
+
+    q = coding_events.subscribe()
+    handler.send_response(200)
+    handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+    handler.send_header('Cache-Control', 'no-cache')
+    handler.send_header('X-Accel-Buffering', 'no')
+    handler.send_header('Connection', 'keep-alive')
+    handler.end_headers()
+
+    from api.streaming import _sse
+
+    # Greet immediately so the client knows the stream is live (and so any
+    # buffering proxy flushes headers right away).
+    _sse(handler, 'ready', {"ok": True})
+
+    try:
+        while True:
+            try:
+                payload = q.get(timeout=_SSE_HEARTBEAT_INTERVAL_SECONDS)
+            except queue.Empty:
+                handler.wfile.write(b': keepalive\n\n')
+                handler.wfile.flush()
+                continue
+            if payload is None:
+                break
+            _sse(handler, 'coding', payload)
+    except _CLIENT_DISCONNECT_ERRORS:
+        pass
+    finally:
+        coding_events.unsubscribe(q)
 
 
 def _handle_clarify_inject(handler, parsed):

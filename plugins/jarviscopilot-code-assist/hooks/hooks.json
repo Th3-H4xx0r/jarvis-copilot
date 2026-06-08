@@ -3,10 +3,15 @@
     "SessionStart": [
       {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session_start.sh"}]}
     ],
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/coding_event.sh user_prompt_submit"}]}
+    ],
     "Notification": [
+      {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/coding_event.sh notification"}]},
       {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh notification"}]}
     ],
     "Stop": [
+      {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/coding_event.sh stop"}]},
       {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop_nudge.sh"}]},
       {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/notify.sh stop"}]}
     ]
