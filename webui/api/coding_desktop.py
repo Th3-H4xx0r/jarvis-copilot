@@ -893,8 +893,22 @@ def _transcript_meta(row) -> dict | None:
             "device": (cfg.get("device") or "").strip()}
 
 
+def reconcile_session_transcript_async(session_id: str) -> None:
+    """Fire-and-forget ``reconcile_session_transcript`` on a daemon thread.
+
+    Used by the STOP route so the request thread returns immediately instead of
+    blocking up to ``timeout`` on the device round-trip — a blocked request
+    thread also holds an nginx edge connection slot, which under load starves the
+    global slot budget and 503s OTHER requests. Nothing depends on the push
+    completing synchronously at stop, so it's safe to detach."""
+    threading.Thread(
+        target=reconcile_session_transcript, args=(session_id,),
+        daemon=True, name="tx-reconcile-" + str(session_id)[:8]).start()
+
+
 def reconcile_session_transcript(session_id: str, *, store=None,
-                                 bridge: DesktopBridge | None = None) -> str:
+                                 bridge: DesktopBridge | None = None,
+                                 timeout: float = 12.0) -> str:
     """ONE-SHOT, newest-wins reconcile of a session's transcript between the
     server and its device.
 
@@ -903,6 +917,9 @@ def reconcile_session_transcript(session_id: str, *, store=None,
     re-reads its transcript anyway. Whichever side has MORE turns (JSONL lines)
     wins; the staler side is overwritten, so neither side's longer history is
     ever clobbered. Returns a short status string; never raises into the caller.
+
+    ``timeout`` bounds the device transcript pull (default 12s, not 30) so a
+    slow/flaky device can't pin the caller's thread + an edge slot for long.
     """
     try:
         store = store or _resolve_store()
@@ -931,7 +948,7 @@ def reconcile_session_transcript(session_id: str, *, store=None,
             server_bytes = b""
         try:
             device_bytes = bridge.request_transcript(
-                device_id, claude_session_id=csid, cwd=device_cwd, timeout=30)
+                device_id, claude_session_id=csid, cwd=device_cwd, timeout=timeout)
         except Exception:  # noqa: BLE001
             device_bytes = None
         s_lines = server_bytes.count(b"\n")

@@ -6,6 +6,7 @@ tolerant parsing of garbage lines, missing files, and the summarize roll-up.
 """
 
 import json
+import os
 
 from agent.coding_subagent_tracker import (
     iter_tool_results,
@@ -229,3 +230,19 @@ def test_iter_helpers_normalize_both_shapes():
     # objects with no content yield nothing, no raise
     assert iter_tool_uses({"type": "system"}) == []
     assert iter_tool_results({"role": "user", "content": "plain text"}) == []
+
+
+def test_large_transcript_reads_tail_only(tmp_path, monkeypatch):
+    # A multi-MB transcript must NOT be read whole every poll: we cap to the tail.
+    import agent.coding_subagent_tracker as st
+    monkeypatch.setattr(st, "_MAX_SUBAGENT_SCAN_BYTES", 2048)  # tiny cap for test
+    # A recent Task spawn (in the tail) preceded by lots of filler that exceeds
+    # the cap. The spawn must still be found; the filler is dropped.
+    user = {"type": "user", "message": {"role": "user",
+            "content": [_task_use("call-tail", "general-purpose", "tail task")]}}
+    filler = [{"type": "user", "message": {"role": "user",
+               "content": "x" * 200}} for _ in range(200)]  # >> 2KB
+    p = _write_jsonl(tmp_path / "big.jsonl", filler + [user])
+    assert os.path.getsize(p) > 2048
+    subs = parse_subagents(p)
+    assert any(s.get("description") == "tail task" for s in subs)

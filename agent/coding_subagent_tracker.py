@@ -83,14 +83,29 @@ def iter_tool_results(obj):
     return ids
 
 
+# Cap how much of a transcript we read when scanning for subagents. The session
+# detail endpoint polls this every few seconds, so an unbounded read_text() of a
+# multi-MB (and growing) coding transcript would re-read the whole file each poll,
+# holding a request thread (and an edge connection slot) — a real contributor to
+# 503s under load. Subagent Task spawns appear throughout, so we read the TAIL
+# (most recent activity) up to this cap; older spawns past the cap are dropped.
+_MAX_SUBAGENT_SCAN_BYTES = 4 * 1024 * 1024  # 4 MiB
+
+
 def _iter_objects(jsonl_path):
     """Yield parsed JSON objects from a JSONL file, skipping bad/blank lines.
 
-    A missing file yields nothing. Lines that fail to parse are skipped.
+    A missing file yields nothing. Lines that fail to parse are skipped. Reads at
+    most the last ``_MAX_SUBAGENT_SCAN_BYTES`` of a large file (bounded cost).
     """
     path = Path(jsonl_path)
     try:
-        raw = path.read_text(encoding="utf-8")
+        size = path.stat().st_size
+        with open(path, "rb") as fh:
+            if size > _MAX_SUBAGENT_SCAN_BYTES:
+                fh.seek(size - _MAX_SUBAGENT_SCAN_BYTES)
+                fh.readline()  # discard the partial first line after the seek
+            raw = fh.read().decode("utf-8", errors="replace")
     except (FileNotFoundError, NotADirectoryError, IsADirectoryError, OSError):
         return
 

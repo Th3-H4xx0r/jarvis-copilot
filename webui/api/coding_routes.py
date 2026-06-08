@@ -347,10 +347,12 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 manager.stop(sid)
                 # Sync the (now-final) transcript OUT to the device so a later
                 # local `claude --resume` on the Mac sees this session's turns.
-                # One-shot, AFTER claude exits — never during live running.
+                # Fire-and-forget (off the request thread): nothing here depends
+                # on it, and a 30s device round-trip on the request thread holds
+                # an edge connection slot and can 503 other requests under load.
                 try:
-                    from api.coding_desktop import reconcile_session_transcript
-                    reconcile_session_transcript(sid)
+                    from api.coding_desktop import reconcile_session_transcript_async
+                    reconcile_session_transcript_async(sid)
                 except Exception:
                     pass
                 return _ok({"ok": True})

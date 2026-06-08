@@ -159,9 +159,17 @@ def render_nginx(settings: Dict[str, Any]) -> str:
         add_header X-Frame-Options "DENY" always;
         add_header Referrer-Policy "same-origin" always;
 
-        # --- per-IP rate limit ---
-        limit_req zone=jc_edge burst=40 nodelay;
-        limit_conn jc_edge_conn 32;
+        # --- rate / connection limits ---
+        # NOTE: these key on $binary_remote_addr, but all tunnel traffic reaches
+        # nginx from cloudflared over loopback, so this is effectively a GLOBAL
+        # budget, not per-client. The caps are therefore generous: a single user
+        # legitimately holds many concurrent connections at once (the device
+        # bridge WS + the Mutagen tcp-relay WS + per-session terminal SSE + chat/
+        # voice streams + poll requests from web AND phone). The old 32-conn cap
+        # was trivially exhausted by the user's own streams, 503-ing unrelated
+        # requests (e.g. the mobile session-detail GET) until they drained (~4s).
+        limit_req zone=jc_edge burst=120 nodelay;
+        limit_conn jc_edge_conn 512;
 
         client_max_body_size 64m;
 
@@ -220,7 +228,7 @@ http {{
         ''      close;
     }}
 
-    limit_req_zone $binary_remote_addr zone=jc_edge:10m rate=20r/s;
+    limit_req_zone $binary_remote_addr zone=jc_edge:10m rate=50r/s;
     limit_conn_zone $binary_remote_addr zone=jc_edge_conn:10m;
 
 {blocks}
