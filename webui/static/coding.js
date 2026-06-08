@@ -338,6 +338,7 @@ function _codingProjectGroupHtml(opts) {
 function _codingRenderList() {
   const list = document.getElementById('codingList');
   if (!list) return;
+  const _savedScroll = list.scrollTop;  // preserve scroll across the rebuild
   const projects = _codingProjectsCache || [];
   const ungrouped = _codingUngroupedCache || [];
   // Nothing at all → friendly empty state.
@@ -368,6 +369,7 @@ function _codingRenderList() {
     });
   }
   list.innerHTML = html || '<div class="cm-projects-empty">No projects or sessions yet.</div>';
+  list.scrollTop = _savedScroll;
 }
 
 function codingToggleProject(key) {
@@ -1413,10 +1415,23 @@ function _codingApplyLiveStatus(sessions) {
   }
 }
 
+let _codingListSig = '';
 async function _codingPollStatusOnce() {
   try {
     const res = await api('/api/coding/sessions');
-    _codingApplyLiveStatus(res && res.sessions);
+    const sessions = (res && res.sessions) || [];
+    // Structure signature: which sessions exist + their name/source/project.
+    // If it changed (a session appeared/vanished/was renamed), do a FULL refresh
+    // so the list goes live; otherwise just update the dots in place (smooth).
+    const sig = sessions
+      .map(s => `${s.id}~${s.title || ''}~${s.source || ''}~${s.project_id || ''}`)
+      .sort().join('|');
+    if (sig !== _codingListSig) {
+      _codingListSig = sig;
+      await _codingRefreshList();   // scroll preserved inside _codingRenderList
+    } else {
+      _codingApplyLiveStatus(sessions);
+    }
   } catch (_) { /* transient — retry next tick */ }
 }
 
