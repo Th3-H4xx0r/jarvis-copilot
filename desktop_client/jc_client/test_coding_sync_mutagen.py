@@ -111,3 +111,47 @@ def test_sync_state_file_tracks_active_count(tmp_path, monkeypatch):
     a.handle_frame({"type": "coding_sync_stop", "sync_id": "sync-1"})
     assert _json.loads(sf.read_text())["active"] == 0
     a.close()
+
+
+def test_transcript_start_resolves_local_and_scopes_to_csid(tmp_path, monkeypatch):
+    # A scoped transcript sync: the agent IGNORES the frame's local_path/ignore
+    # and resolves its OWN ~/.claude/projects/<encode(device_cwd)> + scopes the
+    # sync to just <csid>.jsonl (server can't compute the Mac's realpath).
+    from jc_client.coding_discover import _encode_project_dir
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))  # projects under tmp
+    sent = []
+    runner = FakeRunner()
+    a = _agent(runner, sent)
+    monkeypatch.setattr(a, "pubkey", lambda: "ssh-ed25519 AAAA jc")
+    device_cwd = str(tmp_path / "proj")
+    a.handle_frame({"type": "coding_sync_start", "sync_id": "sync-tx-1",
+                    "local_path": "~/.claude/projects/WRONG",  # must be overridden
+                    "remote_path": "/root/.claude/projects/enc",
+                    "ignore": ["build"],                       # must be overridden
+                    "transcript": {"csid": "abc-123", "device_cwd": device_cwd}})
+    creates = [c for c in runner.calls if c[1:3] == ["sync", "create"]]
+    assert creates, "no sync create issued"
+    argv = creates[0]
+    expected_local = str(tmp_path / "projects" / _encode_project_dir(device_cwd))
+    assert expected_local in argv               # resolved on-device, not the frame's
+    assert "WRONG" not in " ".join(argv)
+    assert "jc-hermes:/root/.claude/projects/enc" in argv
+    # scoped to just the one transcript file
+    assert "*" in argv and "!abc-123.jsonl" in argv
+    assert "build" not in argv                  # frame ignore overridden
+    a.close()
+
+
+def test_normal_start_expands_tilde_local(monkeypatch):
+    # A non-transcript sync just expanduser-s the local path (no scoping).
+    import os
+    sent = []
+    runner = FakeRunner()
+    a = _agent(runner, sent)
+    monkeypatch.setattr(a, "pubkey", lambda: "ssh-ed25519 AAAA jc")
+    a.handle_frame({"type": "coding_sync_start", "sync_id": "sync-2",
+                    "local_path": "~/myproj", "remote_path": "/root/p",
+                    "ignore": ["build"]})
+    creates = [c for c in runner.calls if c[1:3] == ["sync", "create"]]
+    assert creates and os.path.expanduser("~/myproj") in creates[0]
+    a.close()

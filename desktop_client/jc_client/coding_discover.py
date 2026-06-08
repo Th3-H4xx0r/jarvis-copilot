@@ -95,16 +95,6 @@ _TRANSCRIPT_GET_MAX_BYTES = 64 * 1024 * 1024  # 64 MiB
 # Each ``coding_transcript_data`` frame carries at most this many base64 chars.
 _TRANSCRIPT_CHUNK_B64 = 256 * 1024  # ~256 KiB of base64
 
-# Transcript-RECEIVE (coding_transcript_put) tunables. The SERVER pushes a
-# resumed session's growing transcript BACK to this device so the Mac copy stays
-# current (the inverse of coding_transcript_get). Cap the accumulated COMPRESSED
-# (gzip) bytes we buffer per in-flight stream, the number of concurrent streams,
-# AND the DECOMPRESSED size — so neither a never-eof stream nor a decompression
-# bomb from a misbehaving server can grow memory without bound.
-_TRANSCRIPT_PUT_MAX_GZ_BYTES = 96 * 1024 * 1024  # buffered gzip bytes per stream
-_TRANSCRIPT_PUT_MAX_STREAMS = 8
-_TRANSCRIPT_PUT_MAX_RAW_BYTES = 64 * 1024 * 1024  # hard cap on inflated bytes
-
 # Tab-separated fields, one line per session. Keep in sync with parse_tmux_list.
 _TMUX_FORMAT = (
     "#{session_name}\t#{pane_current_path}\t#{pane_current_command}\t"
@@ -650,8 +640,6 @@ class CodingDiscoverAgent:
         self._thread: Optional[threading.Thread] = None
         self._last_hash: Optional[str] = None
         self._last_push_at: float = 0.0
-        # In-flight coding_transcript_put streams: req_id -> accumulator.
-        self._put_buffers: dict = {}
 
     # ── lifecycle ───────────────────────────────────────────────────────
 
@@ -688,8 +676,6 @@ class CodingDiscoverAgent:
                 self._scan_and_push(force=True)
             elif t == "coding_transcript_get":
                 self._on_transcript_get(frame)
-            elif t == "coding_transcript_put":
-                self._on_transcript_put(frame)
         except Exception as exc:  # noqa: BLE001 — never bubble into the pump
             log.warning("coding_discover handle_frame failed: %s", exc)
 
@@ -794,118 +780,6 @@ class CodingDiscoverAgent:
             "ok": False,
             "error": error,
         })
-
-    # ── transcript RECEIVE (coding_transcript_put) ──────────────────────
-
-    def _on_transcript_put(self, frame: dict) -> None:
-        """Accept a transcript the SERVER is pushing back to this device.
-
-        The inverse of ``_on_transcript_get``: a resumed session runs on the
-        server, whose growing ``<csid>.jsonl`` is streamed here as
-        ``coding_transcript_put`` chunks (same gzip+base64 framing as
-        ``coding_transcript_data``: ``seq`` ordered, final ``eof:true``). We
-        accumulate per ``req_id``; on ``eof`` we gunzip and write the file to
-        this device's ``<projects>/<encode(cwd)>/<csid>.jsonl`` so a LOCAL
-        ``claude --resume <csid>`` on the Mac sees the server-side conversation.
-
-        Defensive: validates the session id, caps buffered bytes + concurrent
-        streams, and never raises into the WS pump."""
-        req_id = str(frame.get("req_id") or "")
-        if not req_id:
-            return
-        csid = str(frame.get("claude_session_id") or "").strip()
-        cwd = str(frame.get("cwd") or "").strip()
-        # Same id guard as _on_transcript_get — block traversal/glob/NUL before
-        # the id is ever used to build a filesystem path.
-        bad_id = (
-            not csid
-            or os.sep in csid
-            or (os.altsep and os.altsep in csid)
-            or "\x00" in csid
-            or csid in (".", "..")
-        )
-        if bad_id or not cwd:
-            self._put_buffers.pop(req_id, None)
-            return
-        # A device-reported-style failure frame just drops the stream.
-        if frame.get("ok") is False or frame.get("error"):
-            self._put_buffers.pop(req_id, None)
-            return
-        content_b64 = frame.get("content_b64") or ""
-        try:
-            chunk = base64.b64decode(content_b64) if content_b64 else b""
-        except Exception:  # noqa: BLE001 — corrupt chunk -> abandon the stream
-            self._put_buffers.pop(req_id, None)
-            return
-        buf = self._put_buffers.get(req_id)
-        if buf is None:
-            # Bound concurrent streams: evict the OLDEST single stream if a peer
-            # floods us (dicts preserve insertion order) — never clear them all,
-            # which would also wipe other legit in-flight streams.
-            if len(self._put_buffers) >= _TRANSCRIPT_PUT_MAX_STREAMS:
-                self._put_buffers.pop(next(iter(self._put_buffers)), None)
-            buf = {"csid": csid, "cwd": cwd, "chunks": {}, "size": 0}
-            self._put_buffers[req_id] = buf
-        buf["chunks"][int(frame.get("seq") or 0)] = chunk
-        buf["size"] += len(chunk)
-        if buf["size"] > _TRANSCRIPT_PUT_MAX_GZ_BYTES:
-            self._put_buffers.pop(req_id, None)
-            log.warning("coding_transcript_put[%s]: over size cap, dropped", req_id)
-            return
-        if not frame.get("eof"):
-            return
-        # Final chunk: reassemble + gunzip (size-bounded) + write.
-        self._put_buffers.pop(req_id, None)
-        try:
-            blob = b"".join(buf["chunks"][i] for i in sorted(buf["chunks"]))
-            raw = self._gunzip_bounded(blob) if blob else b""
-        except Exception as exc:  # noqa: BLE001 — partial/corrupt stream
-            log.warning("coding_transcript_put[%s]: gunzip failed: %s", req_id, exc)
-            return
-        if raw is None:  # would inflate past the cap (decompression bomb)
-            log.warning("coding_transcript_put[%s]: decompressed over cap, dropped",
-                        req_id)
-            return
-        self._write_transcript_file(csid, cwd, raw)
-
-    @staticmethod
-    def _gunzip_bounded(blob: bytes):
-        """Gunzip ``blob`` but stop inflating past ``_TRANSCRIPT_PUT_MAX_RAW_BYTES``.
-
-        The chunk/stream caps bound only the COMPRESSED bytes, so a small gzip
-        could still inflate to gigabytes (a decompression bomb from a misbehaving
-        server). ``GzipFile.read(n)`` only inflates enough to yield ``n`` bytes,
-        so reading ``cap+1`` bounds memory to the cap. Returns the bytes, or
-        ``None`` if the stream would exceed the cap."""
-        import io
-
-        with gzip.GzipFile(fileobj=io.BytesIO(blob)) as gz:
-            raw = gz.read(_TRANSCRIPT_PUT_MAX_RAW_BYTES + 1)
-        if len(raw) > _TRANSCRIPT_PUT_MAX_RAW_BYTES:
-            return None
-        return raw
-
-    def _write_transcript_file(self, csid: str, cwd: str, raw: bytes) -> None:
-        """Write ``raw`` to ``<projects>/<encode(cwd)>/<csid>.jsonl`` atomically
-        (temp file + ``os.replace``) so a concurrent ``claude --resume`` never
-        reads a half-written transcript. Never raises."""
-        tmp = None
-        try:
-            projects_dir = _claude_projects_dir(self._home_dir)
-            pdir = os.path.join(projects_dir, _encode_project_dir(cwd))
-            os.makedirs(pdir, exist_ok=True)
-            dest = os.path.join(pdir, csid + ".jsonl")
-            tmp = dest + ".jc-tmp"
-            with open(tmp, "wb") as fh:
-                fh.write(raw)
-            os.replace(tmp, dest)
-        except Exception as exc:  # noqa: BLE001 — never break the pump on I/O
-            log.warning("coding_transcript_put write failed for %s: %s", csid, exc)
-            if tmp:
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
 
     # ── scan + push ─────────────────────────────────────────────────────
 

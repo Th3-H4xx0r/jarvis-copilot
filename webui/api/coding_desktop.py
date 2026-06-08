@@ -283,33 +283,29 @@ class DesktopBridge:
     # --- outbound sync frames -----------------------------------------------
 
     def send_sync_start(self, device_id: str, *, sync_id: str, local_path: str,
-                        remote_path: str, ignore: list | None = None) -> bool:
+                        remote_path: str, ignore: list | None = None,
+                        transcript: dict | None = None) -> bool:
         """Tell the desktop to start a Mutagen sync for this session: its LOCAL
         folder (``local_path``) <-> the server's session cwd (``remote_path``,
-        reached over the WS<->TCP relay's ssh alias)."""
-        return self._transport.send(device_id, {
+        reached over the WS<->TCP relay's ssh alias).
+
+        ``transcript`` (optional, ``{csid, device_cwd}``) marks a SCOPED transcript
+        sync: the device IGNORES ``local_path``/``ignore`` and instead resolves its
+        OWN ``~/.claude/projects/<encode(device_cwd)>`` (authoritative realpath +
+        CLAUDE_CONFIG_DIR) and scopes the sync to just ``<csid>.jsonl`` — the
+        server can't compute the Mac's path reliably."""
+        frame = {
             "type": "coding_sync_start", "sync_id": sync_id,
             "local_path": local_path, "remote_path": remote_path,
             "ignore": list(ignore or []),
-        })
-
-    @staticmethod
-    def _stop_pusher(sess) -> None:
-        """Stop a sync session's transcript pusher (if any) so its daemon thread
-        doesn't leak when the session object is dropped from the registry. Done
-        OUTSIDE ``self._lock`` by callers (close() may join the thread). No-op
-        when the session has no pusher (the common case) or is None."""
-        pusher = getattr(sess, "transcript_pusher", None) if sess is not None else None
-        if pusher is not None:
-            try:
-                pusher.close()
-            except Exception:  # noqa: BLE001
-                pass
+        }
+        if transcript:
+            frame["transcript"] = transcript
+        return self._transport.send(device_id, frame)
 
     def send_sync_stop(self, device_id: str, sync_id: str) -> bool:
         with self._lock:
-            old = self._syncs.pop(sync_id, None)
-        self._stop_pusher(old)
+            self._syncs.pop(sync_id, None)
         return self._transport.send(device_id, {
             "type": "coding_sync_stop", "sync_id": sync_id,
         })
@@ -322,15 +318,10 @@ class DesktopBridge:
         client was offline, or stale Mutagen sessions after a client restart).
         This is what keeps the tray's "Sync: N active" count honest."""
         active = [str(s) for s in (active_sync_ids or [])]
-        dropped = []
         with self._lock:
             for sid in list(self._syncs.keys()):
                 if sid not in active:
-                    dropped.append(self._syncs.pop(sid, None))
-        # Stop the pushers of dropped sessions OUTSIDE the lock — else a session
-        # stopped while the device was offline leaks a transcript-push daemon.
-        for sess in dropped:
-            self._stop_pusher(sess)
+                    self._syncs.pop(sid, None)
         return self._transport.send(device_id, {
             "type": "coding_sync_reconcile", "active": active,
         })
@@ -400,60 +391,9 @@ class DesktopBridge:
             with self._lock:
                 self._transcript_waiters.pop(req_id, None)
 
-    def push_transcript(self, device_id: str, *, claude_session_id: str,
-                        cwd: str, raw: bytes) -> bool:
-        """Push transcript bytes TO the device (the inverse of
-        ``request_transcript``): the device writes them to its
-        ``<projects>/<encode(cwd)>/<claude_session_id>.jsonl`` so a LOCAL
-        ``claude --resume`` on the Mac sees a server-side session's turns.
-
-        Streams ``coding_transcript_put`` frames (gzip+base64, ``seq``-ordered,
-        final ``eof:true``) — the same framing the device uses to send us a
-        transcript. Returns True only if EVERY chunk was accepted by the
-        transport (a single dropped frame yields a partial file the device will
-        gunzip-fail on and discard, so the caller should treat False as "retry
-        next change"). Never raises."""
-        try:
-            payload = base64.b64encode(gzip.compress(raw or b"")).decode("ascii")
-        except Exception:  # noqa: BLE001
-            return False
-        chunk = _TRANSCRIPT_PUT_CHUNK_B64
-        total = len(payload)
-        req_id = uuid.uuid4().hex
-        seq = 0
-        pos = 0
-        ok_all = True
-        while True:
-            piece = payload[pos:pos + chunk]
-            pos += chunk
-            eof = pos >= total
-            try:
-                ok = self._transport.send(device_id, {
-                    "type": "coding_transcript_put",
-                    "req_id": req_id,
-                    "claude_session_id": claude_session_id,
-                    "cwd": cwd,
-                    "seq": seq,
-                    "eof": eof,
-                    "content_b64": piece,
-                })
-            except Exception:  # noqa: BLE001 — a transport hiccup isn't fatal
-                ok = False
-            ok_all = ok_all and bool(ok)
-            seq += 1
-            if eof:
-                break
-        return ok_all
-
     def register_sync(self, session) -> None:
-        # Replacing a session for the same sync_id (e.g. resync on reconnect)
-        # must stop the evicted session's transcript pusher, or its daemon
-        # thread leaks. Swap under the lock, close the old pusher outside it.
         with self._lock:
-            old = self._syncs.get(session.sync_id)
             self._syncs[session.sync_id] = session
-        if old is not None and old is not session:
-            self._stop_pusher(old)
 
     def sync_for(self, sync_id: str):
         with self._lock:
@@ -608,119 +548,6 @@ class DesktopBridge:
 # ── sync session (server side of the synced tunnel) ──────────────────────────
 
 
-# ── transcript push-back (server -> Mac) ─────────────────────────────────────
-# Each coding_transcript_put frame carries at most this many base64 chars.
-_TRANSCRIPT_PUT_CHUNK_B64 = 256 * 1024
-# How often the pusher checks the server transcript for changes.
-_TRANSCRIPT_PUSH_INTERVAL = 4.0
-# Don't ship a transcript bigger than this (matches the client's receive cap
-# headroom); a runaway file is skipped, not truncated.
-_TRANSCRIPT_PUSH_MAX_BYTES = 64 * 1024 * 1024  # 64 MiB
-
-
-class TranscriptPusher:
-    """Keeps the Mac's copy of a RESUMED-on-server session's transcript current.
-
-    After ``resume_discovered_to_server`` the session runs on the server and its
-    ``<csid>.jsonl`` grows there — under ``~/.claude/projects``, OUTSIDE the
-    Mutagen-synced repo dir, so file sync alone never carries the conversation
-    back. This daemon polls the server transcript's ``(size, mtime)`` and, on
-    every change, ships the whole gzipped file to the device
-    (``bridge.push_transcript``), which writes its local copy. A later
-    ``claude --resume <csid>`` ON THE MAC then sees the server-side turns.
-
-    Direction is server->Mac ONLY: post-resume the server is the sole writer;
-    the Mac's own edits (if it later resumes locally) are folded back the next
-    time the user resumes on the server (which re-pulls the transcript). Pushes
-    the WHOLE file per change (simple + correct; transcripts gzip well) — a
-    future optimization could send append deltas. Best-effort; never raises."""
-
-    def __init__(self, *, bridge, device_id, claude_session_id, device_cwd,
-                 server_transcript_path, interval=_TRANSCRIPT_PUSH_INTERVAL):
-        self.bridge = bridge
-        self.device_id = str(device_id or "")
-        self.claude_session_id = str(claude_session_id or "")
-        self.device_cwd = str(device_cwd or "")
-        self.server_transcript_path = str(server_transcript_path or "")
-        self.interval = float(interval)
-        self._stop = threading.Event()
-        self._thread = None
-        self._last_sig = None  # (size, mtime) of the last successfully-pushed file
-
-    def start(self) -> None:
-        if not (self.device_id and self.claude_session_id and self.device_cwd
-                and self.server_transcript_path):
-            return  # nothing to push to / from
-        if self._thread is not None:
-            return
-        self._thread = threading.Thread(
-            target=self._loop, daemon=True,
-            name="tx-push-" + self.claude_session_id[:8])
-        self._thread.start()
-
-    def _loop(self) -> None:
-        # First check runs promptly so the Mac gets the post-resume state fast,
-        # then re-checks every ``interval`` until stopped.
-        while not self._stop.is_set():
-            try:
-                self._push_if_changed()
-            except Exception as exc:  # noqa: BLE001 — a bad tick must not kill the loop
-                log.debug("transcript push tick error: %s", exc)
-            self._stop.wait(self.interval)
-
-    def _current_sig(self):
-        try:
-            st = os.stat(self.server_transcript_path)
-            # mtime_ns (not float mtime) so a same-size in-place rewrite within
-            # the float's ~microsecond resolution isn't missed. (Transcripts are
-            # append-only so size alone usually suffices; this is belt-and-braces.)
-            return (st.st_size, st.st_mtime_ns)
-        except OSError:
-            return None  # file not created yet / vanished
-
-    def _push_if_changed(self) -> bool:
-        sig = self._current_sig()
-        if sig is None or sig == self._last_sig:
-            return False
-        if sig[0] > _TRANSCRIPT_PUSH_MAX_BYTES:
-            log.warning("transcript push skip: %s is %d bytes (> cap)",
-                        self.server_transcript_path, sig[0])
-            self._last_sig = sig  # don't re-warn every tick
-            return False
-        try:
-            with open(self.server_transcript_path, "rb") as fh:
-                raw = fh.read(_TRANSCRIPT_PUSH_MAX_BYTES + 1)
-        except OSError:
-            return False
-        if len(raw) > _TRANSCRIPT_PUSH_MAX_BYTES:
-            return False
-        ok = False
-        try:
-            ok = self.bridge.push_transcript(
-                self.device_id, claude_session_id=self.claude_session_id,
-                cwd=self.device_cwd, raw=raw)
-        except Exception as exc:  # noqa: BLE001
-            log.debug("transcript push send failed: %s", exc)
-        if ok:
-            # Only advance the signature on a fully-accepted push, so a dropped
-            # frame is retried on the next tick instead of being lost.
-            self._last_sig = sig
-        return ok
-
-    def close(self) -> None:
-        """Stop the poller. Fast + non-blocking (no synchronous final push — the
-        loop already pushed within ``interval``, and the next server resume
-        re-pulls anyway)."""
-        self._stop.set()
-        t = self._thread
-        self._thread = None
-        if t is not None:
-            try:
-                t.join(timeout=2.0)
-            except Exception:  # noqa: BLE001
-                pass
-
-
 class MutagenSyncSession:
     """Server-side state for ONE coding session's Mutagen sync.
 
@@ -738,13 +565,17 @@ class MutagenSyncSession:
     _REOPEN_STALE_SECS = 45.0
 
     def __init__(self, *, sync_id, device_id, local_path, remote_path, bridge,
-                 ignore=None):
+                 ignore=None, transcript=None):
         self.sync_id = str(sync_id)
         self.device_id = str(device_id)
         self.local_path = str(local_path or "")
         self.remote_path = str(remote_path or "")
         self.bridge = bridge
         self.ignore = list(ignore) if ignore else None
+        # When set ({csid, device_cwd}), this is a SCOPED transcript sync — the
+        # device resolves its own local path + scopes to <csid>.jsonl (see
+        # send_sync_start). None for a normal repo-dir sync.
+        self.transcript = dict(transcript) if transcript else None
         # status surfaced to the WebUI:
         #   opening | syncing | synced | conflicts | error
         self.status = "opening"
@@ -755,9 +586,11 @@ class MutagenSyncSession:
         self.last_sync_at = None
         self.error = None
         self._last_open_at = 0.0
-        # Optional server->Mac transcript pusher (set for a resumed server-host
-        # session so its growing <csid>.jsonl reaches the Mac); stopped on close.
-        self.transcript_pusher = None
+        # Optional SECOND Mutagen sync, scoped to just this session's transcript
+        # <csid>.jsonl, so the conversation stays in sync two-way (it lives under
+        # ~/.claude/projects, OUTSIDE this repo sync). Set for a resumed
+        # server-host session; closed (and its sync stopped) when this one is.
+        self.transcript_sync = None
 
     def open(self) -> bool:
         """Tell the desktop to (re)start the Mutagen sync for this session."""
@@ -765,7 +598,8 @@ class MutagenSyncSession:
         self._last_open_at = time.time()
         ok = self.bridge.send_sync_start(
             self.device_id, sync_id=self.sync_id, local_path=self.local_path,
-            remote_path=self.remote_path, ignore=self.ignore)
+            remote_path=self.remote_path, ignore=self.ignore,
+            transcript=self.transcript)
         log.info("coding_sync[%s] start -> device=%s local=%s remote=%s sent=%s",
                  self.sync_id, self.device_id, self.local_path,
                  self.remote_path, ok)
@@ -804,12 +638,12 @@ class MutagenSyncSession:
                     self.sync_id, op, error)
 
     def close(self) -> None:
-        if self.transcript_pusher is not None:
+        if self.transcript_sync is not None:
             try:
-                self.transcript_pusher.close()
+                self.transcript_sync.close()  # stops the scoped transcript sync
             except Exception:  # noqa: BLE001
                 pass
-            self.transcript_pusher = None
+            self.transcript_sync = None
         try:
             self.bridge.send_sync_stop(self.device_id, self.sync_id)
         except Exception:
@@ -973,35 +807,67 @@ def start_sync_for_launch(device_id: str, *, session_id: str, cwd: str,
     sync_id = "sync-" + session_id
     ignore = sync.get("ignore") if isinstance(sync.get("ignore"), list) else None
     local_path = sync.get("remote_path") or cwd  # the DESKTOP's folder
-    # (A re-open — resync on reconnect — replaces the session object; the prior
-    # session's transcript pusher is stopped atomically by register_sync below.)
     session = MutagenSyncSession(
         sync_id=sync_id, device_id=device_id, local_path=local_path,
         remote_path=cwd, bridge=bridge, ignore=ignore)
-    # For a resumed server-host session, also keep the Mac's transcript copy
-    # current: the conversation .jsonl lives outside the synced repo dir, so
-    # Mutagen never carries it. ``sync['transcript']`` (set by
+    # For a resumed server-host session, run a SECOND Mutagen sync scoped to just
+    # the conversation transcript (<csid>.jsonl). It lives under ~/.claude/
+    # projects — OUTSIDE the repo sync — so this is the only thing that carries
+    # the chat BOTH ways (Mac<->server). ``sync['transcript']`` (set by
     # resume_discovered_to_server) names the csid + the Mac's cwd.
-    tx = sync.get("transcript") if isinstance(sync.get("transcript"), dict) else None
-    if tx and tx.get("csid") and tx.get("device_cwd"):
-        try:
-            from agent.coding_session_capture import (
-                claude_projects_dir, encode_project_dir)
-
-            server_path = str(claude_projects_dir() / encode_project_dir(cwd)
-                              / f"{tx['csid']}.jsonl")
-            session.transcript_pusher = TranscriptPusher(
-                bridge=bridge, device_id=device_id,
-                claude_session_id=str(tx["csid"]),
-                device_cwd=str(tx["device_cwd"]),
-                server_transcript_path=server_path)
-        except Exception as exc:  # noqa: BLE001 — never block sync on this
-            log.debug("transcript pusher setup failed: %s", exc)
+    tx_session = _build_transcript_sync(
+        sync_id=sync_id, device_id=device_id, server_cwd=cwd,
+        transcript=sync.get("transcript"), bridge=bridge)
+    if tx_session is not None:
+        session.transcript_sync = tx_session
     bridge.register_sync(session)
     session.open()  # coding_sync_start -> desktop runs Mutagen, pushes status
-    if session.transcript_pusher is not None:
-        session.transcript_pusher.start()
+    if session.transcript_sync is not None:
+        bridge.register_sync(session.transcript_sync)
+        session.transcript_sync.open()
     return session
+
+
+def transcript_sync_id(session_id: str) -> str:
+    """Mutagen sync id for a session's scoped transcript sync. Named
+    ``sync-tx-<id>`` so its Mutagen session (``jc-sync-tx-…``) still matches the
+    client's ``jc-sync-*`` orphan-reaper while being distinct from the repo sync."""
+    return "sync-tx-" + str(session_id)
+
+
+def _build_transcript_sync(*, sync_id, device_id, server_cwd, transcript, bridge):
+    """Build (but don't open) the scoped transcript MutagenSyncSession, or None.
+
+    beta (server) = ``<claude_projects_dir>/<encode(server_cwd)>`` — computed
+    here because the server can encode its OWN cwd. alpha (the Mac's transcript
+    dir) is resolved ON THE DEVICE from ``transcript={csid, device_cwd}`` (its
+    realpath/CLAUDE_CONFIG_DIR differ from the server's), and the sync is scoped
+    to just ``<csid>.jsonl`` there. ``local_path`` here is a best-effort display
+    value the device overrides."""
+    tx = transcript if isinstance(transcript, dict) else None
+    if not (tx and tx.get("csid") and tx.get("device_cwd")):
+        return None
+    try:
+        from agent.coding_session_capture import (
+            claude_projects_dir, encode_project_dir)
+
+        server_dir = str(claude_projects_dir() / encode_project_dir(server_cwd))
+        device_dir = os.path.join("~/.claude/projects",
+                                  encode_project_dir(str(tx["device_cwd"])))
+        return MutagenSyncSession(
+            sync_id=transcript_sync_id(_session_id_from_sync_id(sync_id)),
+            device_id=device_id, local_path=device_dir, remote_path=server_dir,
+            bridge=bridge, transcript={"csid": str(tx["csid"]),
+                                       "device_cwd": str(tx["device_cwd"])})
+    except Exception as exc:  # noqa: BLE001 — never block the repo sync on this
+        log.debug("transcript sync setup failed: %s", exc)
+        return None
+
+
+def _session_id_from_sync_id(sync_id: str) -> str:
+    """``sync-<id>`` -> ``<id>`` (so the transcript sync id can be derived)."""
+    s = str(sync_id or "")
+    return s[len("sync-"):] if s.startswith("sync-") else s
 
 
 def start_sync_for_session(*, session_id: str, cwd: str, sync: dict | None,
@@ -1037,16 +903,18 @@ def stop_sync_for_session(session_id: str, *, bridge: DesktopBridge | None = Non
     sess = bridge.sync_for(sync_id)
     if sess is not None:
         try:
-            sess.close()  # sends coding_sync_stop to its device + deregisters
+            sess.close()  # stops the repo sync AND its scoped transcript sync
         except Exception:
             pass
         return
     # No live session object (e.g. after a webui restart): still tell whatever
-    # desktop is connected to stop it, so a delete cleans up the orphan now.
+    # desktop is connected to stop BOTH the repo sync and the transcript sync, so
+    # a delete cleans up the orphans now (else the reconnect reconcile does it).
     try:
         device_id = resolve_desktop_device_id()
         if device_id:
             bridge.send_sync_stop(device_id, sync_id)
+            bridge.send_sync_stop(device_id, transcript_sync_id(session_id))
     except Exception:
         pass
 
@@ -1495,10 +1363,10 @@ def resume_discovered_to_server(session_id: str, *, manager,
     #    Passing ``sync`` makes the manager's sync_starter open the Mutagen sync
     #    for the NEW session id, so no separate start call is needed.
     sync = {"enabled": True, "device": device_id, "remote_path": device_cwd,
-            # Keep the Mac's transcript copy current while this resumed session
-            # runs on the server: its <csid>.jsonl grows under ~/.claude/projects
-            # (outside the synced repo dir), so a TranscriptPusher ships it back.
-            # Persisted in sync_config, so resync-on-reconnect re-creates it.
+            # Sync the conversation BOTH ways: <csid>.jsonl grows under
+            # ~/.claude/projects (outside the synced repo dir), so a SECOND scoped
+            # Mutagen sync carries it Mac<->server. Persisted in sync_config, so
+            # resync-on-reconnect re-creates it.
             "transcript": {"csid": claude_session_id, "device_cwd": device_cwd}}
     # Keep the resumed server session grouped with its discovered origin: thread
     # the old row's project_id through so it lands in the SAME project (which was
@@ -1587,6 +1455,10 @@ def resync_device(device_id: str, *, store=None,
             if not session_id or not cwd:
                 continue
             active_sync_ids.append("sync-" + str(session_id))
+            # A resumed session also runs a scoped transcript sync — keep it in
+            # the authoritative set so the device reconcile doesn't reap it.
+            if isinstance(sync.get("transcript"), dict):
+                active_sync_ids.append(transcript_sync_id(session_id))
             opened = start_sync_for_launch(
                 device_id, session_id=session_id, cwd=cwd, sync=sync,
                 bridge=bridge)

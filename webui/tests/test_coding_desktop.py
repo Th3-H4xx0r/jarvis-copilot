@@ -1549,188 +1549,96 @@ def _drain_events(feed):
     return items
 
 
-# ── transcript push-back: server -> Mac (coding_transcript_put) ───────────────
+# ── scoped transcript sync (second Mutagen sync, two-way) ────────────────────
 
-def _decode_put(frames):
-    """Reassemble coding_transcript_put frames the way the device does."""
-    ordered = sorted(frames, key=lambda f: f["seq"])
-    blob = b"".join(base64.b64decode(f["content_b64"]) for f in ordered)
-    return gzip.decompress(blob) if blob else b""
+def _starts(t):
+    return t.frames("coding_sync_start")
 
 
-def test_push_transcript_chunks_roundtrip():
-    bridge, t = make_bridge()
-    body = (b'{"type":"user"}\n{"type":"assistant"}\n') * 200
-    ok = bridge.push_transcript("dev-T", claude_session_id="sess-1",
-                                cwd="/Users/me/proj", raw=body)
-    assert ok is True
-    puts = t.frames("coding_transcript_put")
-    assert puts, "no put frames sent"
-    # one shared req_id, contiguous seqs, exactly one eof, csid+cwd carried
-    assert len({f["req_id"] for f in puts}) == 1
-    assert [f["seq"] for f in puts] == list(range(len(puts)))
-    assert sum(1 for f in puts if f["eof"]) == 1
-    assert all(f["claude_session_id"] == "sess-1" and f["cwd"] == "/Users/me/proj"
-               for f in puts)
-    assert _decode_put(puts) == body
-
-
-def test_push_transcript_reports_false_when_disconnected():
-    bridge, t = make_bridge(connected=False)
-    ok = bridge.push_transcript("dev-X", claude_session_id="s", cwd="/c",
-                                raw=b"data\n")
-    assert ok is False
-
-
-def _pusher(tmp_path, body=b"hello\n", **kw):
-    bridge, t = make_bridge()
-    proj = tmp_path / "projects" / "enc"
-    proj.mkdir(parents=True, exist_ok=True)
-    path = proj / "sess.jsonl"
-    path.write_bytes(body)
-    p = cd.TranscriptPusher(bridge=bridge, device_id="dev-P",
-                            claude_session_id="sess",
-                            device_cwd="/Users/me/proj",
-                            server_transcript_path=str(path), **kw)
-    return p, bridge, t, path
-
-
-def test_transcript_pusher_pushes_on_change(tmp_path):
-    p, bridge, t, path = _pusher(tmp_path, b"first\n")
-    assert p._push_if_changed() is True
-    assert _decode_put(t.frames("coding_transcript_put")) == b"first\n"
-    seen = {f["req_id"] for f in t.frames("coding_transcript_put")}
-    assert len(seen) == 1
-    # unchanged -> no second push (no new req_id)
-    assert p._push_if_changed() is False
-    assert {f["req_id"] for f in t.frames("coding_transcript_put")} == seen
-    # grow the file (new size) -> pushes again, under a fresh req_id, carrying
-    # the FULL new content. (req_ids are random, so identify the new push by the
-    # req_id that wasn't there before — never by sort order.)
-    path.write_bytes(b"first\nsecond\n")
-    assert p._push_if_changed() is True
-    new_frames = [f for f in t.frames("coding_transcript_put")
-                  if f["req_id"] not in seen]
-    assert new_frames, "no new push after the file grew"
-    assert _decode_put(new_frames) == b"first\nsecond\n"
-
-
-def test_transcript_pusher_missing_file_is_noop(tmp_path):
-    bridge, t = make_bridge()
-    p = cd.TranscriptPusher(bridge=bridge, device_id="dev-P",
-                            claude_session_id="sess", device_cwd="/c",
-                            server_transcript_path=str(tmp_path / "nope.jsonl"))
-    assert p._push_if_changed() is False
-    assert t.sent == []
-
-
-def test_transcript_pusher_keeps_sig_unchanged_on_failed_send(tmp_path):
-    # A dropped frame (disconnected) must NOT advance the signature, so the next
-    # tick retries instead of silently losing the update.
-    p, bridge, t, path = _pusher(tmp_path, b"x\n")
-    bridge._transport.connected = False
-    assert p._push_if_changed() is False
-    assert p._last_sig is None
-    bridge._transport.connected = True
-    assert p._push_if_changed() is True  # retried
-
-
-def test_start_sync_for_launch_attaches_pusher(tmp_path, monkeypatch):
+def test_start_sync_for_launch_opens_scoped_transcript_sync(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
-    from agent.coding_session_capture import (claude_projects_dir,
-                                              encode_project_dir)
+    from agent.coding_session_capture import encode_project_dir
     server_cwd = str(tmp_path / "srvproj")
     os.makedirs(server_cwd, exist_ok=True)
-    # the server-side transcript claude --resume writes/grows
-    tdir = claude_projects_dir() / encode_project_dir(server_cwd)
-    tdir.mkdir(parents=True, exist_ok=True)
-    (tdir / "csid-9.jsonl").write_bytes(b'{"type":"user"}\n')
-
     bridge, t = make_bridge()
     s = cd.start_sync_for_launch(
         "dev-R", session_id="cs_R", cwd=server_cwd,
         sync={"enabled": True, "remote_path": "/Users/me/proj",
               "transcript": {"csid": "csid-9", "device_cwd": "/Users/me/proj"}},
         bridge=bridge)
-    assert s is not None and s.transcript_pusher is not None
-    assert s.transcript_pusher.server_transcript_path == str(tdir / "csid-9.jsonl")
-    assert s.transcript_pusher.device_cwd == "/Users/me/proj"
-    # stop it so its daemon thread doesn't linger
-    s.close()
-    assert s.transcript_pusher is None
+    assert s is not None and s.transcript_sync is not None
+    # both syncs registered
+    assert bridge.sync_for("sync-cs_R") is s
+    assert bridge.sync_for("sync-tx-cs_R") is s.transcript_sync
+    starts = _starts(t)
+    # the repo sync (no transcript field) + the scoped transcript sync (carries it)
+    repo = [f for f in starts if f["sync_id"] == "sync-cs_R"][0]
+    tx = [f for f in starts if f["sync_id"] == "sync-tx-cs_R"][0]
+    assert "transcript" not in repo
+    assert tx["transcript"] == {"csid": "csid-9", "device_cwd": "/Users/me/proj"}
+    # the server (beta) side points at the server's encoded transcript dir
+    server_dir = str(tmp_path / "projects" / encode_project_dir(server_cwd))
+    assert tx["remote_path"] == server_dir
 
 
-def test_start_sync_for_launch_no_pusher_without_transcript(tmp_path):
+def test_start_sync_for_launch_no_transcript_sync_without_block(tmp_path):
     bridge, t = make_bridge()
     s = cd.start_sync_for_launch(
         "dev-NP", session_id="cs_NP", cwd=str(tmp_path),
         sync={"enabled": True, "remote_path": "/Users/me/proj"}, bridge=bridge)
-    assert s is not None and s.transcript_pusher is None
+    assert s is not None and s.transcript_sync is None
+    assert bridge.sync_for("sync-tx-cs_NP") is None
 
 
-def test_close_stops_transcript_pusher(tmp_path):
-    p, bridge, t, path = _pusher(tmp_path)
-    s = cd.MutagenSyncSession(sync_id="sync-z", device_id="dev-P",
-                              local_path="/l", remote_path="/r", bridge=bridge)
-    s.transcript_pusher = p
-    p.start()
+def test_close_cascades_to_transcript_sync(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    server_cwd = str(tmp_path / "p")
+    os.makedirs(server_cwd, exist_ok=True)
+    bridge, t = make_bridge()
+    s = cd.start_sync_for_launch(
+        "dev-C", session_id="cs_C", cwd=server_cwd,
+        sync={"enabled": True, "remote_path": "/Users/me/p",
+              "transcript": {"csid": "cc", "device_cwd": "/Users/me/p"}},
+        bridge=bridge)
     s.close()
-    assert s.transcript_pusher is None
-    assert p._stop.is_set()
+    # a sync_stop went out for BOTH the repo sync and the transcript sync
+    stopped = {f["sync_id"] for f in t.frames("coding_sync_stop")}
+    assert "sync-cs_C" in stopped and "sync-tx-cs_C" in stopped
+    assert s.transcript_sync is None
 
 
-# ── pusher cleanup on registry eviction (bug-sweep fixes) ────────────────────
-
-class _FakePusher:
-    def __init__(self):
-        self.closed = False
-
-    def close(self):
-        self.closed = True
-
-
-def _sess_with_pusher(bridge, sync_id):
-    s = cd.MutagenSyncSession(sync_id=sync_id, device_id="d", local_path="/l",
-                              remote_path="/r", bridge=bridge)
-    s.transcript_pusher = _FakePusher()
-    return s
-
-
-def test_register_sync_replacement_stops_old_pusher():
+def test_stop_sync_for_session_fallback_stops_both(monkeypatch):
+    # No live session object -> still tells the device to stop repo AND tx syncs.
     bridge, t = make_bridge()
-    old = _sess_with_pusher(bridge, "sync-rep")
-    bridge.register_sync(old)
-    new = cd.MutagenSyncSession(sync_id="sync-rep", device_id="d",
-                                local_path="/l", remote_path="/r", bridge=bridge)
-    bridge.register_sync(new)
-    assert old.transcript_pusher.closed is True   # evicted pusher stopped
-    assert bridge.sync_for("sync-rep") is new
+    monkeypatch.setattr(cd, "resolve_desktop_device_id", lambda *a, **k: "dev-Z")
+    cd.stop_sync_for_session("cs_F", bridge=bridge)
+    stopped = {f["sync_id"] for f in t.frames("coding_sync_stop")}
+    assert stopped == {"sync-cs_F", "sync-tx-cs_F"}
 
 
-def test_register_same_session_twice_does_not_stop_its_pusher():
+def test_transcript_sync_id_named_for_orphan_reaper():
+    # Must start with "sync-" so its Mutagen name (jc-sync-tx-...) is still caught
+    # by the client's jc-sync-* orphan scan.
+    assert cd.transcript_sync_id("abc") == "sync-tx-abc"
+
+
+def test_resync_device_includes_transcript_sync_in_active_set(tmp_path, monkeypatch):
+    # A resumed session (sync_config carries a transcript block) must have BOTH
+    # its repo sync and its scoped transcript sync in the reconcile active set,
+    # so the device doesn't reap the transcript sync as an orphan.
+    import json
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    server_cwd = str(tmp_path / "rp")
+    os.makedirs(server_cwd, exist_ok=True)
     bridge, t = make_bridge()
-    s = _sess_with_pusher(bridge, "sync-same")
-    bridge.register_sync(s)
-    bridge.register_sync(s)  # idempotent re-register of the SAME object
-    assert s.transcript_pusher.closed is False
-
-
-def test_reconcile_stops_dropped_session_pusher():
-    bridge, t = make_bridge()
-    gone = _sess_with_pusher(bridge, "sync-gone")
-    keep = _sess_with_pusher(bridge, "sync-keep")
-    bridge.register_sync(gone)
-    bridge.register_sync(keep)
-    bridge.send_sync_reconcile("dev", ["sync-keep"])
-    assert gone.transcript_pusher.closed is True    # not in active -> stopped
-    assert keep.transcript_pusher.closed is False   # still active -> left alone
-    assert bridge.sync_for("sync-gone") is None
-
-
-def test_send_sync_stop_stops_pusher():
-    bridge, t = make_bridge()
-    s = _sess_with_pusher(bridge, "sync-stp")
-    bridge.register_sync(s)
-    bridge.send_sync_stop("dev", "sync-stp")
-    assert s.transcript_pusher.closed is True
-    assert bridge.sync_for("sync-stp") is None
+    store = FakeStore([
+        {"id": "cs_res", "status": "running", "host": "server", "cwd": server_cwd,
+         "sync_config": json.dumps({"enabled": True, "remote_path": "/Users/me/rp",
+                                    "transcript": {"csid": "rr",
+                                                   "device_cwd": "/Users/me/rp"}})},
+    ])
+    cd.resync_device("dev-RT", store=store, bridge=bridge)
+    recon = t.frames("coding_sync_reconcile")
+    assert recon, "no reconcile frame sent"
+    active = set(recon[-1]["active"])
+    assert "sync-cs_res" in active and "sync-tx-cs_res" in active
