@@ -304,10 +304,42 @@ def _parse_sse_block(text: str):
     return event, "\n".join(data)
 
 
+def _dechunk(body: bytes) -> bytes:
+    """Decode an HTTP/1.1 ``Transfer-Encoding: chunked`` body.
+
+    Each chunk is ``<hexsize>[;ext]\\r\\n<data>\\r\\n``; a zero-size chunk ends
+    the body (optional trailers follow and are ignored). Best-effort: on any
+    malformed length we stop and return what we have, so a partial/odd reply
+    degrades instead of raising. ``recv``-until-close in request_json delivers
+    the whole framed body (incl. the terminating ``0\\r\\n\\r\\n``), so this
+    reassembles it fully.
+    """
+    out = bytearray()
+    i, n = 0, len(body)
+    while i < n:
+        j = body.find(b"\r\n", i)
+        if j == -1:
+            break
+        size_field = body[i:j].split(b";", 1)[0].strip()  # drop chunk extensions
+        try:
+            size = int(size_field, 16)
+        except ValueError:
+            break
+        i = j + 2
+        if size == 0:
+            break  # last chunk; trailers (if any) ignored
+        out += body[i:i + size]
+        i += size
+        if body[i:i + 2] == b"\r\n":  # skip the CRLF after the chunk data
+            i += 2
+    return bytes(out)
+
+
 def _parse_http_response(raw: bytes) -> HttpResponse:
-    """Bare-minimum HTTP/1.1 parser. Handles Content-Length OR
-    Connection-close framing. No chunked support — pairing endpoint
-    doesn't use it."""
+    """Bare-minimum HTTP/1.1 parser. Handles Content-Length, chunked
+    (``Transfer-Encoding: chunked``), and Connection-close framing. The
+    tunnel edge (cloudflared -> nginx) re-chunks large origin responses, so
+    chunked decoding is required for big bodies like a full session handoff."""
     head, _, rest = raw.partition(b"\r\n\r\n")
     head_text = head.decode("iso-8859-1", "replace")
     lines = head_text.split("\r\n")
@@ -330,6 +362,8 @@ def _parse_http_response(raw: bytes) -> HttpResponse:
             headers[k] = headers[k] + ", " + v  # naive multi-value join
         else:
             headers[k] = v
+    if "chunked" in headers.get("transfer-encoding", "").lower():
+        rest = _dechunk(rest)
     return HttpResponse(status=status, headers=headers, body=rest)
 
 
