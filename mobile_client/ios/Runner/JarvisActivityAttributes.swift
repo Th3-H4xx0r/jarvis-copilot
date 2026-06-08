@@ -23,6 +23,26 @@ struct JarvisActivityAttributes: ActivityAttributes {
         /// /api/devices (online only); the Apple Watch is folded in natively from
         /// WCSession since it relays through the phone rather than the server.
         var devices: [String] = []
+
+        // ── Coding mode ──────────────────────────────────────────────────────
+        // When voice is idle and there are live Claude Code sessions, the same
+        // activity flips to a fleet view (Scheme 4). When voice is active it
+        // stays "voice" and the fields above drive the (unchanged) voice UI.
+        /// "voice" (existing UI) or "coding" (the Claude Code fleet view).
+        var mode: String = "voice"
+        /// Up to ~4 spotlight sessions, each encoded "name\u{1f}state" where
+        /// state ∈ working|waiting|idle. Decoded by the widget.
+        var sessions: [String] = []
+        /// Total live sessions (may exceed sessions.count → drives "+N").
+        var sessionTotal: Int = 0
+        /// How many sessions are waiting on you (drives the header accent).
+        var waitingCount: Int = 0
+        /// 5-hour / weekly usage percent, 0–100 (-1 = unknown → render "—").
+        var usage5: Int = -1
+        var usageWeek: Int = -1
+        /// Short reset hints, e.g. "2h 10m" / "Mon" ("" = hide).
+        var usage5Resets: String = ""
+        var usageWeekResets: String = ""
     }
     var title: String = "JARVIS"
 }

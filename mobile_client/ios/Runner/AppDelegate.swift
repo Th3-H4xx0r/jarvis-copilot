@@ -288,6 +288,11 @@ import AppIntents
             // reusing the same path as the Siri StartVoiceIntent.
             UserDefaults.standard.set(true, forKey: "jc_pending_voice")
             fireStartVoiceIfPending()
+        case "coding":
+            // Coding Live Activity tap → just bring the app forward. (Switching
+            // to the Coding tab in-app is a follow-up; the important thing here is
+            // NOT to fall through to the pairing handler below.)
+            break
         default:
             forwardPairDeepLink(url)
         }
@@ -497,12 +502,22 @@ enum LiveActivityManager {
         // Safety clamp on strip width / payload (Dart already caps server devices
         // at 6; the watch can add one).
         if devices.count > 8 { devices = Array(devices.prefix(8)) }
+        var sessions = (args["sessions"] as? [String]) ?? []
+        if sessions.count > 4 { sessions = Array(sessions.prefix(4)) }
         return JarvisActivityAttributes.ContentState(
             state: (args["state"] as? String) ?? "idle",
             transcript: (args["transcript"] as? String) ?? "",
             activity: (args["activity"] as? String) ?? "",
             connected: (args["connected"] as? Bool) ?? true,
-            devices: devices
+            devices: devices,
+            mode: (args["mode"] as? String) ?? "voice",
+            sessions: sessions,
+            sessionTotal: (args["sessionTotal"] as? Int) ?? sessions.count,
+            waitingCount: (args["waitingCount"] as? Int) ?? 0,
+            usage5: (args["usage5"] as? Int) ?? -1,
+            usageWeek: (args["usageWeek"] as? Int) ?? -1,
+            usage5Resets: (args["usage5Resets"] as? String) ?? "",
+            usageWeekResets: (args["usageWeekResets"] as? String) ?? ""
         )
     }
 
@@ -515,8 +530,10 @@ enum LiveActivityManager {
         let content = ActivityContent(state: state, staleDate: nil)
         if let existing = Activity<JarvisActivityAttributes>.activities.first {
             Task { await existing.update(content) }
-        } else if state.state != "idle" {
-            // Only spin one up when something is actually happening.
+        } else if state.mode == "coding" || state.state != "idle" {
+            // Spin one up when something is happening: a live voice turn OR live
+            // coding sessions (the latter is the auto-launch path — the activity
+            // appears without the user ever opening the Voice screen).
             do {
                 _ = try Activity.request(
                     attributes: JarvisActivityAttributes(title: "JARVIS"), content: content)

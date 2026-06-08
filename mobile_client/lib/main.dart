@@ -4,6 +4,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'api/coding_sessions.dart';
+import 'live_activity/live_activity_coordinator.dart';
 import 'nav.dart';
 import 'pages/pair_page.dart';
 import 'services/api_client.dart';
@@ -32,6 +34,9 @@ late final PushHandler push;
 late final WakeService wake;
 late final BackgroundLocation location;
 late final ConnectionMonitor connectionMonitor;
+/// Single owner of the iOS Live Activity (voice + coding fleet). Also reachable
+/// via `LiveActivityCoordinator.instance` from VoiceController.
+late final LiveActivityCoordinator liveActivityCoordinator;
 
 /// The ONE voice session for the whole app. VoicePage references this singleton
 /// instead of creating its own, so there can only ever be a single live session
@@ -129,6 +134,12 @@ Future<void> main() async {
   // Notify the user when the bridge drops / restores its server connection.
   connectionMonitor = ConnectionMonitor(ws.connected)..start();
 
+  // Single Live Activity owner. start() begins the app-wide coding-sessions
+  // poll (gated by the settings toggle) so the Lock Screen / Dynamic Island
+  // auto-shows live sessions without the user opening Voice first.
+  liveActivityCoordinator = LiveActivityCoordinator(CodingSessionsApi(api))
+    ..start();
+
   // Siri intent / Control Center / Lock-screen widget → native sets a pending
   // flag and nudges us via `startVoice`. We PULL the flag from native (on the
   // nudge AND once at startup) rather than trusting the nudge alone, so a cold
@@ -208,6 +219,8 @@ class _JarvisCopilotAppState extends State<JarvisCopilotApp>
       // Run any foreground-required actions we deferred while backgrounded (the
       // user tapped the "tap to run" notification, or just reopened the app).
       unawaited(_runPendingForegroundActions());
+      // Refresh the Live Activity's coding fleet on resume.
+      liveActivityCoordinator.onResume();
     }
   }
 

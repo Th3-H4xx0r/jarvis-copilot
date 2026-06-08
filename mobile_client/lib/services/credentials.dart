@@ -36,6 +36,8 @@ class Credentials {
   bool allowShell = false;
   // Opt-in background location history + connection keep-alive.
   bool trackLocation = false;
+  // Show coding sessions on the Lock Screen / Dynamic Island (default on).
+  bool liveActivitiesEnabled = true;
   Set<String> skillsDisabled = {};
   String? pushToken;
 
@@ -51,6 +53,8 @@ class Credentials {
     cfClientSecret = await _store.read(key: 'cf_client_secret');
     allowShell = (await _store.read(key: 'allow_shell')) == '1';
     trackLocation = (await _store.read(key: 'track_location')) == '1';
+    // Default-on: a missing key means enabled (only an explicit '0' disables).
+    liveActivitiesEnabled = (await _store.read(key: 'live_activities')) != '0';
     final raw = await _store.read(key: 'skills_disabled');
     if (raw != null && raw.isNotEmpty) {
       try {
@@ -118,6 +122,11 @@ class Credentials {
   Future<void> saveTrackLocation(bool value) async {
     trackLocation = value;
     await _store.write(key: 'track_location', value: value ? '1' : '0');
+  }
+
+  Future<void> saveLiveActivities(bool value) async {
+    liveActivitiesEnabled = value;
+    await _store.write(key: 'live_activities', value: value ? '1' : '0');
   }
 
   Future<void> saveAllowShell(bool value) async {

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show MethodChannel, PlatformException;
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -10,6 +10,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../api/devices.dart';
 import '../api/sessions.dart';
 import '../api/voice.dart';
+import '../live_activity/live_activity_coordinator.dart';
 import '../main.dart' as app; // for ws.connected (Live Activity footer)
 import '../services/api_client.dart';
 import 'audio_queue.dart';
@@ -157,7 +158,10 @@ class VoiceController extends ChangeNotifier {
       _laDevices = devicesKey;
       _laSent = true;
       _lastLAPush = DateTime.now();
-      LiveActivity.update(
+      // Report to the single Live Activity owner; it merges voice + coding and
+      // pushes the native channel (was a direct LiveActivity.update — having two
+      // independent pushers over one activity was the dueling-pusher bug class).
+      LiveActivityCoordinator.instance?.reportVoice(
         state: s,
         transcript: transcript,
         activity: activity,
@@ -972,26 +976,7 @@ String _plainSpeech(String text) {
   return s.trim();
 }
 
-/// Drives the iOS Dynamic Island / Lock Screen Live Activity. No-op on Android
-/// and pre-16.2 iOS — the native handler returns false / the channel isn't
-/// registered, and the error is swallowed. The activity is created on the first
-/// active [update] and persists (resting at idle) until dismissed.
-class LiveActivity {
-  static const _ch = MethodChannel('jarviscopilot/liveactivity');
-  static void update({
-    required String state,
-    String transcript = '',
-    String activity = '',
-    required bool connected,
-    List<String> devices = const [],
-  }) =>
-      unawaited(_ch.invokeMethod<void>('update', {
-        'state': state,
-        'transcript': transcript,
-        'activity': activity,
-        'connected': connected,
-        'devices': devices,
-      }).catchError((_) {}));
-  static void end() =>
-      unawaited(_ch.invokeMethod<void>('end').catchError((_) {}));
-}
+// The iOS Live Activity channel now lives in
+// `lib/live_activity/live_activity_coordinator.dart` (class `LiveActivity`),
+// owned by `LiveActivityCoordinator`. VoiceController reports its state to that
+// coordinator (see `_pushLiveActivity`) rather than pushing the channel here.

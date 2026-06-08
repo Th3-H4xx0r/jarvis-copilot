@@ -23,6 +23,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _allowShell = false;
   bool _paused = false;
   bool _trackLocation = false;
+  bool _liveActivities = true;
   Map<String, dynamic> _watchStatus = const {};
 
   @override
@@ -31,6 +32,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _allowShell = Credentials.instance.allowShell;
     _paused = app.runner.paused.value;
     _trackLocation = Credentials.instance.trackLocation;
+    _liveActivities = Credentials.instance.liveActivitiesEnabled;
     _loadWatchStatus();
   }
 
@@ -157,6 +159,18 @@ class _SettingsPageState extends State<SettingsPage> {
                   onChanged: (v) {
                     setState(() => _allowShell = v);
                     Credentials.instance.saveAllowShell(v);
+                  },
+                ),
+                _SwitchRow(
+                  icon: Icons.dynamic_feed_rounded,
+                  title: 'Live Activities',
+                  subtitle: 'Show coding sessions on the Lock Screen / Dynamic '
+                      'Island (iOS).',
+                  value: _liveActivities,
+                  onChanged: (v) {
+                    setState(() => _liveActivities = v);
+                    Credentials.instance.saveLiveActivities(v);
+                    app.liveActivityCoordinator.setEnabled(v);
                   },
                   last: true,
                 ),

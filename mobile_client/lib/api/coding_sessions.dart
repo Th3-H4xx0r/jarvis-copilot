@@ -23,6 +23,25 @@ class CodingSessionsApi {
         .toList(growable: false);
   }
 
+  /// GET /api/coding/sessions -> the sessions plus the account `usage` block
+  /// ({five_hour_pct, weekly_pct, ...}) used by the Live Activity rings.
+  /// `usage` is null when the server can't compute it.
+  Future<({List<CodingSession> sessions, Map<String, dynamic>? usage})>
+      listSessionsWithUsage() async {
+    final resp = await api.get('/api/coding/sessions');
+    final data = resp.data as Map?;
+    final raw = (data?['sessions'] as List?) ?? const [];
+    final sessions = raw
+        .whereType<Map>()
+        .map((m) => CodingSession.fromJson(Map<String, dynamic>.from(m)))
+        .toList(growable: false);
+    final u = data?['usage'];
+    return (
+      sessions: sessions,
+      usage: u is Map ? Map<String, dynamic>.from(u) : null,
+    );
+  }
+
   /// GET /api/coding/projects -> `{ projects: [...] }`
   Future<List<CodingProject>> listProjects() async {
     final resp = await api.get('/api/coding/projects');
