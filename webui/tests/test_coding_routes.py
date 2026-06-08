@@ -894,3 +894,12 @@ def test_get_sessions_usage_none_safe(monkeypatch):
     status, body = handle_coding_request("GET", "/sessions", None, manager=m)
     assert status == 200
     assert body["usage"] is None
+
+
+def test_get_usage_endpoint(monkeypatch):
+    import api.coding_routes as cr
+    monkeypatch.setattr(cr, "_coding_usage", lambda: {"five_hour_pct": 12, "weekly_pct": 3})
+    m = FakeManager()
+    status, body = handle_coding_request("GET", "/usage", None, manager=m)
+    assert status == 200
+    assert body["usage"] == {"five_hour_pct": 12, "weekly_pct": 3}

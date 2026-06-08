@@ -42,6 +42,13 @@ class CodingSessionsApi {
     );
   }
 
+  /// GET /api/coding/usage -> `{usage: {five_hour_pct, weekly_pct, ...}|null}`.
+  Future<Map<String, dynamic>?> getUsage() async {
+    final resp = await api.get('/api/coding/usage');
+    final u = (resp.data as Map?)?['usage'];
+    return u is Map ? Map<String, dynamic>.from(u) : null;
+  }
+
   /// GET /api/coding/projects -> `{ projects: [...] }`
   Future<List<CodingProject>> listProjects() async {
     final resp = await api.get('/api/coding/projects');

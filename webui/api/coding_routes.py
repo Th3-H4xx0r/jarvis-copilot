@@ -268,6 +268,12 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                                      "usage": _coding_usage()}))
         return _err(404, "not found")
 
+    # ── /usage ── (just the account usage block, for the Live Activity rings)
+    if p == "/usage":
+        if method == "GET":
+            return _run(lambda: _ok({"usage": _coding_usage()}))
+        return _err(404, "not found")
+
     # ── /launch ──
     if p == "/launch":
         if method == "POST":

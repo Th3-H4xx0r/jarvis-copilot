@@ -1171,3 +1171,47 @@ def test_scan_activity_state_none_on_capture_failure():
                                 clock=FakeClock(), home_dir=_EMPTY_HOME)
     rows = [s for s in agent.scan() if s["kind"] == "tmux"]
     assert rows and rows[0]["activity_state"] is None
+
+
+def test_scan_keeps_working_session_via_pane_content():
+    # While Claude runs a tool, pane_current_command is the TOOL (not 'claude'),
+    # so the command filter misses it — the pane content must still keep it.
+    proj = _real("work-tool")
+    listing = f"sess-x\t{proj}\tnode\t1717800000\n"   # command 'node', not jc-/claude
+    panes = {"sess-x": "● editing files…\n✻ Running… (esc to interrupt)"}
+
+    def runner(argv):
+        if argv[:2] == ["tmux", "list-sessions"]:
+            return 0, listing, ""
+        if argv[:2] == ["tmux", "capture-pane"]:
+            return 0, panes.get(argv[4], ""), ""
+        return 1, "", ""
+
+    agent = CodingDiscoverAgent(send=lambda f: None, runner=runner,
+                                clock=FakeClock(), home_dir=_EMPTY_HOME)
+    rows = [s for s in agent.scan() if s["kind"] == "tmux"]
+    assert [r["tmux_name"] for r in rows] == ["sess-x"]
+    assert rows[0]["activity_state"] == "working"
+
+
+def test_known_claude_session_kept_when_pane_loses_markers():
+    # Once known to be Claude, a later scan whose pane shows only tool output
+    # (no Claude markers) must STILL keep it — don't flicker out mid-tool.
+    proj = _real("known-keep")
+    listing = f"sess-y\t{proj}\tnode\t1717800000\n"
+    state = {"pane": "? for shortcuts\n> "}  # 1st scan: idle Claude footer
+
+    def runner(argv):
+        if argv[:2] == ["tmux", "list-sessions"]:
+            return 0, listing, ""
+        if argv[:2] == ["tmux", "capture-pane"]:
+            return 0, state["pane"], ""
+        return 1, "", ""
+
+    agent = CodingDiscoverAgent(send=lambda f: None, runner=runner,
+                                clock=FakeClock(), home_dir=_EMPTY_HOME)
+    first = [s["tmux_name"] for s in agent.scan() if s["kind"] == "tmux"]
+    assert first == ["sess-y"]  # recognized via pane content
+    state["pane"] = "npm test\nlots of output...\nPASS"  # Claude UI scrolled away
+    second = [s["tmux_name"] for s in agent.scan() if s["kind"] == "tmux"]
+    assert second == ["sess-y"]  # still kept via the known-claude set

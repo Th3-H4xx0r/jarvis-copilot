@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/services.dart';
 
@@ -124,8 +125,9 @@ class LiveActivityCoordinator {
   Future<void> _refreshCoding() async {
     if (!Credentials.instance.isPaired) return; // nothing to fetch yet
     try {
-      final res = await _api.listSessionsWithUsage();
-      _applyCoding(res.sessions, res.usage);
+      final view = await _api.listProjectsExpanded();
+      final usage = await _api.getUsage();
+      _applyFleet(view, usage);
       _push();
     } catch (_) {
       // transient — keep the last snapshot, retry next tick
@@ -143,20 +145,48 @@ class LiveActivityCoordinator {
     }
   }
 
-  void _applyCoding(List<CodingSession> all, Map<String, dynamic>? usage) {
-    final live =
-        all.where((s) => s.isLive && !s.isTranscriptIdle).toList(growable: false)
-          ..sort((a, b) {
-            final pa = _statePriority(a.liveState);
-            final pb = _statePriority(b.liveState);
-            if (pa != pb) return pa - pb;
-            return b.recencyTs.compareTo(a.recencyTs); // newer first within a tier
-          });
-    _sessionTotal = live.length;
-    _waitingCount = live.where((s) => s.liveState == 'waiting').length;
-    _sessions = live
+  void _applyFleet(CodingProjectsView view, Map<String, dynamic>? usage) {
+    // One legend row per PROJECT (aggregate state), labeled by the project name
+    // (a repo/folder) — NOT the session title, which can be a transcript
+    // artifact like "<local-command-stdout>". Ungrouped sessions fall back to
+    // their folder name.
+    final entries = <({String label, String state, double recency})>[];
+    var total = 0;
+    var waiting = 0;
+    for (final p in view.projects) {
+      final live = p.sessions
+          .where((s) => s.isLive && !s.isTranscriptIdle)
+          .toList(growable: false);
+      if (live.isEmpty) continue;
+      total += live.length;
+      waiting += live.where((s) => s.liveState == 'waiting').length;
+      entries.add((
+        label: p.name,
+        state: _aggregateState(live),
+        recency: live.map((s) => s.recencyTs).reduce(max),
+      ));
+    }
+    for (final s
+        in view.ungrouped.where((s) => s.isLive && !s.isTranscriptIdle)) {
+      total += 1;
+      if (s.liveState == 'waiting') waiting += 1;
+      entries.add((
+        label: _folderName(s),
+        state: s.liveState,
+        recency: s.recencyTs,
+      ));
+    }
+    entries.sort((a, b) {
+      final pa = _statePriority(a.state);
+      final pb = _statePriority(b.state);
+      if (pa != pb) return pa - pb;
+      return b.recency.compareTo(a.recency); // newer first within a tier
+    });
+    _sessionTotal = total;
+    _waitingCount = waiting;
+    _sessions = entries
         .take(4)
-        .map((s) => '${_sanitize(s.displayTitle)}\u{1f}${s.liveState}')
+        .map((e) => '${_sanitize(e.label)}\u{1f}${e.state}')
         .toList(growable: false);
     if (usage != null) {
       _usage5 = _asInt(usage['five_hour_pct'], -1);
@@ -164,6 +194,21 @@ class LiveActivityCoordinator {
       _usage5Resets = (usage['five_hour_resets'] ?? '').toString();
       _usageWeekResets = (usage['weekly_resets'] ?? '').toString();
     }
+  }
+
+  static String _aggregateState(List<CodingSession> live) {
+    if (live.any((s) => s.liveState == 'waiting')) return 'waiting';
+    if (live.any((s) => s.liveState == 'working')) return 'working';
+    return 'idle';
+  }
+
+  static String _folderName(CodingSession s) {
+    final cwd = (s.cwd ?? '').trim();
+    if (cwd.isNotEmpty) {
+      final base = cwd.replaceAll(RegExp(r'/+$'), '').split('/').last;
+      if (base.isNotEmpty) return base;
+    }
+    return 'session';
   }
 
   // ── push ──

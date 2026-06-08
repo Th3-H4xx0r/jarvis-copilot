@@ -155,6 +155,35 @@ def classify_pane(text: str) -> str:
     return "idle"
 
 
+# Distinctive Claude Code TUI strings. A tmux session whose pane contains any of
+# these IS a Claude session even when ``pane_current_command`` is NOT "claude"
+# (e.g. Claude is mid-tool, so the pane's foreground process is the tool, or the
+# session was started by full path). Used to keep working sessions from
+# vanishing from discovery while a tool runs.
+_CLAUDE_PANE_MARKERS = (
+    "esc to interrupt",
+    "esc to stop",
+    "for shortcuts",          # the idle footer "? for shortcuts"
+    "auto-compact",           # "Context left until auto-compact"
+    "bypassing permissions",
+    "accept edits on",        # the "⏵⏵ accept edits on" mode line
+    "welcome to claude",
+    "/help for help",
+)
+
+# Cap pane-probes of NON-command-matched sessions per scan (claude/jc- sessions
+# are always captured for classification; this only bounds probing other shells).
+_MAX_PANE_PROBES = 24
+
+
+def is_claude_pane(text: str) -> bool:
+    """True if a captured pane looks like a live Claude Code TUI."""
+    if not text:
+        return False
+    low = text.lower()
+    return any(m in low for m in _CLAUDE_PANE_MARKERS)
+
+
 def parse_tmux_list(stdout: str) -> list:
     """Parse ``tmux list-sessions -F '...'`` output (see ``_TMUX_FORMAT``).
 
@@ -712,6 +741,10 @@ class CodingDiscoverAgent:
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        # tmux_names confirmed (by command or pane content) to be Claude sessions
+        # in the last scan — so a session mid-tool-run (whose pane scrolled the
+        # Claude UI away) is still kept rather than flickering out of discovery.
+        self._known_claude: set = set()
         self._last_hash: Optional[str] = None
         self._last_push_at: float = 0.0
         # In-flight coding_transcript_put streams: req_id -> accumulator.
@@ -991,21 +1024,28 @@ class CodingDiscoverAgent:
         _enrich_tmux_with_csids(tmux_sessions, transcripts)
         return tmux_sessions + transcripts
 
-    def _classify_tmux(self, tmux_name: str) -> Optional[str]:
-        """Capture the session's pane and classify it (working/waiting/idle), or
-        ``None`` on any failure (the server treats None as "unknown", never a
-        spurious state). Never raises — discovery must degrade gracefully."""
+    def _capture(self, tmux_name: str) -> Optional[str]:
+        """The session's pane text, or ``None`` on any failure. Never raises —
+        discovery must degrade gracefully."""
         try:
             rc, out, _err = self._run(tmux_capture_argv(tmux_name))
         except Exception:  # noqa: BLE001 — discovery must never raise
             return None
         if rc not in (0, None):
             return None
-        return classify_pane(out)
+        return out
 
     def _scan_tmux(self) -> list:
-        """Live tmux ``claude`` / ``jc-*`` sessions in the wire shape; ``[]`` on
-        any error (no tmux, non-zero rc, parse failure)."""
+        """Live Claude Code tmux sessions in the wire shape; ``[]`` on any error.
+
+        A session is kept if its ``pane_current_command`` is ``claude`` / its
+        tmux name is ``jc-*``, OR it was a known-Claude session last scan, OR its
+        pane content looks like Claude's TUI. The last two matter because while
+        Claude runs a tool the pane's foreground process is the TOOL, not
+        ``claude`` — without them a working session would flicker out of
+        discovery (and get reconciled to "stopped"). Hidden / nonexistent cwds
+        are dropped. The captured pane doubles as the ``activity_state`` source.
+        """
         try:
             rc, out, _err = self._run(tmux_list_argv())
         except Exception as exc:  # noqa: BLE001
@@ -1019,21 +1059,38 @@ class CodingDiscoverAgent:
         except Exception as exc:  # noqa: BLE001
             log.debug("coding_discover parse failed: %s", exc)
             return []
-        # Keep claude/jc- sessions, but only surface REAL work: drop any whose
-        # cwd is hidden (dot-prefixed) or not an existing directory (throwaway /
-        # junk sessions). The command-vs-coding check runs first so non-coding
-        # sessions aren't even cwd-checked.
+        known = self._known_claude
+        new_known: set = set()
         kept: list = []
         filtered = 0
+        probes = 0
         for s in parsed:
-            if not _is_coding_session(s):
-                continue
             if not _cwd_is_visible_dir(str(s.get("cwd") or "")):
-                filtered += 1
+                if _is_coding_session(s):
+                    filtered += 1
                 continue
+            tmux_name = str(s.get("tmux_name") or "")
+            is_claude = _is_coding_session(s) or (tmux_name in known)
+            pane: Optional[str] = None
+            if is_claude:
+                pane = self._capture(tmux_name)  # for activity_state
+            elif probes < _MAX_PANE_PROBES:
+                # Command isn't claude and it wasn't known — probe the pane to
+                # see if it's actually a Claude session before dropping it.
+                probes += 1
+                pane = self._capture(tmux_name)
+                if is_claude_pane(pane or ""):
+                    is_claude = True
+            if not is_claude:
+                continue
+            new_known.add(tmux_name)
             wire = _to_wire(s)
-            wire["activity_state"] = self._classify_tmux(wire["tmux_name"])
+            # None (capture failed) → "unknown", which the server leaves alone;
+            # never overwrite a known state with a guessed idle.
+            wire["activity_state"] = classify_pane(pane) if pane is not None else None
             kept.append(wire)
+        with self._lock:
+            self._known_claude = new_known
         if filtered:
             log.debug("coding_discover: filtered %d tmux session(s) with "
                       "hidden/nonexistent cwd", filtered)
