@@ -875,3 +875,22 @@ def test_resume_discovered_row_without_csid_400(monkeypatch):
         "POST", "/session/sess-tmux/resume", {}, manager=m)
     assert status == 400
     assert "claude_session_id" in body["error"]
+
+
+def test_get_sessions_includes_usage(monkeypatch):
+    import api.coding_routes as cr
+    monkeypatch.setattr(cr, "_coding_usage",
+                        lambda: {"five_hour_pct": 47, "weekly_pct": 23})
+    m = FakeManager()
+    status, body = handle_coding_request("GET", "/sessions", None, manager=m)
+    assert status == 200
+    assert body["usage"] == {"five_hour_pct": 47, "weekly_pct": 23}
+
+
+def test_get_sessions_usage_none_safe(monkeypatch):
+    import api.coding_routes as cr
+    monkeypatch.setattr(cr, "_coding_usage", lambda: None)
+    m = FakeManager()
+    status, body = handle_coding_request("GET", "/sessions", None, manager=m)
+    assert status == 200
+    assert body["usage"] is None

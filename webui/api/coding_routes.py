@@ -14,7 +14,8 @@ Contract (``<path>`` is what follows ``/api/coding``)::
     GET  /projects                      -> 200 {"projects": [...]}
     POST /projects {name, repo_path,
                     default_branch?}     -> 200 {"ok": True, "project_id": id}
-    GET  /sessions [?status=]            -> 200 {"sessions": [...]}
+    GET  /sessions [?status=]            -> 200 {"sessions": [...],
+                                                 "usage": {...}|None}
     POST /launch {cwd?, repo_path?,
                   worktree?, title?,
                   prompt?, model?}       -> 200 {"ok": True, "session": {...}}
@@ -34,6 +35,16 @@ from urllib.parse import parse_qs, urlsplit
 CODING_PATH_PREFIX = "/api/coding"
 
 _MANAGERS: dict = {}
+
+
+def _coding_usage():
+    """Best-effort {five_hour_pct, weekly_pct, ...} for the usage rings, or None.
+    Never raises (so a usage hiccup can't break the sessions list)."""
+    try:
+        from agent.coding_usage import get_usage
+        return get_usage()
+    except Exception:
+        return None
 
 
 def default_manager(host: str = "server"):
@@ -253,7 +264,8 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
     if p == "/sessions":
         if method == "GET":
             status = query.get("status") or None
-            return _run(lambda: _ok({"sessions": manager.list(status=status)}))
+            return _run(lambda: _ok({"sessions": manager.list(status=status),
+                                     "usage": _coding_usage()}))
         return _err(404, "not found")
 
     # ── /launch ──
