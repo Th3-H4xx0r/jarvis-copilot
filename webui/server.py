@@ -519,6 +519,18 @@ def main() -> None:
     except Exception as e:
         print(f'[!!] WARNING: Gateway watcher failed to start: {e}', flush=True)
 
+    # Start the coding-session activity-state poll loop: classifies each live
+    # server-host session's tmux pane (working/waiting/idle) into the DB so the
+    # Web UI, mobile, and the iOS Live Activity see live status. Desktop-host
+    # sessions are classified Mac-side and reported via the discovery push.
+    _coding_status_stop = None
+    try:
+        from agent.coding_status_loop import start_status_loop
+        from tools.coding_session_tool import _mgr
+        _coding_status_thread, _coding_status_stop = start_status_loop(_mgr())
+    except Exception as e:
+        print(f'[!!] WARNING: Coding status loop failed to start: {e}', flush=True)
+
     httpd = QuietHTTPServer((HOST, PORT), Handler)
 
     # ── TLS/HTTPS setup (optional) ─────────────────────────────────────────
@@ -550,6 +562,12 @@ def main() -> None:
             stop_watcher()
         except Exception:
             logger.debug("Failed to stop gateway watcher during shutdown")
+        # Stop the coding status loop on shutdown
+        try:
+            if _coding_status_stop is not None:
+                _coding_status_stop.set()
+        except Exception:
+            logger.debug("Failed to stop coding status loop during shutdown")
 
 if __name__ == '__main__':
     main()

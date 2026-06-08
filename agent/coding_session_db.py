@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS coding_sessions (
   claude_session_id TEXT, status TEXT NOT NULL DEFAULT 'starting',
   title TEXT, source TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
   last_activity_at REAL, skip_permissions INTEGER NOT NULL DEFAULT 0,
-  sync_config TEXT
+  sync_config TEXT, activity_state TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON coding_sessions(status);
 """
@@ -80,6 +80,10 @@ class CodingSessionStore:
                 # Projects are keyed per (repo_path, device_id) so the same repo
                 # on different paired devices stays distinct.
                 "ALTER TABLE coding_projects ADD COLUMN device_id TEXT",
+                # Live "activity state" of a running session (working | waiting |
+                # idle), detected from the tmux pane. Separate from the lifecycle
+                # `status` column so it never breaks running/stopped/error.
+                "ALTER TABLE coding_sessions ADD COLUMN activity_state TEXT",
             ):
                 try:
                     c.execute(ddl)
@@ -148,7 +152,8 @@ class CodingSessionStore:
         allowed = {"status", "claude_session_id", "title", "tmux_name",
                    "worktree_path", "branch", "last_activity_at",
                    "skip_permissions", "sync_config", "cwd",
-                   "device_id", "external", "project_id", "source"}
+                   "device_id", "external", "project_id", "source",
+                   "activity_state"}
         sets = {k: v for k, v in fields.items() if k in allowed}
         if "status" in sets and sets["status"] not in VALID_STATUSES:
             raise ValueError(f"invalid status: {sets['status']!r}")

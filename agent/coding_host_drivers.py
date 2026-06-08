@@ -171,6 +171,25 @@ class LocalDriver(HostDriver):
     def kill_argv(self, *, tmux_name: str) -> list[str]:
         return ["tmux", "kill-session", "-t", tmux_name]
 
+    def capture_pane_argv(self, *, tmux_name: str, lines: int = 80) -> list[str]:
+        """argv to print the last ``lines`` rows of a tmux pane to stdout.
+
+        Used by the server-host status poll loop to classify the live session
+        (working / waiting / idle). ``-p`` prints to stdout; ``-S -<lines>``
+        includes that many scrollback rows so a permission prompt that scrolled
+        up a line is still seen.
+        """
+        return ["tmux", "capture-pane", "-p", "-t", tmux_name, "-S", f"-{lines}"]
+
+    def capture_pane(self, *, tmux_name: str, lines: int = 80) -> str:
+        """Captured pane text, or ``""`` on any failure (the caller treats an
+        empty capture as idle, never crashing the poll loop)."""
+        try:
+            res = self._run(self.capture_pane_argv(tmux_name=tmux_name, lines=lines))
+            return res.stdout or ""
+        except Exception:
+            return ""
+
     def preflight(self) -> str | None:
         """Ensure the host can run a session. Auto-installs tmux if missing.
 

@@ -281,3 +281,18 @@ def test_migration_dedupes_preexisting_duplicate_projects(tmp_path):
     assert s.get_session("cs_legacy")["project_id"] is None  # legacy intact
     # and get_or_create now reuses the surviving project
     assert s.get_or_create_project_for_path(repo_path="/x/foo") == "cp_old"
+
+
+def test_activity_state_round_trips(tmp_path):
+    s = _store(str(tmp_path))
+    sid = s.create_session(project_id=None, host="server", cwd="/r", branch=None,
+                           tmux_name="jc-x", source="chat", title="t")
+    # default is NULL until the detector writes one
+    assert s.get_session(sid)["activity_state"] is None
+    s.update_session(sid, activity_state="working")
+    assert s.get_session(sid)["activity_state"] == "working"
+    s.update_session(sid, activity_state="waiting")
+    assert s.get_session(sid)["activity_state"] == "waiting"
+    # clearing it (offline) is allowed
+    s.update_session(sid, activity_state=None)
+    assert s.get_session(sid)["activity_state"] is None

@@ -169,3 +169,25 @@ def test_desktop_driver_preflight_delegates():
     assert d.preflight() is None
     d2 = DesktopDriver(preflight_fn=lambda: "no tmux on your Mac")
     assert d2.preflight() == "no tmux on your Mac"
+
+
+def test_capture_pane_argv_shape():
+    d = LocalDriver()
+    assert d.capture_pane_argv(tmux_name="jc-abc", lines=80) == [
+        "tmux", "capture-pane", "-p", "-t", "jc-abc", "-S", "-80"]
+
+
+def test_capture_pane_returns_stdout():
+    import types
+    d = LocalDriver()
+    d._run = lambda a: types.SimpleNamespace(
+        stdout="✻ Running… (esc to interrupt)", stderr="", returncode=0)
+    assert "esc to interrupt" in d.capture_pane(tmux_name="jc-abc")
+
+
+def test_capture_pane_swallows_errors():
+    d = LocalDriver()
+    def _boom(a):
+        raise RuntimeError("no tmux")
+    d._run = _boom
+    assert d.capture_pane(tmux_name="jc-x") == ""
