@@ -768,8 +768,8 @@ class _LightMarkdown extends StatelessWidget {
         h1: _body.copyWith(fontSize: 19, fontWeight: FontWeight.w700),
         h2: _body.copyWith(fontSize: 17, fontWeight: FontWeight.w700),
         h3: _body.copyWith(fontSize: 15.5, fontWeight: FontWeight.w700),
-        blockquoteDecoration: BoxDecoration(
-          border: const Border(
+        blockquoteDecoration: const BoxDecoration(
+          border: Border(
             left: BorderSide(color: JcTheme.primaryBlue, width: 3),
           ),
           color: JcTheme.glassFill,
