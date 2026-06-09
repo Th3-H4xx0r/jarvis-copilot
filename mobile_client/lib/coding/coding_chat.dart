@@ -225,7 +225,7 @@ class _CodingChatViewState extends State<CodingChatView> {
   Future<void> _openPromptSheet(CodingPromptState p) async {
     if (_promptOpen || !mounted) return;
     _promptOpen = true;
-    final answered = await showModalBottomSheet<bool>(
+    await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -237,31 +237,57 @@ class _CodingChatViewState extends State<CodingChatView> {
     );
     _promptOpen = false;
     if (!mounted) return;
-    if (answered != true) {
-      setState(() => _dismissedPromptSig = p.signature);
-    }
+    // Remember this prompt whether it was ANSWERED or dismissed: the activity
+    // scan takes a few seconds to flip out of "waiting", and re-popping the
+    // sheet the user just acted on is the glitch this guards against. The
+    // banner stays tappable; a NEW prompt (different signature) still pops.
+    setState(() => _dismissedPromptSig = p.signature);
     // Answering usually flips the state quickly — refresh soon either way.
     _fetch();
   }
 
   // ── Input (through the SAME path the terminal uses) ─────────────
   /// Raw byte sequence straight to the PTY (option keys, Esc, Enter).
-  void _sendRaw(String seq) {
+  /// Returns whether it actually reached the server.
+  Future<bool> _sendRaw(String seq) async {
     HapticFeedback.selectionClick();
-    widget.controller.sendTerminalInput(seq);
+    final ok = await widget.controller.sendTerminalInput(seq);
+    if (!ok) _sendFailedNote();
+    return ok;
   }
 
   /// Free-text message: the text bytes, then Enter (`\r`) a beat later so the
   /// TUI registers it as typed input + submit.
-  Future<void> _sendText(String text) async {
-    if (text.isEmpty) return;
-    widget.controller.sendTerminalInput(text);
+  Future<bool> _sendText(String text) async {
+    if (text.isEmpty) return false;
+    final ok = await widget.controller.sendTerminalInput(text);
+    if (!ok) {
+      _sendFailedNote();
+      return false;
+    }
     await Future<void>.delayed(const Duration(milliseconds: 120));
-    widget.controller.sendTerminalInput('\r');
+    await widget.controller.sendTerminalInput('\r');
     // Pick the echo up quickly instead of waiting for the next tick.
     Future<void>.delayed(const Duration(milliseconds: 700), () {
       if (mounted) _fetch();
     });
+    return true;
+  }
+
+  void _sendFailedNote() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      backgroundColor: JcTheme.surface,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: JcTheme.glassBorder),
+      ),
+      content: const Text(
+        "Couldn't reach the session — check the Terminal view.",
+        style: TextStyle(color: JcTheme.text, fontSize: 13),
+      ),
+    ));
   }
 
   void _sendComposer() {
@@ -371,6 +397,7 @@ class _CodingChatViewState extends State<CodingChatView> {
         text: 'Nothing here yet — say something below.',
       );
     }
+    final working = _activityState == 'working';
     return RefreshIndicator(
       color: JcTheme.primaryBlueHi,
       backgroundColor: JcTheme.surface,
@@ -379,12 +406,23 @@ class _CodingChatViewState extends State<CodingChatView> {
         controller: _scroll,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-        itemCount: _messages.length,
+        // While Claude is working, a typing-style "thinking" indicator rides
+        // at the end of the list.
+        itemCount: _messages.length + (working ? 1 : 0),
         itemBuilder: (context, idx) {
+          if (idx >= _messages.length) {
+            return const _FadeIn(
+              key: ValueKey('thinking'),
+              child: _ThinkingBubble(),
+            );
+          }
           final m = _messages[idx];
+          // A tool on the LAST assistant message with no result yet is still
+          // RUNNING while the session works — its card gets a live spinner.
+          final live = working && idx == _messages.length - 1;
           return _FadeIn(
             key: ValueKey('msg-${m.i}'),
-            child: _MessageTile(message: m),
+            child: _MessageTile(message: m, toolsRunning: live),
           );
         },
       ),
@@ -536,8 +574,12 @@ class _FadeInState extends State<_FadeIn> with SingleTickerProviderStateMixin {
 
 // ── Message tile ──────────────────────────────────────────────────
 class _MessageTile extends StatelessWidget {
-  const _MessageTile({required this.message});
+  const _MessageTile({required this.message, this.toolsRunning = false});
   final CodingChatMessage message;
+
+  /// True when this is the last message of a WORKING session — its tools that
+  /// have no result yet are still executing and render a live spinner.
+  final bool toolsRunning;
 
   @override
   Widget build(BuildContext context) {
@@ -592,7 +634,10 @@ class _MessageTile extends StatelessWidget {
           for (final t in m.tools)
             Padding(
               padding: const EdgeInsets.only(top: 6, right: 24),
-              child: _ToolCard(tool: t),
+              child: _ToolCard(
+                tool: t,
+                running: toolsRunning && t.output.trim().isEmpty,
+              ),
             ),
           _Timestamp(ts: m.ts, alignEnd: false),
         ],
@@ -695,8 +740,9 @@ class _LightMarkdown extends StatelessWidget {
 
 // ── Tool-use card (compact, collapsible) ──────────────────────────
 class _ToolCard extends StatefulWidget {
-  const _ToolCard({required this.tool});
+  const _ToolCard({required this.tool, this.running = false});
   final CodingChatTool tool;
+  final bool running;
 
   @override
   State<_ToolCard> createState() => _ToolCardState();
@@ -728,11 +774,21 @@ class _ToolCardState extends State<_ToolCard> {
                 padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
                 child: Row(
                   children: [
-                    Icon(
-                      ok ? Icons.build_circle_outlined : Icons.error_outline_rounded,
-                      size: 16,
-                      color: ok ? JcTheme.cyan : JcTheme.danger,
-                    ),
+                    if (widget.running)
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.8,
+                          color: Color(0xFF34D399),
+                        ),
+                      )
+                    else
+                      Icon(
+                        ok ? Icons.build_circle_outlined : Icons.error_outline_rounded,
+                        size: 16,
+                        color: ok ? JcTheme.cyan : JcTheme.danger,
+                      ),
                     const SizedBox(width: 8),
                     Text(
                       t.name,
@@ -890,6 +946,11 @@ class _ChatInputBar extends StatelessWidget {
 /// button each (sends just the option's KEY — no newline); otherwise the raw
 /// pane tail is shown monospace with Esc / Enter controls. A free-text field
 /// is always available (text + `\r`).
+///
+/// Every action AWAITS delivery: the tapped control shows a spinner, the
+/// sheet only closes once the keys actually reached the server, and a failed
+/// send keeps it open with an inline error (the old fire-and-forget version
+/// closed instantly and the unanswered prompt re-popped — the glitch).
 class _PromptSheet extends StatefulWidget {
   const _PromptSheet({
     required this.prompt,
@@ -898,15 +959,19 @@ class _PromptSheet extends StatefulWidget {
   });
 
   final CodingPromptState prompt;
-  final void Function(String seq) onSendKey;
-  final Future<void> Function(String text) onSendText;
+  final Future<bool> Function(String seq) onSendKey;
+  final Future<bool> Function(String text) onSendText;
 
   @override
   State<_PromptSheet> createState() => _PromptSheetState();
 }
 
 class _PromptSheetState extends State<_PromptSheet> {
+  static const _purple = Color(0xFFC084FC);
+
   final _text = TextEditingController();
+  String? _pending; // the action currently being delivered (option key/esc/…)
+  bool _failed = false;
 
   @override
   void dispose() {
@@ -914,26 +979,35 @@ class _PromptSheetState extends State<_PromptSheet> {
     super.dispose();
   }
 
-  void _answerKey(String key) {
-    widget.onSendKey(key); // just the key — NO newline
-    Navigator.of(context).pop(true);
+  Future<void> _deliver(String tag, Future<bool> Function() send) async {
+    if (_pending != null) return;
+    setState(() {
+      _pending = tag;
+      _failed = false;
+    });
+    final ok = await send();
+    if (!mounted) return;
+    if (ok) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() {
+        _pending = null;
+        _failed = true;
+      });
+    }
   }
 
-  void _esc() {
-    widget.onSendKey('\x1b');
-    Navigator.of(context).pop(true);
-  }
+  void _answerKey(String key) =>
+      _deliver(key, () => widget.onSendKey(key)); // just the key — NO newline
 
-  void _enter() {
-    widget.onSendKey('\r');
-    Navigator.of(context).pop(true);
-  }
+  void _esc() => _deliver('esc', () => widget.onSendKey('\x1b'));
+
+  void _enter() => _deliver('enter', () => widget.onSendKey('\r'));
 
   void _sendFree() {
     final t = _text.text.trim();
     if (t.isEmpty) return;
-    widget.onSendText(t);
-    Navigator.of(context).pop(true);
+    _deliver('text', () => widget.onSendText(t));
   }
 
   @override
@@ -944,9 +1018,17 @@ class _PromptSheetState extends State<_PromptSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: JcTheme.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: JcTheme.glassBorder),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.45),
+              blurRadius: 30,
+              offset: const Offset(0, -8),
+            ),
+          ],
         ),
         constraints: BoxConstraints(
           maxHeight: MediaQuery.of(context).size.height * 0.8,
@@ -961,7 +1043,7 @@ class _PromptSheetState extends State<_PromptSheet> {
                 child: Container(
                   width: 40,
                   height: 4,
-                  margin: const EdgeInsets.only(bottom: 14),
+                  margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
                     color: JcTheme.muted.withValues(alpha: 0.4),
                     borderRadius: BorderRadius.circular(2),
@@ -969,25 +1051,53 @@ class _PromptSheetState extends State<_PromptSheet> {
                 ),
               ),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.help_outline_rounded,
-                      size: 18, color: Color(0xFFC084FC)),
-                  const SizedBox(width: 8),
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: _purple.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(12),
+                      border:
+                          Border.all(color: _purple.withValues(alpha: 0.35)),
+                    ),
+                    child: const Icon(Icons.touch_app_rounded,
+                        size: 19, color: _purple),
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
-                      (p.question ?? '').trim().isNotEmpty
-                          ? p.question!.trim()
-                          : 'Claude needs input',
-                      style: const TextStyle(
-                        color: JcTheme.text,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        height: 1.35,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'CLAUDE NEEDS YOUR INPUT',
+                          style: TextStyle(
+                            color: _purple.withValues(alpha: 0.9),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          (p.question ?? '').trim().isNotEmpty
+                              ? p.question!.trim()
+                              : 'Choose how to continue',
+                          style: const TextStyle(
+                            color: JcTheme.text,
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w700,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 14),
+              Container(height: 1, color: JcTheme.glassBorder),
               const SizedBox(height: 14),
               if (hasOptions) ...[
                 for (final o in p.options)
@@ -996,6 +1106,8 @@ class _PromptSheetState extends State<_PromptSheet> {
                     child: _OptionButton(
                       keyLabel: o.key,
                       label: o.label,
+                      pending: _pending == o.key,
+                      disabled: _pending != null && _pending != o.key,
                       onTap: () => _answerKey(o.key),
                     ),
                   ),
@@ -1024,27 +1136,48 @@ class _PromptSheetState extends State<_PromptSheet> {
                 children: [
                   Expanded(
                     child: GlassButton(
-                      label: 'Esc',
+                      label: _pending == 'esc' ? 'Sending…' : 'Esc',
                       icon: Icons.keyboard_return_rounded,
                       ghost: true,
                       full: true,
-                      onPressed: _esc,
+                      onPressed: _pending == null ? _esc : null,
                     ),
                   ),
                   if (!hasOptions) ...[
                     const SizedBox(width: 10),
                     Expanded(
                       child: GlassButton(
-                        label: 'Enter',
+                        label: _pending == 'enter' ? 'Sending…' : 'Enter',
                         icon: Icons.keyboard_double_arrow_right_rounded,
                         ghost: true,
                         full: true,
-                        onPressed: _enter,
+                        onPressed: _pending == null ? _enter : null,
                       ),
                     ),
                   ],
                 ],
               ),
+              if (_failed) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Icon(Icons.error_outline_rounded,
+                        size: 15, color: JcTheme.danger),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        "Couldn't reach the session — it may have detached. "
+                        'Try again or use the Terminal view.',
+                        style: TextStyle(
+                          color: JcTheme.danger.withValues(alpha: 0.95),
+                          fontSize: 12.5,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 14),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -1064,7 +1197,7 @@ class _PromptSheetState extends State<_PromptSheet> {
                   ),
                   const SizedBox(width: 10),
                   GestureDetector(
-                    onTap: _sendFree,
+                    onTap: _pending == null ? _sendFree : null,
                     child: Container(
                       width: 42,
                       height: 42,
@@ -1072,8 +1205,14 @@ class _PromptSheetState extends State<_PromptSheet> {
                         gradient: blueGradient(),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.arrow_upward,
-                          color: Colors.white, size: 20),
+                      child: _pending == 'text'
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.arrow_upward,
+                              color: Colors.white, size: 20),
                     ),
                   ),
                 ],
@@ -1086,69 +1225,176 @@ class _PromptSheetState extends State<_PromptSheet> {
   }
 }
 
-/// One structured prompt option: a numbered key chip + its label.
+/// One structured prompt option: a numbered key chip + its label, with a
+/// delivery spinner while its keypress is in flight.
 class _OptionButton extends StatelessWidget {
   const _OptionButton({
     required this.keyLabel,
     required this.label,
     required this.onTap,
+    this.pending = false,
+    this.disabled = false,
   });
 
   final String keyLabel;
   final String label;
   final VoidCallback onTap;
+  final bool pending;
+  final bool disabled;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
+    final dim = disabled ? 0.45 : 1.0;
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 150),
+      opacity: dim,
+      child: Material(
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: JcTheme.primaryBlue.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(14),
-            border:
-                Border.all(color: JcTheme.primaryBlue.withValues(alpha: 0.35)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 26,
-                height: 26,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: JcTheme.primaryBlue.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  keyLabel,
-                  style: const TextStyle(
-                    color: JcTheme.primaryBlueHi,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    fontFamily: 'Menlo',
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: (pending || disabled) ? null : onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: JcTheme.primaryBlue
+                  .withValues(alpha: pending ? 0.2 : 0.12),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                  color: JcTheme.primaryBlue.withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 26,
+                  height: 26,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: JcTheme.primaryBlue.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    keyLabel,
+                    style: const TextStyle(
+                      color: JcTheme.primaryBlueHi,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      fontFamily: 'Menlo',
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  label.isEmpty ? 'Option $keyLabel' : label,
-                  style: const TextStyle(
-                    color: JcTheme.text,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    label.isEmpty ? 'Option $keyLabel' : label,
+                    style: const TextStyle(
+                      color: JcTheme.text,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-              ),
-              const Icon(Icons.chevron_right_rounded,
-                  size: 18, color: JcTheme.muted),
-            ],
+                if (pending)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 1.8, color: JcTheme.primaryBlueHi),
+                  )
+                else
+                  const Icon(Icons.chevron_right_rounded,
+                      size: 18, color: JcTheme.muted),
+              ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── "Thinking" indicator (typing-style, shown while Claude works) ──
+class _ThinkingBubble extends StatefulWidget {
+  const _ThinkingBubble();
+
+  @override
+  State<_ThinkingBubble> createState() => _ThinkingBubbleState();
+}
+
+class _ThinkingBubbleState extends State<_ThinkingBubble>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const green = Color(0xFF34D399);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: BoxDecoration(
+              color: JcTheme.glassFill,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(5),
+                topRight: Radius.circular(16),
+                bottomLeft: Radius.circular(16),
+                bottomRight: Radius.circular(16),
+              ),
+              border: Border.all(color: JcTheme.glassBorder),
+            ),
+            child: AnimatedBuilder(
+              animation: _c,
+              builder: (context, _) {
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < 3; i++) ...[
+                      if (i > 0) const SizedBox(width: 5),
+                      _dot(((_c.value + 1 - i * 0.18) % 1.0)),
+                    ],
+                    const SizedBox(width: 10),
+                    Text(
+                      'Working…',
+                      style: TextStyle(
+                        color: green.withValues(alpha: 0.9),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// One pulsing dot: phase 0..1 → eased rise-and-fall of opacity + lift.
+  Widget _dot(double phase) {
+    final wave = (1 - (phase * 2 - 1).abs()).clamp(0.0, 1.0);
+    final eased = Curves.easeInOut.transform(wave);
+    return Transform.translate(
+      offset: Offset(0, -2.5 * eased),
+      child: Container(
+        width: 6,
+        height: 6,
+        decoration: BoxDecoration(
+          color: const Color(0xFF34D399)
+              .withValues(alpha: 0.35 + 0.65 * eased),
+          shape: BoxShape.circle,
         ),
       ),
     );

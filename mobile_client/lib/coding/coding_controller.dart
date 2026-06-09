@@ -768,11 +768,25 @@ class CodingSessionsController extends ChangeNotifier {
     }
   }
 
-  /// Send keystrokes from the xterm view to the PTY.
-  void sendTerminalInput(String data) {
+  /// Send keystrokes from the xterm view / chat prompt to the PTY.
+  ///
+  /// Returns whether the bytes actually reached the server. If the attach has
+  /// dropped (another device took over the single-viewer terminal, or the
+  /// stream closed), it RE-ATTACHES first instead of silently no-oping — the
+  /// old behavior made chat-mode prompt answers vanish into the void.
+  Future<bool> sendTerminalInput(String data) async {
+    if (data.isEmpty) return false;
+    if (_terminalId == null) {
+      await startTerminal();
+    }
     final id = _terminalId;
-    if (id == null || data.isEmpty) return;
-    _api.terminalInput(id, data).catchError((_) {});
+    if (id == null) return false;
+    try {
+      await _api.terminalInput(id, data);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Push the xterm view's dimensions to the PTY.
