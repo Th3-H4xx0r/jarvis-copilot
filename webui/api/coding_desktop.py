@@ -1653,7 +1653,8 @@ def resume_discovered_to_server(session_id: str, *, manager,
     # runaway duplication the user hit. Match by the resumed conversation (claude
     # session id, incl. the one recorded in sync_config.transcript) or, as a
     # deterministic fallback, the server mirror cwd.
-    existing = _existing_server_resume(store, claude_session_id)
+    existing = _existing_server_resume(store, claude_session_id,
+                                       device_cwd=device_cwd)
     if existing is not None:
         # retire the discovered origin so it stops offering "resume" for a session
         # that already lives on the server.
@@ -1717,18 +1718,23 @@ def resume_discovered_to_server(session_id: str, *, manager,
     return out
 
 
-def _existing_server_resume(store, claude_session_id: str):
+def _existing_server_resume(store, claude_session_id: str, device_cwd: str = ""):
     """A running/starting server session that already represents THIS resumed
-    conversation, or None. Matched ONLY by the original claude session id — the
-    column OR the one stashed in sync_config.transcript.csid (which survives even
-    when `claude --resume` mints a fresh uuid). We deliberately do NOT fall back to
-    matching the server cwd: two unrelated Mac folders that share a basename
-    collapse to the same server cwd, so a cwd match could alias (and silently drop)
-    a DIFFERENT conversation — and it would also block legitimately wanting a second
-    session in the same project."""
+    origin, or None — so a repeated "Resume on server" REUSES it instead of
+    spawning another dead/dup session.
+
+    Primary key is the STABLE ``device_cwd`` (the Mac folder this resume mirrors,
+    stored in sync_config.transcript.device_cwd): one server session per Mac
+    folder. This survives csid churn — a discovered-tmux row's claude_session_id
+    is stamped with the cwd's NEWEST transcript uuid, which changes every time the
+    user re-runs claude there, so a csid-only key missed the twin and launched a
+    new session every click (the runaway loop). The csid (column OR
+    transcript.csid) is kept as a fast path. We no longer fall back to the SERVER
+    cwd (two Mac folders sharing a basename collapse to one server cwd)."""
     import json as _json
     csid = (claude_session_id or "").strip()
-    if not csid:
+    dcwd = (device_cwd or "").strip()
+    if not csid and not dcwd:
         return None
     try:
         rows = store.list_sessions() or []
@@ -1739,16 +1745,19 @@ def _existing_server_resume(store, claude_session_id: str):
             continue
         if (s.get("status") or "") not in ("running", "starting", "idle"):
             continue
-        if (s.get("claude_session_id") or "") == csid:
+        if csid and (s.get("claude_session_id") or "") == csid:
             return s
         raw = (s.get("sync_config") or "").strip()
-        if raw:
-            try:
-                tr = (_json.loads(raw) or {}).get("transcript") or {}
-                if (tr.get("csid") or "") == csid:
-                    return s
-            except Exception:  # noqa: BLE001
-                pass
+        if not raw:
+            continue
+        try:
+            tr = (_json.loads(raw) or {}).get("transcript") or {}
+        except Exception:  # noqa: BLE001
+            continue
+        if csid and (tr.get("csid") or "") == csid:
+            return s
+        if dcwd and (tr.get("device_cwd") or "") == dcwd:
+            return s  # STABLE key — survives csid churn
     return None
 
 

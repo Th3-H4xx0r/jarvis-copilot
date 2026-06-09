@@ -1297,6 +1297,32 @@ def test_resume_reuses_existing_server_session(tmp_path, monkeypatch):
     assert cd._is_dismissed("dev-mac", "CSID-1")
 
 
+def test_resume_reuses_twin_by_device_cwd_when_csid_churned(tmp_path, monkeypatch):
+    # The discovered row's csid CHURNS (it's stamped with the cwd's newest
+    # transcript uuid, which changes every time the user re-runs claude there). So
+    # the new resume's csid != the prior server twin's. Idempotency must still
+    # reuse the twin via the STABLE device_cwd key — otherwise every click spawned
+    # a new server session (the runaway loop).
+    import json
+    fx = _server_resume_fixture(tmp_path, monkeypatch)
+    store = fx["store"]
+    server_cwd = str(fx["server_root"] / "proj")
+    # the discovered row's cwd is /Users/me/proj -> device_cwd. The twin was resumed
+    # from the SAME Mac folder but with a DIFFERENT (older) csid, and claude --resume
+    # minted yet another uuid into its column.
+    existing_id = store.create_session(
+        project_id=None, host="server", cwd=server_cwd, branch=None,
+        tmux_name="jc-twin", source="chat", title="hello", status="running",
+        claude_session_id="MINTED-UUID",
+        sync_config=json.dumps({"enabled": True,
+                                "transcript": {"csid": "OLD-CSID",
+                                               "device_cwd": "/Users/me/proj"}}))
+    out = cd.resume_discovered_to_server(
+        fx["row"]["id"], manager=fx["mgr"], bridge=fx["bridge"], store=store)
+    assert out.get("reused") is True            # reused via device_cwd, no new launch
+    assert out["session"]["id"] == existing_id
+
+
 def test_resume_does_not_reuse_unrelated_session_sharing_cwd(tmp_path, monkeypatch):
     # An unrelated server session at the SAME server cwd (different/absent csid) is
     # NOT reused — a cwd-only match could alias a different conversation. With no

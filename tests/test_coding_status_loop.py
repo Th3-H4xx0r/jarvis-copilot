@@ -141,3 +141,38 @@ def test_disk_guard_blocks_on_critical_and_recovers():
     assert state["blocked"] is False
     assert blocks == [True, True, False]
     assert len(gced) == 2  # GC ran on the two critical passes, not the recovery
+
+
+def test_reaps_dead_server_tmux():
+    # A server session whose tmux is GONE (claude exited / resume-to-server failed)
+    # must be reaped to status=error, not left as a fake running/idle with a dead
+    # terminal (which the resume idempotency would wrongly reuse).
+    import types
+
+    class _DriverWithRun(FakeDriver):
+        def __init__(self, panes, gone):
+            super().__init__(panes)
+            self.gone = set(gone)
+
+        def _run(self, argv):
+            name = argv[-1]
+            rc = 1 if name in self.gone else 0
+            return types.SimpleNamespace(returncode=rc, stderr="")
+
+    store = FakeStore([_row("cs_dead", "jc-dead"), _row("cs_live", "jc-live")])
+    drv = _DriverWithRun({"jc-live": "esc to interrupt"}, gone=["jc-dead"])
+    run_status_tick(FakeManager(store, drv))
+    rows = {r["id"]: r for r in store.rows}
+    assert rows["cs_dead"]["status"] == "error"          # reaped
+    assert rows["cs_dead"]["activity_state"] is None
+    assert rows["cs_live"]["status"] == "running"        # untouched
+    # the dead one was NOT pane-captured (we short-circuited on has-session)
+    assert "jc-dead" not in drv.captured
+
+
+def test_no_run_method_skips_reap():
+    # A driver without _run (e.g. desktop/future host) just skips the reap.
+    store = FakeStore([_row("cs_1", "jc-1")])
+    drv = FakeDriver({"jc-1": ""})  # no _run attr
+    run_status_tick(FakeManager(store, drv))
+    assert store.rows[0]["status"] == "running"  # not reaped

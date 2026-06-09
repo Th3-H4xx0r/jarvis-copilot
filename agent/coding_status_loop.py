@@ -41,6 +41,7 @@ def run_status_tick(manager, *, classify=classify_pane) -> int:
     capture = getattr(manager.driver, "capture_pane", None)
     if not callable(capture):
         return 0  # a driver without pane capture (e.g. a future host) → no-op
+    run = getattr(manager.driver, "_run", None)
     updated = 0
     for row in rows:
         try:
@@ -51,6 +52,21 @@ def run_status_tick(manager, *, classify=classify_pane) -> int:
             tmux_name = row.get("tmux_name")
             if not tmux_name:
                 continue
+            # REAP a server session whose tmux is GONE (claude exited / failed to
+            # start — e.g. a resume-to-server where claude couldn't run). Otherwise
+            # capture_pane returns "" → classifies "idle", so a dead session shows a
+            # fake "running/idle" with a dead terminal AND the resume idempotency
+            # would happily reuse it. Mark it error so the UI shows the truth.
+            if callable(run):
+                try:
+                    res = run(["tmux", "has-session", "-t", tmux_name])
+                    if getattr(res, "returncode", 0) != 0:
+                        manager.store.update_session(row["id"], status="error",
+                                                     activity_state=None)
+                        updated += 1
+                        continue
+                except Exception:
+                    pass
             state = classify(capture(tmux_name=tmux_name))
             if state != row.get("activity_state"):
                 manager.store.update_session(row["id"], activity_state=state)
