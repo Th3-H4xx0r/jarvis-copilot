@@ -63,6 +63,36 @@ class _CodingChatViewState extends State<CodingChatView> {
 
   bool get _isWaiting => _activityState == 'waiting';
 
+  // Optimistic "Claude is working" right after WE send something: the pane
+  // scan takes ~5s to flip the stored state, and without this the thinking
+  // bubble shows nothing exactly when feedback matters most.
+  DateTime? _localWorkingUntil;
+
+  bool get _showThinking {
+    if (_isWaiting || _messages.isEmpty) return false;
+    if (_activityState == 'working') return true;
+    final until = _localWorkingUntil;
+    return until != null && DateTime.now().isBefore(until);
+  }
+
+  bool _thinkingShown = false;
+
+  /// Re-evaluate the bubble + auto-scroll when it APPEARS (a new list row at
+  /// the bottom never triggers the message-driven scroll).
+  void _syncThinking() {
+    final now = _showThinking;
+    if (now != _thinkingShown) {
+      _thinkingShown = now;
+      if (mounted) setState(() {});
+      if (now) _autoScroll();
+    }
+  }
+
+  void _kickLocalWorking() {
+    _localWorkingUntil = DateTime.now().add(const Duration(seconds: 12));
+    _syncThinking();
+  }
+
   /// Live = input can be typed. Prefer the freshest signal (the /messages
   /// status), falling back to the controller's polled detail.
   bool get _isLive {
@@ -137,8 +167,14 @@ class _CodingChatViewState extends State<CodingChatView> {
         }
         _activityState = page.activityState;
         _status = page.status;
+        // The real state arrived — the optimistic flag has done its job.
+        if (page.activityState == 'working' ||
+            page.activityState == 'waiting') {
+          _localWorkingUntil = null;
+        }
       });
       if (hadNew) _autoScroll(jump: full);
+      _syncThinking();
       _onActivityChanged();
     } on DioException catch (e) {
       if (!mounted) return;
@@ -252,7 +288,11 @@ class _CodingChatViewState extends State<CodingChatView> {
   Future<bool> _sendRaw(String seq) async {
     HapticFeedback.selectionClick();
     final ok = await widget.controller.sendTerminalInput(seq);
-    if (!ok) _sendFailedNote();
+    if (!ok) {
+      _sendFailedNote();
+    } else {
+      _kickLocalWorking(); // answering a prompt puts Claude back to work
+    }
     return ok;
   }
 
@@ -267,6 +307,7 @@ class _CodingChatViewState extends State<CodingChatView> {
     }
     await Future<void>.delayed(const Duration(milliseconds: 120));
     await widget.controller.sendTerminalInput('\r');
+    _kickLocalWorking();
     // Pick the echo up quickly instead of waiting for the next tick.
     Future<void>.delayed(const Duration(milliseconds: 700), () {
       if (mounted) _fetch();
@@ -397,7 +438,7 @@ class _CodingChatViewState extends State<CodingChatView> {
         text: 'Nothing here yet — say something below.',
       );
     }
-    final working = _activityState == 'working';
+    final working = _showThinking;
     return RefreshIndicator(
       color: JcTheme.primaryBlueHi,
       backgroundColor: JcTheme.surface,
