@@ -149,6 +149,8 @@ class _CodingChatViewState extends State<CodingChatView> {
       }
       final hadNew = full ? page.messages.isNotEmpty : page.messages
           .any((m) => m.i >= _messages.length);
+      final hadNewAssistant = !full && page.messages
+          .any((m) => m.i >= _messages.length && !m.isUser);
       setState(() {
         _noTranscript = false;
         _loading = false;
@@ -167,9 +169,14 @@ class _CodingChatViewState extends State<CodingChatView> {
         }
         _activityState = page.activityState;
         _status = page.status;
-        // The real state arrived — the optimistic flag has done its job.
+        // The real state arrived — the optimistic flag has done its job. A
+        // fresh ASSISTANT message also retires it: with a fast reply the
+        // stored state can go straight back to idle without ever reading
+        // "working", and the bubble would otherwise linger under the answer
+        // for the rest of the 12s window.
         if (page.activityState == 'working' ||
-            page.activityState == 'waiting') {
+            page.activityState == 'waiting' ||
+            hadNewAssistant) {
           _localWorkingUntil = null;
         }
       });
@@ -335,7 +342,12 @@ class _CodingChatViewState extends State<CodingChatView> {
     final text = _input.text.trim();
     if (text.isEmpty) return;
     _input.clear();
+    // Sending re-engages stick-to-bottom: with the keyboard up the viewport
+    // shrank, so the user often isn't "at bottom" anymore and their own
+    // message (and the thinking bubble) would land below the fold.
+    _stickToBottom = true;
     _sendText(text);
+    _autoScroll();
   }
 
   // ── UI ──────────────────────────────────────────────────────────
