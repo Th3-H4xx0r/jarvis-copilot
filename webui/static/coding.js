@@ -297,7 +297,9 @@ async function codingCodeMasterSettings() {
   if (!detail) return;
   // Deselect + stop the session poll/terminal (like codingProjectSettings):
   // with a session still selected, its detail poll repaints the session view
-  // over this panel a few seconds after it opens.
+  // over this panel a few seconds after it opens. Remember the selection so
+  // Save can return straight to it.
+  _codingCmReturnTo = _codingSelectedId;
   _codingStopPoll();
   _codingTeardownTerminal();
   _codingDetailShellId = null;
@@ -370,6 +372,20 @@ async function codingSaveCodeMaster() {
     const res = await api('/api/coding/settings', { method: 'POST', body: JSON.stringify(payload) });
     _codingSettingsCache = (res && res.settings) || payload;
     _codingFlash('Code Master settings saved');
+    // Saved — the settings pane has done its job. Continue where the user
+    // was: reopen the session they had selected, else the default hint.
+    const back = _codingCmReturnTo;
+    _codingCmReturnTo = null;
+    if (back && _codingSessionsCache.some(s => String(s.id) === String(back))) {
+      codingOpenSession(String(back));
+    } else {
+      const detail = document.getElementById('codingDetail');
+      if (detail) {
+        detail.innerHTML = '<div class="cm-detail-body"><div class="cm-empty">' +
+          'Select a session, or start a new one.</div></div>';
+      }
+    }
+    return;
   } catch (e) {
     _codingFlash('Couldn\'t save settings');
   } finally {
@@ -377,6 +393,10 @@ async function codingSaveCodeMaster() {
   }
 }
 window.codingSaveCodeMaster = codingSaveCodeMaster;
+
+// Where the Code Master settings pane should return on Save (the session that
+// was open when the gear was clicked).
+let _codingCmReturnTo = null;
 
 // Newest-first by last_activity_at (falls back to created_at). NUMERIC compare —
 // these are epoch values (seconds, ms, or an ISO string), so a string compare
