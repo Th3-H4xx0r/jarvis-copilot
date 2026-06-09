@@ -60,6 +60,13 @@ CREATE TABLE IF NOT EXISTS coding_usage_snapshot (
 CREATE TABLE IF NOT EXISTS coding_settings (
   key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL
 );
+-- Parsed chat-view messages per claude_session_id (transcript -> message-list
+-- JSON). Written whenever a transcript is (re)parsed so the mobile chat view
+-- still shows history when the owning Mac is offline.
+CREATE TABLE IF NOT EXISTS coding_transcript_cache (
+  csid TEXT PRIMARY KEY, messages TEXT NOT NULL, total INTEGER NOT NULL,
+  updated_at REAL NOT NULL
+);
 """
 
 VALID_STATUSES = {"starting", "running", "idle", "stopped", "error"}
@@ -307,6 +314,34 @@ class CodingSessionStore:
                 "VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET "
                 "value=excluded.value, updated_at=excluded.updated_at",
                 (key, _json.dumps(value), now))
+
+    # --- transcript chat cache ----------------------------------------------
+
+    def get_transcript_cache(self, csid: str):
+        """{"messages": list, "total": int, "updated_at": float} or None."""
+        import json as _json
+        with self._conn() as c:
+            r = c.execute("SELECT messages, total, updated_at FROM "
+                          "coding_transcript_cache WHERE csid=?",
+                          (csid,)).fetchone()
+        if not r:
+            return None
+        try:
+            return {"messages": _json.loads(r["messages"]),
+                    "total": int(r["total"]),
+                    "updated_at": float(r["updated_at"])}
+        except (ValueError, TypeError):
+            return None
+
+    def set_transcript_cache(self, csid: str, messages: list) -> None:
+        import json as _json
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO coding_transcript_cache(csid, messages, total, "
+                "updated_at) VALUES(?,?,?,?) ON CONFLICT(csid) DO UPDATE SET "
+                "messages=excluded.messages, total=excluded.total, "
+                "updated_at=excluded.updated_at",
+                (csid, _json.dumps(messages), len(messages), time.time()))
 
     # --- projects -----------------------------------------------------------
 

@@ -1181,6 +1181,12 @@ class CodingDiscoverAgent:
             # that same cycle, carrying the bad state upstream.
             wire["activity_state"] = (classify_pane(pane)
                                       if (pane and pane.strip()) else None)
+            if wire["activity_state"] == "waiting":
+                # Ship the live prompt's pane tail so the server can parse the
+                # question + numbered options for the mobile chat view's
+                # "needs input" modal. Only while waiting (keeps frames small).
+                wire["pane_tail"] = "\n".join(
+                    pane.splitlines()[-30:])[-2000:]
             kept.append(wire)
         with self._lock:
             self._known_claude = new_known

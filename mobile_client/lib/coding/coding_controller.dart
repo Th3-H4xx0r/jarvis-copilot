@@ -23,6 +23,10 @@ class CodingSessionsController extends ChangeNotifier {
 
   final CodingSessionsApi _api;
 
+  /// The underlying REST wrapper — exposed for the Chat view's transcript /
+  /// prompt polling (input still goes through [sendTerminalInput]).
+  CodingSessionsApi get api => _api;
+
   static const Duration _refreshInterval = Duration(seconds: 4);
 
   // ── Projects → Sessions tree ──────────────────────────────────

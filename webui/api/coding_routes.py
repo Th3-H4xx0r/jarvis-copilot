@@ -31,6 +31,7 @@ exception (with ``{"error": str(e)}``).
 from __future__ import annotations
 
 import logging
+import re
 from urllib.parse import parse_qs, urlsplit
 
 log = logging.getLogger(__name__)
@@ -54,6 +55,42 @@ _EVENT_STATE = {
     "user_prompt_submit": "working",
     "userpromptsubmit": "working",
 }
+
+
+_PROMPT_OPTION_RE = re.compile(r"^[\s│|]*(?:❯\s*)?(\d+)\.\s+(.*?)[\s│|]*$")
+_PROMPT_QUESTION_HINTS = ("do you want", "would you like", "do you trust",
+                          "select", "choose", "which", "?")
+
+
+def _parse_pane_prompt(raw: str):
+    """(question, options) parsed from a waiting pane's tail: numbered option
+    rows ("❯ 1. Yes" / "│ 2. No │") plus the nearest question-looking line
+    above them. Best-effort — callers fall back to the raw tail."""
+    options, question = [], None
+    lines = (raw or "").splitlines()
+    first_opt_idx = None
+    for i, line in enumerate(lines):
+        m = _PROMPT_OPTION_RE.match(line)
+        if m and m.group(2).strip():
+            if first_opt_idx is None or not options:
+                first_opt_idx = i if first_opt_idx is None else first_opt_idx
+            # A new "1." restarts the list (an older menu higher in the tail).
+            if m.group(1) == "1" and options:
+                options, first_opt_idx = [], i
+            options.append({"key": m.group(1),
+                            "label": m.group(2).strip()[:120]})
+    if options and first_opt_idx is not None:
+        for line in reversed(lines[:first_opt_idx]):
+            txt = line.strip().strip("│|╭╮╰╯─ ").strip()
+            if not txt:
+                continue
+            low = txt.lower()
+            if any(h in low for h in _PROMPT_QUESTION_HINTS):
+                question = txt[:200]
+                break
+            if question is None:
+                question = txt[:200]   # fallback: nearest non-empty line
+    return question, options
 
 
 def _match_live_session(store, *, tmux_name="", claude_session_id="", cwd="",
@@ -967,6 +1004,101 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 return _ok({"ok": True})
 
             return _run(_msg)
+
+        # GET /session/<id>/messages?after=N — the chat-view message list,
+        # parsed from the session's Claude Code transcript (the canonical
+        # record of every message; the Stop/UserPromptSubmit hooks bump
+        # last_activity so pollers know when to re-read). Desktop sessions
+        # pull the transcript over the device bridge and cache the parsed
+        # list in the DB so history survives the Mac going offline.
+        if action == "messages" and method == "GET":
+            try:
+                after = max(0, int(query.get("after") or 0))
+            except (TypeError, ValueError):
+                after = 0
+
+            def _messages():
+                import time as _time
+
+                from agent.coding_transcript_read import (
+                    parse_transcript_text, read_local_messages, slice_messages)
+
+                row = manager.status(sid)
+                if row is None:
+                    return _err(404, "session not found: " + sid)
+                csid = (row.get("claude_session_id") or "").strip()
+                cwd = row.get("cwd") or ""
+                if not csid:
+                    return _err(409, "no transcript yet for this session")
+                host = (row.get("host") or "server")
+                msgs, source = None, "live"
+                if host == "desktop" and (row.get("device_id") or ""):
+                    cache = manager.store.get_transcript_cache(csid)
+                    last_act = float(row.get("last_activity_at") or 0)
+                    cache_ts = float(cache["updated_at"]) if cache else 0.0
+                    # Re-pull when the cache is missing, predates the latest
+                    # activity, or is simply old while the session is live —
+                    # otherwise serve the cache (mobile polls every ~3s; the
+                    # bridge pull is the expensive path).
+                    stale = (cache is None or last_act > cache_ts
+                             or _time.time() - cache_ts > 8)
+                    if stale:
+                        try:
+                            from api.coding_desktop import get_desktop_bridge
+                            raw = get_desktop_bridge().request_transcript(
+                                row.get("device_id"), claude_session_id=csid,
+                                cwd=cwd, timeout=20)
+                        except Exception:  # noqa: BLE001
+                            raw = None
+                        if raw:
+                            msgs = parse_transcript_text(
+                                raw.decode("utf-8", errors="replace"))
+                            manager.store.set_transcript_cache(csid, msgs)
+                    if msgs is None and cache is not None:
+                        msgs, source = cache["messages"], "cache"
+                if msgs is None:
+                    msgs, _mt = read_local_messages(cwd, csid)
+                if msgs is None:
+                    return _err(409, "transcript not available")
+                payload = slice_messages(msgs, after)
+                payload.update(ok=True, source=source,
+                               activity_state=row.get("activity_state"),
+                               status=row.get("status"))
+                return _ok(payload)
+
+            return _run(_messages)
+
+        # GET /session/<id>/prompt — when the session is WAITING, the live
+        # pane's prompt parsed into {question, options:[{key,label}]} so the
+        # mobile chat view can answer with a tap instead of the raw terminal.
+        if action == "prompt" and method == "GET":
+            def _prompt():
+                row = manager.status(sid)
+                if row is None:
+                    return _err(404, "session not found: " + sid)
+                waiting = (row.get("activity_state") or "") == "waiting"
+                raw = None
+                if waiting:
+                    host = (row.get("host") or "server")
+                    tn = (row.get("tmux_name") or "").strip()
+                    if host == "server" and tn:
+                        try:
+                            raw = manager.driver.capture_pane(
+                                tmux_name=tn, lines=40)
+                        except Exception:  # noqa: BLE001
+                            raw = None
+                    else:
+                        try:
+                            from api.coding_desktop import get_waiting_tail
+                            raw = get_waiting_tail(row)
+                        except Exception:  # noqa: BLE001
+                            raw = None
+                q, opts = _parse_pane_prompt(raw) if raw else (None, [])
+                return _ok({"ok": True, "waiting": waiting, "question": q,
+                            "options": opts,
+                            "raw": (raw[-1500:] if raw else None)})
+
+            return _run(_prompt)
 
         # POST /session/<id>/stop
         if action == "stop" and method == "POST":

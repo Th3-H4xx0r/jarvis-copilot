@@ -400,6 +400,149 @@ class CodingSessionDetail {
   }
 }
 
+// ── Chat transcript (GET /api/coding/session/$id/messages) ──────
+
+/// One tool use inside an assistant chat message: name + one-line summary,
+/// with the output snippet revealed when the card is expanded.
+class CodingChatTool {
+  const CodingChatTool({
+    required this.name,
+    this.summary = '',
+    this.output = '',
+    this.ok = true,
+  });
+
+  final String name;
+  final String summary;
+  final String output;
+  final bool ok;
+
+  factory CodingChatTool.fromJson(Map<String, dynamic> j) => CodingChatTool(
+        name: (j['name'] ?? 'tool').toString(),
+        summary: (j['summary'] ?? '').toString(),
+        output: (j['output'] ?? '').toString(),
+        ok: j['ok'] == null ? true : _asBool(j['ok']),
+      );
+}
+
+/// One conversation message. `i` is the server's stable 0-based index —
+/// pass `after=<count you already have>` to fetch only the new tail.
+/// An assistant message may carry BOTH [text] and [tools].
+class CodingChatMessage {
+  const CodingChatMessage({
+    required this.i,
+    required this.role,
+    this.text = '',
+    this.tools = const [],
+    this.ts,
+  });
+
+  final int i;
+  final String role; // user | assistant
+  final String text;
+  final List<CodingChatTool> tools;
+  final double? ts; // epoch seconds | null
+
+  bool get isUser => role == 'user';
+
+  factory CodingChatMessage.fromJson(Map<String, dynamic> j) {
+    final rawTools = (j['tools'] as List?) ?? const [];
+    return CodingChatMessage(
+      i: _asInt(j['i']),
+      role: (j['role'] ?? 'assistant').toString(),
+      text: (j['text'] ?? '').toString(),
+      tools: rawTools
+          .whereType<Map>()
+          .map((m) => CodingChatTool.fromJson(Map<String, dynamic>.from(m)))
+          .toList(growable: false),
+      ts: _asDouble(j['ts']),
+    );
+  }
+}
+
+/// The `/messages` page payload: the (possibly partial) message tail plus the
+/// session's live state so the chat header chip stays fresh without a second
+/// poll. `source` is `live|cache` (informational).
+class CodingChatPage {
+  const CodingChatPage({
+    this.messages = const [],
+    this.total = 0,
+    this.activityState,
+    this.status = '',
+    this.source,
+  });
+
+  final List<CodingChatMessage> messages;
+  final int total;
+  final String? activityState; // working | waiting | idle | null
+  final String status;
+  final String? source;
+
+  factory CodingChatPage.fromJson(Map<String, dynamic> j) {
+    final raw = (j['messages'] as List?) ?? const [];
+    return CodingChatPage(
+      messages: raw
+          .whereType<Map>()
+          .map((m) => CodingChatMessage.fromJson(Map<String, dynamic>.from(m)))
+          .toList(growable: false),
+      total: _asInt(j['total']),
+      activityState: _str(j['activity_state']),
+      status: (j['status'] ?? '').toString(),
+      source: _str(j['source']),
+    );
+  }
+}
+
+/// One selectable option in an interactive prompt (`{key:'1', label:'Yes'}`).
+/// Answering sends just [key] to the PTY — no newline.
+class CodingPromptOption {
+  const CodingPromptOption({required this.key, required this.label});
+
+  final String key;
+  final String label;
+
+  factory CodingPromptOption.fromJson(Map<String, dynamic> j) =>
+      CodingPromptOption(
+        key: (j['key'] ?? '').toString(),
+        label: (j['label'] ?? '').toString(),
+      );
+}
+
+/// The `/prompt` payload — what Claude is currently asking in the pane (when
+/// `activity_state == waiting`). [raw] is the pane tail, shown monospace when
+/// no structured options were detected.
+class CodingPromptState {
+  const CodingPromptState({
+    this.waiting = false,
+    this.question,
+    this.options = const [],
+    this.raw,
+  });
+
+  final bool waiting;
+  final String? question;
+  final List<CodingPromptOption> options;
+  final String? raw;
+
+  /// A stable identity for "the same prompt" so a dismissed modal isn't
+  /// re-popped on the next poll tick.
+  String get signature =>
+      '${question ?? ''}|${options.map((o) => o.key).join(',')}|${raw ?? ''}';
+
+  factory CodingPromptState.fromJson(Map<String, dynamic> j) {
+    final raw = (j['options'] as List?) ?? const [];
+    return CodingPromptState(
+      waiting: _asBool(j['waiting']),
+      question: _str(j['question']),
+      options: raw
+          .whereType<Map>()
+          .map((m) => CodingPromptOption.fromJson(Map<String, dynamic>.from(m)))
+          .toList(growable: false),
+      raw: _str(j['raw']),
+    );
+  }
+}
+
 String? _str(Object? v) {
   if (v == null) return null;
   final s = v.toString();

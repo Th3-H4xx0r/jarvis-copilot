@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
 
+import '../coding/coding_chat.dart';
 import '../coding/coding_controller.dart';
 import '../coding/coding_models.dart';
 import '../main.dart' as app;
@@ -37,6 +38,12 @@ class _CodingPageState extends State<CodingPage> {
   Terminal? _term;
   String? _termForId; // session id the current Terminal is built for
   StreamSubscription<String>? _termSub;
+
+  // ── Terminal ⇄ Chat view toggle ──
+  /// Remembered per session for the app session (in-memory). true = Chat.
+  /// Default (absent) = Terminal, the original behavior. Flipping views never
+  /// tears the PTY down — the chat view rides the same live terminal channel.
+  final Map<String, bool> _chatMode = {};
 
   @override
   void initState() {
@@ -387,6 +394,11 @@ class _CodingPageState extends State<CodingPage> {
   Widget _buildDetail() {
     final s = _c.selected;
     final live = s?.isLive ?? false;
+    // Chat mode rides the SAME live terminal channel (the PTY/SSE stay
+    // attached) — it only swaps what's RENDERED, so flipping back to Terminal
+    // shows the live xterm exactly as before.
+    final chatMode =
+        s != null && !s.isEnded && (_chatMode[s.id] ?? false);
     return Column(
       children: [
         // Header: back + title + status pill + settings
@@ -460,6 +472,28 @@ class _CodingPageState extends State<CodingPage> {
             ],
           ),
         ),
+        // Terminal ⇄ Chat segmented toggle (hidden for an ended session — the
+        // recovery panel owns that view).
+        if (s != null && !s.isEnded)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: _ModeToggle(
+              chat: chatMode,
+              onChanged: (v) => setState(() => _chatMode[s.id] = v),
+            ),
+          ),
+        if (chatMode)
+          // Chat rendering of the conversation. The xterm Terminal + SSE feed
+          // keep running underneath (they're page state, untouched here) and
+          // serve as the input channel.
+          Expanded(
+            child: CodingChatView(
+              key: ValueKey('coding-chat-${s.id}'),
+              controller: _c,
+              sessionId: s.id,
+            ),
+          )
+        else
         // The body SCROLLS as a page (so the sync card, buttons, etc. are always
         // reachable even with the keyboard up / a tall error), while the live
         // terminal keeps its OWN scrollback inside a generous fixed-height box —
@@ -522,7 +556,8 @@ class _CodingPageState extends State<CodingPage> {
         // they stay reachable with the keyboard up). The key bar drives
         // interactive TUI prompts (selection menus, permission boxes) that a soft
         // keyboard can't — arrows / Enter / Esc / number-select / Tab / Ctrl-C.
-        if (s?.isEnded != true) ...[
+        // Chat mode hides both (it has its own input bar).
+        if (s?.isEnded != true && !chatMode) ...[
           _TerminalKeyBar(
             onKey: _c.sendTerminalInput,
             enabled: _term != null,
@@ -1218,6 +1253,98 @@ class _EndedPanel extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           ...actions,
+        ],
+      ),
+    );
+  }
+}
+
+// ── Terminal ⇄ Chat segmented toggle ────────────────────────────
+/// A slim glass segmented control that switches the session detail between the
+/// live xterm Terminal and the Chat transcript rendering. Purely a VIEW switch
+/// — the PTY/SSE stay attached either way.
+class _ModeToggle extends StatelessWidget {
+  const _ModeToggle({required this.chat, required this.onChanged});
+
+  /// true = Chat selected; false = Terminal (default).
+  final bool chat;
+  final ValueChanged<bool> onChanged;
+
+  Widget _segment({
+    required bool selected,
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          if (!selected) {
+            HapticFeedback.selectionClick();
+            onTap();
+          }
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: selected
+                ? JcTheme.primaryBlue.withValues(alpha: 0.20)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected
+                  ? JcTheme.primaryBlue.withValues(alpha: 0.55)
+                  : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon,
+                  size: 15,
+                  color: selected ? JcTheme.text : JcTheme.muted),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? JcTheme.text : JcTheme.muted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: JcTheme.glassFill,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: JcTheme.glassBorder),
+      ),
+      child: Row(
+        children: [
+          _segment(
+            selected: !chat,
+            icon: Icons.terminal_rounded,
+            label: 'Terminal',
+            onTap: () => onChanged(false),
+          ),
+          const SizedBox(width: 3),
+          _segment(
+            selected: chat,
+            icon: Icons.chat_bubble_outline_rounded,
+            label: 'Chat',
+            onTap: () => onChanged(true),
+          ),
         ],
       ),
     );

@@ -250,3 +250,34 @@ def test_activity_event_unmatched_still_dispatches(monkeypatch):
     assert status == 200
     assert body["matched"] is False
     assert fired.get("event") == "stop"  # notifications fire even without a match
+
+
+# ── waiting-prompt pane parsing (chat-view "needs input" modal) ──────────────
+
+def test_parse_pane_prompt_permission_box():
+    raw = ("╭──────────────────────────╮\n"
+           "│ Bash command             │\n"
+           "│   rm -rf build           │\n"
+           "│ Do you want to proceed?  │\n"
+           "│ ❯ 1. Yes                 │\n"
+           "│   2. Yes, don't ask again│\n"
+           "│   3. No, tell Claude     │\n"
+           "╰──────────────────────────╯")
+    q, opts = cr._parse_pane_prompt(raw)
+    assert q == "Do you want to proceed?"
+    assert [(o["key"], o["label"]) for o in opts] == [
+        ("1", "Yes"), ("2", "Yes, don't ask again"), ("3", "No, tell Claude")]
+
+
+def test_parse_pane_prompt_restarts_on_new_menu():
+    raw = ("1. old\n2. older\n"
+           "Which approach?\n"
+           "❯ 1. Rewrite\n  2. Patch\n")
+    q, opts = cr._parse_pane_prompt(raw)
+    assert q == "Which approach?"
+    assert [o["label"] for o in opts] == ["Rewrite", "Patch"]
+
+
+def test_parse_pane_prompt_no_options():
+    q, opts = cr._parse_pane_prompt("Overwrite file? (y/n)")
+    assert opts == [] and q is None

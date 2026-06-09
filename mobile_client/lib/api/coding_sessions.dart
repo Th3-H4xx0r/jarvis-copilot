@@ -334,6 +334,31 @@ class CodingSessionsApi {
     });
   }
 
+  // ── Chat transcript (Chat mode in the session detail) ─────────────────────
+
+  /// GET /api/coding/session/$id/messages?after=N -> the conversation tail.
+  ///
+  /// Messages are indexed 0..total-1; pass `after=<count you already have>` to
+  /// get only the new tail (after=0 returns everything, capped server-side).
+  /// Throws a DioException with status 409 while the session has no transcript
+  /// yet — callers should render a friendly empty state for that.
+  Future<CodingChatPage> chatMessages(String id, {int after = 0}) async {
+    final resp = await api.get(
+      '/api/coding/session/$id/messages',
+      query: {'after': '$after'},
+    );
+    final body = (resp.data as Map?) ?? const {};
+    return CodingChatPage.fromJson(Map<String, dynamic>.from(body));
+  }
+
+  /// GET /api/coding/session/$id/prompt -> what Claude is asking right now
+  /// (`{waiting, question, options, raw}`); poll when activity_state==waiting.
+  Future<CodingPromptState> chatPrompt(String id) async {
+    final resp = await api.get('/api/coding/session/$id/prompt');
+    final body = (resp.data as Map?) ?? const {};
+    return CodingPromptState.fromJson(Map<String, dynamic>.from(body));
+  }
+
   // ── Live terminal (shared /api/terminal/* machinery, keyed by session id) ──
 
   /// POST /api/coding/session/$id/terminal/start — attach a server-side PTY

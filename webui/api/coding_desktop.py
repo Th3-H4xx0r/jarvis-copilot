@@ -1314,6 +1314,20 @@ def _resolve_store():
 # tmux_name; transcript items by claude_session_id. The delete path calls
 # ``dismiss_discovered`` (exposed for that wiring).
 _DISMISSED_DISCOVERED: dict[str, set] = {}
+
+# Last captured pane tail for a WAITING discovered session, keyed
+# (device_id, tmux_name). The device only ships the tail while a prompt is
+# live; GET /api/coding/session/<id>/prompt parses options out of it for the
+# mobile chat view's "needs input" modal. In-memory on purpose: it is a live
+# snapshot, meaningless across a restart.
+_WAITING_TAILS: dict[tuple, str] = {}
+
+
+def get_waiting_tail(row) -> str | None:
+    """The live waiting-prompt pane tail for a discovered session row."""
+    return _WAITING_TAILS.get(((row.get("device_id") or "").strip(),
+                               (row.get("tmux_name") or "").strip()))
+
 _DISMISSED_LOCK = threading.Lock()
 
 
@@ -1523,6 +1537,11 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             # Live working/waiting/idle classified Mac-side (None = capture
             # failed / old client → leave any known state unchanged, don't wipe).
             act = sess.get("activity_state")
+            tail = sess.get("pane_tail")
+            if act == "waiting" and isinstance(tail, str) and tail.strip():
+                _WAITING_TAILS[(device_id, tmux_name)] = tail[-2000:]
+            elif act in ("working", "idle"):
+                _WAITING_TAILS.pop((device_id, tmux_name), None)
             pid = _project_for_discovered_cwd(cwd)
             row = existing_tmux.get(tmux_name)
             if row is not None:
