@@ -131,10 +131,11 @@ def tmux_capture_argv(tmux_name: str, lines: int = 80) -> list:
 # ── live activity_state classifier ─────────────────────────────────────────────
 # Replicated VERBATIM from ``agent/coding_activity_state.classify_pane`` — the
 # desktop client can't import ``agent/``. KEEP THE TWO IN SYNC. Detection is
-# anchored to the LIVE position of each prompt (a selection footer is the BOTTOM
-# line; a permission box's bottom line is a border/option, never the input
-# prompt) so claude's own scrollback output mentioning those words can't fake a
-# prompt. See agent/coding_activity_state for the full rationale.
+# anchored to the LAST COMPOSER line ("❯ "): output renders ABOVE the composer,
+# so prompt words at/above it are scrollback quotes; a live box/popup REPLACES
+# the composer, so its markers land below the anchor. (The composer is NOT the
+# pane's last line — status/mode chrome renders below it.) See
+# agent/coding_activity_state for the full rationale.
 _SELECT_FOOTER_MARKERS = ("esc to cancel", "enter to select")
 _PERMISSION_MARKERS = (
     "do you want to proceed", "do you want to run",
@@ -143,7 +144,8 @@ _PERMISSION_MARKERS = (
     "(y/n)", "press enter to continue",
 )
 _PERMISSION_TAIL = 12
-_INPUT_PROMPT_RE = re.compile(r"^\s*[❯>]\s+(?!\d+\.)")
+_FOOTER_TAIL = 3
+_COMPOSER_RE = re.compile(r"^\s*[❯>](?:\s+(?!\d+\.)|$)")
 _WORKING_MARKERS = (
     "esc to interrupt", "esc to stop", "ctrl+b to run in background",
 )
@@ -172,21 +174,27 @@ def classify_pane(text: str) -> str:
         lines.pop()
     if not lines:
         return "idle"
-    last = lines[-1]
-    low_last = last.lower()
     # KEEP IN SYNC with agent/coding_activity_state.classify_pane. A live spinner
     # means claude is WORKING (a real permission box blocks claude → no spinner),
-    # so a permission phrase seen WHILE working is claude's OUTPUT, not a prompt.
-    if any(m in low_last for m in _SELECT_FOOTER_MARKERS):
+    # so a prompt phrase seen WHILE working is claude's OUTPUT, not a prompt.
+    # Prompt markers only count strictly BELOW the last composer line.
+    last_composer = -1
+    for i, line in enumerate(lines):
+        if _COMPOSER_RE.match(line):
+            last_composer = i
+    if _pane_is_working(text):
+        return "working"
+    for i in range(max(last_composer + 1, len(lines) - _FOOTER_TAIL), len(lines)):
+        low = lines[i].lower()
+        if any(m in low for m in _SELECT_FOOTER_MARKERS):
+            return "waiting"
+    if any(m in lines[-1].lower() for m in _PERMISSION_MARKERS):
         return "waiting"
-    working = _pane_is_working(text)
-    if not working:
-        at_prompt = bool(_INPUT_PROMPT_RE.match(last))
-        if not at_prompt or any(m in low_last for m in _PERMISSION_MARKERS):
-            tail = "\n".join(lines[-_PERMISSION_TAIL:]).lower()
-            if any(m in tail for m in _PERMISSION_MARKERS):
-                return "waiting"
-    return "working" if working else "idle"
+    start = max(last_composer + 1, len(lines) - _PERMISSION_TAIL)
+    tail = "\n".join(lines[start:]).lower()
+    if any(m in tail for m in _PERMISSION_MARKERS):
+        return "waiting"
+    return "idle"
 
 
 # Distinctive Claude Code TUI strings. A tmux session whose pane contains any of

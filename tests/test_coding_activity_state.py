@@ -228,3 +228,96 @@ def test_inline_yn_prompt_at_bottom_is_waiting():
     # carries the confirm on its own line.
     assert classify_pane("Overwrite the file?\n❯ (y/n)") == "waiting"
     assert classify_pane("❯ Delete everything? (y/n)") == "waiting"
+
+
+# ── Real-chrome regressions ──────────────────────────────────────────────────
+# In the REAL rendering the composer is NEVER the bottom line: a rule, the
+# composer "❯ " (tmux captures the cursor cell as a NO-BREAK space), another
+# rule, then 1-2 status/mode lines render BELOW it. The old "at the input
+# prompt" guard only looked at the LAST line, so it never engaged in production
+# and any permission phrase quoted in claude's own output flipped an idle pane
+# to waiting (the bug: jarvis showing "waiting" whenever IntelliStock prompted).
+
+_RULE = "─" * 90
+_REAL_IDLE_CHROME = (
+    f"{_RULE}\n"
+    "❯ \n"          # the live composer: "❯ " with a no-break space
+    f"{_RULE}\n"
+    "  Fable 5  |  effort:medium  |  5h:[█░░░░░░░░░] 7%  |  ctx:5%\n"
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"
+)
+
+
+def test_quoted_permission_words_above_real_idle_chrome_is_idle():
+    # THE bug: claude's final message quotes permission phrases, then the session
+    # goes idle. The quotes sit ABOVE the live composer (scrollback); the lines
+    # below the composer are only chrome. Must be idle, not waiting.
+    pane = (
+        '⏺ The classifier scans for markers such as "Do you want to proceed?"\n'
+        '  and inline confirms like "(y/n)" near the bottom of the pane.\n'
+        + _REAL_IDLE_CHROME
+    )
+    assert classify_pane(pane) == "idle"
+
+
+def test_quoted_edit_confirm_above_real_idle_chrome_is_idle():
+    pane = (
+        '⏺ A real box shows "Do you want to make this edit" with option rows.\n'
+        + _REAL_IDLE_CHROME
+    )
+    assert classify_pane(pane) == "idle"
+
+
+def test_quoted_footer_above_real_idle_chrome_is_idle():
+    # Footer words quoted in the final message, live composer below them, chrome
+    # at the bottom — must stay idle even though the quote is within the bottom
+    # window of the pane.
+    pane = (
+        '⏺ The popup footer reads "Enter to select · Esc to cancel".\n'
+        + _REAL_IDLE_CHROME
+    )
+    assert classify_pane(pane) == "idle"
+
+
+def test_quoted_permission_words_while_working_real_chrome_is_working():
+    # Same quotes while the turn spinner is up (the composer + chrome also render
+    # while working) — must read working.
+    pane = (
+        '⏺ A real box shows "Do you want to proceed?" and "(y/n)".\n'
+        "· Beaming… (42s · ↓ 2.5k tokens)\n"
+        + _REAL_IDLE_CHROME
+    )
+    assert classify_pane(pane) == "working"
+
+
+def test_real_permission_box_with_chrome_below_is_waiting():
+    # A live permission box replaces the composer; status/mode chrome may still
+    # render below the box. An OLD echoed user message ("❯ run it") sits above in
+    # scrollback — it must not mask the live box below it.
+    pane = (
+        "❯ run the migration\n"
+        "╭─────────────────────────────╮\n"
+        "│ Bash command                │\n"
+        "│   alembic upgrade head      │\n"
+        "│ Do you want to proceed?     │\n"
+        "│ ❯ 1. Yes                    │\n"
+        "│   2. No                     │\n"
+        "╰─────────────────────────────╯\n"
+        "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+    )
+    assert classify_pane(pane) == "waiting"
+
+
+def test_selection_footer_with_chrome_below_is_waiting():
+    # If the mode line renders below a live popup, the footer is no longer the
+    # literal last line — it must still read waiting (footer within the bottom
+    # window, below the last composer).
+    pane = (
+        "❯ pick one\n"
+        "Which approach?\n"
+        "❯ 1. Rewrite\n"
+        "  2. Patch\n"
+        "Enter to select · ↑/↓ to navigate · Esc to cancel\n"
+        "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+    )
+    assert classify_pane(pane) == "waiting"

@@ -9,23 +9,28 @@ States:
   - ``waiting`` — Claude is blocked on the user (a permission / choice prompt).
   - ``idle``    — at rest at the prompt with nothing pending.
 
-Precedence: a live SELECTION footer (the bottom line) always wins → waiting.
-Otherwise, a present WORKING spinner wins over a permission phrase — a real
-permission box blocks claude so it has NO spinner; a phrase seen alongside a live
-spinner is claude's OUTPUT, not a live box. A permission box (no spinner) →
-waiting; everything else → working (spinner) or idle.
+Precedence: a present WORKING spinner wins over any prompt phrase — a real
+permission box / selection popup BLOCKS claude so it has NO live spinner; a
+phrase seen alongside a live spinner is claude's OUTPUT, not a live box. With no
+spinner, a selection footer or permission marker BELOW the live composer →
+waiting; otherwise idle.
 
 The hard problem is that a tmux pane contains claude's OWN conversational output
 (scrollback), which can MENTION the very words a live prompt uses — e.g. claude
-discussing "esc to cancel" / "enter to select", or echoing a user's numbered
-message "❯ 2. do the thing". A naive substring scan then misreads a working
-session as "waiting" (the real bug: jarvis-copilot showing "waiting" while it was
-just talking about the UI). So we anchor detection to the LIVE position of each
-prompt, not "anywhere on screen":
-  • a SELECTION popup's footer is literally the BOTTOM line of the pane;
-  • a PERMISSION box's bottom line is a box border/option — NEVER the free-text
-    input prompt — so if the bottom line IS the input prompt, claude is at rest
-    and any permission-ish words above are scrollback.
+discussing "esc to cancel" / "Do you want to proceed?", or echoing a user's
+numbered message "❯ 2. do the thing". A naive substring scan then misreads an
+idle/working session as "waiting" (the real bug: jarvis-copilot flipping to
+"waiting" whenever its scrollback quoted prompt phrases). So we anchor detection
+to the LAST COMPOSER line — the free-text input prompt "❯ ":
+  • everything ABOVE the last composer is scrollback (output precedes the
+    composer), so prompt words there are quotes, never a live prompt;
+  • a live permission box / selection popup REPLACES the composer, so when one
+    is up the last composer line is an old echoed user message far above and the
+    box's markers land BELOW the anchor → waiting.
+NOTE the composer is NOT the pane's last line in the real rendering: a rule,
+the composer, another rule and 1-2 status/mode lines render below it (an earlier
+version anchored on "the last line is the prompt" — that guard never engaged in
+production and quoted phrases in the tail flipped idle panes to waiting).
 """
 from __future__ import annotations
 
@@ -57,12 +62,17 @@ _PERMISSION_MARKERS = (
 # command + "Do you want to…" + the option list + border).
 _PERMISSION_TAIL = 12
 
-# The free-text INPUT PROMPT line (the composer): a chevron/`>` then a space and
-# the cursor or typed text — but NOT a numbered option ("❯ 1. Yes"), which belongs
-# to a selection list and has the footer/border below it. When THIS is the bottom
-# line, claude is at rest (idle/working), so permission/footer words above it are
-# scrollback, not a live prompt.
-_INPUT_PROMPT_RE = re.compile(r"^\s*[❯>]\s+(?!\d+\.)")
+# How many lines up from the bottom a selection popup's FOOTER can sit (the
+# footer itself + the status/mode chrome that may render below it).
+_FOOTER_TAIL = 3
+
+# The free-text INPUT PROMPT line (the composer): a chevron/`>` alone (tmux
+# captures the cursor cell as a no-break space, which `\s` matches) or followed
+# by typed text — but NOT a numbered option ("❯ 1. Yes"), which belongs to a
+# selection list. A permission box's option row ("│ ❯ 1. Yes") never matches:
+# the leading box border isn't whitespace. The LAST line matching this is the
+# anchor: prompt words at or above it are scrollback.
+_COMPOSER_RE = re.compile(r"^\s*[❯>](?:\s+(?!\d+\.)|$)")
 
 # Claude shows "esc to interrupt" on its status line whenever it is running a
 # turn or a tool (in every permission mode), so it is the reliable "working"
@@ -106,34 +116,41 @@ def classify_pane(text: str) -> str:
         lines.pop()              # drop tmux's trailing blank padding
     if not lines:
         return "idle"
-    last = lines[-1]
-    low_last = last.lower()
 
-    # 1) A live SELECTION popup — its footer IS the bottom line. (claude merely
-    #    printing those words leaves the input prompt / more output below them, so
-    #    the footer is NOT the last line → no false "waiting".)
-    if any(m in low_last for m in _SELECT_FOOTER_MARKERS):
-        return "waiting"
+    # The anchor: the LAST composer-like line. Output renders ABOVE the composer,
+    # so prompt words at or above the anchor are scrollback quotes. A live
+    # permission box / selection popup REPLACES the composer — its markers land
+    # below whatever old echoed "❯ message" remains above → still detected.
+    last_composer = -1
+    for i, line in enumerate(lines):
+        if _COMPOSER_RE.match(line):
+            last_composer = i
 
     # Is claude ACTIVELY WORKING? The live spinner / "esc to interrupt" hint only
-    # render while a turn or tool runs. A real PERMISSION box BLOCKS claude, so it
-    # has NO live spinner — therefore a permission phrase seen WHILE a spinner is
-    # up is claude's own OUTPUT (claude discussing "(y/n)" / "do you want to…"),
-    # NOT a live prompt. This is the fix for a busy session being misread as
-    # "waiting" because its claude was writing about permission UIs. We also scan
-    # the WHOLE pane for the working signal so a long tool's output scrolling the
-    # spinner above the bottom still reads working.
-    working = _pane_is_working(text)
+    # render while a turn or tool runs. A real PERMISSION box / popup BLOCKS
+    # claude, so it has NO live spinner — therefore a prompt phrase seen WHILE a
+    # spinner is up is claude's own OUTPUT, NOT a live prompt. We scan the WHOLE
+    # pane for the working signal so a long tool's output scrolling the spinner
+    # above the bottom still reads working.
+    if _pane_is_working(text):
+        return "working"
 
-    # 2) A PERMISSION / confirmation box — a marker a few lines up. Only when NOT
-    #    working (a live box blocks claude → no spinner) and NOT sitting at the
-    #    free-text input prompt (then the marker is scrollback) — UNLESS the bottom
-    #    line itself carries the confirm (e.g. "❯ (y/n)"), a real prompt.
-    if not working:
-        at_prompt = bool(_INPUT_PROMPT_RE.match(last))
-        if not at_prompt or any(m in low_last for m in _PERMISSION_MARKERS):
-            tail = "\n".join(lines[-_PERMISSION_TAIL:]).lower()
-            if any(m in tail for m in _PERMISSION_MARKERS):
-                return "waiting"
+    # 1) A live SELECTION popup — its footer sits in the bottom few lines (the
+    #    mode line may render below it), strictly BELOW the last composer.
+    for i in range(max(last_composer + 1, len(lines) - _FOOTER_TAIL), len(lines)):
+        low = lines[i].lower()
+        if any(m in low for m in _SELECT_FOOTER_MARKERS):
+            return "waiting"
 
-    return "working" if working else "idle"
+    # 2) A PERMISSION / confirmation box — a marker in the tail, strictly BELOW
+    #    the last composer. Exception: the bottom line itself carrying the confirm
+    #    (e.g. "❯ (y/n)") is a real inline prompt even though it matches the
+    #    composer shape.
+    if any(m in lines[-1].lower() for m in _PERMISSION_MARKERS):
+        return "waiting"
+    start = max(last_composer + 1, len(lines) - _PERMISSION_TAIL)
+    tail = "\n".join(lines[start:]).lower()
+    if any(m in tail for m in _PERMISSION_MARKERS):
+        return "waiting"
+
+    return "idle"
