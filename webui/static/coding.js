@@ -34,7 +34,8 @@ let _codingTermES = null;           // EventSource for terminal output
 let _codingEventsES = null;         // EventSource for instant state-change nudges
 let _codingEventsDebounce = null;   // coalesces nudge bursts into one refresh
 let _codingTermFit = null;          // xterm FitAddon
-let _codingTermResize = null;       // bound window resize handler
+let _codingTermResize = null;       // immediate refit (fullscreen calls this)
+let _codingTermWinResize = null;    // THROTTLED window-resize listener (for removal)
 let _codingTermMountedId = null;    // session id the terminal is attached to
 const _CODING_POLL_MS = 4000;       // detail status/subagent refresh cadence
 
@@ -393,14 +394,23 @@ function _codingIsTranscriptIdle(s) {
     && _cdgStatusClass(s.status) !== 'running';
 }
 
-// A DISCOVERED live (tmux) session that has ENDED — the user quit claude / the
-// tmux session is gone, so the server reconciled it to stopped. It has no live
+// A live (tmux) session that has ENDED — the user quit claude / the tmux session
+// is gone, so the server reconciled it to stopped (or error). It has no live
 // terminal to attach; show the "session ended" panel (Resume / Relaunch) instead
-// of dumping the user into a dead terminal.
+// of dumping the user into a dead terminal — or, for a SERVER session, instead of
+// re-attaching the dead tmux on a loop (the ctrl-C "infinite reload" bug).
 function _codingIsEnded(s) {
-  return s && String(s.source || '').startsWith('discovered')
-    && String(s.source || '') !== 'discovered-transcript'
-    && _cdgStatusClass(s.status) === 'stopped';
+  if (!s) return false;
+  const src = String(s.source || '');
+  if (src === 'discovered-transcript') return false;   // that's transcript-idle
+  const cls = _cdgStatusClass(s.status);
+  // A discovered Mac live session the user quit → stopped.
+  if (src.startsWith('discovered') && cls === 'stopped') return true;
+  // A server-LAUNCHED session whose tmux died (e.g. you ctrl-C'd claude) gets
+  // reaped to stopped/error. Route it to the ended panel so the detail view
+  // stops re-mounting a dead terminal attach (which looped forever).
+  if ((s.host || 'server') === 'server' && (cls === 'stopped' || cls === 'error')) return true;
+  return false;
 }
 
 // One session row (used inside both project groups and the ungrouped group).
@@ -1363,6 +1373,23 @@ function _codingRenderEndedDetail(session, id) {
   _codingDetailShellId = id;          // mark this shell as built for `id`
   const title = session.title || session.cwd || session.repo_path || id;
   const cwd = session.cwd || session.repo_path || '';
+  const isServer = (session.host || 'server') === 'server'
+    && !String(session.source || '').startsWith('discovered');
+  // A SERVER-launched session that died (you ctrl-C'd claude): the recovery is a
+  // Restart in the same cwd on the server — NOT "relaunch on device" / a terminal
+  // re-attach (re-attaching the dead tmux is exactly what looped). A DISCOVERED
+  // Mac session offers the device/server recovery actions.
+  const hint = isServer
+    ? `The <code>claude</code> for this session has stopped (you quit it / its tmux ended). There's no live terminal to attach — <b>Restart</b> launches it again in the same folder on the server.`
+    : `The live <code>claude</code> for this session has stopped (its tmux session ended). There's no live terminal to attach. You can <b>relaunch it on the device</b> to keep working there, or <b>resume it on the server</b> (it continues from the synced transcript).`;
+  const actions = isServer
+    ? `<button type="button" class="cdg-btn-primary" onclick="codingRestart()">Restart</button>
+       <button type="button" class="cdg-btn-secondary" onclick="codingDelete()">Delete</button>`
+    : `<button type="button" class="cdg-btn-primary" onclick="codingRelaunchDevice('${_cdgEsc(id)}')">Relaunch on device</button>
+       <button type="button" class="cdg-btn-secondary" onclick="codingResumeSession('${_cdgEsc(id)}')">Resume on server</button>
+       <button type="button" class="cdg-btn-secondary" onclick="codingReopenTerminal('${_cdgEsc(id)}')">Reopen terminal</button>`;
+  const sub = isServer ? 'claude is no longer running on the server'
+                       : 'claude is no longer running on this device';
   detail.innerHTML = `
     <div class="cm-detail-head">
       <div class="cm-detail-titles">
@@ -1378,12 +1405,10 @@ function _codingRenderEndedDetail(session, id) {
     <div class="cm-detail-body">
       <div class="cdg-ended-detail">
         <div class="cm-section">
-          <div class="cm-section-head"><span class="cm-section-title">Session ended</span><span class="cm-section-count" style="font-weight:400;opacity:.6">claude is no longer running on this device</span></div>
-          <div class="cdg-hint">The live <code>claude</code> for this session has stopped (its tmux session ended). There's no live terminal to attach. You can <b>relaunch it on the device</b> to keep working there, or <b>resume it on the server</b> (it continues from the synced transcript).</div>
+          <div class="cm-section-head"><span class="cm-section-title">Session ended</span><span class="cm-section-count" style="font-weight:400;opacity:.6">${sub}</span></div>
+          <div class="cdg-hint">${hint}</div>
           <div class="cdg-ended-actions" style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">
-            <button type="button" class="cdg-btn-primary" onclick="codingRelaunchDevice('${_cdgEsc(id)}')">Relaunch on device</button>
-            <button type="button" class="cdg-btn-secondary" onclick="codingResumeSession('${_cdgEsc(id)}')">Resume on server</button>
-            <button type="button" class="cdg-btn-secondary" onclick="codingReopenTerminal('${_cdgEsc(id)}')">Reopen terminal</button>
+            ${actions}
           </div>
         </div>
       </div>
@@ -1434,15 +1459,46 @@ function _codingMountTerminal(id) {
         api('/api/terminal/resize',
           { method: 'POST', body: JSON.stringify({ session_id: id, rows: term.rows, cols: term.cols }) }).catch(() => {});
       };
+      // THROTTLE the window-resize handler: a window drag fires dozens of resize
+      // events/sec, each doing a full xterm reflow + a /resize POST + a tmux
+      // SIGWINCH (tmux then repaints the whole pane) — a major lag amplifier.
+      // Coalesce to a single trailing 150ms call. Fullscreen still calls
+      // sendResize directly for an immediate refit.
+      let _rzTimer = 0;
+      const onWinResize = () => {
+        if (_rzTimer) clearTimeout(_rzTimer);
+        _rzTimer = setTimeout(sendResize, 150);
+      };
       _codingTermResize = sendResize;
-      window.addEventListener('resize', sendResize);
+      _codingTermWinResize = onWinResize;
+      window.addEventListener('resize', onWinResize);
       setTimeout(sendResize, 120);
+      // BATCH incoming output with requestAnimationFrame: a burst of SSE frames
+      // is buffered and flushed once per frame in a single term.write, smoothing
+      // render to the display refresh instead of one synchronous write+reflow per
+      // message (the client-side half of the terminal-lag fix).
+      let _wbuf = '';
+      let _wraf = 0;
+      const _flushWrites = () => {
+        _wraf = 0;
+        const b = _wbuf; _wbuf = '';
+        if (b && _codingTerm) _codingTerm.write(b);
+      };
       const es = new EventSource('/api/terminal/output?session_id=' + encodeURIComponent(id), { withCredentials: true });
       _codingTermES = es;
       es.addEventListener('output', ev => {
         let text = ''; try { text = (JSON.parse(ev.data) || {}).text || ''; } catch (_) {}
-        if (text && _codingTerm) _codingTerm.write(text);
+        if (!text) return;
+        _wbuf += text;
+        if (!_wraf) _wraf = requestAnimationFrame(_flushWrites);
       });
+      es.onerror = () => {
+        // Don't let EventSource auto-reconnect against a dead/closed terminal —
+        // that re-attached the (now dead) tmux on a loop, which was the ctrl-C
+        // "infinite reload" storm. If this mount is no longer the active one,
+        // close the stream for good.
+        if (_codingTermMountedId !== id) { try { es.close(); } catch (_) {} }
+      };
       es.addEventListener('terminal_closed', (ev) => {
         let reason = '';
         try { reason = (JSON.parse(ev.data) || {}).reason || ''; } catch (_) {}
@@ -1492,14 +1548,14 @@ function _codingMountTerminal(id) {
 
 function _codingTeardownTerminal() {
   try { if (_codingTermES) _codingTermES.close(); } catch (_) {}
-  try { if (_codingTermResize) window.removeEventListener('resize', _codingTermResize); } catch (_) {}
+  try { if (_codingTermWinResize) window.removeEventListener('resize', _codingTermWinResize); } catch (_) {}
   // Detach the server-side PTY (does NOT kill the tmux session / claude).
   if (_codingTermMountedId) {
     api('/api/terminal/close', { method: 'POST', body: JSON.stringify({ session_id: _codingTermMountedId }) }).catch(() => {});
   }
   try { if (_codingTerm) _codingTerm.dispose(); } catch (_) {}
   _codingTerm = null; _codingTermES = null; _codingTermFit = null;
-  _codingTermResize = null; _codingTermMountedId = null;
+  _codingTermResize = null; _codingTermWinResize = null; _codingTermMountedId = null;
 }
 
 // Fullscreen the live terminal so the Claude session fills the viewport. Uses a

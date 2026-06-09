@@ -6853,8 +6853,37 @@ def _handle_terminal_output(handler, parsed):
                 handler.wfile.write(b": terminal heartbeat\n\n")
                 handler.wfile.flush()
                 if term.closed.is_set() and term.output.empty():
-                    _sse(handler, "terminal_closed", {"exit_code": term.proc.poll()})
+                    payload = {"exit_code": term.proc.poll()}
+                    reason = getattr(term, "close_reason", None)
+                    if reason:
+                        payload["reason"] = reason
+                    _sse(handler, "terminal_closed", payload)
                     break
+                continue
+            # COALESCE a burst of consecutive output frames into ONE SSE write. A
+            # busy claude REPL repaints the whole pane, enqueuing many ~8-64KB
+            # chunks; emitting one json.dumps + flush per chunk was the dominant
+            # source of the "very laggy" terminal. Drain whatever is already
+            # queued and concatenate the output text; stop at a control event
+            # (terminal_closed/error), which we forward after the merged output.
+            if event == "output":
+                texts = [(data or {}).get("text", "")]
+                ctrl = None
+                while True:
+                    try:
+                        ev2, d2 = term.output.get_nowait()
+                    except queue.Empty:
+                        break
+                    if ev2 == "output":
+                        texts.append((d2 or {}).get("text", ""))
+                    else:
+                        ctrl = (ev2, d2)
+                        break
+                _sse(handler, "output", {"text": "".join(texts)})
+                if ctrl is not None:
+                    _sse(handler, ctrl[0], ctrl[1])
+                    if ctrl[0] in ("terminal_closed", "terminal_error"):
+                        break
                 continue
             _sse(handler, event, data)
             if event in ("terminal_closed", "terminal_error"):

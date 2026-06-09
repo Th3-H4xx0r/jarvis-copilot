@@ -143,31 +143,99 @@ def test_disk_guard_blocks_on_critical_and_recovers():
     assert len(gced) == 2  # GC ran on the two critical passes, not the recovery
 
 
+class _DriverWithRun(FakeDriver):
+    def __init__(self, panes, gone):
+        super().__init__(panes)
+        self.gone = set(gone)
+
+    def _run(self, argv):
+        import types
+        name = argv[-1]
+        rc = 1 if name in self.gone else 0
+        return types.SimpleNamespace(returncode=rc, stderr="")
+
+
 def test_reaps_dead_server_tmux():
-    # A server session whose tmux is GONE (claude exited / resume-to-server failed)
-    # must be reaped to status=error, not left as a fake running/idle with a dead
-    # terminal (which the resume idempotency would wrongly reuse).
-    import types
-
-    class _DriverWithRun(FakeDriver):
-        def __init__(self, panes, gone):
-            super().__init__(panes)
-            self.gone = set(gone)
-
-        def _run(self, argv):
-            name = argv[-1]
-            rc = 1 if name in self.gone else 0
-            return types.SimpleNamespace(returncode=rc, stderr="")
-
-    store = FakeStore([_row("cs_dead", "jc-dead"), _row("cs_live", "jc-live")])
-    drv = _DriverWithRun({"jc-live": "esc to interrupt"}, gone=["jc-dead"])
+    # A server session whose tmux is GONE must be reaped (not left as a fake
+    # running/idle with a dead terminal, which the resume idempotency would wrongly
+    # reuse). A session that HAD come alive (running/idle) is a clean end -> stopped
+    # (no scary "Error" badge, routes the UI to the ended panel instead of looping a
+    # dead re-attach). A session still "starting" failed to launch -> error.
+    store = FakeStore([_row("cs_dead", "jc-dead"),
+                       _row("cs_failed", "jc-failed", status="starting"),
+                       _row("cs_live", "jc-live")])
+    drv = _DriverWithRun({"jc-live": "esc to interrupt"},
+                         gone=["jc-dead", "jc-failed"])
     run_status_tick(FakeManager(store, drv))
     rows = {r["id"]: r for r in store.rows}
-    assert rows["cs_dead"]["status"] == "error"          # reaped
+    assert rows["cs_dead"]["status"] == "stopped"        # clean end
     assert rows["cs_dead"]["activity_state"] is None
+    assert rows["cs_failed"]["status"] == "error"        # never came alive
     assert rows["cs_live"]["status"] == "running"        # untouched
-    # the dead one was NOT pane-captured (we short-circuited on has-session)
+    # the dead ones were NOT pane-captured (we short-circuited on has-session)
     assert "jc-dead" not in drv.captured
+
+
+def test_server_transition_dispatches_notifications(monkeypatch):
+    # The SERVER has no plugin jc-client hook, so the poll must drive the
+    # finished/needs-input pings on the real edges:
+    #   working -> idle  => "stop" (finished);  * -> waiting => "notification".
+    # Other edges (e.g. -> working, first-seen idle) must NOT ping.
+    import sys
+    import types
+
+    from agent import coding_status_loop as csl
+
+    calls = []
+    fake = types.ModuleType("api.coding_routes")
+    fake._dispatch_coding_notifications = lambda store, **kw: calls.append(kw)
+    fake._EVENT_NOTIFY_KEY = {"stop": "finished", "notification": "needs_input"}
+    fake._coding_settings = lambda store: {
+        "events": {"finished": {"telegram": False},
+                   "needs_input": {"telegram": False}}}
+    fake._coding_alert_text = lambda store, row, event: ("T", "L")
+    fake._send_coding_telegram = lambda text: calls.append({"tg": text})
+    api_mod = types.ModuleType("api")
+    api_mod.coding_routes = fake
+    monkeypatch.setitem(sys.modules, "api", api_mod)
+    monkeypatch.setitem(sys.modules, "api.coding_routes", fake)
+
+    row = {"id": "x", "cwd": "/p"}
+    csl._notify_server_transition({}, row, "working", "idle")
+    assert [c.get("event") for c in calls] == ["stop"]
+    calls.clear()
+    csl._notify_server_transition({}, row, "idle", "waiting")
+    assert [c.get("event") for c in calls] == ["notification"]
+    calls.clear()
+    csl._notify_server_transition({}, row, None, "working")
+    assert calls == []                                   # -> working: no ping
+    csl._notify_server_transition({}, row, None, "idle")
+    assert calls == []                                   # first-seen idle: no ping
+
+
+def test_server_transition_sends_telegram_when_enabled(monkeypatch):
+    # When the telegram channel is on, the server poll sends it directly (no
+    # notify.sh on the server to do it).
+    import sys
+    import types
+
+    from agent import coding_status_loop as csl
+
+    tg = []
+    fake = types.ModuleType("api.coding_routes")
+    fake._dispatch_coding_notifications = lambda store, **kw: None
+    fake._EVENT_NOTIFY_KEY = {"stop": "finished", "notification": "needs_input"}
+    fake._coding_settings = lambda store: {
+        "events": {"needs_input": {"telegram": True}}}
+    fake._coding_alert_text = lambda store, row, event: ("🔔 needs you", "proj")
+    fake._send_coding_telegram = lambda text: tg.append(text)
+    api_mod = types.ModuleType("api")
+    api_mod.coding_routes = fake
+    monkeypatch.setitem(sys.modules, "api", api_mod)
+    monkeypatch.setitem(sys.modules, "api.coding_routes", fake)
+
+    csl._notify_server_transition({}, {"id": "x", "cwd": "/p"}, "idle", "waiting")
+    assert tg == ["🔔 needs you — proj"]
 
 
 def test_no_run_method_skips_reap():

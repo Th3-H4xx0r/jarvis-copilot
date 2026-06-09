@@ -27,6 +27,44 @@ from agent.coding_activity_state import classify_pane
 _LIVE_STATUSES = {"running", "starting", "idle"}
 
 
+def _notify_server_transition(store, row, prev, state) -> None:
+    """Fire a settings-gated coding notification for a SERVER-host activity_state
+    edge — the server has no plugin ``jc-client`` hook to do it (that's the Mac
+    path), so the poll must. Edges that matter:
+      • ``* -> waiting`` = Claude NEEDS INPUT (a prompt appeared)  -> ``notification``
+      • ``working -> idle`` = the turn FINISHED                    -> ``stop``
+    Other transitions (e.g. ``-> working``, first-seen ``-> idle``) don't ping.
+    Sends mobile push + WebUI toast via the shared dispatch, AND Telegram directly
+    (the shared dispatch leaves Telegram to the Mac's notify.sh hook, which never
+    runs on the server). Never raises."""
+    if state == "waiting" and prev != "waiting":
+        event = "notification"
+    elif state == "idle" and prev == "working":
+        event = "stop"
+    else:
+        return
+    try:
+        from api import coding_routes as cr
+    except Exception:
+        return
+    cwd = row.get("cwd") or ""
+    try:
+        cr._dispatch_coding_notifications(store, event=event, row=row, cwd=cwd)
+    except Exception:
+        pass
+    # Telegram: the shared dispatch deliberately skips it (the Mac notify.sh hook
+    # owns Telegram for Mac sessions). A server session has no such hook, so send
+    # it here — gated by the same Code Master telegram channel toggle.
+    try:
+        ekey = cr._EVENT_NOTIFY_KEY.get(event)
+        chans = cr._coding_settings(store)["events"].get(ekey, {})
+        if chans.get("telegram"):
+            title, label = cr._coding_alert_text(store, row, event)
+            cr._send_coding_telegram(f"{title} — {label}")
+    except Exception:
+        pass
+
+
 def run_status_tick(manager, *, classify=classify_pane) -> int:
     """Classify each live server-host session's pane and persist
     ``activity_state`` when it changed. Returns the count updated.
@@ -52,25 +90,42 @@ def run_status_tick(manager, *, classify=classify_pane) -> int:
             tmux_name = row.get("tmux_name")
             if not tmux_name:
                 continue
-            # REAP a server session whose tmux is GONE (claude exited / failed to
-            # start — e.g. a resume-to-server where claude couldn't run). Otherwise
-            # capture_pane returns "" → classifies "idle", so a dead session shows a
-            # fake "running/idle" with a dead terminal AND the resume idempotency
-            # would happily reuse it. Mark it error so the UI shows the truth.
+            # REAP a server session whose tmux is GONE. Otherwise capture_pane
+            # returns "" → classifies "idle", so a dead session shows a fake
+            # "running/idle" with a dead terminal AND the resume idempotency would
+            # happily reuse it. Distinguish a NORMAL end from a failed launch:
+            #   • was running/idle (it had come alive) → STOPPED — a clean quit
+            #     (you ctrl-C'd claude). No scary red "Error" badge, and the UI
+            #     routes it to the ended panel instead of re-attaching the dead
+            #     tmux on a loop (the infinite-reload glitch).
+            #   • was still "starting" (never came alive — e.g. a resume-to-server
+            #     where claude couldn't run) → ERROR, to show the truth.
             if callable(run):
                 try:
                     res = run(["tmux", "has-session", "-t", tmux_name])
                     if getattr(res, "returncode", 0) != 0:
-                        manager.store.update_session(row["id"], status="error",
+                        new_status = ("stopped"
+                                      if row.get("status") in ("running", "idle")
+                                      else "error")
+                        manager.store.update_session(row["id"], status=new_status,
                                                      activity_state=None)
                         updated += 1
                         continue
                 except Exception:
                     pass
             state = classify(capture(tmux_name=tmux_name))
-            if state != row.get("activity_state"):
+            prev = row.get("activity_state")
+            if state != prev:
                 manager.store.update_session(row["id"], activity_state=state)
                 updated += 1
+                # SERVER-HOST notifications. A Mac session pings the user
+                # (finished / needs-input) via the plugin's jc-client hook, but
+                # jc-client isn't installed on the server — so a web-UI-driven
+                # SERVER session would never notify. Drive the SAME settings-gated
+                # dispatch from this poll on the real transition edges. Server-only
+                # (the loop already skips desktop rows) + edge-triggered, so it
+                # can't double-fire with the Mac hook path or spam.
+                _notify_server_transition(manager.store, row, prev, state)
         except Exception:
             continue
     if updated:

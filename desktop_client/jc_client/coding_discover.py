@@ -136,12 +136,17 @@ def tmux_capture_argv(tmux_name: str, lines: int = 80) -> list:
 _WAITING_MARKERS = (
     "do you want to proceed", "do you want to run",
     "do you want to make this edit", "do you want to create",
-    "do you want to delete", "❯ 1.", "1. yes",
+    "do you want to delete", "1. yes",
     "(y/n)", "press enter to continue",
 )
 _WORKING_MARKERS = (
     "esc to interrupt", "esc to stop", "ctrl+b to run in background",
 )
+# A live SELECTION-MENU cursor — the permission box AND the generic
+# AskUserQuestion popup. "❯" can be on ANY option (numbered "❯ 2." or worded
+# "│ ❯ Coffee │"), but NEVER matches the bare "❯ " input prompt / echoed user
+# line. KEEP IN SYNC with agent/coding_activity_state._WAITING_SELECT_RE.
+_WAITING_SELECT_RE = re.compile(r"❯\s+\d+\.|│\s*❯\s+\w")
 # The live spinner status line — a parenthesized elapsed time + middot, e.g.
 # "(35s · ↑ 2.4k tokens · …)". Present in standard Claude AND custom forks (whose
 # verb/suffix differ but this prefix doesn't), so it's the robust "working"
@@ -154,7 +159,7 @@ def classify_pane(text: str) -> str:
     if not text:
         return "idle"
     low = text.lower()
-    if any(m in low for m in _WAITING_MARKERS):
+    if any(m in low for m in _WAITING_MARKERS) or _WAITING_SELECT_RE.search(text):
         return "waiting"
     if any(m in low for m in _WORKING_MARKERS) or _WORKING_SPINNER_RE.search(text):
         return "working"
@@ -616,6 +621,12 @@ def _sessions_hash(sessions: list) -> str:
     would defeat the throttle. The 30s heartbeat carries freshness instead. Both
     ``tmux`` and ``transcript`` kinds are folded into one stable identity tuple
     keyed on the fields that actually define the session set.
+
+    ``activity_state`` IS included: an idle↔working↔waiting transition (same tmux
+    set) must count as "changed" so it pushes on the next 5s poll instead of
+    waiting up to 30s for the heartbeat — otherwise the iOS Live Activity / WebUI
+    shows a stale "idle" while a Mac session is actively running (the bug where
+    closing+resuming on the Mac didn't surface the running session).
     """
     norm = sorted(
         (str(s.get("kind") or ""),
@@ -624,6 +635,7 @@ def _sessions_hash(sessions: list) -> str:
          str(s.get("cwd") or ""),
          str(s.get("title") or ""),
          str(s.get("summary") or ""),
+         str(s.get("activity_state") or ""),
          bool(s.get("live")))
         for s in sessions
     )

@@ -26,11 +26,25 @@ _WAITING_MARKERS = (
     "do you want to make this edit",
     "do you want to create",
     "do you want to delete",
-    "❯ 1.",
     "1. yes",
     "(y/n)",
     "press enter to continue",
 )
+
+# A live SELECTION-MENU cursor — Claude's permission box AND the generic
+# AskUserQuestion multiple-choice popup (e.g. a "Drink → Coffee / Tea / Energy"
+# prompt). The "❯" cursor can sit on ANY option, not just option 1 (the user may
+# have arrowed down), and options may be numbered ("❯ 2. Tea") or worded
+# ("│ ❯ Coffee │" inside the box). We match either:
+#   • "❯" + a NUMBERED option at any index — unambiguous, and
+#   • a "❯" right after a box border "│" followed by a word char — the worded
+#     popup case.
+# Crucially neither pattern matches the bare "❯ " input prompt or an ECHOED user
+# message ("❯ yooo") — those have no digit-dot and no leading "│" border — so an
+# idle session is never misread as waiting. (The old code only matched the
+# literal "❯ 1.", so a non-first / worded selection read as "idle" — the bug
+# where an open popup showed "Idle".)
+_WAITING_SELECT_RE = re.compile(r"❯\s+\d+\.|│\s*❯\s+\w")
 
 # Claude shows "esc to interrupt" on its status line whenever it is running a
 # turn or a tool (in every permission mode), so it is the reliable "working"
@@ -55,7 +69,7 @@ def classify_pane(text: str) -> str:
     if not text:
         return "idle"
     low = text.lower()
-    if any(m in low for m in _WAITING_MARKERS):
+    if any(m in low for m in _WAITING_MARKERS) or _WAITING_SELECT_RE.search(text):
         return "waiting"
     if any(m in low for m in _WORKING_MARKERS) or _WORKING_SPINNER_RE.search(text):
         return "working"

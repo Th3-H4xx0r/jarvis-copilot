@@ -1344,6 +1344,25 @@ def _is_dismissed(device_id: str, key: str) -> bool:
         return str(key) in _DISMISSED_DISCOVERED.get(str(device_id), set())
 
 
+def _push_la_and_notify(store) -> None:
+    """Best-effort INSTANT fan-out after a discovery ingest changed a live state:
+    rebuild + APNs-push the coding Live Activity and nudge the WebUI SSE so the
+    Dynamic Island / browser reflect a Mac session going working/idle/stopped (or
+    a freshly-relaunched session appearing) immediately, instead of waiting up to
+    the next 4s status-loop tick. Deduped + a no-op when APNs/tokens are absent."""
+    try:
+        from agent.coding_la_push import push_coding_update
+        from agent.coding_usage import get_usage
+        push_coding_update(store, usage=get_usage(store))
+    except Exception:  # noqa: BLE001 — never let a push failure break ingest
+        pass
+    try:
+        from api import coding_events
+        coding_events.notify()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
     """Upsert a desktop device's discovered ``claude`` sessions and reconcile.
 
@@ -1465,6 +1484,10 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
         if (r.get("claude_session_id") or "").strip()
     }
     upserted = 0
+    # Did this ingest change a LIVE state (new/revived/stopped tmux row, or an
+    # activity_state transition)? If so we fan out an instant LA/WebUI push at the
+    # end so the Dynamic Island / browser don't lag the Mac by up to 4s.
+    live_changed = False
 
     # First pass over tmux items so live_tmux_cwds is fully populated before any
     # transcript dedup decision (push order is not guaranteed).
@@ -1513,6 +1536,10 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                     fields["claude_session_id"] = csid
                 if act is not None:
                     fields["activity_state"] = act
+                    if act != (row.get("activity_state") or None):
+                        live_changed = True
+                if (row.get("status") or "") != "running":
+                    live_changed = True  # a stopped/errored row came back to life
                 store.update_session(row["id"], **fields)
             else:
                 sid = store.create_session(
@@ -1525,6 +1552,7 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                     store.update_session(sid, last_activity_at=last_activity)
                 if act is not None:
                     store.update_session(sid, activity_state=act)
+                live_changed = True  # a brand-new live session appeared
             if csid:
                 tmux_owned_csids.add(csid)  # so the transcript pass dedups it
             upserted += 1
@@ -1600,9 +1628,12 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
         try:
             if (row.get("status") or "") != "stopped":
                 store.update_session(row["id"], status="stopped")
+                live_changed = True
         except Exception as exc:  # noqa: BLE001
             log.warning("coding_discover[%s]: reconcile stop failed for %s: %s",
                         device_id, name, exc)
+    if live_changed:
+        _push_la_and_notify(store)
     return upserted
 
 

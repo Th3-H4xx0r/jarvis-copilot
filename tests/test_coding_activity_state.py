@@ -74,3 +74,38 @@ def test_working_spinner_without_esc_hint():
     # a parenthesized elapsed time, e.g. "(35s · ↑ 2.4k tokens · thinking …)".
     pane = "✽ Precipitating… (35s · ↑ 2.4k tokens · thinking with xhigh effort)\n❯ "
     assert classify_pane(pane) == "working"
+
+
+def test_selection_popup_non_first_option_is_waiting():
+    # The AskUserQuestion / permission popup with the cursor on a NON-first
+    # numbered option (the user arrowed down) must read as waiting — the old
+    # code only matched the literal "❯ 1." and showed this as "Idle".
+    pane = (
+        "╭─────────────────────────────╮\n"
+        "│ What's your go-to drink?    │\n"
+        "│   1. Coffee                 │\n"
+        "│ ❯ 2. Tea                    │\n"
+        "│   3. Energy drink           │\n"
+        "╰─────────────────────────────╯\n"
+    )
+    assert classify_pane(pane) == "waiting"
+
+
+def test_selection_popup_worded_options_is_waiting():
+    # A worded multiple-choice popup (no numbers) inside the box still reads as
+    # waiting via the "│ ❯ <word>" border-cursor pattern.
+    pane = (
+        "╭─────────────────────────────╮\n"
+        "│ Pick a drink                │\n"
+        "│   Coffee                    │\n"
+        "│ ❯ Energy drink              │\n"
+        "╰─────────────────────────────╯\n"
+    )
+    assert classify_pane(pane) == "waiting"
+
+
+def test_echoed_user_message_with_chevron_is_not_waiting():
+    # The REPL echoes a user message with a "❯ " prefix and renders the empty
+    # input prompt as "❯ " — neither is a selection menu, so both stay idle
+    # (the new selection patterns must NOT fire on a bare chevron).
+    assert classify_pane("❯ ask me for another example popup\n❯ ") == "idle"

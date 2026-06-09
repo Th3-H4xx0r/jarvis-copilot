@@ -46,6 +46,11 @@ class TerminalSession:
     output: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=2000))
     closed: threading.Event = field(default_factory=threading.Event)
     reader: threading.Thread | None = None
+    # For an ATTACH terminal (live coding tmux): the tmux session name, so the
+    # reader can tell a clean DETACH from the tmux session being GONE (claude
+    # quit / ctrl-C) and emit reason="ended" accordingly.
+    tmux_name: str | None = None
+    close_reason: str | None = None
 
     def is_alive(self) -> bool:
         return not self.closed.is_set() and self.proc.poll() is None
@@ -101,7 +106,10 @@ def _reader_loop(term: TerminalSession) -> None:
             if not ready:
                 continue
             try:
-                data = os.read(term.master_fd, 8192)
+                # Read big: a single tmux full-pane repaint can be tens of KB.
+                # Pulling it in one read (vs many 8KB reads) means fewer queue
+                # items → fewer SSE frames → far less terminal lag.
+                data = os.read(term.master_fd, 65536)
             except OSError as exc:
                 if exc.errno in (errno.EIO, errno.EBADF):
                     break
@@ -116,7 +124,23 @@ def _reader_loop(term: TerminalSession) -> None:
     finally:
         term.closed.set()
         code = term.proc.poll()
-        term.put_output("terminal_closed", {"exit_code": code})
+        payload = {"exit_code": code}
+        # An ATTACH terminal whose tmux session is GONE means claude actually
+        # ENDED (the user quit / ctrl-C'd it), not just a detach. Tell the client
+        # via reason="ended" so it shows the ended panel instead of re-attaching
+        # the dead tmux — re-attaching looped forever (the infinite-reload bug).
+        tn = getattr(term, "tmux_name", None)
+        if tn:
+            try:
+                r = subprocess.run(["tmux", "has-session", "-t", tn],
+                                   stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, timeout=5)
+                if r.returncode != 0:
+                    payload["reason"] = "ended"
+                    term.close_reason = "ended"
+            except Exception:
+                pass
+        term.put_output("terminal_closed", payload)
 
 
 def _set_size(term: TerminalSession, rows: int, cols: int) -> None:
@@ -278,7 +302,8 @@ def start_attach_terminal(session_id: str, tmux_name: str,
         _set_nonblocking(master_fd)
 
         term = TerminalSession(session_id=sid, workspace=home, proc=proc,
-                               master_fd=master_fd, rows=rows, cols=cols)
+                               master_fd=master_fd, rows=rows, cols=cols,
+                               tmux_name=name)
         _set_size(term, rows, cols)
         term.reader = threading.Thread(target=_reader_loop, args=(term,), daemon=True)
         term.reader.start()
