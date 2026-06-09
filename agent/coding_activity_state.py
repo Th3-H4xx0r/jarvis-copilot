@@ -81,8 +81,12 @@ _COMPOSER_RE = re.compile(r"^\s*[❯>](?:\s+(?!\d+\.)|$)")
 _WORKING_MARKERS = (
     "esc to interrupt",
     "esc to stop",
-    "ctrl+b to run in background",
 )
+
+# The background hint inside the status segment. Rendered with variable middle
+# text across versions — "ctrl+b to run in background", "ctrl+b ctrl+b (twice)
+# to run in background" — so match the stable head + tail, not one literal.
+_BG_HINT_RE = re.compile(r"ctrl\+b.*to run in background")
 
 # The live "spinner" status line — a parenthesized ELAPSED TIME followed by a
 # middot, e.g. "(35s · …)", "(3m 12s · …)". We REQUIRE a time unit (h/m/s) before
@@ -102,7 +106,7 @@ def _pane_is_working(text: str) -> bool:
             return True
         if "(" in line:
             low = line.lower()
-            if any(m in low for m in _WORKING_MARKERS):
+            if any(m in low for m in _WORKING_MARKERS) or _BG_HINT_RE.search(low):
                 return True
     return False
 

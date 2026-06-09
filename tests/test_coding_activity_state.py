@@ -308,6 +308,18 @@ def test_real_permission_box_with_chrome_below_is_waiting():
     assert classify_pane(pane) == "waiting"
 
 
+def test_bg_hint_current_rendering_is_working():
+    # The background hint's middle text changed across versions — now
+    # "(ctrl+b ctrl+b (twice) to run in background)". The old literal marker
+    # ("ctrl+b to run in background") silently stopped matching; the regex must
+    # catch any variant.
+    pane = (
+        "✻ Flibbertigibbeting… (ctrl+b ctrl+b (twice) to run in background)\n"
+        + _REAL_IDLE_CHROME
+    )
+    assert classify_pane(pane) == "working"
+
+
 def test_selection_footer_with_chrome_below_is_waiting():
     # If the mode line renders below a live popup, the footer is no longer the
     # literal last line — it must still read waiting (footer within the bottom

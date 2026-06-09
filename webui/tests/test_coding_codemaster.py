@@ -144,6 +144,44 @@ def test_match_none_when_only_stopped():
     assert cr._match_live_session(m.store, cwd="/x") is None
 
 
+def test_match_tmux_scoped_to_sender_device():
+    # Mac tmux names are bare numbers, so the same name can exist on two
+    # devices — the sender's device_id must pick ITS row, not the first hit.
+    m = FakeManager()
+    m.store.sessions = [
+        {"id": "a", "status": "running", "tmux_name": "2", "cwd": "/x",
+         "device_id": "dev-A"},
+        {"id": "b", "status": "running", "tmux_name": "2", "cwd": "/y",
+         "device_id": "dev-B"},
+    ]
+    assert cr._match_live_session(
+        m.store, tmux_name="2", device_id="dev-B")["id"] == "b"
+    # No device_id (old client / server hook) keeps the unscoped behavior.
+    assert cr._match_live_session(m.store, tmux_name="2")["id"] == "a"
+
+
+def test_match_cwd_scoped_to_sender_device():
+    m = FakeManager()
+    m.store.sessions = [
+        {"id": "a", "status": "running", "cwd": "/x", "device_id": "dev-A",
+         "last_activity_at": 999},
+        {"id": "b", "status": "running", "cwd": "/x", "device_id": "dev-B",
+         "last_activity_at": 1},
+    ]
+    # Unscoped would pick the most-recent ("a"); the device scope must win.
+    assert cr._match_live_session(m.store, cwd="/x", device_id="dev-B")["id"] == "b"
+
+
+def test_match_csid_stays_global_across_devices():
+    # claude_session_id is globally unique — it must match even when the
+    # sender's device_id doesn't own the row (e.g. a session resumed elsewhere).
+    m = FakeManager()
+    m.store.sessions = [{"id": "a", "status": "running", "cwd": "/x",
+                         "claude_session_id": "csid-1", "device_id": "dev-A"}]
+    assert cr._match_live_session(
+        m.store, claude_session_id="csid-1", device_id="dev-B")["id"] == "a"
+
+
 # ── /activity-event integration ──────────────────────────────────────────────
 
 def test_activity_event_matched_updates_and_dispatches(monkeypatch):

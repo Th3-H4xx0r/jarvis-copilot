@@ -735,6 +735,11 @@ def cmd_coding_event(args) -> int:
         body["cwd"] = args.cwd
     if getattr(args, "session_id", ""):
         body["claude_session_id"] = args.session_id
+    if creds.device_id:
+        # Lets the server scope tmux-name/cwd matching to THIS device's rows —
+        # Mac tmux names are bare numbers and cwds repeat across hosts, so an
+        # unscoped match can stamp the event on another host's session.
+        body["device_id"] = creds.device_id
     http = HttpClient(creds.server_url, cookie=creds.cookie,
                       expected_fingerprint=creds.cert_fingerprint,
                       cf_client_id=creds.cf_client_id,

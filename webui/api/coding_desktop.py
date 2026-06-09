@@ -1883,7 +1883,10 @@ def adopt_discovered_tmux(session_id: str, *, bridge: DesktopBridge | None = Non
     # an EMPTY shell and mask that the session ended; plain `attach-session` exits
     # non-zero ("can't find session") which the client reports as coding_term_exit,
     # letting us surface a clean "ended" state + offer relaunch.
-    argv = ["tmux", "attach-session", "-t", tmux_name,
+    # `=name` = tmux EXACT-match target: the Mac's session names are numeric, and
+    # a bare numeric target can fuzzy-resolve (window index / name prefix) to a
+    # DIFFERENT session — attaching the user's phone to the wrong claude.
+    argv = ["tmux", "attach-session", "-t", f"={tmux_name}",
             ";", "set-option", "-g", "window-size", "latest"]
     ok = bridge.send_term_open(device_id, term_id=term_id, cwd=cwd, argv=argv, env={})
     if not ok:

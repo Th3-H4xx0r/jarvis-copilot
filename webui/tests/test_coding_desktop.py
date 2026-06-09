@@ -1908,8 +1908,9 @@ def test_adopt_sends_tmux_attach_open_and_feed(tmp_path):
     # attach-session to the EXISTING tmux (co-view; no -D, so the Mac stays on),
     # then size the pane to the most-recent client (window-size latest). NOT
     # `new-session -A`: a gone tmux must fail loudly so we show the ended panel,
-    # not silently spawn an empty shell.
-    assert o["argv"] == ["tmux", "attach-session", "-t", "jc-abc123",
+    # not silently spawn an empty shell. `=name` = exact-match target, so a
+    # numeric Mac session name can't fuzzy-resolve to a different session.
+    assert o["argv"] == ["tmux", "attach-session", "-t", "=jc-abc123",
                          ";", "set-option", "-g", "window-size", "latest"]
     assert "-D" not in o["argv"]
     assert "new-session" not in o["argv"]

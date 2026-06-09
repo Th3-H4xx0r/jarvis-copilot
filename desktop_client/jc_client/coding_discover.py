@@ -124,8 +124,13 @@ def tmux_list_argv() -> list:
 def tmux_capture_argv(tmux_name: str, lines: int = 80) -> list:
     """argv to print the last ``lines`` rows of a tmux pane to stdout (for live
     activity classification). ``-p`` -> stdout; ``-S -N`` includes N scrollback
-    rows so a prompt that scrolled up a line is still seen."""
-    return ["tmux", "capture-pane", "-p", "-t", tmux_name, "-S", f"-{lines}"]
+    rows so a prompt that scrolled up a line is still seen.
+
+    The target uses tmux's EXACT-match syntax ``=name:`` — a bare name (and the
+    user's sessions are NUMERIC: "0", "15", …) goes through tmux's fuzzy
+    target resolution (window-index-in-current-session, name-prefix), which can
+    capture a DIFFERENT session's pane and cross-attribute its activity state."""
+    return ["tmux", "capture-pane", "-p", "-t", f"={tmux_name}:", "-S", f"-{lines}"]
 
 
 # ── live activity_state classifier ─────────────────────────────────────────────
@@ -146,9 +151,8 @@ _PERMISSION_MARKERS = (
 _PERMISSION_TAIL = 12
 _FOOTER_TAIL = 3
 _COMPOSER_RE = re.compile(r"^\s*[❯>](?:\s+(?!\d+\.)|$)")
-_WORKING_MARKERS = (
-    "esc to interrupt", "esc to stop", "ctrl+b to run in background",
-)
+_WORKING_MARKERS = ("esc to interrupt", "esc to stop")
+_BG_HINT_RE = re.compile(r"ctrl\+b.*to run in background")
 # The live spinner status line — a parenthesized ELAPSED TIME + middot. Requires a
 # time unit (h/m/s) so it can't match plain prose like "(2 · 3)". KEEP IN SYNC.
 _WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*[hms][\dhms\s]*·")
@@ -160,7 +164,7 @@ def _pane_is_working(text: str) -> bool:
             return True
         if "(" in line:
             low = line.lower()
-            if any(m in low for m in _WORKING_MARKERS):
+            if any(m in low for m in _WORKING_MARKERS) or _BG_HINT_RE.search(low):
                 return True
     return False
 
@@ -317,7 +321,18 @@ def _enrich_tmux_with_csids(tmux_sessions: list, transcripts: list) -> None:
     the server can't resume that row (no id to ``--resume``). Claude writes a
     transcript per live session in the same cwd, so the newest transcript's id IS
     the session running in that tmux — copy it across so one row serves both
-    ADOPT (live attach) and RESUME-to-server (offline fallback)."""
+    ADOPT (live attach) and RESUME-to-server (offline fallback).
+
+    ONLY when the mapping is unambiguous: with SEVERAL live tmux sessions in the
+    same cwd, "the newest transcript" belongs to exactly one of them — stamping
+    it on all of them gives sibling sessions the same csid, and the server's
+    hook matcher (csid fallback) then writes one session's event (e.g.
+    "waiting") onto a DIFFERENT sibling's row. Leave the ambiguous ones bare."""
+    tmux_per_cwd: dict = {}
+    for s in tmux_sessions or []:
+        if isinstance(s, dict):
+            c = _norm_cwd(s.get("cwd") or "")
+            tmux_per_cwd[c] = tmux_per_cwd.get(c, 0) + 1
     by_cwd: dict = {}
     for tr in transcripts or []:
         if not isinstance(tr, dict):
@@ -333,7 +348,10 @@ def _enrich_tmux_with_csids(tmux_sessions: list, transcripts: list) -> None:
     for s in tmux_sessions or []:
         if not isinstance(s, dict) or s.get("claude_session_id"):
             continue
-        hit = by_cwd.get(_norm_cwd(s.get("cwd") or ""))
+        cwd = _norm_cwd(s.get("cwd") or "")
+        if tmux_per_cwd.get(cwd, 0) != 1:
+            continue              # ambiguous: several live sessions share the cwd
+        hit = by_cwd.get(cwd)
         if hit:
             s["claude_session_id"] = hit[1]
 

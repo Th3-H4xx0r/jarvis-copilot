@@ -18,9 +18,16 @@ try: print(json.load(sys.stdin).get("cwd") or "")
 except Exception: print("")' 2>/dev/null)"
 [ -n "$cwd" ] || cwd="$PWD"
 # The tmux session name is the server's primary join key to the session row.
+# Target the hook's OWN pane ($TMUX_PANE): an untargeted display-message falls
+# back to the most-recently-used session, which can be a DIFFERENT claude — the
+# event (e.g. "waiting") would then be written onto the wrong session row.
 tmux=""
 if [ -n "$TMUX" ]; then
-  tmux="$(tmux display-message -p '#S' 2>/dev/null)"
+  if [ -n "$TMUX_PANE" ]; then
+    tmux="$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null)"
+  else
+    tmux="$(tmux display-message -p '#S' 2>/dev/null)"
+  fi
 fi
 ( jc-client coding-event --event "$event" --tmux "$tmux" --cwd "$cwd" --session-id "$sid" >/dev/null 2>&1 & ) >/dev/null 2>&1 || true
 exit 0

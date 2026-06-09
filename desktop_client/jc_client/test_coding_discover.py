@@ -1118,6 +1118,35 @@ def test_enrich_tmux_with_csids_newest_wins():
     assert "claude_session_id" not in tmux[1]  # no transcript for its cwd
 
 
+def test_enrich_tmux_skips_ambiguous_cwd():
+    # SEVERAL live tmux sessions in one cwd: the newest transcript belongs to
+    # exactly one of them, so stamping it on all would let the server's hook
+    # matcher (csid fallback) write one sibling's event onto another's row.
+    from jc_client.coding_discover import _enrich_tmux_with_csids
+    tmux = [{"kind": "tmux", "tmux_name": "15", "cwd": "/Users/me/proj"},
+            {"kind": "tmux", "tmux_name": "11", "cwd": "/Users/me/proj"},
+            {"kind": "tmux", "tmux_name": "2", "cwd": "/Users/me/other"}]
+    transcripts = [
+        {"kind": "transcript", "claude_session_id": "p1", "cwd": "/Users/me/proj",
+         "last_activity": 200.0},
+        {"kind": "transcript", "claude_session_id": "o1", "cwd": "/Users/me/other",
+         "last_activity": 100.0},
+    ]
+    _enrich_tmux_with_csids(tmux, transcripts)
+    assert "claude_session_id" not in tmux[0]   # ambiguous — left bare
+    assert "claude_session_id" not in tmux[1]
+    assert tmux[2]["claude_session_id"] == "o1"  # unambiguous — still stamped
+
+
+def test_tmux_capture_argv_uses_exact_match_target():
+    # Bare numeric names ("2", "15") go through tmux's fuzzy target resolution
+    # (window index / name prefix) and can capture a DIFFERENT session's pane —
+    # the `=name:` syntax forces an exact session match.
+    from jc_client.coding_discover import tmux_capture_argv
+    assert tmux_capture_argv("2") == [
+        "tmux", "capture-pane", "-p", "-t", "=2:", "-S", "-80"]
+
+
 def test_enrich_tmux_does_not_overwrite_existing_csid():
     from jc_client.coding_discover import _enrich_tmux_with_csids
     tmux = [{"kind": "tmux", "tmux_name": "jc-a", "cwd": "/p",
@@ -1147,7 +1176,7 @@ def test_scan_classifies_activity_state():
         if argv[:2] == ["tmux", "list-sessions"]:
             return 0, listing, ""
         if argv[:2] == ["tmux", "capture-pane"]:
-            return 0, panes.get(argv[4], ""), ""  # argv[4] = the -t target name
+            return 0, panes.get(argv[4].strip("=:"), ""), ""  # -t "=name:" exact target
         return 1, "", ""
 
     agent = CodingDiscoverAgent(send=lambda f: None, device_id="dev1",
@@ -1206,7 +1235,7 @@ def test_scan_keeps_working_session_via_pane_content():
         if argv[:2] == ["tmux", "list-sessions"]:
             return 0, listing, ""
         if argv[:2] == ["tmux", "capture-pane"]:
-            return 0, panes.get(argv[4], ""), ""
+            return 0, panes.get(argv[4].strip("=:"), ""), ""
         return 1, "", ""
 
     agent = CodingDiscoverAgent(send=lambda f: None, runner=runner,

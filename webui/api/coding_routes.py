@@ -56,7 +56,8 @@ _EVENT_STATE = {
 }
 
 
-def _match_live_session(store, *, tmux_name="", claude_session_id="", cwd=""):
+def _match_live_session(store, *, tmux_name="", claude_session_id="", cwd="",
+                        device_id=""):
     """Resolve the live coding-session row a hook fired from, or None.
 
     Match priority, most-specific first:
@@ -67,6 +68,12 @@ def _match_live_session(store, *, tmux_name="", claude_session_id="", cwd=""):
       3. cwd — exactly ONE live row wins outright; if several live rows share
          the cwd, the MOST-RECENTLY-ACTIVE one wins (rather than giving up — a
          no-match here was the cause of LA/WebUI lagging the Telegram hook).
+    When the sender identifies its ``device_id`` (jc-client does), the
+    tmux-name and cwd matches are SCOPED to that device's rows: Mac session
+    names are bare numbers ("2", "15") and cwds repeat across hosts, so an
+    unscoped match can hit a row belonging to a different device/host and
+    write the event's state onto the wrong session. (claude_session_id is
+    globally unique, so it stays unscoped.)
     Only ever matches a *live* row, so a stale hook can't revive a stopped one.
     """
     try:
@@ -74,8 +81,10 @@ def _match_live_session(store, *, tmux_name="", claude_session_id="", cwd=""):
     except Exception:
         return None
     live = [r for r in rows if r.get("status") in _LIVE_STATUSES]
+    scoped = [r for r in live if r.get("device_id") == device_id] \
+        if device_id else live
     if tmux_name:
-        for r in live:
+        for r in scoped:
             if r.get("tmux_name") == tmux_name:
                 return r
     if claude_session_id:
@@ -83,7 +92,7 @@ def _match_live_session(store, *, tmux_name="", claude_session_id="", cwd=""):
             if r.get("claude_session_id") == claude_session_id:
                 return r
     if cwd:
-        hits = [r for r in live if r.get("cwd") == cwd]
+        hits = [r for r in scoped if r.get("cwd") == cwd]
         if len(hits) == 1:
             return hits[0]
         if len(hits) > 1:
@@ -876,11 +885,12 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
         tmux_name = (body.get("tmux_name") or "").strip()
         csid = (body.get("claude_session_id") or "").strip()
         cwd = (body.get("cwd") or "").strip()
+        device_id = (body.get("device_id") or "").strip()
 
         def _activity_event():
             row = _match_live_session(
                 manager.store, tmux_name=tmux_name,
-                claude_session_id=csid, cwd=cwd)
+                claude_session_id=csid, cwd=cwd, device_id=device_id)
             matched = row is not None
             changed = False
             if matched:
