@@ -295,6 +295,13 @@ function _codingRenderUsage(usage) {
 async function codingCodeMasterSettings() {
   const detail = document.getElementById('codingDetail');
   if (!detail) return;
+  // Deselect + stop the session poll/terminal (like codingProjectSettings):
+  // with a session still selected, its detail poll repaints the session view
+  // over this panel a few seconds after it opens.
+  _codingStopPoll();
+  _codingTeardownTerminal();
+  _codingDetailShellId = null;
+  _codingSelectedId = null;
   document.querySelectorAll('.cdg-item').forEach(b => b.classList.remove('active'));
   detail.innerHTML = '<div class="cm-detail-body"><div class="cm-empty">Loading settings…</div></div>';
   let settings;
