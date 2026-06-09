@@ -396,9 +396,9 @@ class _CodingPageState extends State<CodingPage> {
     final live = s?.isLive ?? false;
     // Chat mode rides the SAME live terminal channel (the PTY/SSE stay
     // attached) — it only swaps what's RENDERED, so flipping back to Terminal
-    // shows the live xterm exactly as before.
-    final chatMode =
-        s != null && !s.isEnded && (_chatMode[s.id] ?? false);
+    // shows the live xterm exactly as before. Allowed even for an ENDED
+    // session: the transcript is always readable.
+    final chatMode = s != null && (_chatMode[s.id] ?? false);
     return Column(
       children: [
         // Header: back + title + status pill + settings
@@ -474,7 +474,7 @@ class _CodingPageState extends State<CodingPage> {
         ),
         // Terminal ⇄ Chat segmented toggle (hidden for an ended session — the
         // recovery panel owns that view).
-        if (s != null && !s.isEnded)
+        if (s != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: _ModeToggle(
@@ -485,12 +485,29 @@ class _CodingPageState extends State<CodingPage> {
         if (chatMode)
           // Chat rendering of the conversation. The xterm Terminal + SSE feed
           // keep running underneath (they're page state, untouched here) and
-          // serve as the input channel.
+          // serve as the input channel. The chat (transcript) stays readable
+          // even for an ENDED session — only the terminal needs a live
+          // process, so the recovery panel owns the TERMINAL view alone; here
+          // a slim banner links to it and the composer disables itself.
           Expanded(
-            child: CodingChatView(
-              key: ValueKey('coding-chat-${s.id}'),
-              controller: _c,
-              sessionId: s.id,
+            child: Column(
+              children: [
+                if (s.isEnded)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                    child: _EndedChatBanner(
+                      onRecover: () =>
+                          setState(() => _chatMode[s.id] = false),
+                    ),
+                  ),
+                Expanded(
+                  child: CodingChatView(
+                    key: ValueKey('coding-chat-${s.id}'),
+                    controller: _c,
+                    sessionId: s.id,
+                  ),
+                ),
+              ],
             ),
           )
         else
@@ -1137,6 +1154,52 @@ class _StatusPill extends StatelessWidget {
           color: _color,
           fontSize: 12,
           fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Ended-session banner for CHAT mode ──────────────────────────
+/// Chat stays readable after a session ends; this slim banner says so and
+/// links to the Terminal view, where the full recovery panel lives.
+class _EndedChatBanner extends StatelessWidget {
+  const _EndedChatBanner({required this.onRecover});
+  final VoidCallback onRecover;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onRecover,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: JcTheme.glassFill,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: JcTheme.glassBorder),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.power_settings_new_rounded,
+                  size: 15, color: JcTheme.muted),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Session ended — chat is read-only. Tap for recovery options.',
+                  style: TextStyle(
+                    color: JcTheme.muted,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded,
+                  size: 17, color: JcTheme.muted),
+            ],
+          ),
         ),
       ),
     );
