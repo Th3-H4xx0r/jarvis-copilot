@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
 
 import '../coding/coding_controller.dart';
@@ -428,10 +429,32 @@ class _CodingPageState extends State<CodingPage> {
               ),
               const SizedBox(width: 8),
               _StatusPill(status: s?.status ?? 'starting'),
-              const SizedBox(width: 8),
+              // Condensed lifecycle controls live in the header now (Stop/Restart
+              // toggle + Delete), freeing the space below the terminal for the
+              // console key bar. Hidden for an ended session (the recovery panel
+              // owns those actions).
+              if (s != null && !s.isEnded) ...[
+                const SizedBox(width: 6),
+                GlassIconButton(
+                  icon: live ? Icons.stop_rounded : Icons.restart_alt_rounded,
+                  iconSize: 18,
+                  size: 36,
+                  color: live ? JcTheme.danger : JcTheme.primaryBlue,
+                  onTap: _c.busy ? null : (live ? _c.stop : _c.restart),
+                ),
+                const SizedBox(width: 6),
+                GlassIconButton(
+                  icon: Icons.delete_outline_rounded,
+                  iconSize: 18,
+                  size: 36,
+                  onTap: _c.busy ? null : _confirmDelete,
+                ),
+              ],
+              const SizedBox(width: 6),
               GlassIconButton(
                 icon: Icons.tune_rounded,
                 iconSize: 20,
+                size: 36,
                 onTap: s == null ? null : _openSettingsSheet,
               ),
             ],
@@ -485,37 +508,9 @@ class _CodingPageState extends State<CodingPage> {
                     ],
                   ),
                   SizedBox(
-                    height: (MediaQuery.of(context).size.height * 0.45)
-                        .clamp(240.0, 560.0),
+                    height: (MediaQuery.of(context).size.height * 0.42)
+                        .clamp(220.0, 560.0),
                     child: _buildTerminal(),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: GlassButton(
-                          label: live ? 'Stop' : 'Restart',
-                          icon: live
-                              ? Icons.stop_rounded
-                              : Icons.restart_alt_rounded,
-                          ghost: live,
-                          full: true,
-                          onPressed: _c.busy
-                              ? null
-                              : (live ? _c.stop : _c.restart),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: GlassButton(
-                          label: 'Delete',
-                          icon: Icons.delete_outline_rounded,
-                          ghost: true,
-                          full: true,
-                          onPressed: _c.busy ? null : _confirmDelete,
-                        ),
-                      ),
-                    ],
                   ),
                   const SizedBox(height: 8),
                 ],
@@ -523,13 +518,21 @@ class _CodingPageState extends State<CodingPage> {
             ),
           ),
         ),
-        // No composer for an ended session — there's no live claude to message.
-        if (s?.isEnded != true)
+        // The console KEY BAR + composer are FIXED below the scrolling body (so
+        // they stay reachable with the keyboard up). The key bar drives
+        // interactive TUI prompts (selection menus, permission boxes) that a soft
+        // keyboard can't — arrows / Enter / Esc / number-select / Tab / Ctrl-C.
+        if (s?.isEnded != true) ...[
+          _TerminalKeyBar(
+            onKey: _c.sendTerminalInput,
+            enabled: _term != null,
+          ),
           _MessageComposer(
             controller: _composer,
             controllerRef: _c,
             onSend: _send,
           ),
+        ],
       ],
     );
   }
@@ -1216,6 +1219,115 @@ class _EndedPanel extends StatelessWidget {
           const SizedBox(height: 14),
           ...actions,
         ],
+      ),
+    );
+  }
+}
+
+// ── Console key bar ─────────────────────────────────────────────
+/// A fixed 2-row keypad below the live terminal that sends raw key SEQUENCES to
+/// the server PTY (via /api/terminal/input). It makes interactive TUI prompts a
+/// soft keyboard can't drive usable on mobile: selection menus (↑/↓ + Enter, or
+/// number-select 1-6), permission boxes, Esc-to-cancel, the ⇧Tab permission-mode
+/// cycler, and Ctrl-C. Sequences are the standard xterm encodings.
+class _TerminalKeyBar extends StatelessWidget {
+  const _TerminalKeyBar({required this.onKey, this.enabled = true});
+
+  /// Sends a raw byte sequence straight to the PTY (no echo/translation).
+  final void Function(String seq) onKey;
+  final bool enabled;
+
+  // Arrows use NORMAL cursor-key mode (CSI A/B). Claude Code's TUI reads these
+  // for menu nav; if a future TUI enables application-cursor-keys (DECCKM) it
+  // would expect SS3 (\x1bOA/\x1bOB) instead — switch here if menu arrows ever
+  // misbehave.
+  static const List<List<String>> _row1 = [
+    ['Esc', '\x1b'],
+    ['↑', '\x1b[A'],
+    ['↓', '\x1b[B'],
+    ['⏎', '\r'],
+    ['^C', '\x03'],
+  ];
+  static const List<List<String>> _row2 = [
+    ['1', '1'],
+    ['2', '2'],
+    ['3', '3'],
+    ['4', '4'],
+    ['5', '5'],
+    ['6', '6'],
+    ['⇥', '\t'],
+    ['⇧⇥', '\x1b[Z'],
+  ];
+
+  Widget _row(List<List<String>> keys) => Row(
+        children: [
+          for (final k in keys)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 3),
+                child: _KeyButton(
+                  label: k[0],
+                  onTap: enabled
+                      ? () {
+                          HapticFeedback.selectionClick();
+                          onKey(k[1]);
+                        }
+                      : null,
+                ),
+              ),
+            ),
+        ],
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(13, 8, 13, 6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _row(_row1),
+          const SizedBox(height: 8),
+          _row(_row2),
+        ],
+      ),
+    );
+  }
+}
+
+class _KeyButton extends StatelessWidget {
+  const _KeyButton({required this.label, this.onTap});
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: onTap == null ? 0.4 : 1,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: JcTheme.surface.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: JcTheme.muted.withValues(alpha: 0.22)),
+            ),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: JcTheme.text,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

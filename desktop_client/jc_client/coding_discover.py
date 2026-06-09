@@ -130,20 +130,20 @@ def tmux_capture_argv(tmux_name: str, lines: int = 80) -> list:
 
 # ── live activity_state classifier ─────────────────────────────────────────────
 # Replicated VERBATIM from ``agent/coding_activity_state.classify_pane`` — the
-# desktop client can't import ``agent/``. KEEP THE TWO IN SYNC. working = Claude
-# is processing ("esc to interrupt"); waiting = blocked on the user (a permission
-# / choice prompt); idle = at rest. Precedence: waiting > working > idle.
-# Classify from the bottom _TAIL_LINES (the LIVE UI) only — NOT scrollback — so a
-# marker in claude's own output or an echoed user message can't fake a prompt.
-# KEEP IN SYNC with agent/coding_activity_state.
-_TAIL_LINES = 15
-_WAITING_MARKERS = (
+# desktop client can't import ``agent/``. KEEP THE TWO IN SYNC. Detection is
+# anchored to the LIVE position of each prompt (a selection footer is the BOTTOM
+# line; a permission box's bottom line is a border/option, never the input
+# prompt) so claude's own scrollback output mentioning those words can't fake a
+# prompt. See agent/coding_activity_state for the full rationale.
+_SELECT_FOOTER_MARKERS = ("esc to cancel", "enter to select")
+_PERMISSION_MARKERS = (
     "do you want to proceed", "do you want to run",
     "do you want to make this edit", "do you want to create",
     "do you want to delete", "would you like to proceed",
     "(y/n)", "press enter to continue",
-    "esc to cancel", "enter to select",   # selection-popup footer
 )
+_PERMISSION_TAIL = 12
+_INPUT_PROMPT_RE = re.compile(r"^\s*[❯>]\s+(?!\d+\.)")
 _WORKING_MARKERS = (
     "esc to interrupt", "esc to stop", "ctrl+b to run in background",
 )
@@ -154,24 +154,24 @@ _WORKING_MARKERS = (
 _WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*·")
 
 
-def _live_tail(text: str) -> str:
-    lines = text.splitlines()
-    while lines and not lines[-1].strip():
-        lines.pop()
-    return "\n".join(lines[-_TAIL_LINES:])
-
-
 def classify_pane(text: str) -> str:
     """Return ``"working" | "waiting" | "idle"`` for a captured tmux pane."""
     if not text:
         return "idle"
-    # WAITING from the live TAIL only (its markers can appear in scrollback /
-    # echoed user messages); WORKING from the WHOLE pane (a long tool's output
-    # scrolls the spinner above the tail, but the session is still working — and
-    # the spinner never appears in prose). KEEP IN SYNC with
-    # agent/coding_activity_state.classify_pane.
-    if any(m in _live_tail(text).lower() for m in _WAITING_MARKERS):
+    lines = text.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if not lines:
+        return "idle"
+    last = lines[-1]
+    low_last = last.lower()
+    if any(m in low_last for m in _SELECT_FOOTER_MARKERS):
         return "waiting"
+    at_prompt = bool(_INPUT_PROMPT_RE.match(last))
+    if not at_prompt or any(m in low_last for m in _PERMISSION_MARKERS):
+        tail = "\n".join(lines[-_PERMISSION_TAIL:]).lower()
+        if any(m in tail for m in _PERMISSION_MARKERS):
+            return "waiting"
     low = text.lower()
     if any(m in low for m in _WORKING_MARKERS) or _WORKING_SPINNER_RE.search(text):
         return "working"

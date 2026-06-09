@@ -144,3 +144,42 @@ def test_idle_prompt_below_long_output_is_idle():
         + ["PASS  tests/test_thing.py", "", "❯ "]
     )
     assert classify_pane(pane) == "idle"
+
+
+def test_footer_words_in_output_with_prompt_below_is_not_waiting():
+    # THE reported bug: claude (e.g. the jarvis session) DISCUSSING the key bar /
+    # classifier prints "Enter to select" / "Esc to cancel" in its OUTPUT, then
+    # sits at the input prompt. The footer is NOT the bottom line (the prompt is),
+    # so the session reads idle — it must not steal a "waiting" that belongs to a
+    # DIFFERENT session that actually has a popup open.
+    pane = (
+        '● I added the key bar; the popup footer is\n'
+        '  "Enter to select · ↑/↓ to navigate · Esc to cancel".\n'
+        '❯ '
+    )
+    assert classify_pane(pane) == "idle"
+
+
+def test_footer_words_in_output_while_working_is_working():
+    # Same, but the session is actively working (spinner is the bottom line).
+    pane = (
+        '● The footer reads "Enter to select · Esc to cancel".\n'
+        '✻ Wiring it up… (8s · ↑ 2.1k tokens · esc to interrupt)'
+    )
+    assert classify_pane(pane) == "working"
+
+
+def test_permission_words_in_prose_at_input_prompt_is_not_waiting():
+    # claude asking "Do you want to proceed?" in PROSE, then resting at the input
+    # prompt: the bottom is the composer, so it's idle — the phrase above is
+    # scrollback, not a live permission box.
+    pane = 'Do you want to proceed with the migration? Let me know.\n❯ '
+    assert classify_pane(pane) == "idle"
+
+
+def test_inline_yn_prompt_at_bottom_is_waiting():
+    # A live inline confirm whose chevron-cursor IS the bottom line ("❯ (y/n)")
+    # must read waiting — the at-prompt guard must NOT suppress a prompt that
+    # carries the confirm on its own line.
+    assert classify_pane("Overwrite the file?\n❯ (y/n)") == "waiting"
+    assert classify_pane("❯ Delete everything? (y/n)") == "waiting"

@@ -12,30 +12,35 @@ States:
 Precedence is WAITING > WORKING > IDLE: a permission box can still render a
 spinner frame underneath it, and "blocked on the user" is the more important
 signal to surface.
+
+The hard problem is that a tmux pane contains claude's OWN conversational output
+(scrollback), which can MENTION the very words a live prompt uses — e.g. claude
+discussing "esc to cancel" / "enter to select", or echoing a user's numbered
+message "❯ 2. do the thing". A naive substring scan then misreads a working
+session as "waiting" (the real bug: jarvis-copilot showing "waiting" while it was
+just talking about the UI). So we anchor detection to the LIVE position of each
+prompt, not "anywhere on screen":
+  • a SELECTION popup's footer is literally the BOTTOM line of the pane;
+  • a PERMISSION box's bottom line is a box border/option — NEVER the free-text
+    input prompt — so if the bottom line IS the input prompt, claude is at rest
+    and any permission-ish words above are scrollback.
 """
 from __future__ import annotations
 
 import re
 
-# How many lines from the BOTTOM of the pane hold the LIVE UI — the active popup
-# / permission box / spinner / input prompt. We classify from this tail ONLY, so a
-# marker that merely appears in claude's SCROLLBACK output (claude printing the
-# words "esc to cancel" while discussing a UI, or ECHOING a user's numbered
-# message like "❯ 2. do the thing") can't be mistaken for a live prompt. A real
-# popup's footer is the last content line, and a permission box's prompt sits ~5
-# lines from the bottom, so this comfortably covers both.
-_TAIL_LINES = 15
+# Selection-popup FOOTER fragments. The AskUserQuestion / multiple-choice popup
+# renders "Enter to select · ↑/↓ to navigate · Esc to cancel" as its last line;
+# "Esc to cancel" is always the final segment, so it survives a narrow-pane wrap.
+_SELECT_FOOTER_MARKERS = (
+    "esc to cancel",
+    "enter to select",
+)
 
-# A prompt that is BLOCKED on the user. Two shapes:
-#   • the permission-confirmation box ("Do you want to proceed?" + a yes/no list);
-#   • the interactive SELECTION popup (AskUserQuestion / multiple-choice), whose
-#     footer "Enter to select · ↑/↓ to navigate · Esc to cancel" is the reliable
-#     signal — present ONLY while the prompt is live.
-# We deliberately do NOT key off the "❯" cursor glyph: it also marks the input
-# prompt, an echoed user message, and any numbered list in claude's own output,
-# so it produced false "waiting" (e.g. jarvis-copilot reading waiting while it was
-# actually working). The footer/box phrases are specific to a live prompt.
-_WAITING_MARKERS = (
+# Permission / confirmation prompts. These phrases are essentially never emitted
+# verbatim in claude's prose, but we still only trust them when the pane is NOT
+# sitting at the input prompt (see classify_pane).
+_PERMISSION_MARKERS = (
     "do you want to proceed",
     "do you want to run",
     "do you want to make this edit",
@@ -44,9 +49,18 @@ _WAITING_MARKERS = (
     "would you like to proceed",   # ExitPlanMode-style approval
     "(y/n)",
     "press enter to continue",
-    "esc to cancel",       # selection-popup footer ("… · Esc to cancel")
-    "enter to select",     # selection-popup footer ("Enter to select · …")
 )
+
+# How many lines up from the bottom a permission box's prompt can sit (title +
+# command + "Do you want to…" + the option list + border).
+_PERMISSION_TAIL = 12
+
+# The free-text INPUT PROMPT line (the composer): a chevron/`>` then a space and
+# the cursor or typed text — but NOT a numbered option ("❯ 1. Yes"), which belongs
+# to a selection list and has the footer/border below it. When THIS is the bottom
+# line, claude is at rest (idle/working), so permission/footer words above it are
+# scrollback, not a live prompt.
+_INPUT_PROMPT_RE = re.compile(r"^\s*[❯>]\s+(?!\d+\.)")
 
 # Claude shows "esc to interrupt" on its status line whenever it is running a
 # turn or a tool (in every permission mode), so it is the reliable "working"
@@ -66,30 +80,38 @@ _WORKING_MARKERS = (
 _WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*·")
 
 
-def _live_tail(text: str) -> str:
-    """The bottom ``_TAIL_LINES`` lines of the pane, with tmux's trailing blank
-    padding stripped — the region that holds the LIVE UI."""
-    lines = text.splitlines()
-    while lines and not lines[-1].strip():
-        lines.pop()
-    return "\n".join(lines[-_TAIL_LINES:])
-
-
 def classify_pane(text: str) -> str:
     """Return ``"working" | "waiting" | "idle"`` for a captured tmux pane."""
     if not text:
         return "idle"
-    # WAITING is detected from the live TAIL only — its markers (popup footer,
-    # "do you want to…") can also appear in claude's scrollback OUTPUT or an
-    # echoed user message, so scoping to the bottom avoids a false "waiting".
-    if any(m in _live_tail(text).lower() for m in _WAITING_MARKERS):
+    lines = text.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()              # drop tmux's trailing blank padding
+    if not lines:
+        return "idle"
+    last = lines[-1]
+
+    # 1) A live SELECTION popup — its footer IS the bottom line. (claude merely
+    #    printing those words leaves the input prompt / more output below them, so
+    #    the footer is NOT the last line → no false "waiting".)
+    low_last = last.lower()
+    if any(m in low_last for m in _SELECT_FOOTER_MARKERS):
         return "waiting"
-    # WORKING is detected from the WHOLE pane: a long tool's output (or a
-    # background-agents list) scrolls the spinner / "esc to interrupt" line well
-    # above the tail window, but the session is still working. The spinner /
-    # interrupt hint never legitimately appears in claude's prose, so a full-pane
-    # scan can't false-positive — and tail-scoping it made a busy session read
-    # "idle" (and flap working↔idle, spamming "finished" pings).
+
+    # 2) A PERMISSION / confirmation box — its bottom line is a border/option,
+    #    never the free-text input prompt. So skip this when the bottom line IS the
+    #    input prompt (claude at rest) — UNLESS that line itself carries a live
+    #    confirm (e.g. "❯ (y/n)"), which is a real prompt, not the composer.
+    at_prompt = bool(_INPUT_PROMPT_RE.match(last))
+    if not at_prompt or any(m in low_last for m in _PERMISSION_MARKERS):
+        tail = "\n".join(lines[-_PERMISSION_TAIL:]).lower()
+        if any(m in tail for m in _PERMISSION_MARKERS):
+            return "waiting"
+
+    # 3) WORKING over the WHOLE pane: a long tool's output (or a background-agents
+    #    list) scrolls the spinner / "esc to interrupt" line well above the bottom,
+    #    but the session is still working. The spinner / interrupt hint never
+    #    appears in claude's prose, so a full-pane scan can't false-positive.
     low = text.lower()
     if any(m in low for m in _WORKING_MARKERS) or _WORKING_SPINNER_RE.search(text):
         return "working"
