@@ -1369,6 +1369,16 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
         return 0
     sessions = sessions or []
 
+    # SAFEGUARD: never DISCOVER a claude session running in a home/system directory
+    # (e.g. a `claude` launched from $HOME). Such a session isn't a project — it
+    # auto-created a bogus "pranavkrishna" project that resurrected on every 5s push
+    # no matter how often the user deleted it, and (pre-fix) auto-synced the whole
+    # home dir. Filtering it here keeps it out of the UI/project tree entirely.
+    try:
+        from agent.coding_sync_safety import is_dangerous_path as _dangerous_cwd
+    except Exception:  # noqa: BLE001
+        _dangerous_cwd = lambda _p: False  # noqa: E731
+
     # Default a DISCOVERED session's project to sync-ON with the device cwd as the
     # desktop path — so the UI shows sync on by default and the server has a mirror
     # target for resume-to-server. Only set on CREATE (never clobber a user's later
@@ -1451,6 +1461,8 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             if not tmux_name:
                 continue
             cwd = sess.get("cwd") or ""
+            if _dangerous_cwd(cwd):
+                continue  # a claude in $HOME/system dir is not a project — skip
             live_tmux_cwds.add(cwd)
             if _is_dismissed(device_id, tmux_name):
                 # User deleted this one — don't resurrect it.
@@ -1516,6 +1528,8 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                 # User deleted this one — don't resurrect it.
                 continue
             cwd = sess.get("cwd") or ""
+            if _dangerous_cwd(cwd):
+                continue  # a transcript from $HOME/system dir is not a project
             live = bool(sess.get("live"))
             # Dedup (A): this transcript's claude_session_id is already owned by a
             # discovered-TMUX row (a live tmux the device reports with its csid).

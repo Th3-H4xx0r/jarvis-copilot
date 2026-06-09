@@ -717,6 +717,31 @@ def test_ingest_discovered_omitted_last_activity_does_not_wipe(tmp_path, monkeyp
     assert row["last_activity_at"] == 42.0  # preserved, not wiped to None
 
 
+def test_ingest_skips_home_and_system_dir_sessions(tmp_path):
+    # SAFEGUARD: a claude session running in $HOME / a system dir is NOT a project
+    # and must NOT be discovered — it auto-created a "pranavkrishna" project that
+    # resurrected on every 5s push no matter how often the user deleted it.
+    import os
+    store = _temp_store(tmp_path)
+    home = os.path.expanduser("~")
+    cd.ingest_discovered("dev-home", [
+        {"kind": "tmux", "tmux_name": "jc-home", "cwd": home, "title": "home"},
+        {"kind": "tmux", "tmux_name": "jc-users", "cwd": "/Users/someone",
+         "title": "u"},
+        {"kind": "transcript", "claude_session_id": "C-home", "cwd": home,
+         "summary": "hi"},
+        {"kind": "tmux", "tmux_name": "jc-proj",
+         "cwd": "/Users/me/code/proj", "title": "proj"},
+    ], store=store)
+    cwds = {r["cwd"] for r in store.list_sessions(device_id="dev-home")}
+    assert home not in cwds                       # $HOME filtered
+    assert "/Users/someone" not in cwds           # any /Users/<x> home filtered
+    assert "/Users/me/code/proj" in cwds          # a real project still discovered
+    # no bogus home project was auto-created
+    assert not any((p.get("repo_path") or "") in (home, "/Users/someone")
+                   for p in store.list_projects())
+
+
 def test_ingest_discovered_reconciles_vanished_to_stopped(tmp_path, monkeypatch):
     store = _temp_store(tmp_path)
     _discovered("dev-3", [
