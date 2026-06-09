@@ -410,6 +410,7 @@ class CodingChatTool {
     this.summary = '',
     this.output = '',
     this.ok = true,
+    this.diff = const [],
   });
 
   final String name;
@@ -417,11 +418,18 @@ class CodingChatTool {
   final String output;
   final bool ok;
 
+  /// File-edit tools carry a renderable unified diff (lines prefixed with
+  /// `+` / `-` / ` ` / `@@`) — the chat view shows these as red/green blocks.
+  final List<String> diff;
+
   factory CodingChatTool.fromJson(Map<String, dynamic> j) => CodingChatTool(
         name: (j['name'] ?? 'tool').toString(),
         summary: (j['summary'] ?? '').toString(),
         output: (j['output'] ?? '').toString(),
         ok: j['ok'] == null ? true : _asBool(j['ok']),
+        diff: (j['diff'] is List)
+            ? (j['diff'] as List).map((e) => e.toString()).toList()
+            : const [],
       );
 }
 

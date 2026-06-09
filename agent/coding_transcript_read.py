@@ -59,6 +59,61 @@ def _tool_summary(name: str, inp) -> str:
     return _clip(json.dumps(inp)[1:-1], MAX_SUMMARY)
 
 
+_DIFF_CAP = 80          # max rendered diff lines per tool
+_DIFF_LINE_MAX = 200    # per diff line
+
+
+def _edit_diff(old: str, new: str) -> list[str]:
+    """Unified-diff lines (+/-/space/@@ prefixes, no file headers) for one
+    old→new replacement, capped."""
+    import difflib
+    out: list[str] = []
+    for ln in difflib.unified_diff((old or "").splitlines(),
+                                   (new or "").splitlines(),
+                                   lineterm="", n=2):
+        if ln.startswith(("---", "+++")):
+            continue
+        out.append(ln[:_DIFF_LINE_MAX])
+        if len(out) >= _DIFF_CAP:
+            out.append("…")
+            break
+    return out
+
+
+def _tool_diff(name: str, inp) -> list[str]:
+    """A renderable diff for file-editing tools (the chat view shows these as
+    red/green diff blocks instead of a bare summary). [] for other tools."""
+    if not isinstance(inp, dict):
+        return []
+    try:
+        if name == "Edit":
+            return _edit_diff(str(inp.get("old_string") or ""),
+                              str(inp.get("new_string") or ""))
+        if name in ("MultiEdit", "NotebookEdit") and isinstance(
+                inp.get("edits"), list):
+            out: list[str] = []
+            for e in inp["edits"]:
+                if not isinstance(e, dict):
+                    continue
+                if out:
+                    out.append("@@")
+                out.extend(_edit_diff(str(e.get("old_string") or ""),
+                                      str(e.get("new_string") or "")))
+                if len(out) >= _DIFF_CAP:
+                    out = out[:_DIFF_CAP] + ["…"]
+                    break
+            return out
+        if name == "Write":
+            lines = str(inp.get("content") or "").splitlines()
+            out = ["+" + ln[:_DIFF_LINE_MAX] for ln in lines[:_DIFF_CAP]]
+            if len(lines) > _DIFF_CAP:
+                out.append(f"… +{len(lines) - _DIFF_CAP} more lines")
+            return out
+    except Exception:
+        return []
+    return []
+
+
 def _result_text(content) -> str:
     """Flatten a tool_result block's content into a short text snippet."""
     if isinstance(content, str):
@@ -151,9 +206,13 @@ def parse_transcript_text(text: str) -> list[dict]:
             elif bt == "tool_use":
                 if m is None:
                     m = _new("assistant", ts)
-                tool = {"name": str(b.get("name") or "tool"),
-                        "summary": _tool_summary(b.get("name"), b.get("input")),
+                name = str(b.get("name") or "tool")
+                tool = {"name": name,
+                        "summary": _tool_summary(name, b.get("input")),
                         "output": "", "ok": None}
+                diff = _tool_diff(name, b.get("input"))
+                if diff:
+                    tool["diff"] = diff
                 m["tools"].append(tool)
                 tid = str(b.get("id") or "")
                 if tid:

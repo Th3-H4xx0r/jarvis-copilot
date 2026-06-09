@@ -869,6 +869,9 @@ class _ToolCardState extends State<_ToolCard> {
               ),
             ),
           ),
+          // File-edit tools render their DIFF inline (always visible) —
+          // red/green lines like a real diff view, not just "edited a file".
+          if (t.diff.isNotEmpty) _DiffBlock(lines: t.diff),
           AnimatedSize(
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOutCubic,
@@ -1351,6 +1354,60 @@ class _OptionButton extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Diff block (red/green unified-diff lines for file-edit tools) ──
+class _DiffBlock extends StatelessWidget {
+  const _DiffBlock({required this.lines});
+  final List<String> lines;
+
+  static const _add = Color(0xFF34D399);
+  static const _del = Color(0xFFF87171);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFF0A0D13),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: IntrinsicWidth(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [for (final ln in lines) _line(ln)],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _line(String ln) {
+    Color? bg;
+    Color fg = const Color(0xFFB9BFC9);
+    if (ln.startsWith('+')) {
+      bg = _add.withValues(alpha: 0.13);
+      fg = _add;
+    } else if (ln.startsWith('-')) {
+      bg = _del.withValues(alpha: 0.13);
+      fg = _del;
+    } else if (ln.startsWith('@@')) {
+      fg = JcTheme.muted;
+    }
+    return Container(
+      color: bg,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1),
+      child: Text(
+        ln.isEmpty ? ' ' : ln,
+        style: TextStyle(
+          color: fg,
+          fontSize: 11.5,
+          height: 1.4,
+          fontFamily: 'Menlo',
         ),
       ),
     );

@@ -57,3 +57,31 @@ def test_slice_after_semantics():
     assert s["total"] == 5
     assert [m["text"] for m in s["messages"]] == ["m3", "m4"]
     assert [m["i"] for m in s["messages"]] == [3, 4]
+
+
+def test_edit_tool_carries_diff():
+    text = _line("assistant", [{
+        "type": "tool_use", "id": "t1", "name": "Edit",
+        "input": {"file_path": "/x/a.py",
+                  "old_string": "a = 1\nb = 2",
+                  "new_string": "a = 1\nb = 3"}}])
+    msgs = parse_transcript_text(text)
+    diff = msgs[0]["tools"][0]["diff"]
+    assert "-b = 2" in diff and "+b = 3" in diff
+    assert not any(d.startswith(("---", "+++")) for d in diff)
+
+
+def test_write_tool_diff_is_all_added():
+    text = _line("assistant", [{
+        "type": "tool_use", "id": "t1", "name": "Write",
+        "input": {"file_path": "/x/a.py", "content": "x\ny"}}])
+    msgs = parse_transcript_text(text)
+    assert msgs[0]["tools"][0]["diff"] == ["+x", "+y"]
+
+
+def test_bash_tool_has_no_diff():
+    text = _line("assistant", [{
+        "type": "tool_use", "id": "t1", "name": "Bash",
+        "input": {"command": "ls"}}])
+    msgs = parse_transcript_text(text)
+    assert "diff" not in msgs[0]["tools"][0]
