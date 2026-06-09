@@ -45,11 +45,56 @@ def test_empty_is_idle():
     assert classify_pane(None) == "idle"
 
 
-def test_waiting_wins_over_working():
-    # A permission box that still shows a spinner frame underneath must read as
-    # waiting (blocked on the user is the more important signal).
-    mixed = "✻ Running… (esc to interrupt)\nDo you want to proceed?\n❯ 1. Yes\n"
-    assert classify_pane(mixed) == "waiting"
+def test_real_permission_box_without_spinner_is_waiting():
+    # A live permission box BLOCKS claude — there is NO active spinner. (The old
+    # synthetic "spinner + box" never occurs in reality; a present spinner means
+    # claude is working, not blocked — see the next test.)
+    pane = (
+        "╭─────────────────────────────╮\n"
+        "│ Do you want to proceed?     │\n"
+        "│ ❯ 1. Yes                    │\n"
+        "│   2. No                     │\n"
+        "╰─────────────────────────────╯\n"
+    )
+    assert classify_pane(pane) == "waiting"
+
+
+def test_prose_paren_token_above_permission_box_is_waiting():
+    # A parenthesized non-time token in claude's output — "(2 · 3)" / "(10 · 20)" —
+    # must NOT read as the spinner and suppress a real permission box below it.
+    pane = (
+        "Ran the steps (2 · 3) and got results.\n"
+        "╭─────────────────────────────╮\n"
+        "│ Do you want to proceed?     │\n"
+        "│ ❯ 1. Yes                    │\n"
+        "╰─────────────────────────────╯\n"
+    )
+    assert classify_pane(pane) == "waiting"
+
+
+def test_prose_interrupt_hint_above_permission_box_is_waiting():
+    # claude WRITING "esc to interrupt" in a sentence (not the parenthesized status
+    # line) must not suppress a real permission box below it.
+    pane = (
+        "You can press esc to interrupt to stop a turn.\n"
+        "╭─────────────────────────────╮\n"
+        "│ Do you want to proceed?     │\n"
+        "│ ❯ 1. Yes                    │\n"
+        "╰─────────────────────────────╯\n"
+    )
+    assert classify_pane(pane) == "waiting"
+
+
+def test_permission_words_while_spinner_running_is_working():
+    # THE reported bug: claude (in the jarvis session) DISCUSSING permission UIs —
+    # printing "Do you want to proceed?" / "(y/n)" in its output WHILE its turn
+    # spinner is up — must read WORKING, so it can't steal a "waiting" from another
+    # session that has a real (spinner-less) prompt open.
+    pane = (
+        '● The permission box asks "Do you want to proceed?" and shows (y/n).\n'
+        '✽ Hyperspacing… (1m 31s · ↓ 5.9k tokens)'
+    )
+    assert classify_pane(pane) == "working"
 
 
 def test_yn_prompt_is_waiting():

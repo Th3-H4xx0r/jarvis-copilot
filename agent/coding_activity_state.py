@@ -9,9 +9,11 @@ States:
   - ``waiting`` — Claude is blocked on the user (a permission / choice prompt).
   - ``idle``    — at rest at the prompt with nothing pending.
 
-Precedence is WAITING > WORKING > IDLE: a permission box can still render a
-spinner frame underneath it, and "blocked on the user" is the more important
-signal to surface.
+Precedence: a live SELECTION footer (the bottom line) always wins → waiting.
+Otherwise, a present WORKING spinner wins over a permission phrase — a real
+permission box blocks claude so it has NO spinner; a phrase seen alongside a live
+spinner is claude's OUTPUT, not a live box. A permission box (no spinner) →
+waiting; everything else → working (spinner) or idle.
 
 The hard problem is that a tmux pane contains claude's OWN conversational output
 (scrollback), which can MENTION the very words a live prompt uses — e.g. claude
@@ -72,12 +74,27 @@ _WORKING_MARKERS = (
     "ctrl+b to run in background",
 )
 
-# The live "spinner" status line — a parenthesized elapsed time followed by a
-# middot, e.g. "(35s · ↑ 2.4k tokens · …)". Present in BOTH standard Claude Code
-# and custom forks (whose verb/suffix differ but this prefix doesn't), so it's
-# the robust "actively working" signal — more reliable than the "esc to
-# interrupt" hint, which some forks omit.
-_WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*·")
+# The live "spinner" status line — a parenthesized ELAPSED TIME followed by a
+# middot, e.g. "(35s · …)", "(3m 12s · …)". We REQUIRE a time unit (h/m/s) before
+# the middot so it can't match plain parenthesized prose like "(2 · 3)" / "(10 ·
+# 20)" that claude might emit in a list/table (which would falsely read working
+# and suppress a real "waiting").
+_WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*[hms][\dhms\s]*·")
+
+
+def _pane_is_working(text: str) -> bool:
+    """True if any line is the LIVE status line — the elapsed-time spinner, or a
+    working hint ("esc to interrupt" …) INSIDE the parenthesized status segment.
+    Requiring the "(" anchors the hint to the status line so claude's PROSE (e.g.
+    "press esc to interrupt to stop") can't be misread as working."""
+    for line in text.splitlines():
+        if _WORKING_SPINNER_RE.search(line):
+            return True
+        if "(" in line:
+            low = line.lower()
+            if any(m in low for m in _WORKING_MARKERS):
+                return True
+    return False
 
 
 def classify_pane(text: str) -> str:
@@ -90,29 +107,33 @@ def classify_pane(text: str) -> str:
     if not lines:
         return "idle"
     last = lines[-1]
+    low_last = last.lower()
 
     # 1) A live SELECTION popup — its footer IS the bottom line. (claude merely
     #    printing those words leaves the input prompt / more output below them, so
     #    the footer is NOT the last line → no false "waiting".)
-    low_last = last.lower()
     if any(m in low_last for m in _SELECT_FOOTER_MARKERS):
         return "waiting"
 
-    # 2) A PERMISSION / confirmation box — its bottom line is a border/option,
-    #    never the free-text input prompt. So skip this when the bottom line IS the
-    #    input prompt (claude at rest) — UNLESS that line itself carries a live
-    #    confirm (e.g. "❯ (y/n)"), which is a real prompt, not the composer.
-    at_prompt = bool(_INPUT_PROMPT_RE.match(last))
-    if not at_prompt or any(m in low_last for m in _PERMISSION_MARKERS):
-        tail = "\n".join(lines[-_PERMISSION_TAIL:]).lower()
-        if any(m in tail for m in _PERMISSION_MARKERS):
-            return "waiting"
+    # Is claude ACTIVELY WORKING? The live spinner / "esc to interrupt" hint only
+    # render while a turn or tool runs. A real PERMISSION box BLOCKS claude, so it
+    # has NO live spinner — therefore a permission phrase seen WHILE a spinner is
+    # up is claude's own OUTPUT (claude discussing "(y/n)" / "do you want to…"),
+    # NOT a live prompt. This is the fix for a busy session being misread as
+    # "waiting" because its claude was writing about permission UIs. We also scan
+    # the WHOLE pane for the working signal so a long tool's output scrolling the
+    # spinner above the bottom still reads working.
+    working = _pane_is_working(text)
 
-    # 3) WORKING over the WHOLE pane: a long tool's output (or a background-agents
-    #    list) scrolls the spinner / "esc to interrupt" line well above the bottom,
-    #    but the session is still working. The spinner / interrupt hint never
-    #    appears in claude's prose, so a full-pane scan can't false-positive.
-    low = text.lower()
-    if any(m in low for m in _WORKING_MARKERS) or _WORKING_SPINNER_RE.search(text):
-        return "working"
-    return "idle"
+    # 2) A PERMISSION / confirmation box — a marker a few lines up. Only when NOT
+    #    working (a live box blocks claude → no spinner) and NOT sitting at the
+    #    free-text input prompt (then the marker is scrollback) — UNLESS the bottom
+    #    line itself carries the confirm (e.g. "❯ (y/n)"), a real prompt.
+    if not working:
+        at_prompt = bool(_INPUT_PROMPT_RE.match(last))
+        if not at_prompt or any(m in low_last for m in _PERMISSION_MARKERS):
+            tail = "\n".join(lines[-_PERMISSION_TAIL:]).lower()
+            if any(m in tail for m in _PERMISSION_MARKERS):
+                return "waiting"
+
+    return "working" if working else "idle"

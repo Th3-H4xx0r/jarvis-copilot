@@ -147,11 +147,20 @@ _INPUT_PROMPT_RE = re.compile(r"^\s*[❯>]\s+(?!\d+\.)")
 _WORKING_MARKERS = (
     "esc to interrupt", "esc to stop", "ctrl+b to run in background",
 )
-# The live spinner status line — a parenthesized elapsed time + middot, e.g.
-# "(35s · ↑ 2.4k tokens · …)". Present in standard Claude AND custom forks (whose
-# verb/suffix differ but this prefix doesn't), so it's the robust "working"
-# signal — more reliable than "esc to interrupt", which some forks omit.
-_WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*·")
+# The live spinner status line — a parenthesized ELAPSED TIME + middot. Requires a
+# time unit (h/m/s) so it can't match plain prose like "(2 · 3)". KEEP IN SYNC.
+_WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*[hms][\dhms\s]*·")
+
+
+def _pane_is_working(text: str) -> bool:
+    for line in text.splitlines():
+        if _WORKING_SPINNER_RE.search(line):
+            return True
+        if "(" in line:
+            low = line.lower()
+            if any(m in low for m in _WORKING_MARKERS):
+                return True
+    return False
 
 
 def classify_pane(text: str) -> str:
@@ -165,17 +174,19 @@ def classify_pane(text: str) -> str:
         return "idle"
     last = lines[-1]
     low_last = last.lower()
+    # KEEP IN SYNC with agent/coding_activity_state.classify_pane. A live spinner
+    # means claude is WORKING (a real permission box blocks claude → no spinner),
+    # so a permission phrase seen WHILE working is claude's OUTPUT, not a prompt.
     if any(m in low_last for m in _SELECT_FOOTER_MARKERS):
         return "waiting"
-    at_prompt = bool(_INPUT_PROMPT_RE.match(last))
-    if not at_prompt or any(m in low_last for m in _PERMISSION_MARKERS):
-        tail = "\n".join(lines[-_PERMISSION_TAIL:]).lower()
-        if any(m in tail for m in _PERMISSION_MARKERS):
-            return "waiting"
-    low = text.lower()
-    if any(m in low for m in _WORKING_MARKERS) or _WORKING_SPINNER_RE.search(text):
-        return "working"
-    return "idle"
+    working = _pane_is_working(text)
+    if not working:
+        at_prompt = bool(_INPUT_PROMPT_RE.match(last))
+        if not at_prompt or any(m in low_last for m in _PERMISSION_MARKERS):
+            tail = "\n".join(lines[-_PERMISSION_TAIL:]).lower()
+            if any(m in tail for m in _PERMISSION_MARKERS):
+                return "waiting"
+    return "working" if working else "idle"
 
 
 # Distinctive Claude Code TUI strings. A tmux session whose pane contains any of

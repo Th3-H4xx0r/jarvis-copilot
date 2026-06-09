@@ -63,8 +63,11 @@ def test_skips_stopped_sessions():
 
 
 def test_no_update_when_unchanged():
+    # Real Claude status hints are parenthesized — "(esc to interrupt)" — which is
+    # how we tell them from claude's prose. A bare unparenthesized hint isn't a
+    # status line.
     store = FakeStore([_row("cs_1", "jc-1", activity_state="working")])
-    drv = FakeDriver({"jc-1": "esc to interrupt"})
+    drv = FakeDriver({"jc-1": "✻ Working… (3s · esc to interrupt)"})
     assert run_status_tick(FakeManager(store, drv)) == 0
     assert store.updates == []
 

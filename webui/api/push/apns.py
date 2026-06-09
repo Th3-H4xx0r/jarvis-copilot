@@ -37,6 +37,52 @@ _JWT_TTL = 50 * 60  # APNs JWTs are valid up to 1 hour; refresh at 50 min.
 _JWT_LOCK = threading.Lock()
 _jwt_cache: dict = {"token": "", "expires_at": 0.0}
 
+# A POOLED, long-lived HTTP/2 client. APNs is designed for a persistent HTTP/2
+# connection: opening a fresh ``httpx.Client`` per push (the old behavior) did a
+# full TCP+TLS handshake every time — slow, and the source of the intermittent
+# "handshake operation timed out" failures that made the Live Activity lag / go
+# stale. We reuse one connection across pushes (httpx.Client is thread-safe and
+# multiplexes concurrent requests over HTTP/2) and self-heal on a dead socket.
+_CLIENT_LOCK = threading.Lock()
+_client_cache: dict = {"client": None}
+
+
+def _get_apns_client():
+    import httpx
+    with _CLIENT_LOCK:
+        c = _client_cache["client"]
+        if c is None or getattr(c, "is_closed", False):
+            c = httpx.Client(
+                http2=True,
+                # Short keepalive so the pool proactively retires an idle conn
+                # BEFORE Apple silently drops it (which would cost a full timeout
+                # to discover on the next use).
+                limits=httpx.Limits(max_keepalive_connections=4,
+                                    keepalive_expiry=90.0),
+            )
+            _client_cache["client"] = c
+        return c
+
+
+def _apns_post(url: str, headers: dict, body_str: str, timeout: float):
+    """POST to APNs over the pooled HTTP/2 client; retry ONCE on a transport error.
+
+    We do NOT close/reset the shared client on error — httpx's pool evicts a
+    dead/half-open connection itself and opens a fresh one on the next request, so
+    the retry self-heals WITHOUT closing a client other threads may be mid-`post`
+    on (which would surface as an uncaught ``RuntimeError`` and spuriously fail a
+    healthy concurrent push). A duplicate push from the retry is harmless: a Live
+    Activity update is last-write-wins, and a device alert dup is benign."""
+    import httpx
+    last = None
+    for _ in (1, 2):
+        try:
+            return _get_apns_client().post(
+                url, headers=headers, content=body_str, timeout=timeout)
+        except httpx.HTTPError as exc:  # transport/timeout/protocol error
+            last = exc  # the pool replaces the dead connection on the next try
+    raise last
+
 
 def _load_config() -> Optional[dict]:
     if not _CONFIG_FILE.exists():
@@ -172,10 +218,8 @@ def send_apns(push_token: str, payload: dict, *, timeout: float = 10.0,
     host = "api.sandbox.push.apple.com" if use_sandbox else "api.push.apple.com"
     url = f"https://{host}/3/device/{push_token}"
     headers = _apns_headers(cfg, jwt, alert=bool(alert))
-    import httpx
     try:
-        with httpx.Client(http2=True, timeout=timeout) as client:
-            r = client.post(url, headers=headers, content=json.dumps(body))
+        r = _apns_post(url, headers, json.dumps(body), timeout)
         if r.status_code == 200:
             return {"ok": True}
         return {
@@ -248,10 +292,8 @@ def send_live_activity(push_token: str, content_state: dict, *,
     host = "api.sandbox.push.apple.com" if use_sandbox else "api.push.apple.com"
     url = f"https://{host}/3/device/{push_token}"
     headers = _apns_la_headers(cfg, jwt, priority=priority)
-    import httpx
     try:
-        with httpx.Client(http2=True, timeout=timeout) as client:
-            r = client.post(url, headers=headers, content=json.dumps(body))
+        r = _apns_post(url, headers, json.dumps(body), timeout)
         if r.status_code == 200:
             return {"ok": True}
         return {
