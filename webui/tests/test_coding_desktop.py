@@ -108,9 +108,13 @@ def test_bridge_run_new_session_sends_coding_term_open():
     f = opens[0]
     assert f["term_id"] == "jc-deadbeef"
     assert f["cwd"] == "/home/me/proj"
-    # argv carried is the claude launch argv (everything after -c <cwd>)
-    assert f["argv"] == launch_argv
-    assert f["argv"][0] == "env"  # the scrub prefix is preserved verbatim
+    # The claude argv is now WRAPPED in `tmux new-session -A` so it runs in a real,
+    # attachable tmux session on the Mac (visible via `tmux attach`), not a bare PTY.
+    assert f["argv"][:5] == ["tmux", "new-session", "-A", "-s", "jc-deadbeef"]
+    assert f["argv"][5:7] == ["-c", "/home/me/proj"]
+    assert f["argv"][7:] == launch_argv          # the claude launch argv, wrapped
+    assert f["argv"][7] == "env"                 # scrub prefix preserved verbatim
+    assert "-d" not in f["argv"]                 # NOT detached → attachable + streams
 
 
 def test_bridge_run_send_keys_translates_to_coding_term_input():

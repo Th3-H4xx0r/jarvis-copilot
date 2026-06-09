@@ -841,11 +841,14 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
         if method == "POST":
             def _discover_refresh():
                 from api.coding_desktop import (
-                    get_desktop_bridge, resolve_desktop_device_id)
+                    clear_dismissed, get_desktop_bridge, resolve_desktop_device_id)
 
                 device_id = resolve_desktop_device_id()
                 if not device_id:
                     return _ok({"ok": False})
+                # Rescan is the recovery path: clear tombstones so sessions hidden
+                # by a Stop / Resume re-appear when the user explicitly re-scans.
+                clear_dismissed(device_id)
                 get_desktop_bridge().send_discover_request(device_id)
                 return _ok({"ok": True, "device": device_id})
 
@@ -941,9 +944,25 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
         # POST /session/<id>/stop
         if action == "stop" and method == "POST":
             def _stop():
-                if manager.status(sid) is None:
+                row = manager.status(sid)
+                if row is None:
                     return _err(404, "session not found: " + sid)
                 manager.stop(sid)
+                # A DISCOVERED session is a live Mac tmux the server can't kill, so
+                # without a tombstone the next 5s discovery push flips it right back
+                # to running — the stopped<->running flip-flop that churns the UI.
+                # Tombstone it so Stop sticks (Rescan brings it back).
+                if (row.get("source") or "").startswith("discovered"):
+                    try:
+                        from api.coding_desktop import dismiss_discovered
+                        dev = (row.get("device_id") or "").strip()
+                        tn = (row.get("tmux_name") or "").strip()
+                        csid = (row.get("claude_session_id") or "").strip()
+                        for ident in (tn, csid):
+                            if dev and ident:
+                                dismiss_discovered(dev, ident)
+                    except Exception:
+                        pass
                 # Sync the (now-final) transcript OUT to the device so a later
                 # local `claude --resume` on the Mac sees this session's turns.
                 # Fire-and-forget (off the request thread): nothing here depends

@@ -873,6 +873,34 @@ def _add_session(m, row):
     m._sessions.append(dict(row))
 
 
+def test_stop_discovered_session_tombstones_it():
+    # Stopping a DISCOVERED session must tombstone it (by tmux_name + csid) so the
+    # live Mac tmux doesn't flip it back to running every 5s (the stop flip-flop).
+    import api.coding_desktop as cd
+    cd.clear_dismissed()
+    m = FakeManager()
+    _add_session(m, {"id": "disc-x", "status": "running", "host": "desktop",
+                     "source": "discovered-tmux", "device_id": "dev-z",
+                     "tmux_name": "jc-z", "claude_session_id": "C-z"})
+    status, body = handle_coding_request(
+        "POST", "/session/disc-x/stop", {}, manager=m)
+    assert status == 200
+    assert cd._is_dismissed("dev-z", "jc-z")   # tombstoned by tmux_name
+    assert cd._is_dismissed("dev-z", "C-z")    # and csid
+    cd.clear_dismissed()
+
+
+def test_stop_server_session_not_tombstoned():
+    import api.coding_desktop as cd
+    cd.clear_dismissed()
+    m = FakeManager()
+    _add_session(m, {"id": "srv-x", "status": "running", "host": "server",
+                     "source": "chat", "device_id": "dev-z", "tmux_name": "jc-s"})
+    handle_coding_request("POST", "/session/srv-x/stop", {}, manager=m)
+    assert not cd._is_dismissed("dev-z", "jc-s")  # server sessions aren't tombstoned
+    cd.clear_dismissed()
+
+
 def test_resume_unknown_session_404():
     m = FakeManager()
     status, body = handle_coding_request(

@@ -1319,13 +1319,24 @@ _DISMISSED_LOCK = threading.Lock()
 
 def dismiss_discovered(device_id: str, key: str) -> None:
     """Tombstone a (device_id, key) so ``ingest_discovered`` won't recreate it on
-    the next push (called from the session-delete path). ``key`` is the
-    tmux_name for a discovered-tmux row, or the claude_session_id for a
+    the next push (called from the delete / stop / resume-retire paths). ``key`` is
+    the tmux_name for a discovered-tmux row, or the claude_session_id for a
     discovered-transcript row."""
     if not device_id or not key:
         return
     with _DISMISSED_LOCK:
         _DISMISSED_DISCOVERED.setdefault(str(device_id), set()).add(str(key))
+
+
+def clear_dismissed(device_id: str = "") -> None:
+    """Drop tombstones so dismissed/stopped discovered sessions can be re-found.
+    The Rescan button calls this (for the device) — the recovery path after a Stop
+    or Resume hid a discovered session the user now wants back."""
+    with _DISMISSED_LOCK:
+        if device_id:
+            _DISMISSED_DISCOVERED.pop(str(device_id), None)
+        else:
+            _DISMISSED_DISCOVERED.clear()
 
 
 def _is_dismissed(device_id: str, key: str) -> bool:
@@ -1772,19 +1783,29 @@ def _existing_server_resume(store, claude_session_id: str, device_cwd: str = "")
 
 
 def _retire_discovered_origin(store, session_id, device_id, claude_session_id) -> None:
-    """Mark the discovered row stopped + tombstone its csid so a transcript re-push
-    can't resurrect it as a resumable dup. We do NOT tombstone the tmux_name: the
-    Mac's tmux may still be live, and a live session should stay discoverable /
-    adoptable (the idempotency guard already prevents a duplicate server launch)."""
+    """Mark the discovered row stopped + tombstone BOTH its csid (transcript) AND
+    its tmux_name (live tmux) so neither a transcript re-push nor the still-alive
+    Mac tmux can resurrect it once it has been resumed to the server. Without the
+    tmux_name tombstone the discovered origin reappears every 5s and the user sees
+    the discovered session AND the new server session (the confusing dup). Recovery:
+    the Rescan button clears tombstones."""
+    tmux_name = ""
+    try:
+        row = store.get_session(session_id)
+        if row:
+            tmux_name = (row.get("tmux_name") or "").strip()
+    except Exception:  # noqa: BLE001
+        pass
     try:
         store.update_session(session_id, status="stopped")
     except Exception:  # noqa: BLE001
         pass
-    if claude_session_id:
-        try:
-            dismiss_discovered(device_id, claude_session_id)
-        except Exception:  # noqa: BLE001
-            pass
+    for ident in (claude_session_id, tmux_name):
+        if ident:
+            try:
+                dismiss_discovered(device_id, ident)
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def adopt_discovered_tmux(session_id: str, *, bridge: DesktopBridge | None = None,
@@ -1959,8 +1980,18 @@ def _dispatch_tmux_argv(bridge: DesktopBridge, device_id: str,
         term_id, cwd, launch_argv = _parse_new_session(argv)
         if not term_id:
             return _BridgeRunResult(1, "could not parse tmux new-session argv")
-        ok = bridge.send_term_open(device_id, term_id=term_id, cwd=cwd,
-                                   argv=launch_argv)
+        # Run claude inside a REAL, attachable tmux session on the Mac — NOT a bare
+        # PTY child of jc-client. Previously we stripped the tmux wrapper and sent
+        # only the claude argv, so a "launch/relaunch on device" never created a
+        # tmux session: it was invisible in the user's own terminal (`tmux ls`
+        # empty) and only viewable in the WebUI. `new-session -A` = attach-or-create
+        # (no `-d`, so the relay PTY attaches + streams to the WebUI), and the same
+        # named session is attachable from the Mac via `tmux attach -t <name>`.
+        full = ["tmux", "new-session", "-A", "-s", term_id]
+        if cwd:
+            full += ["-c", cwd]
+        full += list(launch_argv or [])
+        ok = bridge.send_term_open(device_id, term_id=term_id, cwd=cwd, argv=full)
         return _BridgeRunResult(0 if ok else 1,
                                 "" if ok else "desktop client not connected")
 
