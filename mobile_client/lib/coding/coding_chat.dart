@@ -65,6 +65,13 @@ class _CodingChatViewState extends State<CodingChatView> {
 
   bool get _isWaiting => _activityState == 'waiting';
 
+  String? _statusLine; // live spinner line while working
+
+  // Messages the user sent that haven't appeared in the transcript yet —
+  // rendered as "queued" bubbles so steering/queueing while Claude works has
+  // immediate visible feedback.
+  final List<_PendingSend> _pendingSends = [];
+
   // Optimistic "Claude is working" right after WE send something: the pane
   // scan takes ~5s to flip the stored state, and without this the thinking
   // bubble shows nothing exactly when feedback matters most.
@@ -171,6 +178,18 @@ class _CodingChatViewState extends State<CodingChatView> {
         }
         _activityState = page.activityState;
         _status = page.status;
+        _statusLine = page.statusLine;
+        // A queued send is delivered once its text shows up in the transcript
+        // as a user message (commands are swallowed by the parser — expire
+        // them quickly); stale ones expire so they can't linger forever.
+        final now = DateTime.now();
+        _pendingSends.removeWhere((p) =>
+            now.difference(p.ts).inSeconds >
+                (p.text.startsWith('/') ? 25 : 90) ||
+            page.messages.any(
+                (m) => m.isUser && m.text.trim() == p.text.trim()) ||
+            _messages.any(
+                (m) => m.isUser && m.text.trim() == p.text.trim()));
         // The real state arrived — the optimistic flag has done its job. A
         // fresh ASSISTANT message also retires it: with a fast reply the
         // stored state can go straight back to idle without ever reading
@@ -316,6 +335,10 @@ class _CodingChatViewState extends State<CodingChatView> {
     }
     await Future<void>.delayed(const Duration(milliseconds: 120));
     await widget.controller.sendTerminalInput('\r');
+    if (mounted) {
+      setState(() => _pendingSends.add(_PendingSend(text)));
+      _autoScroll();
+    }
     _kickLocalWorking();
     // Pick the echo up quickly instead of waiting for the next tick.
     Future<void>.delayed(const Duration(milliseconds: 700), () {
@@ -338,6 +361,19 @@ class _CodingChatViewState extends State<CodingChatView> {
         style: TextStyle(color: JcTheme.text, fontSize: 13),
       ),
     ));
+  }
+
+  void _openCommandSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CommandSheet(onRun: (cmd) {
+        Navigator.of(context).pop();
+        _stickToBottom = true;
+        _sendText(cmd);
+        _autoScroll();
+      }),
+    );
   }
 
   void _sendComposer() {
@@ -365,6 +401,8 @@ class _CodingChatViewState extends State<CodingChatView> {
           controller: _input,
           enabled: _isLive,
           onSend: _sendComposer,
+          working: _showThinking,
+          onCommands: _openCommandSheet,
         ),
       ],
     );
@@ -453,6 +491,8 @@ class _CodingChatViewState extends State<CodingChatView> {
       );
     }
     final working = _showThinking;
+    final pendingStart = _messages.length;
+    final thinkingIdx = pendingStart + _pendingSends.length;
     return RefreshIndicator(
       color: JcTheme.primaryBlueHi,
       backgroundColor: JcTheme.surface,
@@ -461,14 +501,21 @@ class _CodingChatViewState extends State<CodingChatView> {
         controller: _scroll,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-        // While Claude is working, a typing-style "thinking" indicator rides
-        // at the end of the list.
-        itemCount: _messages.length + (working ? 1 : 0),
+        // After the transcript: any not-yet-acknowledged queued sends, then —
+        // while Claude is working — a typing-style "thinking" indicator.
+        itemCount: thinkingIdx + (working ? 1 : 0),
         itemBuilder: (context, idx) {
-          if (idx >= _messages.length) {
-            return const _FadeIn(
-              key: ValueKey('thinking'),
-              child: _ThinkingBubble(),
+          if (idx >= thinkingIdx) {
+            return _FadeIn(
+              key: const ValueKey('thinking'),
+              child: _ThinkingBubble(statusLine: _statusLine),
+            );
+          }
+          if (idx >= pendingStart) {
+            final p = _pendingSends[idx - pendingStart];
+            return _FadeIn(
+              key: ValueKey('pending-${p.ts.microsecondsSinceEpoch}'),
+              child: _PendingBubble(send: p, working: working),
             );
           }
           final m = _messages[idx];
@@ -905,11 +952,20 @@ class _ChatInputBar extends StatelessWidget {
     required this.controller,
     required this.enabled,
     required this.onSend,
+    this.working = false,
+    this.onCommands,
   });
 
   final TextEditingController controller;
   final bool enabled;
   final VoidCallback onSend;
+
+  /// Claude is mid-turn: sends still work (the TUI queues/steers them) — the
+  /// hint says so.
+  final bool working;
+
+  /// Opens the slash-command sheet.
+  final VoidCallback? onCommands;
 
   @override
   Widget build(BuildContext context) {
@@ -926,10 +982,26 @@ class _ChatInputBar extends StatelessWidget {
               borderRadius: BorderRadius.circular(26),
               border: Border.all(color: JcTheme.glassBorder),
             ),
-            padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+            padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                IconButton(
+                  onPressed: enabled ? onCommands : null,
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Commands',
+                  icon: Text(
+                    '/',
+                    style: TextStyle(
+                      color: enabled
+                          ? JcTheme.primaryBlueHi
+                          : JcTheme.muted.withValues(alpha: 0.5),
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      fontFamily: 'Menlo',
+                    ),
+                  ),
+                ),
                 Expanded(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxHeight: 120),
@@ -942,9 +1014,11 @@ class _ChatInputBar extends StatelessWidget {
                       keyboardType: TextInputType.multiline,
                       style: const TextStyle(color: JcTheme.text, fontSize: 15),
                       decoration: InputDecoration(
-                        hintText: enabled
-                            ? 'Message Claude…'
-                            : 'Session isn’t live',
+                        hintText: !enabled
+                            ? 'Session isn’t live'
+                            : working
+                                ? 'Steer Claude — queues mid-turn…'
+                                : 'Message Claude…',
                         hintStyle: const TextStyle(color: JcTheme.muted),
                         filled: true,
                         fillColor: Colors.transparent,
@@ -1414,9 +1488,174 @@ class _DiffBlock extends StatelessWidget {
   }
 }
 
+// ── Queued/steering sends (awaiting transcript acknowledgement) ────
+class _PendingSend {
+  _PendingSend(this.text) : ts = DateTime.now();
+  final String text;
+  final DateTime ts;
+}
+
+/// A user message delivered to the PTY but not yet visible in the transcript
+/// — "Queued" while Claude is mid-turn (the TUI processes it after the turn).
+class _PendingBubble extends StatelessWidget {
+  const _PendingBubble({required this.send, required this.working});
+  final _PendingSend send;
+  final bool working;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxW = MediaQuery.of(context).size.width * 0.78;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxW),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: JcTheme.primaryBlue.withValues(alpha: 0.10),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                  bottomLeft: Radius.circular(16),
+                  bottomRight: Radius.circular(5),
+                ),
+                border: Border.all(
+                    color: JcTheme.primaryBlue.withValues(alpha: 0.22)),
+              ),
+              child: Text(
+                send.text,
+                style: TextStyle(
+                  color: JcTheme.text.withValues(alpha: 0.75),
+                  fontSize: 14.5,
+                  height: 1.45,
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(working ? Icons.schedule_rounded : Icons.check_rounded,
+                    size: 11, color: JcTheme.muted.withValues(alpha: 0.7)),
+                const SizedBox(width: 3),
+                Text(
+                  working ? 'Queued' : 'Sent',
+                  style: TextStyle(
+                    color: JcTheme.muted.withValues(alpha: 0.7),
+                    fontSize: 10.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Slash-command sheet ─────────────────────────────────────────────
+class _CommandSheet extends StatelessWidget {
+  const _CommandSheet({required this.onRun});
+  final void Function(String cmd) onRun;
+
+  static const _commands = [
+    ('/compact', 'Summarize the conversation and shrink context'),
+    ('/clear', 'Reset the conversation'),
+    ('/context', 'Show what is using up the context window'),
+    ('/cost', 'Show token usage and cost for this session'),
+    ('/model', 'Show or change the model'),
+    ('/todos', 'Show the current task list'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomPad = MediaQuery.of(context).viewPadding.bottom;
+    return Container(
+      decoration: BoxDecoration(
+        color: JcTheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border.all(color: JcTheme.glassBorder),
+      ),
+      padding: EdgeInsets.fromLTRB(20, 10, 20, 16 + bottomPad),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(
+                color: JcTheme.muted.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const Text(
+            'COMMANDS',
+            style: TextStyle(
+              color: JcTheme.muted,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 10),
+          for (final (cmd, desc) in _commands)
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => onRun(cmd),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 9),
+                  child: Row(
+                    children: [
+                      Text(
+                        cmd,
+                        style: const TextStyle(
+                          color: JcTheme.primaryBlueHi,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'Menlo',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          desc,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: JcTheme.muted, fontSize: 12.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── "Thinking" indicator (typing-style, shown while Claude works) ──
 class _ThinkingBubble extends StatefulWidget {
-  const _ThinkingBubble();
+  const _ThinkingBubble({this.statusLine});
+
+  /// The live spinner line ("✳ Zesting… (50s · ↑ 2.0k tokens)") — shown
+  /// instead of the generic "Working…" when available.
+  final String? statusLine;
 
   @override
   State<_ThinkingBubble> createState() => _ThinkingBubbleState();
@@ -1437,7 +1676,6 @@ class _ThinkingBubbleState extends State<_ThinkingBubble>
 
   @override
   Widget build(BuildContext context) {
-    const green = Color(0xFF34D399);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -1465,20 +1703,60 @@ class _ThinkingBubbleState extends State<_ThinkingBubble>
                       _dot(((_c.value + 1 - i * 0.18) % 1.0)),
                     ],
                     const SizedBox(width: 10),
-                    Text(
-                      'Working…',
-                      style: TextStyle(
-                        color: green.withValues(alpha: 0.9),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    _label(),
                   ],
                 );
               },
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// "Working…" fallback, or the live spinner line with the verb tinted
+  /// ("✳ Zesting…" salmon, the "(50s · ↑ 2.0k tokens)" detail muted).
+  Widget _label() {
+    const green = Color(0xFF34D399);
+    const salmon = Color(0xFFFB7185);
+    final line = (widget.statusLine ?? '').trim();
+    if (line.isEmpty) {
+      return Text(
+        'Working…',
+        style: TextStyle(
+          color: green.withValues(alpha: 0.9),
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      );
+    }
+    final cut = line.indexOf(' (');
+    final head = cut > 0 ? line.substring(0, cut) : line;
+    final tail = cut > 0 ? ' ${line.substring(cut + 1)}' : '';
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 250),
+      child: Text.rich(
+        TextSpan(children: [
+          TextSpan(
+            text: head,
+            style: const TextStyle(
+              color: salmon,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              fontFamily: 'Menlo',
+            ),
+          ),
+          TextSpan(
+            text: tail,
+            style: const TextStyle(
+              color: JcTheme.muted,
+              fontSize: 11.5,
+              fontFamily: 'Menlo',
+            ),
+          ),
+        ]),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }

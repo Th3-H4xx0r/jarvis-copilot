@@ -62,6 +62,29 @@ _PROMPT_QUESTION_HINTS = ("do you want", "would you like", "do you trust",
                           "select", "choose", "which", "?")
 
 
+def _live_status_line(row, manager) -> str | None:
+    """The live spinner/status line for a WORKING session ("✳ Zesting… (50s ·
+    ↑ 2.0k tokens)") — server sessions capture the pane; desktop sessions read
+    the snapshot shipped with the discover frame. None when not working."""
+    if (row.get("activity_state") or "") != "working":
+        return None
+    if (row.get("host") or "server") == "server":
+        tn = (row.get("tmux_name") or "").strip()
+        if not tn:
+            return None
+        try:
+            from agent.coding_activity_state import extract_status_line
+            return extract_status_line(
+                manager.driver.capture_pane(tmux_name=tn, lines=40))
+        except Exception:  # noqa: BLE001
+            return None
+    try:
+        from api.coding_desktop import get_status_line
+        return get_status_line(row)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _parse_pane_prompt(raw: str):
     """(question, options) parsed from a waiting pane's tail: numbered option
     rows ("❯ 1. Yes" / "│ 2. No │") plus the nearest question-looking line
@@ -1063,7 +1086,8 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 payload = slice_messages(msgs, after)
                 payload.update(ok=True, source=source,
                                activity_state=row.get("activity_state"),
-                               status=row.get("status"))
+                               status=row.get("status"),
+                               status_line=_live_status_line(row, manager))
                 return _ok(payload)
 
             return _run(_messages)

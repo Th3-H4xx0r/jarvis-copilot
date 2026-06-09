@@ -478,6 +478,7 @@ class CodingChatPage {
     this.activityState,
     this.status = '',
     this.source,
+    this.statusLine,
   });
 
   final List<CodingChatMessage> messages;
@@ -485,6 +486,9 @@ class CodingChatPage {
   final String? activityState; // working | waiting | idle | null
   final String status;
   final String? source;
+
+  /// Live spinner line while working, e.g. "✳ Zesting… (50s · ↑ 2.0k tokens)".
+  final String? statusLine;
 
   factory CodingChatPage.fromJson(Map<String, dynamic> j) {
     final raw = (j['messages'] as List?) ?? const [];
@@ -497,6 +501,7 @@ class CodingChatPage {
       activityState: _str(j['activity_state']),
       status: (j['status'] ?? '').toString(),
       source: _str(j['source']),
+      statusLine: _str(j['status_line']),
     );
   }
 }

@@ -1328,6 +1328,18 @@ def get_waiting_tail(row) -> str | None:
     return _WAITING_TAILS.get(((row.get("device_id") or "").strip(),
                                (row.get("tmux_name") or "").strip()))
 
+
+# Live spinner/status line ("✳ Zesting… (50s · ↑ 2.0k tokens)") per WORKING
+# discovered session, shipped by the device scan — the chat view's thinking
+# bubble shows it instead of a generic "Working…". In-memory: live snapshot.
+_STATUS_LINES: dict[tuple, str] = {}
+
+
+def get_status_line(row) -> str | None:
+    """The live working status line for a discovered session row."""
+    return _STATUS_LINES.get(((row.get("device_id") or "").strip(),
+                              (row.get("tmux_name") or "").strip()))
+
 _DISMISSED_LOCK = threading.Lock()
 
 
@@ -1542,6 +1554,11 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                 _WAITING_TAILS[(device_id, tmux_name)] = tail[-2000:]
             elif act in ("working", "idle"):
                 _WAITING_TAILS.pop((device_id, tmux_name), None)
+            sline = sess.get("status_line")
+            if act == "working" and isinstance(sline, str) and sline.strip():
+                _STATUS_LINES[(device_id, tmux_name)] = sline.strip()[:160]
+            elif act in ("waiting", "idle"):
+                _STATUS_LINES.pop((device_id, tmux_name), None)
             pid = _project_for_discovered_cwd(cwd)
             row = existing_tmux.get(tmux_name)
             if row is not None:

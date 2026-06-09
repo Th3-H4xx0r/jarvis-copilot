@@ -126,6 +126,21 @@ def _last_working_line(lines: list) -> int:
     return idx
 
 
+def extract_status_line(text: str) -> str | None:
+    """The LIVE spinner/status line of a working pane (e.g. "✳ Zesting… (50s ·
+    ↑ 2.0k tokens)"), or None. Uses the same echo-aware detection as
+    classification, so a quoted spinner in scrollback is never returned."""
+    if not text:
+        return None
+    lines = text.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    idx = _last_working_line(lines)
+    if idx < 0:
+        return None
+    return lines[idx].strip()[:160] or None
+
+
 def classify_pane(text: str) -> str:
     """Return ``"working" | "waiting" | "idle"`` for a captured tmux pane."""
     if not text:

@@ -388,3 +388,21 @@ def test_selection_footer_with_chrome_below_is_waiting():
         "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
     )
     assert classify_pane(pane) == "waiting"
+
+
+def test_extract_status_line_live_spinner():
+    from agent.coding_activity_state import extract_status_line
+    pane = (
+        "⏺ doing things\n"
+        "✳ Zesting… (50s · ↑ 2.0k tokens)\n"
+        + _REAL_IDLE_CHROME
+    )
+    assert extract_status_line(pane) == "✳ Zesting… (50s · ↑ 2.0k tokens)"
+
+
+def test_extract_status_line_ignores_echo_and_idle():
+    from agent.coding_activity_state import extract_status_line
+    assert extract_status_line(
+        "  ⎿  +✻ Running… (12s · esc to interrupt)\n" + _REAL_IDLE_CHROME
+    ) is None
+    assert extract_status_line(_REAL_IDLE_CHROME) is None

@@ -174,6 +174,19 @@ def _last_working_line(lines: list) -> int:
     return idx
 
 
+def extract_status_line(text: str) -> Optional[str]:
+    # KEEP IN SYNC with agent/coding_activity_state.extract_status_line.
+    if not text:
+        return None
+    lines = text.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    idx = _last_working_line(lines)
+    if idx < 0:
+        return None
+    return lines[idx].strip()[:160] or None
+
+
 def classify_pane(text: str) -> str:
     """Return ``"working" | "waiting" | "idle"`` for a captured tmux pane."""
     if not text:
@@ -1187,6 +1200,12 @@ class CodingDiscoverAgent:
                 # "needs input" modal. Only while waiting (keeps frames small).
                 wire["pane_tail"] = "\n".join(
                     pane.splitlines()[-30:])[-2000:]
+            elif wire["activity_state"] == "working":
+                # The live spinner line ("✳ Zesting… (50s · ↑ 2.0k tokens)")
+                # for the chat view's thinking bubble.
+                sline = extract_status_line(pane)
+                if sline:
+                    wire["status_line"] = sline
             kept.append(wire)
         with self._lock:
             self._known_claude = new_known
