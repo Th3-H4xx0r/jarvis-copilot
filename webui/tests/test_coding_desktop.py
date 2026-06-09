@@ -24,6 +24,8 @@ import gzip
 import os
 import sys
 
+import pytest
+
 # webui dir (for ``api.*``) and the repo root (for ``agent.*``) on the path.
 _WEBUI_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _REPO_ROOT = os.path.abspath(os.path.join(_WEBUI_DIR, ".."))
@@ -59,6 +61,18 @@ class FakeTransport:
 def make_bridge(connected=True):
     t = FakeTransport(connected=connected)
     return cd.DesktopBridge(transport=t), t
+
+
+@pytest.fixture(autouse=True)
+def _permissive_sync_roots(monkeypatch):
+    """The new sync safeguards restrict syncs to an allowlist of roots; these
+    tests use illustrative paths (/root/proj, /Users/me/proj, pytest tmp dirs).
+    Make the SERVER allowlist permissive so they exercise the sync plumbing rather
+    than the guard. Refusal of dangerous/oversize/blocked syncs is covered by the
+    dedicated tests below, which use HARD-blocked paths (home/system) that fail
+    regardless of the allowlist."""
+    monkeypatch.setenv("JC_SYNC_ALLOWED_SERVER_ROOTS",
+                       "/root:/Users:/private:/var:/tmp:/work:/w:/l:/r:/home")
 
 
 # ── DesktopDriver: command construction identical, execution sends frames ─────
@@ -248,6 +262,53 @@ def test_start_sync_for_launch_noop_when_disabled(tmp_path):
                                     cwd=str(tmp_path), sync={"enabled": False},
                                     bridge=bridge) is None
     assert t.sent == []
+
+
+def test_start_sync_refuses_home_dir_local():
+    # The runaway case: syncing the whole Mac home dir. Refused at the server gate
+    # (is_dangerous(local)) even though the server path is fine.
+    bridge, t = make_bridge()
+    out = cd.start_sync_for_launch(
+        "dev-H", session_id="cs_H", cwd="/root/codingprojects/x",
+        sync={"enabled": True, "remote_path": "/Users/pranavkrishna"}, bridge=bridge)
+    assert out is None
+    assert t.frames("coding_sync_start") == []
+
+
+def test_start_sync_refuses_mac_path_as_server():
+    # The bogus /Users/... server tree: a Mac path used as the server destination.
+    bridge, t = make_bridge()
+    out = cd.start_sync_for_launch(
+        "dev-M", session_id="cs_M",
+        cwd="/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot",
+        sync={"enabled": True, "remote_path": "/Users/me/code/proj"}, bridge=bridge)
+    assert out is None
+    assert t.frames("coding_sync_start") == []
+
+
+def test_start_sync_refuses_server_path_outside_allowed_roots(monkeypatch):
+    # Even a non-dangerous server path is refused if it's outside the allowlist.
+    monkeypatch.setenv("JC_SYNC_ALLOWED_SERVER_ROOTS", "/root/codingprojects")
+    bridge, t = make_bridge()
+    out = cd.start_sync_for_launch(
+        "dev-O", session_id="cs_O", cwd="/root/elsewhere/proj",
+        sync={"enabled": True, "remote_path": "/Users/me/code/proj"}, bridge=bridge)
+    assert out is None
+    assert t.frames("coding_sync_start") == []
+
+
+def test_start_sync_blocked_by_disk_guard():
+    bridge, t = make_bridge()
+    cd.set_sync_blocked(True, "disk full")
+    try:
+        out = cd.start_sync_for_launch(
+            "dev-B", session_id="cs_B", cwd="/root/codingprojects/proj",
+            sync={"enabled": True, "remote_path": "/Users/me/code/proj"},
+            bridge=bridge)
+        assert out is None
+        assert t.frames("coding_sync_start") == []
+    finally:
+        cd.set_sync_blocked(False)
 
 
 def test_mutagen_on_status_updates_session():
@@ -492,20 +553,21 @@ def test_resync_device_reopens_running_synced_sessions(tmp_path):
 
 
 def test_resync_device_desktop_session_without_sync_config(tmp_path):
-    """A desktop-host running session with no explicit sync_config still gets a
-    sync of its cwd (synthesized enabled config)."""
+    """SAFEGUARD: a desktop/discovered session with NO explicit sync_config is no
+    longer auto-synced. We used to synthesize {"enabled": True} for any desktop
+    session, which auto-synced discovered tmux sessions (incl. one whose cwd was
+    $HOME → the runaway whole-home-dir sync). Now sync requires explicit opt-in."""
     bridge, t = make_bridge()
     store = FakeStore([
         {"id": "cs_d", "status": "running", "host": "desktop",
          "cwd": str(tmp_path), "sync_config": None},
     ])
     n = cd.resync_device("dev-D2", store=store, bridge=bridge)
-    assert n == 1
-    opens = t.frames("coding_sync_start")
-    assert len(opens) == 1
-    # no explicit remote_path -> the desktop opens the session cwd
-    assert opens[0]["local_path"] == str(tmp_path)
-    assert opens[0]["sync_id"] == cd.repo_sync_id("dev-D2", str(tmp_path), str(tmp_path))
+    assert n == 0
+    assert t.frames("coding_sync_start") == []
+    # ...but the reconcile is still sent (empty active set → desktop cleans orphans)
+    recon = t.frames("coding_sync_reconcile")
+    assert recon and recon[-1]["active"] == []
 
 
 def test_resync_device_noop_when_nothing_synced(tmp_path):
@@ -1184,6 +1246,47 @@ def _server_resume_fixture(tmp_path, monkeypatch, *,
     return dict(store=store, row=row, server_root=server_root,
                 claude_root=claude_root, bridge=bridge, drv=drv, mgr=mgr,
                 sync_calls=sync_calls)
+
+
+def test_resume_reuses_existing_server_session(tmp_path, monkeypatch):
+    # IDEMPOTENCY: resuming a discovered session that ALREADY has a running server
+    # twin must REUSE it, not spawn another. This is the runaway-"hello"-sessions
+    # fix: each resume click used to manager.launch a brand-new server session.
+    fx = _server_resume_fixture(tmp_path, monkeypatch)
+    store = fx["store"]
+    server_cwd = str(fx["server_root"] / "proj")
+    existing_id = store.create_session(
+        project_id=None, host="server", cwd=server_cwd, branch=None,
+        tmux_name="jc-existing", source="chat", title="hello",
+        status="running", claude_session_id="CSID-1")
+    n_before = len(store.list_sessions())
+
+    out = cd.resume_discovered_to_server(
+        fx["row"]["id"], manager=fx["mgr"], bridge=fx["bridge"], store=store)
+
+    assert out["ok"] is True and out.get("reused") is True
+    assert out["session"]["id"] == existing_id        # reused, not a new launch
+    assert len(store.list_sessions()) == n_before     # NO new session created
+    # the discovered origin is retired + tombstoned so it can't re-offer resume
+    assert store.get_session(fx["row"]["id"])["status"] == "stopped"
+    assert cd._is_dismissed("dev-mac", "CSID-1")
+
+
+def test_resume_does_not_reuse_unrelated_session_sharing_cwd(tmp_path, monkeypatch):
+    # An unrelated server session at the SAME server cwd (different/absent csid) is
+    # NOT reused — a cwd-only match could alias a different conversation. With no
+    # csid twin, resume launches a fresh server session.
+    fx = _server_resume_fixture(tmp_path, monkeypatch)
+    store = fx["store"]
+    server_cwd = str(fx["server_root"] / "proj")
+    store.create_session(
+        project_id=None, host="server", cwd=server_cwd, branch=None,
+        tmux_name="jc-x", source="chat", title="unrelated",
+        status="running", claude_session_id="OTHER-CSID")
+    out = cd.resume_discovered_to_server(
+        fx["row"]["id"], manager=fx["mgr"], bridge=fx["bridge"], store=store)
+    assert out.get("reused") is not True   # launched a new one, didn't alias
+    assert out["session"]["title"] == "history"  # the resumed row's own title
 
 
 def test_resume_discovered_to_server_happy_path(tmp_path, monkeypatch):

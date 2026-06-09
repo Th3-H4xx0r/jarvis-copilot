@@ -81,7 +81,7 @@ def _scan_memory(text: str) -> str:
 class CodingSessionManager:
     def __init__(self, *, store, driver, plugin_dir, memory_loader,
                  long_term_recall=None, context_root=None, session_capturer=None,
-                 sync_starter=None):
+                 sync_starter=None, sync_stopper=None):
         self.store = store
         self.driver = driver
         self.plugin_dir = plugin_dir
@@ -95,6 +95,10 @@ class CodingSessionManager:
         # that opted in, regardless of host (server OR desktop). Injected by the
         # webui (coding_routes); None in unit tests / non-sync contexts.
         self.sync_starter = sync_starter
+        # sync_stopper(session_id) — stops the file sync when a session is stopped
+        # (the folder-pair sync survives if a sibling still runs). Without this a
+        # stopped session's Mutagen sync ran forever (orphan that filled the disk).
+        self.sync_stopper = sync_stopper
 
     def _context_path(self, sid: str) -> Path:
         return self.context_root / sid / "JARVIS-CONTEXT.md"
@@ -143,6 +147,15 @@ class CodingSessionManager:
             cwd = _resolve_dir(cwd)
             if not cwd:
                 raise ValueError("a working directory is required")
+            # SAFEGUARD: never launch a session in (and create/sync) a home or
+            # system directory — that's how a session in $HOME got auto-synced and
+            # mirrored the entire home dir to the server.
+            from agent.coding_sync_safety import is_dangerous_path
+
+            if is_dangerous_path(cwd):
+                raise ValueError(
+                    f"refusing to use a home/system directory as the session "
+                    f"working directory: {cwd!r} — pick a project subfolder")
             try:
                 os.makedirs(cwd, exist_ok=True)
             except OSError as e:
@@ -286,6 +299,14 @@ class CodingSessionManager:
             raise KeyError(sid)
         self.driver._run(self.driver.kill_argv(tmux_name=row["tmux_name"]))
         self.store.update_session(sid, status="stopped", last_activity_at=time.time())
+        # Stop the file sync (no-op if a sibling session still shares the folder
+        # pair). MUST run after the status flip to 'stopped' so stop_sync's
+        # "another running session needs it?" check sees this one as gone.
+        if self.sync_stopper:
+            try:
+                self.sync_stopper(session_id=sid)
+            except Exception:
+                pass
         # best-effort cleanup of the PII-bearing context file
         try:
             ctx = self._context_path(sid)
@@ -349,6 +370,14 @@ class CodingSessionManager:
         row = self.store.get_session(sid)
         if not row:
             raise KeyError(sid)
+        # Stop the file sync BEFORE the row is deleted (stop_sync needs the row to
+        # resolve the folder-pair sync id). Covers the project-cascade-delete path
+        # which calls delete() directly (bypassing the route's explicit stop).
+        if self.sync_stopper:
+            try:
+                self.sync_stopper(session_id=sid)
+            except Exception:
+                pass
         try:
             self.driver._run(self.driver.kill_argv(tmux_name=row["tmux_name"]))
         except Exception:

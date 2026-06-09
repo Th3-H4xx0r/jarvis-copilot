@@ -66,6 +66,30 @@ def _server_projects_root() -> str:
     wins; otherwise the module-level ``SERVER_PROJECTS_ROOT`` (monkeypatchable)."""
     return os.environ.get("JC_CODING_PROJECTS_ROOT") or SERVER_PROJECTS_ROOT
 
+
+# Disk-guard kill-switch: the status-loop disk guard sets this when the server disk
+# is critically full so NO new sync can start (existing ones are paused separately).
+# Process-local; cleared when the disk recovers. Read by ``start_sync_for_launch``.
+# The disk guard re-stamps ``at`` every tick (~30s) while blocked; ``sync_blocked``
+# self-expires a block older than the TTL so a dead/hung guard thread can't block
+# syncs FOREVER (fail-open after the guard stops asserting).
+_SYNC_BLOCK = {"blocked": False, "reason": "", "at": 0.0}
+_SYNC_BLOCK_TTL = 180.0  # seconds; ~6 guard ticks
+
+
+def sync_blocked() -> bool:
+    if not _SYNC_BLOCK["blocked"]:
+        return False
+    if (time.monotonic() - float(_SYNC_BLOCK.get("at", 0.0))) > _SYNC_BLOCK_TTL:
+        return False  # stale → the guard stopped re-asserting; fail open
+    return True
+
+
+def set_sync_blocked(blocked: bool, reason: str = "") -> None:
+    _SYNC_BLOCK["blocked"] = bool(blocked)
+    _SYNC_BLOCK["reason"] = reason or ""
+    _SYNC_BLOCK["at"] = time.monotonic()
+
 # ── transport seam ───────────────────────────────────────────────────────────
 
 
@@ -963,6 +987,34 @@ def start_sync_for_launch(device_id: str, *, session_id: str, cwd: str,
     bridge = bridge or get_desktop_bridge()
     ignore = sync.get("ignore") if isinstance(sync.get("ignore"), list) else None
     local_path = sync.get("remote_path") or cwd  # the DESKTOP's folder
+    # ── SAFEGUARDS: never start a runaway/misconfigured/disk-unsafe sync. ──
+    # Validate the endpoints (reject $HOME / system dirs / a Mac path used as the
+    # server dest / a server path outside the allowed roots). The Mac-side
+    # allowed-root + tree-size checks run on the CLIENT (it can stat the tree).
+    try:
+        from agent.coding_sync_safety import (
+            SyncSafetyConfig, validate_endpoints_for_server_gate)
+        ok, why = validate_endpoints_for_server_gate(
+            local_path, cwd, SyncSafetyConfig.from_env())
+    except Exception:  # never let the guard import/logic crash a launch
+        ok, why = True, ""
+    if not ok:
+        log.warning("coding sync REFUSED (%s): local=%r server=%r",
+                    why, local_path, cwd)
+        return None
+    if sync_blocked():
+        log.warning("coding sync blocked by disk guard: %s", _SYNC_BLOCK.get("reason"))
+        return None
+    try:
+        import shutil as _shutil
+        from agent.coding_disk_guard import DiskGuardConfig
+        floor = DiskGuardConfig.from_env().min_free_bytes
+        target = cwd if os.path.isdir(cwd) else _server_projects_root()
+        if _shutil.disk_usage(target).free < floor:
+            log.warning("coding sync refused: server free space below floor (%d)", floor)
+            return None
+    except Exception:  # disk path missing (e.g. unit tests) → don't block
+        pass
     sync_id = repo_sync_id(device_id, local_path, cwd)
     # If a healthy sync for this exact folder-pair already exists (a sibling
     # session opened it), reuse it — don't open a duplicate Mutagen session.
@@ -1580,6 +1632,20 @@ def resume_discovered_to_server(session_id: str, *, manager,
     server_cwd = os.path.join(_server_projects_root(), base or claude_session_id)
     os.makedirs(server_cwd, exist_ok=True)
 
+    # 2b. IDEMPOTENCY: if a server session for this transcript already exists (a
+    # prior resume, or one resurrected because the Mac's discovered row keeps being
+    # re-pushed), REUSE it instead of launching another. Without this, every
+    # resume click/re-trigger spawned a brand-new "hello" server session — the
+    # runaway duplication the user hit. Match by the resumed conversation (claude
+    # session id, incl. the one recorded in sync_config.transcript) or, as a
+    # deterministic fallback, the server mirror cwd.
+    existing = _existing_server_resume(store, claude_session_id)
+    if existing is not None:
+        # retire the discovered origin so it stops offering "resume" for a session
+        # that already lives on the server.
+        _retire_discovered_origin(store, session_id, device_id, claude_session_id)
+        return {"ok": True, "session": existing, "reused": True}
+
     # 3. pull the transcript from the device + write it where claude --resume looks
     warning = None
     data = None
@@ -1629,19 +1695,63 @@ def resume_discovered_to_server(session_id: str, *, manager,
         sync=sync)
 
     # 5. retire the old discovered row (stopped + tombstoned so it can't dup).
-    try:
-        store.update_session(session_id, status="stopped")
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        dismiss_discovered(device_id, claude_session_id)
-    except Exception:  # noqa: BLE001
-        pass
+    _retire_discovered_origin(store, session_id, device_id, claude_session_id)
 
     out = {"ok": True, "session": new}
     if warning:
         out["warning"] = warning
     return out
+
+
+def _existing_server_resume(store, claude_session_id: str):
+    """A running/starting server session that already represents THIS resumed
+    conversation, or None. Matched ONLY by the original claude session id — the
+    column OR the one stashed in sync_config.transcript.csid (which survives even
+    when `claude --resume` mints a fresh uuid). We deliberately do NOT fall back to
+    matching the server cwd: two unrelated Mac folders that share a basename
+    collapse to the same server cwd, so a cwd match could alias (and silently drop)
+    a DIFFERENT conversation — and it would also block legitimately wanting a second
+    session in the same project."""
+    import json as _json
+    csid = (claude_session_id or "").strip()
+    if not csid:
+        return None
+    try:
+        rows = store.list_sessions() or []
+    except Exception:  # noqa: BLE001
+        return None
+    for s in rows:
+        if (s.get("host") or "server") != "server":
+            continue
+        if (s.get("status") or "") not in ("running", "starting", "idle"):
+            continue
+        if (s.get("claude_session_id") or "") == csid:
+            return s
+        raw = (s.get("sync_config") or "").strip()
+        if raw:
+            try:
+                tr = (_json.loads(raw) or {}).get("transcript") or {}
+                if (tr.get("csid") or "") == csid:
+                    return s
+            except Exception:  # noqa: BLE001
+                pass
+    return None
+
+
+def _retire_discovered_origin(store, session_id, device_id, claude_session_id) -> None:
+    """Mark the discovered row stopped + tombstone its csid so a transcript re-push
+    can't resurrect it as a resumable dup. We do NOT tombstone the tmux_name: the
+    Mac's tmux may still be live, and a live session should stay discoverable /
+    adoptable (the idempotency guard already prevents a duplicate server launch)."""
+    try:
+        store.update_session(session_id, status="stopped")
+    except Exception:  # noqa: BLE001
+        pass
+    if claude_session_id:
+        try:
+            dismiss_discovered(device_id, claude_session_id)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def adopt_discovered_tmux(session_id: str, *, bridge: DesktopBridge | None = None,
@@ -1749,11 +1859,12 @@ def resync_device(device_id: str, *, store=None,
                         sync = parsed
                 except Exception:
                     sync = None
-            # A desktop session with no explicit sync block still wants a sync
-            # of its cwd — synthesize a minimal "enabled" config so
-            # start_sync_for_launch opens it.
-            if sync is None and (session.get("host") or "").lower() == "desktop":
-                sync = {"enabled": True}
+            # SAFEGUARD: a session syncs ONLY when it carries an EXPLICIT sync
+            # config. We used to synthesize {"enabled": True} for any desktop-host
+            # session with no config — that auto-synced discovered tmux sessions
+            # (incl. one whose cwd was $HOME), which is exactly how the runaway
+            # whole-home-dir sync got created. Discovered sessions now default OFF;
+            # only a deliberately-configured project sync runs.
             if not sync:
                 continue
             session_id = session.get("id")

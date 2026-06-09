@@ -295,6 +295,45 @@ def test_sync_starter_fires_for_any_host(tmp_path):
     assert calls[0]["cwd"] == str(tmp_path)
 
 
+def _mgr_with_sync_stopper(tmp_path):
+    store = CodingSessionStore(db_path=str(tmp_path / "c.db"))
+    stopped = []
+    mgr = CodingSessionManager(
+        store=store, driver=FakeDriver(), plugin_dir="/p",
+        memory_loader=lambda: ("m", "u"), context_root=str(tmp_path / "ctx"),
+        sync_stopper=lambda **kw: stopped.append(kw))
+    return mgr, stopped
+
+
+def test_stop_calls_sync_stopper(tmp_path):
+    # SAFEGUARD: stopping a session must stop its file sync (else it orphans a
+    # Mutagen sync that runs forever — the disk-fill root cause).
+    mgr, stopped = _mgr_with_sync_stopper(tmp_path)
+    s = mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None, model=None)
+    mgr.stop(s["id"])
+    assert stopped == [{"session_id": s["id"]}]
+
+
+def test_delete_calls_sync_stopper(tmp_path):
+    # The project-cascade-delete path calls delete() directly (bypassing the
+    # route's explicit stop), so delete() must stop the sync too.
+    mgr, stopped = _mgr_with_sync_stopper(tmp_path)
+    s = mgr.launch(cwd=str(tmp_path), title="t", initial_prompt=None, model=None)
+    mgr.delete(s["id"])
+    assert stopped == [{"session_id": s["id"]}]
+
+
+def test_launch_refuses_home_directory_cwd(tmp_path):
+    mgr, _ = _mgr(tmp_path)
+    import os
+    for bad in (os.path.expanduser("~"), "/", "~"):
+        try:
+            mgr.launch(cwd=bad, title="t", initial_prompt=None, model=None)
+            assert False, f"expected refusal for cwd={bad!r}"
+        except ValueError as e:
+            assert "home/system" in str(e)
+
+
 def test_repo_root_never_leaks_server_cwd_for_empty():
     # An empty cwd must not resolve via ``git -C ''`` against the server's own
     # repo (which would misgroup the session). It returns the literal input.

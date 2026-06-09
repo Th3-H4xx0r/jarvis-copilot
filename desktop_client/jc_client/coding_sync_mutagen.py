@@ -136,6 +136,19 @@ class CodingMutagenAgent:
         local = os.path.expanduser(local)
         if not sync_id or not local or not remote:
             return
+        # SAFEGUARD (client side): refuse a home/system dir, a folder outside the
+        # allowed roots, or one too large to sync — only the Mac can stat the tree.
+        try:
+            from jc_client.sync_safety import LocalSyncSafetyConfig, check_local_sync
+            from jc_client.coding_mutagen import merge_ignores
+            ok, why = check_local_sync(local, merge_ignores(ignore),
+                                       LocalSyncSafetyConfig.from_env())
+        except Exception:  # never let the guard crash the sync path
+            ok, why = True, ""
+        if not ok:
+            log.warning("coding sync REFUSED (client): %s", why)
+            self._emit_error(sync_id, why)
+            return
         # Make sure the Mutagen engine is installed (self-heal if a `jc-client
         # update` hasn't fetched it yet) + the key/ssh alias/daemon are ready.
         if not self._ensure_engine():
@@ -189,15 +202,52 @@ class CodingMutagenAgent:
                 except Exception:
                     pass
         # 2. terminate orphan Mutagen sessions we have no poller for (e.g. left
-        #    by a previous run): any jc-sync-* not mapping to an active id.
-        try:
-            keep = {self._driver.name_for(sid) for sid in active_ids}
-            for name in self._driver.list_session_names():
-                if name.startswith("jc-sync-") and name not in keep:
-                    self._driver.terminate_by_name(name)
-        except Exception as exc:  # noqa: BLE001
-            log.debug("reconcile orphan-scan failed: %s", exc)
+        #    by a previous run): any jc-sync-* not mapping to an active id. This is
+        #    the ONLY thing that reaps syncs from a dead prior process, so the
+        #    engine + daemon MUST be up first — previously this ran without
+        #    ensuring them, so on a fresh agent `list_session_names()` returned []
+        #    and orphans (incl. a runaway home-dir sync) survived forever.
+        self._prune_orphan_sessions(active_ids)
         self._write_sync_state()
+
+    def _prune_orphan_sessions(self, active_ids) -> int:
+        """Terminate every live ``jc-sync-*`` Mutagen session not in ``active_ids``.
+        Ensures the engine + daemon are ready first (so the scan actually sees the
+        sessions) and surfaces failures at WARNING, not the old silent debug.
+        Returns the number terminated. Safe to call from reconcile, startup, or a
+        timer."""
+        try:
+            if not self._ensure_engine():
+                log.warning("orphan prune skipped: Mutagen engine not installed")
+                return 0
+            self._driver.ensure_daemon()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("orphan prune: engine/daemon not ready: %s", exc)
+            return 0
+        # Keep = the server's authoritative active set UNION the syncs THIS client
+        # is actively polling. Without the union, a sync we just started (whose DB
+        # row isn't yet 'running' when the server computes the reconcile, or a
+        # momentarily-empty active set during a reconnect) would be wrongly
+        # terminated mid-transfer. A sync we hold a live poller for is, by
+        # definition, not an orphan.
+        with self._lock:
+            own = set(self._threads.keys())
+        keep = {self._driver.name_for(sid) for sid in (set(active_ids or ()) | own)}
+        terminated = 0
+        try:
+            names = self._driver.list_session_names()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("orphan prune: list sessions failed: %s", exc)
+            return 0
+        for name in names:
+            if name.startswith("jc-sync-") and name not in keep:
+                try:
+                    self._driver.terminate_by_name(name)
+                    terminated += 1
+                    log.info("orphan prune: terminated stale sync %s", name)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("orphan prune: terminate %s failed: %s", name, exc)
+        return terminated
 
     # ── status poller ───────────────────────────────────────────────────
 

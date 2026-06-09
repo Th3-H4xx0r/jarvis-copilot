@@ -97,3 +97,47 @@ def test_run_loop_stops():
              sleep_fn=lambda _: None)
     # stop() is checked before each tick → 3 ticks ran (n=1,2,3 false; n=4 true)
     assert calls["n"] == 4
+
+
+def test_disk_guard_blocks_on_critical_and_recovers():
+    from agent.coding_status_loop import run_disk_guard
+    from agent.coding_disk_guard import DiskGuardConfig
+    from collections import namedtuple
+    DU = namedtuple("DU", "total used free")
+    cfg = DiskGuardConfig(warn_pct=85, critical_pct=92, resume_pct=80,
+                          min_free_bytes=10, staging_max_age_s=1800)
+    state = {"blocked": False}
+    blocks, terminated, gced, notified = [], [], [], []
+
+    # critical (95% used) -> assert block flag + terminate device syncs + GC + notify
+    out = run_disk_guard(
+        cfg=cfg, state=state, disk_usage=lambda: DU(100, 95, 5),
+        set_block=lambda block, reason: blocks.append(block),
+        terminate_syncs=lambda: terminated.append(True),
+        gc_staging=lambda c, now=None: gced.append(True),
+        notify=lambda k, du: notified.append(k))
+    assert out == "critical"
+    assert state["blocked"] is True
+    assert blocks == [True]              # flag asserted this tick
+    assert terminated == [True]          # device syncs terminated on transition
+    assert gced and notified == ["critical"]
+
+    # still critical -> flag RE-asserted (keeps TTL fresh), but NO second terminate
+    run_disk_guard(
+        cfg=cfg, state=state, disk_usage=lambda: DU(100, 95, 5),
+        set_block=lambda block, reason: blocks.append(block),
+        terminate_syncs=lambda: terminated.append(True),
+        gc_staging=lambda c, now=None: gced.append(True), notify=lambda k, du: None)
+    assert blocks == [True, True]        # re-stamped every tick
+    assert terminated == [True]          # NOT re-terminated (no new transition)
+
+    # recovered (50% used, free above floor) -> unblock
+    out = run_disk_guard(
+        cfg=cfg, state=state, disk_usage=lambda: DU(100, 50, 50),
+        set_block=lambda block, reason: blocks.append(block),
+        terminate_syncs=lambda: terminated.append(True),
+        gc_staging=lambda c, now=None: gced.append(True), notify=lambda k, du: None)
+    assert out == "ok"
+    assert state["blocked"] is False
+    assert blocks == [True, True, False]
+    assert len(gced) == 2  # GC ran on the two critical passes, not the recovery

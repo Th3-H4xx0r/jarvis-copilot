@@ -1,8 +1,20 @@
 """Tests for the desktop Mutagen sync agent (frame handling + status emit)."""
 import time
 
+import pytest
+
 from jc_client.coding_sync_mutagen import CodingMutagenAgent
 from jc_client.coding_mutagen import MutagenDriver, MutagenError
+
+
+@pytest.fixture(autouse=True)
+def _permissive_local_roots(monkeypatch):
+    """The client sync guard restricts syncs to an allowlist of roots; these tests
+    use illustrative locals (~/myproj, pytest tmp dirs). Make the allowlist
+    permissive so they exercise the sync plumbing, not the guard. The guard's
+    refusal of home/oversize folders is covered by dedicated tests."""
+    monkeypatch.setenv("JC_SYNC_ALLOWED_LOCAL_ROOTS",
+                       "~:/tmp:/private:/var:/Users:/root:/work:/w:/l:/r:/p")
 
 
 class FakeRunner:
@@ -126,3 +138,34 @@ def test_normal_start_expands_tilde_local(monkeypatch):
     creates = [c for c in runner.calls if c[1:3] == ["sync", "create"]]
     assert creates and os.path.expanduser("~/myproj") in creates[0]
     a.close()
+
+
+def test_start_refuses_oversize_local(tmp_path, monkeypatch):
+    # SAFEGUARD: a folder over the size cap is refused client-side (only the Mac
+    # can stat the tree) with a coding_sync_error and NO mutagen sync create.
+    monkeypatch.setenv("JC_SYNC_ALLOWED_LOCAL_ROOTS", str(tmp_path))
+    monkeypatch.setenv("JC_SYNC_MAX_TREE_BYTES", "1")
+    (tmp_path / "big.bin").write_bytes(b"x" * 4096)
+    sent = []
+    runner = FakeRunner()
+    a = _agent(runner, sent)
+    monkeypatch.setattr(a, "pubkey", lambda: "ssh-ed25519 AAAA jc")
+    a.handle_frame({"type": "coding_sync_start", "sync_id": "sync-big",
+                    "local_path": str(tmp_path), "remote_path": "/root/p"})
+    creates = [c for c in runner.calls if c[1:3] == ["sync", "create"]]
+    assert creates == []
+    assert any(f.get("type") == "coding_sync_error" for f in sent)
+
+
+def test_start_refuses_home_dir_local(tmp_path, monkeypatch):
+    monkeypatch.setenv("JC_SYNC_ALLOWED_LOCAL_ROOTS", "~")
+    import os
+    sent = []
+    runner = FakeRunner()
+    a = _agent(runner, sent)
+    monkeypatch.setattr(a, "pubkey", lambda: "ssh-ed25519 AAAA jc")
+    a.handle_frame({"type": "coding_sync_start", "sync_id": "sync-home",
+                    "local_path": os.path.expanduser("~"), "remote_path": "/root/p"})
+    creates = [c for c in runner.calls if c[1:3] == ["sync", "create"]]
+    assert creates == []
+    assert any(f.get("type") == "coding_sync_error" for f in sent)

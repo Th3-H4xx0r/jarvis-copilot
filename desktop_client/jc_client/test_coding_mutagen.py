@@ -2,8 +2,8 @@
 import json
 
 from jc_client.coding_mutagen import (
-    MutagenDriver, MutagenError, create_sync_argv, parse_status, session_name,
-    status_argv, terminate_argv,
+    DEFAULT_IGNORES, MutagenDriver, MutagenError, create_sync_argv, merge_ignores,
+    parse_status, session_name, status_argv, terminate_argv,
 )
 
 
@@ -16,15 +16,30 @@ def test_session_name_sanitized():
 def test_create_sync_argv_shape():
     argv = create_sync_argv("mutagen", name="jc-x", local_path="/Users/me/p",
                             remote_host="jc-hermes", remote_path="/root/p",
-                            ignore=["node_modules", "build"])
+                            ignore=["node_modules", "build", "custompat"])
     assert argv[:6] == ["mutagen", "sync", "create", "--name", "jc-x", "--sync-mode"]
     assert "two-way-safe" in argv
     assert "--ignore-vcs" in argv
-    # each ignore is its own --ignore pair
-    assert argv.count("--ignore") == 2
-    assert "node_modules" in argv and "build" in argv
+    # staging is bounded so one huge file can't fill the server disk
+    assert "--max-staging-file-size" in argv
+    # user ignores are MERGED with DEFAULT_IGNORES (never replace), deduped — so a
+    # custom rule can't strip the baseline node_modules/.venv/... protection.
+    expected = merge_ignores(["node_modules", "build", "custompat"])
+    assert argv.count("--ignore") == len(expected)
+    assert "node_modules" in argv  # from defaults (also passed by user, deduped)
+    assert "custompat" in argv     # user-added
+    assert ".cache" in argv        # a default the user did NOT pass
     # local then remote host:path last
     assert argv[-2:] == ["/Users/me/p", "jc-hermes:/root/p"]
+
+
+def test_merge_ignores_dedups_and_appends():
+    out = merge_ignores(["node_modules", "myrule"])
+    assert out[:len(DEFAULT_IGNORES)] == DEFAULT_IGNORES  # defaults first, intact
+    assert out.count("node_modules") == 1                  # deduped
+    assert out[-1] == "myrule"                             # user rule appended
+    assert merge_ignores(None) == DEFAULT_IGNORES
+    assert merge_ignores([]) == DEFAULT_IGNORES
 
 
 def test_status_argv_and_terminate_argv():
@@ -152,6 +167,13 @@ class _FakeReconcileDriver:
         self.terminated.append(name)
 
     def stop_sync(self, sid):
+        pass
+
+    # the orphan-prune now ensures the engine + daemon before listing sessions
+    def has_engine(self):
+        return True
+
+    def ensure_daemon(self):
         pass
 
 

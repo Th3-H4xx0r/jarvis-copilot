@@ -430,9 +430,17 @@ def default_manager(host: str = "server"):
 
             start_sync_for_session(session_id=session_id, cwd=cwd, sync=sync)
 
+        def _sync_stopper(*, session_id):
+            # Stop the file sync when a session stops (no-op if a sibling on the
+            # same folder pair still runs) so a stopped session can't orphan a sync.
+            from api.coding_desktop import stop_sync_for_session
+
+            stop_sync_for_session(session_id)
+
         # Server-host sessions can sync too (claude on the server, files mirrored
-        # to the chosen desktop) — wire the starter onto the server manager.
+        # to the chosen desktop) — wire the start/stop hooks onto the server manager.
         base.sync_starter = _sync_starter
+        base.sync_stopper = _sync_stopper
 
         if host == "server":
             _MANAGERS["server"] = base
@@ -463,7 +471,7 @@ def default_manager(host: str = "server"):
                 long_term_recall=base.long_term_recall,
                 context_root=str(base.context_root),
                 session_capturer=base.session_capturer,
-                sync_starter=_sync_starter)
+                sync_starter=_sync_starter, sync_stopper=_sync_stopper)
     return _MANAGERS[host]
 
 
@@ -578,6 +586,13 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                           ("name", "default_branch", "sync_enabled",
                            "sync_desktop_path", "ignore_rules", "device_id")
                           if k in body}
+                # SAFEGUARD: reject a home/system folder as the sync desktop path
+                # so a project can't be configured to sync the whole home dir.
+                sdp = (fields.get("sync_desktop_path") or "").strip()
+                if sdp:
+                    from agent.coding_sync_safety import is_dangerous_path
+                    if is_dangerous_path(sdp):
+                        return _err(400, f"refusing a home/system sync folder: {sdp!r}")
                 sync_changed = any(
                     k in fields for k in ("sync_enabled", "sync_desktop_path",
                                           "ignore_rules", "device_id"))

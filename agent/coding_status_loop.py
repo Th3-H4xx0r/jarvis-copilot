@@ -70,18 +70,171 @@ def run_status_tick(manager, *, classify=classify_pane) -> int:
     return updated
 
 
+# ── server disk-guard ────────────────────────────────────────────────────────
+# A runaway sync (or anything) filling the server root partition cascades into
+# pip / edge / sqlite failures. Every Nth status tick we check free space and, at
+# the critical threshold, BLOCK new syncs + tell every device to terminate its
+# Mutagen syncs + GC leaked staging. Pure thresholds live in agent.coding_disk_guard.
+_disk_guard_state = {"blocked": False}
+
+
+def _disk_guard_target() -> str:
+    """The path whose partition the guard watches — the coding projects root (where
+    syncs + staging write), matching start_sync_for_launch's own free-space check.
+    Falls back to '/' if that path/import is unavailable."""
+    import os
+    try:
+        from api import coding_desktop as cd
+        root = cd._server_projects_root()
+        return root if os.path.isdir(root) else "/"
+    except Exception:
+        return "/"
+
+
+def _default_set_block(block: bool, reason: str) -> None:
+    """(Re-)assert the process-wide new-sync block flag. Cheap; called EVERY guard
+    tick so the flag's TTL stays fresh while the disk is full (and self-expires if
+    the guard ever stops)."""
+    from api import coding_desktop as cd
+
+    cd.set_sync_blocked(block, reason)
+
+
+def _default_terminate_device_syncs() -> None:
+    """Tell the connected desktop to terminate all its Mutagen syncs (authoritative
+    empty active set). Run ONCE on the ok->blocked transition, not every tick."""
+    from api import coding_desktop as cd
+
+    try:
+        dev = cd.resolve_desktop_device_id()
+        if dev:
+            cd.get_desktop_bridge().send_sync_reconcile(dev, [])
+    except Exception:
+        pass
+
+
+def _default_gc_staging(cfg, *, now=None) -> int:
+    """Remove LEAKED Mutagen staging dirs under the server's ~/.mutagen/staging.
+
+    SAFETY: only runs when the sync system is FULLY IDLE — zero active bridge syncs
+    AND zero running synced sessions. A live transfer's staging-root mtime is
+    frozen at Initialize time (Mutagen writes into prefix SUBdirs), so an mtime
+    test alone would misclassify a slow/large in-progress stage as stale and delete
+    it mid-transfer (data corruption). With zero active syncs, ALL staging is
+    definitionally orphaned (the real 15G-leak scenario), so it's safe to reap;
+    the mtime threshold stays as a secondary guard against a just-started sync."""
+    import os
+    import shutil
+    import time as _t
+
+    # Idle gate — if ANY sync is or could be active, never touch staging.
+    try:
+        from api import coding_desktop as cd
+        bridge = cd.get_desktop_bridge()
+        if getattr(bridge, "_syncs", None):
+            return 0
+        store = cd._resolve_store()
+        if store is not None:
+            for s in (store.list_sessions(status="running") or []):
+                if cd._session_is_synced(s):
+                    return 0
+    except Exception:
+        return 0  # can't prove idle → do NOT delete anything
+
+    root = os.path.expanduser("~/.mutagen/staging")
+    if not os.path.isdir(root):
+        return 0
+    entries = []
+    for name in os.listdir(root):
+        p = os.path.join(root, name)
+        try:
+            entries.append((p, os.path.getmtime(p)))
+        except OSError:
+            continue
+    from agent.coding_disk_guard import stale_staging_dirs
+
+    stale = stale_staging_dirs(entries, now if now is not None else _t.time(), cfg)
+    removed = 0
+    for p in stale:
+        try:
+            shutil.rmtree(p, ignore_errors=True)
+            removed += 1
+        except Exception:
+            continue
+    return removed
+
+
+def _default_disk_notify(state: str, du) -> None:
+    try:
+        from api import coding_events
+        coding_events.notify()
+    except Exception:
+        pass
+
+
+def run_disk_guard(manager=None, *, disk_usage=None, now=None, cfg=None,
+                   set_block=None, terminate_syncs=None, gc_staging=None,
+                   notify=None, state=None) -> str:
+    """One disk-guard pass. Returns ``ok`` | ``warn`` | ``critical``. All side-
+    effecting deps are injectable so the policy is unit-testable without disk."""
+    import shutil
+
+    from agent import coding_disk_guard
+
+    cfg = cfg or coding_disk_guard.DiskGuardConfig.from_env()
+    st = state if state is not None else _disk_guard_state
+    du = (disk_usage or (lambda: shutil.disk_usage(_disk_guard_target())))()
+    klass = coding_disk_guard.classify(du.used, du.total, cfg)
+    was_blocked = st.get("blocked", False)
+    block = coding_disk_guard.should_block_new_syncs(
+        du.free, du.used, du.total, cfg, currently_blocked=was_blocked)
+    st["blocked"] = block
+    reason = f"server disk {coding_disk_guard.used_pct(du.used, du.total):.0f}% full"
+    # (Re-)assert the block flag EVERY tick so its TTL stays fresh while blocked and
+    # self-expires if this guard ever stops; clearing on recovery is also a no-op
+    # write. Cheap.
+    try:
+        (set_block or _default_set_block)(block, reason)
+    except Exception:
+        pass
+    # Terminate existing device syncs ONCE on the ok->blocked transition (expensive;
+    # not every tick).
+    if block and not was_blocked:
+        try:
+            (terminate_syncs or _default_terminate_device_syncs)()
+        except Exception:
+            pass
+    if klass in ("warn", "critical"):
+        try:
+            (notify or _default_disk_notify)(klass, du)
+        except Exception:
+            pass
+    if klass == "critical":
+        try:
+            (gc_staging or _default_gc_staging)(cfg, now=now)
+        except Exception:
+            pass
+    return klass
+
+
 def run_loop(manager, *, stop, interval: float = 4.0,
-             sleep_fn=time.sleep, classify=classify_pane, on_tick=None) -> None:
+             sleep_fn=time.sleep, classify=classify_pane, on_tick=None,
+             disk_guard=run_disk_guard, disk_guard_every: int = 8) -> None:
     """Tick until ``stop()`` is truthy. ``sleep_fn`` injectable for tests.
     ``on_tick(manager)`` runs after each status tick (used to push the Live
-    Activity update); its errors are swallowed."""
+    Activity update); its errors are swallowed. Every ``disk_guard_every`` ticks
+    the server disk-guard runs (set ``disk_guard=None`` to disable)."""
+    tick = 0
     while not stop():
         try:
             run_status_tick(manager, classify=classify)
             if on_tick is not None:
                 on_tick(manager)
+            if disk_guard is not None and tick % max(1, disk_guard_every) == 0:
+                disk_guard(manager)
         except Exception:
             pass
+        tick += 1
         sleep_fn(interval)
 
 

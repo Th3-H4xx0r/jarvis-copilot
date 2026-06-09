@@ -24,12 +24,41 @@ from typing import Callable, Optional
 
 log = logging.getLogger(__name__)
 
-# Per-session ignores (Mutagen does NOT read .gitignore — list is explicit).
+# Per-session ignores (Mutagen does NOT read .gitignore — the list is explicit).
+# Kept broad on purpose: the old 9-entry list let huge dependency/build/cache trees
+# (.cache, target, vendor, Pods, DerivedData, ...) sync and balloon the server disk.
+# These are ALWAYS applied; user/project ignores are MERGED on top, never replace.
 DEFAULT_IGNORES = [
-    "node_modules", ".venv", "__pycache__", "build", "dist", ".DS_Store",
-    "*.pyc", ".mypy_cache", ".pytest_cache",
+    # dependency / package dirs
+    "node_modules", "bower_components", "vendor", "Pods", ".pnpm-store",
+    # python envs / caches
+    ".venv", "venv", "env", "__pycache__", "*.pyc", ".mypy_cache",
+    ".pytest_cache", ".ruff_cache", ".tox", "*.egg-info",
+    # build / dist / framework caches
+    "build", "dist", "out", "target", ".next", ".nuxt", ".svelte-kit",
+    ".gradle", ".terraform", "DerivedData", ".cache", "coverage", ".turbo",
+    # editor / OS cruft
+    ".DS_Store", ".idea", "*.swp",
+    # heavy binary artifacts
+    "*.so", "*.o", "*.a", "*.dylib", "*.class", "*.log",
 ]
 _SYNC_MODE = "two-way-safe"
+# Bound staging so a single huge file (VM image / DB dump / media) can't blow up
+# the server's /root/.mutagen/staging and fill the disk.
+_MAX_STAGING_FILE_SIZE = "100MB"
+
+
+def merge_ignores(user_ignores) -> list:
+    """DEFAULT_IGNORES with any user/project patterns appended (deduped, order-
+    preserving). User rules ADD to the baseline — they can never strip it."""
+    out = list(DEFAULT_IGNORES)
+    seen = set(out)
+    for pat in (user_ignores or ()):
+        s = str(pat).strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
 
 
 class MutagenError(RuntimeError):
@@ -52,9 +81,13 @@ def create_sync_argv(mutagen: str, *, name: str, local_path: str,
         mutagen, "sync", "create",
         "--name", name,
         "--sync-mode", _SYNC_MODE,
+        "--max-staging-file-size", _MAX_STAGING_FILE_SIZE,
         "--ignore-vcs",
     ]
-    for pat in (ignore if ignore is not None else DEFAULT_IGNORES):
+    # Always apply DEFAULT_IGNORES; user/project patterns are MERGED on top (the
+    # old behavior REPLACED the defaults, so one custom rule stripped all baseline
+    # protection — a foot-gun that let huge trees through).
+    for pat in merge_ignores(ignore):
         argv += ["--ignore", str(pat)]
     argv += [local_path, f"{remote_host}:{remote_path}"]
     return argv
