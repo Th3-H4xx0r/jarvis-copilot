@@ -369,8 +369,11 @@ def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> 
         (("✅ Claude finished" if event == "stop" else "🔔 Claude needs you"),
          _folder_label(cwd))
     sent = {}
-    if chans.get("telegram"):
-        sent["telegram"] = _send_coding_telegram(f"{title} — {label}")
+    # Telegram is sent by the plugin's notify.sh hook (`jc-client notify`, the
+    # user's proven messaging path), NOT here — otherwise the user would get TWO
+    # Telegram pings per event. This server-side dispatch owns the MOBILE push +
+    # WebUI toast (the channels notify.sh can't reach). The telegram channel in the
+    # Code Master matrix still governs notify.sh's behavior client-side.
     if chans.get("mobile"):
         try:
             sent["mobile"] = _push_device_alert(title, label) > 0

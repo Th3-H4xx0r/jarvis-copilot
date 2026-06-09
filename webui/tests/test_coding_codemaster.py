@@ -89,22 +89,27 @@ def _spy_channels(monkeypatch):
     return calls
 
 
-def test_dispatch_all_channels_when_enabled(monkeypatch):
+def test_dispatch_sends_mobile_and_toast_not_telegram(monkeypatch):
+    # _dispatch owns MOBILE push + WebUI toast. Telegram is sent by the plugin's
+    # notify.sh hook (the proven `jc-client notify` path), so _dispatch must NOT
+    # send it here (avoids a double Telegram ping per event).
     m = FakeManager()  # defaults: all channels on
     calls = _spy_channels(monkeypatch)
     sent = cr._dispatch_coding_notifications(m.store, event="notification",
                                             row=None, cwd="/x/proj")
-    assert calls == {"tg": 1, "mob": 1, "toast": 1}
-    assert sent["telegram"] is True and sent["mobile"] is True and sent["toast"] is True
+    assert calls == {"tg": 0, "mob": 1, "toast": 1}
+    assert sent.get("mobile") is True and sent.get("toast") is True
+    assert "telegram" not in sent
 
 
 def test_dispatch_respects_channel_matrix(monkeypatch):
     m = FakeManager()
     m.store.set_setting("notifications", {"events": {
-        "finished": {"telegram": True, "mobile": False, "toast": False}}})
+        "finished": {"telegram": True, "mobile": True, "toast": False}}})
     calls = _spy_channels(monkeypatch)
     cr._dispatch_coding_notifications(m.store, event="stop", row=None, cwd="/x/proj")
-    assert calls == {"tg": 1, "mob": 0, "toast": 0}
+    # mobile on -> sent; toast off -> not; telegram never sent here (notify.sh owns it)
+    assert calls == {"tg": 0, "mob": 1, "toast": 0}
 
 
 def test_dispatch_unknown_event_is_noop(monkeypatch):
