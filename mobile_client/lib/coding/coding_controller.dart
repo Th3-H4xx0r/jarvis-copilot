@@ -492,6 +492,52 @@ class CodingSessionsController extends ChangeNotifier {
     }
   }
 
+  /// Relaunch an ENDED session on its DEVICE — a fresh tmux in the same folder,
+  /// resuming its transcript. Mirrors the WebUI's `codingRelaunchDevice`; selects
+  /// the new live session on success so its terminal mounts.
+  Future<void> relaunchOnDevice() async {
+    final s = selected;
+    if (s == null) return;
+    final cwd = s.cwd ?? '';
+    if (cwd.isEmpty) {
+      error = 'Can’t relaunch — this session has no folder. Try “Resume on server”.';
+      notifyListeners();
+      return;
+    }
+    busy = true;
+    error = null;
+    notifyListeners();
+    try {
+      final sess = await _api.relaunchOnDevice(
+        projectId: s.projectId,
+        cwd: cwd,
+        title: s.title,
+        resumeSessionId: s.claudeSessionId,
+      );
+      await loadSessions();
+      if (sess != null && sess.id.isNotEmpty) {
+        await select(sess.id);
+      }
+    } catch (e) {
+      error = 'Relaunch failed: ${_msg(e)}';
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
+  /// Re-attempt the live-terminal attach for a session whose terminal ended —
+  /// re-fetches the detail so a session that's come back to life re-mounts its
+  /// terminal (the page watches the selection); a still-ended one stays on the
+  /// recovery panel. Mirrors the WebUI's `codingReopenTerminal`.
+  Future<void> reopenTerminal() async {
+    final id = selectedId;
+    if (id == null) return;
+    _teardownTerminal();
+    await _refreshDetail();
+    notifyListeners();
+  }
+
   /// Ask the paired device to re-scan its sessions, then refresh the tree.
   /// Discovery is async over the bridge, so we refresh now and again shortly
   /// after. Best-effort: failures surface as [error] but never throw.
@@ -743,6 +789,12 @@ class CodingSessionsController extends ChangeNotifier {
     _terminalId = null;
     terminalStarting = false;
   }
+
+  /// Detach the live terminal (server PTY + SSE) WITHOUT refreshing — used when a
+  /// session transitions to ENDED while viewed, so the now-dead tmux's stream/PTY
+  /// isn't left dangling with no consumer. Idempotent. Mirrors the WebUI ended-
+  /// render's `_codingTeardownTerminal()`.
+  void detachTerminal() => _teardownTerminal();
 
   String _msg(Object e) {
     if (e is DioException) {

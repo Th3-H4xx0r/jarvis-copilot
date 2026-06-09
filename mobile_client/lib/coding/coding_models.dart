@@ -154,6 +154,21 @@ class CodingSession {
   bool get isTranscriptIdle =>
       source == 'discovered-transcript' && statusClass != 'running';
 
+  /// A live (tmux) session that ENDED — claude quit / its tmux is gone, so the
+  /// server reconciled it to stopped (a discovered Mac session) or stopped/error
+  /// (a server-launched session whose tmux died, e.g. you ctrl-C'd it). It has no
+  /// live terminal to attach; offer the recovery actions (relaunch on device /
+  /// resume on server / reopen terminal) instead. Mirrors `_codingIsEnded`.
+  bool get isEnded {
+    final src = source ?? '';
+    if (src == 'discovered-transcript') return false; // that's transcript-idle
+    final cls = statusClass;
+    if (src.startsWith('discovered') && cls == 'stopped') return true;
+    final h = (host ?? '').isEmpty ? 'server' : host!;
+    if (h == 'server' && (cls == 'stopped' || cls == 'error')) return true;
+    return false;
+  }
+
   /// Epoch SECONDS used to sort sessions newest-first. Prefers `last_activity_at`,
   /// falls back to `created_at`. Handles numeric epochs (seconds OR milliseconds)
   /// and ISO strings; 0 when unknown. (A plain string compare mis-ordered these.)

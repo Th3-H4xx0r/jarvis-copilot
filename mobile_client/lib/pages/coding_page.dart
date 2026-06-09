@@ -69,18 +69,35 @@ class _CodingPageState extends State<CodingPage> {
   /// Build/tear-down the xterm [Terminal] in lock-step with the selection.
   void _onControllerChanged() {
     final id = _c.selectedId;
-    if (id == null) {
+    // No live terminal for an ENDED session (claude quit / tmux gone) — tearing
+    // it down avoids re-attaching a dead tmux, and the detail view shows the
+    // recovery panel instead. (Also covers the no-selection case.)
+    if (id == null || (_c.selected?.isEnded ?? false)) {
       if (_term != null) {
         _termSub?.cancel();
         _termSub = null;
         _term = null;
         _termForId = null;
+        // Also detach the controller's server-side PTY/SSE so a session that
+        // just ended doesn't leave the dead-tmux stream dangling (idempotent).
+        _c.detachTerminal();
       }
       return;
     }
     if (_termForId != id) {
       _mountTerminal(id);
     }
+  }
+
+  /// Re-attempt the terminal for a session whose terminal ended: drop the stale
+  /// page-side terminal so a now-live session re-mounts, then ask the controller
+  /// to refresh the detail (a still-ended one stays on the recovery panel).
+  Future<void> _reopenTerminal() async {
+    _termSub?.cancel();
+    _termSub = null;
+    _term = null;
+    _termForId = null;
+    await _c.reopenTerminal();
   }
 
   void _mountTerminal(String id) {
@@ -442,63 +459,77 @@ class _CodingPageState extends State<CodingPage> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                Row(
-                  children: [
-                    glassSectionLabel('Live terminal'),
-                    const Spacer(),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        '${(s?.host ?? 'server') == 'desktop' ? 'desktop' : 'server'} · type below',
-                        style: const TextStyle(
-                            color: JcTheme.muted, fontSize: 12),
+                if (s?.isEnded == true)
+                  _EndedPanel(
+                    session: s!,
+                    busy: _c.busy,
+                    onRelaunchDevice: () => _c.relaunchOnDevice(),
+                    onResumeServer: () => _resumeSession(s.id),
+                    onReopenTerminal: () => _reopenTerminal(),
+                    onRestart: () => _c.restart(),
+                    onDelete: () => _confirmDelete(),
+                  )
+                else ...[
+                  Row(
+                    children: [
+                      glassSectionLabel('Live terminal'),
+                      const Spacer(),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Text(
+                          '${(s?.host ?? 'server') == 'desktop' ? 'desktop' : 'server'} · type below',
+                          style: const TextStyle(
+                              color: JcTheme.muted, fontSize: 12),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                SizedBox(
-                  height: (MediaQuery.of(context).size.height * 0.45)
-                      .clamp(240.0, 560.0),
-                  child: _buildTerminal(),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: GlassButton(
-                        label: live ? 'Stop' : 'Restart',
-                        icon: live
-                            ? Icons.stop_rounded
-                            : Icons.restart_alt_rounded,
-                        ghost: live,
-                        full: true,
-                        onPressed: _c.busy
-                            ? null
-                            : (live ? _c.stop : _c.restart),
+                    ],
+                  ),
+                  SizedBox(
+                    height: (MediaQuery.of(context).size.height * 0.45)
+                        .clamp(240.0, 560.0),
+                    child: _buildTerminal(),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: GlassButton(
+                          label: live ? 'Stop' : 'Restart',
+                          icon: live
+                              ? Icons.stop_rounded
+                              : Icons.restart_alt_rounded,
+                          ghost: live,
+                          full: true,
+                          onPressed: _c.busy
+                              ? null
+                              : (live ? _c.stop : _c.restart),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: GlassButton(
-                        label: 'Delete',
-                        icon: Icons.delete_outline_rounded,
-                        ghost: true,
-                        full: true,
-                        onPressed: _c.busy ? null : _confirmDelete,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: GlassButton(
+                          label: 'Delete',
+                          icon: Icons.delete_outline_rounded,
+                          ghost: true,
+                          full: true,
+                          onPressed: _c.busy ? null : _confirmDelete,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                ],
               ],
             ),
           ),
         ),
-        _MessageComposer(
-          controller: _composer,
-          controllerRef: _c,
-          onSend: _send,
-        ),
+        // No composer for an ended session — there's no live claude to message.
+        if (s?.isEnded != true)
+          _MessageComposer(
+            controller: _composer,
+            controllerRef: _c,
+            onSend: _send,
+          ),
       ],
     );
   }
@@ -1069,6 +1100,122 @@ class _StatusPill extends StatelessWidget {
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),
+      ),
+    );
+  }
+}
+
+// ── Ended-session recovery panel ────────────────────────────────
+/// Shown instead of the live terminal when a session has ENDED (claude quit /
+/// its tmux is gone). Mirrors the WebUI's ended panel: a host-aware set of
+/// recovery actions. A SERVER session offers Restart / Delete; a DISCOVERED Mac
+/// session offers Relaunch on device / Resume on server / Reopen terminal.
+class _EndedPanel extends StatelessWidget {
+  const _EndedPanel({
+    required this.session,
+    required this.busy,
+    required this.onRelaunchDevice,
+    required this.onResumeServer,
+    required this.onReopenTerminal,
+    required this.onRestart,
+    required this.onDelete,
+  });
+
+  final CodingSession session;
+  final bool busy;
+  final VoidCallback onRelaunchDevice;
+  final VoidCallback onResumeServer;
+  final VoidCallback onReopenTerminal;
+  final VoidCallback onRestart;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final isServer = (session.host ?? 'server') == 'server' &&
+        !(session.source ?? '').startsWith('discovered');
+    final hint = isServer
+        ? 'The claude for this session has stopped (you quit it / its tmux ended). '
+            'There’s no live terminal — Restart launches it again in the same '
+            'folder on the server.'
+        : 'The live claude for this session has stopped (its tmux session ended). '
+            'There’s no live terminal to attach. Relaunch it on the device to keep '
+            'working there, or resume it on the server (it continues from the '
+            'synced transcript).';
+    final actions = isServer
+        ? <Widget>[
+            GlassButton(
+              label: 'Restart',
+              icon: Icons.restart_alt_rounded,
+              full: true,
+              onPressed: busy ? null : onRestart,
+            ),
+            const SizedBox(height: 10),
+            GlassButton(
+              label: 'Delete',
+              icon: Icons.delete_outline_rounded,
+              ghost: true,
+              full: true,
+              onPressed: busy ? null : onDelete,
+            ),
+          ]
+        : <Widget>[
+            GlassButton(
+              label: 'Relaunch on device',
+              icon: Icons.devices_rounded,
+              full: true,
+              onPressed: busy ? null : onRelaunchDevice,
+            ),
+            const SizedBox(height: 10),
+            GlassButton(
+              label: 'Resume on server',
+              icon: Icons.cloud_sync_rounded,
+              ghost: true,
+              full: true,
+              onPressed: busy ? null : onResumeServer,
+            ),
+            const SizedBox(height: 10),
+            GlassButton(
+              label: 'Reopen terminal',
+              icon: Icons.refresh_rounded,
+              ghost: true,
+              full: true,
+              onPressed: busy ? null : onReopenTerminal,
+            ),
+          ];
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: JcTheme.surface.withValues(alpha: 0.40),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: JcTheme.muted.withValues(alpha: 0.20)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.power_settings_new_rounded,
+                  size: 18, color: JcTheme.muted),
+              SizedBox(width: 8),
+              Text(
+                'Session ended',
+                style: TextStyle(
+                  color: JcTheme.text,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            hint,
+            style: const TextStyle(
+                color: JcTheme.muted, fontSize: 13, height: 1.4),
+          ),
+          const SizedBox(height: 14),
+          ...actions,
+        ],
       ),
     );
   }

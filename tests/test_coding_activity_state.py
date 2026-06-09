@@ -76,36 +76,71 @@ def test_working_spinner_without_esc_hint():
     assert classify_pane(pane) == "working"
 
 
+def test_selection_popup_is_waiting():
+    # The AskUserQuestion multiple-choice popup (cursor on ANY option) reads as
+    # waiting via its footer — the reliable live-prompt signal — not the "❯"
+    # cursor glyph (which also marks the input prompt and echoed user lines).
+    pane = (
+        "Which season do you like best?\n"
+        "❯ 1. Spring\n"
+        "  2. Summer\n"
+        "  3. Autumn\n"
+        "  4. Winter\n"
+        "Enter to select · ↑/↓ to navigate · Esc to cancel\n"
+    )
+    assert classify_pane(pane) == "waiting"
+
+
 def test_selection_popup_non_first_option_is_waiting():
-    # The AskUserQuestion / permission popup with the cursor on a NON-first
-    # numbered option (the user arrowed down) must read as waiting — the old
-    # code only matched the literal "❯ 1." and showed this as "Idle".
     pane = (
-        "╭─────────────────────────────╮\n"
-        "│ What's your go-to drink?    │\n"
-        "│   1. Coffee                 │\n"
-        "│ ❯ 2. Tea                    │\n"
-        "│   3. Energy drink           │\n"
-        "╰─────────────────────────────╯\n"
+        "Pick a drink\n"
+        "  1. Coffee\n"
+        "❯ 2. Tea\n"
+        "  3. Energy drink\n"
+        "Enter to select · ↑/↓ to navigate · Esc to cancel\n"
     )
     assert classify_pane(pane) == "waiting"
 
 
-def test_selection_popup_worded_options_is_waiting():
-    # A worded multiple-choice popup (no numbers) inside the box still reads as
-    # waiting via the "│ ❯ <word>" border-cursor pattern.
-    pane = (
-        "╭─────────────────────────────╮\n"
-        "│ Pick a drink                │\n"
-        "│   Coffee                    │\n"
-        "│ ❯ Energy drink              │\n"
-        "╰─────────────────────────────╯\n"
-    )
-    assert classify_pane(pane) == "waiting"
-
-
-def test_echoed_user_message_with_chevron_is_not_waiting():
-    # The REPL echoes a user message with a "❯ " prefix and renders the empty
-    # input prompt as "❯ " — neither is a selection menu, so both stay idle
-    # (the new selection patterns must NOT fire on a bare chevron).
+def test_echoed_numbered_user_message_is_not_waiting():
+    # The REPL echoes a user message with a "❯ " prefix; a user typing a NUMBERED
+    # message ("❯ 2. fix the parser") must NOT be read as a selection menu (the
+    # old "❯ \d+\." cursor regex wrongly did). No footer -> idle.
+    assert classify_pane("❯ 2. fix the parser then run tests\n❯ ") == "idle"
     assert classify_pane("❯ ask me for another example popup\n❯ ") == "idle"
+
+
+def test_scrollback_mention_of_footer_is_not_waiting():
+    # claude's OWN output mentioning the footer words (e.g. while editing this
+    # classifier) lives in SCROLLBACK, not the live tail — so a session that is
+    # actually WORKING must not flip to waiting. Regression for "jarvis-copilot
+    # shows waiting while it's running".
+    pane = "\n".join(
+        ['● Adding markers like "esc to cancel" and "enter to select".']
+        + [f"  line {i} of edited output" for i in range(20)]
+        + ["✻ Working… (12s · ↑ 1.2k tokens · esc to interrupt)"]
+    )
+    assert classify_pane(pane) == "working"
+
+
+def test_working_spinner_scrolled_above_tail_is_working():
+    # A long tool's output (or a background-agents list) pushes the spinner /
+    # "esc to interrupt" line FAR above the bottom of the pane — but the session
+    # is still working. Working must be detected over the WHOLE pane, not just the
+    # live tail, else a busy session reads "idle" and flaps (spamming "finished").
+    pane = "\n".join(
+        ["✻ Running the test suite… (3m 12s · ↓ 98k tokens · esc to interrupt)"]
+        + [f"test output line {i} ........................ ok" for i in range(40)]
+        + ["PASS  tests/test_thing.py"]
+    )
+    assert classify_pane(pane) == "working"
+
+
+def test_idle_prompt_below_long_output_is_idle():
+    # The inverse: once the turn truly ends there is NO spinner anywhere and the
+    # bottom is the input prompt — that stays idle (so "finished" fires once).
+    pane = "\n".join(
+        [f"test output line {i} ........................ ok" for i in range(40)]
+        + ["PASS  tests/test_thing.py", "", "❯ "]
+    )
+    assert classify_pane(pane) == "idle"

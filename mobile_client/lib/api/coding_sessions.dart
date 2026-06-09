@@ -167,6 +167,42 @@ class CodingSessionsApi {
     return CodingSession.fromJson(Map<String, dynamic>.from(session));
   }
 
+  /// Relaunch an ENDED discovered/desktop session on its DEVICE — a fresh tmux in
+  /// the same folder, resuming its transcript (`resume_session_id`). Mirrors the
+  /// WebUI's `codingRelaunchDevice`: POSTs `{host:'desktop', cwd, title?,
+  /// resume_session_id?}` to the project's session endpoint (or the top-level
+  /// launch endpoint when the session has no project). Returns the new live
+  /// session; throws on an `{ok:false}` body.
+  Future<CodingSession?> relaunchOnDevice({
+    String? projectId,
+    required String cwd,
+    String? title,
+    String? resumeSessionId,
+  }) async {
+    final hasProject = projectId != null && projectId.isNotEmpty;
+    final body = <String, dynamic>{
+      'host': 'desktop',
+      'cwd': cwd,
+      if (title != null && title.isNotEmpty) 'title': title,
+      if (resumeSessionId != null && resumeSessionId.isNotEmpty)
+        'resume_session_id': resumeSessionId,
+      if (!hasProject) 'project_id': null,
+    };
+    final path = hasProject
+        ? '/api/coding/project/$projectId/session'
+        : '/api/coding/launch';
+    final resp = await api.postJson(path, body);
+    final b = resp.data as Map?;
+    if (b != null && b['ok'] == false) {
+      throw Exception(
+          (b['error'] ?? b['message'] ?? 'Could not relaunch on the device')
+              .toString());
+    }
+    final session = (b?['session'] as Map?) ?? b;
+    if (session == null) return null;
+    return CodingSession.fromJson(Map<String, dynamic>.from(session));
+  }
+
   /// POST /api/coding/session/$id/resume -> `{ ok, session? }`. Relaunch a
   /// discovered-transcript (past) session on its device. The resumed session
   /// may keep the same id or be reported under a new one.

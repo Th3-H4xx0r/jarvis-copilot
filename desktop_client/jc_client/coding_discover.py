@@ -133,20 +133,20 @@ def tmux_capture_argv(tmux_name: str, lines: int = 80) -> list:
 # desktop client can't import ``agent/``. KEEP THE TWO IN SYNC. working = Claude
 # is processing ("esc to interrupt"); waiting = blocked on the user (a permission
 # / choice prompt); idle = at rest. Precedence: waiting > working > idle.
+# Classify from the bottom _TAIL_LINES (the LIVE UI) only — NOT scrollback — so a
+# marker in claude's own output or an echoed user message can't fake a prompt.
+# KEEP IN SYNC with agent/coding_activity_state.
+_TAIL_LINES = 15
 _WAITING_MARKERS = (
     "do you want to proceed", "do you want to run",
     "do you want to make this edit", "do you want to create",
-    "do you want to delete", "1. yes",
+    "do you want to delete", "would you like to proceed",
     "(y/n)", "press enter to continue",
+    "esc to cancel", "enter to select",   # selection-popup footer
 )
 _WORKING_MARKERS = (
     "esc to interrupt", "esc to stop", "ctrl+b to run in background",
 )
-# A live SELECTION-MENU cursor — the permission box AND the generic
-# AskUserQuestion popup. "❯" can be on ANY option (numbered "❯ 2." or worded
-# "│ ❯ Coffee │"), but NEVER matches the bare "❯ " input prompt / echoed user
-# line. KEEP IN SYNC with agent/coding_activity_state._WAITING_SELECT_RE.
-_WAITING_SELECT_RE = re.compile(r"❯\s+\d+\.|│\s*❯\s+\w")
 # The live spinner status line — a parenthesized elapsed time + middot, e.g.
 # "(35s · ↑ 2.4k tokens · …)". Present in standard Claude AND custom forks (whose
 # verb/suffix differ but this prefix doesn't), so it's the robust "working"
@@ -154,13 +154,25 @@ _WAITING_SELECT_RE = re.compile(r"❯\s+\d+\.|│\s*❯\s+\w")
 _WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*·")
 
 
+def _live_tail(text: str) -> str:
+    lines = text.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines[-_TAIL_LINES:])
+
+
 def classify_pane(text: str) -> str:
     """Return ``"working" | "waiting" | "idle"`` for a captured tmux pane."""
     if not text:
         return "idle"
-    low = text.lower()
-    if any(m in low for m in _WAITING_MARKERS) or _WAITING_SELECT_RE.search(text):
+    # WAITING from the live TAIL only (its markers can appear in scrollback /
+    # echoed user messages); WORKING from the WHOLE pane (a long tool's output
+    # scrolls the spinner above the tail, but the session is still working — and
+    # the spinner never appears in prose). KEEP IN SYNC with
+    # agent/coding_activity_state.classify_pane.
+    if any(m in _live_tail(text).lower() for m in _WAITING_MARKERS):
         return "waiting"
+    low = text.lower()
     if any(m in low for m in _WORKING_MARKERS) or _WORKING_SPINNER_RE.search(text):
         return "working"
     return "idle"
@@ -1113,9 +1125,16 @@ class CodingDiscoverAgent:
                 continue
             new_known.add(tmux_name)
             wire = _to_wire(s)
-            # None (capture failed) → "unknown", which the server leaves alone;
-            # never overwrite a known state with a guessed idle.
-            wire["activity_state"] = classify_pane(pane) if pane is not None else None
+            # A BLANK capture (None = tmux error, OR "" / whitespace = a mid-
+            # teardown repaint racing this capture — common when a SIBLING session
+            # is dying) is "unknown", NOT idle. Emit None so the server keeps the
+            # last-known state instead of clobbering a live "working" with a
+            # guessed "idle". Without this, one session ending flipped an UNRELATED
+            # session to idle for a cycle (the cross-session status bleed): the
+            # blank frame classified idle AND the sibling's removal forced a push
+            # that same cycle, carrying the bad state upstream.
+            wire["activity_state"] = (classify_pane(pane)
+                                      if (pane and pane.strip()) else None)
             kept.append(wire)
         with self._lock:
             self._known_claude = new_known

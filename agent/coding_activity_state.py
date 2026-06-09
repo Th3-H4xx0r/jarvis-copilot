@@ -17,34 +17,36 @@ from __future__ import annotations
 
 import re
 
-# A permission / numbered-choice prompt. These strings are specific to Claude
-# Code's confirmation UI ("Do you want to proceed?" + a "❯ 1. Yes" list) so they
-# don't fire on ordinary assistant prose.
+# How many lines from the BOTTOM of the pane hold the LIVE UI — the active popup
+# / permission box / spinner / input prompt. We classify from this tail ONLY, so a
+# marker that merely appears in claude's SCROLLBACK output (claude printing the
+# words "esc to cancel" while discussing a UI, or ECHOING a user's numbered
+# message like "❯ 2. do the thing") can't be mistaken for a live prompt. A real
+# popup's footer is the last content line, and a permission box's prompt sits ~5
+# lines from the bottom, so this comfortably covers both.
+_TAIL_LINES = 15
+
+# A prompt that is BLOCKED on the user. Two shapes:
+#   • the permission-confirmation box ("Do you want to proceed?" + a yes/no list);
+#   • the interactive SELECTION popup (AskUserQuestion / multiple-choice), whose
+#     footer "Enter to select · ↑/↓ to navigate · Esc to cancel" is the reliable
+#     signal — present ONLY while the prompt is live.
+# We deliberately do NOT key off the "❯" cursor glyph: it also marks the input
+# prompt, an echoed user message, and any numbered list in claude's own output,
+# so it produced false "waiting" (e.g. jarvis-copilot reading waiting while it was
+# actually working). The footer/box phrases are specific to a live prompt.
 _WAITING_MARKERS = (
     "do you want to proceed",
     "do you want to run",
     "do you want to make this edit",
     "do you want to create",
     "do you want to delete",
-    "1. yes",
+    "would you like to proceed",   # ExitPlanMode-style approval
     "(y/n)",
     "press enter to continue",
+    "esc to cancel",       # selection-popup footer ("… · Esc to cancel")
+    "enter to select",     # selection-popup footer ("Enter to select · …")
 )
-
-# A live SELECTION-MENU cursor — Claude's permission box AND the generic
-# AskUserQuestion multiple-choice popup (e.g. a "Drink → Coffee / Tea / Energy"
-# prompt). The "❯" cursor can sit on ANY option, not just option 1 (the user may
-# have arrowed down), and options may be numbered ("❯ 2. Tea") or worded
-# ("│ ❯ Coffee │" inside the box). We match either:
-#   • "❯" + a NUMBERED option at any index — unambiguous, and
-#   • a "❯" right after a box border "│" followed by a word char — the worded
-#     popup case.
-# Crucially neither pattern matches the bare "❯ " input prompt or an ECHOED user
-# message ("❯ yooo") — those have no digit-dot and no leading "│" border — so an
-# idle session is never misread as waiting. (The old code only matched the
-# literal "❯ 1.", so a non-first / worded selection read as "idle" — the bug
-# where an open popup showed "Idle".)
-_WAITING_SELECT_RE = re.compile(r"❯\s+\d+\.|│\s*❯\s+\w")
 
 # Claude shows "esc to interrupt" on its status line whenever it is running a
 # turn or a tool (in every permission mode), so it is the reliable "working"
@@ -64,13 +66,31 @@ _WORKING_MARKERS = (
 _WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*·")
 
 
+def _live_tail(text: str) -> str:
+    """The bottom ``_TAIL_LINES`` lines of the pane, with tmux's trailing blank
+    padding stripped — the region that holds the LIVE UI."""
+    lines = text.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines[-_TAIL_LINES:])
+
+
 def classify_pane(text: str) -> str:
     """Return ``"working" | "waiting" | "idle"`` for a captured tmux pane."""
     if not text:
         return "idle"
-    low = text.lower()
-    if any(m in low for m in _WAITING_MARKERS) or _WAITING_SELECT_RE.search(text):
+    # WAITING is detected from the live TAIL only — its markers (popup footer,
+    # "do you want to…") can also appear in claude's scrollback OUTPUT or an
+    # echoed user message, so scoping to the bottom avoids a false "waiting".
+    if any(m in _live_tail(text).lower() for m in _WAITING_MARKERS):
         return "waiting"
+    # WORKING is detected from the WHOLE pane: a long tool's output (or a
+    # background-agents list) scrolls the spinner / "esc to interrupt" line well
+    # above the tail window, but the session is still working. The spinner /
+    # interrupt hint never legitimately appears in claude's prose, so a full-pane
+    # scan can't false-positive — and tail-scoping it made a busy session read
+    # "idle" (and flap working↔idle, spamming "finished" pings).
+    low = text.lower()
     if any(m in low for m in _WORKING_MARKERS) or _WORKING_SPINNER_RE.search(text):
         return "working"
     return "idle"

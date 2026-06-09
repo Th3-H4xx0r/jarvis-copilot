@@ -1173,6 +1173,28 @@ def test_scan_activity_state_none_on_capture_failure():
     assert rows and rows[0]["activity_state"] is None
 
 
+def test_scan_blank_capture_is_unknown_not_idle():
+    # A capture that SUCCEEDS (rc 0) but returns an empty / whitespace pane — a
+    # mid-teardown repaint racing the capture, common when a SIBLING session is
+    # dying — must be reported as activity_state=None ("unknown"), NOT "idle".
+    # Otherwise the server clobbers a live "working" with a guessed idle, which is
+    # the cross-session status-bleed bug.
+    proj = _real("blank")
+    listing = f"jc-blank\t{proj}\tclaude\t1717800000\n"
+
+    def runner(argv):
+        if argv[:2] == ["tmux", "list-sessions"]:
+            return 0, listing, ""
+        if argv[:2] == ["tmux", "capture-pane"]:
+            return 0, "   \n  \n", ""   # rc 0 but blank — must NOT become idle
+        return 1, "", ""
+
+    agent = CodingDiscoverAgent(send=lambda f: None, runner=runner,
+                                clock=FakeClock(), home_dir=_EMPTY_HOME)
+    rows = [s for s in agent.scan() if s["kind"] == "tmux"]
+    assert rows and rows[0]["activity_state"] is None
+
+
 def test_scan_keeps_working_session_via_pane_content():
     # While Claude runs a tool, pane_current_command is the TOOL (not 'claude'),
     # so the command filter misses it — the pane content must still keep it.
