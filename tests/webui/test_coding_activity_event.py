@@ -177,12 +177,21 @@ def test_user_prompt_submit_sends_no_banner(monkeypatch):
     assert calls == []  # a working-edge must never banner the phone
 
 
-def test_unmatched_event_sends_no_banner(monkeypatch):
-    calls = _post_capturing_alerts(
-        monkeypatch,
-        [_row("cs_1", tmux_name="jc-1")],
-        {"event": "stop", "tmux_name": "nope"})
-    assert calls == []  # only notify for sessions we actually track
+def test_unmatched_event_still_banners_with_cwd_label(monkeypatch):
+    # DELIBERATE: the finished/needs-input banner fires even when no row could
+    # be matched (e.g. the hook beat the 5s discovery scan), labeled by the
+    # event's OWN cwd — never by a guessed row. What an unmatched event must
+    # NOT do is write activity_state anywhere (no store updates).
+    calls = []
+    monkeypatch.setattr(cr, "_push_device_alert",
+                        lambda title, b: calls.append((title, b)) or 1)
+    mgr = FakeManager(FakeStore([_row("cs_1", tmux_name="jc-1")]))
+    handle_coding_request(
+        "POST", "/activity-event",
+        {"event": "stop", "tmux_name": "nope", "cwd": "/x/elsewhere"},
+        manager=mgr)
+    assert calls == [("✅ Claude finished", "elsewhere")]
+    assert mgr.store.updates == []
 
 
 def test_stop_banner_fires_even_when_state_unchanged(monkeypatch):

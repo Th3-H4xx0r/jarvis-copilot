@@ -308,6 +308,61 @@ def test_real_permission_box_with_chrome_below_is_waiting():
     assert classify_pane(pane) == "waiting"
 
 
+def test_echoed_spinner_line_above_permission_box_is_waiting():
+    # Tool output can ECHO a verbatim spinner line (e.g. this repo's own test
+    # fixtures shown in a Read/diff result, "⎿" gutter). That echo must not
+    # read as a live working signal and mask the real permission box below it.
+    pane = (
+        "  ⎿  +✻ Running… (12s · ↑ 1.2k tokens · esc to interrupt)\n"
+        "╭─────────────────────────────╮\n"
+        "│ Do you want to make this edit│\n"
+        "│ ❯ 1. Yes                    │\n"
+        "╰─────────────────────────────╯\n"
+    )
+    assert classify_pane(pane) == "waiting"
+
+
+def test_quoted_spinner_line_above_permission_box_is_waiting():
+    # Even WITHOUT an echo gutter (claude quoting a spinner verbatim in prose),
+    # a permission marker strictly BELOW the working signal wins: nothing live
+    # renders after a blocking box, so the "spinner" above it is a quote.
+    pane = (
+        "The status line looked like:\n"
+        "✻ Running… (12s · ↑ 1.2k tokens · esc to interrupt)\n"
+        "╭─────────────────────────────╮\n"
+        "│ Do you want to proceed?     │\n"
+        "│ ❯ 1. Yes                    │\n"
+        "╰─────────────────────────────╯\n"
+    )
+    assert classify_pane(pane) == "waiting"
+
+
+def test_echoed_spinner_line_above_idle_chrome_is_idle():
+    # The same echoed spinner above a truly idle pane must not read working
+    # (it would suppress the "finished" notification forever).
+    pane = (
+        "  ⎿  +✻ Running… (12s · ↑ 1.2k tokens · esc to interrupt)\n"
+        + _REAL_IDLE_CHROME
+    )
+    assert classify_pane(pane) == "idle"
+
+
+def test_selection_footer_above_agents_list_is_waiting():
+    # The background-agents list renders BELOW the chrome and can push a live
+    # popup's footer several lines up from the bottom — it must still be seen.
+    pane = (
+        "Which approach?\n"
+        "❯ 1. Rewrite\n"
+        "  2. Patch\n"
+        "Enter to select · ↑/↓ to navigate · Esc to cancel\n"
+        "\n"
+        "⏺ main (1 background agent · ↑/↓ to select · Enter to view)\n"
+        "  ◯ general-purpose · running · 2m 14s\n"
+        "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+    )
+    assert classify_pane(pane) == "waiting"
+
+
 def test_bg_hint_current_rendering_is_working():
     # The background hint's middle text changed across versions — now
     # "(ctrl+b ctrl+b (twice) to run in background)". The old literal marker

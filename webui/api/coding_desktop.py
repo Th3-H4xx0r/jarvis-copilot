@@ -1505,7 +1505,11 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                 continue  # a claude in $HOME/system dir is not a project — skip
             if cwd in ignored_cwds:
                 continue  # the user ignored/deleted this project — don't resurrect
-            live_tmux_cwds.add(cwd)
+            # NORMALIZED like the client's _norm_cwd: the transcript pass dedups
+            # live transcripts against this set, and the client computed `live`
+            # with normalized cwds — a trailing-slash mismatch would mint a
+            # duplicate "running" transcript row that no poller ever clears.
+            live_tmux_cwds.add(cwd.strip().rstrip("/") or cwd)
             if _is_dismissed(device_id, tmux_name):
                 # User deleted this one — don't resurrect it.
                 continue
@@ -1538,6 +1542,11 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                     fields["activity_state"] = act
                     if act != (row.get("activity_state") or None):
                         live_changed = True
+                elif (row.get("cwd") or "") != cwd:
+                    # Reparented (same tmux name re-created in a new folder)
+                    # with no fresh classification: the old folder's state
+                    # (e.g. "waiting") must not show up under the new project.
+                    fields["activity_state"] = None
                 if (row.get("status") or "") != "running":
                     live_changed = True  # a stopped/errored row came back to life
                 store.update_session(row["id"], **fields)
@@ -1590,7 +1599,7 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                 continue
             # Dedup (B): a LIVE transcript whose cwd already has a tmux item this
             # batch is the same drivable session — prefer the tmux row, skip this.
-            if live and cwd in live_tmux_cwds:
+            if live and (cwd.strip().rstrip("/") or cwd) in live_tmux_cwds:
                 continue
             from pathlib import Path as _P
             title = sess.get("summary") or (_P(cwd).name if cwd else "") or csid
@@ -1599,8 +1608,11 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             pid = _project_for_discovered_cwd(cwd)
             row = existing_transcript.get(csid)
             if row is not None:
+                # activity_state=None: transcript rows are HISTORY — no poller
+                # ever classifies them, so any state a mis-matched hook once
+                # wrote (e.g. "waiting") would otherwise stick forever.
                 fields = dict(status=status, title=title, cwd=cwd,
-                              project_id=pid, external=1)
+                              project_id=pid, external=1, activity_state=None)
                 if last_activity is not None:
                     fields["last_activity_at"] = last_activity
                 store.update_session(row["id"], **fields)

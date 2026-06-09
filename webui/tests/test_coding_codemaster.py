@@ -128,14 +128,16 @@ def test_match_tmux_takes_priority():
     assert cr._match_live_session(m.store, tmux_name="jc-1")["id"] == "a"
 
 
-def test_match_cwd_multiple_picks_most_recent():
+def test_match_cwd_ambiguous_gives_up():
+    # Several live rows share the cwd: a recency GUESS writes the event's
+    # state onto a sibling session (the cross-session "waiting" bug). Give up;
+    # the poll loops reconcile within ~5s and the banner labels by cwd anyway.
     m = FakeManager()
     m.store.sessions = [
         {"id": "a", "status": "running", "cwd": "/x", "last_activity_at": 100},
         {"id": "b", "status": "running", "cwd": "/x", "last_activity_at": 200},
     ]
-    row = cr._match_live_session(m.store, cwd="/x")
-    assert row["id"] == "b"  # ambiguous cwd → most-recent, not a give-up
+    assert cr._match_live_session(m.store, cwd="/x") is None
 
 
 def test_match_none_when_only_stopped():
@@ -172,14 +174,50 @@ def test_match_cwd_scoped_to_sender_device():
     assert cr._match_live_session(m.store, cwd="/x", device_id="dev-B")["id"] == "b"
 
 
-def test_match_csid_stays_global_across_devices():
-    # claude_session_id is globally unique — it must match even when the
-    # sender's device_id doesn't own the row (e.g. a session resumed elsewhere).
+def test_match_csid_scoped_when_device_known():
+    # After resume-to-server the Mac claude and the server session SHARE one
+    # csid — a device-tagged hook must NOT stamp the other host's row.
     m = FakeManager()
-    m.store.sessions = [{"id": "a", "status": "running", "cwd": "/x",
-                         "claude_session_id": "csid-1", "device_id": "dev-A"}]
+    m.store.sessions = [
+        {"id": "srv", "status": "running", "cwd": "/x",
+         "claude_session_id": "csid-1", "device_id": None, "host": "server"},
+        {"id": "mac", "status": "running", "cwd": "/x",
+         "claude_session_id": "csid-1", "device_id": "dev-A"},
+    ]
     assert cr._match_live_session(
-        m.store, claude_session_id="csid-1", device_id="dev-B")["id"] == "a"
+        m.store, claude_session_id="csid-1", device_id="dev-A")["id"] == "mac"
+    # No device on the event → global csid match still works.
+    assert cr._match_live_session(
+        m.store, claude_session_id="csid-1")["id"] == "srv"
+
+
+def test_match_never_targets_transcript_history_rows():
+    # discovered-transcript rows are HISTORY (status "idle" puts them in the
+    # live set) and NOTHING ever clears a state written onto them — a hook
+    # firing before the discovery scan creates the tmux row must not poison one.
+    m = FakeManager()
+    m.store.sessions = [{"id": "h", "status": "idle", "cwd": "/x",
+                         "claude_session_id": "csid-1",
+                         "source": "discovered-transcript"}]
+    assert cr._match_live_session(m.store, claude_session_id="csid-1") is None
+    assert cr._match_live_session(m.store, cwd="/x") is None
+
+
+def test_match_jc_name_falls_back_unscoped():
+    # Jarvis-LAUNCHED rows carry no device_id; the device-scoped pass misses
+    # them but the jc- name is unique, so the unscoped fallback must find it.
+    # Bare user names ("2") must NOT fall back across devices.
+    m = FakeManager()
+    m.store.sessions = [
+        {"id": "launched", "status": "running", "tmux_name": "jc-abc123",
+         "cwd": "/x", "device_id": None},
+        {"id": "other-dev", "status": "running", "tmux_name": "2",
+         "cwd": "/y", "device_id": "dev-B"},
+    ]
+    assert cr._match_live_session(
+        m.store, tmux_name="jc-abc123", device_id="dev-A")["id"] == "launched"
+    assert cr._match_live_session(
+        m.store, tmux_name="2", device_id="dev-A") is None
 
 
 # ── /activity-event integration ──────────────────────────────────────────────

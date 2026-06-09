@@ -61,44 +61,58 @@ def _match_live_session(store, *, tmux_name="", claude_session_id="", cwd="",
     """Resolve the live coding-session row a hook fired from, or None.
 
     Match priority, most-specific first:
-      1. tmux session name — the hook reads it from ``$TMUX`` and it's the
-         session row's join key on BOTH hosts (Jarvis ``jc-xxxx`` or a
-         discovered Mac session name).
+      1. tmux session name — the hook reads it from its own ``$TMUX_PANE`` and
+         it's the session row's join key on BOTH hosts (Jarvis ``jc-xxxx`` or
+         a discovered Mac session name). Tried within the sender's device
+         scope first, then unscoped: Jarvis-LAUNCHED rows carry no device_id,
+         but their ``jc-xxxx`` names are unique, so the exact unscoped match
+         is still safe.
       2. claude_session_id — when the hook ran outside tmux.
-      3. cwd — exactly ONE live row wins outright; if several live rows share
-         the cwd, the MOST-RECENTLY-ACTIVE one wins (rather than giving up — a
-         no-match here was the cause of LA/WebUI lagging the Telegram hook).
-    When the sender identifies its ``device_id`` (jc-client does), the
-    tmux-name and cwd matches are SCOPED to that device's rows: Mac session
-    names are bare numbers ("2", "15") and cwds repeat across hosts, so an
-    unscoped match can hit a row belonging to a different device/host and
-    write the event's state onto the wrong session. (claude_session_id is
-    globally unique, so it stays unscoped.)
+      3. cwd — exactly ONE live row in scope wins. SEVERAL rows sharing the
+         cwd → give up (None): guessing (e.g. most-recently-active) writes the
+         event's state onto a sibling session. The poll loops reconcile within
+         ~5s, and the notification path doesn't need a row (it labels by cwd).
+    When the sender identifies its ``device_id`` (jc-client does), the matches
+    are SCOPED to that device's rows: Mac session names are bare numbers
+    ("2", "15") and cwds repeat across hosts, so an unscoped match can hit a
+    row belonging to a different device/host. That includes the csid pass —
+    after a resume-to-server the Mac claude and the server session SHARE one
+    csid, and an unscoped csid match would let the still-running Mac twin's
+    hooks stamp the server row.
+    Never matches a ``discovered-transcript`` row: those are HISTORY entries
+    (status "idle" puts them in _LIVE_STATUSES) with no poller that could ever
+    clear a state written onto them.
     Only ever matches a *live* row, so a stale hook can't revive a stopped one.
     """
     try:
         rows = store.list_sessions()
     except Exception:
         return None
-    live = [r for r in rows if r.get("status") in _LIVE_STATUSES]
+    live = [r for r in rows
+            if r.get("status") in _LIVE_STATUSES
+            and r.get("source") != "discovered-transcript"]
     scoped = [r for r in live if r.get("device_id") == device_id] \
         if device_id else live
     if tmux_name:
         for r in scoped:
             if r.get("tmux_name") == tmux_name:
                 return r
+        # Unscoped fallback ONLY for Jarvis-launched names: launched rows
+        # carry no device_id (so the scoped pass misses them) but their
+        # ``jc-xxxx`` names are globally unique. Bare user names ("2", "15")
+        # stay device-scoped — they repeat across devices.
+        if tmux_name.startswith("jc-"):
+            for r in live:
+                if r.get("tmux_name") == tmux_name:
+                    return r
     if claude_session_id:
-        for r in live:
+        for r in scoped:
             if r.get("claude_session_id") == claude_session_id:
                 return r
     if cwd:
         hits = [r for r in scoped if r.get("cwd") == cwd]
         if len(hits) == 1:
             return hits[0]
-        if len(hits) > 1:
-            # Ambiguous cwd → pick the most-recently-active live row so the
-            # instant path still fires instead of falling back to the poll.
-            return max(hits, key=_recency_key)
     return None
 
 
@@ -1144,9 +1158,13 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                         res = adopt_discovered_tmux(sid, rows=rows, cols=cols)
                         if not res.get("ok"):
                             # 409 + can_resume so the front-end offers
-                            # resume-to-server when the Mac is offline.
+                            # resume-to-server when the Mac is offline. Resume
+                            # needs a csid (`claude --resume <id>`); rows in a
+                            # cwd with several live siblings are left bare on
+                            # purpose, so don't offer a button that would 400.
+                            can = bool(session.get("claude_session_id"))
                             return 409, {"error": "desktop is offline",
-                                         "can_resume": True}
+                                         "can_resume": can}
                         return _ok({"ok": True, "session_id": sid,
                                     "running": res.get("running", True)})
                     # A Jarvis-LAUNCHED desktop session already runs tmux+claude

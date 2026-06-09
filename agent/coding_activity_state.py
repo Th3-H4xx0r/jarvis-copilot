@@ -62,9 +62,19 @@ _PERMISSION_MARKERS = (
 # command + "Do you want to…" + the option list + border).
 _PERMISSION_TAIL = 12
 
-# How many lines up from the bottom a selection popup's FOOTER can sit (the
-# footer itself + the status/mode chrome that may render below it).
-_FOOTER_TAIL = 3
+# How many lines up from the bottom a selection popup's FOOTER can sit — the
+# footer itself + the status/mode chrome AND the background-agents list, which
+# render below it (the agents list alone is 1 line per agent + a header). Safe
+# to be generous: the window is anchored strictly below the last composer, so
+# quoted footer words in scrollback can never land in it.
+_FOOTER_TAIL = 10
+
+# Echoed TOOL OUTPUT shown in the transcript: the "⎿" result gutter, "⏺"
+# message bullets, diff +/- lines, and line-numbered file dumps. These can
+# contain verbatim spinner/status text (e.g. this repo's own test fixtures:
+# "⎿ +✻ Running… (12s · esc to interrupt)") — never read a WORKING signal off
+# them. The live spinner line always starts with the spinner glyph itself.
+_ECHO_LINE_RE = re.compile(r"^\s*(?:⎿|⏺|\+|-|\d+[\t ])")
 
 # The free-text INPUT PROMPT line (the composer): a chevron/`>` alone (tmux
 # captures the cursor cell as a no-break space, which `\s` matches) or followed
@@ -96,19 +106,24 @@ _BG_HINT_RE = re.compile(r"ctrl\+b.*to run in background")
 _WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*[hms][\dhms\s]*·")
 
 
-def _pane_is_working(text: str) -> bool:
-    """True if any line is the LIVE status line — the elapsed-time spinner, or a
-    working hint ("esc to interrupt" …) INSIDE the parenthesized status segment.
-    Requiring the "(" anchors the hint to the status line so claude's PROSE (e.g.
-    "press esc to interrupt to stop") can't be misread as working."""
-    for line in text.splitlines():
+def _last_working_line(lines: list) -> int:
+    """Index of the LAST line carrying a live working signal — the elapsed-time
+    spinner, or a working hint ("esc to interrupt" …) INSIDE the parenthesized
+    status segment — or -1. Requiring the "(" anchors the hint to the status
+    line so claude's PROSE ("press esc to interrupt to stop") can't be misread
+    as working; echoed tool-output lines (_ECHO_LINE_RE) are never signals."""
+    idx = -1
+    for i, line in enumerate(lines):
+        if _ECHO_LINE_RE.match(line):
+            continue
         if _WORKING_SPINNER_RE.search(line):
-            return True
+            idx = i
+            continue
         if "(" in line:
             low = line.lower()
             if any(m in low for m in _WORKING_MARKERS) or _BG_HINT_RE.search(low):
-                return True
-    return False
+                idx = i
+    return idx
 
 
 def classify_pane(text: str) -> str:
@@ -135,26 +150,32 @@ def classify_pane(text: str) -> str:
     # claude, so it has NO live spinner — therefore a prompt phrase seen WHILE a
     # spinner is up is claude's own OUTPUT, NOT a live prompt. We scan the WHOLE
     # pane for the working signal so a long tool's output scrolling the spinner
-    # above the bottom still reads working.
-    if _pane_is_working(text):
-        return "working"
+    # above the bottom still reads working. BUT a prompt marker strictly BELOW
+    # the last working line wins: nothing live renders after a blocking box, so
+    # a "spinner" above a box is an echo/quote, not a live turn.
+    working_idx = _last_working_line(lines)
+    working = working_idx >= 0
 
-    # 1) A live SELECTION popup — its footer sits in the bottom few lines (the
-    #    mode line may render below it), strictly BELOW the last composer.
+    # 1) A live SELECTION popup — its footer sits in the bottom window (mode
+    #    line / agents list may render below it), strictly BELOW the last
+    #    composer AND below any working signal.
     for i in range(max(last_composer + 1, len(lines) - _FOOTER_TAIL), len(lines)):
+        if i <= working_idx:
+            continue
         low = lines[i].lower()
         if any(m in low for m in _SELECT_FOOTER_MARKERS):
             return "waiting"
 
     # 2) A PERMISSION / confirmation box — a marker in the tail, strictly BELOW
-    #    the last composer. Exception: the bottom line itself carrying the confirm
-    #    (e.g. "❯ (y/n)") is a real inline prompt even though it matches the
-    #    composer shape.
-    if any(m in lines[-1].lower() for m in _PERMISSION_MARKERS):
+    #    the last composer and below any working signal. Exception: the bottom
+    #    line itself carrying the confirm (e.g. "❯ (y/n)") is a real inline
+    #    prompt even though it matches the composer shape.
+    if len(lines) - 1 > working_idx and \
+            any(m in lines[-1].lower() for m in _PERMISSION_MARKERS):
         return "waiting"
-    start = max(last_composer + 1, len(lines) - _PERMISSION_TAIL)
+    start = max(last_composer + 1, len(lines) - _PERMISSION_TAIL, working_idx + 1)
     tail = "\n".join(lines[start:]).lower()
     if any(m in tail for m in _PERMISSION_MARKERS):
         return "waiting"
 
-    return "idle"
+    return "working" if working else "idle"

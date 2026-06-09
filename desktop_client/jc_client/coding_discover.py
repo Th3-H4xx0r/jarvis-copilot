@@ -149,24 +149,29 @@ _PERMISSION_MARKERS = (
     "(y/n)", "press enter to continue",
 )
 _PERMISSION_TAIL = 12
-_FOOTER_TAIL = 3
+_FOOTER_TAIL = 10
 _COMPOSER_RE = re.compile(r"^\s*[❯>](?:\s+(?!\d+\.)|$)")
 _WORKING_MARKERS = ("esc to interrupt", "esc to stop")
 _BG_HINT_RE = re.compile(r"ctrl\+b.*to run in background")
+_ECHO_LINE_RE = re.compile(r"^\s*(?:⎿|⏺|\+|-|\d+[\t ])")
 # The live spinner status line — a parenthesized ELAPSED TIME + middot. Requires a
 # time unit (h/m/s) so it can't match plain prose like "(2 · 3)". KEEP IN SYNC.
 _WORKING_SPINNER_RE = re.compile(r"\(\d[\dhms\s]*[hms][\dhms\s]*·")
 
 
-def _pane_is_working(text: str) -> bool:
-    for line in text.splitlines():
+def _last_working_line(lines: list) -> int:
+    idx = -1
+    for i, line in enumerate(lines):
+        if _ECHO_LINE_RE.match(line):
+            continue
         if _WORKING_SPINNER_RE.search(line):
-            return True
+            idx = i
+            continue
         if "(" in line:
             low = line.lower()
             if any(m in low for m in _WORKING_MARKERS) or _BG_HINT_RE.search(low):
-                return True
-    return False
+                idx = i
+    return idx
 
 
 def classify_pane(text: str) -> str:
@@ -181,24 +186,28 @@ def classify_pane(text: str) -> str:
     # KEEP IN SYNC with agent/coding_activity_state.classify_pane. A live spinner
     # means claude is WORKING (a real permission box blocks claude → no spinner),
     # so a prompt phrase seen WHILE working is claude's OUTPUT, not a prompt.
-    # Prompt markers only count strictly BELOW the last composer line.
+    # Prompt markers only count strictly BELOW the last composer line AND below
+    # any working signal (nothing live renders after a blocking box).
     last_composer = -1
     for i, line in enumerate(lines):
         if _COMPOSER_RE.match(line):
             last_composer = i
-    if _pane_is_working(text):
-        return "working"
+    working_idx = _last_working_line(lines)
+    working = working_idx >= 0
     for i in range(max(last_composer + 1, len(lines) - _FOOTER_TAIL), len(lines)):
+        if i <= working_idx:
+            continue
         low = lines[i].lower()
         if any(m in low for m in _SELECT_FOOTER_MARKERS):
             return "waiting"
-    if any(m in lines[-1].lower() for m in _PERMISSION_MARKERS):
+    if len(lines) - 1 > working_idx and \
+            any(m in lines[-1].lower() for m in _PERMISSION_MARKERS):
         return "waiting"
-    start = max(last_composer + 1, len(lines) - _PERMISSION_TAIL)
+    start = max(last_composer + 1, len(lines) - _PERMISSION_TAIL, working_idx + 1)
     tail = "\n".join(lines[start:]).lower()
     if any(m in tail for m in _PERMISSION_MARKERS):
         return "waiting"
-    return "idle"
+    return "working" if working else "idle"
 
 
 # Distinctive Claude Code TUI strings. A tmux session whose pane contains any of
