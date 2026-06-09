@@ -133,8 +133,10 @@ class _CodingChatViewState extends State<CodingChatView> {
     super.dispose();
   }
 
+  bool _jumpingToBottom = false; // suppress stick-detection mid jump-loop
+
   void _onScroll() {
-    if (!_scroll.hasClients) return;
+    if (!_scroll.hasClients || _jumpingToBottom) return;
     final atBottom =
         _scroll.position.pixels >= _scroll.position.maxScrollExtent - 80;
     if (atBottom != _stickToBottom) {
@@ -225,18 +227,37 @@ class _CodingChatViewState extends State<CodingChatView> {
 
   void _autoScroll({bool jump = false}) {
     if (!_stickToBottom) return;
+    if (jump) {
+      // Opening a chat must land at the BOTTOM. ListView.builder only
+      // estimates its extent, so maxScrollExtent keeps growing for a few
+      // frames as items lay out — one jump undershoots on long histories.
+      // Re-jump each frame until the extent stabilizes (bounded).
+      var tries = 0;
+      _jumpingToBottom = true;
+      void step() {
+        if (!mounted || !_scroll.hasClients) {
+          _jumpingToBottom = false;
+          return;
+        }
+        final target = _scroll.position.maxScrollExtent;
+        if (_scroll.position.pixels != target) _scroll.jumpTo(target);
+        if (++tries < 12) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => step());
+        } else {
+          _jumpingToBottom = false;
+        }
+      }
+
+      WidgetsBinding.instance.addPostFrameCallback((_) => step());
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients) return;
-      final target = _scroll.position.maxScrollExtent;
-      if (jump) {
-        _scroll.jumpTo(target);
-      } else {
-        _scroll.animateTo(
-          target,
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOutCubic,
-        );
-      }
+      _scroll.animateTo(
+        _scroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+      );
     });
   }
 
