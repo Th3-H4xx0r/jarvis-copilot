@@ -4,10 +4,12 @@ import 'dart:ui';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../services/app_lifecycle.dart';
 import '../theme.dart';
 import '../widgets/glass.dart';
+import '../widgets/markdown_stream.dart';
 import 'coding_controller.dart';
 import 'coding_models.dart';
 
@@ -729,66 +731,55 @@ class _Timestamp extends StatelessWidget {
   }
 }
 
-// ── Light markdown (``` fenced code blocks → monospace; rest plain) ─
+// ── Markdown (full renderer via the app's shared MarkdownStream, themed
+// to the coding chat: dark code blocks, glass borders, Menlo mono) ─
 class _LightMarkdown extends StatelessWidget {
   const _LightMarkdown({required this.text});
   final String text;
 
+  static const _body =
+      TextStyle(color: JcTheme.text, fontSize: 14.5, height: 1.45);
+
   @override
   Widget build(BuildContext context) {
-    final parts = text.split('```');
-    if (parts.length == 1) {
-      return _plain(text);
-    }
-    final children = <Widget>[];
-    for (var i = 0; i < parts.length; i++) {
-      var seg = parts[i];
-      if (seg.trim().isEmpty) continue;
-      final isCode = i.isOdd; // text / code alternate around the fences
-      if (isCode) {
-        // Drop the language tag on the fence's first line.
-        final nl = seg.indexOf('\n');
-        if (nl >= 0 && nl < 24 && !seg.substring(0, nl).contains(' ')) {
-          seg = seg.substring(nl + 1);
-        }
-        children.add(Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.all(10),
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: const Color(0xFF0A0D13),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: JcTheme.glassBorder),
+    return MarkdownStream(
+      text: text,
+      style: MarkdownStyleSheet(
+        p: _body,
+        listBullet: _body,
+        tableBody: _body.copyWith(fontSize: 13),
+        strong: const TextStyle(
+            color: JcTheme.text, fontWeight: FontWeight.w700),
+        em: const TextStyle(
+            color: JcTheme.text, fontStyle: FontStyle.italic),
+        a: const TextStyle(color: JcTheme.primaryBlueHi),
+        code: const TextStyle(
+          fontFamily: 'Menlo',
+          fontSize: 12.5,
+          color: Color(0xFFD7DAE0),
+          backgroundColor: Color(0x33000000),
+        ),
+        codeblockDecoration: BoxDecoration(
+          color: const Color(0xFF0A0D13),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: JcTheme.glassBorder),
+        ),
+        codeblockPadding: const EdgeInsets.all(10),
+        h1: _body.copyWith(fontSize: 19, fontWeight: FontWeight.w700),
+        h2: _body.copyWith(fontSize: 17, fontWeight: FontWeight.w700),
+        h3: _body.copyWith(fontSize: 15.5, fontWeight: FontWeight.w700),
+        blockquoteDecoration: BoxDecoration(
+          border: const Border(
+            left: BorderSide(color: JcTheme.primaryBlue, width: 3),
           ),
-          child: Text(
-            seg.trimRight(),
-            style: const TextStyle(
-              color: Color(0xFFD7DAE0),
-              fontSize: 12,
-              height: 1.45,
-              fontFamily: 'Menlo',
-            ),
-          ),
-        ));
-      } else {
-        children.add(_plain(seg.trim()));
-      }
-    }
-    if (children.isEmpty) return _plain(text);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: children,
+          color: JcTheme.glassFill,
+        ),
+        horizontalRuleDecoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: JcTheme.glassBorder)),
+        ),
+      ),
     );
   }
-
-  Widget _plain(String s) => SelectableText(
-        s,
-        style: const TextStyle(
-          color: JcTheme.text,
-          fontSize: 14.5,
-          height: 1.45,
-        ),
-      );
 }
 
 // ── Tool-use card (compact, collapsible) ──────────────────────────
