@@ -102,6 +102,11 @@ class CodingSessionStore:
                 # idle), detected from the tmux pane. Separate from the lifecycle
                 # `status` column so it never breaks running/stopped/error.
                 "ALTER TABLE coding_sessions ADD COLUMN activity_state TEXT",
+                # Soft-delete: an IGNORED project is hidden from the main tree and
+                # NOT re-discovered (its path is skipped on ingest), but its row +
+                # sessions survive so it can be Restored from the "Ignored" menu.
+                "ALTER TABLE coding_projects ADD COLUMN "
+                "ignored INTEGER NOT NULL DEFAULT 0",
             ):
                 try:
                     c.execute(ddl)
@@ -371,11 +376,12 @@ class CodingSessionStore:
     def update_project(self, pid: str, **fields) -> None:
         allowed = {"name", "default_branch", "sync_enabled",
                    "sync_desktop_path", "ignore_rules", "repo_path", "host",
-                   "device_id"}
-        # sync_enabled is an INTEGER column: coerce True/False AND 1/0 to 0/1.
-        # (The old ``1 if isinstance(v, bool)`` mapped BOTH True and False to 1,
-        # so disabling sync silently re-enabled it.)
-        sets = {k: (int(bool(v)) if k == "sync_enabled" else v)
+                   "device_id", "ignored"}
+        # sync_enabled + ignored are INTEGER columns: coerce True/False AND 1/0 to
+        # 0/1. (The old ``1 if isinstance(v, bool)`` mapped BOTH True and False to
+        # 1, so disabling silently re-enabled it.)
+        _int_cols = ("sync_enabled", "ignored")
+        sets = {k: (int(bool(v)) if k in _int_cols else v)
                 for k, v in fields.items() if k in allowed}
         if not sets:
             return

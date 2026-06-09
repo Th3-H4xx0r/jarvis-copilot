@@ -742,6 +742,24 @@ def test_ingest_skips_home_and_system_dir_sessions(tmp_path):
                    for p in store.list_projects())
 
 
+def test_ingest_skips_sessions_of_ignored_project(tmp_path):
+    # A project the user IGNORED (soft-deleted) must not be re-discovered: a
+    # discovered session whose cwd belongs to it is skipped, so it can't resurrect.
+    store = _temp_store(tmp_path)
+    cwd = "/Users/me/code/IgnoredProj"
+    pid = store.get_or_create_project_for_path(
+        repo_path=cwd, host="desktop", device_id="dev-ig")
+    store.update_project(pid, ignored=True)
+    cd.ingest_discovered("dev-ig", [
+        {"kind": "tmux", "tmux_name": "jc-ig", "cwd": cwd, "title": "ig"},
+        {"kind": "tmux", "tmux_name": "jc-ok", "cwd": "/Users/me/code/OkProj",
+         "title": "ok"},
+    ], store=store)
+    cwds = {r["cwd"] for r in store.list_sessions(device_id="dev-ig")}
+    assert cwd not in cwds                       # ignored project's session skipped
+    assert "/Users/me/code/OkProj" in cwds       # a non-ignored project still shows
+
+
 def test_ingest_discovered_reconciles_vanished_to_stopped(tmp_path, monkeypatch):
     store = _temp_store(tmp_path)
     _discovered("dev-3", [

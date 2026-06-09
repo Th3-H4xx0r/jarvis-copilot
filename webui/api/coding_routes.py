@@ -538,19 +538,22 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             expand = (query.get("expand") or "") == "sessions"
 
             def _list_projects():
-                projects = manager.store.list_projects()
+                all_projects = manager.store.list_projects()
+                active = [p for p in all_projects if not p.get("ignored")]
+                ignored = [p for p in all_projects if p.get("ignored")]
                 if expand:
                     by_pid = {}
                     for s in manager.list():
                         by_pid.setdefault(s.get("project_id"), []).append(s)
-                    for proj in projects:
+                    for proj in all_projects:
                         proj["sessions"] = by_pid.get(proj["id"], [])
                     # Sessions with no project (legacy rows) surface in a synthetic
-                    # bucket so nothing is hidden in the UI.
+                    # bucket so nothing is hidden in the UI. Ignored projects' own
+                    # sessions stay attached to them (shown under the Ignored menu).
                     orphans = by_pid.get(None, [])
-                    return _ok({"projects": projects,
-                                "ungrouped": orphans})
-                return _ok({"projects": projects})
+                    return _ok({"projects": active, "ungrouped": orphans,
+                                "ignored": ignored})
+                return _ok({"projects": active, "ignored": ignored})
 
             return _run(_list_projects)
         if method == "POST":
@@ -584,7 +587,8 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     return _err(404, "project not found: " + pid)
                 fields = {k: body[k] for k in
                           ("name", "default_branch", "sync_enabled",
-                           "sync_desktop_path", "ignore_rules", "device_id")
+                           "sync_desktop_path", "ignore_rules", "device_id",
+                           "ignored")
                           if k in body}
                 # SAFEGUARD: reject a home/system folder as the sync desktop path
                 # so a project can't be configured to sync the whole home dir.
@@ -606,13 +610,22 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
 
             return _run(_update_project)
 
-        # DELETE /project/<id>?delete_sessions=0|1
+        # DELETE /project/<id>            -> SOFT delete: move to "Ignored" (it stops
+        #                                    being re-discovered; Restore brings it
+        #                                    + its sessions back).
+        # DELETE /project/<id>?permanent=1 -> HARD delete (cascade|detach sessions).
         if paction == "" and method == "DELETE":
+            permanent = (query.get("permanent") or "0") == "1"
             cascade = (query.get("delete_sessions") or "0") == "1"
 
             def _delete_project():
                 if manager.store.get_project(pid) is None:
                     return _err(404, "project not found: " + pid)
+                if not permanent:
+                    # Soft-delete: tombstone the project so discovery can't
+                    # resurrect it; keep the row + sessions for Restore.
+                    manager.store.update_project(pid, ignored=True)
+                    return _ok({"ok": True, "ignored": True})
                 for s in manager.store.list_sessions(project_id=pid):
                     if cascade:
                         try:

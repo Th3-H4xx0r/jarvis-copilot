@@ -593,43 +593,81 @@ def test_update_project_empty_id_404():
     assert status == 404
 
 
-# ── DELETE /project/<id> ────────────────────────────────────────────────────────
+# ── DELETE /project/<id> (soft-ignore by default; ?permanent=1 = hard) ───────────
 
-def test_delete_project_detaches_sessions_by_default():
+def test_delete_project_soft_ignores_by_default():
+    # Plain DELETE now SOFT-deletes: ignored=1, project + sessions kept (Restore-able).
     m = FakeManager()
     pid = m.store.create_project(name="p", repo_path="/r")
     m.store.sessions = [
         {"id": "s1", "project_id": pid}, {"id": "s2", "project_id": pid}]
     status, body = handle_coding_request(
         "DELETE", "/project/" + str(pid), None, manager=m)
-    assert status == 200 and body["ok"] is True
-    # default = detach: sessions' project_id nulled, no manager.delete, project gone
-    assert set(m.store.detached) == {"s1", "s2"}
+    assert status == 200 and body.get("ignored") is True
+    assert (pid, {"ignored": True}) in m.store.update_calls   # tombstoned
+    assert pid not in m.store.deleted_projects                # NOT hard-deleted
+    assert m.store.detached == []                             # sessions kept
     assert not any(c[0] == "delete" for c in m.calls)
-    assert pid in m.store.deleted_projects
 
 
-def test_delete_project_cascade_deletes_sessions():
+def test_delete_project_permanent_cascade_deletes_sessions():
     m = FakeManager()
     pid = m.store.create_project(name="p", repo_path="/r")
     m.store.sessions = [{"id": "s1", "project_id": pid}]
     status, body = handle_coding_request(
-        "DELETE", "/project/" + str(pid) + "?delete_sessions=1", None, manager=m)
+        "DELETE", "/project/" + str(pid) + "?permanent=1&delete_sessions=1",
+        None, manager=m)
     assert status == 200 and body["ok"] is True
     assert ("delete", "s1") in m.calls          # session was deleted
     assert m.store.detached == []               # NOT detached
     assert pid in m.store.deleted_projects
 
 
-def test_delete_project_cascade_survives_already_gone_session():
-    # manager.delete raising must not crash the cascade (best-effort).
+def test_delete_project_permanent_detaches_by_default():
+    m = FakeManager()
+    pid = m.store.create_project(name="p", repo_path="/r")
+    m.store.sessions = [{"id": "s1", "project_id": pid}]
+    status, body = handle_coding_request(
+        "DELETE", "/project/" + str(pid) + "?permanent=1", None, manager=m)
+    assert status == 200 and body["ok"] is True
+    assert m.store.detached == ["s1"]           # detached, not deleted
+    assert pid in m.store.deleted_projects
+
+
+def test_delete_project_permanent_survives_already_gone_session():
     m = FakeManager(raise_on="delete", exc=KeyError("gone"))
     pid = m.store.create_project(name="p", repo_path="/r")
     m.store.sessions = [{"id": "s1", "project_id": pid}]
     status, body = handle_coding_request(
-        "DELETE", "/project/" + str(pid) + "?delete_sessions=1", None, manager=m)
+        "DELETE", "/project/" + str(pid) + "?permanent=1&delete_sessions=1",
+        None, manager=m)
     assert status == 200 and body["ok"] is True
     assert pid in m.store.deleted_projects
+
+
+def test_restore_project_clears_ignored():
+    m = FakeManager()
+    pid = m.store.create_project(name="p", repo_path="/r")
+    handle_coding_request("DELETE", "/project/" + str(pid), None, manager=m)  # ignore
+    status, body = handle_coding_request(
+        "POST", "/project/" + str(pid), {"ignored": False}, manager=m)
+    assert status == 200 and body["ok"] is True
+    assert (pid, {"ignored": False}) in m.store.update_calls
+
+
+def test_projects_view_buckets_ignored_separately():
+    m = FakeManager()
+    active = m.store.create_project(name="active", repo_path="/a")
+    ign = m.store.create_project(name="ign", repo_path="/b")
+    # ignore the second one
+    for p in m.store.projects:
+        if p["id"] == ign:
+            p["ignored"] = 1
+    status, body = handle_coding_request(
+        "GET", "/projects?expand=sessions", None, manager=m)
+    assert status == 200
+    assert [p["id"] for p in body["projects"]] == [active]   # active only
+    assert [p["id"] for p in body["ignored"]] == [ign]       # ignored bucket
 
 
 def test_delete_project_unknown_404():

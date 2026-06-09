@@ -1385,12 +1385,18 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
     # toggle): pre-scan existing (repo_path, device_id) keys; a project already in
     # this set keeps whatever sync settings it has.
     existing_project_keys: set = set()
+    # Repo paths of IGNORED (soft-deleted) projects — discovery must NOT resurrect
+    # a session whose folder belongs to one the user deleted/ignored.
+    ignored_cwds: set = set()
     try:
         for _p in store.list_projects():
             existing_project_keys.add(
                 (_p.get("repo_path"), (_p.get("device_id") or "")))
+            if _p.get("ignored"):
+                ignored_cwds.add(_p.get("repo_path"))
     except Exception:  # noqa: BLE001 — never block ingest on project bookkeeping
         existing_project_keys = set()
+        ignored_cwds = set()
 
     def _project_for_discovered_cwd(cwd: str) -> str:
         pid = store.get_or_create_project_for_path(
@@ -1463,6 +1469,8 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             cwd = sess.get("cwd") or ""
             if _dangerous_cwd(cwd):
                 continue  # a claude in $HOME/system dir is not a project — skip
+            if cwd in ignored_cwds:
+                continue  # the user ignored/deleted this project — don't resurrect
             live_tmux_cwds.add(cwd)
             if _is_dismissed(device_id, tmux_name):
                 # User deleted this one — don't resurrect it.
@@ -1530,6 +1538,8 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             cwd = sess.get("cwd") or ""
             if _dangerous_cwd(cwd):
                 continue  # a transcript from $HOME/system dir is not a project
+            if cwd in ignored_cwds:
+                continue  # the user ignored/deleted this project — don't resurrect
             live = bool(sess.get("live"))
             # Dedup (A): this transcript's claude_session_id is already owned by a
             # discovered-TMUX row (a live tmux the device reports with its csid).

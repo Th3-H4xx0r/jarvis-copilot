@@ -22,6 +22,7 @@
 let _codingSessionsCache = [];      // [{id,title,status,cwd,...}] flat list (all)
 let _codingProjectsCache = [];      // [{id,name,repo_path,sessions:[...],...}]
 let _codingUngroupedCache = [];     // [<session rows with no project>]
+let _codingIgnoredCache = [];       // [<ignored (soft-deleted) projects>]
 let _codingDevicesCache = [];       // [{id,name,online,...}] paired devices
 let _codingSelectedId = null;       // currently-open session id (string) or null
 let _codingCurrentSession = null;   // last-rendered detail session (for the ended panel)
@@ -219,12 +220,13 @@ async function _codingRefreshList() {
     // list is still fetched as a fallback (older backends / safety) and used to
     // check whether the selected session still exists.
     const [projRes, sessRes, devRes] = await Promise.all([
-      api('/api/coding/projects?expand=sessions').catch(() => ({ projects: [], ungrouped: [] })),
+      api('/api/coding/projects?expand=sessions').catch(() => ({ projects: [], ungrouped: [], ignored: [] })),
       api('/api/coding/sessions').catch(() => ({ sessions: [] })),
       api('/api/devices').catch(() => ({ devices: [] })),
     ]);
     _codingProjectsCache = (projRes && projRes.projects) || [];
     _codingUngroupedCache = (projRes && projRes.ungrouped) || [];
+    _codingIgnoredCache = (projRes && projRes.ignored) || [];
     // Build a flat session cache from project+ungrouped (preferred), falling
     // back to the flat /sessions endpoint if the projects payload was empty.
     const flat = [];
@@ -457,12 +459,14 @@ function _codingProjectGroupHtml(opts) {
   const rows = sessions.length
     ? sessions.map(_codingSessionRowHtml).join('')
     : '<div class="cdg-group-empty">No sessions yet.</div>';
-  const actions = opts.actions
-    ? `<span class="cdg-group-actions">
+  const actions = opts.actionsHtml != null
+    ? `<span class="cdg-group-actions">${opts.actionsHtml}</span>`
+    : (opts.actions
+      ? `<span class="cdg-group-actions">
          <button type="button" class="cdg-group-act" title="New session in this project" onclick="event.stopPropagation();codingProjectNewSession('${_cdgEsc(pid)}')">+</button>
          <button type="button" class="cdg-group-act" title="Project settings" onclick="event.stopPropagation();codingProjectSettings('${_cdgEsc(pid)}')">⚙</button>
        </span>`
-    : '';
+      : '');
   return `<div class="cdg-group${collapsed ? ' collapsed' : ''}" data-key="${_cdgEsc(key)}">
       <div class="cdg-group-head" role="button" tabindex="0" onclick="codingToggleProject('${_cdgEsc(key)}')">
         <span class="cdg-caret">${caret}</span>
@@ -507,9 +511,41 @@ function _codingRenderList() {
       id: '', key: '__ungrouped__', name: 'Ungrouped', sessions: loose, actions: false,
     });
   }
+  // Ignored (soft-deleted) projects — a collapsed section at the bottom. Each has
+  // Restore (↩) + Delete-permanently (🗑) actions.
+  const ignored = _codingIgnoredCache || [];
+  if (ignored.length) {
+    const caret = _codingIgnoredOpen ? '▾' : '▸';
+    let body = '';
+    if (_codingIgnoredOpen) {
+      body = ignored.map(p => p ? _codingProjectGroupHtml({
+        id: p.id, key: 'ign:' + String(p.id),
+        name: p.name || p.repo_path || ('project ' + (p.id != null ? p.id : '')),
+        sessions: Array.isArray(p.sessions) ? p.sessions : [],
+        actionsHtml:
+          `<button type="button" class="cdg-group-act" title="Restore project" onclick="event.stopPropagation();codingRestoreProject('${_cdgEsc(String(p.id))}')">↩</button>
+           <button type="button" class="cdg-group-act cdg-btn-danger" title="Delete permanently" onclick="event.stopPropagation();codingDeleteProjectPermanent('${_cdgEsc(String(p.id))}')">🗑</button>`,
+      }) : '').join('');
+    }
+    html += `<div class="cdg-group cdg-ignored${_codingIgnoredOpen ? '' : ' collapsed'}" data-key="__ignored__">
+        <div class="cdg-group-head" role="button" tabindex="0" onclick="codingToggleIgnored()" style="opacity:.65">
+          <span class="cdg-caret">${caret}</span>
+          <span class="cdg-group-name">Ignored projects</span>
+          <span class="cdg-group-count">${ignored.length}</span>
+        </div>
+        <div class="cdg-group-body"${_codingIgnoredOpen ? '' : ' style="display:none"'}>${body}</div>
+      </div>`;
+  }
   list.innerHTML = html || '<div class="cm-projects-empty">No projects or sessions yet.</div>';
   list.scrollTop = _savedScroll;
 }
+
+let _codingIgnoredOpen = false;  // the "Ignored projects" section is collapsed by default
+function codingToggleIgnored() {
+  _codingIgnoredOpen = !_codingIgnoredOpen;
+  _codingRenderList();
+}
+window.codingToggleIgnored = codingToggleIgnored;
 
 function codingToggleProject(key) {
   const k = String(key);
@@ -534,7 +570,9 @@ window.codingToggleProject = codingToggleProject;
 
 function _codingFindProject(pid) {
   const key = String(pid == null ? '' : pid);
-  return (_codingProjectsCache || []).find(p => p && String(p.id) === key) || null;
+  return ((_codingProjectsCache || []).find(p => p && String(p.id) === key))
+    || ((_codingIgnoredCache || []).find(p => p && String(p.id) === key))
+    || null;
 }
 
 // Create a project. Renders a small styled form-card in the detail pane (Name +
@@ -713,55 +751,70 @@ async function codingSaveProject(pid) {
 }
 window.codingSaveProject = codingSaveProject;
 
+// "Delete" a project = SOFT-ignore it: it leaves the tree, stops being
+// re-discovered, and moves to the collapsed "Ignored projects" menu (Restore or
+// Delete permanently from there). Reversible, so the confirm is light.
 async function codingDeleteProject(pid) {
   const id = String(pid);
   const proj = _codingFindProject(id);
-  const cnt = proj && Array.isArray(proj.sessions) ? proj.sessions.length : 0;
   const projName = proj ? proj.name : id;
-  let cascade = 0;
-  if (cnt > 0) {
-    const stopThem = await showConfirmDialog({
-      title: 'Delete project',
-      message: 'Delete project "' + projName + '"?\n\n' +
-        'Delete sessions = also STOP and permanently DELETE its ' + cnt + ' session(s).\n' +
-        'Keep sessions = keep them (they become Ungrouped).',
-      confirmLabel: 'Delete sessions',
-      cancelLabel: 'Keep sessions',
-      danger: true,
-    });
-    cascade = stopThem ? 1 : 0;
-    // Confirm the detach path too, so an accidental Cancel doesn't surprise.
-    if (!cascade) {
-      const keepOk = await showConfirmDialog({
-        title: 'Delete project',
-        message: 'Delete the project but KEEP its sessions (move them to Ungrouped)?',
-        confirmLabel: 'Delete project',
-        cancelLabel: 'Cancel',
-        danger: true,
-      });
-      if (!keepOk) return;
-    }
-  } else {
-    const ok = await showConfirmDialog({
-      title: 'Delete project',
-      message: 'Delete project "' + projName + '"?',
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
-      danger: true,
-    });
-    if (!ok) return;
-  }
+  const ok = await showConfirmDialog({
+    title: 'Ignore project',
+    message: 'Move "' + projName + '" to Ignored projects?\n\n' +
+      'It stops showing here and won’t be re-discovered. Its sessions are kept — ' +
+      'you can Restore it anytime from the Ignored projects menu.',
+    confirmLabel: 'Ignore', cancelLabel: 'Cancel',
+  });
+  if (!ok) return;
   try {
-    const res = await api('/api/coding/project/' + encodeURIComponent(id) + '?delete_sessions=' + cascade,
+    const res = await api('/api/coding/project/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (res && res.ok === false) { _codingFlash((res.error || res.message) || 'Could not ignore project.'); return; }
+    codingClearDetail();
+    await _codingRefreshList();
+    _codingFlash('Moved “' + projName + '” to Ignored projects.');
+  } catch (e) {
+    _codingFlash((e && e.message) || 'Could not ignore project.');
+  }
+}
+window.codingDeleteProject = codingDeleteProject;
+
+// Restore (un-ignore) a project: it returns to the main tree and is re-discovered.
+async function codingRestoreProject(pid) {
+  const id = String(pid);
+  try {
+    const res = await api('/api/coding/project/' + encodeURIComponent(id),
+      { method: 'POST', body: JSON.stringify({ ignored: false }) });
+    if (res && res.ok === false) { _codingFlash((res.error || res.message) || 'Restore failed.'); return; }
+    await _codingRefreshList();
+  } catch (e) {
+    _codingFlash((e && e.message) || 'Restore failed.');
+  }
+}
+window.codingRestoreProject = codingRestoreProject;
+
+// Permanently delete an ignored project (the real cascade delete).
+async function codingDeleteProjectPermanent(pid) {
+  const id = String(pid);
+  const proj = _codingFindProject(id);
+  const projName = proj ? proj.name : id;
+  const cnt = proj && Array.isArray(proj.sessions) ? proj.sessions.length : 0;
+  const ok = await showConfirmDialog({
+    title: 'Delete permanently',
+    message: 'Permanently delete "' + projName + '"' +
+      (cnt > 0 ? ' and its ' + cnt + ' session(s)' : '') + '? This cannot be undone.',
+    confirmLabel: 'Delete permanently', cancelLabel: 'Cancel', danger: true,
+  });
+  if (!ok) return;
+  try {
+    const res = await api('/api/coding/project/' + encodeURIComponent(id) + '?permanent=1&delete_sessions=1',
       { method: 'DELETE' });
     if (res && res.ok === false) { _codingFlash((res.error || res.message) || 'Delete failed.'); return; }
-    codingClearDetail();
     await _codingRefreshList();
   } catch (e) {
     _codingFlash((e && e.message) || 'Delete failed.');
   }
 }
-window.codingDeleteProject = codingDeleteProject;
+window.codingDeleteProjectPermanent = codingDeleteProjectPermanent;
 
 /* ── Launch form ─────────────────────────────────────────────────────────── */
 
