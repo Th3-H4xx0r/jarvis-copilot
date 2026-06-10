@@ -66,6 +66,7 @@ class _CodingChatViewState extends State<CodingChatView> {
   bool get _isWaiting => _activityState == 'waiting';
 
   String? _statusLine; // live spinner line while working
+  ChatContext? _context; // per-chat context-window gauge
 
   // Messages the user sent that haven't appeared in the transcript yet —
   // rendered as "queued" bubbles so steering/queueing while Claude works has
@@ -181,6 +182,7 @@ class _CodingChatViewState extends State<CodingChatView> {
         _activityState = page.activityState;
         _status = page.status;
         _statusLine = page.statusLine;
+        if (page.context != null) _context = page.context;
         // A queued send is delivered once its text shows up in the transcript
         // as a user message (commands are swallowed by the parser — expire
         // them quickly); stale ones expire so they can't linger forever.
@@ -430,24 +432,34 @@ class _CodingChatViewState extends State<CodingChatView> {
   }
 
   Widget _header() {
+    final ctx = _context;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            'Conversation',
-            style: TextStyle(
-              color: JcTheme.text,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-            ),
+          Row(
+            children: [
+              const Text(
+                'Conversation',
+                style: TextStyle(
+                  color: JcTheme.text,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              _StateChip(
+                state: _activityState,
+                live: _isLive,
+                onTap: _isWaiting ? _openPromptFromBanner : null,
+              ),
+            ],
           ),
-          const Spacer(),
-          _StateChip(
-            state: _activityState,
-            live: _isLive,
-            onTap: _isWaiting ? _openPromptFromBanner : null,
-          ),
+          if (ctx != null) ...[
+            const SizedBox(height: 7),
+            _ContextGauge(ctx: ctx),
+          ],
         ],
       ),
     );
@@ -653,6 +665,54 @@ class _StateChip extends StatelessWidget {
         onTap: onTap,
         child: chip,
       ),
+    );
+  }
+}
+
+/// Slim per-chat context-window gauge: a thin fill bar + "NN% · used/window".
+/// The fill ramps blue → amber → red as it approaches auto-compact.
+class _ContextGauge extends StatelessWidget {
+  const _ContextGauge({required this.ctx});
+
+  final ChatContext ctx;
+
+  Color get _color {
+    if (ctx.pct >= 92) return const Color(0xFFF87171); // red — near compact
+    if (ctx.pct >= 80) return const Color(0xFFFBBF24); // amber — getting full
+    return JcTheme.primaryBlueHi;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final frac = (ctx.pct.clamp(0, 100)) / 100.0;
+    final color = _color;
+    return Row(
+      children: [
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: Stack(
+              children: [
+                Container(height: 5, color: JcTheme.glassBorder),
+                FractionallySizedBox(
+                  widthFactor: frac == 0 ? 0.001 : frac,
+                  child: Container(height: 5, color: color),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 9),
+        Text(
+          '${ctx.pct}% · ${ctx.usedLabel}/${ctx.windowLabel}',
+          style: const TextStyle(
+            color: JcTheme.muted,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            fontFeatures: [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
     );
   }
 }

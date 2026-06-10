@@ -1,11 +1,17 @@
 import json
 
-from agent.coding_transcript_read import parse_transcript_text, slice_messages
+from agent.coding_transcript_read import (
+    context_window_for, parse_transcript_text, slice_messages,
+    transcript_context)
 
 
 def _line(t, content, **kw):
     d = {"type": t, "message": {"role": t, "content": content},
          "timestamp": "2026-06-09T10:00:00.000Z"}
+    if "usage" in kw:
+        d["message"]["usage"] = kw.pop("usage")
+    if "model" in kw:
+        d["message"]["model"] = kw.pop("model")
     d.update(kw)
     return json.dumps(d)
 
@@ -85,3 +91,53 @@ def test_bash_tool_has_no_diff():
         "input": {"command": "ls"}}])
     msgs = parse_transcript_text(text)
     assert "diff" not in msgs[0]["tools"][0]
+
+
+# ---- context-window gauge ----------------------------------------------------
+
+def test_context_window_for_model():
+    assert context_window_for("claude-opus-4-8") == 200_000
+    assert context_window_for("claude-fable-5[1m]") == 1_000_000
+    assert context_window_for("claude-sonnet-4-6[1m]") == 1_000_000
+    assert context_window_for(None) == 200_000
+
+
+def test_context_from_last_assistant_usage():
+    u1 = {"input_tokens": 100, "cache_creation_input_tokens": 200,
+          "cache_read_input_tokens": 300, "output_tokens": 50}
+    u2 = {"input_tokens": 1000, "cache_creation_input_tokens": 2000,
+          "cache_read_input_tokens": 3000, "output_tokens": 90}
+    text = "\n".join([
+        _line("user", "hi"),
+        _line("assistant", [{"type": "text", "text": "a"}],
+              usage=u1, model="claude-opus-4-8"),
+        _line("user", "more"),
+        _line("assistant", [{"type": "text", "text": "b"}],
+              usage=u2, model="claude-opus-4-8"),
+    ])
+    msgs = parse_transcript_text(text)
+    ctx = transcript_context(msgs)
+    # latest turn: 1000 + 2000 + 3000 = 6000 used of 200k
+    assert ctx == {"used": 6000, "window": 200_000, "pct": 3,
+                   "model": "claude-opus-4-8"}
+
+
+def test_context_none_without_usage():
+    msgs = parse_transcript_text(_line("user", "no usage here"))
+    assert transcript_context(msgs) is None
+
+
+def test_slice_includes_context_and_strips_internal_usage():
+    u = {"input_tokens": 50_000, "cache_creation_input_tokens": 0,
+         "cache_read_input_tokens": 150_000, "output_tokens": 10}
+    text = "\n".join([
+        _line("user", "hi"),
+        _line("assistant", [{"type": "text", "text": "yo"}],
+              usage=u, model="claude-opus-4-8"),
+    ])
+    msgs = parse_transcript_text(text)
+    s = slice_messages(msgs, after=0)
+    assert s["context"] == {"used": 200_000, "window": 200_000, "pct": 100,
+                            "model": "claude-opus-4-8"}
+    # internal usage/model keys never reach the wire
+    assert all("usage" not in m and "model" not in m for m in s["messages"])

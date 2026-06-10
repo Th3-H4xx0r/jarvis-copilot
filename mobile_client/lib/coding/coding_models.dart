@@ -473,6 +473,41 @@ class CodingChatMessage {
   }
 }
 
+/// Per-chat context-window occupancy (the auto-compact gauge). `used` ≈ live
+/// context size = input + cache_creation + cache_read tokens of the latest turn.
+class ChatContext {
+  const ChatContext(
+      {required this.used, required this.window, required this.pct, this.model});
+
+  final int used;
+  final int window;
+  final int pct;
+  final String? model;
+
+  static ChatContext? fromJson(Object? o) {
+    if (o is! Map) return null;
+    final j = Map<String, dynamic>.from(o);
+    final window = _asInt(j['window']);
+    if (window <= 0) return null;
+    return ChatContext(
+      used: _asInt(j['used']),
+      window: window,
+      pct: _asInt(j['pct']),
+      model: _str(j['model']),
+    );
+  }
+
+  /// Compact "124k" style.
+  static String fmtTokens(int n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '${(n / 1000).round()}k';
+    return '$n';
+  }
+
+  String get usedLabel => fmtTokens(used);
+  String get windowLabel => fmtTokens(window);
+}
+
 /// The `/messages` page payload: the (possibly partial) message tail plus the
 /// session's live state so the chat header chip stays fresh without a second
 /// poll. `source` is `live|cache` (informational).
@@ -484,6 +519,7 @@ class CodingChatPage {
     this.status = '',
     this.source,
     this.statusLine,
+    this.context,
   });
 
   final List<CodingChatMessage> messages;
@@ -494,6 +530,9 @@ class CodingChatPage {
 
   /// Live spinner line while working, e.g. "✳ Zesting… (50s · ↑ 2.0k tokens)".
   final String? statusLine;
+
+  /// Context-window gauge, or null if the transcript has no usage yet.
+  final ChatContext? context;
 
   factory CodingChatPage.fromJson(Map<String, dynamic> j) {
     final raw = (j['messages'] as List?) ?? const [];
@@ -507,6 +546,7 @@ class CodingChatPage {
       status: (j['status'] ?? '').toString(),
       source: _str(j['source']),
       statusLine: _str(j['status_line']),
+      context: ChatContext.fromJson(j['context']),
     );
   }
 }

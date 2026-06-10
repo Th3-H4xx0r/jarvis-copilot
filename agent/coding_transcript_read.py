@@ -28,6 +28,38 @@ MAX_TEXT = 6000           # per message text
 MAX_TOOL_OUTPUT = 800     # per tool result snippet
 MAX_SUMMARY = 160
 
+# Context-window sizes for the per-chat "context used" gauge. Default 200k;
+# the 1M variants ([1m] / Sonnet-1M) carry the marker in the model id.
+DEFAULT_CONTEXT_WINDOW = 200_000
+
+
+def context_window_for(model) -> int:
+    """The context-window size (tokens) for a Claude model id. 200k default;
+    1M when the id carries a 1M marker (e.g. ``claude-fable-5[1m]``)."""
+    m = str(model or "").lower()
+    if "[1m]" in m or m.endswith("-1m") or ":1m" in m or "(1m)" in m:
+        return 1_000_000
+    return DEFAULT_CONTEXT_WINDOW
+
+
+def transcript_context(messages: list[dict]) -> dict | None:
+    """Per-chat context-window occupancy from the LATEST assistant turn's
+    usage: ``{used, window, pct, model}`` or None if no usage was recorded.
+    ``used`` ≈ live context size = input + cache_creation + cache_read tokens
+    (independent of any ``after`` slice — always the whole transcript)."""
+    for m in reversed(messages):
+        u = m.get("usage")
+        if not u:
+            continue
+        used = (int(u.get("input_tokens") or 0)
+                + int(u.get("cache_creation_input_tokens") or 0)
+                + int(u.get("cache_read_input_tokens") or 0))
+        window = context_window_for(m.get("model"))
+        pct = round(100 * used / window) if window else 0
+        return {"used": used, "window": window, "pct": pct,
+                "model": str(m.get("model") or "")}
+    return None
+
 
 def _iso_ts(s) -> float | None:
     if not s:
@@ -218,6 +250,21 @@ def parse_transcript_text(text: str) -> list[dict]:
                 if tid:
                     tools_by_id[tid] = tool
             # thinking blocks deliberately skipped
+        # Record this turn's token usage + model on the message (internal —
+        # stripped from the wire by slice_messages, drives the context gauge).
+        u = msg.get("usage")
+        if u and m is not None:
+            m["usage"] = {
+                "input_tokens": int(u.get("input_tokens") or 0),
+                "cache_creation_input_tokens":
+                    int(u.get("cache_creation_input_tokens") or 0),
+                "cache_read_input_tokens":
+                    int(u.get("cache_read_input_tokens") or 0),
+                "output_tokens": int(u.get("output_tokens") or 0),
+            }
+            mdl = msg.get("model")
+            if mdl:
+                m["model"] = str(mdl)
     return out
 
 
@@ -253,7 +300,15 @@ def read_local_messages(cwd: str, csid: str,
 
 
 def slice_messages(messages: list[dict], after: int) -> dict:
-    """API payload: total + the tail from absolute index ``after`` (bounded)."""
+    """API payload: total + the tail from absolute index ``after`` (bounded),
+    plus the whole-transcript ``context`` gauge. Internal usage/model keys are
+    stripped from the emitted messages (they only feed the context)."""
     total = len(messages)
     start = max(int(after or 0), total - MAX_MESSAGES)
-    return {"messages": messages[start:total], "total": total}
+    ctx = transcript_context(messages)
+    out = []
+    for m in messages[start:total]:
+        if "usage" in m or "model" in m:
+            m = {k: v for k, v in m.items() if k not in ("usage", "model")}
+        out.append(m)
+    return {"messages": out, "total": total, "context": ctx}
