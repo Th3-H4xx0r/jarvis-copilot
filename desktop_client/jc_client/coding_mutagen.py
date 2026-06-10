@@ -37,6 +37,9 @@ DEFAULT_IGNORES = [
     # build / dist / framework caches
     "build", "dist", "out", "target", ".next", ".nuxt", ".svelte-kit",
     ".gradle", ".terraform", "DerivedData", ".cache", "coverage", ".turbo",
+    # CocoaPods plugin links (ABSOLUTE symlinks — unsyncable in Portable
+    # mode, every one is a permanent scan problem; flutter regenerates them)
+    ".symlinks",
     # editor / OS cruft
     ".DS_Store", ".idea", "*.swp",
     # heavy binary artifacts
