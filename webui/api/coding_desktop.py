@@ -348,9 +348,12 @@ class DesktopBridge:
             return self._feeds.get(term_id)
 
     def on_device_disconnect(self, device_id: str) -> None:
-        """A desktop dropped its WS — close any terminal feeds bound to it so
-        their SSE ends ("[detached — reopen…]") instead of hanging on a frozen
-        stream. The device's tmux+claude keep running; reconnect re-adopts."""
+        """A desktop dropped its WS. Most drops are brief relay blips, so we
+        DEBOUNCE: the terminal feeds close with a SOFT ``reconnecting`` reason
+        (the mobile shows "reconnecting…" and auto-retries instead of an
+        alarming "disconnected"), and we RETAIN the sessions' last-known
+        activity_state, only escalating to "gone" if no discovery frame arrives
+        within the grace window. The device's tmux+claude keep running."""
         device_id = str(device_id or "")
         if not device_id:
             return
@@ -359,25 +362,21 @@ class DesktopBridge:
                      if f.device_id == device_id and not f.closed.is_set()]
         for feed in feeds:
             try:
-                # The Mac dropped its WS but its tmux+claude keep running — this is
-                # a reconnectable detach, NOT a session end, so reason=disconnected
-                # (the UI offers reconnect, and we must NOT reconcile to stopped).
-                feed.on_exit(None, reason="disconnected")
+                # Reconnectable detach, NOT a session end → reason=reconnecting
+                # (the UI auto-retries; we must NOT reconcile to stopped).
+                feed.on_exit(None, reason="reconnecting")
             except Exception:  # noqa: BLE001
                 pass
-        # Clear the live activity_state of this device's discovered sessions so
-        # the Web UI / mobile / Live Activity stop showing a ghost working/waiting
-        # while the Mac is gone. The lifecycle `status` is left untouched — the
-        # next discovery push (on reconnect) reconciles it.
-        try:
-            store = _resolve_store()
-            if store is not None:
-                for row in store.list_sessions(device_id=device_id):
-                    if (row.get("source") == "discovered-tmux"
-                            and row.get("activity_state") is not None):
-                        store.update_session(row["id"], activity_state=None)
-        except Exception:  # noqa: BLE001
-            pass
+        # Schedule the real "gone" escalation; KEEP activity_state for now so a
+        # quick reconnect never flaps the dot. note_device_reconnect (called on
+        # the next discovery frame) cancels it.
+        with _RECONNECT_LOCK:
+            gen = _RECONNECTING.get(device_id, 0) + 1
+            _RECONNECTING[device_id] = gen
+        timer = threading.Timer(
+            _RECONNECT_GRACE, _escalate_device_gone, (device_id, gen))
+        timer.daemon = True
+        timer.start()
 
     # --- outbound sync frames -----------------------------------------------
 
@@ -1373,6 +1372,52 @@ def take_transcript_dirty(csid) -> bool:
     return False
 
 
+# Reconnect debounce. A desktop WS drop is USUALLY a brief relay blip, not a
+# real disconnect — so we RETAIN each session's last-known activity_state and
+# only escalate to "gone" (null the state) if the device hasn't sent a fresh
+# discovery frame within the grace window. This kills the visible
+# active→disconnected→working flap on Mac sessions.
+_RECONNECT_GRACE = 12.0
+_RECONNECTING: dict[str, int] = {}   # device_id -> generation of pending drop
+_RECONNECT_LOCK = threading.Lock()
+
+
+def note_device_reconnect(device_id) -> None:
+    """A live frame/connection from a device cancels any pending 'gone'
+    escalation (the scheduled timer sees a stale generation and no-ops)."""
+    d = str(device_id or "").strip()
+    if not d:
+        return
+    with _RECONNECT_LOCK:
+        if d in _RECONNECTING:
+            _RECONNECTING.pop(d, None)
+
+
+def _escalate_device_gone(device_id: str, gen: int) -> None:
+    """Grace elapsed with no reconnect — NOW clear the live activity_state of
+    this device's discovered sessions so the UIs stop showing a ghost
+    working/waiting. The lifecycle ``status`` is left untouched (the next
+    discovery push on reconnect reconciles it)."""
+    with _RECONNECT_LOCK:
+        if _RECONNECTING.get(device_id) != gen:
+            return  # reconnected (or superseded) within grace — no flap
+        _RECONNECTING.pop(device_id, None)
+    try:
+        store = _resolve_store()
+        if store is None:
+            return
+        changed = False
+        for row in store.list_sessions(device_id=device_id):
+            if (row.get("source") == "discovered-tmux"
+                    and row.get("activity_state") is not None):
+                store.update_session(row["id"], activity_state=None)
+                changed = True
+        if changed:
+            _push_la_and_notify(store)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 _DISMISSED_LOCK = threading.Lock()
 
 
@@ -1456,6 +1501,9 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
     store = store or _resolve_store()
     if store is None:
         return 0
+    # A discovery frame means the device is alive — cancel any pending "gone"
+    # escalation from a recent WS blip (keeps a brief reconnect from flapping).
+    note_device_reconnect(device_id)
     sessions = sessions or []
 
     # SAFEGUARD: never DISCOVER a claude session running in a home/system directory

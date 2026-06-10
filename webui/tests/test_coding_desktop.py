@@ -1984,14 +1984,18 @@ def test_term_exit_on_adopted_feed_marks_ended_and_reconciles(monkeypatch):
     assert any(f.get("status") == "stopped" for (_sid, f) in store.updates)
 
 
-def test_on_device_disconnect_reason_disconnected_no_reconcile(monkeypatch):
-    # A WS drop is a reconnectable detach, NOT a session end: reason=disconnected
-    # and the row is NOT reconciled to stopped (the Mac's tmux+claude survive).
+def test_on_device_disconnect_is_soft_and_retains_state(monkeypatch):
+    # A WS drop is USUALLY a brief blip: the feed closes with reason=reconnecting
+    # (the mobile auto-retries instead of showing "disconnected"), the row is NOT
+    # reconciled to stopped, and the live activity_state is RETAINED so the dot
+    # can't flap active→disconnected→working. Only a grace-window escalation
+    # clears it — patched to a no-op here so the scheduled timer is harmless.
     store = _RecordingStore({"id": "cs_adopt", "source": "discovered-tmux",
                              "host": "desktop", "status": "running",
                              "tmux_name": "jc-abc123", "cwd": "/Users/me/proj",
                              "device_id": "dev-mac", "activity_state": "working"})
     monkeypatch.setattr(cd, "_resolve_store", lambda: store)
+    monkeypatch.setattr(cd, "_escalate_device_gone", lambda *a, **k: None)
     bridge, t = make_bridge()
     cd.adopt_discovered_tmux("cs_adopt", bridge=bridge, store=store)
     feed = bridge.feed_for("jc-abc123")
@@ -1999,11 +2003,40 @@ def test_on_device_disconnect_reason_disconnected_no_reconcile(monkeypatch):
     assert feed.closed.is_set()
     assert feed.ended is False           # a disconnect is not an "ended"
     payload = _adopted_exit_terminal_closed(feed)
-    assert payload is not None and payload.get("reason") == "disconnected"
-    assert store._row["status"] == "running"   # NOT reconciled to stopped
-    # on_device_disconnect DOES clear the live activity_state (existing behavior),
-    # but must never flip the lifecycle status.
-    assert not any(f.get("status") == "stopped" for (_sid, f) in store.updates)
+    assert payload is not None and payload.get("reason") == "reconnecting"
+    assert store._row["status"] == "running"      # NOT reconciled to stopped
+    assert store._row["activity_state"] == "working"  # RETAINED — no flap
+    assert not any("activity_state" in f for (_sid, f) in store.updates)
+
+
+def test_reconnect_escalation_clears_state_after_grace(monkeypatch):
+    # Grace elapsed with no reconnect → the escalation NOW clears activity_state
+    # (the genuine "gone" state) but leaves the lifecycle status alone.
+    store = _RecordingStore({"id": "cs_g", "source": "discovered-tmux",
+                             "host": "desktop", "status": "running",
+                             "tmux_name": "jc-g", "cwd": "/Users/me/g",
+                             "device_id": "dev-esc", "activity_state": "working"})
+    monkeypatch.setattr(cd, "_resolve_store", lambda: store)
+    monkeypatch.setattr(cd, "_push_la_and_notify", lambda s: None)
+    cd._RECONNECTING["dev-esc"] = 7
+    cd._escalate_device_gone("dev-esc", 7)
+    assert store._row["activity_state"] is None
+    assert store._row["status"] == "running"
+    assert "dev-esc" not in cd._RECONNECTING
+
+
+def test_reconnect_cancels_pending_escalation(monkeypatch):
+    # A discovery frame within the grace window cancels the escalation: a stale
+    # timer firing afterward is a no-op, so the retained state survives.
+    store = _RecordingStore({"id": "cs_c", "source": "discovered-tmux",
+                             "host": "desktop", "status": "running",
+                             "tmux_name": "jc-c", "cwd": "/Users/me/c",
+                             "device_id": "dev-canc", "activity_state": "working"})
+    monkeypatch.setattr(cd, "_resolve_store", lambda: store)
+    cd._RECONNECTING["dev-canc"] = 3
+    cd.note_device_reconnect("dev-canc")          # the Mac came back
+    cd._escalate_device_gone("dev-canc", 3)        # stale timer fires → no-op
+    assert store._row["activity_state"] == "working"
 
 
 def test_fresh_adopt_clears_stale_pending_exit():
@@ -2055,9 +2088,10 @@ def test_launched_desktop_feed_does_not_close_on_detach():
     assert not any(f["type"] == "coding_term_close" for (_d, f) in t.sent)
 
 
-def test_on_device_disconnect_closes_feeds():
+def test_on_device_disconnect_closes_feeds(monkeypatch):
     # A Mac WS drop must end the adopted feed's SSE (closed set + terminal_closed)
-    # so the viewer sees "[detached]" instead of a frozen stream.
+    # so the viewer sees "[reconnecting…]" instead of a frozen stream.
+    monkeypatch.setattr(cd, "_escalate_device_gone", lambda *a, **k: None)
     bridge, t = make_bridge()
     cd.adopt_discovered_tmux("cs_adopt", bridge=bridge,
                              store=_discovered_tmux_store("dev-mac"))
@@ -2136,7 +2170,18 @@ def test_ingest_discovered_writes_activity_state(tmp_path, monkeypatch):
     assert store.list_sessions(device_id="dev-act")[0]["activity_state"] == "waiting"
 
 
-def test_on_device_disconnect_clears_activity_state(tmp_path, monkeypatch):
+class _FakeTimer:
+    """A threading.Timer stand-in that records but never fires (the test drives
+    escalation manually instead of waiting out the real grace window)."""
+
+    def __init__(self, interval, fn, args=()):
+        self.interval, self.fn, self.args, self.daemon = interval, fn, args, False
+
+    def start(self):
+        pass
+
+
+def test_on_device_disconnect_retains_then_escalates(tmp_path, monkeypatch):
     store = _temp_store(tmp_path)
     _discovered("dev-on", [
         {"kind": "tmux", "tmux_name": "claude-a", "cwd": "/w/a", "title": "a",
@@ -2147,12 +2192,20 @@ def test_on_device_disconnect_clears_activity_state(tmp_path, monkeypatch):
          "activity_state": "working"},
     ], store, monkeypatch)
     monkeypatch.setattr(cd, "_resolve_store", lambda: store, raising=True)
+    monkeypatch.setattr(cd, "_push_la_and_notify", lambda s: None)
+    monkeypatch.setattr(cd.threading, "Timer", _FakeTimer)  # don't fire for real
     cd.get_desktop_bridge().on_device_disconnect("dev-on")
-    # the disconnected device's row is cleared; lifecycle status is untouched...
+    # A brief drop RETAINS the live state (no flap) — escalation hasn't run yet.
+    assert store.list_sessions(device_id="dev-on")[0]["activity_state"] == "working"
+    # Now the grace window elapses with no reconnect → escalation clears it,
+    # leaving the lifecycle status alone.
+    gen = cd._RECONNECTING.get("dev-on")
+    assert gen is not None
+    cd._escalate_device_gone("dev-on", gen)
     row = store.list_sessions(device_id="dev-on")[0]
     assert row["activity_state"] is None
     assert row["status"] == "running"
-    # ...and a DIFFERENT device's session is left intact.
+    # ...and a DIFFERENT device's session is left intact throughout.
     assert store.list_sessions(device_id="dev-other")[0]["activity_state"] == "working"
 
 

@@ -83,6 +83,7 @@ class CodingSessionsController extends ChangeNotifier {
   StreamSubscription<Map<String, dynamic>>? _terminalSub;
   String? terminalError;
   bool terminalStarting = false;
+  int _reconnectAttempts = 0; // bounded auto-retry after a 'reconnecting' close
 
   Timer? _poll;
   bool _disposed = false;
@@ -722,14 +723,17 @@ class CodingSessionsController extends ChangeNotifier {
             if (text.isNotEmpty && !_terminalText.isClosed) {
               _terminalText.add(text);
             }
+            _reconnectAttempts = 0; // healthy stream — reset the retry budget
           } else if (event == 'terminal_closed') {
             final reason = (ev['reason'] ?? '').toString();
             if (!_terminalText.isClosed) {
               final msg = reason == 'ended'
                   ? '[session ended — claude is no longer running; reopen to relaunch]'
-                  : reason == 'disconnected'
-                      ? '[disconnected — your Mac dropped its connection; reopen when it’s back]'
-                      : '[detached — reopen this session to resume the live terminal]';
+                  : reason == 'reconnecting'
+                      ? '[reconnecting — your Mac dropped briefly, retrying…]'
+                      : reason == 'disconnected'
+                          ? '[disconnected — your Mac dropped its connection; reopen when it’s back]'
+                          : '[detached — reopen this session to resume the live terminal]';
               _terminalText.add('\r\n\x1b[90m$msg\x1b[0m\r\n');
             }
             // Reset the attach guard so re-tapping the session re-attaches (the
@@ -739,6 +743,9 @@ class CodingSessionsController extends ChangeNotifier {
             _terminalId = null;
             terminalStarting = false;
             notifyListeners();
+            // A brief Mac blip: auto re-attach (bounded) so the live terminal
+            // heals itself instead of stranding the user on a manual reopen.
+            if (reason == 'reconnecting') _scheduleTerminalReattach(id);
           } else if (event == 'terminal_error') {
             final msg = (ev['error'] ?? '').toString();
             if (msg.isNotEmpty && !_terminalText.isClosed) {
@@ -766,6 +773,22 @@ class CodingSessionsController extends ChangeNotifier {
       terminalStarting = false;
       if (!_disposed) notifyListeners();
     }
+  }
+
+  /// After a soft 'reconnecting' close (a brief Mac WS blip), re-attach the
+  /// live terminal automatically with a short backoff, bounded so a truly
+  /// offline Mac doesn't loop forever (the user can still reopen manually).
+  void _scheduleTerminalReattach(String id) {
+    if (_disposed) return;
+    if (_reconnectAttempts >= 4) {
+      _reconnectAttempts = 0;
+      return;
+    }
+    final attempt = ++_reconnectAttempts;
+    Future<void>.delayed(Duration(milliseconds: 1500 * attempt), () {
+      if (_disposed || selectedId != id || _terminalId == id) return;
+      startTerminal();
+    });
   }
 
   /// Send keystrokes from the xterm view / chat prompt to the PTY.
