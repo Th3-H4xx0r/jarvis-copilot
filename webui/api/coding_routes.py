@@ -966,6 +966,16 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 manager.store, tmux_name=tmux_name,
                 claude_session_id=csid, cwd=cwd, device_id=device_id)
             matched = row is not None
+            # A hook fired (Stop/Notification/UserPromptSubmit) — a turn
+            # boundary, so the transcript just grew. Invalidate the chat cache
+            # now so the next /messages poll re-pulls instead of waiting out the
+            # staleness floor (realtime chat).
+            try:
+                from api.coding_desktop import mark_transcript_dirty
+                mark_transcript_dirty(
+                    csid or (row or {}).get("claude_session_id"))
+            except Exception:  # noqa: BLE001
+                pass
             changed = False
             if matched:
                 changed = row.get("activity_state") != state
@@ -1056,15 +1066,18 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 host = (row.get("host") or "server")
                 msgs, source = None, "live"
                 if host == "desktop" and (row.get("device_id") or ""):
+                    from api.coding_desktop import take_transcript_dirty
                     cache = manager.store.get_transcript_cache(csid)
                     last_act = float(row.get("last_activity_at") or 0)
                     cache_ts = float(cache["updated_at"]) if cache else 0.0
-                    # Re-pull when the cache is missing, predates the latest
-                    # activity, or is simply old while the session is live —
-                    # otherwise serve the cache (mobile polls every ~3s; the
-                    # bridge pull is the expensive path).
-                    stale = (cache is None or last_act > cache_ts
-                             or _time.time() - cache_ts > 8)
+                    # Re-pull when a turn boundary marked the cache dirty (the
+                    # instant path — realtime chat), when the cache is missing or
+                    # predates the latest activity, or as a short safety floor.
+                    # Event-driven invalidation keeps it fresh WITHOUT pulling
+                    # the bridge on every poll.
+                    stale = (take_transcript_dirty(csid)
+                             or cache is None or last_act > cache_ts
+                             or _time.time() - cache_ts > 2.5)
                     if stale:
                         try:
                             from api.coding_desktop import get_desktop_bridge

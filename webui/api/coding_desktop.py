@@ -1343,6 +1343,36 @@ def get_status_line(row) -> str | None:
     return _STATUS_LINES.get(((row.get("device_id") or "").strip(),
                               (row.get("tmux_name") or "").strip()))
 
+
+# Transcript-cache invalidation for realtime chat. A csid is "dirty" when an
+# activity transition / turn boundary means the Mac transcript almost certainly
+# has new content the cached parse predates — the /messages handler re-pulls
+# immediately for a dirty csid instead of waiting out the staleness floor.
+_DIRTY_CSIDS: set[str] = set()
+_DIRTY_LOCK = threading.Lock()
+
+
+def mark_transcript_dirty(csid) -> None:
+    """Flag a session's cached transcript as stale (call on turn boundaries)."""
+    c = str(csid or "").strip()
+    if not c:
+        return
+    with _DIRTY_LOCK:
+        _DIRTY_CSIDS.add(c)
+
+
+def take_transcript_dirty(csid) -> bool:
+    """Consume + clear the dirty flag for a csid (True if it was dirty)."""
+    c = str(csid or "").strip()
+    if not c:
+        return False
+    with _DIRTY_LOCK:
+        if c in _DIRTY_CSIDS:
+            _DIRTY_CSIDS.discard(c)
+            return True
+    return False
+
+
 _DISMISSED_LOCK = threading.Lock()
 
 
@@ -1581,6 +1611,9 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                     fields["activity_state"] = act
                     if act != (row.get("activity_state") or None):
                         live_changed = True
+                        # Turn boundary → the Mac transcript likely grew; let
+                        # the next chat poll re-pull instead of waiting it out.
+                        mark_transcript_dirty(csid)
                 elif (row.get("cwd") or "") != cwd:
                     # Reparented (same tmux name re-created in a new folder)
                     # with no fresh classification: the old folder's state
@@ -1601,6 +1634,7 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                 if act is not None:
                     store.update_session(sid, activity_state=act)
                 live_changed = True  # a brand-new live session appeared
+                mark_transcript_dirty(csid)
             if csid:
                 tmux_owned_csids.add(csid)  # so the transcript pass dedups it
             upserted += 1

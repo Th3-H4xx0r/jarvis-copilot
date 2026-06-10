@@ -41,7 +41,10 @@ class CodingChatView extends StatefulWidget {
 }
 
 class _CodingChatViewState extends State<CodingChatView> {
-  static const Duration _pollInterval = Duration(seconds: 3);
+  // Adaptive poll: snappy while a turn is live, relaxed when idle.
+  static const Duration _pollActive = Duration(milliseconds: 1200);
+  static const Duration _pollIdle = Duration(seconds: 4);
+  int _fetchTick = 0; // every Nth incremental poll does a full reconcile
 
   final List<CodingChatMessage> _messages = [];
   String? _activityState; // working | waiting | idle | null
@@ -120,8 +123,22 @@ class _CodingChatViewState extends State<CodingChatView> {
     // attached (idempotent; the page keeps it alive across mode toggles).
     widget.controller.startTerminal();
     _fetch(full: true);
-    _poll = Timer.periodic(_pollInterval, (_) {
-      if (AppLifecycle.isForeground) _fetch();
+    _scheduleNextPoll();
+  }
+
+  /// Self-rescheduling poll so the interval can track the live state — 1.2s
+  /// while Claude is working/waiting (realtime), 4s when idle (battery).
+  Duration _pollIntervalFor() {
+    final s = _activityState;
+    if (s == 'working' || s == 'waiting' || _showThinking) return _pollActive;
+    return _pollIdle;
+  }
+
+  void _scheduleNextPoll() {
+    _poll?.cancel();
+    _poll = Timer(_pollIntervalFor(), () async {
+      if (AppLifecycle.isForeground) await _fetch();
+      if (mounted) _scheduleNextPoll();
     });
   }
 
@@ -149,6 +166,13 @@ class _CodingChatViewState extends State<CodingChatView> {
   Future<void> _fetch({bool full = false}) async {
     if (_fetching || !mounted) return;
     _fetching = true;
+    // Periodic full reconcile heals divergence the incremental cursor can't
+    // see — e.g. an EXISTING message whose content changed server-side (empty
+    // tool turn → text) at an index below our `after` cursor.
+    if (!full) {
+      _fetchTick++;
+      if (_fetchTick % 12 == 0) full = true;
+    }
     try {
       final after = full ? 0 : _messages.length;
       final page = await widget.controller.api
@@ -156,6 +180,12 @@ class _CodingChatViewState extends State<CodingChatView> {
       if (!mounted) return;
       // History shrank/reset server-side (restart, re-parse) — reload fully.
       if (!full && page.total < _messages.length) {
+        _fetching = false;
+        return _fetch(full: true);
+      }
+      // The server jumped past our tail (we missed an index) — heal fully so a
+      // message can never silently vanish into a gap.
+      if (!full && page.messages.any((m) => m.i > _messages.length)) {
         _fetching = false;
         return _fetch(full: true);
       }

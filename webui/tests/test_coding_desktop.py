@@ -2154,3 +2154,23 @@ def test_on_device_disconnect_clears_activity_state(tmp_path, monkeypatch):
     assert row["status"] == "running"
     # ...and a DIFFERENT device's session is left intact.
     assert store.list_sessions(device_id="dev-other")[0]["activity_state"] == "working"
+
+
+# ── transcript-cache dirty flag (realtime chat invalidation) ─────────────────
+
+
+def test_transcript_dirty_flag_mark_and_take():
+    csid = "csid-dirty-1"
+    # Clean to start; marking makes it dirty; taking consumes it ONCE.
+    cd.take_transcript_dirty(csid)
+    assert cd.take_transcript_dirty(csid) is False
+    cd.mark_transcript_dirty(csid)
+    assert cd.take_transcript_dirty(csid) is True
+    assert cd.take_transcript_dirty(csid) is False  # cleared after one take
+
+
+def test_transcript_dirty_flag_ignores_empty():
+    cd.mark_transcript_dirty("")
+    cd.mark_transcript_dirty(None)
+    assert cd.take_transcript_dirty("") is False
+    assert cd.take_transcript_dirty(None) is False
