@@ -508,6 +508,66 @@ class ChatContext {
   String get windowLabel => fmtTokens(window);
 }
 
+/// The live status line parsed into its parts so the thinking bubble can style
+/// each — e.g. "✳ Moonwalking… (3m 22s · ↓ 19.5k tokens · …xhigh effort)" →
+/// verb "Moonwalking…", elapsed "3m 22s", tokens "↓ 19.5k tokens", effort
+/// "…xhigh effort". Any unclassified segments land in [extra].
+class LiveStatus {
+  const LiveStatus({
+    required this.verb,
+    this.elapsed,
+    this.tokens,
+    this.effort,
+    this.extra = const [],
+  });
+
+  final String verb;
+  final String? elapsed;
+  final String? tokens;
+  final String? effort;
+  final List<String> extra;
+
+  // Leading spinner glyph(s) Claude Code prints before the verb.
+  static final RegExp _spinner =
+      RegExp(r'^[\s✱✳✴✷✻✽⏺·\*•◦✢✽]+');
+  static final RegExp _timeSeg = RegExp(r'^\d+\s*[hms]\b');
+
+  static LiveStatus? parse(String? raw) {
+    final line = (raw ?? '').trim();
+    if (line.isEmpty) return null;
+    final s = line.replaceFirst(_spinner, '').trimLeft();
+    final open = s.indexOf('(');
+    String verb = s;
+    String inside = '';
+    if (open >= 0 && s.endsWith(')')) {
+      verb = s.substring(0, open).trim();
+      inside = s.substring(open + 1, s.length - 1).trim();
+    }
+    if (verb.isEmpty) verb = 'Working';
+    String? elapsed, tokens, effort;
+    final extra = <String>[];
+    for (final partRaw in inside.split('·')) {
+      final p = partRaw.trim();
+      if (p.isEmpty) continue;
+      final lower = p.toLowerCase();
+      if (elapsed == null && _timeSeg.hasMatch(p)) {
+        elapsed = p;
+      } else if (tokens == null &&
+          (lower.contains('token') || p.contains('↑') || p.contains('↓'))) {
+        tokens = p;
+      } else if (effort == null &&
+          (lower.contains('effort') || lower.contains('thinking'))) {
+        effort = p;
+      } else {
+        extra.add(p);
+      }
+    }
+    return LiveStatus(
+        verb: verb, elapsed: elapsed, tokens: tokens, effort: effort,
+        extra: extra);
+  }
+}
+
 /// The `/messages` page payload: the (possibly partial) message tail plus the
 /// session's live state so the chat header chip stays fresh without a second
 /// poll. `source` is `live|cache` (informational).

@@ -1825,13 +1825,15 @@ class _ThinkingBubbleState extends State<_ThinkingBubble>
     );
   }
 
-  /// "Working…" fallback, or the live spinner line with the verb tinted
-  /// ("✳ Zesting…" salmon, the "(50s · ↑ 2.0k tokens)" detail muted).
+  /// "Working…" fallback, or the live status line parsed into styled parts:
+  /// verb (salmon) · elapsed (muted) · tokens (blue) · effort (purple).
   Widget _label() {
     const green = Color(0xFF34D399);
     const salmon = Color(0xFFFB7185);
-    final line = (widget.statusLine ?? '').trim();
-    if (line.isEmpty) {
+    const blue = JcTheme.primaryBlueHi;
+    const purple = Color(0xFFC084FC);
+    final st = LiveStatus.parse(widget.statusLine);
+    if (st == null) {
       return Text(
         'Working…',
         style: TextStyle(
@@ -1841,31 +1843,40 @@ class _ThinkingBubbleState extends State<_ThinkingBubble>
         ),
       );
     }
-    final cut = line.indexOf(' (');
-    final head = cut > 0 ? line.substring(0, cut) : line;
-    final tail = cut > 0 ? ' ${line.substring(cut + 1)}' : '';
+    const sep = TextStyle(color: JcTheme.muted, fontSize: 11.5,
+        fontFamily: 'Menlo');
+    final spans = <TextSpan>[
+      TextSpan(
+        text: st.verb,
+        style: const TextStyle(
+          color: salmon,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          fontFamily: 'Menlo',
+        ),
+      ),
+    ];
+    void seg(String? text, Color color) {
+      if (text == null || text.isEmpty) return;
+      spans
+        ..add(const TextSpan(text: '  ·  ', style: sep))
+        ..add(TextSpan(
+          text: text,
+          style: TextStyle(
+              color: color, fontSize: 11.5, fontFamily: 'Menlo'),
+        ));
+    }
+
+    seg(st.elapsed, JcTheme.muted);
+    seg(st.tokens, blue.withValues(alpha: 0.9));
+    seg(st.effort, purple.withValues(alpha: 0.9));
+    for (final e in st.extra) {
+      seg(e, JcTheme.muted);
+    }
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 250),
+      constraints: const BoxConstraints(maxWidth: 260),
       child: Text.rich(
-        TextSpan(children: [
-          TextSpan(
-            text: head,
-            style: const TextStyle(
-              color: salmon,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              fontFamily: 'Menlo',
-            ),
-          ),
-          TextSpan(
-            text: tail,
-            style: const TextStyle(
-              color: JcTheme.muted,
-              fontSize: 11.5,
-              fontFamily: 'Menlo',
-            ),
-          ),
-        ]),
+        TextSpan(children: spans),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       ),
