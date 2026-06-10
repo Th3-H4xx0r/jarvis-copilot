@@ -245,6 +245,12 @@ def parse_transcript_text(text: str) -> list[dict]:
                 diff = _tool_diff(name, b.get("input"))
                 if diff:
                     tool["diff"] = diff
+                if name in ("Task", "Agent"):
+                    # A spawned subagent — tag it so the chat renders a subagent
+                    # tree node (type + description, running until its result).
+                    inp = b.get("input")
+                    sub = inp.get("subagent_type") if isinstance(inp, dict) else None
+                    tool["subagent_type"] = str(sub or "")
                 m["tools"].append(tool)
                 tid = str(b.get("id") or "")
                 if tid:

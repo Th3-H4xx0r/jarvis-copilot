@@ -957,12 +957,16 @@ class _ToolCardState extends State<_ToolCard> {
   Widget build(BuildContext context) {
     final t = widget.tool;
     final ok = t.ok;
+    final isSub = t.isSubagent;
+    final running = widget.running || t.running;
     final hasOutput = t.output.trim().isNotEmpty;
+    const subColor = Color(0xFFC084FC); // subagent purple
     return Container(
       decoration: BoxDecoration(
-        color: JcTheme.glassFill,
+        color: isSub ? subColor.withValues(alpha: 0.07) : JcTheme.glassFill,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: JcTheme.glassBorder),
+        border: Border.all(
+            color: isSub ? subColor.withValues(alpha: 0.30) : JcTheme.glassBorder),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -976,26 +980,38 @@ class _ToolCardState extends State<_ToolCard> {
                 padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
                 child: Row(
                   children: [
-                    if (widget.running)
-                      const SizedBox(
+                    if (running)
+                      SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
                           strokeWidth: 1.8,
-                          color: Color(0xFF34D399),
+                          color: isSub ? subColor : const Color(0xFF34D399),
                         ),
                       )
                     else
                       Icon(
-                        ok ? Icons.build_circle_outlined : Icons.error_outline_rounded,
+                        isSub
+                            ? (ok
+                                ? Icons.account_tree_rounded
+                                : Icons.error_outline_rounded)
+                            : (ok
+                                ? Icons.build_circle_outlined
+                                : Icons.error_outline_rounded),
                         size: 16,
-                        color: ok ? JcTheme.cyan : JcTheme.danger,
+                        color: isSub
+                            ? (ok ? subColor : JcTheme.danger)
+                            : (ok ? JcTheme.cyan : JcTheme.danger),
                       ),
                     const SizedBox(width: 8),
                     Text(
-                      t.name,
-                      style: const TextStyle(
-                        color: JcTheme.text,
+                      isSub
+                          ? (t.subagentType.isNotEmpty
+                              ? t.subagentType
+                              : 'subagent')
+                          : t.name,
+                      style: TextStyle(
+                        color: isSub ? subColor : JcTheme.text,
                         fontSize: 12.5,
                         fontWeight: FontWeight.w700,
                         fontFamily: 'Menlo',

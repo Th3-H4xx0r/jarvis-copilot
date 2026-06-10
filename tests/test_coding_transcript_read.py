@@ -85,6 +85,34 @@ def test_write_tool_diff_is_all_added():
     assert msgs[0]["tools"][0]["diff"] == ["+x", "+y"]
 
 
+def test_task_tool_tagged_as_subagent_with_status():
+    text = "\n".join([
+        _line("assistant", [{"type": "tool_use", "id": "t1", "name": "Task",
+                             "input": {"subagent_type": "Explore",
+                                       "description": "map the chat pipeline"}}]),
+        _line("user", [{"type": "tool_result", "tool_use_id": "t1",
+                        "content": "done", "is_error": False}]),
+        _line("assistant", [{"type": "tool_use", "id": "t2", "name": "Task",
+                             "input": {"subagent_type": "Plan",
+                                       "description": "still going"}}]),
+    ])
+    msgs = parse_transcript_text(text)
+    tools = [t for m in msgs for t in m["tools"]]
+    done = next(t for t in tools if t["summary"] == "map the chat pipeline")
+    running = next(t for t in tools if t["summary"] == "still going")
+    assert done["subagent_type"] == "Explore"
+    assert done["ok"] is True            # tool_result attached → completed
+    assert running["subagent_type"] == "Plan"
+    assert running["ok"] is None         # no result yet → running
+
+
+def test_non_task_tool_has_no_subagent_type():
+    text = _line("assistant", [{"type": "tool_use", "id": "t1", "name": "Bash",
+                                "input": {"command": "ls"}}])
+    msgs = parse_transcript_text(text)
+    assert "subagent_type" not in msgs[0]["tools"][0]
+
+
 def test_bash_tool_has_no_diff():
     text = _line("assistant", [{
         "type": "tool_use", "id": "t1", "name": "Bash",

@@ -415,6 +415,8 @@ class CodingChatTool {
     this.summary = '',
     this.output = '',
     this.ok = true,
+    this.running = false,
+    this.subagentType = '',
     this.diff = const [],
   });
 
@@ -422,6 +424,16 @@ class CodingChatTool {
   final String summary;
   final String output;
   final bool ok;
+
+  /// True while the tool/subagent is still in flight (no result yet — the
+  /// server sends `ok: null`). A completed Task has `running == false`.
+  final bool running;
+
+  /// Non-empty when this tool is a spawned subagent (`Task`/`Agent`) — the
+  /// subagent's type (e.g. "Explore"). Renders as a subagent tree node.
+  final String subagentType;
+
+  bool get isSubagent => subagentType.isNotEmpty || name == 'Task' || name == 'Agent';
 
   /// File-edit tools carry a renderable unified diff (lines prefixed with
   /// `+` / `-` / ` ` / `@@`) — the chat view shows these as red/green blocks.
@@ -432,6 +444,8 @@ class CodingChatTool {
         summary: (j['summary'] ?? '').toString(),
         output: (j['output'] ?? '').toString(),
         ok: j['ok'] == null ? true : _asBool(j['ok']),
+        running: j['ok'] == null,
+        subagentType: (j['subagent_type'] ?? '').toString(),
         diff: (j['diff'] is List)
             ? (j['diff'] as List).map((e) => e.toString()).toList()
             : const [],
