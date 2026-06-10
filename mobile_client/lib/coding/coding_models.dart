@@ -348,6 +348,7 @@ class CodingSyncStatus {
     this.total = 0,
     this.done = 0,
     this.conflicts = 0,
+    this.healed = 0,
     this.lastSyncAt,
     this.error,
   });
@@ -359,6 +360,9 @@ class CodingSyncStatus {
   final int total;
   final int done;
   final int conflicts;
+
+  /// Conflicts the client auto-resolved (newest-edit-wins, loser backed up).
+  final int healed;
   final double? lastSyncAt; // epoch seconds
   final String? error;
 
@@ -379,6 +383,7 @@ class CodingSyncStatus {
       total: _asInt(j['total']),
       done: _asInt(j['done']),
       conflicts: _asInt(j['conflicts']),
+      healed: _asInt(j['healed']),
       lastSyncAt: _asDouble(j['last_sync_at']),
       error: _str(j['error']),
     );

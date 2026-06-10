@@ -1687,7 +1687,8 @@ async function _codingRefreshSyncStatus(id) {
     idle: online ? 'Idle' : 'Waiting for device', disconnected: 'Device offline',
     conflicts: 'Conflicts', error: 'Error', off: '' };
   let label = labels[status] || status;
-  if (status === 'conflicts' && st.conflicts) label = `${st.conflicts} conflict${st.conflicts > 1 ? 's' : ''}`;
+  if (status === 'conflicts' && st.conflicts) label = `${st.conflicts} conflict${st.conflicts > 1 ? 's' : ''} (auto-resolving\u2026)`;
+  if (st.healed && status !== 'conflicts') label += ` \u00b7 ${st.healed} auto-resolved`;
   if (!online && status !== 'disconnected') label = 'Device offline';
   const pct = (syncing && st.total) ? Math.round((st.done / st.total) * 100) : (status === 'synced' ? 100 : 0);
   const bar = syncing

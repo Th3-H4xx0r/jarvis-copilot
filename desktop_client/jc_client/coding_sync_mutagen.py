@@ -76,6 +76,9 @@ class CodingMutagenAgent:
         self._stops: dict = {}     # sync_id -> threading.Event
         self._threads: dict = {}   # sync_id -> Thread
         self._last_status: dict = {}  # sync_id -> last status dict (for the tray)
+        self._healed: dict = {}       # sync_id -> conflicts auto-resolved (total)
+        from jc_client.coding_sync_heal import ConflictHealer
+        self._healer = ConflictHealer(self._state_dir)
         self._pubkey: Optional[str] = None
         # Clear any stale "Sync: N active" the OLD agent left behind.
         self._write_sync_state()
@@ -279,7 +282,33 @@ class CodingMutagenAgent:
         except MutagenError as exc:
             self._emit_error(sync_id, str(exc))
             return
+        # SELF-HEAL: Two-Way-Safe never resolves a conflict on its own, so
+        # conflicted paths silently stop syncing forever. Resolve them
+        # newest-edit-wins with the losing copy backed up first (see
+        # coding_sync_heal) — rate-limited, and never fatal to the poll.
+        if int(st.get("conflicts") or 0) > 0:
+            try:
+                if self._heal(sync_id):
+                    st = self._driver.status(sync_id)   # refresh post-flush
+            except Exception as exc:  # noqa: BLE001
+                log.warning("sync heal[%s] pass failed: %s", sync_id, exc)
         self._emit_status(sync_id, st)
+
+    def _heal(self, sync_id: str) -> int:
+        """One rate-limited heal pass; returns how many conflicts resolved."""
+        name = self._driver.name_for(sync_id)
+        if not self._healer.due(name):
+            return 0
+        raw = self._driver.raw_session(sync_id)
+        if not raw:
+            return 0
+        res = self._healer.heal(raw, name)
+        healed = int(res.get("healed") or 0)
+        if healed:
+            self._driver.flush(sync_id)
+            with self._lock:
+                self._healed[sync_id] = self._healed.get(sync_id, 0) + healed
+        return healed
 
     def _stop_poller(self, sync_id: str) -> None:
         with self._lock:
@@ -303,6 +332,7 @@ class CodingMutagenAgent:
             "done": int(st.get("done") or 0),
             "total": int(st.get("total") or 0),
             "error": st.get("error"),
+            "healed": int(self._healed.get(sync_id, 0)),
         })
         self._write_sync_state()
 

@@ -104,6 +104,10 @@ def terminate_argv(mutagen: str, name: str) -> list:
     return [mutagen, "sync", "terminate", name]
 
 
+def flush_argv(mutagen: str, name: str) -> list:
+    return [mutagen, "sync", "flush", name]
+
+
 def parse_status(stdout: str) -> dict:
     """Normalize ``mutagen sync list --template {{json .}}`` output.
 
@@ -283,6 +287,26 @@ class MutagenDriver:
 
     def stop_sync(self, session_id: str) -> None:
         self._run(terminate_argv(self._require(), session_name(session_id)), self._env)
+
+    def raw_session(self, session_id: str) -> Optional[dict]:
+        """The raw ``{{json .}}`` session dict (conflict paths, endpoint URLs)
+        for the conflict healer, or None when unavailable."""
+        rc, out, _err = self._run(
+            status_argv(self._require(), session_name(session_id)), self._env)
+        if rc not in (0, None):
+            return None
+        try:
+            data = json.loads((out or "").strip())
+        except Exception:
+            return None
+        if isinstance(data, list):
+            data = data[0] if data else None
+        return data if isinstance(data, dict) else None
+
+    def flush(self, session_id: str) -> None:
+        """Force a sync cycle (after the healer moved conflicted copies)."""
+        self._run(flush_argv(self._require(), session_name(session_id)),
+                  self._env, _CREATE_TIMEOUT)
 
     def name_for(self, session_id: str) -> str:
         """The Mutagen session name this driver uses for a sync id."""

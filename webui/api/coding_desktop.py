@@ -735,6 +735,7 @@ class MutagenSyncSession:
         self.status = "opening"
         self.direction = None  # parity field (Mutagen is bidirectional)
         self.conflicts = 0
+        self.healed = 0
         self.done = 0
         self.total = 0
         self.last_sync_at = None
@@ -773,6 +774,7 @@ class MutagenSyncSession:
         status = str(frame.get("status") or "").strip() or self.status
         self.status = status
         self.conflicts = int(frame.get("conflicts") or 0)
+        self.healed = int(frame.get("healed") or 0)
         self.done = int(frame.get("done") or 0)
         self.total = int(frame.get("total") or 0)
         self.error = frame.get("error")
@@ -1210,7 +1212,7 @@ def sync_status(session_id: str, sync_config=None, cwd: str | None = None) -> di
 
     out = {"enabled": False, "device": None, "device_online": False,
            "status": "off", "direction": None, "total": 0, "done": 0,
-           "conflicts": 0, "last_sync_at": None, "error": None}
+           "conflicts": 0, "healed": 0, "last_sync_at": None, "error": None}
     cfg = {}
     if sync_config:
         try:
@@ -1250,6 +1252,7 @@ def sync_status(session_id: str, sync_config=None, cwd: str | None = None) -> di
         out["total"] = int(getattr(sess, "total", 0) or 0)
         out["done"] = int(getattr(sess, "done", 0) or 0)
         out["conflicts"] = int(getattr(sess, "conflicts", 0) or 0)
+        out["healed"] = int(getattr(sess, "healed", 0) or 0)
         out["last_sync_at"] = getattr(sess, "last_sync_at", None)
         out["error"] = getattr(sess, "error", None)
     if not out["device_online"]:
