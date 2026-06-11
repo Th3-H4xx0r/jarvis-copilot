@@ -455,9 +455,11 @@ class VoiceController extends ChangeNotifier {
 
     if (muted) return;
 
-    // Barge-in: a loud frame during playback interrupts the assistant.
+    // Barge-in: a loud frame during playback interrupts the assistant. Only
+    // while foregrounded — backgrounded, the loud reply can leak past echo
+    // cancellation and falsely trip the threshold.
     if (state == VoiceState.speaking) {
-      if (amp > _bargeInThreshold) {
+      if (_foreground && amp > _bargeInThreshold) {
         _sendJson({'type': 'interrupt'});
         unawaited(_audio.stop());
         _resetVad();
@@ -791,10 +793,12 @@ class VoiceController extends ChangeNotifier {
   /// times. When the wake-word recognizer (or a just-ended turn) hasn't
   /// fully released the AVAudioSession yet, the first `setActive` throws
   /// "Session activation failed"; a short wait + retry clears it.
-  /// Configure audio_session ONCE as the sole owner of the iOS audio session:
-  /// .playAndRecord + .defaultToSpeaker so playback is loud on the speaker, and
-  /// — because record no longer manages the session (manageAudioSession:false)
-  /// — the route survives the mic stopping on background. Idempotent.
+  /// Configure audio_session ONCE as the sole owner of the iOS audio session,
+  /// like a phone/Discord call: .playAndRecord + .videoChat MODE. videoChat
+  /// routes to the loud speaker (speakerphone) AND runs echo cancellation so
+  /// the loud reply doesn't feed back into the live mic — which is how calling
+  /// apps get full volume + simultaneous mic. (.defaultMode gave the quiet
+  /// "call-volume" earpiece route — the original complaint.) Idempotent.
   Future<void> _ensureAudioSession() async {
     if (_session != null) return;
     try {
@@ -806,7 +810,7 @@ class VoiceController extends ChangeNotifier {
                 AVAudioSessionCategoryOptions.allowBluetooth |
                 AVAudioSessionCategoryOptions.allowBluetoothA2dp |
                 AVAudioSessionCategoryOptions.mixWithOthers,
-        avAudioSessionMode: AVAudioSessionMode.defaultMode,
+        avAudioSessionMode: AVAudioSessionMode.videoChat,
       ));
       _interruptionSub =
           session.interruptionEventStream.listen(_onInterruption);
@@ -942,39 +946,28 @@ class VoiceController extends ChangeNotifier {
   }
 
   // ── Backgrounding ─────────────────────────────────────────────
-  bool _capturePaused = false;
+  bool _foreground = true;
 
-  /// App went to the background. Keep the WebSocket and audio playback
-  /// alive so the current reply finishes speaking, but stop capturing
-  /// the mic so we're not recording while backgrounded. (record's stop()
-  /// tears down its engine without deactivating the shared audio session,
-  /// so playback keeps going.)
+  /// App went to the background. We behave like a phone/Discord call: KEEP the
+  /// mic, the audio session, the WebSocket, and playback all running (the app
+  /// has the `audio` background mode, which lets an already-active recording
+  /// session continue in the background). We deliberately do NOT stop/restart
+  /// the mic — that's what reconfigured the session, dropped the loud speaker
+  /// route to the quiet earpiece, degraded the volume each in/out cycle, and
+  /// eventually wedged playback. iOS also won't let us re-START a recording
+  /// session from the background, so stopping it would strand us anyway.
   Future<void> pauseForBackground() async {
     if (mode != VoiceMode.realtime || !active) return;
-    _capturePaused = true;
+    _foreground = false;
     _cancelThinkingWatchdog(); // don't fire reassurance timers while backgrounded
-    await _micSub?.cancel();
-    _micSub = null;
-    try {
-      if (await _recorder.isRecording()) await _recorder.stop();
-    } catch (_) {}
   }
 
-  /// App returned to the foreground — resume mic capture if we paused it.
+  /// App returned to the foreground. Nothing was torn down — just re-assert the
+  /// session is active in case iOS deactivated it while we were away.
   Future<void> resumeFromBackground() async {
-    if (!_capturePaused) return;
-    _capturePaused = false;
+    _foreground = true;
     if (mode != VoiceMode.realtime || !active) return;
-    try {
-      final stream = await _startMicStream();
-      _micSub = stream.listen(_onRealtimeFrame);
-      if (state != VoiceState.speaking) {
-        _resetVad();
-        _set(VoiceState.listening);
-      }
-    } catch (e) {
-      _fail('Could not resume microphone: $e');
-    }
+    await _session?.setActive(true);
   }
 
   /// Stop everything and return to idle (the Stop button / mode switch).
