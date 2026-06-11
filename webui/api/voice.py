@@ -506,6 +506,13 @@ def _voice_quality_turn(handler, body) -> bool:
                 # narration); tool segments are suppressed below either way.
                 if not _emit_text(text):
                     return True
+            elif seg.get("kind") == "clarify":
+                # Speak the question so quality mode doesn't hang silently. (The
+                # answer round-trip is only wired for the realtime WS path; here
+                # the agent times the clarify out and proceeds.)
+                q = _format_clarify_speech(seg.get("question", ""), seg.get("choices") or [])
+                if q and not _emit_text(q):
+                    return True
             # tool segments are intentionally suppressed in voice mode
     except _VoiceAgentError as exc:
         _emit({"type": "error", "error": str(exc), "status": exc.status})
@@ -560,6 +567,147 @@ _VOICE_REPLY_DIRECTIVE = (
 )
 
 
+def _consume_agent_stream(channel, subscriber, stream_id, first_text_emitted=False):
+    """GENERATOR. Consume agent-stream events from `subscriber` and yield voice
+    segments. Shared by the initial turn (_run_agent_turn_via_chat) and the
+    post-clarify continuation (_run_agent_continuation_after_clarify).
+
+    Yields:
+      {"kind":"text","text":...}
+      {"kind":"tool","name":...,"status":...}
+      {"kind":"clarify","question":...,"choices":[...]}  ← the agent then BLOCKS
+          awaiting resolve_clarify(); we STOP consuming so the caller can speak
+          the question, listen for the answer, resolve it, and resume.
+    Unsubscribes on exit.
+    """
+    import queue as _queue
+    import time as _time
+    from api.config import STREAMS, STREAMS_LOCK  # type: ignore
+    last_tool_name = ""
+    current_text: list = []
+    deadline = _time.monotonic() + _VOICE_TURN_TIMEOUT_SECONDS
+    try:
+        while _time.monotonic() < deadline:
+            try:
+                event = subscriber.get(timeout=1.0)
+            except _queue.Empty:
+                with STREAMS_LOCK:
+                    still_alive = stream_id in STREAMS
+                if not still_alive:
+                    break
+                continue
+            if not isinstance(event, tuple) or len(event) != 2:
+                continue
+            event_type, data = event
+            if event_type == "token":
+                if isinstance(data, dict):
+                    current_text.append(str(data.get("text") or ""))
+                    # First segment flushes on the first sentence terminator
+                    # (min_len=0) for a near-instant ack; later ones batch.
+                    _joined = "".join(current_text)
+                    _min_len = 0 if not first_text_emitted else 110
+                    _emit_now, _remainder = _take_complete_sentences(_joined, min_len=_min_len)
+                    if _emit_now:
+                        current_text = [_remainder] if _remainder else []
+                        first_text_emitted = True
+                        yield {"kind": "text", "text": _emit_now}
+            elif event_type == "tool":
+                if current_text:
+                    text = "".join(current_text).strip()
+                    current_text.clear()
+                    if text:
+                        first_text_emitted = True
+                        yield {"kind": "text", "text": text}
+                name = ""
+                preview = ""
+                if isinstance(data, dict):
+                    name = str(data.get("name") or data.get("tool") or "")
+                    preview = str(data.get("preview") or "")
+                last_tool_name = name
+                yield {"kind": "tool", "name": name, "status": "started", "preview": preview}
+            elif event_type == "tool_complete":
+                name = ""
+                is_error = False
+                if isinstance(data, dict):
+                    name = str(data.get("name") or "") or last_tool_name
+                    is_error = bool(data.get("is_error"))
+                yield {"kind": "tool", "name": name, "status": "error" if is_error else "completed"}
+            elif event_type == "clarify":
+                # The agent asked the user a question and is now BLOCKED awaiting
+                # resolve_clarify(). Flush buffered text, surface the question,
+                # and STOP — the bridge speaks it, listens for the spoken answer,
+                # resolves the clarify, and resumes via
+                # _run_agent_continuation_after_clarify.
+                if current_text:
+                    text = "".join(current_text).strip()
+                    current_text.clear()
+                    if text:
+                        yield {"kind": "text", "text": text}
+                q = ""
+                choices: list = []
+                if isinstance(data, dict):
+                    q = str(data.get("question") or "")
+                    raw = data.get("choices_offered") or data.get("choices") or []
+                    if isinstance(raw, list):
+                        choices = [str(c) for c in raw]
+                yield {"kind": "clarify", "question": q, "choices": choices}
+                return
+            elif event_type == "done":
+                if current_text:
+                    text = "".join(current_text).strip()
+                    current_text.clear()
+                    if text:
+                        yield {"kind": "text", "text": text}
+                return
+            # reasoning / metering / approval — ignored (approval auto-granted
+            # under yolo; reasoning is not voiced).
+    finally:
+        try:
+            channel.unsubscribe(subscriber)
+        except Exception:
+            pass
+    # Deadline hit without a done event — flush whatever we have.
+    if current_text:
+        text = "".join(current_text).strip()
+        if text:
+            yield {"kind": "text", "text": text}
+
+
+def _run_agent_continuation_after_clarify(session_id: str, answer: str):
+    """GENERATOR. Answer a pending clarify with `answer` and resume streaming the
+    SAME (blocked) agent turn — re-subscribing to its active stream so the rest
+    of the reply (after the question) is spoken."""
+    _ensure_hermes_on_path()
+    try:
+        from api.models import get_session  # type: ignore
+        from api.config import STREAMS, STREAMS_LOCK  # type: ignore
+        from api.clarify import resolve_clarify  # type: ignore
+    except Exception as exc:
+        raise _VoiceAgentError(f"clarify resume unavailable: {exc}", status=500)
+    try:
+        s = get_session(session_id)
+    except KeyError:
+        raise _VoiceAgentError(f"session {session_id!r} not found", status=404)
+    stream_id = getattr(s, "active_stream_id", None)
+    if not stream_id:
+        raise _VoiceAgentError("no active stream to resume after clarify", status=409)
+    with STREAMS_LOCK:
+        channel = STREAMS.get(stream_id)
+    if channel is None:
+        raise _VoiceAgentError("stream gone before clarify resume", status=410)
+    subscriber = channel.subscribe()
+    # Subscribe BEFORE resolving so the continuation events aren't missed.
+    try:
+        resolve_clarify(session_id, answer)
+    except Exception as exc:
+        try:
+            channel.unsubscribe(subscriber)
+        except Exception:
+            pass
+        raise _VoiceAgentError(f"failed to resolve clarify: {exc}", status=500)
+    yield from _consume_agent_stream(channel, subscriber, stream_id)
+
+
 def _run_agent_turn_via_chat(session_id: str, user_text: str):
     """GENERATOR. Push `user_text` into the user's active chat session and
     yield segments as they arrive on the SSE stream so callers can react
@@ -580,8 +728,6 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str):
     Callers can do `list(...)` to materialize the old batched behavior or
     iterate directly for streaming.
     """
-    import queue as _queue
-    import time as _time
     _ensure_hermes_on_path()
     try:
         from api.models import get_session  # type: ignore
@@ -658,105 +804,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str):
     if channel is None:
         raise _VoiceAgentError("stream channel disappeared before subscribe", status=500)
     subscriber = channel.subscribe()
-
-    # Tracks the most recent tool-started segment we yielded so that a
-    # later tool_complete event can be paired up. We can't mutate a value
-    # already yielded to the caller; instead we yield a fresh
-    # {"kind": "tool", "status": "completed", ...} entry referencing the
-    # same tool name. Clients dedup on (name + status).
-    last_tool_name = ""
-    current_text: list = []
-    # The FIRST spoken segment of a turn flushes as soon as one complete
-    # sentence exists (min_len=0) so the opening clause/ack is heard in ~1s
-    # (near-instant feel). After that we batch to ~110 chars to avoid many
-    # tiny TTS calls mid-answer. See _take_complete_sentences.
-    first_text_emitted = False
-    deadline = _time.monotonic() + _VOICE_TURN_TIMEOUT_SECONDS
-
-    try:
-        while _time.monotonic() < deadline:
-            try:
-                event = subscriber.get(timeout=1.0)
-            except _queue.Empty:
-                # No event in the last second — check if the stream channel
-                # is gone (agent crashed without emitting done).
-                with STREAMS_LOCK:
-                    still_alive = stream_id in STREAMS
-                if not still_alive:
-                    break
-                continue
-            if not isinstance(event, tuple) or len(event) != 2:
-                continue
-            event_type, data = event
-            if event_type == "token":
-                if isinstance(data, dict):
-                    current_text.append(str(data.get("text") or ""))
-                    # Stream by sentence: emit completed sentence(s) as soon as
-                    # they're written so the client can synthesize + speak them
-                    # immediately, rather than waiting for the whole answer. The
-                    # first segment uses min_len=0 (flush on the first sentence
-                    # terminator) for a near-instant ack; later segments batch.
-                    _joined = "".join(current_text)
-                    _min_len = 0 if not first_text_emitted else 110
-                    _emit_now, _remainder = _take_complete_sentences(_joined, min_len=_min_len)
-                    if _emit_now:
-                        current_text = [_remainder] if _remainder else []
-                        first_text_emitted = True
-                        yield {"kind": "text", "text": _emit_now}
-            elif event_type == "tool":
-                # Flush any in-progress text segment first — that's what
-                # gives us the "ack before tool" cadence.
-                if current_text:
-                    text = "".join(current_text).strip()
-                    current_text.clear()
-                    if text:
-                        first_text_emitted = True
-                        yield {"kind": "text", "text": text}
-                name = ""
-                preview = ""
-                if isinstance(data, dict):
-                    name = str(data.get("name") or data.get("tool") or "")
-                    preview = str(data.get("preview") or "")
-                last_tool_name = name
-                yield {
-                    "kind": "tool",
-                    "name": name,
-                    "status": "started",
-                    "preview": preview,
-                }
-            elif event_type == "tool_complete":
-                name = ""
-                is_error = False
-                if isinstance(data, dict):
-                    name = str(data.get("name") or "") or last_tool_name
-                    is_error = bool(data.get("is_error"))
-                yield {
-                    "kind": "tool",
-                    "name": name,
-                    "status": "error" if is_error else "completed",
-                }
-            elif event_type == "done":
-                # Flush remaining text before terminating.
-                if current_text:
-                    text = "".join(current_text).strip()
-                    current_text.clear()
-                    if text:
-                        yield {"kind": "text", "text": text}
-                return
-            # reasoning / metering / clarify / approval — ignored. clarify
-            # and approval rarely fire under yolo; reasoning is not voiced.
-    finally:
-        try:
-            channel.unsubscribe(subscriber)
-        except Exception:
-            pass
-
-    # Deadline hit without a done event — flush whatever we have so the
-    # caller still gets the final text segment.
-    if current_text:
-        text = "".join(current_text).strip()
-        if text:
-            yield {"kind": "text", "text": text}
+    yield from _consume_agent_stream(channel, subscriber, stream_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1201,6 +1249,7 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         with state["lock"]:
             state["pcm_buf"].clear()
             state["interrupt"] = False
+        state["clarify_pending"] = False  # fresh session — drop any stale clarify
         sr = int(msg.get("sample_rate") or 0)
         if sr > 0:
             state["sample_rate"] = sr
@@ -1211,10 +1260,191 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         state["interrupt"] = True
     elif t == "end_turn":
         try:
-            _bridge_pipeline(state, conn, sock)
+            # If the agent is paused on a clarify question, this end_turn is the
+            # user's spoken ANSWER — resolve it and resume; otherwise it's a new
+            # turn.
+            if state.get("clarify_pending"):
+                _bridge_answer_clarify(state, conn, sock)
+            else:
+                _bridge_pipeline(state, conn, sock)
         except Exception:
             print("[webui] bridge pipeline error: " + traceback.format_exc(), flush=True)
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "error"}))
+
+
+def _synth_audio(text: str):
+    """Synthesize one text segment → ('pcm', pcm24k) | ('mp3', bytes) | None.
+
+    Pure (no socket I/O) so it can run on a prefetch worker thread. Retries
+    transient TTS failures a couple of times (a long reply fires many rapid TTS
+    calls and the engine occasionally drops one — silently skipping it stalled
+    playback + froze the karaoke mid-reply)."""
+    mp3_b64 = ""
+    for _attempt in range(3):
+        mp3_b64 = _tts_to_base64(text)
+        if mp3_b64:
+            break
+        time.sleep(0.4)
+    if not mp3_b64:
+        return None
+    audio_bytes = base64.b64decode(mp3_b64)
+    pcm24k = _mp3_to_pcm24k(audio_bytes)
+    if pcm24k is None:
+        return ("mp3", audio_bytes)
+    return ("pcm", pcm24k)
+
+
+def _send_audio(conn, sock, state, audio) -> bool:
+    """Stream a synthesized ('pcm'|'mp3', bytes) result over the WS in order.
+    Returns False to abort (interrupt / socket dead)."""
+    if not audio:
+        return True
+    fmt, data = audio
+    if fmt == "mp3":
+        if state["interrupt"]:
+            return False
+        _ws_send_text(conn, sock, json.dumps({"type": "audio_meta", "format": "mp3", "sample_rate": 0}))
+        if not _ws_send_bytes(conn, sock, data):
+            return False
+        _ws_send_text(conn, sock, json.dumps({"type": "audio_end"}))
+        return True
+    _ws_send_text(conn, sock, json.dumps({"type": "audio_meta", "format": "pcm_s16le", "sample_rate": 24000}))
+    FRAME = 3840
+    for i in range(0, len(data), FRAME):
+        if state["interrupt"]:
+            return False
+        if not _ws_send_bytes(conn, sock, data[i:i + FRAME]):
+            return False
+    _ws_send_text(conn, sock, json.dumps({"type": "audio_end"}))
+    return True
+
+
+def _stream_segment(conn, sock, state, seg: dict) -> bool:
+    """Inline (non-pipelined) send of one segment. Used for the spoken apology
+    messages and the no-session fallback reply. Returns False to abort."""
+    if state["interrupt"]:
+        return False
+    kind = seg.get("kind")
+    if kind == "tool":
+        _ws_send_text(conn, sock, json.dumps({
+            "type": "tool", "name": seg.get("name", ""), "status": seg.get("status", "started"),
+        }))
+        return True
+    if kind != "text":
+        return True
+    text = (seg.get("text") or "").strip()
+    if not text:
+        return True
+    _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": text}))
+    if state["interrupt"]:
+        return False
+    return _send_audio(conn, sock, state, _synth_audio(text))
+
+
+def _format_clarify_speech(question: str, choices) -> str:
+    """Spoken form of a clarify question. Appends the offered choices (skipping
+    'Other') so the user knows what they can say."""
+    q = (question or "").strip()
+    spoken = [str(c).strip() for c in (choices or [])
+              if str(c).strip() and str(c).strip().lower() != "other"]
+    if spoken and len(spoken) <= 6:
+        return f"{q} You can say: {'; '.join(spoken)}."
+    return q
+
+
+def _stream_segments(conn, sock, state, gen) -> bool:
+    """Stream a segment generator with the prefetch TTS pipeline (synthesis of
+    segment N+1 overlaps streaming of N; all socket writes stay on this thread).
+
+    Returns True if the turn is fully HANDLED here — i.e. a clarify was raised
+    (the agent is now blocked awaiting the spoken answer; end_turn{clarify} was
+    sent and state['clarify_pending'] set), or nothing was produced (apology +
+    end_turn{no_reply} sent). The caller must then NOT send another end_turn.
+    Returns False on normal completion / error (caller sends the final end_turn).
+    """
+    import collections as _collections
+    from concurrent.futures import ThreadPoolExecutor
+    executor = ThreadPoolExecutor(max_workers=2)
+    buf = _collections.deque()
+    gen_exhausted = False
+    any_emitted = False
+    handled = False
+    _PREFETCH = 3
+
+    def _refill():
+        nonlocal gen_exhausted, any_emitted
+        while len(buf) < _PREFETCH and not gen_exhausted:
+            try:
+                seg = next(gen)  # _VoiceAgentError propagates → outer handler
+            except StopIteration:
+                gen_exhausted = True
+                break
+            any_emitted = True
+            k = seg.get("kind")
+            if k == "text":
+                t = (seg.get("text") or "").strip()
+                if t:
+                    buf.append({"kind": "text", "text": t, "future": executor.submit(_synth_audio, t)})
+            elif k == "tool":
+                buf.append({"kind": "tool", "name": seg.get("name", ""), "status": seg.get("status", "started")})
+            elif k == "clarify":
+                q = _format_clarify_speech(seg.get("question", ""), seg.get("choices") or [])
+                buf.append({"kind": "clarify", "text": q, "future": executor.submit(_synth_audio, q)})
+
+    try:
+        _refill()
+        while buf:
+            if state["interrupt"]:
+                break
+            item = buf.popleft()
+            _refill()  # keep synthesis running ahead while we send this one
+            if item["kind"] == "tool":
+                _ws_send_text(conn, sock, json.dumps({
+                    "type": "tool", "name": item["name"], "status": item["status"],
+                }))
+                continue
+            _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": item["text"]}))
+            if state["interrupt"]:
+                break
+            try:
+                audio = item["future"].result()
+            except Exception:
+                audio = None
+            if not _send_audio(conn, sock, state, audio):
+                break
+            if item["kind"] == "clarify":
+                # The agent is now BLOCKED awaiting the answer. End the turn so
+                # the client listens; the next end_turn is routed to the answer
+                # (_bridge_answer_clarify). Close the generator to unsubscribe.
+                state["clarify_pending"] = True
+                _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "clarify"}))
+                try:
+                    gen.close()
+                except Exception:
+                    pass
+                handled = True
+                break
+        if not handled and not any_emitted and not state["interrupt"]:
+            # The agent produced nothing — never a SILENT end_turn (the mobile
+            # client ignores end_turn `reason`). Speak a short apology.
+            _stream_segment(conn, sock, state, {"kind": "text", "text": "Sorry, I didn't catch a reply that time. Please try again."})
+            _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_reply"}))
+            handled = True
+    except _VoiceAgentError as exc:
+        print(f"[webui] voice realtime agent error: {exc}", flush=True)
+        if not state["interrupt"]:
+            _stream_segment(conn, sock, state, {"kind": "text", "text": "Sorry, I ran into a problem handling that. Please try again."})
+    except Exception:
+        print("[webui] voice realtime pipeline error: " + traceback.format_exc(), flush=True)
+        if not state["interrupt"]:
+            _stream_segment(conn, sock, state, {"kind": "text", "text": "Sorry, something went wrong on my end. Please try again."})
+    finally:
+        for _it in buf:
+            f = _it.get("future")
+            if f is not None:
+                f.cancel()
+        executor.shutdown(wait=False)
+    return handled
 
 
 def _bridge_pipeline(state: dict, conn, sock) -> None:
@@ -1242,173 +1472,41 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
         _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "interrupt"}))
         return
 
-    # If the client provided a session_id, iterate the chat-agent
-    # generator and stream each segment over the WS as soon as it lands.
-    # The generator yields tool/text events in order; we synthesize TTS
-    # for each text segment inline so the client hears it immediately
-    # rather than after the whole turn finishes.
-    def _synth_audio(text: str):
-        """Synthesize one text segment → ('pcm', pcm24k) | ('mp3', bytes) | None.
-
-        Pure (no socket I/O), so it can run on a worker thread in the prefetch
-        pipeline below — that's what lets segment N+1 synthesize while segment
-        N is still streaming, instead of compute→speak→compute serially.
-
-        Retries transient TTS failures: a long reply (e.g. a morning brief)
-        fires many rapid TTS calls and the engine (Edge TTS by default)
-        occasionally drops one. Silently skipping it left the segment's text on
-        screen with NO audio — playback stalled and the karaoke froze mid-reply
-        even though more text kept streaming. Retry a couple of times first.
-        """
-        mp3_b64 = ""
-        for _attempt in range(3):
-            mp3_b64 = _tts_to_base64(text)
-            if mp3_b64:
-                break
-            time.sleep(0.4)  # brief backoff before retrying a dropped synth
-        if not mp3_b64:
-            return None
-        audio_bytes = base64.b64decode(mp3_b64)
-        pcm24k = _mp3_to_pcm24k(audio_bytes)
-        if pcm24k is None:
-            return ("mp3", audio_bytes)
-        return ("pcm", pcm24k)
-
-    def _send_audio(audio) -> bool:
-        """Stream a synthesized ('pcm'|'mp3', bytes) result over the WS in
-        order. Returns False to abort (interrupt / socket dead)."""
-        if not audio:
-            return True
-        fmt, data = audio
-        if fmt == "mp3":
-            if state["interrupt"]:
-                return False
-            _ws_send_text(conn, sock, json.dumps({"type": "audio_meta", "format": "mp3", "sample_rate": 0}))
-            if not _ws_send_bytes(conn, sock, data):
-                return False
-            _ws_send_text(conn, sock, json.dumps({"type": "audio_end"}))
-            return True
-        _ws_send_text(conn, sock, json.dumps({"type": "audio_meta", "format": "pcm_s16le", "sample_rate": 24000}))
-        FRAME = 3840
-        for i in range(0, len(data), FRAME):
-            if state["interrupt"]:
-                return False
-            if not _ws_send_bytes(conn, sock, data[i:i + FRAME]):
-                return False
-        _ws_send_text(conn, sock, json.dumps({"type": "audio_end"}))
-        return True
-
-    def _stream_segment(seg: dict) -> bool:
-        """Inline (non-pipelined) send of one segment. Used for the spoken
-        apology messages and the no-session fallback reply. Returns True to
-        continue, False to abort."""
-        if state["interrupt"]:
-            return False
-        kind = seg.get("kind")
-        if kind == "tool":
-            _ws_send_text(conn, sock, json.dumps({
-                "type": "tool",
-                "name": seg.get("name", ""),
-                "status": seg.get("status", "started"),
-            }))
-            return True
-        if kind != "text":
-            return True
-        text = (seg.get("text") or "").strip()
-        if not text:
-            return True
-        _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": text}))
-        if state["interrupt"]:
-            return False
-        return _send_audio(_synth_audio(text))
-
     if sid:
-        import collections as _collections
-        from concurrent.futures import ThreadPoolExecutor
-        # Prefetch pipeline: synthesize upcoming text segments in the background
-        # so TTS+ffmpeg of segment N+1 overlaps streaming of segment N (instead
-        # of the old serial compute→speak→compute). ALL socket writes stay on
-        # THIS recv thread — the workers only run pure TTS — so frame ordering
-        # is unchanged: per item we send assistant_text, then its audio, in
-        # generation order.
-        executor = ThreadPoolExecutor(max_workers=2)
-        buf = _collections.deque()
-        gen = _run_agent_turn_via_chat(sid, transcript)
-        gen_exhausted = False
-        any_emitted = False
-        _PREFETCH = 3
-
-        def _refill():
-            nonlocal gen_exhausted, any_emitted
-            while len(buf) < _PREFETCH and not gen_exhausted:
-                try:
-                    seg = next(gen)  # _VoiceAgentError propagates → outer handler
-                except StopIteration:
-                    gen_exhausted = True
-                    break
-                any_emitted = True
-                k = seg.get("kind")
-                if k == "text":
-                    t = (seg.get("text") or "").strip()
-                    if t:
-                        buf.append({"kind": "text", "text": t,
-                                    "future": executor.submit(_synth_audio, t)})
-                elif k == "tool":
-                    buf.append({"kind": "tool", "name": seg.get("name", ""),
-                                "status": seg.get("status", "started")})
-
-        try:
-            _refill()
-            while buf:
-                if state["interrupt"]:
-                    break
-                item = buf.popleft()
-                _refill()  # keep synthesis running ahead while we send this one
-                if item["kind"] == "tool":
-                    _ws_send_text(conn, sock, json.dumps({
-                        "type": "tool", "name": item["name"], "status": item["status"],
-                    }))
-                    continue
-                _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": item["text"]}))
-                if state["interrupt"]:
-                    break
-                try:
-                    audio = item["future"].result()
-                except Exception:
-                    audio = None
-                if not _send_audio(audio):
-                    break
-            if not any_emitted and not state["interrupt"]:
-                # The agent produced nothing. Never fall back to a SILENT
-                # end_turn — the mobile client ignores end_turn `reason`, so a
-                # silent no_reply presented as "thinking → listening, nothing
-                # spoken". Speak a short apology so the user always gets audio.
-                _stream_segment({"kind": "text", "text": "Sorry, I didn't catch a reply that time. Please try again."})
-                _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_reply"}))
-                return
-        except _VoiceAgentError as exc:
-            # Log the real detail; SPEAK a clean message (don't read a raw
-            # exception/session id aloud).
-            print(f"[webui] voice realtime agent error: {exc}", flush=True)
-            if not state["interrupt"]:
-                _stream_segment({"kind": "text", "text": "Sorry, I ran into a problem handling that. Please try again."})
-        except Exception:
-            print("[webui] voice realtime pipeline error: " + traceback.format_exc(), flush=True)
-            if not state["interrupt"]:
-                _stream_segment({"kind": "text", "text": "Sorry, something went wrong on my end. Please try again."})
-        finally:
-            # Cancel any not-yet-started synth futures so an interrupted / early
-            # exited turn doesn't burn TTS+ffmpeg work nobody will hear.
-            for _it in buf:
-                _f = _it.get("future")
-                if _f is not None:
-                    _f.cancel()
-            executor.shutdown(wait=False)
+        if _stream_segments(conn, sock, state, _run_agent_turn_via_chat(sid, transcript)):
+            return  # fully handled (clarify pending / no_reply) — end_turn sent
     else:
         reply = _generate_reply(transcript)
         if reply:
-            _stream_segment({"kind": "text", "text": reply})
+            _stream_segment(conn, sock, state, {"kind": "text", "text": reply})
 
+    _ws_send_text(conn, sock, json.dumps({"type": "end_turn"}))
+
+
+def _bridge_answer_clarify(state: dict, conn, sock) -> None:
+    """The user spoke an answer to a pending clarify. STT it, resolve the
+    clarify, and stream the resumed reply (re-subscribing to the still-blocked
+    agent turn). Routed here from _handle_control_frame when clarify_pending."""
+    with state["lock"]:
+        pcm = bytes(state["pcm_buf"])
+        sr = state["sample_rate"]
+        sid = (state.get("session_id") or "").strip()
+        state["pcm_buf"].clear()
+    if len(pcm) < 1000:
+        # Nothing heard — keep clarify pending so the user can just try again.
+        _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "empty"}))
+        return
+    transcript = _pcm_to_transcript(pcm, sr)
+    if not transcript:
+        _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))
+        return
+    _ws_send_text(conn, sock, json.dumps({"type": "transcript", "text": transcript, "is_final": True}))
+    if state["interrupt"]:
+        _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "interrupt"}))
+        return
+    state["clarify_pending"] = False
+    if _stream_segments(conn, sock, state, _run_agent_continuation_after_clarify(sid, transcript)):
+        return  # nested clarify / no_reply — end_turn already sent
     _ws_send_text(conn, sock, json.dumps({"type": "end_turn"}))
 
 

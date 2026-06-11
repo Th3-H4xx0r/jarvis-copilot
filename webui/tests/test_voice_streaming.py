@@ -89,3 +89,69 @@ def test_voice_session_route_is_wired():
 
 def test_voice_source_tag_constant():
     assert _VOICE_SOURCE_TAG == "voice"
+
+
+# --- clarify handling in the shared stream-consume loop -----------------------
+
+import queue as _queue  # noqa: E402
+
+
+class _FakeSub:
+    """Minimal subscriber: returns queued (type, data) events, then Empty."""
+
+    def __init__(self, events):
+        self._events = list(events)
+
+    def get(self, timeout=None):
+        if self._events:
+            return self._events.pop(0)
+        raise _queue.Empty
+
+
+class _FakeChannel:
+    def __init__(self):
+        self.unsubscribed = False
+
+    def unsubscribe(self, sub):
+        self.unsubscribed = True
+
+
+def test_consume_stream_yields_clarify_then_stops_and_unsubscribes():
+    from api.voice import _consume_agent_stream
+
+    events = [
+        ("token", {"text": "On it. "}),  # min_len=0 first segment → flush "On it."
+        ("clarify", {"question": "Who should I email?",
+                     "choices_offered": ["a@x.com", "b@y.com", "Other"]}),
+        ("token", {"text": "must not be reached"}),
+    ]
+    ch = _FakeChannel()
+    segs = list(_consume_agent_stream(ch, _FakeSub(events), "sid1"))
+
+    kinds = [s["kind"] for s in segs]
+    assert kinds == ["text", "clarify"]  # stops AT the clarify, drops trailing token
+    assert segs[0]["text"] == "On it."
+    assert segs[-1]["question"] == "Who should I email?"
+    assert segs[-1]["choices"] == ["a@x.com", "b@y.com", "Other"]
+    assert ch.unsubscribed  # always unsubscribes on exit
+
+
+def test_consume_stream_done_terminates():
+    from api.voice import _consume_agent_stream
+
+    events = [("token", {"text": "Hello there."}), ("done", {})]
+    ch = _FakeChannel()
+    segs = list(_consume_agent_stream(ch, _FakeSub(events), "sid"))
+    assert [s["kind"] for s in segs] == ["text"]
+    assert segs[0]["text"] == "Hello there."
+    assert ch.unsubscribed
+
+
+def test_format_clarify_speech_appends_choices_but_skips_other():
+    from api.voice import _format_clarify_speech
+
+    out = _format_clarify_speech("Who?", ["a@x.com", "b@y.com", "Other"])
+    assert "Who?" in out and "a@x.com" in out and "b@y.com" in out
+    assert "Other" not in out
+    # No usable choices → just the question.
+    assert _format_clarify_speech("Proceed?", []) == "Proceed?"
