@@ -67,3 +67,19 @@ def test_renderer_still_emits_core_proxy_block():
     assert "proxy_pass https://127.0.0.1:8787;" in conf
     assert "client_max_body_size 64m;" in conf
     assert "server_name jarvis.pkrishna.dev;" in conf
+
+
+def test_renderer_emits_low_latency_streaming_directives():
+    # The voice WS + ndjson/SSE streams need an unbuffered, keep-alive,
+    # no-idle-stall proxy path, or voice reads as "slow / never responds"
+    # (request buffering delays the upload; a held final WS frame stalls the
+    # stream). Regression guard for the 2026-06-11 voice latency work.
+    conf = _render()
+    for directive in (
+        "proxy_buffering off;",
+        "proxy_request_buffering off;",
+        "proxy_send_timeout 3600s;",
+        "proxy_socket_keepalive on;",
+        "tcp_nodelay on;",
+    ):
+        assert directive in conf, f"missing edge directive: {directive!r}"

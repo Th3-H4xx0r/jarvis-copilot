@@ -90,6 +90,8 @@ def _try_import_tts():
 def handle_voice_get(handler, parsed) -> bool:
     if parsed.path == "/api/voice/status":
         return _voice_status(handler)
+    if parsed.path == "/api/voice/session":
+        return _voice_session(handler)
     if parsed.path == "/api/voice/voices":
         return _voice_voices(handler)
     if parsed.path == "/api/voice/engines":
@@ -131,6 +133,120 @@ def _voice_status(handler) -> bool:
         "realtime_ok": bool(stt and tts_fn),
         "tts_provider": provider,
         "ffmpeg_ok": bool(_shutil.which("ffmpeg")),
+    })
+    return True
+
+
+# ---------------------------------------------------------------------------
+# /api/voice/session — the dedicated, persistent "Voice" chat
+# ---------------------------------------------------------------------------
+
+# Sessions created for voice carry this source_tag so we can find the one
+# dedicated voice chat again (instead of hijacking the user's most-recent
+# chat, which can be a coding/CLI/Telegram channel wired to another provider).
+_VOICE_SOURCE_TAG = "voice"
+
+# Serializes the scan-then-create in get_or_create_voice_session so two
+# simultaneous GET /api/voice/session calls (two devices, a double-tap) can't
+# both miss the scan and each create a duplicate "Voice" session.
+_VOICE_SESSION_LOCK = threading.Lock()
+
+
+def get_or_create_voice_session():
+    """Return the persistent dedicated 'Voice' chat session, creating it once.
+
+    Voice turns route here instead of whatever chat happens to be most recent —
+    a coding/CLI/Telegram session can be wired to a provider+model combination
+    (e.g. Codex with an empty model) that voice can't run, which is what made
+    mobile voice silently fail. The session is marked source_tag='voice' and
+    created with the user's resolved default model/provider. Returns the
+    Session object; raises _VoiceAgentError if the store is unavailable.
+    """
+    _ensure_hermes_on_path()
+    try:
+        from api.models import (  # type: ignore
+            Session, get_session, all_sessions, get_last_workspace,
+            LOCK, SESSIONS, SESSIONS_MAX,
+        )
+        from api.routes import _resolve_compatible_session_model_state  # type: ignore
+    except Exception as exc:
+        raise _VoiceAgentError(f"webui session store unavailable: {exc}", status=500)
+    import uuid as _uuid
+
+    def _scan_existing():
+        # Find the one dedicated voice chat (source_tag=="voice", not archived).
+        try:
+            for row in all_sessions():
+                if isinstance(row, dict):
+                    tag = row.get("source_tag")
+                    archived = row.get("archived")
+                    sid = row.get("session_id")
+                else:
+                    tag = getattr(row, "source_tag", None)
+                    archived = getattr(row, "archived", False)
+                    sid = getattr(row, "session_id", None)
+                if tag == _VOICE_SOURCE_TAG and not archived and sid:
+                    try:
+                        return get_session(sid)
+                    except KeyError:
+                        continue
+        except Exception:
+            pass
+        return None
+
+    # Hold the lock across scan AND create so concurrent callers don't each
+    # create a duplicate "Voice" session (a request that loses the race finds
+    # the winner's session on its scan).
+    with _VOICE_SESSION_LOCK:
+        existing = _scan_existing()
+        if existing is not None:
+            return existing
+
+        # Create a fresh dedicated voice session pinned to the resolved default
+        # model/provider (keeps Codex; never forces Claude).
+        try:
+            eff_model, eff_provider, _ = _resolve_compatible_session_model_state(None, None)
+        except Exception:
+            eff_model, eff_provider = "", None
+        try:
+            ws = get_last_workspace() or str(Path.home())
+        except Exception:
+            ws = str(Path.home())
+        s = Session(
+            session_id=_uuid.uuid4().hex[:12],
+            title="Voice",
+            workspace=ws,
+            model=eff_model or None,
+            model_provider=eff_provider,
+            source_tag=_VOICE_SOURCE_TAG,
+        )
+        with LOCK:
+            SESSIONS[s.session_id] = s
+            SESSIONS.move_to_end(s.session_id)
+            while len(SESSIONS) > SESSIONS_MAX:
+                SESSIONS.popitem(last=False)
+        try:
+            s.save()  # persist so we can find it again across restarts
+        except Exception:
+            pass
+        return s
+
+
+def _voice_session(handler) -> bool:
+    # NOTE: j() returns None, so we must `return True` explicitly (like the
+    # other voice GET handlers) — the dispatcher uses the truthy return to mark
+    # the request as claimed.
+    try:
+        s = get_or_create_voice_session()
+    except _VoiceAgentError as exc:
+        j(handler, {"error": str(exc)}, status=exc.status)
+        return True
+    except Exception as exc:
+        j(handler, {"error": str(exc)}, status=500)
+        return True
+    j(handler, {
+        "session_id": s.session_id,
+        "title": getattr(s, "title", "Voice"),
     })
     return True
 
@@ -460,12 +576,21 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str):
     _ensure_hermes_on_path()
     try:
         from api.models import get_session  # type: ignore
-        from api.routes import _start_chat_stream_for_session  # type: ignore
+        from api.routes import (  # type: ignore
+            _start_chat_stream_for_session,
+            _resolve_compatible_session_model_state,
+        )
         from api.config import STREAMS, STREAMS_LOCK  # type: ignore
     except Exception as exc:
         raise _VoiceAgentError(f"webui chat bridge unavailable: {exc}", status=500)
-    s = get_session(session_id)
-    if not s:
+    # get_session RAISES KeyError on a miss (it never returns falsy), so the old
+    # `if not s` guard was dead code: a missing/unresolvable session id (a stale
+    # id, or a coding/CLI/Telegram channel id) escaped as a raw KeyError that the
+    # realtime WS swallowed into a silent end_turn (the "thinking → listening,
+    # nothing spoken" bug). Resolve-or-error explicitly instead.
+    try:
+        s = get_session(session_id)
+    except KeyError:
         raise _VoiceAgentError(f"session {session_id!r} not found", status=404)
 
     # Auto-approve tools for this voice session. Speaking the request is the
@@ -477,13 +602,38 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str):
     except Exception:
         pass
 
+    # Resolve the session's model/provider exactly like every normal chat turn
+    # does (routes._resolve_compatible_session_model_state). The voice bridge
+    # used to pass the session's RAW model straight through — but a voice turn
+    # can land on a session created with an empty model (model="") and a Codex
+    # provider, and Codex's preflight rejects an empty model
+    # ("Codex Responses request 'model' must be a non-empty string"). Resolving
+    # here substitutes the user's configured default model (their Codex model)
+    # and normalizes a stale cross-provider model, killing that crash for both
+    # web and mobile voice. Codex stays the provider — this never forces Claude.
+    try:
+        eff_model, eff_provider, was_normalized = _resolve_compatible_session_model_state(
+            getattr(s, "model", None),
+            getattr(s, "model_provider", None),
+        )
+    except Exception:
+        eff_model = getattr(s, "model", None) or ""
+        eff_provider = getattr(s, "model_provider", None)
+        was_normalized = False
+    if not (eff_model or "").strip():
+        # No usable model anywhere (config model.default empty AND no env
+        # override). Don't hand an empty model to the provider — Codex's
+        # preflight rejects it with a cryptic error. Fail clearly so the bridge
+        # speaks a clean apology instead of crashing on an empty model.
+        raise _VoiceAgentError("no model is configured for voice", status=503)
     try:
         response = _start_chat_stream_for_session(
             s,
             msg=_VOICE_REPLY_DIRECTIVE + user_text,
             workspace=getattr(s, "workspace", None) or "",
-            model=getattr(s, "model", None) or "",
-            model_provider=getattr(s, "model_provider", None),
+            model=eff_model,
+            model_provider=eff_provider,
+            normalized_model=was_normalized,
         )
     except Exception as exc:
         raise _VoiceAgentError(f"failed to start chat turn: {exc}", status=500)
@@ -507,6 +657,11 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str):
     # same tool name. Clients dedup on (name + status).
     last_tool_name = ""
     current_text: list = []
+    # The FIRST spoken segment of a turn flushes as soon as one complete
+    # sentence exists (min_len=0) so the opening clause/ack is heard in ~1s
+    # (near-instant feel). After that we batch to ~110 chars to avoid many
+    # tiny TTS calls mid-answer. See _take_complete_sentences.
+    first_text_emitted = False
     deadline = _time.monotonic() + _VOICE_TURN_TIMEOUT_SECONDS
 
     try:
@@ -529,11 +684,15 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str):
                     current_text.append(str(data.get("text") or ""))
                     # Stream by sentence: emit completed sentence(s) as soon as
                     # they're written so the client can synthesize + speak them
-                    # immediately, rather than waiting for the whole answer.
+                    # immediately, rather than waiting for the whole answer. The
+                    # first segment uses min_len=0 (flush on the first sentence
+                    # terminator) for a near-instant ack; later segments batch.
                     _joined = "".join(current_text)
-                    _emit_now, _remainder = _take_complete_sentences(_joined)
+                    _min_len = 0 if not first_text_emitted else 110
+                    _emit_now, _remainder = _take_complete_sentences(_joined, min_len=_min_len)
                     if _emit_now:
                         current_text = [_remainder] if _remainder else []
+                        first_text_emitted = True
                         yield {"kind": "text", "text": _emit_now}
             elif event_type == "tool":
                 # Flush any in-progress text segment first — that's what
@@ -542,6 +701,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str):
                     text = "".join(current_text).strip()
                     current_text.clear()
                     if text:
+                        first_text_emitted = True
                         yield {"kind": "text", "text": text}
                 name = ""
                 preview = ""
@@ -1078,8 +1238,50 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
     # The generator yields tool/text events in order; we synthesize TTS
     # for each text segment inline so the client hears it immediately
     # rather than after the whole turn finishes.
+    def _synth_audio(text: str):
+        """Synthesize one text segment → ('pcm', pcm24k) | ('mp3', bytes) | None.
+
+        Pure (no socket I/O), so it can run on a worker thread in the prefetch
+        pipeline below — that's what lets segment N+1 synthesize while segment
+        N is still streaming, instead of compute→speak→compute serially.
+        """
+        mp3_b64 = _tts_to_base64(text)
+        if not mp3_b64:
+            return None
+        audio_bytes = base64.b64decode(mp3_b64)
+        pcm24k = _mp3_to_pcm24k(audio_bytes)
+        if pcm24k is None:
+            return ("mp3", audio_bytes)
+        return ("pcm", pcm24k)
+
+    def _send_audio(audio) -> bool:
+        """Stream a synthesized ('pcm'|'mp3', bytes) result over the WS in
+        order. Returns False to abort (interrupt / socket dead)."""
+        if not audio:
+            return True
+        fmt, data = audio
+        if fmt == "mp3":
+            if state["interrupt"]:
+                return False
+            _ws_send_text(conn, sock, json.dumps({"type": "audio_meta", "format": "mp3", "sample_rate": 0}))
+            if not _ws_send_bytes(conn, sock, data):
+                return False
+            _ws_send_text(conn, sock, json.dumps({"type": "audio_end"}))
+            return True
+        _ws_send_text(conn, sock, json.dumps({"type": "audio_meta", "format": "pcm_s16le", "sample_rate": 24000}))
+        FRAME = 3840
+        for i in range(0, len(data), FRAME):
+            if state["interrupt"]:
+                return False
+            if not _ws_send_bytes(conn, sock, data[i:i + FRAME]):
+                return False
+        _ws_send_text(conn, sock, json.dumps({"type": "audio_end"}))
+        return True
+
     def _stream_segment(seg: dict) -> bool:
-        """Returns True to continue, False to abort the loop."""
+        """Inline (non-pipelined) send of one segment. Used for the spoken
+        apology messages and the no-session fallback reply. Returns True to
+        continue, False to abort."""
         if state["interrupt"]:
             return False
         kind = seg.get("kind")
@@ -1098,39 +1300,90 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
         _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": text}))
         if state["interrupt"]:
             return False
-        mp3_b64 = _tts_to_base64(text)
-        if not mp3_b64:
-            return True
-        audio_bytes = base64.b64decode(mp3_b64)
-        pcm24k = _mp3_to_pcm24k(audio_bytes)
-        if pcm24k is None:
-            _ws_send_text(conn, sock, json.dumps({"type": "audio_meta", "format": "mp3", "sample_rate": 0}))
-            _ws_send_bytes(conn, sock, audio_bytes)
-            _ws_send_text(conn, sock, json.dumps({"type": "audio_end"}))
-            return True
-        _ws_send_text(conn, sock, json.dumps({"type": "audio_meta", "format": "pcm_s16le", "sample_rate": 24000}))
-        FRAME = 3840
-        for i in range(0, len(pcm24k), FRAME):
-            if state["interrupt"]:
-                return False
-            if not _ws_send_bytes(conn, sock, pcm24k[i:i + FRAME]):
-                return False
-        _ws_send_text(conn, sock, json.dumps({"type": "audio_end"}))
-        return True
+        return _send_audio(_synth_audio(text))
 
     if sid:
-        try:
-            any_emitted = False
-            for seg in _run_agent_turn_via_chat(sid, transcript):
-                any_emitted = True
-                if not _stream_segment(seg):
+        import collections as _collections
+        from concurrent.futures import ThreadPoolExecutor
+        # Prefetch pipeline: synthesize upcoming text segments in the background
+        # so TTS+ffmpeg of segment N+1 overlaps streaming of segment N (instead
+        # of the old serial compute→speak→compute). ALL socket writes stay on
+        # THIS recv thread — the workers only run pure TTS — so frame ordering
+        # is unchanged: per item we send assistant_text, then its audio, in
+        # generation order.
+        executor = ThreadPoolExecutor(max_workers=2)
+        buf = _collections.deque()
+        gen = _run_agent_turn_via_chat(sid, transcript)
+        gen_exhausted = False
+        any_emitted = False
+        _PREFETCH = 3
+
+        def _refill():
+            nonlocal gen_exhausted, any_emitted
+            while len(buf) < _PREFETCH and not gen_exhausted:
+                try:
+                    seg = next(gen)  # _VoiceAgentError propagates → outer handler
+                except StopIteration:
+                    gen_exhausted = True
                     break
-            if not any_emitted:
+                any_emitted = True
+                k = seg.get("kind")
+                if k == "text":
+                    t = (seg.get("text") or "").strip()
+                    if t:
+                        buf.append({"kind": "text", "text": t,
+                                    "future": executor.submit(_synth_audio, t)})
+                elif k == "tool":
+                    buf.append({"kind": "tool", "name": seg.get("name", ""),
+                                "status": seg.get("status", "started")})
+
+        try:
+            _refill()
+            while buf:
+                if state["interrupt"]:
+                    break
+                item = buf.popleft()
+                _refill()  # keep synthesis running ahead while we send this one
+                if item["kind"] == "tool":
+                    _ws_send_text(conn, sock, json.dumps({
+                        "type": "tool", "name": item["name"], "status": item["status"],
+                    }))
+                    continue
+                _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": item["text"]}))
+                if state["interrupt"]:
+                    break
+                try:
+                    audio = item["future"].result()
+                except Exception:
+                    audio = None
+                if not _send_audio(audio):
+                    break
+            if not any_emitted and not state["interrupt"]:
+                # The agent produced nothing. Never fall back to a SILENT
+                # end_turn — the mobile client ignores end_turn `reason`, so a
+                # silent no_reply presented as "thinking → listening, nothing
+                # spoken". Speak a short apology so the user always gets audio.
+                _stream_segment({"kind": "text", "text": "Sorry, I didn't catch a reply that time. Please try again."})
                 _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_reply"}))
                 return
         except _VoiceAgentError as exc:
+            # Log the real detail; SPEAK a clean message (don't read a raw
+            # exception/session id aloud).
             print(f"[webui] voice realtime agent error: {exc}", flush=True)
-            _stream_segment({"kind": "text", "text": f"Sorry, I couldn't process that ({exc})."})
+            if not state["interrupt"]:
+                _stream_segment({"kind": "text", "text": "Sorry, I ran into a problem handling that. Please try again."})
+        except Exception:
+            print("[webui] voice realtime pipeline error: " + traceback.format_exc(), flush=True)
+            if not state["interrupt"]:
+                _stream_segment({"kind": "text", "text": "Sorry, something went wrong on my end. Please try again."})
+        finally:
+            # Cancel any not-yet-started synth futures so an interrupted / early
+            # exited turn doesn't burn TTS+ffmpeg work nobody will hear.
+            for _it in buf:
+                _f = _it.get("future")
+                if _f is not None:
+                    _f.cancel()
+            executor.shutdown(wait=False)
     else:
         reply = _generate_reply(transcript)
         if reply:

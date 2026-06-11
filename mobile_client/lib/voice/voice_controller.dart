@@ -90,6 +90,12 @@ class VoiceController extends ChangeNotifier {
   // resuming instantly made the orb flip listening↔speaking mid-reply.
   Timer? _resumeTimer;
   static const int _resumeGraceMs = 1600;
+  // While "thinking", reassure the user if the server is taking a while and
+  // hasn't streamed anything yet (a long tool turn, or a stalled transport).
+  // Without this a slow turn looks like a frozen/dead app — the original
+  // "thinking then nothing" complaint.
+  Timer? _thinkingWatchdog;
+  static const int _thinkingWatchdogMs = 18000;
   String _inFormat = 'pcm_s16le';
   int _inRate = 24000;
   final List<int> _segPcm = [];
@@ -257,13 +263,18 @@ class VoiceController extends ChangeNotifier {
 
   Future<String> _ensureSession() async {
     if (_sessionId != null) return _sessionId!;
+    // Use the server's dedicated, persistent "Voice" chat — NOT whatever
+    // session is most-recent. The old code grabbed index 0 of /api/sessions,
+    // which is sorted recent-first and includes coding/CLI/Telegram channels;
+    // voice then ran against a session wired to a provider+model it couldn't
+    // use (e.g. Codex with an empty model) and silently failed. The server
+    // get-or-creates this session with a valid model/provider.
     try {
-      final list = await _sessions.list();
-      for (final s in list) {
-        final id = (s['session_id'] ?? '').toString();
-        if (id.isNotEmpty) return _sessionId = id;
-      }
+      final id = await _voice.voiceSessionId();
+      if (id.isNotEmpty) return _sessionId = id;
     } catch (_) {}
+    // Fallback for older servers without /api/voice/session: make a plain
+    // chat titled "Voice".
     final created = await _sessions.create(title: 'Voice');
     final session = (created['session'] as Map?) ?? created;
     final id = (session['session_id'] ?? '').toString();
@@ -410,6 +421,7 @@ class VoiceController extends ChangeNotifier {
         _onWsMessage,
         onError: (e) => _fail('Voice connection error: $e'),
         onDone: () {
+          _cancelThinkingWatchdog(); // socket closed → stop reassuring
           if (active) _set(VoiceState.idle);
         },
       );
@@ -468,11 +480,13 @@ class VoiceController extends ChangeNotifier {
     _sendJson({'type': 'end_turn'});
     _resetVad();
     amplitude.value = 0;
+    error = null; // clear any failure message from the previous turn
     // A new user turn begins → clear the previous reply + its highlight so the
     // incoming reply starts fresh (within one realtime session segments would
     // otherwise accumulate across turns). See [_resetSpeech].
     _resetSpeech();
     _set(VoiceState.thinking);
+    _armThinkingWatchdog(); // reassure if the server is slow / nothing arrives
   }
 
   /// User explicitly signals end-of-speech (the "Done" button).
@@ -487,6 +501,7 @@ class VoiceController extends ChangeNotifier {
     if (mode == VoiceMode.realtime &&
         (state == VoiceState.speaking || state == VoiceState.thinking)) {
       _resumeTimer?.cancel();
+      _cancelThinkingWatchdog();
       _sendJson({'type': 'interrupt'});
       unawaited(_audio.stop());
       _resetVad();
@@ -526,6 +541,7 @@ class VoiceController extends ChangeNotifier {
           // us to "speaking"). This keeps the orb from saying "listening"
           // while the reply is mid-flight.
           _resumeTimer?.cancel();
+          _cancelThinkingWatchdog(); // real reply text is now arriving
           _appendSpeech((msg['text'] ?? '').toString());
           toolStatus = null;
           if (state != VoiceState.speaking) _set(VoiceState.thinking);
@@ -593,8 +609,34 @@ class VoiceController extends ChangeNotifier {
   void _onRealtimeTurnEnd(String reason) {
     // Flush any audio that didn't get an explicit audio_end.
     _flushSegment();
+    _cancelThinkingWatchdog();
     toolStatus = null;
     if (!active) return;
+    // Surface real failures instead of silently resuming. The server reports
+    // EVERY failure as end_turn{reason} (never a {type:"error"} frame), and we
+    // used to ignore `reason` — so a failed turn looked identical to a normal
+    // one ("thinking → listening, nothing spoken"). If the turn produced no
+    // audio and no reply text and the reason is a failure, show a message so
+    // the user knows to retry. (no_speech/empty/interrupt are benign — the
+    // user simply didn't say anything / barged in — so we stay silent there.)
+    const failures = {'error', 'no_reply'};
+    if (failures.contains(reason) &&
+        !_audio.isBusy &&
+        assistantText.trim().isEmpty) {
+      error = reason == 'no_reply'
+          ? "I didn't catch a reply — please try again."
+          : 'Something went wrong — please try again.';
+      // Drop the cached session id so the NEXT connect re-resolves the voice
+      // session — guards against a wedged turn repeating forever if the cached
+      // id ever goes bad server-side.
+      _sessionId = null;
+      // Stay in the conversation (don't tear down the WS the way _fail does);
+      // show the message and resume listening so the user can just retry.
+      notifyListeners();
+      _pushLiveActivity();
+      _scheduleResumeListening();
+      return;
+    }
     // If audio is playing/queued, _onPlaybackIdle handles the resume once
     // it drains; otherwise (text-only / empty turn) schedule it now.
     if (!_audio.isBusy) _scheduleResumeListening();
@@ -603,6 +645,7 @@ class VoiceController extends ChangeNotifier {
   /// A clip began playing — the assistant is talking.
   void _onPlaybackStart() {
     _resumeTimer?.cancel();
+    _cancelThinkingWatchdog();
     if (state != VoiceState.speaking) _set(VoiceState.speaking);
   }
 
@@ -618,6 +661,27 @@ class VoiceController extends ChangeNotifier {
       _finalizeSpoken();
       _set(VoiceState.idle);
     }
+  }
+
+  void _armThinkingWatchdog() {
+    _thinkingWatchdog?.cancel();
+    _thinkingWatchdog =
+        Timer(const Duration(milliseconds: _thinkingWatchdogMs), () {
+      if (!active || state != VoiceState.thinking) return;
+      // Only fill a soft status if nothing else is showing — don't stomp a
+      // real "Running <tool>" status.
+      if (toolStatus == null || toolStatus!.isEmpty) {
+        toolStatus = 'Still working…';
+        notifyListeners();
+        _pushLiveActivity(); // reflect on the Dynamic Island too
+      }
+      _armThinkingWatchdog(); // keep reassuring until the reply arrives
+    });
+  }
+
+  void _cancelThinkingWatchdog() {
+    _thinkingWatchdog?.cancel();
+    _thinkingWatchdog = null;
   }
 
   void _scheduleResumeListening() {
@@ -798,6 +862,7 @@ class VoiceController extends ChangeNotifier {
     error = message;
     toolStatus = null;
     _resumeTimer?.cancel();
+    _cancelThinkingWatchdog();
     _teardownMic();
     unawaited(_closeWs());
     unawaited(_audio.stop());
@@ -835,6 +900,7 @@ class VoiceController extends ChangeNotifier {
   Future<void> pauseForBackground() async {
     if (mode != VoiceMode.realtime || !active) return;
     _capturePaused = true;
+    _cancelThinkingWatchdog(); // don't fire reassurance timers while backgrounded
     await _micSub?.cancel();
     _micSub = null;
     try {
@@ -862,6 +928,7 @@ class VoiceController extends ChangeNotifier {
   /// Stop everything and return to idle (the Stop button / mode switch).
   Future<void> stopAll() async {
     _resumeTimer?.cancel();
+    _cancelThinkingWatchdog();
     await _teardownMic();
     await _closeWs();
     await _audio.stop();
@@ -878,6 +945,7 @@ class VoiceController extends ChangeNotifier {
   @override
   void dispose() {
     _resumeTimer?.cancel();
+    _thinkingWatchdog?.cancel();
     _laTimer?.cancel();
     try {
       app.ws.connected.removeListener(_onConnChanged);

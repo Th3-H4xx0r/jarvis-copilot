@@ -190,8 +190,18 @@ def render_nginx(settings: Dict[str, Any]) -> str:
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection $connection_upgrade;
-            proxy_read_timeout 3600s;
+
+            # Low-latency streaming for the voice WS (/api/voice/s2s/ws), the
+            # ndjson voice/chat streams, and SSE. Without these the edge buffers
+            # the request body (delaying voice POSTs) and can sit on the final
+            # WS frame of a quiescent stream until an idle reap — both read as
+            # "voice is slow / never responds".
             proxy_buffering off;
+            proxy_request_buffering off;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+            proxy_socket_keepalive on;
+            tcp_nodelay on;
         }}
     }}"""
         )

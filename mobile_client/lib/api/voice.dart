@@ -19,6 +19,17 @@ class VoiceApi {
     return Map<String, dynamic>.from(resp.data as Map);
   }
 
+  /// Returns the server's dedicated, persistent "Voice" chat session id
+  /// (get-or-created server-side with a valid model/provider). Voice turns
+  /// route here instead of the user's most-recent chat — which could be a
+  /// coding/CLI/Telegram channel wired to a provider+model voice can't run.
+  Future<String> voiceSessionId() async {
+    final resp = await api.get('/api/voice/session');
+    final body = resp.data;
+    if (body is Map) return (body['session_id'] ?? '').toString();
+    return '';
+  }
+
   Future<List<int>> tts({required String text, String? voice, String? engine}) async {
     final resp = await api.postJson(
       '/api/voice/synthesize',
