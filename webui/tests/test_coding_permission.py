@@ -52,6 +52,18 @@ def test_resolve_rejects_bad_decision_and_unknown():
     assert cp.resolve("nope", decision="allow") is False
 
 
+def test_eviction_prefers_unresolved_over_a_resolved_verdict():
+    # A resolved-but-not-yet-polled verdict must survive a flood that overflows
+    # the store — the hook hasn't picked it up yet.
+    rid0 = cp.create_request(tool="Bash", summary="keep", session_id="s",
+                             cwd="/w")
+    cp.resolve(rid0, decision="allow")
+    for i in range(cp._MAX_PENDING + 5):
+        cp.create_request(tool="Bash", summary=str(i), session_id="s", cwd="/w")
+    out = cp.poll(rid0)
+    assert out["status"] == "resolved" and out["decision"] == "allow"
+
+
 def test_list_pending_excludes_resolved():
     a = cp.create_request(tool="Bash", summary="a", session_id="s", cwd="/w")
     b = cp.create_request(tool="Edit", summary="b", session_id="s", cwd="/w")

@@ -298,12 +298,22 @@ class CodingSessionsController extends ChangeNotifier {
   /// (the push notification is the fast away-from-app path; this is the in-app
   /// fallback so the approval card shows even if the push was missed).
   List<PendingPermission> pendingApprovals = const [];
+  // Optimistically-answered request ids — filtered out of poll results until the
+  // server stops listing them, so a just-answered card never flickers back from
+  // a poll that was in flight when the verdict was sent.
+  final Set<String> _answeredPermissions = {};
 
   Future<void> _refreshPendingApprovals() async {
     if (_disposed) return;
     try {
-      final pend = await _api.pendingPermissions();
+      final raw = await _api.pendingPermissions();
       if (_disposed) return;
+      // Drop tombstones the server no longer lists (verdict landed / expired).
+      final liveIds = raw.map((p) => p.requestId).toSet();
+      _answeredPermissions.removeWhere((id) => !liveIds.contains(id));
+      final pend = raw
+          .where((p) => !_answeredPermissions.contains(p.requestId))
+          .toList();
       final changed = pend.length != pendingApprovals.length ||
           !pend.every((p) =>
               pendingApprovals.any((q) => q.requestId == p.requestId));
@@ -315,18 +325,34 @@ class CodingSessionsController extends ChangeNotifier {
   }
 
   /// Answer a permission request (allow/deny, optional steering message on a
-  /// deny). Optimistically dismisses the card.
+  /// deny). Optimistically dismisses the card; if the POST fails the card is
+  /// restored so the user knows it didn't go through.
   Future<void> respondPermission(String requestId,
       {required String decision, String? message}) async {
+    _answeredPermissions.add(requestId);
+    PendingPermission? removed;
+    final rest = <PendingPermission>[];
+    for (final p in pendingApprovals) {
+      if (p.requestId == requestId) {
+        removed = p;
+      } else {
+        rest.add(p);
+      }
+    }
+    pendingApprovals = rest;
+    notifyListeners();
     try {
       await _api.submitPermissionVerdict(requestId,
           decision: decision, message: message);
     } catch (e) {
+      _answeredPermissions.remove(requestId);
+      if (removed != null &&
+          !pendingApprovals.any((p) => p.requestId == requestId)) {
+        pendingApprovals = [removed, ...pendingApprovals];
+      }
       error = 'Could not send your decision: ${_msg(e)}';
+      notifyListeners();
     }
-    pendingApprovals =
-        pendingApprovals.where((p) => p.requestId != requestId).toList();
-    notifyListeners();
   }
 
   Future<void> _refreshSessionsQuiet() async {

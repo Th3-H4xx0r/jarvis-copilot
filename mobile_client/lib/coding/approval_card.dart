@@ -65,7 +65,9 @@ class _ApprovalCardState extends State<_ApprovalCard> {
       decision: decision,
       message: message,
     );
-    // The controller drops it from pendingApprovals → this card rebuilds away.
+    // On success the card rebuilds away; on failure it's restored — unlock so
+    // the user can retry.
+    if (mounted) setState(() => _busy = false);
   }
 
   @override

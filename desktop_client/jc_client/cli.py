@@ -816,7 +816,9 @@ def cmd_coding_permission(args) -> int:
             continue
         st = (r or {}).get("status")
         if st == "resolved":
-            if (r.get("decision") or "deny").lower() == "allow":
+            # Coerce defensively — a non-string decision from a malformed/proxied
+            # server must never crash the relay (which would lose the verdict).
+            if str(r.get("decision") or "deny").strip().lower() == "allow":
                 emit("allow")
             else:
                 emit("deny", r.get("reason") or "Denied from JarvisCopilot")

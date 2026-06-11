@@ -33,8 +33,13 @@ def create_request(*, tool: str, summary: str, session_id: str,
     with _LOCK:
         _reap_locked(now)
         if len(_PENDING) >= _MAX_PENDING:
-            oldest = min(_PENDING, key=lambda k: _PENDING[k]["created"])
-            _PENDING.pop(oldest, None)
+            # Evict the oldest UNRESOLVED request — never drop a resolved-but-
+            # not-yet-polled verdict out from under the waiting hook.
+            unresolved = [k for k, r in _PENDING.items() if not r["resolved"]]
+            victim = (min(unresolved, key=lambda k: _PENDING[k]["created"])
+                      if unresolved else
+                      min(_PENDING, key=lambda k: _PENDING[k]["created"]))
+            _PENDING.pop(victim, None)
         _PENDING[rid] = {
             "created": now, "tool": tool, "summary": summary,
             "session_id": session_id, "cwd": cwd,
