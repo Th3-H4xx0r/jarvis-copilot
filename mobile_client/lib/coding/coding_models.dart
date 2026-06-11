@@ -8,6 +8,44 @@ library;
 
 import 'dart:typed_data';
 
+/// A remote tool-permission request awaiting the user's verdict (from the
+/// PreToolUse relay). Shown as an approval card; answered with allow/deny/reply.
+class PendingPermission {
+  const PendingPermission({
+    required this.requestId,
+    required this.tool,
+    required this.summary,
+    this.sessionId = '',
+    this.cwd = '',
+  });
+
+  final String requestId;
+  final String tool;
+  final String summary; // "Bash: rm -rf build/"
+  final String sessionId;
+  final String cwd;
+
+  String get projectLabel {
+    final c = cwd.replaceAll(RegExp(r'/+$'), '');
+    final base = c.isEmpty ? '' : c.split('/').last;
+    return base.isEmpty ? 'session' : base;
+  }
+
+  static PendingPermission? fromJson(Object? o) {
+    if (o is! Map) return null;
+    final j = Map<String, dynamic>.from(o);
+    final rid = (j['request_id'] ?? '').toString();
+    if (rid.isEmpty) return null;
+    return PendingPermission(
+      requestId: rid,
+      tool: (j['tool'] ?? 'tool').toString(),
+      summary: (j['summary'] ?? '').toString(),
+      sessionId: (j['session_id'] ?? '').toString(),
+      cwd: (j['cwd'] ?? '').toString(),
+    );
+  }
+}
+
 /// A composer attachment the user picked but hasn't sent yet. On send it's
 /// uploaded to the session's host; the returned path is referenced as `@path`.
 class PendingAttachment {

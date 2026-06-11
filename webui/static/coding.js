@@ -350,6 +350,14 @@ async function codingCodeMasterSettings() {
           Show the 5-hour / weekly account-usage rings
         </label>
       </div>
+      <div class="cm-section">
+        <div class="cm-section-head"><span class="cm-section-title">Remote approvals</span></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="cmRemoteApprovals" ${settings.remote_approvals ? 'checked' : ''}>
+          Approve tool permissions from your phone (relays prompts to the mobile app)
+        </label>
+        <p style="opacity:.6;font-size:12px;margin:.3em 0 0">Turn on when you're away from the terminal. While off, sessions prompt locally as usual.</p>
+      </div>
       <div class="cdg-form-actions">
         <button type="button" class="cdg-btn-primary" id="cmSaveBtn" onclick="codingSaveCodeMaster()">Save settings</button>
       </div>
@@ -366,7 +374,9 @@ async function codingSaveCodeMaster() {
     (events[e] = events[e] || {})[c] = cb.checked;
   });
   const usageEl = document.getElementById('cmUsageDisplay');
-  const payload = { events, usage_display: usageEl ? usageEl.checked : true };
+  const remoteEl = document.getElementById('cmRemoteApprovals');
+  const payload = { events, usage_display: usageEl ? usageEl.checked : true,
+                    remote_approvals: remoteEl ? remoteEl.checked : false };
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   try {
     const res = await api('/api/coding/settings', { method: 'POST', body: JSON.stringify(payload) });

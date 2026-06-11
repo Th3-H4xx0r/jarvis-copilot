@@ -13,6 +13,7 @@ import 'services/app_lifecycle.dart';
 import 'services/background_location.dart';
 import 'services/credentials.dart';
 import 'services/invoke_runner.dart';
+import 'services/notification_actions.dart';
 import 'services/pending_actions.dart';
 import 'services/connection_monitor.dart';
 import 'services/push_handler.dart';
@@ -146,6 +147,10 @@ Future<void> main() async {
   // auto-shows live sessions without the user opening Voice first.
   liveActivityCoordinator = LiveActivityCoordinator(CodingSessionsApi(api))
     ..start();
+
+  // iOS permission-approval notification actions (Approve/Deny/Reply) → POST the
+  // verdict. The in-app approval card is the always-available fallback.
+  NotificationActions(CodingSessionsApi(api)).start();
 
   // Siri intent / Control Center / Lock-screen widget → native sets a pending
   // flag and nudges us via `startVoice`. We PULL the flag from native (on the

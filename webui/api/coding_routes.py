@@ -335,6 +335,53 @@ def _push_device_alert(title: str, body: str) -> int:
     return sent
 
 
+def _permission_summary(tool: str, tinput) -> str:
+    """One-line human summary of a tool the agent wants to run, e.g.
+    'Bash: rm -rf build/' or 'Write: src/app.py'."""
+    tool = str(tool or "tool")
+    if not isinstance(tinput, dict):
+        return tool
+    for key in ("command", "file_path", "path", "url", "pattern", "query",
+                "description", "prompt"):
+        v = tinput.get(key)
+        if isinstance(v, str) and v.strip():
+            line = v.strip().splitlines()[0]
+            return f"{tool}: {line[:140]}"
+    return tool
+
+
+def _push_permission_alert(*, title: str, body: str, data: dict) -> int:
+    """Send an ACTIONABLE permission banner (category PERMISSION_APPROVAL, with
+    Approve/Deny/Reply actions) to every registered mobile device, carrying the
+    request_id + session in the data envelope. Returns how many it reached."""
+    sent = 0
+    try:
+        from api.pairing import list_devices
+        from api import push as push_mod
+    except Exception:
+        return 0
+    try:
+        devices = list_devices()
+    except Exception:
+        return 0
+    for d in devices:
+        try:
+            token = (d.get("push_token") or "").strip()
+            kind = (d.get("push_kind") or "").strip().lower()
+            if not token or kind not in ("fcm", "apns"):
+                continue
+            if not (d.get("kind") or "").strip().lower().startswith("mobile"):
+                continue
+            res = push_mod.send(kind, token, data, alert={
+                "title": title, "body": body,
+                "category": "PERMISSION_APPROVAL"})
+            if res.get("ok"):
+                sent += 1
+        except Exception:
+            continue
+    return sent
+
+
 # ── Code Master notification settings + dispatch ─────────────────────────────
 # A coding lifecycle event maps to a settings "event key"; each key carries a
 # per-channel on/off matrix. Edited from the WebUI Code Master settings panel
@@ -349,6 +396,11 @@ _DEFAULT_NOTIFY_SETTINGS = {
         "error":       {"telegram": True, "mobile": True, "toast": True},
     },
     "usage_display": True,
+    # Remote permission approval: when on, a session's PreToolUse hook relays
+    # tool-permission prompts to the phone (approve/deny/reply). OFF by default
+    # so it never hangs an at-the-terminal session (the hook defers to the local
+    # prompt the instant the server reports it's disabled).
+    "remote_approvals": False,
 }
 
 
@@ -358,6 +410,7 @@ def _merge_notify_settings(stored) -> dict:
     out = {
         "events": {k: dict(v) for k, v in _DEFAULT_NOTIFY_SETTINGS["events"].items()},
         "usage_display": _DEFAULT_NOTIFY_SETTINGS["usage_display"],
+        "remote_approvals": _DEFAULT_NOTIFY_SETTINGS["remote_approvals"],
     }
     if not isinstance(stored, dict):
         return out
@@ -370,6 +423,8 @@ def _merge_notify_settings(stored) -> dict:
                         out["events"][ekey][ch] = bool(chans[ch])
     if "usage_display" in stored:
         out["usage_display"] = bool(stored["usage_display"])
+    if "remote_approvals" in stored:
+        out["remote_approvals"] = bool(stored["remote_approvals"])
     return out
 
 
@@ -1001,6 +1056,63 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                         "state": state, "changed": changed, "notified": sent})
 
         return _run(_activity_event)
+
+    # ── Remote permission approval relay (PreToolUse hook ⇄ mobile) ──
+    # The hook (via `jc-client coding-permission`) POSTs a request; we push an
+    # actionable banner to the phone and HOLD it; the app POSTs a verdict; the
+    # hook polls /poll and applies it. Gated by the `remote_approvals` setting
+    # so it never hangs an at-the-terminal session.
+    if p == "/permission/request" and method == "POST":
+        def _perm_request():
+            from api import coding_permission
+            if not _coding_settings(manager.store).get("remote_approvals"):
+                return _ok({"ok": True, "request_id": None, "notified": 0,
+                            "disabled": True})
+            tool = (body.get("tool") or "").strip() or "tool"
+            tinput = body.get("input") if isinstance(body.get("input"), dict) else {}
+            row = _match_live_session(
+                manager.store, tmux_name=(body.get("tmux_name") or "").strip(),
+                claude_session_id=(body.get("claude_session_id") or "").strip(),
+                cwd=(body.get("cwd") or "").strip(),
+                device_id=(body.get("device_id") or "").strip())
+            sid = row["id"] if row else ""
+            cwd = (body.get("cwd") or (row.get("cwd") if row else "") or "")
+            summary = _permission_summary(tool, tinput)
+            rid = coding_permission.create_request(
+                tool=tool, summary=summary, session_id=sid, cwd=cwd)
+            notified = _push_permission_alert(
+                title="Claude needs approval",
+                body=summary,
+                data={"type": "coding_permission", "request_id": rid,
+                      "session_id": sid, "tool": tool, "summary": summary,
+                      "project": _folder_label(cwd)})
+            return _ok({"ok": True, "request_id": rid, "notified": notified})
+        return _run(_perm_request)
+
+    if p == "/permission/poll" and method == "GET":
+        def _perm_poll():
+            from api import coding_permission
+            rid = (query.get("request_id") or "").strip()
+            if not rid:
+                return _err(400, "request_id required")
+            return _ok(coding_permission.poll(rid))
+        return _run(_perm_poll)
+
+    if p == "/permission/verdict" and method == "POST":
+        def _perm_verdict():
+            from api import coding_permission
+            rid = (body.get("request_id") or "").strip()
+            decision = (body.get("decision") or "").strip().lower()
+            message = body.get("message") or ""
+            ok = coding_permission.resolve(rid, decision=decision, message=message)
+            return _ok({"ok": ok})
+        return _run(_perm_verdict)
+
+    if p == "/permission/pending" and method == "GET":
+        def _perm_pending():
+            from api import coding_permission
+            return _ok({"pending": coding_permission.list_pending()})
+        return _run(_perm_pending)
 
     # ── /session/<id>[/message|/stop] ──
     if p.startswith("/session/"):

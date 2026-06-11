@@ -75,6 +75,21 @@ import AppIntents
                 application.registerForRemoteNotifications()
             }
         }
+        // Actionable permission-approval notifications: Approve / Deny / Reply
+        // straight from the banner or lock screen (the PreToolUse relay). The
+        // server sends these with `category: "PERMISSION_APPROVAL"`.
+        let approve = UNNotificationAction(
+            identifier: "APPROVE_PERMISSION", title: "Approve", options: [])
+        let deny = UNNotificationAction(
+            identifier: "DENY_PERMISSION", title: "Deny", options: [.destructive])
+        let reply = UNTextInputNotificationAction(
+            identifier: "REPLY_PERMISSION", title: "Reply", options: [],
+            textInputButtonTitle: "Send",
+            textInputPlaceholder: "Tell Claude what to do instead…")
+        let permCat = UNNotificationCategory(
+            identifier: "PERMISSION_APPROVAL", actions: [approve, deny, reply],
+            intentIdentifiers: [], options: [])
+        UNUserNotificationCenter.current().setNotificationCategories([permCat])
 
         // Pre-scene fallback: capture the cold-launch URL. In scene
         // mode, SceneDelegate.scene(_:willConnectTo:) hands the same URL
@@ -270,6 +285,16 @@ import AppIntents
             binaryMessenger: controller.binaryMessenger)
         if let hex = AppDelegate.pendingApnsTokenHex {
             AppDelegate.pushChannel?.invokeMethod("apnsToken", arguments: ["token": hex])
+        }
+
+        // Permission-approval notification actions → Dart.
+        AppDelegate.notifActionChannel = FlutterMethodChannel(
+            name: "jarviscopilot/notification-actions",
+            binaryMessenger: controller.binaryMessenger)
+        if let pending = AppDelegate.pendingNotifAction {
+            AppDelegate.pendingNotifAction = nil
+            AppDelegate.notifActionChannel?.invokeMethod(
+                "permissionAction", arguments: pending)
         }
 
         if let pending = pendingDeepLink {
@@ -484,6 +509,45 @@ import AppIntents
     // The token can arrive before the Flutter channel is wired (registration is
     // async), so stash it and flush when the channel is set up.
     static var pendingApnsTokenHex: String?
+
+    // Permission-approval notification actions → Dart (jarviscopilot/notification-actions).
+    static var notifActionChannel: FlutterMethodChannel?
+    // An action can fire before the channel is wired (app launched into the
+    // background by the tap) — stash and flush once wired.
+    static var pendingNotifAction: [String: Any]?
+
+    // Handle a tapped notification action (Approve/Deny/Reply) — forward to Dart,
+    // which POSTs the verdict. Works for the foreground/open case reliably; a
+    // background action relies on the engine being alive (best-effort), with the
+    // in-app approval card as the always-available fallback.
+    override func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let info = response.notification.request.content.userInfo
+        let env = (info["jarviscopilot"] as? [String: Any]) ?? [:]
+        var payload: [String: Any] = [
+            "request_id": (env["request_id"] as? String) ?? "",
+            "session_id": (env["session_id"] as? String) ?? "",
+        ]
+        switch response.actionIdentifier {
+        case "APPROVE_PERMISSION": payload["action"] = "allow"
+        case "DENY_PERMISSION": payload["action"] = "deny"
+        case "REPLY_PERMISSION":
+            payload["action"] = "reply"
+            if let tr = response as? UNTextInputNotificationResponse {
+                payload["text"] = tr.userText
+            }
+        default: payload["action"] = "open" // tapped the banner body
+        }
+        if let ch = AppDelegate.notifActionChannel {
+            ch.invokeMethod("permissionAction", arguments: payload)
+        } else {
+            AppDelegate.pendingNotifAction = payload
+        }
+        completionHandler()
+    }
 
     override func application(
         _ application: UIApplication,

@@ -169,6 +169,11 @@ def _build_apns_body(payload: dict, alert: Optional[dict]) -> dict:
     if alert:
         aps["alert"] = {"title": alert.get("title", ""), "body": alert.get("body", "")}
         aps["sound"] = "default"
+        # An actionable notification: iOS shows the category's buttons
+        # (Approve/Deny/Reply) on the banner/lock screen.
+        cat = alert.get("category")
+        if cat:
+            aps["category"] = str(cat)
     else:
         # content-available:1 + no alert = silent / background push.
         aps["content-available"] = 1

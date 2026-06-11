@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
 
+import '../coding/approval_card.dart';
 import '../coding/coding_attach.dart';
 import '../coding/coding_chat.dart';
 import '../coding/coding_controller.dart';
@@ -224,10 +225,19 @@ class _CodingPageState extends State<CodingPage> {
       body: AppBackground(
         child: SafeArea(
           bottom: false,
-          child: ListenableBuilder(
-            listenable: _c,
-            builder: (context, _) =>
-                _c.hasSelection ? _buildDetail() : _buildList(),
+          child: Column(
+            children: [
+              // Remote tool-permission approvals surface above everything so you
+              // can approve/deny/steer from anywhere in the Coding tab.
+              PermissionApprovalBanner(controller: _c),
+              Expanded(
+                child: ListenableBuilder(
+                  listenable: _c,
+                  builder: (context, _) =>
+                      _c.hasSelection ? _buildDetail() : _buildList(),
+                ),
+              ),
+            ],
           ),
         ),
       ),

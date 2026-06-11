@@ -751,6 +751,83 @@ def cmd_coding_event(args) -> int:
     return 0
 
 
+def cmd_coding_permission(args) -> int:
+    """PreToolUse permission relay: POST the tool the agent wants to run to the
+    server (which pushes an actionable Approve/Deny/Reply banner to the phone),
+    then BLOCK polling for the verdict, and print the PreToolUse
+    ``permissionDecision`` JSON for Claude to apply.
+
+    Fail-safe: on ANY problem (unpaired, relay off, no phone reachable, server
+    error) it prints NOTHING and exits 0 — Claude falls back to its normal
+    permission flow; we NEVER auto-allow. A relayed-but-unanswered request times
+    out to ``ask`` so the local terminal prompt still works at your desk."""
+    import json as _json
+    import time as _time
+    from urllib.parse import quote
+
+    from jc_client import credentials
+    from jc_client.protocol import HttpClient
+
+    def emit(decision: str, reason: str = "") -> None:
+        print(_json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": decision,
+            "permissionDecisionReason": reason}}))
+
+    creds = credentials.load()
+    if not creds.paired:
+        return 0  # not paired → defer to the local prompt
+    try:
+        tinput = _json.loads(args.input or "{}")
+        if not isinstance(tinput, dict):
+            tinput = {}
+    except Exception:
+        tinput = {}
+    body = {"tool": args.tool, "input": tinput}
+    if args.tmux:
+        body["tmux_name"] = args.tmux
+    if args.cwd:
+        body["cwd"] = args.cwd
+    if getattr(args, "session_id", ""):
+        body["claude_session_id"] = args.session_id
+    if creds.device_id:
+        body["device_id"] = creds.device_id
+    http = HttpClient(creds.server_url, cookie=creds.cookie,
+                      expected_fingerprint=creds.cert_fingerprint,
+                      cf_client_id=creds.cf_client_id,
+                      cf_client_secret=creds.cf_client_secret)
+    try:
+        resp = http.request_json(
+            "POST", "/api/coding/permission/request", body).json()
+    except Exception:
+        return 0  # server unreachable → defer to local
+    if (not resp or resp.get("disabled") or not resp.get("request_id")
+            or not resp.get("notified")):
+        # remote approvals off, or no phone reachable → defer to the local prompt
+        return 0
+    rid = str(resp["request_id"])
+    deadline = _time.time() + max(5.0, float(getattr(args, "timeout", 120.0) or 120.0))
+    poll_path = "/api/coding/permission/poll?request_id=" + quote(rid)
+    while _time.time() < deadline:
+        _time.sleep(1.0)
+        try:
+            r = http.request_json("GET", poll_path, None).json()
+        except Exception:
+            continue
+        st = (r or {}).get("status")
+        if st == "resolved":
+            if (r.get("decision") or "deny").lower() == "allow":
+                emit("allow")
+            else:
+                emit("deny", r.get("reason") or "Denied from JarvisCopilot")
+            return 0
+        if st == "expired":
+            emit("ask")  # request reaped server-side → fall back to local prompt
+            return 0
+    emit("ask")  # timed out → local prompt fallback
+    return 0
+
+
 def cmd_update(args) -> int:
     """Pull the latest client code and reinstall — same as re-running the installer.
 
@@ -929,6 +1006,20 @@ def _build_parser() -> argparse.ArgumentParser:
     ce.add_argument("--session-id", dest="session_id", default="",
                     help="claude session id (fallback match when outside tmux)")
     ce.set_defaults(func=cmd_coding_event)
+
+    cperm = sub.add_parser(
+        "coding-permission",
+        help="PreToolUse permission relay: block for a remote approve/deny and "
+             "print the permissionDecision JSON")
+    cperm.add_argument("--tool", required=True, help="tool name (e.g. Bash)")
+    cperm.add_argument("--input", default="{}", help="tool input as JSON")
+    cperm.add_argument("--tmux", default="", help="tmux session name")
+    cperm.add_argument("--cwd", default="", help="session working directory")
+    cperm.add_argument("--session-id", dest="session_id", default="",
+                       help="claude session id (fallback match)")
+    cperm.add_argument("--timeout", type=float, default=120.0,
+                       help="max seconds to wait for the phone verdict")
+    cperm.set_defaults(func=cmd_coding_permission)
 
     upd = sub.add_parser("update", help="Pull the latest client code and reinstall")
     upd.add_argument("--branch", default=None,

@@ -322,6 +322,30 @@ class CodingSessionsApi {
     await api.postJson('/api/coding/session/$id/stop', const {});
   }
 
+  /// GET /api/coding/permission/pending — tool-permission requests awaiting a
+  /// verdict (remote approval relay). Empty when none / relay off.
+  Future<List<PendingPermission>> pendingPermissions() async {
+    final resp = await api.get('/api/coding/permission/pending');
+    final data = resp.data as Map?;
+    final raw = (data?['pending'] as List?) ?? const [];
+    return raw
+        .map(PendingPermission.fromJson)
+        .whereType<PendingPermission>()
+        .toList(growable: false);
+  }
+
+  /// POST /api/coding/permission/verdict — answer a permission request.
+  /// `decision` is 'allow' | 'deny'; an optional `message` on a deny is handed
+  /// to Claude as the instruction (steer instead of just refusing).
+  Future<void> submitPermissionVerdict(String requestId,
+      {required String decision, String? message}) async {
+    await api.postJson('/api/coding/permission/verdict', {
+      'request_id': requestId,
+      'decision': decision,
+      if (message != null && message.trim().isNotEmpty) 'message': message.trim(),
+    });
+  }
+
   /// POST /api/coding/session/$id/restart -> `{ session: {...} }`
   Future<CodingSession?> restart(String id) async {
     final resp = await api.postJson('/api/coding/session/$id/restart', const {});

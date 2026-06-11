@@ -285,9 +285,48 @@ class CodingSessionsController extends ChangeNotifier {
     _listPoll = null;
     if (on && !_disposed) {
       _listPoll = Timer.periodic(_listPollInterval, (_) {
-        if (AppLifecycle.isForeground) _refreshSessionsQuiet();
+        if (AppLifecycle.isForeground) {
+          _refreshSessionsQuiet();
+          _refreshPendingApprovals();
+        }
       });
     }
+  }
+
+  // ── Remote permission approvals (PreToolUse relay) ────────────
+  /// Tool-permission requests awaiting your verdict, polled in the foreground
+  /// (the push notification is the fast away-from-app path; this is the in-app
+  /// fallback so the approval card shows even if the push was missed).
+  List<PendingPermission> pendingApprovals = const [];
+
+  Future<void> _refreshPendingApprovals() async {
+    if (_disposed) return;
+    try {
+      final pend = await _api.pendingPermissions();
+      if (_disposed) return;
+      final changed = pend.length != pendingApprovals.length ||
+          !pend.every((p) =>
+              pendingApprovals.any((q) => q.requestId == p.requestId));
+      pendingApprovals = pend;
+      if (changed) notifyListeners();
+    } catch (_) {
+      // transient — keep the current set, retry next tick
+    }
+  }
+
+  /// Answer a permission request (allow/deny, optional steering message on a
+  /// deny). Optimistically dismisses the card.
+  Future<void> respondPermission(String requestId,
+      {required String decision, String? message}) async {
+    try {
+      await _api.submitPermissionVerdict(requestId,
+          decision: decision, message: message);
+    } catch (e) {
+      error = 'Could not send your decision: ${_msg(e)}';
+    }
+    pendingApprovals =
+        pendingApprovals.where((p) => p.requestId != requestId).toList();
+    notifyListeners();
   }
 
   Future<void> _refreshSessionsQuiet() async {
