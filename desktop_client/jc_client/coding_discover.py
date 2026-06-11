@@ -345,46 +345,63 @@ def _to_wire(sess: dict) -> dict:
 
 
 def _enrich_tmux_with_csids(tmux_sessions: list, transcripts: list) -> None:
-    """Stamp each live tmux session with the ``claude_session_id`` of the NEWEST
-    transcript in the SAME cwd (in place).
+    """Stamp each bare live tmux session with its OWN ``claude_session_id`` (in
+    place) so the server can show its chat transcript AND resume it offline.
 
-    A bare tmux discovery item carries no session id, so if the Mac goes offline
-    the server can't resume that row (no id to ``--resume``). Claude writes a
-    transcript per live session in the same cwd, so the newest transcript's id IS
-    the session running in that tmux — copy it across so one row serves both
-    ADOPT (live attach) and RESUME-to-server (offline fallback).
+    Claude writes a transcript per live session in the same cwd; the one a
+    session is actively writing is its NEWEST (by mtime). Per cwd we pair the
+    most-recently-active bare PANE with the most-recently-active unclaimed
+    TRANSCRIPT — a confident match (that pane is the one writing it). Other bare
+    siblings are left untouched: the server keeps any csid it already knows for
+    them, so they keep working, and we never OVERWRITE a correct csid with a
+    guess (compaction gives the active session several recent files).
 
-    ONLY when the mapping is unambiguous: with SEVERAL live tmux sessions in the
-    same cwd, "the newest transcript" belongs to exactly one of them — stamping
-    it on all of them gives sibling sessions the same csid, and the server's
-    hook matcher (csid fallback) then writes one session's event (e.g.
-    "waiting") onto a DIFFERENT sibling's row. Leave the ambiguous ones bare."""
-    tmux_per_cwd: dict = {}
+    Previously ANY multi-session cwd was left wholly bare — which is why a 2nd
+    Claude session in a folder had no chat history. This pairs the active one
+    without the shared-csid hazard the old code (rightly) avoided: stamping the
+    SAME csid on siblings mis-routes the server's csid-FALLBACK hook matcher.
+    The matcher prefers ``tmux_name`` (unique per pane) anyway, so even a
+    co-located mis-pair at worst shows the wrong chat, never cross-writes."""
+    # csids already owned by a tmux row — never hand these to a bare sibling.
+    claimed: set = set()
     for s in tmux_sessions or []:
         if isinstance(s, dict):
-            c = _norm_cwd(s.get("cwd") or "")
-            tmux_per_cwd[c] = tmux_per_cwd.get(c, 0) + 1
+            c = (s.get("claude_session_id") or "").strip()
+            if c:
+                claimed.add(c)
+    # Unclaimed transcripts per cwd, newest (by last_activity) first.
     by_cwd: dict = {}
     for tr in transcripts or []:
         if not isinstance(tr, dict):
             continue
         csid = (tr.get("claude_session_id") or "").strip()
         cwd = _norm_cwd(tr.get("cwd") or "")
-        if not (csid and cwd):
+        if not (csid and cwd) or csid in claimed:
             continue
-        ts = float(tr.get("last_activity") or 0.0)
-        prev = by_cwd.get(cwd)
-        if prev is None or ts >= prev[0]:
-            by_cwd[cwd] = (ts, csid)
+        by_cwd.setdefault(cwd, []).append((float(tr.get("last_activity") or 0.0),
+                                           csid))
+    for rows in by_cwd.values():
+        rows.sort(key=lambda x: x[0], reverse=True)
+    # Bare live tmux per cwd, most-recently-active first.
+    bare_by_cwd: dict = {}
     for s in tmux_sessions or []:
-        if not isinstance(s, dict) or s.get("claude_session_id"):
+        if not isinstance(s, dict) or (s.get("claude_session_id") or "").strip():
             continue
         cwd = _norm_cwd(s.get("cwd") or "")
-        if tmux_per_cwd.get(cwd, 0) != 1:
-            continue              # ambiguous: several live sessions share the cwd
-        hit = by_cwd.get(cwd)
-        if hit:
-            s["claude_session_id"] = hit[1]
+        bare_by_cwd.setdefault(cwd, []).append(s)
+    for cwd, bares in bare_by_cwd.items():
+        avail = by_cwd.get(cwd) or []
+        if not avail:
+            continue
+        # Assign ONLY the most-recently-active bare pane the newest unclaimed
+        # transcript — it's the session actively writing it (a confident pair).
+        # Other bare siblings are deliberately left untouched: the server
+        # retains any csid it already knows for them (it never wipes on an empty
+        # re-report), and we must NOT OVERWRITE a correct csid with a guess —
+        # compaction gives the active session SEVERAL recent transcripts, so the
+        # 2nd-newest is usually its own older file, not an idle sibling's.
+        top = max(bares, key=lambda s: float(s.get("last_activity") or 0.0))
+        top["claude_session_id"] = avail[0][1]
 
 
 # ── transcript (Claude Code session store) scan ───────────────────────────────

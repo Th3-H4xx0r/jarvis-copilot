@@ -1118,24 +1118,57 @@ def test_enrich_tmux_with_csids_newest_wins():
     assert "claude_session_id" not in tmux[1]  # no transcript for its cwd
 
 
-def test_enrich_tmux_skips_ambiguous_cwd():
-    # SEVERAL live tmux sessions in one cwd: the newest transcript belongs to
-    # exactly one of them, so stamping it on all would let the server's hook
-    # matcher (csid fallback) write one sibling's event onto another's row.
+def test_enrich_tmux_assigns_only_most_active_sibling():
+    # SEVERAL live tmux in one cwd: ONLY the most-recently-active bare pane gets
+    # the newest unclaimed transcript (the one it's writing). The idle sibling is
+    # left bare — the server keeps its known csid, and we never overwrite a
+    # correct id with a compaction-confused guess.
     from jc_client.coding_discover import _enrich_tmux_with_csids
-    tmux = [{"kind": "tmux", "tmux_name": "15", "cwd": "/Users/me/proj"},
-            {"kind": "tmux", "tmux_name": "11", "cwd": "/Users/me/proj"},
-            {"kind": "tmux", "tmux_name": "2", "cwd": "/Users/me/other"}]
+    tmux = [{"kind": "tmux", "tmux_name": "18", "cwd": "/Users/me/proj",
+             "last_activity": 50.0},                  # idle sibling
+            {"kind": "tmux", "tmux_name": "19", "cwd": "/Users/me/proj",
+             "last_activity": 300.0},                 # most active -> newest tr
+            {"kind": "tmux", "tmux_name": "2", "cwd": "/Users/me/other",
+             "last_activity": 10.0}]
     transcripts = [
-        {"kind": "transcript", "claude_session_id": "p1", "cwd": "/Users/me/proj",
-         "last_activity": 200.0},
-        {"kind": "transcript", "claude_session_id": "o1", "cwd": "/Users/me/other",
-         "last_activity": 100.0},
+        {"kind": "transcript", "claude_session_id": "p_old",
+         "cwd": "/Users/me/proj", "last_activity": 100.0},
+        {"kind": "transcript", "claude_session_id": "p_new",
+         "cwd": "/Users/me/proj", "last_activity": 250.0},  # newest in /proj
+        {"kind": "transcript", "claude_session_id": "o1",
+         "cwd": "/Users/me/other", "last_activity": 100.0},
     ]
     _enrich_tmux_with_csids(tmux, transcripts)
-    assert "claude_session_id" not in tmux[0]   # ambiguous — left bare
-    assert "claude_session_id" not in tmux[1]
-    assert tmux[2]["claude_session_id"] == "o1"  # unambiguous — still stamped
+    assert tmux[1]["claude_session_id"] == "p_new"   # most-active -> newest
+    assert "claude_session_id" not in tmux[0]        # idle sibling left bare
+    assert tmux[2]["claude_session_id"] == "o1"      # lone tmux unchanged
+
+
+def test_enrich_tmux_extra_sibling_left_bare_without_transcript():
+    # 2 bare tmux but only 1 unclaimed transcript: the most-active gets it; the
+    # other stays bare (nothing to give — better bare than a wrong/shared csid).
+    from jc_client.coding_discover import _enrich_tmux_with_csids
+    tmux = [{"kind": "tmux", "tmux_name": "a", "cwd": "/p", "last_activity": 10.0},
+            {"kind": "tmux", "tmux_name": "b", "cwd": "/p", "last_activity": 99.0}]
+    _enrich_tmux_with_csids(
+        tmux, [{"claude_session_id": "only", "cwd": "/p", "last_activity": 5.0}])
+    assert tmux[1]["claude_session_id"] == "only"     # most-active gets it
+    assert "claude_session_id" not in tmux[0]          # other stays bare
+
+
+def test_enrich_tmux_never_reassigns_a_claimed_csid():
+    # A transcript already owned by one tmux must not be handed to a bare
+    # sibling — the sibling gets a DIFFERENT (unclaimed) transcript instead.
+    from jc_client.coding_discover import _enrich_tmux_with_csids
+    tmux = [{"kind": "tmux", "tmux_name": "owner", "cwd": "/p",
+             "claude_session_id": "X", "last_activity": 10.0},
+            {"kind": "tmux", "tmux_name": "bare", "cwd": "/p",
+             "last_activity": 99.0}]
+    transcripts = [{"claude_session_id": "X", "cwd": "/p", "last_activity": 200.0},
+                   {"claude_session_id": "Y", "cwd": "/p", "last_activity": 100.0}]
+    _enrich_tmux_with_csids(tmux, transcripts)
+    assert tmux[0]["claude_session_id"] == "X"     # unchanged
+    assert tmux[1]["claude_session_id"] == "Y"     # NOT X (claimed) -> the other
 
 
 def test_tmux_capture_argv_uses_exact_match_target():
