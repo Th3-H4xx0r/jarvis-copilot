@@ -5,6 +5,7 @@ import CoreLocation
 import CryptoKit
 import ActivityKit
 import WatchConnectivity
+import AVFoundation
 #if canImport(AppIntents)
 import AppIntents
 #endif
@@ -14,6 +15,9 @@ import AppIntents
 
     private var pendingDeepLink: URL?
     private var pairChannel: FlutterMethodChannel?
+    // Native AVAudioSession control for voice playback (keep a backgrounded
+    // reply loud + uninterrupted, like a phone call). See attachFlutterController.
+    private var audioSessionChannel: FlutterMethodChannel?
     // "Talk to JarvisCopilot" Siri App Intent → open Voice + start a turn.
     private var intentsChannel: FlutterMethodChannel?
     // Background location: Significant-Location-Change monitoring. This is
@@ -130,6 +134,40 @@ import AppIntents
                 result(nil)
             default:
                 result(FlutterMethodNotImplemented)
+            }
+        }
+        // Audio-session control for voice. Dart switches the shared
+        // AVAudioSession between a mic-capable config (listening) and a
+        // full-volume .playback config (backgrounded reply). audioplayers'
+        // setCategory alone does NOT re-route a LIVE session, which is why a
+        // backgrounded reply went quiet; doing it here natively with
+        // setActive + speaker override keeps it loud and uninterrupted.
+        let audioCh = FlutterMethodChannel(
+            name: "jarviscopilot/audio_session",
+            binaryMessenger: controller.binaryMessenger
+        )
+        audioSessionChannel = audioCh
+        audioCh.setMethodCallHandler { call, result in
+            let session = AVAudioSession.sharedInstance()
+            do {
+                switch call.method {
+                case "playback":
+                    // Mic released → full-volume, background-capable media playback.
+                    try session.setCategory(.playback, mode: .spokenAudio, options: [.mixWithOthers])
+                    try session.setActive(true, options: [])
+                    result(true)
+                case "voice":
+                    // Mic-capable + loud speaker route for the listening phase.
+                    try session.setCategory(.playAndRecord, mode: .default,
+                                            options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers])
+                    try session.setActive(true, options: [])
+                    try? session.overrideOutputAudioPort(.speaker)
+                    result(true)
+                default:
+                    result(FlutterMethodNotImplemented)
+                }
+            } catch {
+                result(FlutterError(code: "audio_session", message: "\(error)", details: nil))
             }
         }
         // Shortcuts channel: Dart→native `list` (iOS can't enumerate user

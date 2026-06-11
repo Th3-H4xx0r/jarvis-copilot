@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show PlatformException;
+import 'package:flutter/services.dart' show PlatformException, MethodChannel;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -408,6 +409,9 @@ class VoiceController extends ChangeNotifier {
     toolStatus = null;
     _spoke = false;
     _silenceMs = 0;
+    _capturePaused = false;
+    _micRestartPending = false;
+    await _setAudioProfile('voice'); // mic-capable, loud speaker route
     _set(VoiceState.connecting);
     try {
       final sid = await _ensureSession();
@@ -686,9 +690,27 @@ class VoiceController extends ChangeNotifier {
 
   void _scheduleResumeListening() {
     _resumeTimer?.cancel();
-    _resumeTimer = Timer(const Duration(milliseconds: _resumeGraceMs), () {
+    _resumeTimer = Timer(const Duration(milliseconds: _resumeGraceMs), () async {
       if (mode != VoiceMode.realtime || !active) return;
       if (_audio.isBusy) return; // a trailing segment is playing
+      // Still backgrounded: don't resume listening / start the mic in the
+      // background. resumeFromBackground handles it when we return.
+      if (_capturePaused) return;
+      // If the mic was released for background playback, bring it back now that
+      // the reply has finished — restarting it HERE (after playback) means it
+      // never interrupts a live reply.
+      if (_micRestartPending || _micSub == null) {
+        _micRestartPending = false;
+        await _setAudioProfile('voice');
+        await _audio.useBackgroundPlayback(false);
+        try {
+          final stream = await _startMicStream();
+          _micSub = stream.listen(_onRealtimeFrame);
+        } catch (e) {
+          _fail('Could not resume microphone: $e');
+          return;
+        }
+      }
       _finalizeSpoken(); // reply's done — light up any unspoken tail
       _resetVad();
       amplitude.value = 0;
@@ -891,6 +913,26 @@ class VoiceController extends ChangeNotifier {
 
   // ── Backgrounding ─────────────────────────────────────────────
   bool _capturePaused = false;
+  // When we return to the foreground while a reply is still playing we do NOT
+  // restart the mic immediately — restarting it reconfigures the audio session
+  // and interrupts the live playback (the "freezes on return" bug). Instead we
+  // flag it and restart the mic once playback drains.
+  bool _micRestartPending = false;
+
+  static const MethodChannel _audioSessionCh =
+      MethodChannel('jarviscopilot/audio_session');
+
+  /// Switch the native iOS AVAudioSession profile: 'voice' (mic-capable, loud
+  /// speaker route) or 'playback' (full-volume, background-capable media — keeps
+  /// a backgrounded reply LOUD, like a phone call). No-op off iOS. This is the
+  /// authoritative re-route; audioplayers' setCategory alone doesn't move a live
+  /// session, which is why the background volume dropped.
+  Future<void> _setAudioProfile(String profile) async {
+    if (!Platform.isIOS) return;
+    try {
+      await _audioSessionCh.invokeMethod(profile);
+    } catch (_) {}
+  }
 
   /// App went to the background. Keep the WebSocket and audio playback
   /// alive so the current reply finishes speaking, but stop capturing
@@ -906,10 +948,11 @@ class VoiceController extends ChangeNotifier {
     try {
       if (await _recorder.isRecording()) await _recorder.stop();
     } catch (_) {}
-    // The mic (and its voice-processing unit) is gone — reclaim the audio
-    // session at full media volume so an in-flight reply doesn't drop to the
-    // quiet voice-chat route while backgrounded.
-    await _audio.useBackgroundPlayback(true);
+    // Mic released → force the iOS session to full-volume .playback (natively,
+    // with setActive + speaker override) so the in-flight reply keeps playing
+    // LOUD in the background instead of dropping to the quiet voice route.
+    await _setAudioProfile('playback');
+    await _audio.useBackgroundPlayback(true); // keep audioplayers' context in sync
   }
 
   /// App returned to the foreground — resume mic capture if we paused it.
@@ -917,15 +960,23 @@ class VoiceController extends ChangeNotifier {
     if (!_capturePaused) return;
     _capturePaused = false;
     if (mode != VoiceMode.realtime || !active) return;
-    // Back to the mic-capable session config before restarting capture.
+    // If a reply is still playing, DO NOT restart the mic now — restarting it
+    // reconfigures the audio session and interrupts the live playback (the
+    // "freezes on return" bug). Defer it; _scheduleResumeListening restarts the
+    // mic once playback drains. Keep the loud playback session meanwhile.
+    if (_audio.isBusy || state == VoiceState.speaking) {
+      _micRestartPending = true;
+      return;
+    }
+    // Nothing playing — safe to switch back to the mic-capable session and
+    // restart capture now.
+    await _setAudioProfile('voice');
     await _audio.useBackgroundPlayback(false);
     try {
       final stream = await _startMicStream();
       _micSub = stream.listen(_onRealtimeFrame);
-      if (state != VoiceState.speaking) {
-        _resetVad();
-        _set(VoiceState.listening);
-      }
+      _resetVad();
+      _set(VoiceState.listening);
     } catch (e) {
       _fail('Could not resume microphone: $e');
     }
@@ -935,6 +986,7 @@ class VoiceController extends ChangeNotifier {
   Future<void> stopAll() async {
     _resumeTimer?.cancel();
     _cancelThinkingWatchdog();
+    _micRestartPending = false;
     await _teardownMic();
     await _closeWs();
     await _audio.stop();
