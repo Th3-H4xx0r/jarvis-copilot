@@ -906,6 +906,10 @@ class VoiceController extends ChangeNotifier {
     try {
       if (await _recorder.isRecording()) await _recorder.stop();
     } catch (_) {}
+    // The mic (and its voice-processing unit) is gone — reclaim the audio
+    // session at full media volume so an in-flight reply doesn't drop to the
+    // quiet voice-chat route while backgrounded.
+    await _audio.useBackgroundPlayback(true);
   }
 
   /// App returned to the foreground — resume mic capture if we paused it.
@@ -913,6 +917,8 @@ class VoiceController extends ChangeNotifier {
     if (!_capturePaused) return;
     _capturePaused = false;
     if (mode != VoiceMode.realtime || !active) return;
+    // Back to the mic-capable session config before restarting capture.
+    await _audio.useBackgroundPlayback(false);
     try {
       final stream = await _startMicStream();
       _micSub = stream.listen(_onRealtimeFrame);

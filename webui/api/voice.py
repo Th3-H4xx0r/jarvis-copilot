@@ -37,6 +37,7 @@ import re
 import sys
 import tempfile
 import threading
+import time
 import traceback
 from pathlib import Path
 from typing import Optional
@@ -540,13 +541,19 @@ _VOICE_REPLY_DIRECTIVE = (
     "[Voice mode — your reply is read aloud by text-to-speech. Use plain spoken "
     "language only: no markdown, asterisks, bullet points, numbered lists, headers, "
     "code blocks, emoji, or raw URLs — say names, numbers, and values in words and "
-    "organize anything long as flowing spoken paragraphs, not lists. Give only a "
-    "brief acknowledgement when you begin and your answer when you finish; do NOT "
-    "narrate intermediate steps, tool use, or your plan — stay silent while working. "
-    "Keep ordinary answers to one or two short sentences. BUT when the user asks for "
-    "a briefing, summary, rundown, the news, a report, or otherwise wants the full "
-    "detail (e.g. a morning brief), speak the COMPLETE answer at its natural length — "
-    "do not truncate or over-shorten it — while still obeying the plain-speech rules "
+    "organize anything long as flowing spoken paragraphs, not lists. Give a brief "
+    "spoken acknowledgement the moment you begin (for example, 'On it.'). For a "
+    "simple question, just say the one- or two-sentence answer. For a request with "
+    "several parts that each need a different tool (for example a morning brief — "
+    "weather, then calendar, then news), work through them ONE AT A TIME: call a "
+    "single tool, then IMMEDIATELY speak that part's result in a sentence or two "
+    "before calling the next tool, so each part is heard the moment its data is "
+    "ready instead of being saved up for the end. Do NOT call multiple tools at "
+    "once / in parallel, and do NOT narrate tool names, your plan, or mechanics — "
+    "just speak each part's result as it arrives. When the user wants the full "
+    "detail (a briefing, summary, rundown, the news, a report, a morning brief), "
+    "speak the COMPLETE answer at its natural length across those spoken parts — do "
+    "not truncate or over-shorten it — while still obeying the plain-speech rules "
     "above.]\n\n"
 )
 
@@ -1244,8 +1251,19 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
         Pure (no socket I/O), so it can run on a worker thread in the prefetch
         pipeline below — that's what lets segment N+1 synthesize while segment
         N is still streaming, instead of compute→speak→compute serially.
+
+        Retries transient TTS failures: a long reply (e.g. a morning brief)
+        fires many rapid TTS calls and the engine (Edge TTS by default)
+        occasionally drops one. Silently skipping it left the segment's text on
+        screen with NO audio — playback stalled and the karaoke froze mid-reply
+        even though more text kept streaming. Retry a couple of times first.
         """
-        mp3_b64 = _tts_to_base64(text)
+        mp3_b64 = ""
+        for _attempt in range(3):
+            mp3_b64 = _tts_to_base64(text)
+            if mp3_b64:
+                break
+            time.sleep(0.4)  # brief backoff before retrying a dropped synth
         if not mp3_b64:
             return None
         audio_bytes = base64.b64decode(mp3_b64)

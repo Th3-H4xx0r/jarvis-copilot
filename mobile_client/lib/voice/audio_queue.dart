@@ -25,27 +25,13 @@ class AudioQueue {
     this.onClipStart,
     this.onPosition,
   }) {
-    // Force playback onto the speaker and let it coexist with an active
-    // recording session. In realtime the mic keeps the iOS session in
-    // `.playAndRecord`, where playback otherwise routes to the (quiet)
-    // earpiece.
-    final ctx = AudioContext(
-      iOS: AudioContextIOS(
-        category: AVAudioSessionCategory.playAndRecord,
-        options: const {
-          AVAudioSessionOptions.defaultToSpeaker,
-          AVAudioSessionOptions.mixWithOthers,
-          AVAudioSessionOptions.allowBluetoothA2DP,
-        },
-      ),
-      android: const AudioContextAndroid(
-        contentType: AndroidContentType.speech,
-        usageType: AndroidUsageType.assistant,
-        audioFocus: AndroidAudioFocus.gainTransientMayDuck,
-      ),
-    );
-    AudioPlayer.global.setAudioContext(ctx);
-    _player.setAudioContext(ctx);
+    // Start in the mic-capable session config (playback coexists with the live
+    // mic, which keeps iOS in `.playAndRecord`). When the app is backgrounded
+    // the mic stops and we switch to a full-volume `.playback` config so the
+    // reply doesn't drop to the quiet voice-chat route — see
+    // useBackgroundPlayback.
+    AudioPlayer.global.setAudioContext(_recordCtx);
+    _player.setAudioContext(_recordCtx);
     _player.onPlayerComplete.listen((_) => _advance());
     // Live playback position — drives the karaoke word highlight. Only the
     // current clip's tag is reported so the controller can map position →
@@ -53,6 +39,57 @@ class AudioQueue {
     _player.onPositionChanged.listen((p) {
       if (_currentTag != null) onPosition?.call(_currentTag, p);
     });
+  }
+
+  // Mic-capable session: playback coexists with the live mic. iOS forces this
+  // onto `.playAndRecord` whenever the `record` package's mic + its
+  // voice-processing (echo-cancel) unit is active.
+  static final AudioContext _recordCtx = AudioContext(
+    iOS: AudioContextIOS(
+      category: AVAudioSessionCategory.playAndRecord,
+      options: const {
+        AVAudioSessionOptions.defaultToSpeaker,
+        AVAudioSessionOptions.mixWithOthers,
+        AVAudioSessionOptions.allowBluetoothA2DP,
+      },
+    ),
+    android: const AudioContextAndroid(
+      contentType: AndroidContentType.speech,
+      usageType: AndroidUsageType.assistant,
+      audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+    ),
+  );
+
+  // Full-volume playback for when the mic is stopped (e.g. backgrounded mid
+  // reply). `.playAndRecord` + the record package's voice-processing unit
+  // leaves the iOS session on the attenuated voice-chat route, so a reply that
+  // keeps playing after backgrounding gets quiet. `.playback` restores media
+  // gain. (`.defaultToSpeaker` is only valid for `.playAndRecord`; `.playback`
+  // routes to speaker by default, so it's omitted here.)
+  static final AudioContext _playbackCtx = AudioContext(
+    iOS: AudioContextIOS(
+      category: AVAudioSessionCategory.playback,
+      options: const {
+        AVAudioSessionOptions.mixWithOthers,
+        AVAudioSessionOptions.allowBluetoothA2DP,
+      },
+    ),
+    android: const AudioContextAndroid(
+      contentType: AndroidContentType.speech,
+      usageType: AndroidUsageType.assistant,
+      audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+    ),
+  );
+
+  /// Switch the shared iOS audio session to full-volume `.playback` (mic
+  /// stopped, e.g. app backgrounded) or back to the mic-capable config. Safe to
+  /// call mid-clip — audioplayers re-applies the category immediately.
+  Future<void> useBackgroundPlayback(bool background) async {
+    final ctx = background ? _playbackCtx : _recordCtx;
+    try {
+      await AudioPlayer.global.setAudioContext(ctx);
+      await _player.setAudioContext(ctx);
+    } catch (_) {}
   }
 
   final void Function()? onIdle;

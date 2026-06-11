@@ -60,7 +60,14 @@ def _live_state(row) -> str:
     act = str(row.get("activity_state") or "").lower()
     if act in ("waiting", "working", "idle"):
         return act
-    return "working" if _status_class(row.get("status")) == "running" else "idle"
+    # A row with no fresh activity_state is NOT necessarily working. When a Mac
+    # host goes offline it stops sending classifications and the disconnect
+    # grace-timer nulls activity_state for ALL its sessions at once, while
+    # lifecycle status stays "running" (no push arrives to reconcile it).
+    # Defaulting that to "working" made the Live Activity flash "working" for
+    # every session of an offline Mac (the random "all sessions working" bug).
+    # Treat an unknown/empty activity_state as idle, never working.
+    return "idle"
 
 
 def _recency(row) -> float:
