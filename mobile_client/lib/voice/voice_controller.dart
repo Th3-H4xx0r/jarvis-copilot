@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:permission_handler/permission_handler.dart';
@@ -47,6 +48,14 @@ class VoiceController extends ChangeNotifier {
   final SessionsApi _sessions;
   late final AudioQueue _audio;
   final _recorder = AudioRecorder();
+
+  // audio_session is the SINGLE owner of the iOS AVAudioSession (record's own
+  // management is disabled — see _micConfig). Configured once with
+  // .playAndRecord + .defaultToSpeaker and kept ACTIVE for the whole
+  // conversation, so the loud speaker route persists even after the mic stops
+  // on background (previously the route fell back to the quiet earpiece).
+  AudioSession? _session;
+  StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
 
   // ── Public reactive state ─────────────────────────────────────
   VoiceState state = VoiceState.idle;
@@ -410,6 +419,10 @@ class VoiceController extends ChangeNotifier {
     _silenceMs = 0;
     _set(VoiceState.connecting);
     try {
+      // Own + activate the audio session BEFORE the mic/playback start, so the
+      // loud speaker route is locked in for the whole conversation.
+      await _ensureAudioSession();
+      await _session?.setActive(true);
       final sid = await _ensureSession();
       // Clear any stream the server still thinks is running for this
       // session (e.g. the app was backgrounded mid-turn) — otherwise the
@@ -778,6 +791,40 @@ class VoiceController extends ChangeNotifier {
   /// times. When the wake-word recognizer (or a just-ended turn) hasn't
   /// fully released the AVAudioSession yet, the first `setActive` throws
   /// "Session activation failed"; a short wait + retry clears it.
+  /// Configure audio_session ONCE as the sole owner of the iOS audio session:
+  /// .playAndRecord + .defaultToSpeaker so playback is loud on the speaker, and
+  /// — because record no longer manages the session (manageAudioSession:false)
+  /// — the route survives the mic stopping on background. Idempotent.
+  Future<void> _ensureAudioSession() async {
+    if (_session != null) return;
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+        avAudioSessionCategoryOptions:
+            AVAudioSessionCategoryOptions.defaultToSpeaker |
+                AVAudioSessionCategoryOptions.allowBluetooth |
+                AVAudioSessionCategoryOptions.allowBluetoothA2dp |
+                AVAudioSessionCategoryOptions.mixWithOthers,
+        avAudioSessionMode: AVAudioSessionMode.defaultMode,
+      ));
+      _interruptionSub =
+          session.interruptionEventStream.listen(_onInterruption);
+      _session = session;
+    } catch (_) {
+      // If audio_session isn't available, fall back silently — playback still
+      // works via audioplayers' own context.
+    }
+  }
+
+  /// A phone call / Siri / another app grabbed audio. iOS pauses our playback on
+  /// `begin`; when it ends, re-grab the session so we can keep speaking.
+  void _onInterruption(AudioInterruptionEvent event) {
+    if (!event.begin) {
+      unawaited(_session?.setActive(true) ?? Future<void>.value());
+    }
+  }
+
   Future<Stream<Uint8List>> _startMicStream() async {
     for (var attempt = 0;; attempt++) {
       try {
@@ -807,6 +854,11 @@ class VoiceController extends ChangeNotifier {
         echoCancel: true,
         noiseSuppress: true,
         streamBufferSize: 2048,
+        // audio_session owns the AVAudioSession; record must NOT reconfigure or
+        // deactivate it (doing so dropped the loud speaker route when the mic
+        // stopped on background). See _ensureAudioSession.
+        // ignore: deprecated_member_use
+        iosConfig: IosRecordConfig(manageAudioSession: false),
       );
 
   void _sendJson(Map<String, dynamic> obj) {
@@ -932,6 +984,8 @@ class VoiceController extends ChangeNotifier {
     await _teardownMic();
     await _closeWs();
     await _audio.stop();
+    // Fully stopping → release the audio session (let other apps' audio resume).
+    unawaited(_session?.setActive(false) ?? Future<void>.value());
     _resetVad();
     // Keep the reply on screen after Stop — DON'T erase it and DON'T finalize.
     // Freezing it exactly where it stopped (partial highlight, same scroll
@@ -947,6 +1001,8 @@ class VoiceController extends ChangeNotifier {
     _resumeTimer?.cancel();
     _thinkingWatchdog?.cancel();
     _laTimer?.cancel();
+    _interruptionSub?.cancel();
+    unawaited(_session?.setActive(false) ?? Future<void>.value());
     try {
       app.ws.connected.removeListener(_onConnChanged);
     } catch (_) {}
