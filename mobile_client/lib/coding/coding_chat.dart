@@ -10,6 +10,7 @@ import '../services/app_lifecycle.dart';
 import '../theme.dart';
 import '../widgets/glass.dart';
 import '../widgets/markdown_stream.dart';
+import 'coding_attach.dart';
 import 'coding_controller.dart';
 import 'coding_models.dart';
 
@@ -429,15 +430,18 @@ class _CodingChatViewState extends State<CodingChatView> {
     );
   }
 
-  void _sendComposer() {
+  Future<void> _sendComposer() async {
     final text = _input.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty && widget.controller.attachments.isEmpty) return;
     _input.clear();
     // Sending re-engages stick-to-bottom: with the keyboard up the viewport
     // shrank, so the user often isn't "at bottom" anymore and their own
     // message (and the thinking bubble) would land below the fold.
     _stickToBottom = true;
-    _sendText(text);
+    // Upload any attachments and fold their `@path` refs into the message.
+    final body = await widget.controller.consumeAttachmentsInto(text);
+    if (!mounted || body.trim().isEmpty) return;
+    await _sendText(body);
     _autoScroll();
   }
 
@@ -452,6 +456,7 @@ class _CodingChatViewState extends State<CodingChatView> {
         Expanded(child: _body()),
         _ChatInputBar(
           controller: _input,
+          coding: widget.controller,
           enabled: _isLive,
           onSend: _sendComposer,
           working: _showThinking,
@@ -1077,6 +1082,7 @@ class _ToolCardState extends State<_ToolCard> {
 class _ChatInputBar extends StatelessWidget {
   const _ChatInputBar({
     required this.controller,
+    required this.coding,
     required this.enabled,
     required this.onSend,
     this.working = false,
@@ -1084,6 +1090,7 @@ class _ChatInputBar extends StatelessWidget {
   });
 
   final TextEditingController controller;
+  final CodingSessionsController coding;
   final bool enabled;
   final VoidCallback onSend;
 
@@ -1110,9 +1117,14 @@ class _ChatInputBar extends StatelessWidget {
               border: Border.all(color: JcTheme.glassBorder),
             ),
             padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AttachmentChips(controller: coding),
+                Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                AttachButton(controller: coding, enabled: enabled),
                 IconButton(
                   onPressed: enabled ? onCommands : null,
                   visualDensity: VisualDensity.compact,
@@ -1179,6 +1191,8 @@ class _ChatInputBar extends StatelessWidget {
                       size: 20,
                     ),
                   ),
+                ),
+              ],
                 ),
               ],
             ),

@@ -106,6 +106,15 @@ _TRANSCRIPT_PUT_MAX_GZ_BYTES = 96 * 1024 * 1024  # buffered gzip bytes per strea
 _TRANSCRIPT_PUT_MAX_STREAMS = 8
 _TRANSCRIPT_PUT_MAX_RAW_BYTES = 64 * 1024 * 1024  # hard cap on inflated bytes
 
+# File-RECEIVE (coding_file_put): the SERVER ships a mobile-uploaded attachment
+# (photo/file) here so a LOCAL claude session on this Mac can read it by path.
+# Written under ``~/.jarviscopilot/coding_uploads/<session_id>/<name>``; the
+# device replies ``coding_file_done`` with the absolute path. Same anti-bomb
+# caps as the transcript-put path.
+_FILE_PUT_MAX_GZ_BYTES = 64 * 1024 * 1024
+_FILE_PUT_MAX_STREAMS = 8
+_FILE_PUT_MAX_RAW_BYTES = 96 * 1024 * 1024
+
 # Tab-separated fields, one line per session. Keep in sync with parse_tmux_list.
 _TMUX_FORMAT = (
     "#{session_name}\t#{pane_current_path}\t#{pane_current_command}\t"
@@ -848,6 +857,8 @@ class CodingDiscoverAgent:
         self._last_push_at: float = 0.0
         # In-flight coding_transcript_put streams: req_id -> accumulator.
         self._put_buffers: dict = {}
+        # In-flight coding_file_put (attachment) streams: req_id -> accumulator.
+        self._file_put_buffers: dict = {}
 
     # ── lifecycle ───────────────────────────────────────────────────────
 
@@ -886,6 +897,8 @@ class CodingDiscoverAgent:
                 self._on_transcript_get(frame)
             elif t == "coding_transcript_put":
                 self._on_transcript_put(frame)
+            elif t == "coding_file_put":
+                self._on_file_put(frame)
         except Exception as exc:  # noqa: BLE001 — never bubble into the pump
             log.warning("coding_discover handle_frame failed: %s", exc)
 
@@ -1103,6 +1116,108 @@ class CodingDiscoverAgent:
                     os.remove(tmp)
                 except OSError:
                     pass
+
+    # ── attachment RECEIVE (coding_file_put) ────────────────────────────
+
+    def _on_file_put(self, frame: dict) -> None:
+        """Accept a mobile-uploaded attachment the SERVER is delivering to this
+        device so a LOCAL claude session can read it by path. Same gzip+base64
+        chunk framing as ``coding_transcript_put`` (``seq``-ordered, final
+        ``eof``); on ``eof`` we write it under the uploads dir and reply
+        ``coding_file_done`` with the absolute path. Never raises into the pump."""
+        req_id = str(frame.get("req_id") or "")
+        if not req_id:
+            return
+        sid = re.sub(r"[^\w.\-]", "_", str(frame.get("session_id") or ""))[:120]
+        name = re.sub(r"[^\w.\-]", "_",
+                      os.path.basename(str(frame.get("name") or "")))[:200]
+        if not sid or not name or name.strip(".") == "":
+            self._file_put_buffers.pop(req_id, None)
+            self._send_file_done(req_id, ok=False, error="invalid session/name")
+            return
+        if frame.get("ok") is False or frame.get("error"):
+            self._file_put_buffers.pop(req_id, None)
+            return
+        content_b64 = frame.get("content_b64") or ""
+        try:
+            chunk = base64.b64decode(content_b64) if content_b64 else b""
+        except Exception:  # noqa: BLE001 — corrupt chunk -> abandon
+            self._file_put_buffers.pop(req_id, None)
+            self._send_file_done(req_id, ok=False, error="bad base64 chunk")
+            return
+        buf = self._file_put_buffers.get(req_id)
+        if buf is None:
+            if len(self._file_put_buffers) >= _FILE_PUT_MAX_STREAMS:
+                self._file_put_buffers.pop(next(iter(self._file_put_buffers)), None)
+            buf = {"sid": sid, "name": name, "chunks": {}, "size": 0}
+            self._file_put_buffers[req_id] = buf
+        buf["chunks"][int(frame.get("seq") or 0)] = chunk
+        buf["size"] += len(chunk)
+        if buf["size"] > _FILE_PUT_MAX_GZ_BYTES:
+            self._file_put_buffers.pop(req_id, None)
+            self._send_file_done(req_id, ok=False, error="file too large")
+            return
+        if not frame.get("eof"):
+            return
+        self._file_put_buffers.pop(req_id, None)
+        try:
+            blob = b"".join(buf["chunks"][i] for i in sorted(buf["chunks"]))
+            raw = self._gunzip_file_bounded(blob) if blob else b""
+        except Exception as exc:  # noqa: BLE001 — partial/corrupt stream
+            log.warning("coding_file_put[%s]: gunzip failed: %s", req_id, exc)
+            self._send_file_done(req_id, ok=False, error="gunzip failed")
+            return
+        if raw is None:  # would inflate past the cap (decompression bomb)
+            self._send_file_done(req_id, ok=False, error="file too large")
+            return
+        path = self._write_upload_file(buf["sid"], buf["name"], raw)
+        if path:
+            self._send_file_done(req_id, ok=True, path=path)
+        else:
+            self._send_file_done(req_id, ok=False, error="write failed")
+
+    @staticmethod
+    def _gunzip_file_bounded(blob: bytes):
+        """Gunzip ``blob`` but stop past ``_FILE_PUT_MAX_RAW_BYTES`` (anti-bomb).
+        Returns the bytes, or ``None`` if the stream would exceed the cap."""
+        import io
+        with gzip.GzipFile(fileobj=io.BytesIO(blob)) as gz:
+            raw = gz.read(_FILE_PUT_MAX_RAW_BYTES + 1)
+        if len(raw) > _FILE_PUT_MAX_RAW_BYTES:
+            return None
+        return raw
+
+    def _write_upload_file(self, sid: str, name: str, raw: bytes):
+        """Write an attachment to ``~/.jarviscopilot/coding_uploads/<sid>/<name>``
+        atomically (temp + ``os.replace``). Returns the absolute path or None."""
+        tmp = None
+        try:
+            root = os.path.join(self._home_dir, ".jarviscopilot",
+                                "coding_uploads", sid)
+            os.makedirs(root, exist_ok=True)
+            dest = os.path.join(root, name)
+            tmp = dest + ".jc-tmp"
+            with open(tmp, "wb") as fh:
+                fh.write(raw)
+            os.replace(tmp, dest)
+            return os.path.abspath(dest)
+        except Exception as exc:  # noqa: BLE001 — never break the pump on I/O
+            log.warning("coding_file_put write failed for %s/%s: %s", sid, name, exc)
+            if tmp:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+            return None
+
+    def _send_file_done(self, req_id: str, *, ok: bool = True,
+                        path: str = "", error: str = "") -> None:
+        frame = {"type": "coding_file_done", "req_id": req_id, "ok": bool(ok)}
+        if path:
+            frame["path"] = path
+        if error:
+            frame["error"] = error
+        self._send_safe(frame)
 
     # ── scan + push ─────────────────────────────────────────────────────
 

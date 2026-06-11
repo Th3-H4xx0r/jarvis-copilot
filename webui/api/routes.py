@@ -4650,6 +4650,9 @@ def handle_post(handler, parsed) -> bool:
         return handle_upload(handler)
     if parsed.path == "/api/upload/extract":
         return handle_upload_extract(handler)
+    if parsed.path == "/api/coding/upload":
+        from api.coding_desktop import handle_coding_upload
+        return handle_coding_upload(handler)
 
     if parsed.path == "/api/transcribe":
         return handle_transcribe(handler)

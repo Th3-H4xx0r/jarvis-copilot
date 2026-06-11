@@ -6,6 +6,21 @@
 /// device.
 library;
 
+import 'dart:typed_data';
+
+/// A composer attachment the user picked but hasn't sent yet. On send it's
+/// uploaded to the session's host; the returned path is referenced as `@path`.
+class PendingAttachment {
+  PendingAttachment(
+      {required this.name, required this.bytes, this.isImage = false});
+
+  final String name;
+  final Uint8List bytes;
+  final bool isImage;
+
+  int get size => bytes.length;
+}
+
 /// A coding session row (`GET /api/coding/sessions`,
 /// `/api/coding/session/$id`).
 class CodingSession {

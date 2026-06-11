@@ -23,6 +23,8 @@ import base64
 import gzip
 import os
 import sys
+import threading
+import time
 
 import pytest
 
@@ -2227,3 +2229,50 @@ def test_transcript_dirty_flag_ignores_empty():
     cd.mark_transcript_dirty(None)
     assert cd.take_transcript_dirty("") is False
     assert cd.take_transcript_dirty(None) is False
+
+
+# ── attachment delivery (deliver_file round-trip) ────────────────────────────
+
+
+def test_route_file_done_resolves_waiter():
+    bridge, _t = make_bridge()
+    req = "rq1"
+    waiter = {"event": threading.Event(), "path": None, "error": None}
+    bridge._file_waiters[req] = waiter
+    bridge._route_file_done({"req_id": req, "ok": True, "path": "/mac/x.png"})
+    assert waiter["event"].is_set()
+    assert waiter["path"] == "/mac/x.png" and waiter["error"] is None
+
+
+def test_deliver_file_offline_returns_none():
+    bridge, _t = make_bridge(connected=False)  # send() fails → offline
+    assert bridge.deliver_file("dev", session_id="cs1", name="a.png",
+                               raw=b"hi", timeout=1) is None
+
+
+def test_deliver_file_round_trip():
+    bridge, t = make_bridge()
+    out = {}
+
+    def run():
+        out["path"] = bridge.deliver_file(
+            "dev-mac", session_id="cs1", name="a.png", raw=b"hello", timeout=5)
+
+    th = threading.Thread(target=run)
+    th.start()
+    # Wait for the streamed coding_file_put chunks; grab the req_id off the eof.
+    req_id = None
+    deadline = time.time() + 3
+    while time.time() < deadline:
+        puts = t.frames("coding_file_put")
+        if puts and puts[-1].get("eof"):
+            req_id = puts[-1]["req_id"]
+            break
+        time.sleep(0.01)
+    assert req_id, "deliver_file never streamed an eof chunk"
+    # The device writes the file and acks with the on-Mac absolute path.
+    bridge.on_frame("dev-mac", {
+        "type": "coding_file_done", "req_id": req_id, "ok": True,
+        "path": "/Users/me/.jarviscopilot/coding_uploads/cs1/a.png"})
+    th.join(2)
+    assert out["path"] == "/Users/me/.jarviscopilot/coding_uploads/cs1/a.png"

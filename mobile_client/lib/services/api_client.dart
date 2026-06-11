@@ -112,6 +112,20 @@ class ApiClient {
     return _dio.post('$base$path', data: body, options: opts);
   }
 
+  /// Multipart POST (file upload). The cert-pinning adapter + auth-cookie
+  /// interceptor apply just like any other request.
+  Future<Response<dynamic>> postMultipart(String path, FormData form,
+      {Duration? timeout}) {
+    return _dio.post(
+      '$base$path',
+      data: form,
+      options: Options(
+        sendTimeout: timeout,
+        receiveTimeout: timeout,
+      ),
+    );
+  }
+
   Future<Response<dynamic>> deleteJson(String path,
       {Map<String, String>? headers}) {
     return _dio.delete(

@@ -1282,3 +1282,45 @@ def test_classify_working_spinner_custom_fork():
     from jc_client.coding_discover import classify_pane
     pane = "✽ Precipitating… (35s · ↑ 2.4k tokens · thinking with xhigh effort)\n❯ "
     assert classify_pane(pane) == "working"
+
+
+# ── attachment receive (coding_file_put -> coding_file_done) ──────────────────
+
+def test_on_file_put_writes_attachment_and_acks(tmp_path):
+    sent = []
+    agent = CodingDiscoverAgent(send=sent.append, device_id="dev1",
+                                home_dir=str(tmp_path))
+    payload = base64.b64encode(gzip.compress(b"PNGDATA")).decode("ascii")
+    agent.handle_frame({"type": "coding_file_put", "req_id": "f1",
+                        "session_id": "cs-9", "name": "shot.png",
+                        "seq": 0, "eof": True, "content_b64": payload})
+    dest = tmp_path / ".jarviscopilot" / "coding_uploads" / "cs-9" / "shot.png"
+    assert dest.read_bytes() == b"PNGDATA"
+    done = [f for f in sent if f.get("type") == "coding_file_done"]
+    assert done and done[-1]["ok"] is True
+    assert done[-1]["path"].endswith("coding_uploads/cs-9/shot.png")
+
+
+def test_on_file_put_rejects_bad_session(tmp_path):
+    sent = []
+    agent = CodingDiscoverAgent(send=sent.append, device_id="dev1",
+                                home_dir=str(tmp_path))
+    agent.handle_frame({"type": "coding_file_put", "req_id": "f2",
+                        "session_id": "", "name": "x.png", "seq": 0,
+                        "eof": True, "content_b64": ""})
+    done = [f for f in sent if f.get("type") == "coding_file_done"]
+    assert done and done[-1]["ok"] is False
+
+
+def test_on_file_put_sanitizes_traversal_name(tmp_path):
+    sent = []
+    agent = CodingDiscoverAgent(send=sent.append, device_id="dev1",
+                                home_dir=str(tmp_path))
+    payload = base64.b64encode(gzip.compress(b"x")).decode("ascii")
+    agent.handle_frame({"type": "coding_file_put", "req_id": "f3",
+                        "session_id": "cs1", "name": "../../etc/passwd",
+                        "seq": 0, "eof": True, "content_b64": payload})
+    # basename + sanitize keeps it inside the uploads dir.
+    root = tmp_path / ".jarviscopilot" / "coding_uploads" / "cs1"
+    written = list(root.glob("*"))
+    assert written and all(p.parent == root for p in written)

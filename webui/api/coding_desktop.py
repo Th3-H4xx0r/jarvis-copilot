@@ -258,6 +258,9 @@ class DesktopBridge:
         # req_id -> {"event":Event, "chunks":{seq:bytes}, "eof":bool,
         #            "error":str|None, "total":int} — in-flight transcript pulls.
         self._transcript_waiters: dict[str, dict] = {}
+        # req_id -> {"event":Event, "path":str|None, "error":str|None} —
+        # in-flight attachment deliveries (deliver_file).
+        self._file_waiters: dict[str, dict] = {}
 
     # --- registration with the device bridge --------------------------------
 
@@ -514,6 +517,60 @@ class DesktopBridge:
                 break
         return ok_all
 
+    def deliver_file(self, device_id: str, *, session_id: str, name: str,
+                     raw: bytes, timeout: float = 30.0) -> str | None:
+        """Deliver a mobile-uploaded attachment TO a desktop device so a LOCAL
+        claude session can read it by path. Streams ``coding_file_put`` chunks
+        (gzip+base64, ``seq``-ordered, final ``eof``) and blocks up to
+        ``timeout`` for the device's ``coding_file_done`` ack carrying the
+        absolute on-Mac path. Returns that path, or None on offline / timeout /
+        device error. Mirrors request_transcript's waiter + push_transcript's
+        framing. Never raises."""
+        req_id = uuid.uuid4().hex
+        waiter = {"event": threading.Event(), "path": None, "error": None}
+        with self._lock:
+            self._file_waiters[req_id] = waiter
+        try:
+            try:
+                payload = base64.b64encode(gzip.compress(raw or b"")).decode("ascii")
+            except Exception:  # noqa: BLE001
+                return None
+            chunk = 256 * 1024
+            total = len(payload)
+            seq = pos = 0
+            while True:
+                piece = payload[pos:pos + chunk]
+                pos += chunk
+                eof = pos >= total
+                try:
+                    ok = self._transport.send(device_id, {
+                        "type": "coding_file_put", "req_id": req_id,
+                        "session_id": session_id, "name": name,
+                        "seq": seq, "eof": eof, "content_b64": piece,
+                    })
+                except Exception:  # noqa: BLE001
+                    ok = False
+                if not ok:
+                    return None  # device not connected / send failed
+                seq += 1
+                if eof:
+                    break
+            if not waiter["event"].wait(timeout):
+                log.warning("coding deliver_file[%s]: timed out after %.0fs",
+                            req_id, timeout)
+                return None
+            with self._lock:
+                err = waiter["error"]
+                path = waiter["path"]
+            if err:
+                log.warning("coding deliver_file[%s]: device error: %s",
+                            req_id, err)
+                return None
+            return path or None
+        finally:
+            with self._lock:
+                self._file_waiters.pop(req_id, None)
+
     def register_sync(self, session) -> None:
         with self._lock:
             self._syncs[session.sync_id] = session
@@ -538,6 +595,8 @@ class DesktopBridge:
             self._route_discover(device_id, frame)
         elif t == "coding_transcript_data":
             self._route_transcript_data(frame)
+        elif t == "coding_file_done":
+            self._route_file_done(frame)
 
     def _route_transcript_data(self, frame: dict) -> None:
         """Accumulate a transcript chunk for the matching in-flight request.
@@ -598,6 +657,22 @@ class DesktopBridge:
             if eof:
                 waiter["eof"] = True
                 waiter["event"].set()
+
+    def _route_file_done(self, frame: dict) -> None:
+        """Resolve an in-flight deliver_file with the device's ack (the on-Mac
+        absolute path, or an error). Runs on the bridge pump thread."""
+        req_id = frame.get("req_id")
+        if not req_id:
+            return
+        with self._lock:
+            waiter = self._file_waiters.get(req_id)
+            if waiter is None:
+                return  # unknown or already timed-out request
+            if frame.get("ok") is False or frame.get("error"):
+                waiter["error"] = str(frame.get("error") or "file delivery failed")
+            else:
+                waiter["path"] = str(frame.get("path") or "")
+            waiter["event"].set()
 
     def _route_discover(self, device_id: str, frame: dict) -> None:
         """Ingest a device's pushed live ``claude`` tmux sessions.
@@ -813,6 +888,73 @@ def get_desktop_bridge() -> DesktopBridge:
                 # still usable for outbound sends if a transport is wired later.
                 pass
         return _BRIDGE
+
+
+def handle_coding_upload(handler):
+    """Coding-session attachment upload (photos/files from the mobile composer).
+
+    Host-aware: a SERVER session stores the bytes under
+    ``STATE_DIR/coding_uploads/<sid>/`` (the server-host claude reads it by that
+    absolute path); a DESKTOP session is delivered to the Mac over the bridge and
+    we return the Mac-side absolute path. The mobile then references the returned
+    ``path`` in its message (``@<path>``) so claude reads the file. Returns
+    ``{filename, path, size, mime, is_image}``."""
+    import mimetypes
+    import traceback as _tb
+    from pathlib import Path
+
+    from api.config import MAX_UPLOAD_BYTES, STATE_DIR
+    from api.helpers import j
+    from api.upload import (parse_multipart, _sanitize_upload_name,
+                            _session_attachment_dir)
+    try:
+        content_type = handler.headers.get("Content-Type", "")
+        content_length = int(handler.headers.get("Content-Length", 0) or 0)
+        if content_length > MAX_UPLOAD_BYTES:
+            return j(handler, {"error": f"File too large (max "
+                     f"{MAX_UPLOAD_BYTES // 1024 // 1024}MB)"}, status=413)
+        fields, files = parse_multipart(handler.rfile, content_type,
+                                        content_length)
+        session_id = (fields.get("session_id") or "").strip()
+        if "file" not in files:
+            return j(handler, {"error": "No file field in request"}, status=400)
+        filename, file_bytes = files["file"]
+        if not filename:
+            return j(handler, {"error": "No filename in upload"}, status=400)
+        safe_name = _sanitize_upload_name(filename)
+        store = _resolve_store()
+        row = store.get_session(session_id) if store is not None else None
+        if row is None:
+            return j(handler, {"error": "Session not found"}, status=404)
+        mime = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+        host = (row.get("host") or "server")
+        device_id = (row.get("device_id") or "").strip()
+        if host == "desktop" and device_id:
+            path = get_desktop_bridge().deliver_file(
+                device_id, session_id=session_id, name=safe_name,
+                raw=file_bytes, timeout=30)
+            if not path:
+                return j(handler, {"error": "Could not deliver the file to your "
+                         "Mac (is it online?)"}, status=502)
+        else:
+            dest_dir = _session_attachment_dir(
+                session_id, root=(Path(STATE_DIR) / "coding_uploads"))
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = (dest_dir / safe_name).resolve()
+            if not dest.is_relative_to(dest_dir):
+                return j(handler, {"error": "Invalid upload destination"},
+                         status=400)
+            dest.write_bytes(file_bytes)
+            path = str(dest)
+        return j(handler, {
+            "filename": safe_name, "path": path, "size": len(file_bytes),
+            "mime": mime, "is_image": mime.startswith("image/"),
+        })
+    except ValueError as e:
+        return j(handler, {"error": str(e)}, status=400)
+    except Exception:  # noqa: BLE001
+        print("[webui] coding upload error: " + _tb.format_exc(), flush=True)
+        return j(handler, {"error": "Upload failed"}, status=500)
 
 
 # Pairing ``kind``s that can NEVER run Mutagen file sync. Only MOBILE apps are

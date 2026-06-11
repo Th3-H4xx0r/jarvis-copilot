@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 import '../coding/coding_models.dart';
 import '../services/api_client.dart';
 
@@ -297,6 +299,22 @@ class CodingSessionsApi {
   /// POST /api/coding/session/$id/message
   Future<void> sendMessage(String id, String text) async {
     await api.postJson('/api/coding/session/$id/message', {'text': text});
+  }
+
+  /// POST /api/coding/upload — attach a photo/file to a session. The server is
+  /// host-aware (server-host stores locally; desktop-host delivers to the Mac
+  /// over the bridge) and returns the absolute path claude can read. Returns the
+  /// path, or null on failure.
+  Future<String?> uploadFile(String id, List<int> bytes, String filename) async {
+    final form = FormData.fromMap({
+      'session_id': id,
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+    final resp = await api.postMultipart('/api/coding/upload', form,
+        timeout: const Duration(seconds: 45));
+    final body = (resp.data as Map?) ?? const {};
+    final path = body['path']?.toString();
+    return (path != null && path.isNotEmpty) ? path : null;
   }
 
   /// POST /api/coding/session/$id/stop

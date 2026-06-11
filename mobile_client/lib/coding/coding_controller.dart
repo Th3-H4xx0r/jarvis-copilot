@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../api/coding_sessions.dart';
 import '../services/api_client.dart';
@@ -564,16 +566,130 @@ class CodingSessionsController extends ChangeNotifier {
     });
   }
 
+  // ── Composer attachments (photos + files) ─────────────────────
+  final ImagePicker _imagePicker = ImagePicker();
+  final List<PendingAttachment> _attachments = [];
+
+  /// Photos/files the user picked but hasn't sent yet (rendered as chips).
+  List<PendingAttachment> get attachments => List.unmodifiable(_attachments);
+
+  Future<void> pickCameraPhoto() async {
+    try {
+      final x = await _imagePicker.pickImage(
+          source: ImageSource.camera, imageQuality: 85);
+      await _addXFile(x, isImage: true);
+    } catch (e) {
+      error = 'Camera unavailable: ${_msg(e)}';
+      notifyListeners();
+    }
+  }
+
+  Future<void> pickGalleryPhoto() async {
+    try {
+      final imgs = await _imagePicker.pickMultiImage(imageQuality: 90);
+      for (final x in imgs) {
+        await _addXFile(x, isImage: true);
+      }
+    } catch (e) {
+      error = 'Could not pick a photo: ${_msg(e)}';
+      notifyListeners();
+    }
+  }
+
+  Future<void> pickFiles() async {
+    try {
+      final res = await FilePicker.platform
+          .pickFiles(allowMultiple: true, withData: true);
+      if (res == null) return;
+      for (final f in res.files) {
+        final bytes = f.bytes;
+        if (bytes == null) continue;
+        _attachments.add(PendingAttachment(
+            name: f.name, bytes: bytes, isImage: _looksImage(f.name)));
+      }
+      notifyListeners();
+    } catch (e) {
+      error = 'Could not pick a file: ${_msg(e)}';
+      notifyListeners();
+    }
+  }
+
+  Future<void> _addXFile(XFile? x, {bool isImage = false}) async {
+    if (x == null) return;
+    final bytes = await x.readAsBytes();
+    final name = x.name.split('/').last;
+    _attachments
+        .add(PendingAttachment(name: name, bytes: bytes, isImage: isImage));
+    notifyListeners();
+  }
+
+  bool _looksImage(String name) {
+    final n = name.toLowerCase();
+    return n.endsWith('.png') ||
+        n.endsWith('.jpg') ||
+        n.endsWith('.jpeg') ||
+        n.endsWith('.gif') ||
+        n.endsWith('.webp') ||
+        n.endsWith('.heic');
+  }
+
+  void removeAttachment(PendingAttachment a) {
+    _attachments.remove(a);
+    notifyListeners();
+  }
+
+  void clearAttachments() {
+    if (_attachments.isEmpty) return;
+    _attachments.clear();
+    notifyListeners();
+  }
+
+  /// Upload every pending attachment for the selected session and fold their
+  /// `@path` references into [text]; clears the pending list. Returns the
+  /// combined message (unchanged when there are no attachments). Paths are
+  /// space-joined (never newlines — a newline submits the TUI input early).
+  Future<String> consumeAttachmentsInto(String text) async {
+    final id = selectedId;
+    if (_attachments.isEmpty || id == null) return text;
+    final pending = List.of(_attachments);
+    final refs = <String>[];
+    var failed = 0;
+    for (final a in pending) {
+      try {
+        final p = await _api.uploadFile(id, a.bytes, a.name);
+        if (p != null && p.isNotEmpty) {
+          refs.add('@$p');
+        } else {
+          failed++;
+        }
+      } catch (_) {
+        failed++;
+      }
+    }
+    clearAttachments();
+    if (failed > 0) {
+      error = failed == pending.length
+          ? 'Attachments failed to upload'
+          : '$failed attachment(s) failed to upload';
+      notifyListeners();
+    }
+    if (refs.isEmpty) return text;
+    final body = text.trim();
+    return body.isEmpty ? refs.join(' ') : '$body ${refs.join(' ')}';
+  }
+
   // ── Send a message into the session ───────────────────────────
   Future<void> send(String text) async {
     final id = selectedId;
-    final trimmed = text.trim();
-    if (id == null || trimmed.isEmpty || sending) return;
+    if (id == null || sending) return;
+    if (text.trim().isEmpty && _attachments.isEmpty) return;
     sending = true;
     error = null;
     notifyListeners();
     try {
-      await _api.sendMessage(id, trimmed);
+      final body = await consumeAttachmentsInto(text);
+      if (body.trim().isEmpty) return;
+      await _api.sendMessage(id, body);
       await _refreshDetail();
     } catch (e) {
       error = 'Could not send message: ${_msg(e)}';

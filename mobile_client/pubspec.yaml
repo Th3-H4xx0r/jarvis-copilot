@@ -40,6 +40,7 @@ dependencies:
   flutter_timezone: ^1.0.8     # resolve the device's local timezone for alarms
   geolocator: ^11.0.0          # get_location
   image_picker: ^1.0.7         # take_photo, pick_photo
+  file_picker: ^8.0.7          # attach arbitrary files to a coding session
   flutter_tts: ^4.0.2          # text_to_speech
   record: ^5.0.4               # record_audio
   flutter_contacts: ^1.1.7+1   # read_contacts (Android + iOS)

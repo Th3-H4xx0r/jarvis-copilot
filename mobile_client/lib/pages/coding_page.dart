@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
 
+import '../coding/coding_attach.dart';
 import '../coding/coding_chat.dart';
 import '../coding/coding_controller.dart';
 import '../coding/coding_models.dart';
@@ -1754,10 +1755,15 @@ class _MessageComposer extends StatelessWidget {
               borderRadius: BorderRadius.circular(26),
               border: Border.all(color: JcTheme.glassBorder),
             ),
-            padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
-            child: Row(
+            padding: const EdgeInsets.fromLTRB(6, 8, 8, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AttachmentChips(controller: controllerRef),
+                Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                AttachButton(controller: controllerRef),
                 Expanded(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxHeight: 140),
@@ -1810,6 +1816,8 @@ class _MessageComposer extends StatelessWidget {
                               color: Colors.white, size: 22),
                     ),
                   ),
+                ),
+              ],
                 ),
               ],
             ),
