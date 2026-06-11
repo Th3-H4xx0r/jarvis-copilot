@@ -439,10 +439,32 @@ class _CodingChatViewState extends State<CodingChatView> {
     // message (and the thinking bubble) would land below the fold.
     _stickToBottom = true;
     // Upload any attachments and fold their `@path` refs into the message.
-    final body = await widget.controller.consumeAttachmentsInto(text);
-    if (!mounted || body.trim().isEmpty) return;
-    await _sendText(body);
+    final r = await widget.controller.consumeAttachmentsInto(text);
+    if (!mounted) return;
+    // Don't let a failed upload vanish silently — the message would otherwise
+    // send WITHOUT the attachment and the user would never know.
+    if (r.failed > 0) _attachmentFailedNote(r.failed);
+    if (r.text.trim().isEmpty) return;
+    await _sendText(r.text);
     _autoScroll();
+  }
+
+  void _attachmentFailedNote(int failed) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      backgroundColor: JcTheme.surface,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: JcTheme.glassBorder),
+      ),
+      content: Text(
+        failed == 1
+            ? "An attachment couldn't be uploaded — sent without it."
+            : "$failed attachments couldn't be uploaded — sent without them.",
+        style: const TextStyle(color: JcTheme.text, fontSize: 13),
+      ),
+    ));
   }
 
   // ── UI ──────────────────────────────────────────────────────────
@@ -854,7 +876,10 @@ class _MessageTile extends StatelessWidget {
               padding: const EdgeInsets.only(top: 6, right: 24),
               child: _ToolCard(
                 tool: t,
-                running: toolsRunning && t.output.trim().isEmpty,
+                // Spin only while the tool/subagent is genuinely in flight
+                // (ok == null). A COMPLETED tool with empty output must not
+                // spin forever just because its turn is still working.
+                running: toolsRunning && t.running,
               ),
             ),
           _Timestamp(ts: m.ts, alignEnd: false),

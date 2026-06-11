@@ -1066,7 +1066,8 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 host = (row.get("host") or "server")
                 msgs, source = None, "live"
                 if host == "desktop" and (row.get("device_id") or ""):
-                    from api.coding_desktop import take_transcript_dirty
+                    from api.coding_desktop import (mark_transcript_dirty,
+                                                    take_transcript_dirty)
                     cache = manager.store.get_transcript_cache(csid)
                     last_act = float(row.get("last_activity_at") or 0)
                     cache_ts = float(cache["updated_at"]) if cache else 0.0
@@ -1075,8 +1076,8 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     # predates the latest activity, or as a short safety floor.
                     # Event-driven invalidation keeps it fresh WITHOUT pulling
                     # the bridge on every poll.
-                    stale = (take_transcript_dirty(csid)
-                             or cache is None or last_act > cache_ts
+                    dirty = take_transcript_dirty(csid)
+                    stale = (dirty or cache is None or last_act > cache_ts
                              or _time.time() - cache_ts > 2.5)
                     if stale:
                         try:
@@ -1090,6 +1091,10 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                             msgs = parse_transcript_text(
                                 raw.decode("utf-8", errors="replace"))
                             manager.store.set_transcript_cache(csid, msgs)
+                        elif dirty:
+                            # The pull failed — don't lose the dirty signal, or
+                            # the new content waits out the 2.5s floor.
+                            mark_transcript_dirty(csid)
                     if msgs is None and cache is not None:
                         msgs, source = cache["messages"], "cache"
                 if msgs is None:

@@ -258,19 +258,24 @@ def parse_transcript_text(text: str) -> list[dict]:
             # thinking blocks deliberately skipped
         # Record this turn's token usage + model on the message (internal —
         # stripped from the wire by slice_messages, drives the context gauge).
+        # Defensive: a malformed usage value must never crash the whole parse
+        # (which would 500 the /messages request) — just skip this turn's usage.
         u = msg.get("usage")
         if u and m is not None:
-            m["usage"] = {
-                "input_tokens": int(u.get("input_tokens") or 0),
-                "cache_creation_input_tokens":
-                    int(u.get("cache_creation_input_tokens") or 0),
-                "cache_read_input_tokens":
-                    int(u.get("cache_read_input_tokens") or 0),
-                "output_tokens": int(u.get("output_tokens") or 0),
-            }
-            mdl = msg.get("model")
-            if mdl:
-                m["model"] = str(mdl)
+            try:
+                m["usage"] = {
+                    "input_tokens": int(u.get("input_tokens") or 0),
+                    "cache_creation_input_tokens":
+                        int(u.get("cache_creation_input_tokens") or 0),
+                    "cache_read_input_tokens":
+                        int(u.get("cache_read_input_tokens") or 0),
+                    "output_tokens": int(u.get("output_tokens") or 0),
+                }
+                mdl = msg.get("model")
+                if mdl:
+                    m["model"] = str(mdl)
+            except (TypeError, ValueError):
+                m.pop("usage", None)
     return out
 
 

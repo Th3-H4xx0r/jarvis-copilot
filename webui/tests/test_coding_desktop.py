@@ -2041,6 +2041,32 @@ def test_reconnect_cancels_pending_escalation(monkeypatch):
     assert store._row["activity_state"] == "working"
 
 
+def test_reconnect_gen_monotonic_no_stale_escalation(monkeypatch):
+    # disconnect → reconnect → disconnect WITHIN the grace: the first drop's
+    # still-pending timer must NOT clear the re-dropped device's state. A
+    # process-wide monotonic generation prevents the gen from being reused.
+    store = _RecordingStore({"id": "cs_m", "source": "discovered-tmux",
+                             "host": "desktop", "status": "running",
+                             "tmux_name": "jc-m", "cwd": "/Users/me/m",
+                             "device_id": "dev-mono", "activity_state": "working"})
+    monkeypatch.setattr(cd, "_resolve_store", lambda: store)
+    monkeypatch.setattr(cd, "_push_la_and_notify", lambda s: None)
+    monkeypatch.setattr(cd.threading, "Timer", _FakeTimer)  # don't fire for real
+    bridge, _t = make_bridge()
+    bridge.on_device_disconnect("dev-mono")
+    gen1 = cd._RECONNECTING["dev-mono"]
+    cd.note_device_reconnect("dev-mono")            # the Mac came back
+    bridge.on_device_disconnect("dev-mono")         # ...then dropped again
+    gen2 = cd._RECONNECTING["dev-mono"]
+    assert gen2 != gen1                              # monotonic — never reused
+    # The FIRST drop's stale timer fires → must be a no-op (gen mismatch).
+    cd._escalate_device_gone("dev-mono", gen1)
+    assert store._row["activity_state"] == "working"   # retained, no flap
+    # The SECOND drop's timer is still valid → escalates correctly.
+    cd._escalate_device_gone("dev-mono", gen2)
+    assert store._row["activity_state"] is None
+
+
 def test_fresh_adopt_clears_stale_pending_exit():
     # A stale exit buffered from a PREVIOUS (dead) attach must NOT instantly close
     # a brand-new adopt — fresh=True clears it so a relaunched/alive session

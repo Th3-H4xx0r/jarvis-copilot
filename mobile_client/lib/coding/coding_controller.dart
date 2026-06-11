@@ -646,11 +646,12 @@ class CodingSessionsController extends ChangeNotifier {
 
   /// Upload every pending attachment for the selected session and fold their
   /// `@path` references into [text]; clears the pending list. Returns the
-  /// combined message (unchanged when there are no attachments). Paths are
+  /// combined message text plus how many attachments FAILED to upload, so the
+  /// caller can warn the user instead of silently dropping them. Paths are
   /// space-joined (never newlines — a newline submits the TUI input early).
-  Future<String> consumeAttachmentsInto(String text) async {
+  Future<({String text, int failed})> consumeAttachmentsInto(String text) async {
     final id = selectedId;
-    if (_attachments.isEmpty || id == null) return text;
+    if (_attachments.isEmpty || id == null) return (text: text, failed: 0);
     final pending = List.of(_attachments);
     final refs = <String>[];
     var failed = 0;
@@ -673,9 +674,12 @@ class CodingSessionsController extends ChangeNotifier {
           : '$failed attachment(s) failed to upload';
       notifyListeners();
     }
-    if (refs.isEmpty) return text;
+    if (refs.isEmpty) return (text: text, failed: failed);
     final body = text.trim();
-    return body.isEmpty ? refs.join(' ') : '$body ${refs.join(' ')}';
+    return (
+      text: body.isEmpty ? refs.join(' ') : '$body ${refs.join(' ')}',
+      failed: failed,
+    );
   }
 
   // ── Send a message into the session ───────────────────────────
@@ -687,9 +691,9 @@ class CodingSessionsController extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      final body = await consumeAttachmentsInto(text);
-      if (body.trim().isEmpty) return;
-      await _api.sendMessage(id, body);
+      final r = await consumeAttachmentsInto(text);
+      if (r.text.trim().isEmpty) return;
+      await _api.sendMessage(id, r.text);
       await _refreshDetail();
     } catch (e) {
       error = 'Could not send message: ${_msg(e)}';

@@ -372,9 +372,14 @@ class DesktopBridge:
                 pass
         # Schedule the real "gone" escalation; KEEP activity_state for now so a
         # quick reconnect never flaps the dot. note_device_reconnect (called on
-        # the next discovery frame) cancels it.
+        # the next discovery frame) cancels it. The generation is a PROCESS-WIDE
+        # monotonic counter — never a per-device "+1" — so a reconnect (which
+        # pops the key) can't let a still-pending timer's gen collide with a
+        # LATER disconnect's gen and escalate inside the new grace window.
         with _RECONNECT_LOCK:
-            gen = _RECONNECTING.get(device_id, 0) + 1
+            global _RECONNECT_SEQ
+            _RECONNECT_SEQ += 1
+            gen = _RECONNECT_SEQ
             _RECONNECTING[device_id] = gen
         timer = threading.Timer(
             _RECONNECT_GRACE, _escalate_device_gone, (device_id, gen))
@@ -1521,6 +1526,7 @@ def take_transcript_dirty(csid) -> bool:
 # active→disconnected→working flap on Mac sessions.
 _RECONNECT_GRACE = 12.0
 _RECONNECTING: dict[str, int] = {}   # device_id -> generation of pending drop
+_RECONNECT_SEQ = 0                   # process-wide monotonic generation source
 _RECONNECT_LOCK = threading.Lock()
 
 

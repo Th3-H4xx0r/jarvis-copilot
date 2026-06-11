@@ -155,6 +155,18 @@ def test_context_none_without_usage():
     assert transcript_context(msgs) is None
 
 
+def test_malformed_usage_does_not_crash_parse():
+    # A non-coercible usage value must be skipped, never raise (which would
+    # 500 the whole /messages request).
+    text = _line("assistant", [{"type": "text", "text": "hi"}],
+                 usage={"input_tokens": {"nested": "obj"}},
+                 model="claude-opus-4-8")
+    msgs = parse_transcript_text(text)  # must not raise
+    assert msgs[0]["text"] == "hi"
+    assert "usage" not in msgs[0]
+    assert transcript_context(msgs) is None
+
+
 def test_slice_includes_context_and_strips_internal_usage():
     u = {"input_tokens": 50_000, "cache_creation_input_tokens": 0,
          "cache_read_input_tokens": 150_000, "output_tokens": 10}

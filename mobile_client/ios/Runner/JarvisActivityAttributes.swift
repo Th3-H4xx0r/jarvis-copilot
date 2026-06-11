@@ -30,8 +30,11 @@ struct JarvisActivityAttributes: ActivityAttributes {
         // stays "voice" and the fields above drive the (unchanged) voice UI.
         /// "voice" (existing UI) or "coding" (the Claude Code fleet view).
         var mode: String = "voice"
-        /// Up to ~4 spotlight sessions, each encoded "name\u{1f}state" where
-        /// state ∈ working|waiting|idle. Decoded by the widget.
+        /// Up to ~4 spotlight sessions, each encoded "name\u{1f}state[\u{1f}subs]"
+        /// where state ∈ working|waiting|idle and the optional 3rd field is a
+        /// comma-joined per-session sub-state list (shorthand w/p/i) present only
+        /// when a project has 2+ live sessions (drives the split bar). Decoded by
+        /// the widget.
         var sessions: [String] = []
         /// Total live sessions (drives the header "N sessions").
         var sessionTotal: Int = 0
