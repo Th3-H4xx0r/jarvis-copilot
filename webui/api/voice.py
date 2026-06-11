@@ -698,13 +698,22 @@ def _run_agent_continuation_after_clarify(session_id: str, answer: str):
     subscriber = channel.subscribe()
     # Subscribe BEFORE resolving so the continuation events aren't missed.
     try:
-        resolve_clarify(session_id, answer)
+        resolved = resolve_clarify(session_id, answer)
     except Exception as exc:
         try:
             channel.unsubscribe(subscriber)
         except Exception:
             pass
         raise _VoiceAgentError(f"failed to resolve clarify: {exc}", status=500)
+    if not resolved:
+        # No pending clarify took the answer — it already timed out (~120s) or
+        # was resolved elsewhere. Don't silently stream a default-based reply as
+        # if it were the answer; surface it so the user can re-ask.
+        try:
+            channel.unsubscribe(subscriber)
+        except Exception:
+            pass
+        raise _VoiceAgentError("clarify already resolved or timed out", status=409)
     yield from _consume_agent_stream(channel, subscriber, stream_id)
 
 
@@ -1259,6 +1268,11 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
     elif t == "interrupt":
         state["interrupt"] = True
     elif t == "end_turn":
+        # Re-arm: a barge-in sets state["interrupt"]=True with no following
+        # begin_turn (begin_turn is sent once per session), so without this the
+        # flag stays set and every later turn — including a clarify answer —
+        # bounces at the interrupt guard.
+        state["interrupt"] = False
         try:
             # If the agent is paused on a clarify question, this end_turn is the
             # user's spoken ANSWER — resolve it and resume; otherwise it's a new
