@@ -193,7 +193,8 @@ class LiveActivityCoordinator {
     // (a repo/folder) — NOT the session title, which can be a transcript
     // artifact like "<local-command-stdout>". Ungrouped sessions fall back to
     // their folder name.
-    final entries = <({String label, String state, double recency})>[];
+    final entries =
+        <({String label, String state, double recency, List<String> subs})>[];
     var total = 0;
     var waiting = 0;
     for (final p in view.projects) {
@@ -203,10 +204,14 @@ class LiveActivityCoordinator {
       if (live.isEmpty) continue;
       total += live.length;
       waiting += live.where((s) => s.liveState == 'waiting').length;
+      // Per-session sub-states ordered waiting>working>idle (for the split bar).
+      final subs = live.map((s) => s.liveState).toList()
+        ..sort((a, b) => _statePriority(a) - _statePriority(b));
       entries.add((
         label: p.name,
         state: _aggregateState(live),
         recency: live.map((s) => s.recencyTs).reduce(max),
+        subs: subs.take(8).toList(growable: false),
       ));
     }
     for (final s
@@ -217,6 +222,7 @@ class LiveActivityCoordinator {
         label: _folderName(s),
         state: s.liveState,
         recency: s.recencyTs,
+        subs: [s.liveState],
       ));
     }
     entries.sort((a, b) {
@@ -228,10 +234,14 @@ class LiveActivityCoordinator {
     _sessionTotal = total;
     _entryTotal = entries.length;
     _waitingCount = waiting;
-    _sessions = entries
-        .take(4)
-        .map((e) => '${_sanitize(e.label)}\u{1f}${e.state}')
-        .toList(growable: false);
+    // Encode "name␟aggState[␟subs]" — the 3rd field (per-session sub-states,
+    // e.g. "p,w") is added only for a project with 2+ live sessions, so a
+    // single-session row renders as one solid segment (unchanged).
+    _sessions = entries.take(4).map((e) {
+      var enc = '${_sanitize(e.label)}\u{1f}${e.state}';
+      if (e.subs.length > 1) enc += '\u{1f}${_encodeSubs(e.subs)}';
+      return enc;
+    }).toList(growable: false);
     if (usage != null) {
       _usage5 = _asInt(usage['five_hour_pct'], -1);
       _usageWeek = _asInt(usage['weekly_pct'], -1);
@@ -245,6 +255,15 @@ class LiveActivityCoordinator {
     if (live.any((s) => s.liveState == 'working')) return 'working';
     return 'idle';
   }
+
+  static const Map<String, String> _shortState = {
+    'working': 'w',
+    'waiting': 'p',
+    'idle': 'i',
+  };
+
+  static String _encodeSubs(List<String> subs) =>
+      subs.take(8).map((s) => _shortState[s] ?? 'i').join(',');
 
   static String _folderName(CodingSession s) {
     final cwd = (s.cwd ?? '').trim();

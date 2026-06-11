@@ -280,6 +280,15 @@ private func jcCodingColor(_ s: String) -> Color {
     default:        return Color(red: 0.51, green: 0.55, blue: 0.59)  // grey (idle)
     }
 }
+
+/// Color for a per-session sub-state shorthand (w/p/i) in the segmented bar.
+private func jcSubColor(_ s: String) -> Color {
+    switch s {
+    case "w": return jcCodingColor("working")
+    case "p": return jcCodingColor("waiting")
+    default:  return jcCodingColor("idle")
+    }
+}
 private let jcUsage5Color = Color(red: 0.98, green: 0.44, blue: 0.52)    // red
 private let jcUsageWeekColor = Color(red: 0.22, green: 0.74, blue: 0.97) // blue
 
@@ -291,17 +300,24 @@ private func jcCodingStateLabel(_ s: String) -> String {
     }
 }
 
-/// One decoded session row: "name\u{1F}state" → (name, state).
+/// One decoded session row: "name\u{1F}state[\u{1F}subs]" → (name, state, subs).
+/// `subStates` is the per-session shorthand list (w/p/i) for a project with 2+
+/// live sessions; empty for a single-session row (rendered as one solid segment).
 struct JCSession {
     let name: String
     let state: String
+    let subStates: [String]
 }
 
 func jcDecodeSessions(_ raw: [String]) -> [JCSession] {
     raw.map { s in
         let parts = s.components(separatedBy: "\u{1F}")
+        let subs = parts.count > 2
+            ? parts[2].split(separator: ",").map(String.init)
+            : []
         return JCSession(name: parts.first ?? s,
-                         state: parts.count > 1 ? parts[1] : "working")
+                         state: parts.count > 1 ? parts[1] : "working",
+                         subStates: subs)
     }
 }
 
@@ -377,7 +393,9 @@ struct JCHeader: View {
     }
 }
 
-/// Segmented bar — one capsule per session, colored by state.
+/// Segmented bar — one slot per project, equal-width. A project with 2+ live
+/// sessions splits its slot into per-session sub-cells (a small inner gap, the
+/// "break") colored per sub-state; a single-session slot is one solid capsule.
 @available(iOS 16.2, *)
 struct JCSegBar: View {
     let sessions: [JCSession]
@@ -387,7 +405,15 @@ struct JCSegBar: View {
                 RoundedRectangle(cornerRadius: 2).fill(Color.white.opacity(0.12)).frame(height: 8)
             } else {
                 ForEach(Array(sessions.enumerated()), id: \.offset) { _, s in
-                    RoundedRectangle(cornerRadius: 2).fill(jcCodingColor(s.state)).frame(height: 8)
+                    if s.subStates.count > 1 {
+                        HStack(spacing: 1.5) {
+                            ForEach(Array(s.subStates.enumerated()), id: \.offset) { _, sub in
+                                RoundedRectangle(cornerRadius: 2).fill(jcSubColor(sub)).frame(height: 8)
+                            }
+                        }
+                    } else {
+                        RoundedRectangle(cornerRadius: 2).fill(jcCodingColor(s.state)).frame(height: 8)
+                    }
                 }
             }
         }

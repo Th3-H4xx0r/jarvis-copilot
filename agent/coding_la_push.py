@@ -22,6 +22,14 @@ log = logging.getLogger(__name__)
 _LIVE_STATUSES = {"running", "starting", "idle"}
 _US = "\x1f"  # unit separator between name and state (matches the Swift decode)
 
+# Per-session sub-state shorthand for the segmented bar (3rd encoded field).
+_SHORT = {"working": "w", "waiting": "p", "idle": "i"}
+_MAX_SUBS = 8  # cap sub-segments per project (budget + legibility)
+
+
+def _encode_subs(subs) -> str:
+    return ",".join(_SHORT.get(s, "i") for s in subs[:_MAX_SUBS])
+
 # Module-level dedupe: only push when the content-state signature changes.
 _last_sig = {"v": ""}
 
@@ -115,14 +123,27 @@ def build_coding_content_state(store, usage=None):
             ungrouped.append((_folder(r.get("cwd")), st, _recency(r)))
     if total == 0:
         return None
-    entries = []  # (label, state, recency)
+    entries = []  # (label, aggregate_state, recency, sub_states)
     for pid, items in by_project.items():
         rec = max(rc for _, rc in items)
+        states = [s for s, _ in items]
+        # Order sub-states waiting > working > idle so the bar reads
+        # consistently; cap defensively (the budget allows far more).
+        subs = sorted(states, key=_priority)[:_MAX_SUBS]
         entries.append((projects[pid].get("name") or "project",
-                        _aggregate([s for s, _ in items]), rec))
-    entries.extend(ungrouped)
+                        _aggregate(states), rec, subs))
+    for folder, st, rec in ungrouped:
+        entries.append((folder, st, rec, [st]))
     entries.sort(key=lambda e: (_priority(e[1]), -e[2]))
-    sessions = [f"{_sanitize(lbl)}{_US}{st}" for lbl, st, _ in entries[:4]]
+    # Encode "name␟aggState[␟subs]" — the 3rd field (per-session sub-states,
+    # e.g. "w,p") is present only when a project has 2+ live sessions, so a
+    # single-session project/ungrouped row renders exactly as before.
+    sessions = []
+    for lbl, st, _rec, subs in entries[:4]:
+        enc = f"{_sanitize(lbl)}{_US}{st}"
+        if len(subs) > 1:
+            enc += f"{_US}{_encode_subs(subs)}"
+        sessions.append(enc)
     cs = {
         "state": "idle", "transcript": "", "activity": "", "connected": True,
         "devices": [], "mode": "coding",
