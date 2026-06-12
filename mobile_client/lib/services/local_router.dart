@@ -32,30 +32,16 @@ class LocalRouter {
     final text = userText.trim();
     if (text.isEmpty) return const Escalate('empty-input');
 
-    // 1. Tier / per-surface gate (zero added latency).
+    // Tier / per-surface gate (zero added latency).
     if (_settings.tier == LocalAiTier.off) return const Escalate('tier-off');
     if (!_settings.enabledFor(surface)) {
       return Escalate('${surface.name}-disabled');
     }
 
-    // 2. Engine availability.
-    final avail = await _ai.availability();
-    if (!avail.available) {
-      return Escalate('unavailable:${avail.reason ?? 'unknown'}');
-    }
-
-    // 3. One-shot structured decision under a hard deadline.
-    RoutingDecision dec;
+    // Whole local attempt (availability + catalog + route) under ONE hard
+    // deadline so a slow probe/fetch never adds latency before escalation.
     try {
-      final catalogJson = await _catalog.buildPromptCatalog();
-      final req = LocalRequest(
-        userText: text,
-        surface: surface,
-        toolCatalogJson: catalogJson,
-        tier: _settings.tier,
-      );
-      dec = await _ai
-          .route(req)
+      return await _attempt(text, surface)
           .timeout(Duration(milliseconds: _settings.deadlineMs));
     } on TimeoutException {
       return const Escalate('timeout');
@@ -63,8 +49,21 @@ class LocalRouter {
       debugPrint('[router] route error: $e');
       return Escalate('error:$e');
     }
+  }
 
-    // 4. Map the decision.
+  Future<RouteResult> _attempt(String text, VoiceSurface surface) async {
+    final avail = await _ai.availability();
+    if (!avail.available) {
+      return Escalate('unavailable:${avail.reason ?? 'unknown'}');
+    }
+    final catalogJson = await _catalog.buildPromptCatalog();
+    final req = LocalRequest(
+      userText: text,
+      surface: surface,
+      toolCatalogJson: catalogJson,
+      tier: _settings.tier,
+    );
+    final dec = await _ai.route(req);
     return _interpret(dec);
   }
 

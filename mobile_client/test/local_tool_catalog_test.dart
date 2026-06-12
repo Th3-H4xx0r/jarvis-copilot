@@ -14,10 +14,10 @@ SkillEntry _skill(String name) => SkillEntry(
 
 void main() {
   setUp(() {
-    // A device-local skill (in the offline allowlist) and a client-dispatchable
-    // one (a registered skill NOT in the offline allowlist).
-    SkillRegistry.instance.register(_skill('set_timer'));
-    SkillRegistry.instance.register(_skill('chrome_open'));
+    // A real device-local skill (in the offline allowlist) and a real
+    // registered skill that is NOT offline-capable (client-dispatchable).
+    SkillRegistry.instance.register(_skill('vibrate'));
+    SkillRegistry.instance.register(_skill('read_contacts'));
   });
 
   test('classOf tags device-local, client-dispatchable, and server-only', () {
@@ -26,8 +26,8 @@ void main() {
         {'name': 'web_search', 'description': 'search the web'},
       ]);
 
-    expect(cat.classOf('set_timer'), ToolExecClass.deviceLocal);
-    expect(cat.classOf('chrome_open'), ToolExecClass.clientDispatchable);
+    expect(cat.classOf('vibrate'), ToolExecClass.deviceLocal);
+    expect(cat.classOf('read_contacts'), ToolExecClass.clientDispatchable);
     expect(cat.classOf('web_search'), ToolExecClass.serverOnly);
     // Unknown names default to serverOnly (safe → escalate).
     expect(cat.classOf('totally_unknown'), ToolExecClass.serverOnly);
@@ -42,13 +42,14 @@ void main() {
     final json = jsonDecode(await cat.buildPromptCatalog()) as List;
     final byName = {for (final e in json) (e as Map)['name']: e};
 
-    expect(byName.containsKey('set_timer'), isTrue);
-    expect(byName.containsKey('chrome_open'), isTrue);
+    expect(byName.containsKey('vibrate'), isTrue);
+    expect(byName.containsKey('read_contacts'), isTrue);
     expect(byName.containsKey('web_search'), isTrue);
-    expect((byName['set_timer'] as Map)['execClass'], 'deviceLocal');
+    expect((byName['vibrate'] as Map)['execClass'], 'deviceLocal');
+    expect((byName['read_contacts'] as Map)['execClass'], 'clientDispatchable');
     expect((byName['web_search'] as Map)['execClass'], 'serverOnly');
     // Each entry carries name/desc/execClass.
-    expect((byName['set_timer'] as Map).keys.toSet(),
+    expect((byName['vibrate'] as Map).keys.toSet(),
         {'name', 'desc', 'execClass'});
   });
 }

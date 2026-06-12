@@ -84,8 +84,14 @@ class OnDeviceAi implements OnDeviceAiClient {
     final controller = StreamController<String>();
     StreamSubscription<Map<String, dynamic>>? sub;
 
-    controller.onCancel = () {
+    void finish() {
       sub?.cancel();
+      sub = null;
+      if (!controller.isClosed) controller.close();
+    }
+
+    controller.onCancel = () {
+      finish();
       cancel(requestId);
     };
 
@@ -97,11 +103,11 @@ class OnDeviceAi implements OnDeviceAiClient {
           if (t.isNotEmpty) controller.add(t);
           break;
         case 'done':
-          controller.close();
+          finish();
           break;
         case 'error':
           controller.addError(StateError((e['text'] ?? 'generate error').toString()));
-          controller.close();
+          finish();
           break;
       }
     });
@@ -112,7 +118,7 @@ class OnDeviceAi implements OnDeviceAiClient {
       'requestId': requestId,
     }).catchError((e) {
       controller.addError(e);
-      controller.close();
+      finish();
       return null;
     });
 
@@ -123,6 +129,26 @@ class OnDeviceAi implements OnDeviceAiClient {
     try {
       await _method.invokeMethod('cancel', {'requestId': requestId});
     } catch (_) {}
+  }
+
+  // ── On-device STT (Apple Speech) for the voice local front-path ────────────
+
+  /// Transcribe a PCM16-LE mono buffer on-device. Returns '' if on-device STT
+  /// isn't available (older OS / no permission / no native engine) so the
+  /// caller falls back to the server's STT.
+  Future<String> transcribe(List<int> pcm, {int sampleRate = 16000}) async {
+    try {
+      final res = await _method.invokeMethod('transcribe', {
+        'pcm': Uint8List.fromList(pcm),
+        'sample_rate': sampleRate,
+      });
+      return (res ?? '').toString();
+    } on MissingPluginException {
+      return '';
+    } catch (e) {
+      debugPrint('[ondevice] transcribe failed: $e');
+      return '';
+    }
   }
 
   // ── Model management (used by the Settings UI, not the router) ─────────────
@@ -143,8 +169,14 @@ class OnDeviceAi implements OnDeviceAiClient {
   Stream<double> downloadModel(String id) {
     final controller = StreamController<double>();
     StreamSubscription<Map<String, dynamic>>? sub;
-    controller.onCancel = () {
+    void finish() {
       sub?.cancel();
+      sub = null;
+      if (!controller.isClosed) controller.close();
+    }
+
+    controller.onCancel = () {
+      finish();
       cancelDownload(id);
     };
     sub = _eventStream.where((e) => e['requestId'] == id).listen((e) {
@@ -156,18 +188,18 @@ class OnDeviceAi implements OnDeviceAiClient {
           break;
         case 'done':
           controller.add(1.0);
-          controller.close();
+          finish();
           break;
         case 'error':
           controller.addError(
               StateError((e['text'] ?? 'download error').toString()));
-          controller.close();
+          finish();
           break;
       }
     });
     _method.invokeMethod('downloadModel', {'id': id}).catchError((e) {
       controller.addError(e);
-      controller.close();
+      finish();
       return null;
     });
     return controller.stream;

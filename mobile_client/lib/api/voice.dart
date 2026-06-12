@@ -54,16 +54,20 @@ class VoiceApi {
     String format = 'mp3',
     String? voice,
   }) async {
-    final resp = await api.postBytes(
-      '/api/voice/synthesize',
-      {
-        'text': text,
-        'format': format,
-        if (voice != null) 'voice': voice,
-      },
-    );
-    final data = resp.data;
-    return (data is List<int>) ? data : const [];
+    try {
+      final resp = await api.postBytes(
+        '/api/voice/synthesize',
+        {
+          'text': text,
+          'format': format,
+          if (voice != null) 'voice': voice,
+        },
+      );
+      final data = resp.data;
+      return (data is List<int>) ? data : const [];
+    } catch (_) {
+      return const [];
+    }
   }
 
   Stream<Map<String, dynamic>> qualityTurn({

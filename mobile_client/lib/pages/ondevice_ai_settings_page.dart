@@ -24,12 +24,21 @@ class _OnDeviceAiSettingsPageState extends State<OnDeviceAiSettingsPage> {
   OnDeviceAvailability? _avail;
   List<LocalModelInfo> _models = const [];
   final Map<String, double> _downloading = {}; // id -> progress
+  final Map<String, StreamSubscription<double>> _dlSubs = {};
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     _refresh();
+  }
+
+  @override
+  void dispose() {
+    for (final s in _dlSubs.values) {
+      s.cancel();
+    }
+    super.dispose();
   }
 
   Future<void> _refresh() async {
@@ -209,10 +218,19 @@ class _OnDeviceAiSettingsPageState extends State<OnDeviceAiSettingsPage> {
 
   void _download(String id) {
     setState(() => _downloading[id] = 0);
-    _ai.downloadModel(id).listen(
-      (p) => setState(() => _downloading[id] = p),
-      onError: (_) => setState(() => _downloading.remove(id)),
+    _dlSubs[id] = _ai.downloadModel(id).listen(
+      (p) {
+        if (!mounted) return;
+        setState(() => _downloading[id] = p);
+      },
+      onError: (_) {
+        _dlSubs.remove(id);
+        if (!mounted) return;
+        setState(() => _downloading.remove(id));
+      },
       onDone: () {
+        _dlSubs.remove(id);
+        if (!mounted) return;
         setState(() => _downloading.remove(id));
         _refresh();
       },

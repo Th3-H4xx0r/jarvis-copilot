@@ -2,14 +2,17 @@
 /// destructive action that should be confirmed before the on-device model
 /// fires it autonomously? Small local models can mis-route, so we treat
 /// anything that sends, deletes, calls, posts, or pays as needing confirmation.
+///
+/// Matching is on underscore-delimited NAME SEGMENTS (not raw substrings) so
+/// innocent names like `text_to_speech` / `type_text` aren't flagged just for
+/// containing "text".
 library;
 
-const Set<String> _riskyTokens = {
+const Set<String> _riskySegments = {
   'send',
   'email',
   'mail',
-  'text',
-  'message',
+  'sms',
   'call',
   'dial',
   'delete',
@@ -24,13 +27,11 @@ const Set<String> _riskyTokens = {
   'tweet',
   'publish',
   'share',
-  'archive',
 };
 
 bool isOutwardOrDestructive(String name) {
-  final lower = name.toLowerCase();
-  for (final t in _riskyTokens) {
-    if (lower.contains(t)) return true;
+  for (final seg in name.toLowerCase().split(RegExp(r'[_\s]+'))) {
+    if (_riskySegments.contains(seg)) return true;
   }
   return false;
 }

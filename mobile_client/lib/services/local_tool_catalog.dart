@@ -33,22 +33,28 @@ class LocalToolCatalog implements ToolCatalog {
   List<Map<String, dynamic>> _serverTools = const [];
   DateTime? _fetchedAt;
 
-  /// Device skills that run fully on-device/offline (instant). Anything else in
-  /// the [SkillRegistry] is treated as client-dispatchable (InvokeRunner can run
-  /// it but it may hop the bridge / need the network).
+  /// Device skills that run fully on-device/offline (instant). Names MUST match
+  /// the real [SkillRegistry] entries (lib/skills/*.dart). Anything else in the
+  /// registry is treated as client-dispatchable (InvokeRunner can run it but it
+  /// may hop the bridge / need the network).
   static const Set<String> _offlineSkillNames = {
     'set_alarm',
-    'alarm',
-    'set_timer',
-    'timer',
     'vibrate',
-    'haptic',
     'play_audio',
-    'play_sound',
-    'stop_audio',
+    'flashlight_on',
+    'flashlight_off',
+    'set_volume',
+    'adjust_volume',
+    'notify',
+    'battery_level',
+    'device_info',
+    'clipboard_read',
+    'clipboard_write',
+    'get_location',
+    'phone_control',
     'create_shortcut',
-    'flashlight',
-    'torch',
+    'run_shortcut',
+    'text_to_speech',
   };
 
   /// Refresh the cached server tool list. Safe to call opportunistically; a
