@@ -1552,14 +1552,20 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
         sr = state["sample_rate"]
         sid = (state.get("session_id") or "").strip()
         state["pcm_buf"].clear()
-    if len(pcm) < 1000:
+    # On-device clarify answers arrive as text (the client STT'd it). Consume the
+    # pretranscript (pop) so it's used here and can't leak into the next turn.
+    pretranscript = (state.pop("pretranscript", None) or "").strip()
+    if pretranscript:
+        transcript = pretranscript
+    elif len(pcm) < 1000:
         # Nothing heard — keep clarify pending so the user can just try again.
         _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "empty"}))
         return
-    transcript = _pcm_to_transcript(pcm, sr)
-    if not transcript:
-        _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))
-        return
+    else:
+        transcript = _pcm_to_transcript(pcm, sr)
+        if not transcript:
+            _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))
+            return
     _ws_send_text(conn, sock, json.dumps({"type": "transcript", "text": transcript, "is_final": True}))
     if state["interrupt"]:
         _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "interrupt"}))

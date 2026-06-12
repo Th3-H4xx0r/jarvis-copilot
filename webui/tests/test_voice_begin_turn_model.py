@@ -137,6 +137,40 @@ def test_bridge_pipeline_uses_pretranscript_and_skips_stt(monkeypatch):
     assert any('"transcript"' in s and "turn on the lights" in s for s in sent)
 
 
+def test_bridge_answer_clarify_uses_pretranscript_and_skips_stt(monkeypatch):
+    """An on-device clarify answer arrives as text. _bridge_answer_clarify must
+    use the pretranscript (skip STT), pop it so it can't leak, and resume the
+    clarified turn."""
+    from api import voice
+
+    monkeypatch.setattr(
+        voice, "_pcm_to_transcript",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("STT must be skipped")),
+    )
+    sent = []
+    monkeypatch.setattr(voice, "_ws_send_text", lambda conn, sock, text: sent.append(text))
+
+    captured = {}
+    monkeypatch.setattr(voice, "_stream_segments",
+                        lambda c, s, st, g: captured.setdefault("reached", True) or True)
+    monkeypatch.setattr(
+        voice, "_run_agent_continuation_after_clarify",
+        lambda sid, transcript: captured.setdefault("transcript", transcript) or iter(()),
+    )
+
+    state = _fresh_state()
+    state["session_id"] = "sess-clr"
+    state["clarify_pending"] = True
+    state["pretranscript"] = "the one from SFO"
+
+    voice._bridge_answer_clarify(state, _DeadConn(), _DeadConn())
+
+    assert captured.get("transcript") == "the one from SFO"
+    assert "pretranscript" not in state  # consumed, no leak
+    assert state["clarify_pending"] is False
+    assert any('"transcript"' in s and "the one from SFO" in s for s in sent)
+
+
 def test_bridge_pipeline_passes_per_turn_model_override(monkeypatch):
     """A per-turn model/provider in state must be threaded into the agent call."""
     from api import voice
