@@ -3695,6 +3695,9 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/models":
         return j(handler, get_available_models())
 
+    if parsed.path == "/api/tools/catalog":
+        return j(handler, _build_tools_catalog())
+
     if parsed.path == "/api/models/live":
         return _handle_live_models(handler, parsed)
 
@@ -7519,6 +7522,40 @@ def _handle_clarify_inject(handler, parsed):
         )
         return j(handler, {"ok": True, "session_id": sid})
     return j(handler, {"error": "session_id required"}, status=400)
+
+
+def _build_tools_catalog():
+    """Serialize the agent's tool registry for the mobile on-device-AI client.
+
+    Returns ``{"tools": [{"name", "description", "toolset", "schema"}, ...]}``
+    for every registered tool, sorted by name. Read-only and secret-free: it
+    never exposes handlers, check_fns, or any callable — only the public
+    metadata the local model needs to know the full server tool surface.
+
+    Defensive by design: if the registry import fails (e.g. the agent isn't on
+    the path in some deploy), it returns an empty list rather than 500ing.
+    """
+    try:
+        from tools.registry import registry  # type: ignore
+    except Exception:
+        return {"tools": []}
+    tools = []
+    try:
+        for name in registry.get_all_tool_names():
+            entry = registry.get_entry(name)
+            if entry is None:
+                continue
+            schema = entry.schema if isinstance(entry.schema, dict) else {}
+            tools.append({
+                "name": entry.name,
+                "description": entry.description or schema.get("description", "") or "",
+                "toolset": entry.toolset,
+                "schema": schema,
+            })
+    except Exception:
+        return {"tools": []}
+    tools.sort(key=lambda t: t["name"])
+    return {"tools": tools}
 
 
 def _handle_live_models(handler, parsed):

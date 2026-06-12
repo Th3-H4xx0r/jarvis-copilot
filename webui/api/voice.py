@@ -717,7 +717,8 @@ def _run_agent_continuation_after_clarify(session_id: str, answer: str):
     yield from _consume_agent_stream(channel, subscriber, stream_id)
 
 
-def _run_agent_turn_via_chat(session_id: str, user_text: str):
+def _run_agent_turn_via_chat(session_id: str, user_text: str,
+                             model_override: str = "", provider_override: str = ""):
     """GENERATOR. Push `user_text` into the user's active chat session and
     yield segments as they arrive on the SSE stream so callers can react
     incrementally (TTS+play as each text segment lands; show tool status
@@ -775,14 +776,22 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str):
     # here substitutes the user's configured default model (their Codex model)
     # and normalizes a stale cross-provider model, killing that crash for both
     # web and mobile voice. Codex stays the provider — this never forces Claude.
+    #
+    # A per-turn override (model_override / provider_override) takes precedence
+    # over the session default — the on-device escalation path may pick a
+    # specific server model/provider for this single turn. It still flows
+    # through the SAME _resolve_compatible_session_model_state() the chat path
+    # uses, so an empty/stale/cross-provider override is normalized identically.
+    raw_model = (model_override or "").strip() or getattr(s, "model", None)
+    raw_provider = (provider_override or "").strip() or getattr(s, "model_provider", None)
     try:
         eff_model, eff_provider, was_normalized = _resolve_compatible_session_model_state(
-            getattr(s, "model", None),
-            getattr(s, "model_provider", None),
+            raw_model,
+            raw_provider,
         )
     except Exception:
-        eff_model = getattr(s, "model", None) or ""
-        eff_provider = getattr(s, "model_provider", None)
+        eff_model = (raw_model or "") if isinstance(raw_model, str) else (getattr(s, "model", None) or "")
+        eff_provider = raw_provider
         was_normalized = False
     if not (eff_model or "").strip():
         # No usable model anywhere (config model.default empty AND no env
@@ -1265,6 +1274,20 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         sid = (msg.get("session_id") or "").strip()
         if sid:
             state["session_id"] = sid
+        # Per-turn model override (on-device escalation may pick a specific
+        # server model/provider for this turn). Only set when non-empty so an
+        # absent field never clobbers the session default.
+        model = (msg.get("model") or "").strip()
+        if model:
+            state["model"] = model
+        provider = (msg.get("model_provider") or "").strip()
+        if provider:
+            state["model_provider"] = provider
+        # Pre-supplied transcript: the on-device path already knows what the
+        # user said, so the server can skip STT entirely for this turn.
+        pretext = (msg.get("text") or "").strip()
+        if pretext:
+            state["pretranscript"] = pretext
     elif t == "interrupt":
         state["interrupt"] = True
     elif t == "end_turn":
@@ -1273,6 +1296,18 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         # flag stays set and every later turn — including a clarify answer —
         # bounces at the interrupt guard.
         state["interrupt"] = False
+        # Allow the on-device escalation path to attach the per-turn model /
+        # pre-supplied transcript on end_turn too (some clients only send a
+        # single frame to start the turn). Mirrors the begin_turn handling.
+        et_model = (msg.get("model") or "").strip()
+        if et_model:
+            state["model"] = et_model
+        et_provider = (msg.get("model_provider") or "").strip()
+        if et_provider:
+            state["model_provider"] = et_provider
+        et_text = (msg.get("text") or "").strip()
+        if et_text:
+            state["pretranscript"] = et_text
         try:
             # If the agent is paused on a clarify question, this end_turn is the
             # user's spoken ANSWER — resolve it and resume; otherwise it's a new
@@ -1474,20 +1509,31 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
         sr = state["sample_rate"]
         sid = (state.get("session_id") or "").strip()
         state["pcm_buf"].clear()
-    if len(pcm) < 1000:
-        _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "empty"}))
-        return
-    transcript = _pcm_to_transcript(pcm, sr)
-    if not transcript:
-        _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))
-        return
+    # On-device escalation: if the client already supplied the transcript with
+    # the turn, skip STT entirely. Consume it (pop) so it can't leak into the
+    # next turn.
+    pretranscript = (state.pop("pretranscript", None) or "").strip()
+    if pretranscript:
+        transcript = pretranscript
+    else:
+        if len(pcm) < 1000:
+            _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "empty"}))
+            return
+        transcript = _pcm_to_transcript(pcm, sr)
+        if not transcript:
+            _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))
+            return
     _ws_send_text(conn, sock, json.dumps({"type": "transcript", "text": transcript, "is_final": True}))
     if state["interrupt"]:
         _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "interrupt"}))
         return
 
     if sid:
-        if _stream_segments(conn, sock, state, _run_agent_turn_via_chat(sid, transcript)):
+        turn_model = (state.get("model") or "").strip()
+        turn_provider = (state.get("model_provider") or "").strip()
+        if _stream_segments(conn, sock, state, _run_agent_turn_via_chat(
+            sid, transcript, model_override=turn_model, provider_override=turn_provider,
+        )):
             return  # fully handled (clarify pending / no_reply) — end_turn sent
     else:
         reply = _generate_reply(transcript)
