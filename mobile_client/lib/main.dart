@@ -18,7 +18,6 @@ import 'services/pending_actions.dart';
 import 'services/connection_monitor.dart';
 import 'services/local_ai_settings.dart';
 import 'services/local_router.dart';
-import 'services/local_tool_catalog.dart';
 import 'services/model_selection.dart';
 import 'services/on_device_ai.dart';
 import 'services/push_handler.dart';
@@ -138,9 +137,9 @@ Future<void> main() async {
   runner = InvokeRunner(api: api, ws: ws);
   push = PushHandler(api: api, runner: runner);
 
-  // On-device router: device skills come from the SkillRegistry; the full
-  // server tool list is fetched (and cached) from /api/tools/catalog.
-  localRouter = LocalRouter(catalog: LocalToolCatalog(api: api));
+  // On-device router: a fast keyword pre-gate keeps conversation local and
+  // sends commands / data requests to the server.
+  localRouter = LocalRouter();
   // Pull the server's active JARVIS persona so on-device replies match voice.
   unawaited(_loadOnDevicePersona());
 

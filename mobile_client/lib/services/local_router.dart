@@ -1,39 +1,27 @@
-import 'dart:async';
-
-import 'package:flutter/foundation.dart';
-
-import 'local_action_safety.dart';
 import 'local_ai_settings.dart';
-import 'local_tool_catalog.dart';
 import 'on_device_ai.dart';
 import 'on_device_ai_types.dart';
 
-/// Decides, for one user turn, whether the on-device model handles it (answer
-/// or local tool call) or whether to escalate to the server. The router NEVER
-/// touches the network — it returns a [RouteResult]; the caller acts on it.
+/// Decides, for one user turn, whether the on-device model answers it or whether
+/// to escalate to the server. The router never touches the network — it returns
+/// a [RouteResult]; the caller acts on it.
 ///
-/// Fail-safe by construction: tier off, surface disabled, engine unavailable,
-/// timeout, low confidence, parse failure, or any error all resolve to
-/// [Escalate] so the server path is never blocked.
+/// Design (fast + reliable): the on-device model is used ONLY to ANSWER
+/// conversation/knowledge — the one thing a small model does well and fast (one
+/// streamed inference, like the standalone Apple-model apps). A cheap keyword
+/// PRE-GATE sends everything else (device commands, live data, the user's
+/// accounts, sending/calling/playing) to the server, where tool execution
+/// actually works. No guided-generation routing call, so there's only ONE model
+/// inference per local turn.
 class LocalRouter {
   LocalRouter({
     OnDeviceAiClient? ai,
-    ToolCatalog? catalog,
     LocalAiSettings? settings,
-    int hangGuardMs = 45000,
   })  : _ai = ai ?? OnDeviceAi.instance,
-        _catalog = catalog ?? LocalToolCatalog(),
-        _settings = settings ?? LocalAiSettings.instance,
-        _hangGuardMs = hangGuardMs;
+        _settings = settings ?? LocalAiSettings.instance;
 
   final OnDeviceAiClient _ai;
-  final ToolCatalog _catalog;
   final LocalAiSettings _settings;
-
-  /// NOT an escalation deadline — only a generous hang-guard so a stuck
-  /// inference can't wedge the turn forever. The MODEL decides escalation
-  /// (its `action`); this is set high enough to never fire in normal use.
-  final int _hangGuardMs;
 
   Future<RouteResult> handle(String userText, VoiceSurface surface) async {
     final text = userText.trim();
@@ -45,73 +33,43 @@ class LocalRouter {
       return Escalate('${surface.name}-disabled');
     }
 
-    // The model decides whether to escalate (its `action`) — there is NO
-    // time-limit escalation. The timeout here is only a hang-guard against a
-    // wedged inference, generous enough to never fire in normal use.
-    try {
-      return await _attempt(text, surface)
-          .timeout(Duration(milliseconds: _hangGuardMs));
-    } on TimeoutException {
-      return const Escalate('hang-guard');
-    } catch (e) {
-      debugPrint('[router] route error: $e');
-      return Escalate('error:$e');
-    }
-  }
-
-  Future<RouteResult> _attempt(String text, VoiceSurface surface) async {
+    // Engine availability.
     final avail = await _ai.availability();
     if (!avail.available) {
       return Escalate('unavailable:${avail.reason ?? 'unknown'}');
     }
-    final catalogJson = await _catalog.buildPromptCatalog();
-    final req = LocalRequest(
-      userText: text,
-      surface: surface,
-      toolCatalogJson: catalogJson,
-      tier: _settings.tier,
-    );
-    final dec = await _ai.route(req);
-    return _interpret(dec);
+
+    // Pre-gate: anything that needs to DO something or fetch real data goes to
+    // the server (the small on-device model fabricates args / role-plays these,
+    // and the server has the working skills + the user's data). The local model
+    // only answers conversation/knowledge.
+    if (looksLikeServerRequest(text)) return const Escalate('server-request');
+
+    // Answer locally — the caller streams a full reply from the model.
+    return const DirectAnswer('');
   }
 
-  RouteResult _interpret(RoutingDecision dec) {
-    switch (dec.action) {
-      case 'escalate':
-        return Escalate(dec.reason ?? 'model-escalate');
+  /// True when the turn looks like a command, an outward action, or a request
+  /// for live/real-world or account data — i.e. something the on-device model
+  /// can't reliably do and that belongs on the server.
+  static bool looksLikeServerRequest(String text) =>
+      _serverRequestRe.hasMatch(text);
 
-      case 'answer':
-        if (dec.confidence < _settings.confidenceFloor) {
-          return const Escalate('low-confidence');
-        }
-        // The model chose to answer locally. Pass its inline answer through
-        // (may be empty — the caller streams a full local generation in that
-        // case, so a thin guided-gen answer field never forces a server hop).
-        return DirectAnswer((dec.answer ?? '').trim());
-
-      case 'tool':
-        final name = (dec.toolName ?? '').trim();
-        if (name.isEmpty) return const Escalate('no-tool-name');
-        final cls = _catalog.classOf(name);
-        // serverOnly always escalates.
-        if (cls == ToolExecClass.serverOnly) return const Escalate('server-tool');
-        // client-dispatchable tools require the full-local-first tier; the
-        // baseline tier only fires device-local commands.
-        if (cls == ToolExecClass.clientDispatchable &&
-            _settings.tier != LocalAiTier.fullLocalFirst) {
-          return const Escalate('client-tool-needs-full-tier');
-        }
-        if (dec.confidence < _settings.confidenceFloor) {
-          return const Escalate('low-confidence');
-        }
-        final requiresConfirm =
-            _settings.confirmLocalActions && isOutwardOrDestructive(name);
-        return ToolCall(name, dec.toolArgs, cls,
-            requiresConfirm: requiresConfirm,
-            confirmation: (dec.answer ?? '').trim().isEmpty ? null : dec.answer!.trim());
-
-      default:
-        return Escalate('unknown-action:${dec.action}');
-    }
-  }
+  static final RegExp _serverRequestRe = RegExp(
+    r'\b('
+    // outward comms
+    r'text|sms|send|email|e-?mail|call|dial|message|msg|dm|tweet|whatsapp|imessage|'
+    // media / apps / navigation
+    r'play|pause|skip|stream|spotify|youtube|open|launch|navigate|directions?|maps?|uber|'
+    // create / schedule / device control
+    r'set|turn|switch|toggle|remind|reminders?|schedule|alarm|timer|vibrate|flashlight|torch|'
+    r'brightness|volume|wifi|bluetooth|airplane|dnd|book|reserve|order|buy|purchase|pay|'
+    r'add|create|delete|remove|search|google|find|look ?up|translate|download|install|'
+    // live data / accounts / "my ..."
+    r'weather|forecast|temperature|news|headlines?|stocks?|prices?|traffic|scores?|sports?|'
+    r'calendar|agenda|inbox|emails?|meetings?|tasks?|notes?|brief|flights?|'
+    r'my'
+    r')\b',
+    caseSensitive: false,
+  );
 }

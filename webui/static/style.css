@@ -3510,6 +3510,17 @@ body.cdg-term-fs-open .cdg-term-fsbtn{position:fixed;top:12px;right:16px;z-index
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
 }
+.msg-on-device-inline {
+  font-size: 10.5px;
+  font-weight: 700;
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 6px;
+  color: #06b6d4;
+  background: rgba(6, 182, 212, 0.14);
+  border: 1px solid rgba(6, 182, 212, 0.32);
+  letter-spacing: .01em;
+}
 .gateway-failover-inline {
   color: var(--accent);
   opacity: .9;

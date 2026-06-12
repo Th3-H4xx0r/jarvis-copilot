@@ -46,7 +46,15 @@ final class AppleFMEngine: OnDeviceEngine {
         guard #available(iOS 26.0, *) else {
             return .unavailable("ios-below-26")
         }
-        return FMSession.availability()
+        let avail = FMSession.availability()
+        // The router checks availability before every local turn — use that to
+        // keep a warm, prewarmed session so the first token isn't cold.
+        if case .available = avail {
+            let box = (sessionBox as? FMSession) ?? FMSession()
+            sessionBox = box
+            box.prewarm()
+        }
+        return avail
     }
 
     // MARK: Load
@@ -155,6 +163,7 @@ final class FMSession {
     /// supplied; otherwise we keep one session and let the framework manage its
     /// transcript.
     private var session: LanguageModelSession?
+    private var cachedSystem: String?
 
     /// Map Apple's availability to the shared `EngineAvailability` shape.
     static func availability() -> EngineAvailability {
@@ -192,27 +201,45 @@ final class FMSession {
         }
     }
 
-    /// Spin up a fresh warm session (used by `load`).
+    /// Spin up a fresh warm session (used by `load`) and prewarm it so the first
+    /// real response isn't paying the model-load cost.
     func reset() {
-        session = LanguageModelSession()
+        let s = LanguageModelSession()
+        s.prewarm()
+        session = s
+        cachedSystem = ""
+    }
+
+    /// Prewarm ahead of the first turn (called when the engine is known
+    /// available) so the first response is fast, not cold.
+    func prewarm() {
+        if session == nil {
+            let s = LanguageModelSession()
+            s.prewarm()
+            session = s
+            cachedSystem = ""
+        } else {
+            session?.prewarm()
+        }
     }
 
     /// Drop the current session so any in-flight stream stops emitting.
     func invalidate() {
         session = nil
+        cachedSystem = nil
     }
 
     private func ensureSession(system: String) -> LanguageModelSession {
-        // A non-empty system prompt seeds a fresh session's instructions;
-        // otherwise reuse the warm session from `load`.
-        if !system.isEmpty {
-            let s = LanguageModelSession(instructions: Instructions(system))
-            session = s
-            return s
-        }
-        if let s = session { return s }
-        let s = LanguageModelSession()
+        // Reuse the SAME warm session across turns (it stays loaded + keeps a
+        // short conversational transcript). Only rebuild when the system prompt
+        // actually changes — recreating per call was a big chunk of the latency.
+        if let s = session, cachedSystem == system { return s }
+        let s = system.isEmpty
+            ? LanguageModelSession()
+            : LanguageModelSession(instructions: Instructions(system))
+        s.prewarm()
         session = s
+        cachedSystem = system
         return s
     }
 

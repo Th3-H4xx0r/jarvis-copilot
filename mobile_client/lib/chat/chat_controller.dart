@@ -378,11 +378,28 @@ class ChatController extends ChangeNotifier {
   }
 
   void _applyMetering(Map<String, dynamic> ev) {
+    // The metering event nests usage inconsistently (top-level, `usage`,
+    // `data`, or `data.usage`), so dig through all of them for each field.
+    int? digInt(String key) {
+      for (final m in [
+        ev,
+        ev['usage'],
+        ev['data'],
+        (ev['data'] is Map) ? (ev['data'] as Map)['usage'] : null,
+      ]) {
+        if (m is Map && m[key] != null) {
+          final v = _asInt(m[key]);
+          if (v != null) return v;
+        }
+      }
+      return null;
+    }
+
+    final inp = digInt('input_tokens');
+    final out = digInt('output_tokens');
     final usage = (ev['usage'] is Map)
         ? Map<String, dynamic>.from(ev['usage'] as Map)
         : ev;
-    final inp = _asInt(usage['input_tokens']);
-    final out = _asInt(usage['output_tokens']);
     final cost = _asDouble(usage['estimated_cost']);
     if (inp != null) _live?.inputTokens = inp;
     if (out != null) _live?.outputTokens = out;
