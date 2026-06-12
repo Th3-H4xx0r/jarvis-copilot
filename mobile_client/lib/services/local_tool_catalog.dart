@@ -109,34 +109,20 @@ class LocalToolCatalog implements ToolCatalog {
 
   @override
   Future<String> buildPromptCatalog() async {
-    await refresh();
+    // Only show the model what it can ACTUALLY execute on-device (the device
+    // skills). Server-only tools are deliberately NOT listed — otherwise the
+    // small model thinks it can fetch weather/calendar/email itself and
+    // fabricates results instead of escalating. Anything not listed → escalate.
     final entries = <Map<String, String>>[];
     final seen = <String>{};
-
-    // Device skills first (the local model can act on these instantly).
     for (final s in SkillRegistry.instance.all()) {
-      if (seen.add(s.name)) {
-        entries.add({
-          'name': s.name,
-          'desc': _short(s.description),
-          'execClass': classOf(s.name).name,
-        });
-      }
-    }
-    // Then server tools (for intent understanding + correct routing).
-    for (final t in _serverTools) {
-      final name = (t['name'] ?? '').toString();
-      if (name.isEmpty || !seen.add(name)) continue;
+      if (!seen.add(s.name)) continue;
       entries.add({
-        'name': name,
-        'desc': _short((t['description'] ?? '').toString()),
-        'execClass': ToolExecClass.serverOnly.name,
+        'name': s.name,
+        'desc': _short(s.description),
       });
     }
-
     if (entries.length > _maxTools) {
-      debugPrint('[catalog] tool list capped ${entries.length} -> $_maxTools '
-          '(device skills kept; some server tools dropped from the prompt)');
       entries.removeRange(_maxTools, entries.length);
     }
     return jsonEncode(entries);

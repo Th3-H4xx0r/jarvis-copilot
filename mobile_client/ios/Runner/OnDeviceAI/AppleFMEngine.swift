@@ -282,8 +282,8 @@ struct RoutingDecisionGen {
     @Guide(description: "One of: answer, tool, escalate")
     var action: String
 
-    @Guide(description: "The direct answer text, when action is 'answer'")
-    var answer: String?
+    @Guide(description: "REQUIRED when action is 'answer': the FULL reply to the user in JARVIS's voice. When action is 'tool': a short spoken confirmation. Empty string for 'escalate'.")
+    var answer: String
 
     @Guide(description: "The tool to call, when action is 'tool'")
     var toolName: String?
@@ -304,7 +304,7 @@ struct RoutingDecisionGen {
             "action": action,
             "confidence": confidence,
         ]
-        if let answer = answer { out["answer"] = answer }
+        out["answer"] = answer
         if let toolName = toolName { out["toolName"] = toolName }
         if let reason = reason { out["reason"] = reason }
         out["toolArgs"] = Self.parseArgs(toolArgsJSON)

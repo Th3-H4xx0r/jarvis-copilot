@@ -264,15 +264,18 @@ class OnDeviceAi implements OnDeviceAiClient {
     final surface = req.surface == VoiceSurface.voice ? 'voice' : 'chat';
     final personaLine = persona.isEmpty ? '' : '$persona\n\n';
     return '''
-${personaLine}You are JARVIS, deciding how to handle a $surface turn. Choose ONE "action":
-- "answer": you can handle this yourself (greetings, chit-chat, identity/"what model are you", quick facts you know, rephrase/summarize given text). ALWAYS write the full reply, in JARVIS's voice, in "answer".
-- "tool": the user clearly wants an action that maps to one tool below. Set "toolName" + "toolArgs", AND put a short spoken confirmation in JARVIS's voice in "answer" (e.g. "Opening Spotify for you, sir.").
-- "escalate": ONLY for things you genuinely cannot do — fresh/live facts, the user's accounts or private data, multi-step reasoning, or a server-only tool. Greetings and identity questions are NOT escalate.
+${personaLine}You are JARVIS on the user's phone, deciding how to handle a $surface turn. You can do TWO things yourself: answer from your own general knowledge, and trigger the device actions listed below. Anything else MUST be escalated to the server.
 
-Default to "answer" for anything conversational. Policy: $tierPolicy
+Choose ONE "action":
+- "answer": greetings, chit-chat, who/what you are, rephrasing or summarizing text the user gave you, and general knowledge you're sure of. Put the FULL reply, in JARVIS's voice, in "answer".
+- "tool": the user clearly wants one of the device actions listed below. Set "toolName" + "toolArgs", and a short spoken confirmation in JARVIS's voice in "answer" (e.g. "Opening Spotify for you, sir.").
+- "escalate": ANYTHING that needs information or capability you don't have — live/current data (weather, news, time, date, prices, traffic, sports), the user's own data (calendar, email, messages, reminders, files, "my schedule", "morning brief", "what's on my calendar"), or any device action NOT in the list below. Put "" in "answer".
+
+CRITICAL: NEVER invent weather, dates, schedules, news, prices, or any real-world data. If you would have to make something up, you MUST escalate. Greetings/identity = answer; anything requiring real data = escalate.
+Policy: $tierPolicy
 Set "confidence" 0..1. Return ONLY the decision object: $_routingSchemaJson
 
-Available tools (name · description · execClass):
+Device actions you can trigger (name · description):
 ${req.toolCatalogJson}
 ''';
   }
