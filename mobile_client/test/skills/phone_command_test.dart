@@ -35,9 +35,9 @@ void main() {
       expect(rawValueForVerb('brightness', {'value': 150}), '100');
       expect(rawValueForVerb('brightness', {'value': -2}), '0');
     });
-    test('send_message joins recipient + body with the unit separator', () {
+    test('send_message joins recipient + body with a newline', () {
       expect(rawValueForVerb('send_message', {'to': 'Chahel', 'message': 'hi'}),
-          'Chahel␟hi');
+          'Chahel\nhi');
     });
     test('wifi/bluetooth/focus normalize truthy/falsy words to 1/0', () {
       expect(rawValueForVerb('wifi', {'value': 'on'}), '1');

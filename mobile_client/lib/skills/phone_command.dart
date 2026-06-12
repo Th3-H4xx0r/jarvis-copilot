@@ -25,9 +25,10 @@ const Map<String, String> verbShortcutNames = {
   'send_message': 'JC Send Message',
 };
 
-/// Delimiter between recipient and body in the JC Send Message shortcut input
-/// (U+241F SYMBOL FOR UNIT SEPARATOR — won't occur in a normal message).
-const String sendMessageDelimiter = '␟';
+/// Delimiter between recipient and body in the JC Send Message shortcut input.
+/// A newline so the shortcut can use "Split Text › New Lines" (recipient = line
+/// 1, message = line 2) — no custom separator to type.
+const String sendMessageDelimiter = '\n';
 
 /// Skill args consumed by the Dart layer that must NOT be forwarded.
 const Set<String> _internalKeys = {'timeout_seconds'};
