@@ -405,7 +405,9 @@ import AppIntents
             let m = CLLocationManager()
             m.delegate = self
             m.desiredAccuracy = kCLLocationAccuracyHundredMeters
-            m.pausesLocationUpdatesAutomatically = false
+            // SLC is already low-cost (cell-tower based); let iOS apply its power
+            // heuristics rather than defeating them.
+            m.pausesLocationUpdatesAutomatically = true
             // Requires the `location` UIBackgroundMode (declared) + Always
             // authorization (requested on the Dart side) to deliver in the
             // background.

@@ -40,6 +40,23 @@ class _CodingPageState extends State<CodingPage> {
   Terminal? _term;
   String? _termForId; // session id the current Terminal is built for
   StreamSubscription<String>? _termSub;
+  // PTY output is buffered and flushed to the xterm at this rate instead of
+  // per-chunk: a live claude TUI repaints many times/sec, and each `term.write`
+  // re-rasterizes the canvas. Coalescing caps the render rate without dropping
+  // bytes or reordering.
+  final StringBuffer _termBuf = StringBuffer();
+  Timer? _termFlush;
+  static const _termFlushInterval = Duration(milliseconds: 80);
+
+  /// Tear down the live terminal stream + its flush timer and drop any buffered
+  /// bytes (the owning Terminal is being discarded, so no final flush needed).
+  void _stopTermStream() {
+    _termSub?.cancel();
+    _termSub = null;
+    _termFlush?.cancel();
+    _termFlush = null;
+    _termBuf.clear();
+  }
 
   // ── Terminal ⇄ Chat view toggle ──
   /// Remembered per session for the app session (in-memory). true = Chat.
@@ -73,7 +90,7 @@ class _CodingPageState extends State<CodingPage> {
     app.activeTabIndex.removeListener(_onTabVisibility);
     app.liveActivityCoordinator.setCodingVisible(false);
     _c.removeListener(_onControllerChanged);
-    _termSub?.cancel();
+    _stopTermStream();
     _c.dispose();
     _composer.dispose();
     super.dispose();
@@ -87,8 +104,7 @@ class _CodingPageState extends State<CodingPage> {
     // recovery panel instead. (Also covers the no-selection case.)
     if (id == null || (_c.selected?.isEnded ?? false)) {
       if (_term != null) {
-        _termSub?.cancel();
-        _termSub = null;
+        _stopTermStream();
         _term = null;
         _termForId = null;
         // Also detach the controller's server-side PTY/SSE so a session that
@@ -106,15 +122,14 @@ class _CodingPageState extends State<CodingPage> {
   /// page-side terminal so a now-live session re-mounts, then ask the controller
   /// to refresh the detail (a still-ended one stays on the recovery panel).
   Future<void> _reopenTerminal() async {
-    _termSub?.cancel();
-    _termSub = null;
+    _stopTermStream();
     _term = null;
     _termForId = null;
     await _c.reopenTerminal();
   }
 
   void _mountTerminal(String id) {
-    _termSub?.cancel();
+    _stopTermStream();
     final term = Terminal(maxLines: 4000);
     // User keystrokes from the view -> server PTY.
     term.onOutput = (data) => _c.sendTerminalInput(data);
@@ -122,9 +137,15 @@ class _CodingPageState extends State<CodingPage> {
     term.onResize = (w, h, _, __) => _c.resizeTerminal(rows: h, cols: w);
     _term = term;
     _termForId = id;
-    // PTY output -> the view's buffer.
+    // PTY output -> a buffer, flushed to the xterm at ~12Hz (see _termBuf).
     _termSub = _c.terminalText.listen((text) {
-      if (_termForId == id) term.write(text);
+      if (_termForId == id) _termBuf.write(text);
+    });
+    _termFlush = Timer.periodic(_termFlushInterval, (_) {
+      if (_termForId == id && _termBuf.isNotEmpty) {
+        term.write(_termBuf.toString());
+        _termBuf.clear();
+      }
     });
     // Attach the server-side PTY and begin streaming.
     _c.startTerminal(rows: term.viewHeight, cols: term.viewWidth);

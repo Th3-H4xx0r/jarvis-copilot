@@ -189,11 +189,13 @@ def _recency_key(row) -> float:
 
 
 def _push_coding_now(store) -> None:
-    """Force an immediate APNs Live-Activity push (bypasses the poll tick)."""
+    """Push the latest APNs Live-Activity state now (don't wait for the poll
+    tick). NOT forced — goes through the dedupe + rate-limit so a flapping fleet
+    can't fire a priority push on every working↔waiting↔idle transition."""
     try:
         from agent.coding_la_push import push_coding_update
 
-        push_coding_update(store, usage=_coding_usage(), force=True)
+        push_coding_update(store, usage=_coding_usage(), force=False)
     except Exception:
         pass
 
@@ -846,6 +848,15 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
 
             def _store():
                 manager.store.upsert_la_token(token, device_id or None)
+                # Push current state to the freshly-registered token immediately
+                # (force past the dedupe/rate-limit — a new token otherwise waits
+                # for the next change to receive the activity).
+                try:
+                    from agent.coding_la_push import push_coding_update
+                    push_coding_update(manager.store, usage=_coding_usage(),
+                                       force=True)
+                except Exception:
+                    pass
                 return _ok({"ok": True})
             return _run(_store)
         return _err(404, "not found")

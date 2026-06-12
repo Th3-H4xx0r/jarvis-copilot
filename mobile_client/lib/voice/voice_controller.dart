@@ -1182,6 +1182,7 @@ class VoiceController extends ChangeNotifier {
     error = message;
     toolStatus = null;
     _resumeTimer?.cancel();
+    _cancelBgIdleTimeout();
     _cancelThinkingWatchdog();
     _teardownMic();
     unawaited(_closeWs());
@@ -1212,6 +1213,37 @@ class VoiceController extends ChangeNotifier {
   // ── Backgrounding ─────────────────────────────────────────────
   bool _foreground = true;
 
+  /// A backgrounded realtime session sitting in `listening` with nobody talking
+  /// is the worst-case battery drain (mic + audio session + WS all live). End it
+  /// after this long so a forgotten session doesn't stream forever — but only
+  /// when genuinely idle (never mid-reply or mid-utterance).
+  Timer? _bgIdleTimer;
+  static const Duration _bgIdleTimeout = Duration(seconds: 120);
+
+  void _armBgIdleTimeout() {
+    _bgIdleTimer?.cancel();
+    _bgIdleTimer = Timer(_bgIdleTimeout, _onBgIdleTimeout);
+  }
+
+  void _cancelBgIdleTimeout() {
+    _bgIdleTimer?.cancel();
+    _bgIdleTimer = null;
+  }
+
+  void _onBgIdleTimeout() {
+    _bgIdleTimer = null;
+    if (_foreground || !active) return; // resumed / torn down → nothing to do
+    // Only end a genuinely IDLE backgrounded session: waiting for the user to
+    // speak, nobody mid-utterance, no reply in flight. `muted` counts as idle —
+    // while muted the VAD is bypassed so `_spoke` never clears, which would
+    // otherwise re-arm forever and never reap a muted backgrounded session.
+    if (state == VoiceState.listening && (!_spoke || muted)) {
+      unawaited(stopAll());
+    } else {
+      _armBgIdleTimeout(); // busy now — re-check after another window
+    }
+  }
+
   /// App went to the background. We behave like a phone/Discord call: KEEP the
   /// mic, the audio session, the WebSocket, and playback all running (the app
   /// has the `audio` background mode, which lets an already-active recording
@@ -1224,12 +1256,14 @@ class VoiceController extends ChangeNotifier {
     if (mode != VoiceMode.realtime || !active) return;
     _foreground = false;
     _cancelThinkingWatchdog(); // don't fire reassurance timers while backgrounded
+    _armBgIdleTimeout(); // end a forgotten idle session after the timeout
   }
 
   /// App returned to the foreground. Nothing was torn down — just re-assert the
   /// session is active in case iOS deactivated it while we were away.
   Future<void> resumeFromBackground() async {
     _foreground = true;
+    _cancelBgIdleTimeout();
     if (mode != VoiceMode.realtime || !active) return;
     await _session?.setActive(true);
   }
@@ -1237,6 +1271,7 @@ class VoiceController extends ChangeNotifier {
   /// Stop everything and return to idle (the Stop button / mode switch).
   Future<void> stopAll() async {
     _resumeTimer?.cancel();
+    _cancelBgIdleTimeout();
     _cancelThinkingWatchdog();
     _turnEpoch++; // invalidate any in-flight on-device local attempt
     _turnPcm.clear();
@@ -1260,6 +1295,7 @@ class VoiceController extends ChangeNotifier {
     _resumeTimer?.cancel();
     _thinkingWatchdog?.cancel();
     _laTimer?.cancel();
+    _cancelBgIdleTimeout();
     _interruptionSub?.cancel();
     unawaited(_session?.setActive(false) ?? Future<void>.value());
     try {

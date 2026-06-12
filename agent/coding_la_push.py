@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +33,12 @@ def _encode_subs(subs) -> str:
 
 # Module-level dedupe: only push when the content-state signature changes.
 _last_sig = {"v": ""}
+# Rate-limit pushes to a flapping fleet. A Live Activity is last-write-wins, so
+# collapsing a burst of working↔waiting↔idle transitions into one push per window
+# loses nothing — the periodic status loop (~4s) re-sends the latest state once
+# the window passes. force=True (token registration) bypasses this.
+_last_push_ts = {"v": 0.0}
+_MIN_PUSH_INTERVAL = 15.0  # seconds between non-forced pushes
 
 
 def _status_class(status) -> str:
@@ -182,8 +189,14 @@ def push_coding_update(store, *, usage=None, force=False, sender=None) -> int:
     if cs is None:
         return 0  # nothing live; let the device's own coordinator handle resting
     sig = hashlib.sha1(json.dumps(cs, sort_keys=True).encode()).hexdigest()
-    if not force and sig == _last_sig["v"]:
-        return 0
+    now = time.monotonic()
+    if not force:
+        if sig == _last_sig["v"]:
+            return 0  # unchanged content
+        if now - _last_push_ts["v"] < _MIN_PUSH_INTERVAL:
+            # Rate-limited: do NOT advance _last_sig, so the next status-loop tick
+            # re-sends the latest state once the window passes.
+            return 0
     try:
         tokens = store.list_la_tokens()
     except Exception:
@@ -225,6 +238,7 @@ def push_coding_update(store, *, usage=None, force=False, sender=None) -> int:
                 except Exception:
                     pass
     _last_sig["v"] = sig
+    _last_push_ts["v"] = now
     log.info("coding LA push: %d/%d token(s) ok%s", pushed, len(tokens),
              ("; failures=" + "; ".join(failures)) if failures else "")
     return pushed

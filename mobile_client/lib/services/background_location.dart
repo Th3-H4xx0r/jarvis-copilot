@@ -110,10 +110,15 @@ class BackgroundLocation {
         ? AppleSettings(
             accuracy: LocationAccuracy.medium,
             distanceFilter: 50,
-            pauseLocationUpdatesAutomatically: false,
+            // Let iOS auto-pause GPS when the user is stationary instead of
+            // burning the location subsystem 24/7. This concedes the
+            // process-keepalive while stationary (the WS may idle-close and the
+            // app suspend) — background commands then ride the silent-APNs path.
+            // A real activityType lets iOS apply its stationary heuristics.
+            pauseLocationUpdatesAutomatically: true,
             showBackgroundLocationIndicator: true,
             allowBackgroundLocationUpdates: true,
-            activityType: ActivityType.other,
+            activityType: ActivityType.otherNavigation,
           )
         : AndroidSettings(
             accuracy: LocationAccuracy.medium,

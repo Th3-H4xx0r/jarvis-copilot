@@ -21,6 +21,7 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
     private var progressTimer: Timer?  // polls the clip position for the highlight
     private var calibrating = false   // true only while the silent volume loop owns `player`
     private var clipQueue: [Data] = []  // pending reply-clip chunks, played in order
+    private var volumeDrawerOpen = false // Volume drawer visible → keep the media route for the Crown
 
     func play(base64 string: String) {
         guard let data = Data(base64Encoded: string), !data.isEmpty else {
@@ -96,16 +97,32 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
     /// - Otherwise loop a SILENT buffer so the crown still has media to grab,
     ///   with no audible beep.
     func beginVolumeCalibration() {
+        volumeDrawerOpen = true
         if let p = player, p.isPlaying, !calibrating { return }   // don't interrupt the reply
         calibrating = true
         start(data: AudioPlayer.makeSilentLoop(), loop: true)
     }
     func endVolumeCalibration() {
-        // Only stop the silent calibration loop — NEVER the speaking reply clip.
-        guard calibrating else { return }
-        calibrating = false
-        player?.stop()
-        player = nil
+        volumeDrawerOpen = false
+        // Stop the silent calibration loop if it's what's playing — NEVER the reply.
+        if calibrating {
+            calibrating = false
+            player?.stop()
+            player = nil
+        }
+        // Drawer closed and nothing is speaking → release the audio session so the
+        // watch audio route doesn't stay powered. (A reply still playing keeps the
+        // session; it deactivates on finish, since the drawer is now closed.)
+        if player == nil { deactivateSession() }
+    }
+
+    /// Best-effort release of the shared audio session so the watch audio route
+    /// isn't held powered after playback. A failure just leaves it as-is.
+    private func deactivateSession() {
+        do {
+            try AVAudioSession.sharedInstance().setActive(
+                false, options: .notifyOthersOnDeactivation)
+        } catch {}
     }
 
     private func start(data: Data, loop: Bool) {
@@ -149,6 +166,14 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
             } else {
                 self.isSpeaking = false   // queue drained → speaking finished
                 self.stopProgressPolling(completed: true)
+                if self.volumeDrawerOpen {
+                    // Drawer still open → keep the Crown's media route alive with
+                    // the silent loop instead of releasing the session.
+                    self.calibrating = true
+                    self.start(data: AudioPlayer.makeSilentLoop(), loop: true)
+                } else {
+                    self.deactivateSession()
+                }
             }
         }
     }

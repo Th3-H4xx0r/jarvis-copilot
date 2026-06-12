@@ -1,7 +1,18 @@
+import pytest
+
 import agent.coding_la_push as m
 from agent.coding_la_push import build_coding_content_state, push_coding_update
 
 _US = "\x1f"
+
+
+@pytest.fixture(autouse=True)
+def _reset_la_push_state():
+    """Reset module-level dedupe + rate-limit state before each test so suite
+    order can't leak a prior push's signature/timestamp into the next."""
+    m._last_sig["v"] = ""
+    m._last_push_ts["v"] = 0.0
+    yield
 
 
 class FakeStore:
