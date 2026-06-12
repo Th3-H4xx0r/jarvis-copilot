@@ -4991,6 +4991,38 @@ def handle_post(handler, parsed) -> bool:
         _set_global_personality(name if name else "")
         return j(handler, {"ok": True, "personality": s.personality, "prompt": prompt})
 
+    if parsed.path == "/api/session/append":
+        # Persist an on-device turn (handled locally on the phone, no server
+        # agent) into the session transcript so it shows on the web + other
+        # devices. Appends a user message and/or an assistant message verbatim.
+        try:
+            require(body, "session_id")
+        except ValueError as e:
+            return bad(handler, str(e))
+        sid = body["session_id"]
+        try:
+            s = get_session(sid)
+            s = _ensure_full_session_before_mutation(sid, s)
+        except KeyError:
+            return bad(handler, "Session not found", 404)
+        user_text = str(body.get("user") or "").strip()
+        assistant_text = str(body.get("assistant") or "").strip()
+        on_device = body.get("on_device") is True
+        appended = 0
+        with _get_session_agent_lock(sid):
+            if user_text:
+                s.messages.append({"role": "user", "content": user_text})
+                appended += 1
+            if assistant_text:
+                a_msg = {"role": "assistant", "content": assistant_text}
+                if on_device:
+                    a_msg["on_device"] = True
+                s.messages.append(a_msg)
+                appended += 1
+            if appended:
+                s.save()
+        return j(handler, {"ok": True, "appended": appended})
+
     if parsed.path == "/api/session/toolsets":
         """Set or clear per-session toolset override (#493).
 

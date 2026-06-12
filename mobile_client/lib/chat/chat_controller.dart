@@ -216,16 +216,13 @@ class ChatController extends ChangeNotifier {
     try {
       final result = await app.localRouter.handle(text, VoiceSurface.chat);
       switch (result) {
-        case DirectAnswer(text: final answerText):
+        case DirectAnswer():
           assistant.onDevice = LocalAiSettings.instance.showBadge;
-          if (answerText.isNotEmpty) {
-            assistant.appendToken(answerText);
-          } else {
-            // Thin/empty inline answer → stream a full local reply (in persona)
-            // rather than escalating to the server.
-            await _streamLocalReply(text, assistant);
-          }
+          // Stream the FULL reply from the model (the guided-gen inline answer
+          // is a short field that truncates long content like poems).
+          await _streamLocalReply(text, assistant);
           _finishLive();
+          unawaited(_persistLocal(text, assistant.plainText));
           return true;
 
         case ToolCall(:final name, :final args, :final requiresConfirm, :final confirmation):
@@ -243,6 +240,7 @@ class ChatController extends ChangeNotifier {
           if (summary.isNotEmpty) assistant.appendToken(summary);
           assistant.onDevice = LocalAiSettings.instance.showBadge;
           _finishLive();
+          unawaited(_persistLocal(text, assistant.plainText));
           return true;
 
         case Escalate():
@@ -254,9 +252,17 @@ class ChatController extends ChangeNotifier {
     }
   }
 
+  /// Persist a completed on-device turn into the server session so it shows on
+  /// the web + other devices. Best-effort.
+  Future<void> _persistLocal(String userText, String assistantText) async {
+    try {
+      final sid = await _ensureSession();
+      await _sessions.appendLocalTurn(sid, user: userText, assistant: assistantText);
+    } catch (_) {}
+  }
+
   /// Stream a full reply from the on-device model (persona assistant prompt)
-  /// into [assistant]. Used when the router decided to answer locally but the
-  /// guided-gen inline answer was empty.
+  /// into [assistant]. Used when the router decided to answer locally.
   Future<void> _streamLocalReply(String userText, ChatMessage assistant) async {
     final req = LocalRequest(
       userText: userText,

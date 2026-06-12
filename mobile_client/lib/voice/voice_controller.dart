@@ -601,12 +601,14 @@ class VoiceController extends ChangeNotifier {
       final result = await app.localRouter.handle(transcript, VoiceSurface.voice);
       if (epoch != _turnEpoch) return false;
       switch (result) {
-        case DirectAnswer(text: final answerText):
-          final reply = answerText.isNotEmpty
-              ? answerText
-              : await _generateFull(transcript);
+        case DirectAnswer():
+          // Always stream the FULL reply (the guided-gen inline answer is a
+          // short field that truncates long content).
+          final reply = await _generateFull(transcript);
           if (epoch != _turnEpoch) return false;
-          await _speakLocal(reply.isEmpty ? 'At your service.' : reply);
+          final spoken = reply.isEmpty ? 'At your service.' : reply;
+          await _speakLocal(spoken);
+          unawaited(_persistVoiceLocal(transcript, spoken));
           return true;
         case ToolCall(:final name, :final args, :final requiresConfirm, :final confirmation):
           // Outward/destructive actions defer to the server's approval flow.
@@ -620,6 +622,7 @@ class VoiceController extends ChangeNotifier {
                   : _spokenConfirmation(name, res.result))
               : "Sorry, that didn't work.";
           await _speakLocal(say);
+          unawaited(_persistVoiceLocal(transcript, say));
           return true;
         case Escalate():
           return false;
@@ -651,6 +654,15 @@ class VoiceController extends ChangeNotifier {
     if (epoch != _turnEpoch || !active) return;
     _finalizeSpoken();
     _scheduleResumeListening();
+  }
+
+  /// Persist a completed on-device voice turn into the voice session so it
+  /// shows on the web + other devices. Best-effort.
+  Future<void> _persistVoiceLocal(String user, String assistant) async {
+    try {
+      final sid = await _ensureSession();
+      await _sessions.appendLocalTurn(sid, user: user, assistant: assistant);
+    } catch (_) {}
   }
 
   /// Collect a full on-device reply (persona assistant prompt) into a string,
