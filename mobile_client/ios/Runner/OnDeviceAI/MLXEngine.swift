@@ -5,6 +5,10 @@ import MLXLLM
 import MLXLMCommon
 #endif
 
+#if canImport(Hub)
+import Hub
+#endif
+
 // MARK: - MLX-Swift engine
 //
 // Backs the `mlx` models — quantized HF repos (Qwen2.5-1.5B, Llama-3.2-1B …)
@@ -18,14 +22,26 @@ import MLXLMCommon
 final class MLXEngine: OnDeviceEngine {
     let id = "mlx"
 
-    /// Repo id this engine is currently bound to (for diagnostics).
+    /// Repo id this engine is currently bound to (for diagnostics). Only
+    /// touched from `load`/`unload` on the plugin's serialized inference Task,
+    /// so it needs no extra locking beyond that.
     private var loadedModelId: String?
 
     /// Cooperative cancellation flag, flipped by `cancel()` and checked inside
     /// the token loop. We deliberately avoid relying solely on Task
     /// cancellation because the MLX generate loop is a tight synchronous-ish
     /// callback.
-    private var cancelled = false
+    ///
+    /// DATA-RACE GUARD: `cancel()` runs on the caller's (plugin) thread while
+    /// the loop reads this on MLX's executor inside `container.perform`. All
+    /// access goes through `cancelLock` so the read/write is well-defined.
+    private var _cancelled = false
+    private let cancelLock = NSLock()
+
+    private var cancelled: Bool {
+        get { cancelLock.lock(); defer { cancelLock.unlock() }; return _cancelled }
+        set { cancelLock.lock(); defer { cancelLock.unlock() }; _cancelled = newValue }
+    }
 
     #if canImport(MLXLLM)
 
@@ -45,16 +61,37 @@ final class MLXEngine: OnDeviceEngine {
 
     func load(modelId: String) async throws {
         cancelled = false
-        // `ModelManager` downloads weights into Application Support and points
-        // MLX's hub at that directory, so this resolves locally when present
-        // and only hits the network if missing.
+        // Point MLX's hub at the SAME download base `ModelManager` writes to,
+        // so previously downloaded weights resolve locally (Hub layout:
+        // <downloadBase>/models/<org>/<repo>/…) instead of MLX falling back to
+        // its own default cache and re-downloading. `ModelManager.hubDownloadBase`
+        // is the single source of truth for that base directory.
         let config = ModelConfiguration(id: modelId)
+
+        #if canImport(Hub)
+        let hub = HubApi(downloadBase: ModelManager.hubDownloadBase)
+        // NOTE TO VERIFY AT LINK TIME: current mlx-swift-examples
+        // `LLMModelFactory.loadContainer` exposes a `hub:` parameter, e.g.
+        //   loadContainer(hub:configuration:progressHandler:)
+        // If your pinned version names it differently (older revisions used a
+        // standalone `loadModelContainer(hub:configuration:)` free function, or
+        // omitted the param), adjust this single call accordingly — everything
+        // downstream just needs the SAME `downloadBase` ModelManager used.
         let container = try await LLMModelFactory.shared.loadContainer(
+            hub: hub,
             configuration: config
         ) { _ in
             // Progress here is the *load* progress; download progress is
             // reported separately by ModelManager. We ignore it.
         }
+        #else
+        // No Hub package: fall back to the factory's default cache. (Downloads
+        // are stubbed in this config anyway.)
+        let container = try await LLMModelFactory.shared.loadContainer(
+            configuration: config
+        ) { _ in }
+        #endif
+
         self.container = container
         self.loadedModelId = modelId
     }
@@ -144,6 +181,18 @@ final class MLXEngine: OnDeviceEngine {
         return Self.normalizeRouting(Self.extractJSONObject(from: text))
     }
 
+    // MARK: Unload (real memory release)
+
+    /// Release the resident `ModelContainer` so its weights can be reclaimed.
+    /// Distinct from `cancel()` (which only stops in-flight generation): this
+    /// is what the plugin's model-switch path and the ModelManager eviction
+    /// hook call to actually free RAM. Idempotent.
+    func unload() {
+        cancelled = true
+        container = nil
+        loadedModelId = nil
+    }
+
     #else
 
     // MARK: - Fallback (MLXLLM not built)
@@ -162,6 +211,13 @@ final class MLXEngine: OnDeviceEngine {
         throw Self.notBuilt()
     }
 
+    /// No container to release when MLX isn't built; keep the shape so the
+    /// plugin can call it unconditionally.
+    func unload() {
+        cancelled = true
+        loadedModelId = nil
+    }
+
     private static func notBuilt() -> NSError {
         NSError(domain: "MLXEngine", code: -2,
                 userInfo: [NSLocalizedDescriptionKey: "MLX is not built into this app"])
@@ -171,6 +227,8 @@ final class MLXEngine: OnDeviceEngine {
 
     // MARK: Cancel
 
+    /// Stop the in-flight `generate`/`route` ASAP. Does NOT release the model
+    /// (see `unload()` for that). Idempotent.
     func cancel() {
         cancelled = true
     }

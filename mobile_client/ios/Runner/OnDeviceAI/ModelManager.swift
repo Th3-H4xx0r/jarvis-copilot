@@ -25,6 +25,19 @@ final class ModelManager {
 
     private init() {}
 
+    /// Serializes all mutable state (`downloads`, `loadedModelId`). The public
+    /// methods the plugin calls are invoked from several Tasks / the main
+    /// thread, so every read+write of that state is taken under this lock to
+    /// avoid the data race the prior version had. We keep the methods
+    /// synchronous (no actor) so the plugin's call sites stay unchanged; the
+    /// critical sections are tiny (dictionary/Optional ops), never blocking I/O.
+    private let stateLock = NSLock()
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return body()
+    }
+
     // MARK: Curated catalog
 
     /// Static metadata for each curated model. `sizeBytes`/`ramHintMb` are
@@ -70,9 +83,17 @@ final class ModelManager {
     ]
 
     // MARK: Storage layout
+    //
+    // SINGLE SOURCE OF TRUTH for where MLX weights live on disk. Both the
+    // download (`HubApi(downloadBase:)`) and `MLXEngine.load`
+    // (`HubApi(downloadBase: ModelManager.hubDownloadBase)`) must agree, or MLX
+    // resolves against its own default cache and re-downloads. `HubApi` writes a
+    // repo snapshot under `<downloadBase>/models/<org>/<repo>/`, so install
+    // checks / sizing / delete must look at that same Hub layout path — NOT the
+    // old `repo__underscore` encoding, which never matched what Hub wrote.
 
-    /// Root under Application Support where MLX weights live, e.g.
-    /// `…/Application Support/OnDeviceModels/mlx-community__Qwen2.5-1.5B-Instruct-4bit/`.
+    /// The download base handed to `HubApi`. Shared with `MLXEngine.load` via
+    /// the static accessor below.
     private var modelsRoot: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = base.appendingPathComponent("OnDeviceModels", isDirectory: true)
@@ -80,11 +101,22 @@ final class ModelManager {
         return dir
     }
 
-    /// Per-model directory. Repo ids contain `/`, which is illegal in a path
-    /// component, so we encode it as `__`.
+    /// Static accessor so `MLXEngine` can construct `HubApi(downloadBase:)` with
+    /// the exact same base, without reaching through the singleton's privates.
+    static var hubDownloadBase: URL {
+        shared.modelsRoot
+    }
+
+    /// Per-model directory **as Hub lays it out**: `<root>/models/<org>/<repo>`.
+    /// e.g. `…/OnDeviceModels/models/mlx-community/Qwen2.5-1.5B-Instruct-4bit/`.
+    /// Repo ids already contain the `/` separator Hub uses, so we just append
+    /// the `models/` prefix + the raw repo id path.
     private func dir(for modelId: String) -> URL {
-        let safe = modelId.replacingOccurrences(of: "/", with: "__")
-        return modelsRoot.appendingPathComponent(safe, isDirectory: true)
+        var url = modelsRoot.appendingPathComponent("models", isDirectory: true)
+        for component in modelId.split(separator: "/") {
+            url.appendPathComponent(String(component), isDirectory: true)
+        }
+        return url
     }
 
     // MARK: Install state
@@ -149,7 +181,8 @@ final class ModelManager {
     // MARK: Download
 
     /// In-flight download tasks keyed by model id, so `cancelDownload` can
-    /// abort them.
+    /// abort them. GUARDED by `stateLock` — mutated from `download`/
+    /// `cancelDownload` (caller thread) and the download Task's completion.
     private var downloads: [String: Task<Void, Error>] = [:]
 
     /// Download `modelId`'s weights, invoking `onProgress` (0…1) as bytes
@@ -165,28 +198,36 @@ final class ModelManager {
             // Nothing to fetch — already "installed".
             onProgress(1.0); onDone(); return
         }
-        // Coalesce duplicate requests.
-        if downloads[modelId] != nil { return }
-
-        let task = Task<Void, Error> { [weak self] in
-            guard let self = self else { return }
-            do {
-                try await self.performDownload(modelId: modelId, onProgress: onProgress)
-                try Task.checkCancellation()
-                await MainActor.run { onDone() }
-            } catch is CancellationError {
-                // Caller already knows; nothing to report.
-            } catch {
-                await MainActor.run { onError(error.localizedDescription) }
+        // Coalesce duplicate requests + register the new task atomically under
+        // the lock, so two concurrent `download` calls can't both start one.
+        let started: Bool = withLock {
+            if downloads[modelId] != nil { return false }
+            let task = Task<Void, Error> { [weak self] in
+                guard let self = self else { return }
+                do {
+                    try await self.performDownload(modelId: modelId, onProgress: onProgress)
+                    try Task.checkCancellation()
+                    await MainActor.run { onDone() }
+                } catch is CancellationError {
+                    // Caller already knows; nothing to report.
+                } catch {
+                    await MainActor.run { onError(error.localizedDescription) }
+                }
+                self.withLock { self.downloads[modelId] = nil }
             }
-            self.downloads[modelId] = nil
+            downloads[modelId] = task
+            return true
         }
-        downloads[modelId] = task
+        _ = started
     }
 
     func cancelDownload(modelId: String) {
-        downloads[modelId]?.cancel()
-        downloads[modelId] = nil
+        let task: Task<Void, Error>? = withLock {
+            let t = downloads[modelId]
+            downloads[modelId] = nil
+            return t
+        }
+        task?.cancel()
     }
 
     #if canImport(Hub)
@@ -230,7 +271,7 @@ final class ModelManager {
     @discardableResult
     func delete(modelId: String) -> Bool {
         guard modelId != Self.appleFMId else { return false }
-        if loadedModelId == modelId { loadedModelId = nil }
+        withLock { if _loadedModelId == modelId { _loadedModelId = nil } }
         let d = dir(for: modelId)
         do {
             if FileManager.default.fileExists(atPath: d.path) {
@@ -245,32 +286,45 @@ final class ModelManager {
     // MARK: Single-loaded-model memory guard
 
     /// The one model currently resident in memory (loaded into an engine).
-    private(set) var loadedModelId: String?
+    /// Backed by a lock-guarded private var; mutated from `markLoaded`/
+    /// `markUnloaded`/`delete`/`handleMemoryWarning` across several Tasks.
+    private var _loadedModelId: String?
+    var loadedModelId: String? { withLock { _loadedModelId } }
 
     /// Optional hook the plugin sets so a memory warning can evict the loaded
-    /// model by unloading its engine. Returns nothing; the manager just clears
-    /// its bookkeeping after invoking it.
-    var evictionHook: (() -> Void)?
+    /// model by unloading its engine. Set once at registration; guarded for
+    /// safe publication across threads. We snapshot it under the lock and
+    /// invoke it OUTSIDE the lock to avoid re-entrancy/deadlock.
+    private var _evictionHook: (() -> Void)?
+    var evictionHook: (() -> Void)? {
+        get { withLock { _evictionHook } }
+        set { withLock { _evictionHook = newValue } }
+    }
 
     /// Record that `modelId` is now the (single) resident model. Callers should
     /// unload any previous model first; we also surface the previous id so the
     /// plugin can tear down the old engine.
     @discardableResult
     func markLoaded(_ modelId: String) -> String? {
-        let previous = loadedModelId
-        loadedModelId = modelId
-        return (previous == modelId) ? nil : previous
+        withLock {
+            let previous = _loadedModelId
+            _loadedModelId = modelId
+            return (previous == modelId) ? nil : previous
+        }
     }
 
     func markUnloaded() {
-        loadedModelId = nil
+        withLock { _loadedModelId = nil }
     }
 
     /// Wire this up to `UIApplication.didReceiveMemoryWarningNotification` from
     /// the plugin. Evicts the resident model to reclaim RAM.
     func handleMemoryWarning() {
-        guard loadedModelId != nil else { return }
-        evictionHook?()
-        loadedModelId = nil
+        let hook: (() -> Void)? = withLock {
+            guard _loadedModelId != nil else { return nil }
+            _loadedModelId = nil
+            return _evictionHook
+        }
+        hook?()
     }
 }

@@ -10,39 +10,171 @@ import FoundationModels
 // this runs Apple's ~3B on-device language model — no download, no storage,
 // no RAM accounting on our side (the OS owns the weights).
 //
-// The whole concrete implementation lives behind
-// `#if canImport(FoundationModels)` + `@available(iOS 26.0, *)`. When the
-// framework isn't importable (older SDK) or we're below iOS 26 at runtime,
-// a thin fallback keeps the *type* present and simply reports unavailable,
-// so the rest of the app compiles and links unchanged.
+// IMPORTANT — availability shape:
+//   The concrete `AppleFMEngine` TYPE is deliberately NOT `@available`-gated.
+//   `OnDeviceAIPlugin` instantiates it unconditionally (`AppleFMEngine()`) and
+//   calls `.cancel()` on any iOS version, so the type must exist and be
+//   constructible everywhere. Every actual FoundationModels API call lives
+//   behind an `if #available(iOS 26.0, *)` / `guard #available` checkpoint
+//   *inside* a method body, and all FoundationModels *types* are referenced
+//   only from `@available(iOS 26.0, *)` helpers that the engine reaches via a
+//   runtime check. On iOS < 26 (or when the framework isn't importable at all)
+//   the engine simply reports `.unavailable(...)` and throws.
 
-#if canImport(FoundationModels)
-
-@available(iOS 26.0, *)
 final class AppleFMEngine: OnDeviceEngine {
     let id = "apple-fm"
 
-    /// Reused across calls so multi-turn warm-up costs are amortized. We
-    /// recreate it per `generate`/`route` only if you want a clean context;
-    /// here we keep one session and let the framework manage its transcript.
-    private var session: LanguageModelSession?
+    #if canImport(FoundationModels)
 
-    /// Cancels the in-flight stream. FoundationModels surfaces cancellation
-    /// through Swift's structured-concurrency `Task`, so we hold the task and
-    /// cancel it directly.
-    private var currentTask: Task<Void, Never>?
+    /// Holds the FoundationModels session. This is an `Any` box so the
+    /// `AppleFMEngine` type itself carries no `@available`-restricted stored
+    /// property; the concrete `LanguageModelSession` only ever appears inside
+    /// `@available(iOS 26.0, *)` code (`FMSession`), which we down-cast to.
+    private var sessionBox: AnyObject?
+
+    // Cancellation note: `generate`/`route` are `async` and awaited by the
+    // plugin's single `inferenceTask`. When the plugin cancels that task (or
+    // calls `cancel()`), cancellation propagates cooperatively into the
+    // `Task.checkCancellation()` checkpoints inside `FMSession.generate`/
+    // `route`, and `cancel()` also invalidates the session below. We therefore
+    // don't hold a separate engine-owned `Task` to cancel (that field was dead
+    // code — never assigned — in the prior version).
 
     // MARK: Availability
 
     func availability() -> EngineAvailability {
+        guard #available(iOS 26.0, *) else {
+            return .unavailable("ios-below-26")
+        }
+        return FMSession.availability()
+    }
+
+    // MARK: Load
+
+    /// Apple FM needs no per-model download; "loading" is just spinning up a
+    /// session so the first token isn't penalized by lazy init.
+    func load(modelId: String) async throws {
+        guard #available(iOS 26.0, *) else {
+            throw Self.unavailableError("ios-below-26")
+        }
+        try FMSession.assertAvailable()
+        let box = FMSession()
+        box.reset()
+        sessionBox = box
+    }
+
+    // MARK: Generate (streaming)
+
+    func generate(_ req: GenRequest, onToken: @escaping (String) -> Void) async throws -> String {
+        guard #available(iOS 26.0, *) else {
+            throw Self.unavailableError("ios-below-26")
+        }
+        let box = (sessionBox as? FMSession) ?? FMSession()
+        sessionBox = box
+        return try await box.generate(system: req.system, prompt: req.prompt, onToken: onToken)
+    }
+
+    // MARK: Route (guided generation)
+
+    func route(system: String, prompt: String, schemaJSON: String) async throws -> [String: Any] {
+        guard #available(iOS 26.0, *) else {
+            throw Self.unavailableError("ios-below-26")
+        }
+        let box = (sessionBox as? FMSession) ?? FMSession()
+        sessionBox = box
+        return try await box.route(system: system, prompt: prompt)
+    }
+
+    // MARK: Cancel
+
+    func cancel() {
+        // Dropping the session invalidates any in-flight stream the next time
+        // a snapshot is awaited; combined with the `Task.checkCancellation()`
+        // checkpoints in `FMSession.generate`/`route` (reached cooperatively
+        // when the plugin cancels its `inferenceTask`) this stops emission
+        // promptly. Idempotent.
+        if #available(iOS 26.0, *) {
+            (sessionBox as? FMSession)?.invalidate()
+        }
+    }
+
+    private static func unavailableError(_ reason: String) -> NSError {
+        NSError(
+            domain: "AppleFMEngine", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Apple FM unavailable: \(reason)"])
+    }
+
+    #else
+
+    // MARK: - Fallback (framework not importable / pre-iOS 26 SDK)
+    //
+    // Keeps `AppleFMEngine` present as a real type so `OnDeviceAIPlugin` can
+    // always instantiate its default engine. Everything reports unavailable and
+    // throws; the plugin/Dart side then steers the user to an MLX model instead.
+
+    func availability() -> EngineAvailability {
+        .unavailable("foundationmodels-unavailable")
+    }
+
+    func load(modelId: String) async throws {
+        throw Self.unavailableError("foundationmodels-unavailable")
+    }
+
+    func generate(_ req: GenRequest, onToken: @escaping (String) -> Void) async throws -> String {
+        throw Self.unavailableError("foundationmodels-unavailable")
+    }
+
+    func route(system: String, prompt: String, schemaJSON: String) async throws -> [String: Any] {
+        throw Self.unavailableError("foundationmodels-unavailable")
+    }
+
+    func cancel() {}
+
+    private static func unavailableError(_ reason: String) -> NSError {
+        NSError(
+            domain: "AppleFMEngine", code: -1,
+            userInfo: [NSLocalizedDescriptionKey: "FoundationModels not available: \(reason)"])
+    }
+
+    #endif
+}
+
+#if canImport(FoundationModels)
+
+// MARK: - FoundationModels session box (iOS 26+)
+//
+// All references to FoundationModels TYPES live here, behind
+// `@available(iOS 26.0, *)`. `AppleFMEngine` reaches this only after a runtime
+// `#available` check, holding it as an opaque `AnyObject` so the engine type
+// itself is usable on every OS version.
+
+@available(iOS 26.0, *)
+final class FMSession {
+    /// Reused across calls so multi-turn warm-up costs are amortized. We
+    /// recreate it per `generate`/`route` only when a fresh system prompt is
+    /// supplied; otherwise we keep one session and let the framework manage its
+    /// transcript.
+    private var session: LanguageModelSession?
+
+    /// Map Apple's availability to the shared `EngineAvailability` shape.
+    static func availability() -> EngineAvailability {
         let model = SystemLanguageModel.default
         switch model.availability {
         case .available:
             return .available
         case .unavailable(let reason):
-            return .unavailable(Self.describe(reason))
+            return .unavailable(describe(reason))
         @unknown default:
             return .unavailable("unknown")
+        }
+    }
+
+    /// Throw if Apple FM can't run right now.
+    static func assertAvailable() throws {
+        guard case .available = SystemLanguageModel.default.availability else {
+            throw NSError(
+                domain: "AppleFMEngine", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Apple FM unavailable"])
         }
     }
 
@@ -60,17 +192,14 @@ final class AppleFMEngine: OnDeviceEngine {
         }
     }
 
-    // MARK: Load
-
-    /// Apple FM needs no per-model download; "loading" is just spinning up a
-    /// session so the first token isn't penalized by lazy init.
-    func load(modelId: String) async throws {
-        guard case .available = SystemLanguageModel.default.availability else {
-            throw NSError(
-                domain: "AppleFMEngine", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Apple FM unavailable"])
-        }
+    /// Spin up a fresh warm session (used by `load`).
+    func reset() {
         session = LanguageModelSession()
+    }
+
+    /// Drop the current session so any in-flight stream stops emitting.
+    func invalidate() {
+        session = nil
     }
 
     private func ensureSession(system: String) -> LanguageModelSession {
@@ -87,17 +216,15 @@ final class AppleFMEngine: OnDeviceEngine {
         return s
     }
 
-    // MARK: Generate (streaming)
-
-    func generate(_ req: GenRequest, onToken: @escaping (String) -> Void) async throws -> String {
-        let session = ensureSession(system: req.system)
+    func generate(system: String, prompt: String, onToken: @escaping (String) -> Void) async throws -> String {
+        let session = ensureSession(system: system)
 
         // FoundationModels' `streamResponse(to:)` yields *cumulative* snapshots
         // of the answer-so-far. The plugin's EventChannel contract wants pure
         // deltas, so we diff against what we've already emitted and forward
         // only the new suffix.
         var emitted = ""
-        let stream = session.streamResponse(to: req.prompt)
+        let stream = session.streamResponse(to: prompt)
         for try await snapshot in stream {
             try Task.checkCancellation()
             // `snapshot.content` is the accumulated String for a free-form
@@ -107,9 +234,8 @@ final class AppleFMEngine: OnDeviceEngine {
                 let delta = String(full[full.index(full.startIndex, offsetBy: emitted.count)...])
                 if !delta.isEmpty { onToken(delta) }
             } else if full != emitted {
-                // Non-monotonic snapshot (rare): re-sync by emitting the whole
-                // thing fresh would double-up, so just emit the new tail by
-                // longest-common-prefix.
+                // Non-monotonic snapshot (rare): re-sync by emitting the new
+                // tail by longest-common-prefix.
                 let delta = Self.suffixAfterCommonPrefix(old: emitted, new: full)
                 if !delta.isEmpty { onToken(delta) }
             }
@@ -126,9 +252,7 @@ final class AppleFMEngine: OnDeviceEngine {
         return String(newChars[i...])
     }
 
-    // MARK: Route (guided generation)
-
-    func route(system: String, prompt: String, schemaJSON: String) async throws -> [String: Any] {
+    func route(system: String, prompt: String) async throws -> [String: Any] {
         let session = system.isEmpty
             ? (self.session ?? LanguageModelSession())
             : LanguageModelSession(instructions: Instructions(system))
@@ -137,21 +261,12 @@ final class AppleFMEngine: OnDeviceEngine {
         // Guided generation: ask the framework to fill in a typed struct. This
         // is far more reliable than prompt-and-parse — Apple constrains decoding
         // to the schema, so we always get a well-formed `RoutingDecisionGen`.
+        try Task.checkCancellation()
         let response = try await session.respond(
             to: prompt,
             generating: RoutingDecisionGen.self
         )
         return response.content.asDictionary()
-    }
-
-    // MARK: Cancel
-
-    func cancel() {
-        currentTask?.cancel()
-        currentTask = nil
-        // Dropping the session invalidates any in-flight stream the next time
-        // a snapshot is awaited; combined with Task.checkCancellation in
-        // generate this stops emission promptly.
     }
 }
 
@@ -203,42 +318,6 @@ struct RoutingDecisionGen {
         else { return [:] }
         return obj
     }
-}
-
-#else
-
-// MARK: - Fallback (framework not importable / pre-iOS 26 SDK)
-//
-// Keeps `AppleFMEngine` present as a real type so `OnDeviceAIPlugin` can
-// always instantiate its default engine. Everything reports unavailable and
-// throws; the plugin/Dart side then steers the user to an MLX model instead.
-
-final class AppleFMEngine: OnDeviceEngine {
-    let id = "apple-fm"
-
-    func availability() -> EngineAvailability {
-        .unavailable("foundationmodels-unavailable")
-    }
-
-    func load(modelId: String) async throws {
-        throw NSError(
-            domain: "AppleFMEngine", code: -1,
-            userInfo: [NSLocalizedDescriptionKey: "FoundationModels not available"])
-    }
-
-    func generate(_ req: GenRequest, onToken: @escaping (String) -> Void) async throws -> String {
-        throw NSError(
-            domain: "AppleFMEngine", code: -1,
-            userInfo: [NSLocalizedDescriptionKey: "FoundationModels not available"])
-    }
-
-    func route(system: String, prompt: String, schemaJSON: String) async throws -> [String: Any] {
-        throw NSError(
-            domain: "AppleFMEngine", code: -1,
-            userInfo: [NSLocalizedDescriptionKey: "FoundationModels not available"])
-    }
-
-    func cancel() {}
 }
 
 #endif
