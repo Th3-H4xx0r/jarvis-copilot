@@ -103,6 +103,7 @@ class ChatMessage {
     List<String>? attachments,
     this.streaming = false,
     this.isError = false,
+    this.onDevice = false,
     this.ts,
   })  : blocks = blocks ?? <ChatBlock>[],
         attachments = attachments ?? const [];
@@ -113,6 +114,10 @@ class ChatMessage {
   final List<String> attachments;
   bool streaming;
   bool isError;
+
+  /// True when this assistant turn was answered/handled on-device (shows the
+  /// "on-device" badge in the UI).
+  bool onDevice;
   final int? ts;
 
   bool get isUser => role == 'user';

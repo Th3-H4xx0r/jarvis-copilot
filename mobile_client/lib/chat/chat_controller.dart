@@ -4,7 +4,12 @@ import 'package:flutter/foundation.dart';
 
 import '../api/chat.dart';
 import '../api/sessions.dart';
+import '../main.dart' as app;
 import '../services/api_client.dart';
+import '../services/invoke_runner.dart';
+import '../services/local_ai_settings.dart';
+import '../services/model_selection.dart';
+import '../services/on_device_ai_types.dart';
 import 'chat_models.dart';
 
 /// Drives the native chat screen. Owns the sessions list, the active
@@ -174,8 +179,20 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // On-device first: if the local layer fully handles the turn, we never
+      // hit the server. Any miss/escalation/error falls through transparently.
+      if (LocalAiSettings.instance.enabledForChat &&
+          await _tryLocal(trimmed, assistant)) {
+        return;
+      }
+
       final id = await _ensureSession();
-      final start = await _chat.startMessage(sessionId: id, text: trimmed);
+      final start = await _chat.startMessage(
+        sessionId: id,
+        text: trimmed,
+        model: ModelSelection.instance.modelFor(VoiceSurface.chat),
+        provider: ModelSelection.instance.providerFor(VoiceSurface.chat),
+      );
       _streamId = (start['stream_id'] ?? '').toString();
       if (_streamId == null || _streamId!.isEmpty) {
         throw StateError('Server did not start a stream');
@@ -189,6 +206,53 @@ class ChatController extends ChangeNotifier {
     } catch (e) {
       _failLive('$e');
     }
+  }
+
+  /// Attempt to handle [text] entirely on-device. Returns true if handled
+  /// (answer or local tool call); false to escalate to the server. Never
+  /// throws — any failure returns false so the server path runs.
+  Future<bool> _tryLocal(String text, ChatMessage assistant) async {
+    try {
+      final result = await app.localRouter.handle(text, VoiceSurface.chat);
+      switch (result) {
+        case DirectAnswer(:final text):
+          assistant.appendToken(text);
+          assistant.onDevice = LocalAiSettings.instance.showBadge;
+          _finishLive();
+          return true;
+
+        case ToolCall(:final name, :final args, :final requiresConfirm):
+          // Outward/destructive actions defer to the server's approval flow.
+          if (requiresConfirm) return false;
+          final tool = ToolInvocation(name: name, args: args);
+          assistant.startTool(tool);
+          notifyListeners();
+          final InvokeResult res = await app.runner.run(name, args);
+          final ok = res.error == null;
+          assistant.completeTool(name: name, isError: !ok);
+          final summary = ok ? _summarize(res.result) : (res.error ?? 'failed');
+          if (summary.isNotEmpty) assistant.appendToken(summary);
+          assistant.onDevice = LocalAiSettings.instance.showBadge;
+          _finishLive();
+          return true;
+
+        case Escalate():
+          return false;
+      }
+    } catch (e) {
+      debugPrint('[chat] local route failed, escalating: $e');
+      return false;
+    }
+  }
+
+  static String _summarize(Object? result) {
+    if (result == null) return 'Done.';
+    if (result is String) return result;
+    if (result is Map) {
+      final note = result['note'] ?? result['message'] ?? result['result'];
+      if (note != null) return note.toString();
+    }
+    return 'Done.';
   }
 
   void _onEvent(Map<String, dynamic> ev) {

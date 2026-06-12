@@ -95,12 +95,16 @@ class DirectAnswer extends RouteResult {
   final String text;
 }
 
-/// Execute this tool locally (via InvokeRunner).
+/// Execute this tool locally (via InvokeRunner). When [requiresConfirm] is
+/// true the action is outward-facing/destructive and the caller should confirm
+/// (chat) / ask aloud (voice) before running it.
 class ToolCall extends RouteResult {
-  const ToolCall(this.name, this.args, this.execClass);
+  const ToolCall(this.name, this.args, this.execClass,
+      {this.requiresConfirm = false});
   final String name;
   final Map<String, dynamic> args;
   final ToolExecClass execClass;
+  final bool requiresConfirm;
 }
 
 /// Hand off to the server path with this reason (for logs/telemetry).

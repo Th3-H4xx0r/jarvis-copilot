@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'local_action_safety.dart';
 import 'local_ai_settings.dart';
 import 'local_tool_catalog.dart';
 import 'on_device_ai.dart';
@@ -95,7 +96,10 @@ class LocalRouter {
         if (dec.confidence < _settings.confidenceFloor) {
           return const Escalate('low-confidence');
         }
-        return ToolCall(name, dec.toolArgs, cls);
+        final requiresConfirm =
+            _settings.confirmLocalActions && isOutwardOrDestructive(name);
+        return ToolCall(name, dec.toolArgs, cls,
+            requiresConfirm: requiresConfirm);
 
       default:
         return Escalate('unknown-action:${dec.action}');

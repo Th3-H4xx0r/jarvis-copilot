@@ -166,6 +166,26 @@ void main() {
       expect(await full.handle('open chrome', VoiceSurface.chat), isA<ToolCall>());
     });
 
+    test('outward/destructive device tool is flagged requiresConfirm', () async {
+      final r = LocalRouter(
+        ai: _FakeAi(decision: RoutingDecision(action: 'tool', toolName: 'send_message', toolArgs: {'to': 'mom'}, confidence: 0.9)),
+        catalog: _FakeCatalog(const {'send_message': ToolExecClass.deviceLocal}),
+        settings: _settings(), // confirmLocalActions defaults true
+      );
+      final res = await r.handle('text mom hi', VoiceSurface.voice);
+      expect(res, isA<ToolCall>());
+      expect((res as ToolCall).requiresConfirm, isTrue);
+    });
+
+    test('safe device tool is not flagged requiresConfirm', () async {
+      final r = LocalRouter(
+        ai: _FakeAi(decision: RoutingDecision(action: 'tool', toolName: 'set_timer', toolArgs: {'minutes': 5}, confidence: 0.9)),
+        catalog: _FakeCatalog(const {'set_timer': ToolExecClass.deviceLocal}),
+        settings: _settings(),
+      );
+      expect(((await r.handle('timer 5', VoiceSurface.voice)) as ToolCall).requiresConfirm, isFalse);
+    });
+
     test('tool with empty name → Escalate', () async {
       final r = LocalRouter(
         ai: _FakeAi(decision: RoutingDecision(action: 'tool', toolName: '', confidence: 0.9)),

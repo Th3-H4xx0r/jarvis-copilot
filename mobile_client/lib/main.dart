@@ -16,6 +16,10 @@ import 'services/invoke_runner.dart';
 import 'services/notification_actions.dart';
 import 'services/pending_actions.dart';
 import 'services/connection_monitor.dart';
+import 'services/local_ai_settings.dart';
+import 'services/local_router.dart';
+import 'services/local_tool_catalog.dart';
+import 'services/model_selection.dart';
 import 'services/push_handler.dart';
 import 'services/watch_sync.dart';
 import 'services/ws_bridge.dart';
@@ -38,6 +42,10 @@ late final ConnectionMonitor connectionMonitor;
 /// Single owner of the iOS Live Activity (voice + coding fleet). Also reachable
 /// via `LiveActivityCoordinator.instance` from VoiceController.
 late final LiveActivityCoordinator liveActivityCoordinator;
+
+/// On-device-first router shared by chat + voice. Falls back to the server
+/// whenever the local layer can't (or shouldn't) handle a turn.
+late final LocalRouter localRouter;
 
 /// The ONE voice session for the whole app. VoicePage references this singleton
 /// instead of creating its own, so there can only ever be a single live session
@@ -119,6 +127,8 @@ Future<void> main() async {
   }
 
   await Credentials.instance.load();
+  await ModelSelection.instance.load();
+  await LocalAiSettings.instance.load();
 
   registerCommonSkills(common_skills.everything);
 
@@ -126,6 +136,10 @@ Future<void> main() async {
   ws = WsBridge(api: api);
   runner = InvokeRunner(api: api, ws: ws);
   push = PushHandler(api: api, runner: runner);
+
+  // On-device router: device skills come from the SkillRegistry; the full
+  // server tool list is fetched (and cached) from /api/tools/catalog.
+  localRouter = LocalRouter(catalog: LocalToolCatalog(api: api));
 
   wake = WakeService(onWake: requestVoiceLaunch)..init();
   location = BackgroundLocation(api: api);
