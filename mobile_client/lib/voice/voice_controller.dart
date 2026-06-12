@@ -75,6 +75,15 @@ class VoiceController extends ChangeNotifier {
   String? error;
   bool muted = false;
 
+  // The last on-device voice reply's transcript, kept so the user can re-run that
+  // turn on the SERVER ("Try on server") if the local answer was poor. One-shot:
+  // cleared on retry, on a new spoken turn, and on session end.
+  String? _lastLocalTranscript;
+  bool get canRetryOnServer =>
+      _lastLocalTranscript != null &&
+      state == VoiceState.listening &&
+      !_audio.isBusy;
+
   // ── Karaoke highlight ─────────────────────────────────────────
   // Number of leading whitespace-delimited words of [assistantText] that have
   // been spoken so far. The voice screen colours these white and the rest
@@ -428,6 +437,7 @@ class VoiceController extends ChangeNotifier {
     error = null;
     userTranscript = '';
     _resetSpeech();
+    _lastLocalTranscript = null;
     toolStatus = null;
     _spoke = false;
     _silenceMs = 0;
@@ -484,6 +494,7 @@ class VoiceController extends ChangeNotifier {
         _sendJson({'type': 'interrupt'});
         unawaited(_audio.stop());
         _resetVad();
+        _lastLocalTranscript = null; // user barged out → no stale "Try on server"
         _set(VoiceState.listening);
       }
       return; // don't stream our own playback back to STT
@@ -518,6 +529,7 @@ class VoiceController extends ChangeNotifier {
 
   void _endRealtimeTurn() {
     if (state != VoiceState.listening) return;
+    _lastLocalTranscript = null; // a new spoken turn supersedes the retry option
     _resumeTimer?.cancel();
     _resetVad();
     amplitude.value = 0;
@@ -544,6 +556,8 @@ class VoiceController extends ChangeNotifier {
       _tryLocalVoice(pcm, epoch).then((handled) {
         if (epoch != _turnEpoch || !active) return; // superseded / torn down
         if (handled) {
+          _lastLocalTranscript = _escalateText; // enable "Try on server"
+          notifyListeners();
           _resetServerTurn(); // flush the server's buffered audio for this turn
         } else {
           _sendServerTurn(text: _escalateText);
@@ -580,6 +594,27 @@ class VoiceController extends ChangeNotifier {
       ..._voiceModelFields(),
     });
     if (!_audio.isBusy) _scheduleResumeListening();
+  }
+
+  /// Re-run the last on-device voice turn on the SERVER ("Try on server"). Sends
+  /// the on-device transcript so the server skips its STT and runs the agent; the
+  /// reply streams + speaks through the normal path. One-shot; only valid while
+  /// listening right after a local reply (see [canRetryOnServer]).
+  void retryLastOnServer() {
+    final t = _lastLocalTranscript;
+    if (t == null || t.isEmpty || state != VoiceState.listening) return;
+    _lastLocalTranscript = null; // one-shot
+    _resumeTimer?.cancel();
+    _resetVad();
+    _turnPcm.clear(); // drop any half-captured new utterance so the next turn's STT is clean
+    amplitude.value = 0;
+    error = null;
+    _resetSpeech(); // clear the local reply + highlight; the server reply replaces it
+    userTranscript = t; // keep showing what was asked
+    _set(VoiceState.thinking);
+    ++_turnEpoch; // supersede any in-flight local attempt
+    _escalateText = null;
+    _sendServerTurn(text: t); // the begin_turn from _resetServerTurn is still open
   }
 
   Map<String, dynamic> _voiceModelFields() {
@@ -669,24 +704,50 @@ class VoiceController extends ChangeNotifier {
       _scheduleResumeListening();
       return;
     }
-    var anyAudio = false;
+    // Append karaoke segments up front (reply renders immediately, word count is
+    // stable), recording each chunk's real seg index (a chunk that markdown-strips
+    // to empty adds no segment — skip it, don't mis-tag/RangeError). Then
+    // synthesize ALL clips CONCURRENTLY and WAIT for the whole set before enqueuing
+    // any: enqueuing in index order as each resolves let a slow middle clip drain
+    // the queue between clips, which flipped us to "thinking" and let the
+    // resume-grace timer _finalizeSpoken() and abandon the reply (the "karaoke
+    // doesn't work on-device" bug). Waiting first guarantees the queue never drains
+    // mid-reply; the wait is the MAX (not sum) of the concurrent calls, and the
+    // reply text is already on screen, so for short voice replies it's negligible.
+    final tags = <int>[]; // seg index per synthesizable chunk
+    final speak = <String>[];
     for (final chunk in chunks) {
-      if (epoch != _turnEpoch || !active) return; // superseded / stopped
-      _appendSpeech(chunk); // each chunk is its own karaoke segment
-      try {
-        final bytes = await _voice.ttsBytes(text: chunk);
-        if (epoch != _turnEpoch || !active) return;
-        if (bytes.isNotEmpty) {
-          final tag = _segs.length - 1;
-          _segs[tag].audioAssigned = true;
-          _audio.enqueueMp3(Uint8List.fromList(bytes), tag: tag);
-          anyAudio = true;
-        }
-      } catch (e) {
-        debugPrint('[voice] local JARVIS-voice TTS failed (offline?): $e');
+      final before = _segs.length;
+      _appendSpeech(chunk);
+      if (_segs.length > before) {
+        tags.add(_segs.length - 1);
+        speak.add(chunk);
       }
     }
     if (epoch != _turnEpoch || !active) return;
+    if (speak.isEmpty) {
+      if (!_audio.isBusy) {
+        _finalizeSpoken();
+        _scheduleResumeListening();
+      }
+      return;
+    }
+    final clips = await Future.wait(<Future<List<int>>>[
+      for (final c in speak)
+        _voice.ttsBytes(text: c).catchError((Object e) {
+          debugPrint('[voice] local JARVIS-voice TTS failed (offline?): $e');
+          return <int>[];
+        }),
+    ]);
+    if (epoch != _turnEpoch || !active) return;
+    var anyAudio = false;
+    for (var i = 0; i < clips.length; i++) {
+      if (clips[i].isNotEmpty) {
+        _segs[tags[i]].audioAssigned = true;
+        _audio.enqueueMp3(Uint8List.fromList(clips[i]), tag: tags[i]);
+        anyAudio = true;
+      }
+    }
     if (!anyAudio && !_audio.isBusy) {
       // Offline / no audio → reply is shown as text; resume listening.
       _finalizeSpoken();
@@ -776,6 +837,7 @@ class VoiceController extends ChangeNotifier {
       _cancelThinkingWatchdog();
       _turnEpoch++; // invalidate any in-flight on-device local attempt
       _turnPcm.clear();
+      _lastLocalTranscript = null; // user interrupted → no stale "Try on server"
       _sendJson({'type': 'interrupt'});
       unawaited(_audio.stop());
       _resetVad();
@@ -1273,6 +1335,7 @@ class VoiceController extends ChangeNotifier {
     _resumeTimer?.cancel();
     _cancelBgIdleTimeout();
     _cancelThinkingWatchdog();
+    _lastLocalTranscript = null;
     _turnEpoch++; // invalidate any in-flight on-device local attempt
     _turnPcm.clear();
     await _teardownMic();

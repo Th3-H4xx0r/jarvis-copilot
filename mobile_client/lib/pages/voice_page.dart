@@ -264,9 +264,49 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
             ),
           ),
         ),
+        if (_c.canRetryOnServer)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _TryServerChip(onTap: _c.retryLastOnServer),
+          ),
         _Controls(controller: _c, onPrimary: _onPrimary),
         SizedBox(height: 12 + MediaQuery.of(context).viewPadding.bottom),
       ],
+    );
+  }
+}
+
+/// "Try on server" — shown under the reply after an on-device voice answer.
+/// Re-runs that turn on the server (which can give a better answer).
+class _TryServerChip extends StatelessWidget {
+  const _TryServerChip({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: JcTheme.cyan.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: JcTheme.cyan.withValues(alpha: 0.4)),
+          ),
+          child: const Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.cloud_upload_outlined, size: 15, color: JcTheme.cyan),
+            SizedBox(width: 6),
+            Text('Try on server',
+                style: TextStyle(
+                    color: JcTheme.cyan,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600)),
+          ]),
+        ),
+      ),
     );
   }
 }

@@ -245,7 +245,7 @@ class ChatController extends ChangeNotifier {
   }
 
   // ── Send a message ────────────────────────────────────────────
-  Future<void> send(String text) async {
+  Future<void> send(String text, {bool forceServer = false}) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
     // A typed reply while a clarify is open answers it (the turn is still
@@ -268,7 +268,9 @@ class ChatController extends ChangeNotifier {
     try {
       // On-device first: if the local layer fully handles the turn, we never
       // hit the server. Any miss/escalation/error falls through transparently.
-      if (LocalAiSettings.instance.enabledForChat &&
+      // [forceServer] (the "Try on server" retry) skips the local layer.
+      if (!forceServer &&
+          LocalAiSettings.instance.enabledForChat &&
           await _tryLocal(trimmed, assistant)) {
         return;
       }
@@ -293,6 +295,25 @@ class ChatController extends ChangeNotifier {
     } catch (e) {
       _failLive('$e');
     }
+  }
+
+  /// Re-ask the prompt that produced [localReply] on the SERVER, bypassing the
+  /// on-device layer. Appends a fresh server turn (the local reply stays above so
+  /// you can compare). No-op while a turn is already streaming.
+  void retryOnServer(ChatMessage localReply) {
+    if (streaming) return;
+    final i = messages.indexOf(localReply);
+    if (i <= 0) return;
+    // The prompt is the nearest preceding user turn.
+    String? userText;
+    for (var j = i - 1; j >= 0; j--) {
+      if (messages[j].isUser) {
+        userText = messages[j].plainText;
+        break;
+      }
+    }
+    if (userText == null || userText.trim().isEmpty) return;
+    unawaited(send(userText, forceServer: true));
   }
 
   /// Attempt to handle [text] entirely on-device. Returns true if handled

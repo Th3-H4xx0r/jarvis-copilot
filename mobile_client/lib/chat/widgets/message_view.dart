@@ -13,14 +13,17 @@ import 'tool_card.dart';
 /// tool cards, and an optional thinking card — matching the webui's
 /// message layout.
 class MessageView extends StatelessWidget {
-  const MessageView({super.key, required this.message});
+  const MessageView({super.key, required this.message, this.onRetryOnServer});
 
   final ChatMessage message;
+
+  /// Tapped on an on-device reply to re-ask the same prompt on the server.
+  final VoidCallback? onRetryOnServer;
 
   @override
   Widget build(BuildContext context) {
     if (message.isUser) return _UserBubble(message: message);
-    return _AssistantTurn(message: message);
+    return _AssistantTurn(message: message, onRetryOnServer: onRetryOnServer);
   }
 }
 
@@ -75,8 +78,9 @@ class _UserBubble extends StatelessWidget {
 }
 
 class _AssistantTurn extends StatelessWidget {
-  const _AssistantTurn({required this.message});
+  const _AssistantTurn({required this.message, this.onRetryOnServer});
   final ChatMessage message;
+  final VoidCallback? onRetryOnServer;
 
   @override
   Widget build(BuildContext context) {
@@ -183,6 +187,15 @@ class _AssistantTurn extends StatelessWidget {
       ));
     }
 
+    // On-device reply → offer to re-ask the same prompt on the server (which can
+    // give a better answer). Appends a fresh server turn below; this one stays.
+    if (!message.streaming && message.onDevice && onRetryOnServer != null) {
+      children.add(Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: _TryServerButton(onTap: onRetryOnServer!),
+      ));
+    }
+
     // Per-turn status line ("On-device · 3.2s" / "Done in 3s · 16k in · 12 out").
     if (!message.streaming) {
       final status = _statusLine(message);
@@ -275,6 +288,33 @@ class _CopyButton extends StatelessWidget {
       child: const Padding(
         padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: Icon(Icons.copy_all_outlined, size: 14, color: JcTheme.muted),
+      ),
+    );
+  }
+}
+
+/// "Try on server" — shown under an on-device reply. Re-asks the same prompt on
+/// the server (which can give a better answer); the local reply stays above.
+class _TryServerButton extends StatelessWidget {
+  const _TryServerButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.cloud_upload_outlined, size: 13, color: JcTheme.cyan),
+          SizedBox(width: 4),
+          Text('Try on server',
+              style: TextStyle(
+                  color: JcTheme.cyan,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600)),
+        ]),
       ),
     );
   }

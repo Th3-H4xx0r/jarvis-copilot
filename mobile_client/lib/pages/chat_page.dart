@@ -221,7 +221,13 @@ class _ChatPageState extends State<ChatPage> {
       controller: _scroll,
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
       itemCount: _c.messages.length,
-      itemBuilder: (context, i) => MessageView(message: _c.messages[i]),
+      itemBuilder: (context, i) {
+        final m = _c.messages[i];
+        return MessageView(
+          message: m,
+          onRetryOnServer: m.onDevice ? () => _c.retryOnServer(m) : null,
+        );
+      },
     );
   }
 }

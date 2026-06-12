@@ -35,7 +35,8 @@ echo "  iPhone=$IPHONE_ID  Watch=$WATCH_ID"
 echo "▸ [1/4] Build watch app (Release, watchOS)…"
 rm -rf "$WATCH_OUT"; mkdir -p "$WATCH_OUT"
 xcodebuild -project ios/Runner.xcodeproj -target "$WATCH_TARGET" -configuration Release -sdk watchos \
-  -allowProvisioningUpdates CONFIGURATION_BUILD_DIR="$WATCH_OUT" build >/dev/null
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
+  CONFIGURATION_BUILD_DIR="$WATCH_OUT" build >/dev/null
 WATCH_APP="$WATCH_OUT/$WATCH_TARGET.app"
 [ -d "$WATCH_APP" ] || { echo "✗ watch build failed"; exit 1; }
 
@@ -62,6 +63,26 @@ echo "  embedded watch present: $(ls -d "$RUNNER_APP/Watch/"*.app 2>/dev/null ||
 
 echo "▸ [4/4] Install…"
 [ -n "$IPHONE_ID" ] && { echo "  iPhone…"; xcrun devicectl device install app --device "$IPHONE_ID" "$RUNNER_APP"; }
-[ -n "$WATCH_ID" ]  && { echo "  watch…";  xcrun devicectl device install app --device "$WATCH_ID" "$WATCH_APP"; }
+# Watch install is best-effort: the iPhone app (the critical path) is already in.
+# A watch failure here is virtually always provisioning (the watch's UDID isn't in
+# the watchkitapp development profile → error 0xe8008012), NOT a build problem — so
+# don't abort the whole deploy over it.
+if [ -n "$WATCH_ID" ]; then
+  echo "  watch…"
+  if ! xcrun devicectl device install app --device "$WATCH_ID" "$WATCH_APP"; then
+    echo ""
+    echo "  ⚠️  Watch install failed — the iPhone app installed fine above. This is a"
+    echo "      provisioning issue: the watch's UDID isn't in the '$WATCH_TARGET'"
+    echo "      development profile (devicectl error 0xe8008012). One-time fix, then re-run:"
+    echo "        1) On the watch: Settings → Privacy & Security → Developer Mode → ON (restart)."
+    echo "        2) Xcode → Window → Devices and Simulators → select your Watch →"
+    echo "           ensure it shows 'Ready for development' (pair/trust if prompted)."
+    echo "        3) Or: open ios/Runner.xcworkspace in Xcode, pick the 'JarvisWatch Watch App'"
+    echo "           scheme, Run once to the watch — Xcode registers the device + makes the"
+    echo "           profile. After that this script's devicectl install works offline."
+    echo "      (Note: the iPhone app embeds the watch app, so iOS may also push it to the"
+    echo "       paired watch on its own once signing is valid.)"
+  fi
+fi
 
 echo "✓ Done. Foreground JarvisCopilot on the iPhone (log in), then open the watch app."
