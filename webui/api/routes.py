@@ -4254,6 +4254,30 @@ def handle_get(handler, parsed) -> bool:
         active = (agent_cfg.get("personality") or "") if isinstance(agent_cfg, dict) else ""
         return j(handler, {"personalities": personalities, "active": active})
 
+    if parsed.path == "/api/personality/active":
+        # The globally-active personality's RESOLVED system prompt, so on-device
+        # models can speak in the same JARVIS persona as the server agent.
+        from api.config import reload_config as _rc_p, get_config as _gc_p
+
+        _rc_p()
+        _cfg_p = _gc_p()
+        agent_cfg = _cfg_p.get("agent", {}) or {}
+        name = (agent_cfg.get("personality") or "").strip()
+        raw = agent_cfg.get("personalities", {})
+        prompt = ""
+        if name and isinstance(raw, dict) and name in raw:
+            value = raw[name]
+            if isinstance(value, dict):
+                parts = [value.get("system_prompt", "") or value.get("prompt", "")]
+                if value.get("tone"):
+                    parts.append(f"Tone: {value['tone']}")
+                if value.get("style"):
+                    parts.append(f"Style: {value['style']}")
+                prompt = "\n".join(p for p in parts if p)
+            else:
+                prompt = str(value)
+        return j(handler, {"name": name, "prompt": prompt})
+
     if parsed.path == "/api/git-info":
         qs = parse_qs(parsed.query)
         sid = qs.get("session_id", [""])[0]
