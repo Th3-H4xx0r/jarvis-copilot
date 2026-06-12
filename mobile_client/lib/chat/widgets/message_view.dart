@@ -355,6 +355,8 @@ String? _statusLine(ChatMessage m) {
   if (m.onDevice) {
     parts.add('On-device');
     if (dur != null) parts.add(dur);
+    if (m.inputTokens != null) parts.add('~${fmtTok(m.inputTokens!)} in');
+    if (m.outputTokens != null) parts.add('~${fmtTok(m.outputTokens!)} out');
   } else {
     if (dur != null) parts.add('Done in $dur');
     if (m.inputTokens != null) parts.add('${fmtTok(m.inputTokens!)} in');

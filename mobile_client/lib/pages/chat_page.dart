@@ -156,6 +156,20 @@ class _ChatPageState extends State<ChatPage> {
                   builder: (context, _) => _buildBody(),
                 ),
               ),
+              ListenableBuilder(
+                listenable: _c,
+                builder: (_, __) {
+                  final clarify = _c.pendingClarify;
+                  if (clarify == null) return const SizedBox.shrink();
+                  return _ClarifyPrompt(
+                    question: (clarify['question'] ?? '').toString(),
+                    choices: ((clarify['choices'] as List?) ?? const [])
+                        .map((c) => c.toString())
+                        .toList(),
+                    onAnswer: _c.respondClarify,
+                  );
+                },
+              ),
               _Composer(
                 controller: _composer,
                 chat: _c,
@@ -397,6 +411,81 @@ class _SendButton extends StatelessWidget {
           color: streaming ? JcTheme.muted : Colors.white,
           size: 22,
         ),
+      ),
+    );
+  }
+}
+
+/// Inline prompt shown when the agent asks a clarify question — the question +
+/// tappable choice chips (and the composer can also be typed into). Answering
+/// resumes the blocked turn instead of leaving it stuck on "thinking".
+class _ClarifyPrompt extends StatelessWidget {
+  const _ClarifyPrompt({
+    required this.question,
+    required this.choices,
+    required this.onAnswer,
+  });
+
+  final String question;
+  final List<String> choices;
+  final void Function(String) onAnswer;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: JcTheme.cyan.withValues(alpha: 0.10),
+        border: Border.all(color: JcTheme.cyan.withValues(alpha: 0.30)),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(children: [
+            Icon(Icons.help_outline_rounded, size: 15, color: JcTheme.cyan),
+            SizedBox(width: 6),
+            Text('Quick question',
+                style: TextStyle(
+                    color: JcTheme.cyan,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700)),
+          ]),
+          const SizedBox(height: 6),
+          Text(question,
+              style: const TextStyle(
+                  color: JcTheme.text, fontSize: 14, height: 1.35)),
+          if (choices.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final c in choices)
+                  GestureDetector(
+                    onTap: () => onAnswer(c),
+                    child: Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: JcTheme.cyan.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                            color: JcTheme.cyan.withValues(alpha: 0.40)),
+                      ),
+                      child: Text(c,
+                          style: const TextStyle(
+                              color: JcTheme.text,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }

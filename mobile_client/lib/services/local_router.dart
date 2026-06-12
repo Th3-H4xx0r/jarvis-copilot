@@ -1,4 +1,5 @@
 import 'local_ai_settings.dart';
+import 'local_command_matcher.dart';
 import 'on_device_ai.dart';
 import 'on_device_ai_types.dart';
 
@@ -37,6 +38,15 @@ class LocalRouter {
     final avail = await _ai.availability();
     if (!avail.available) {
       return Escalate('unavailable:${avail.reason ?? 'unknown'}');
+    }
+
+    // Instant local command (deterministic, no model) for simple, reliable,
+    // this-device actions — open an app, flashlight, vibrate, volume. These run
+    // immediately via the existing skill; no model means no fabricated args.
+    final cmd = LocalCommandMatcher.match(text);
+    if (cmd != null) {
+      return ToolCall(cmd.name, cmd.args, ToolExecClass.deviceLocal,
+          confirmation: cmd.confirmation);
     }
 
     // Pre-gate: anything that needs to DO something or fetch real data goes to

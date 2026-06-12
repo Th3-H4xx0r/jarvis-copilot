@@ -20,7 +20,14 @@ const Map<String, String> verbShortcutNames = {
   'bluetooth': 'JC Bluetooth',
   'focus': 'JC Focus',
   'open_url': 'JC Open URL',
+  // Send an iMessage/SMS WITHOUT the native composer drawer (Shortcuts' Send
+  // Message action can send directly). Input is "recipient␟message".
+  'send_message': 'JC Send Message',
 };
+
+/// Delimiter between recipient and body in the JC Send Message shortcut input
+/// (U+241F SYMBOL FOR UNIT SEPARATOR — won't occur in a normal message).
+const String sendMessageDelimiter = '␟';
 
 /// Skill args consumed by the Dart layer that must NOT be forwarded.
 const Set<String> _internalKeys = {'timeout_seconds'};
@@ -48,6 +55,13 @@ Map<String, dynamic> buildPhoneCommand(Map<String, dynamic> args) {
 /// - open_url             → the URL, passed through unchanged.
 String rawValueForVerb(String action, Map<String, dynamic> command) {
   if (action == 'open_url') return (command['url'] ?? '').toString();
+  if (action == 'send_message') {
+    final to = (command['to'] ?? command['recipient'] ?? '').toString().trim();
+    final msg = (command['message'] ?? command['body'] ?? command['value'] ?? '')
+        .toString()
+        .trim();
+    return '$to$sendMessageDelimiter$msg';
+  }
   final v = command['value'];
   if (action == 'wifi' || action == 'bluetooth' || action == 'focus') {
     final s = v.toString().toLowerCase().trim();
@@ -57,15 +71,17 @@ String rawValueForVerb(String action, Map<String, dynamic> command) {
     }
     return s;
   }
-  // brightness / volume: 0.0–1.0, but tolerate a percentage.
+  // brightness / volume: iOS Shortcuts' "Set Brightness"/"Set Volume" take a
+  // PERCENTAGE (0–100). A 0.0–1.0 decimal was read as ~0% (the "always 0" bug),
+  // so normalize to an integer percent. (0.3 → 30, 30 → 30, "30%" → 30.)
   final raw = v.toString().trim();
   final isPct = raw.endsWith('%');
   final n = double.tryParse(raw.replaceAll('%', '').trim());
   if (n == null) return raw;
-  var d = (isPct || n > 1) ? n / 100.0 : n;
-  if (d < 0) d = 0;
-  if (d > 1) d = 1;
-  return d.toString();
+  var pct = (isPct || n > 1) ? n : n * 100.0;
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  return pct.round().toString();
 }
 
 /// Resolve a phone_control command to the per-verb Shortcut name + its raw text

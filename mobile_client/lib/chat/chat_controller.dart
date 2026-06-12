@@ -46,6 +46,11 @@ class ChatController extends ChangeNotifier {
   DateTime? _turnStartedAt; // for the per-message "Done in Xs" status
   String? error;
 
+  /// An open clarify question from the agent ({question, choices}). The UI shows
+  /// the question + choice chips; answering posts to /api/clarify/respond so the
+  /// blocked turn resumes (otherwise it just hangs on "thinking").
+  Map<String, dynamic>? pendingClarify;
+
   // Live usage from `metering` events (tokens / cost), shown subtly.
   int? inputTokens;
   int? outputTokens;
@@ -170,7 +175,14 @@ class ChatController extends ChangeNotifier {
   // ── Send a message ────────────────────────────────────────────
   Future<void> send(String text) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty || streaming) return;
+    if (trimmed.isEmpty) return;
+    // A typed reply while a clarify is open answers it (the turn is still
+    // streaming/blocked, so don't start a new one).
+    if (pendingClarify != null) {
+      await respondClarify(trimmed);
+      return;
+    }
+    if (streaming) return;
     error = null;
 
     messages.add(ChatMessage.user(trimmed));
@@ -223,6 +235,11 @@ class ChatController extends ChangeNotifier {
           // Stream the FULL reply from the model (the guided-gen inline answer
           // is a short field that truncates long content like poems).
           await _streamLocalReply(text, assistant);
+          // Apple FM doesn't report token usage — estimate (~4 chars/token) so
+          // the status line is complete for on-device too.
+          final persona = OnDeviceAi.instance.persona;
+          assistant.inputTokens = ((text.length + persona.length) / 4).ceil();
+          assistant.outputTokens = (assistant.plainText.length / 4).ceil();
           _finishLive();
           unawaited(_persistLocal(text, assistant.plainText));
           return true;
@@ -251,6 +268,22 @@ class ChatController extends ChangeNotifier {
     } catch (e) {
       debugPrint('[chat] local route failed, escalating: $e');
       return false;
+    }
+  }
+
+  /// Answer the agent's open clarify question so the blocked turn resumes.
+  Future<void> respondClarify(String answer) async {
+    final a = answer.trim();
+    if (a.isEmpty) return;
+    final sid = sessionId;
+    pendingClarify = null;
+    notifyListeners();
+    if (sid == null) return;
+    try {
+      await _chat.api
+          .postJson('/api/clarify/respond', {'session_id': sid, 'response': a});
+    } catch (e) {
+      debugPrint('[chat] clarify respond failed: $e');
     }
   }
 
@@ -346,6 +379,16 @@ class ChatController extends ChangeNotifier {
         break;
       case 'metering':
         _applyMetering(ev);
+        break;
+      case 'clarify':
+        final q = (ev['question'] ?? '').toString();
+        final choices = (ev['choices_offered'] is List)
+            ? (ev['choices_offered'] as List).map((c) => c.toString()).toList()
+            : <String>[];
+        if (q.isNotEmpty) {
+          pendingClarify = {'question': q, 'choices': choices};
+          notifyListeners();
+        }
         break;
       case 'title':
         final t = (ev['title'] ?? '').toString().trim();

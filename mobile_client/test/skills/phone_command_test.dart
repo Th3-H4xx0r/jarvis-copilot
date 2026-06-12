@@ -23,17 +23,21 @@ void main() {
   });
 
   group('rawValueForVerb', () {
-    test('brightness/volume pass a 0–1 decimal through', () {
-      expect(rawValueForVerb('brightness', {'value': 0.3}), '0.3');
-      expect(rawValueForVerb('volume', {'value': '0.55'}), '0.55');
+    test('brightness/volume → integer percent (Shortcuts Set actions want 0–100)', () {
+      expect(rawValueForVerb('brightness', {'value': 0.3}), '30');
+      expect(rawValueForVerb('volume', {'value': '0.55'}), '55');
     });
-    test('brightness accepts a percentage and converts to 0–1', () {
-      expect(rawValueForVerb('brightness', {'value': 30}), '0.3');
-      expect(rawValueForVerb('brightness', {'value': '80%'}), '0.8');
+    test('brightness accepts a percentage', () {
+      expect(rawValueForVerb('brightness', {'value': 30}), '30');
+      expect(rawValueForVerb('brightness', {'value': '80%'}), '80');
     });
     test('brightness clamps out-of-range values', () {
-      expect(rawValueForVerb('brightness', {'value': 150}), '1.0');
-      expect(rawValueForVerb('brightness', {'value': -2}), '0.0');
+      expect(rawValueForVerb('brightness', {'value': 150}), '100');
+      expect(rawValueForVerb('brightness', {'value': -2}), '0');
+    });
+    test('send_message joins recipient + body with the unit separator', () {
+      expect(rawValueForVerb('send_message', {'to': 'Chahel', 'message': 'hi'}),
+          'Chahel␟hi');
     });
     test('wifi/bluetooth/focus normalize truthy/falsy words to 1/0', () {
       expect(rawValueForVerb('wifi', {'value': 'on'}), '1');
@@ -50,9 +54,9 @@ void main() {
   group('phoneShortcutFor', () {
     test('maps each supported verb to its JC <Verb> Shortcut + raw input', () {
       expect(phoneShortcutFor({'action': 'brightness', 'value': 0.3}),
-          (name: 'JC Brightness', input: '0.3'));
+          (name: 'JC Brightness', input: '30'));
       expect(phoneShortcutFor({'action': 'volume', 'value': 0.5}),
-          (name: 'JC Volume', input: '0.5'));
+          (name: 'JC Volume', input: '50'));
       expect(phoneShortcutFor({'action': 'wifi', 'value': 0}),
           (name: 'JC WiFi', input: '0'));
       expect(phoneShortcutFor({'action': 'bluetooth', 'value': 'on'}),

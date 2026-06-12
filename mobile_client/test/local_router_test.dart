@@ -65,14 +65,12 @@ void main() {
     for (final cmd in [
       "what's the weather",
       'give me the morning brief',
-      'text Chahel hi',
       'play hello on Spotify',
       "what's on my calendar",
       'set an alarm for 10:30pm',
-      'open the maps app',
       'send an email to mom',
       'any news today',
-      'turn on the flashlight',
+      'open Spotify on my Mac', // cross-device → server
     ]) {
       test('"$cmd" → escalate', () async {
         final res = await r.handle(cmd, VoiceSurface.chat);
@@ -80,6 +78,43 @@ void main() {
         expect((res as Escalate).reason, 'server-request');
       });
     }
+  });
+
+  group('LocalRouter instant local commands', () {
+    final r = LocalRouter(ai: _FakeAi(), settings: _settings());
+
+    test('"open Spotify" → ToolCall open_app (this device)', () async {
+      final res = await r.handle('open Spotify', VoiceSurface.chat);
+      expect(res, isA<ToolCall>());
+      final tc = res as ToolCall;
+      expect(tc.name, 'open_app');
+      expect(tc.args['name'], 'Spotify');
+    });
+
+    test('"turn on the flashlight" → ToolCall', () async {
+      final res = await r.handle('turn on the flashlight', VoiceSurface.chat);
+      expect(res, isA<ToolCall>());
+      expect((res as ToolCall).name, 'flashlight_on');
+    });
+
+    test('"vibrate" → ToolCall', () async {
+      expect(((await r.handle('vibrate', VoiceSurface.chat)) as ToolCall).name, 'vibrate');
+    });
+
+    test('"set volume to 30" → phone_control (not the Android set_volume)', () async {
+      final tc = await r.handle('set volume to 30', VoiceSurface.chat) as ToolCall;
+      expect(tc.name, 'phone_control');
+      expect(tc.args['action'], 'volume');
+      expect(tc.args['value'], '30');
+    });
+
+    test('"text Chahel hi" → phone_control send_message (local Shortcut)', () async {
+      final tc = await r.handle('text Chahel hi', VoiceSurface.chat) as ToolCall;
+      expect(tc.name, 'phone_control');
+      expect(tc.args['action'], 'send_message');
+      expect(tc.args['to'], 'Chahel');
+      expect(tc.args['message'], 'hi');
+    });
   });
 
   group('LocalRouter conversation stays local', () {
