@@ -26,9 +26,10 @@ const Map<String, String> verbShortcutNames = {
 };
 
 /// Delimiter between recipient and body in the JC Send Message shortcut input.
-/// A newline so the shortcut can use "Split Text › New Lines" (recipient = line
-/// 1, message = line 2) — no custom separator to type.
-const String sendMessageDelimiter = '\n';
+/// A pipe (URL-safe) — a newline inside the x-callback URL gets the whole `text`
+/// param dropped by iOS, so the shortcut received no input. The shortcut splits
+/// on a Custom separator of "|" (recipient = item 1, message = item 2).
+const String sendMessageDelimiter = '|';
 
 /// Skill args consumed by the Dart layer that must NOT be forwarded.
 const Set<String> _internalKeys = {'timeout_seconds'};
