@@ -188,6 +188,18 @@ class _AssistantTurn extends StatelessWidget {
       ));
     }
 
+    // Per-turn status line ("On-device · 3.2s" / "Done in 3s · 16k in · 12 out").
+    if (!message.streaming) {
+      final status = _statusLine(message);
+      if (status != null) {
+        children.add(Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Text(status,
+              style: const TextStyle(color: JcTheme.muted, fontSize: 10.5)),
+        ));
+      }
+    }
+
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(4, 6, 24, 6),
@@ -324,4 +336,29 @@ class _TypingDotsState extends State<_TypingDots>
       ),
     );
   }
+}
+
+/// Subtle per-turn status string, e.g. "On-device · 3.2s" or
+/// "Done in 3s · 16.1k in · 12 out". Returns null when there's nothing to show.
+String? _statusLine(ChatMessage m) {
+  if (!m.isAssistant) return null;
+  String? fmtDur(int? ms) {
+    if (ms == null || ms <= 0) return null;
+    return ms >= 1000 ? '${(ms / 1000).toStringAsFixed(1)}s' : '${ms}ms';
+  }
+
+  String fmtTok(int n) =>
+      n >= 1000 ? '${(n / 1000).toStringAsFixed(1)}k' : '$n';
+
+  final dur = fmtDur(m.durationMs);
+  final parts = <String>[];
+  if (m.onDevice) {
+    parts.add('On-device');
+    if (dur != null) parts.add(dur);
+  } else {
+    if (dur != null) parts.add('Done in $dur');
+    if (m.inputTokens != null) parts.add('${fmtTok(m.inputTokens!)} in');
+    if (m.outputTokens != null) parts.add('${fmtTok(m.outputTokens!)} out');
+  }
+  return parts.isEmpty ? null : parts.join(' · ');
 }

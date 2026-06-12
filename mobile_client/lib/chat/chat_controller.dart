@@ -43,6 +43,7 @@ class ChatController extends ChangeNotifier {
   String? _streamId;
   StreamSubscription<Map<String, dynamic>>? _sub;
   ChatMessage? _live; // the assistant message currently being filled
+  DateTime? _turnStartedAt; // for the per-message "Done in Xs" status
   String? error;
 
   // Live usage from `metering` events (tokens / cost), shown subtly.
@@ -176,6 +177,7 @@ class ChatController extends ChangeNotifier {
     final assistant = ChatMessage(role: 'assistant', streaming: true);
     messages.add(assistant);
     _live = assistant;
+    _turnStartedAt = DateTime.now();
     streaming = true;
     notifyListeners();
 
@@ -382,6 +384,8 @@ class ChatController extends ChangeNotifier {
     final inp = _asInt(usage['input_tokens']);
     final out = _asInt(usage['output_tokens']);
     final cost = _asDouble(usage['estimated_cost']);
+    if (inp != null) _live?.inputTokens = inp;
+    if (out != null) _live?.outputTokens = out;
     var changed = false;
     if (inp != null && inp != inputTokens) {
       inputTokens = inp;
@@ -410,6 +414,10 @@ class ChatController extends ChangeNotifier {
     final live = _live;
     if (live != null) {
       live.streaming = false;
+      if (_turnStartedAt != null) {
+        live.durationMs =
+            DateTime.now().difference(_turnStartedAt!).inMilliseconds;
+      }
       // Drop a trailing empty text block left by a tool-only turn.
       live.blocks.removeWhere((b) => b is TextBlock && b.isEmpty);
       if (live.blocks.isEmpty && live.reasoning.isEmpty && !live.isError) {

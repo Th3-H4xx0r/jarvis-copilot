@@ -118,6 +118,13 @@ class ChatMessage {
   /// True when this assistant turn was answered/handled on-device (shows the
   /// "on-device" badge in the UI).
   bool onDevice;
+
+  /// Per-turn status, shown as a small line under the reply ("Done in 3s ·
+  /// 16k in · 12 out", or "On-device · 3s"). Set when the turn finishes.
+  int? durationMs;
+  int? inputTokens;
+  int? outputTokens;
+
   final int? ts;
 
   bool get isUser => role == 'user';
@@ -242,6 +249,7 @@ class ChatMessage {
       blocks: blocks,
       reasoning: reasoning,
       attachments: attachments,
+      onDevice: j['on_device'] == true,
       ts: _asInt(j['timestamp']),
     );
   }
