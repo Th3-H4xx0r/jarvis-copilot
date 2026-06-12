@@ -9,6 +9,7 @@ import '../services/api_client.dart';
 import '../services/invoke_runner.dart';
 import '../services/local_ai_settings.dart';
 import '../services/model_selection.dart';
+import '../services/on_device_ai.dart';
 import '../services/on_device_ai_types.dart';
 import 'chat_models.dart';
 
@@ -215,13 +216,19 @@ class ChatController extends ChangeNotifier {
     try {
       final result = await app.localRouter.handle(text, VoiceSurface.chat);
       switch (result) {
-        case DirectAnswer(:final text):
-          assistant.appendToken(text);
+        case DirectAnswer(text: final answerText):
           assistant.onDevice = LocalAiSettings.instance.showBadge;
+          if (answerText.isNotEmpty) {
+            assistant.appendToken(answerText);
+          } else {
+            // Thin/empty inline answer → stream a full local reply (in persona)
+            // rather than escalating to the server.
+            await _streamLocalReply(text, assistant);
+          }
           _finishLive();
           return true;
 
-        case ToolCall(:final name, :final args, :final requiresConfirm):
+        case ToolCall(:final name, :final args, :final requiresConfirm, :final confirmation):
           // Outward/destructive actions defer to the server's approval flow.
           if (requiresConfirm) return false;
           final tool = ToolInvocation(name: name, args: args);
@@ -230,7 +237,9 @@ class ChatController extends ChangeNotifier {
           final InvokeResult res = await app.runner.run(name, args);
           final ok = res.error == null;
           assistant.completeTool(name: name, isError: !ok);
-          final summary = ok ? _summarize(res.result) : (res.error ?? 'failed');
+          final summary = ok
+              ? (confirmation?.isNotEmpty == true ? confirmation! : _summarize(res.result))
+              : (res.error ?? 'failed');
           if (summary.isNotEmpty) assistant.appendToken(summary);
           assistant.onDevice = LocalAiSettings.instance.showBadge;
           _finishLive();
@@ -242,6 +251,32 @@ class ChatController extends ChangeNotifier {
     } catch (e) {
       debugPrint('[chat] local route failed, escalating: $e');
       return false;
+    }
+  }
+
+  /// Stream a full reply from the on-device model (persona assistant prompt)
+  /// into [assistant]. Used when the router decided to answer locally but the
+  /// guided-gen inline answer was empty.
+  Future<void> _streamLocalReply(String userText, ChatMessage assistant) async {
+    final req = LocalRequest(
+      userText: userText,
+      surface: VoiceSurface.chat,
+      toolCatalogJson: '[]',
+      tier: LocalAiTier.fullLocalFirst,
+    );
+    final completer = Completer<void>();
+    OnDeviceAi.instance.generate(req).listen(
+      (t) {
+        assistant.appendToken(t);
+        notifyListeners();
+      },
+      onError: (_) => completer.complete(),
+      onDone: () => completer.complete(),
+      cancelOnError: true,
+    );
+    await completer.future;
+    if (assistant.plainText.trim().isEmpty) {
+      assistant.appendToken('At your service.');
     }
   }
 

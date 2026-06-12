@@ -121,13 +121,15 @@ void main() {
       expect((res as Escalate).reason, 'low-confidence');
     });
 
-    test('empty answer → Escalate', () async {
+    test('empty inline answer still answers locally (caller generates)', () async {
       final r = LocalRouter(
         ai: _FakeAi(decision: RoutingDecision(action: 'answer', answer: '  ', confidence: 0.99)),
         catalog: _FakeCatalog(const {}),
         settings: _settings(),
       );
-      expect((await r.handle('hi', VoiceSurface.chat) as Escalate).reason, 'empty-answer');
+      final res = await r.handle('hi', VoiceSurface.chat);
+      expect(res, isA<DirectAnswer>());
+      expect((res as DirectAnswer).text, isEmpty);
     });
 
     test('device-local tool in baseline tier → ToolCall', () async {

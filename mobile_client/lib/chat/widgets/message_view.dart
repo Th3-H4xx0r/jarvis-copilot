@@ -118,6 +118,25 @@ class _AssistantTurn extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
+          if (message.onDevice) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: JcTheme.cyan.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.bolt_rounded, size: 10, color: JcTheme.cyan),
+                SizedBox(width: 2),
+                Text('on-device',
+                    style: TextStyle(
+                        color: JcTheme.cyan,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          ],
         ],
       ),
     ));

@@ -601,17 +601,25 @@ class VoiceController extends ChangeNotifier {
       final result = await app.localRouter.handle(transcript, VoiceSurface.voice);
       if (epoch != _turnEpoch) return false;
       switch (result) {
-        case DirectAnswer(:final text):
-          await _speakLocal(text);
+        case DirectAnswer(text: final answerText):
+          final reply = answerText.isNotEmpty
+              ? answerText
+              : await _generateFull(transcript);
+          if (epoch != _turnEpoch) return false;
+          await _speakLocal(reply.isEmpty ? 'At your service.' : reply);
           return true;
-        case ToolCall(:final name, :final args, :final requiresConfirm):
+        case ToolCall(:final name, :final args, :final requiresConfirm, :final confirmation):
           // Outward/destructive actions defer to the server's approval flow.
           if (requiresConfirm) return false;
           final res = await app.runner.run(name, args);
           if (epoch != _turnEpoch) return false;
           final ok = res.error == null;
-          await _speakLocal(
-              ok ? _spokenConfirmation(name, res.result) : "Sorry, that didn't work.");
+          final say = ok
+              ? (confirmation?.isNotEmpty == true
+                  ? confirmation!
+                  : _spokenConfirmation(name, res.result))
+              : "Sorry, that didn't work.";
+          await _speakLocal(say);
           return true;
         case Escalate():
           return false;
@@ -643,6 +651,27 @@ class VoiceController extends ChangeNotifier {
     if (epoch != _turnEpoch || !active) return;
     _finalizeSpoken();
     _scheduleResumeListening();
+  }
+
+  /// Collect a full on-device reply (persona assistant prompt) into a string,
+  /// for when the router answered locally but gave no inline text.
+  Future<String> _generateFull(String userText) async {
+    final req = LocalRequest(
+      userText: userText,
+      surface: VoiceSurface.voice,
+      toolCatalogJson: '[]',
+      tier: LocalAiTier.fullLocalFirst,
+    );
+    final buf = StringBuffer();
+    final c = Completer<void>();
+    OnDeviceAi.instance.generate(req).listen(
+      (t) => buf.write(t),
+      onError: (_) => c.complete(),
+      onDone: () => c.complete(),
+      cancelOnError: true,
+    );
+    await c.future;
+    return buf.toString().trim();
   }
 
   String _spokenConfirmation(String name, Object? result) {

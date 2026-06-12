@@ -84,9 +84,10 @@ class LocalRouter {
         if (dec.confidence < _settings.confidenceFloor) {
           return const Escalate('low-confidence');
         }
-        final answer = (dec.answer ?? '').trim();
-        if (answer.isEmpty) return const Escalate('empty-answer');
-        return DirectAnswer(answer);
+        // The model chose to answer locally. Pass its inline answer through
+        // (may be empty — the caller streams a full local generation in that
+        // case, so a thin guided-gen answer field never forces a server hop).
+        return DirectAnswer((dec.answer ?? '').trim());
 
       case 'tool':
         final name = (dec.toolName ?? '').trim();
@@ -106,7 +107,8 @@ class LocalRouter {
         final requiresConfirm =
             _settings.confirmLocalActions && isOutwardOrDestructive(name);
         return ToolCall(name, dec.toolArgs, cls,
-            requiresConfirm: requiresConfirm);
+            requiresConfirm: requiresConfirm,
+            confirmation: (dec.answer ?? '').trim().isEmpty ? null : dec.answer!.trim());
 
       default:
         return Escalate('unknown-action:${dec.action}');

@@ -264,14 +264,13 @@ class OnDeviceAi implements OnDeviceAiClient {
     final surface = req.surface == VoiceSurface.voice ? 'voice' : 'chat';
     final personaLine = persona.isEmpty ? '' : '$persona\n\n';
     return '''
-${personaLine}You are JARVIS's fast on-device router on the $surface surface. Decide ONE of:
-- "answer": you can fully + correctly handle this yourself right now. Put a short reply (in JARVIS's voice) in "answer".
-- "tool": the user clearly wants an action that maps to one tool below. Set "toolName" and "toolArgs".
-- "escalate": anything requiring fresh facts, accounts/data, multi-step reasoning, or a server-only tool.
+${personaLine}You are JARVIS, deciding how to handle a $surface turn. Choose ONE "action":
+- "answer": you can handle this yourself (greetings, chit-chat, identity/"what model are you", quick facts you know, rephrase/summarize given text). ALWAYS write the full reply, in JARVIS's voice, in "answer".
+- "tool": the user clearly wants an action that maps to one tool below. Set "toolName" + "toolArgs", AND put a short spoken confirmation in JARVIS's voice in "answer" (e.g. "Opening Spotify for you, sir.").
+- "escalate": ONLY for things you genuinely cannot do — fresh/live facts, the user's accounts or private data, multi-step reasoning, or a server-only tool. Greetings and identity questions are NOT escalate.
 
-Policy: $tierPolicy
-When unsure, escalate. Set "confidence" 0..1 honestly; low confidence means escalate.
-Return ONLY the decision object: $_routingSchemaJson
+Default to "answer" for anything conversational. Policy: $tierPolicy
+Set "confidence" 0..1. Return ONLY the decision object: $_routingSchemaJson
 
 Available tools (name · description · execClass):
 ${req.toolCatalogJson}
