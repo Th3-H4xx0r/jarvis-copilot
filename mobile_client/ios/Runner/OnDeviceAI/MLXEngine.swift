@@ -1,331 +1,52 @@
 import Foundation
 
-#if canImport(MLXLLM)
-import MLXLLM
-import MLXLMCommon
-#endif
-
-#if canImport(Hub)
-import Hub
-#endif
-
-// MARK: - MLX-Swift engine
+// MARK: - MLX-Swift engine (temporarily disabled)
 //
-// Backs the `mlx` models — quantized HF repos (Qwen2.5-1.5B, Llama-3.2-1B …)
-// run on the Apple GPU via MLX-Swift. Weights are downloaded by
-// `ModelManager` and materialized into a `ModelContainer` on `load`.
+// `mlx-swift-lm` (main) underwent a breaking API rewrite: model loading is now
+// macro-based (`#huggingFaceLoadModelContainer` in the `MLXHuggingFace` module,
+// backed by `swift-huggingface`'s `HubClient`), and the old `Hub` module became
+// `HuggingFace`. Rather than chase that churning API blind, this engine is
+// stubbed to report "unavailable" so the build stays green and the Apple
+// Foundation Models path + routing + on-device STT + the model picker all work.
 //
-// The concrete path is gated on `#if canImport(MLXLLM)` so the file compiles
-// before the `mlx-swift` / `mlx-swift-examples` packages are added. Without
-// them the engine reports `mlx-not-built` and every method throws clearly.
+// To re-enable downloadable MLX models later:
+//   1. Add the `MLXHuggingFace` product to the Runner target.
+//   2. Restore `load` to use:
+//        try await huggingFaceLoadModelContainer(configuration:
+//            ModelConfiguration(id: modelId)) { progress in ... }   // import MLXHuggingFace
+//   3. Re-point `ModelManager` downloads at `HubClient` (HuggingFace module).
+//   4. Confirm `MLXLMCommon.generate(input:parameters:context:)` + the `.chunk`
+//      case still match (they may have shifted in the rewrite too).
+// The mlx-swift / mlx-swift-lm packages can stay added in the meantime.
 
 final class MLXEngine: OnDeviceEngine {
     let id = "mlx"
 
-    /// Repo id this engine is currently bound to (for diagnostics). Only
-    /// touched from `load`/`unload` on the plugin's serialized inference Task,
-    /// so it needs no extra locking beyond that.
-    private var loadedModelId: String?
-
-    /// Cooperative cancellation flag, flipped by `cancel()` and checked inside
-    /// the token loop. We deliberately avoid relying solely on Task
-    /// cancellation because the MLX generate loop is a tight synchronous-ish
-    /// callback.
-    ///
-    /// DATA-RACE GUARD: `cancel()` runs on the caller's (plugin) thread while
-    /// the loop reads this on MLX's executor inside `container.perform`. All
-    /// access goes through `cancelLock` so the read/write is well-defined.
-    private var _cancelled = false
-    private let cancelLock = NSLock()
-
-    private var cancelled: Bool {
-        get { cancelLock.lock(); defer { cancelLock.unlock() }; return _cancelled }
-        set { cancelLock.lock(); defer { cancelLock.unlock() }; _cancelled = newValue }
-    }
-
-    #if canImport(MLXLLM)
-
-    /// The loaded model + tokenizer. `ModelContainer` serializes access to the
-    /// underlying MLX state, so all inference runs through `perform`.
-    private var container: ModelContainer?
-
-    // MARK: Availability
-
     func availability() -> EngineAvailability {
-        // The package is built in; availability then hinges only on a model
-        // being loaded, which the plugin enforces by calling `load` first.
-        return .available
+        .unavailable("mlx-engine-disabled")
     }
 
-    // MARK: Load
-
-    func load(modelId: String) async throws {
-        cancelled = false
-        // Point MLX's hub at the SAME download base `ModelManager` writes to,
-        // so previously downloaded weights resolve locally (Hub layout:
-        // <downloadBase>/models/<org>/<repo>/…) instead of MLX falling back to
-        // its own default cache and re-downloading. `ModelManager.hubDownloadBase`
-        // is the single source of truth for that base directory.
-        let config = ModelConfiguration(id: modelId)
-
-        #if canImport(Hub)
-        let hub = HubApi(downloadBase: ModelManager.hubDownloadBase)
-        // NOTE TO VERIFY AT LINK TIME: current mlx-swift-examples
-        // `LLMModelFactory.loadContainer` exposes a `hub:` parameter, e.g.
-        //   loadContainer(hub:configuration:progressHandler:)
-        // If your pinned version names it differently (older revisions used a
-        // standalone `loadModelContainer(hub:configuration:)` free function, or
-        // omitted the param), adjust this single call accordingly — everything
-        // downstream just needs the SAME `downloadBase` ModelManager used.
-        let container = try await LLMModelFactory.shared.loadContainer(
-            hub: hub,
-            configuration: config
-        ) { _ in
-            // Progress here is the *load* progress; download progress is
-            // reported separately by ModelManager. We ignore it.
-        }
-        #else
-        // No Hub package: fall back to the factory's default cache. (Downloads
-        // are stubbed in this config anyway.)
-        let container = try await LLMModelFactory.shared.loadContainer(
-            configuration: config
-        ) { _ in }
-        #endif
-
-        self.container = container
-        self.loadedModelId = modelId
-    }
-
-    // MARK: Generate (streaming)
+    func load(modelId: String) async throws { throw Self.disabled() }
 
     func generate(_ req: GenRequest, onToken: @escaping (String) -> Void) async throws -> String {
-        guard let container = container else {
-            throw Self.notLoaded()
-        }
-        cancelled = false
-
-        let prompt = Self.composePrompt(system: req.system, user: req.prompt)
-
-        // MLXLMCommon yields cumulative `Generation` chunks; we diff to deltas
-        // to satisfy the plugin's token-by-token EventChannel contract.
-        let full: String = try await container.perform { context in
-            let input = try await context.processor.prepare(
-                input: .init(prompt: prompt))
-
-            var emitted = ""
-            let stream = try MLXLMCommon.generate(
-                input: input,
-                parameters: GenerateParameters(temperature: 0.6),
-                context: context
-            )
-            for await item in stream {
-                if self.cancelled { break }
-                if case .chunk(let text) = item {
-                    // `.chunk` is already an incremental piece in current
-                    // MLXLMCommon, but guard against cumulative just in case.
-                    if text.hasPrefix(emitted), text.count > emitted.count {
-                        let delta = String(text.dropFirst(emitted.count))
-                        onToken(delta)
-                        emitted = text
-                    } else {
-                        onToken(text)
-                        emitted += text
-                    }
-                }
-            }
-            return emitted
-        }
-
-        if cancelled {
-            throw CancellationError()
-        }
-        return full
-    }
-
-    // MARK: Route (strict-JSON prompt + one retry)
-
-    func route(system: String, prompt: String, schemaJSON: String) async throws -> [String: Any] {
-        // First attempt: JSON-only instruction.
-        let firstPrompt = Self.routePrompt(system: system, user: prompt, schemaJSON: schemaJSON, retry: false)
-        if let dict = try await runJSON(firstPrompt) {
-            return dict
-        }
-        // Retry once with a firmer reminder.
-        let retryPrompt = Self.routePrompt(system: system, user: prompt, schemaJSON: schemaJSON, retry: true)
-        if let dict = try await runJSON(retryPrompt) {
-            return dict
-        }
-        // Give up → escalate to the cloud model.
-        return ["action": "escalate", "confidence": 0.0, "toolArgs": [:], "reason": "parse"]
-    }
-
-    /// Run a non-streaming completion and parse the first JSON object out of it.
-    private func runJSON(_ prompt: String) async throws -> [String: Any]? {
-        guard let container = container else { throw Self.notLoaded() }
-        cancelled = false
-
-        let text: String = try await container.perform { context in
-            let input = try await context.processor.prepare(input: .init(prompt: prompt))
-            var out = ""
-            let stream = try MLXLMCommon.generate(
-                input: input,
-                parameters: GenerateParameters(temperature: 0.0),
-                context: context
-            )
-            for await item in stream {
-                if self.cancelled { break }
-                if case .chunk(let t) = item { out += t }
-            }
-            return out
-        }
-        return Self.normalizeRouting(Self.extractJSONObject(from: text))
-    }
-
-    // MARK: Unload (real memory release)
-
-    /// Release the resident `ModelContainer` so its weights can be reclaimed.
-    /// Distinct from `cancel()` (which only stops in-flight generation): this
-    /// is what the plugin's model-switch path and the ModelManager eviction
-    /// hook call to actually free RAM. Idempotent.
-    func unload() {
-        cancelled = true
-        container = nil
-        loadedModelId = nil
-    }
-
-    #else
-
-    // MARK: - Fallback (MLXLLM not built)
-
-    func availability() -> EngineAvailability {
-        .unavailable("mlx-not-built")
-    }
-
-    func load(modelId: String) async throws { throw Self.notBuilt() }
-
-    func generate(_ req: GenRequest, onToken: @escaping (String) -> Void) async throws -> String {
-        throw Self.notBuilt()
+        throw Self.disabled()
     }
 
     func route(system: String, prompt: String, schemaJSON: String) async throws -> [String: Any] {
-        throw Self.notBuilt()
+        throw Self.disabled()
     }
 
-    /// No container to release when MLX isn't built; keep the shape so the
-    /// plugin can call it unconditionally.
-    func unload() {
-        cancelled = true
-        loadedModelId = nil
-    }
+    /// Release any loaded model. No-op while disabled.
+    func unload() {}
 
-    private static func notBuilt() -> NSError {
-        NSError(domain: "MLXEngine", code: -2,
-                userInfo: [NSLocalizedDescriptionKey: "MLX is not built into this app"])
-    }
+    func cancel() {}
 
-    #endif
-
-    // MARK: Cancel
-
-    /// Stop the in-flight `generate`/`route` ASAP. Does NOT release the model
-    /// (see `unload()` for that). Idempotent.
-    func cancel() {
-        cancelled = true
-    }
-
-    // MARK: - Shared helpers (available in both build configs)
-
-    private static func notLoaded() -> NSError {
-        NSError(domain: "MLXEngine", code: -3,
-                userInfo: [NSLocalizedDescriptionKey: "No MLX model loaded"])
-    }
-
-    /// Minimal chat framing. The model containers ship their own chat template
-    /// via the tokenizer, but a plain system/user concatenation is a safe
-    /// fallback that all instruct models understand.
-    private static func composePrompt(system: String, user: String) -> String {
-        if system.isEmpty { return user }
-        return "\(system)\n\n\(user)"
-    }
-
-    /// Build the strict-JSON routing prompt. On retry we prepend a blunt
-    /// "valid JSON only" reminder.
-    private static func routePrompt(system: String, user: String, schemaJSON: String, retry: Bool) -> String {
-        var lines: [String] = []
-        if !system.isEmpty { lines.append(system) }
-        lines.append("""
-        You are a routing classifier. Decide whether to answer directly, call a tool, or escalate.
-        Respond with ONLY a single JSON object and nothing else — no prose, no markdown fences.
-        The JSON MUST match this shape:
-        {
-          "action": "answer" | "tool" | "escalate",
-          "answer": string | null,
-          "toolName": string | null,
-          "toolArgs": object,
-          "confidence": number between 0 and 1,
-          "reason": string | null
-        }
-        Schema: \(schemaJSON)
-        """)
-        if retry {
-            lines.append("Your previous reply was not valid JSON. Output VALID JSON ONLY this time. Start your reply with '{'.")
-        }
-        lines.append("User request:\n\(user)")
-        lines.append("JSON:")
-        return lines.joined(separator: "\n\n")
-    }
-
-    /// Pull the first balanced `{...}` object out of free-form model text
-    /// (handles leading prose or ```json fences) and parse it.
-    static func extractJSONObject(from text: String) -> [String: Any]? {
-        let chars = Array(text)
-        guard let start = chars.firstIndex(of: "{") else { return nil }
-        var depth = 0
-        var inString = false
-        var escaped = false
-        var end: Int? = nil
-        var i = start
-        while i < chars.count {
-            let c = chars[i]
-            if inString {
-                if escaped { escaped = false }
-                else if c == "\\" { escaped = true }
-                else if c == "\"" { inString = false }
-            } else {
-                if c == "\"" { inString = true }
-                else if c == "{" { depth += 1 }
-                else if c == "}" {
-                    depth -= 1
-                    if depth == 0 { end = i; break }
-                }
-            }
-            i += 1
-        }
-        guard let end = end else { return nil }
-        let jsonSlice = String(chars[start...end])
-        guard let data = jsonSlice.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-        return obj
-    }
-
-    /// Validate/normalize a parsed routing dict so the Dart side always gets a
-    /// well-formed RoutingDecision. Returns nil if `action` is missing/invalid
-    /// so callers can trigger the retry path.
-    static func normalizeRouting(_ dict: [String: Any]?) -> [String: Any]? {
-        guard let dict = dict,
-              let action = dict["action"] as? String,
-              ["answer", "tool", "escalate"].contains(action)
-        else { return nil }
-
-        var out: [String: Any] = ["action": action]
-        out["confidence"] = (dict["confidence"] as? Double)
-            ?? (dict["confidence"] as? NSNumber)?.doubleValue
-            ?? 0.5
-        if let answer = dict["answer"] as? String { out["answer"] = answer }
-        if let toolName = dict["toolName"] as? String { out["toolName"] = toolName }
-        if let reason = dict["reason"] as? String { out["reason"] = reason }
-        out["toolArgs"] = (dict["toolArgs"] as? [String: Any]) ?? [:]
-        return out
+    private static func disabled() -> NSError {
+        NSError(
+            domain: "OnDeviceAI",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey:
+                "MLX engine is temporarily disabled (mlx-swift-lm API migration pending). Use Apple Foundation Models."]
+        )
     }
 }
