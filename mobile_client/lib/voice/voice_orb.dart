@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../main.dart' as app;
+import 'orb_ticker_policy.dart';
 import 'voice_state.dart';
 
 /// Voice orb — a glassy globe with flowing translucent light *ribbons* sweeping
@@ -34,11 +36,17 @@ class VoiceOrb extends StatefulWidget {
     required this.state,
     required this.amplitude,
     this.size = 248,
+    this.ownerTabIndex,
   });
 
   final VoiceState state;
   final ValueListenable<double> amplitude;
   final double size;
+
+  /// The nav tab this orb lives on. The 60fps painter only animates while this
+  /// tab is active (every page lives forever in the IndexedStack, so an
+  /// ungated orb would repaint on every tab). Null = always animate.
+  final int? ownerTabIndex;
 
   @override
   State<VoiceOrb> createState() => _VoiceOrbState();
@@ -49,14 +57,39 @@ class _VoiceOrbState extends State<VoiceOrb>
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 1),
-  )..repeat();
-  final Stopwatch _clock = Stopwatch()..start();
+  );
+  final Stopwatch _clock = Stopwatch();
 
   double _amp = 0.0; // smoothed amplitude envelope (0..1)
   double _lastT = 0.0;
 
   @override
+  void initState() {
+    super.initState();
+    app.activeTabIndex.addListener(_applyTicker);
+    _applyTicker(); // start animating only if the Voice tab is already active
+  }
+
+  /// Run the ticker + wall-clock only while the Voice tab is visible. Stopping
+  /// the Stopwatch (not just the controller) freezes `elapsedMicroseconds` so
+  /// there's no animation phase "pop" when the user returns to the tab.
+  void _applyTicker() {
+    final on = orbTickerEnabled(
+      activeTab: app.activeTabIndex.value,
+      ownerTab: widget.ownerTabIndex,
+    );
+    if (on && !_ctrl.isAnimating) {
+      _clock.start();
+      _ctrl.repeat();
+    } else if (!on && _ctrl.isAnimating) {
+      _ctrl.stop();
+      _clock.stop();
+    }
+  }
+
+  @override
   void dispose() {
+    app.activeTabIndex.removeListener(_applyTicker);
     _ctrl.dispose();
     super.dispose();
   }

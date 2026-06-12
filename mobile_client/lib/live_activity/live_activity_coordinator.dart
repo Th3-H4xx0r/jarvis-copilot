@@ -8,6 +8,7 @@ import '../api/coding_sessions.dart';
 import '../coding/coding_models.dart';
 import '../services/app_lifecycle.dart';
 import '../services/credentials.dart';
+import 'la_poll_policy.dart';
 
 /// Thin channel wrapper to the native `LiveActivityManager` (AppDelegate).
 /// `update` takes the full merged arg map the coordinator builds; `end` tears
@@ -138,12 +139,30 @@ class LiveActivityCoordinator {
   DateTime _lastBgPoll = DateTime.fromMillisecondsSinceEpoch(0);
   static const Duration _bgPollInterval = Duration(seconds: 30);
 
+  /// Set by the Coding page's tab-visibility hook. When the user is looking at
+  /// the Coding tab we keep the fast cadence even if no session is live yet.
+  bool codingVisible = false;
+  void setCodingVisible(bool v) => codingVisible = v;
+
+  DateTime _lastFetch = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastUsageFetch = DateTime.fromMillisecondsSinceEpoch(0);
+
   void _startPoll() {
     _stopPoll();
     _poll = Timer.periodic(_pollInterval, (_) {
       if (!_enabled) return;
       if (AppLifecycle.isForeground) {
-        unawaited(_refreshCoding());
+        final now = DateTime.now();
+        final want = laPollInterval(
+          voiceActive: _voiceState != 'idle',
+          codingVisible: codingVisible,
+          sessionTotal: _sessionTotal,
+        );
+        if (now.difference(_lastFetch) >= want) {
+          // _refreshCoding() advances _lastFetch itself (synchronously, before
+          // its first await), so the next tick sees the updated time.
+          unawaited(_refreshCoding());
+        }
         return;
       }
       // Backgrounded: this only fires while the app is still ALIVE in the
@@ -167,10 +186,18 @@ class LiveActivityCoordinator {
 
   Future<void> _refreshCoding() async {
     if (!Credentials.instance.isPaired) return; // nothing to fetch yet
+    // Mark the fetch time here so the manual refreshes in start()/onResume()/
+    // setEnabled() also advance the cadence gate — otherwise the next periodic
+    // tick would immediately double-fetch ~5s after a manual refresh.
+    _lastFetch = DateTime.now();
     try {
       final view = await _api.listProjectsExpanded();
-      final usage = await _api.getUsage();
-      _applyFleet(view, usage);
+      Map<String, dynamic>? usage;
+      if (shouldFetchUsage(now: DateTime.now(), lastUsageFetch: _lastUsageFetch)) {
+        usage = await _api.getUsage();
+        _lastUsageFetch = DateTime.now();
+      }
+      _applyFleet(view, usage); // usage==null → _applyFleet keeps the last snapshot
       _push();
     } catch (_) {
       // transient — keep the last snapshot, retry next tick

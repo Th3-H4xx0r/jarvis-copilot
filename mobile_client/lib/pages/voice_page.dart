@@ -226,7 +226,12 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
                   ),
                 ),
                 const SizedBox(height: 30),
-                VoiceOrb(state: _c.state, amplitude: _c.amplitude, size: 248),
+                VoiceOrb(
+                  state: _c.state,
+                  amplitude: _c.amplitude,
+                  size: 248,
+                  ownerTabIndex: app.kVoiceTabIndex,
+                ),
                 const SizedBox(height: 30),
                 // AI response — centred, unboxed, SCROLLABLE (long replies
                 // aren't truncated) with word-by-word karaoke highlighting and

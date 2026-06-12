@@ -255,6 +255,7 @@ class _EmptyState extends StatelessWidget {
               state: VoiceState.idle,
               amplitude: AlwaysStoppedAnimation(0.0),
               size: 156,
+              ownerTabIndex: app.kChatTabIndex,
             ),
             const SizedBox(height: 24),
             const GradientText(

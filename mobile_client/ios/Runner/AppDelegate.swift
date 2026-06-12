@@ -104,6 +104,10 @@ import AppIntents
         // need the Flutter engine.
         startSlcIfEnabled()
 
+        // Subscribe to on-device energy/CPU/background-time metrics (delivered
+        // ~once/24h) so battery fixes are verifiable in the field. Zero runtime cost.
+        MetricKitReporter.shared.register()
+
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 

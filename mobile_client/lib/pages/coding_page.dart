@@ -63,12 +63,15 @@ class _CodingPageState extends State<CodingPage> {
   }
 
   void _onTabVisibility() {
-    _c.setListPolling(app.activeTabIndex.value == app.kCodingTabIndex);
+    final visible = app.activeTabIndex.value == app.kCodingTabIndex;
+    _c.setListPolling(visible);
+    app.liveActivityCoordinator.setCodingVisible(visible);
   }
 
   @override
   void dispose() {
     app.activeTabIndex.removeListener(_onTabVisibility);
+    app.liveActivityCoordinator.setCodingVisible(false);
     _c.removeListener(_onControllerChanged);
     _termSub?.cancel();
     _c.dispose();

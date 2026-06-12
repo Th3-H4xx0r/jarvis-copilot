@@ -263,6 +263,11 @@ class CodingSessionsController extends ChangeNotifier {
     // Kick both polls immediately so the Sync card appears without a 4s wait.
     _refreshSync();
     _poll = Timer.periodic(_refreshInterval, (_) {
+      // Only do network work in the foreground — the sibling list poll
+      // (setListPolling) already gates on this; the detail poll previously did
+      // not, so it kept hitting the network every 4s while backgrounded if the
+      // process stayed alive.
+      if (!AppLifecycle.isForeground) return;
       _refreshDetail();
       _refreshSync();
     });

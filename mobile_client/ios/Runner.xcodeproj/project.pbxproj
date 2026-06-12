@@ -34,6 +34,7 @@
 		AABB000400000000DEAD0002 /* AppOpenBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000400000000DEAD0001 /* AppOpenBridge.swift */; };
 		AABB000500000000DEAD0002 /* SmsComposeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000500000000DEAD0001 /* SmsComposeBridge.swift */; };
 		AABB000600000000DEAD0002 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000600000000DEAD0001 /* WatchBridge.swift */; };
+		AABB000700000000DEAD0002 /* MetricKitReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000700000000DEAD0001 /* MetricKitReporter.swift */; };
 		AABB001000000000DEAD0002 /* VoiceLaunchIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB001000000000DEAD0001 /* VoiceLaunchIntent.swift */; };
 		AABB001100000000DEAD0002 /* VoiceLaunchIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB001000000000DEAD0001 /* VoiceLaunchIntent.swift */; };
 		AABB001300000000DEAD0002 /* JarvisActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB001300000000DEAD0001 /* JarvisActivityAttributes.swift */; };
@@ -156,6 +157,7 @@
 		AABB000400000000DEAD0001 /* AppOpenBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOpenBridge.swift; sourceTree = "<group>"; };
 		AABB000500000000DEAD0001 /* SmsComposeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmsComposeBridge.swift; sourceTree = "<group>"; };
 		AABB000600000000DEAD0001 /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
+		AABB000700000000DEAD0001 /* MetricKitReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricKitReporter.swift; sourceTree = "<group>"; };
 		AABB001000000000DEAD0001 /* VoiceLaunchIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLaunchIntent.swift; sourceTree = "<group>"; };
 		AABB001300000000DEAD0001 /* JarvisActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisActivityAttributes.swift; sourceTree = "<group>"; };
 		B023BD16D7B98D0C9DAAB0FA /* JarvisComplication.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JarvisComplication.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -320,6 +322,7 @@
 				AABB000400000000DEAD0001 /* AppOpenBridge.swift */,
 				AABB000500000000DEAD0001 /* SmsComposeBridge.swift */,
 				AABB000600000000DEAD0001 /* WatchBridge.swift */,
+				AABB000700000000DEAD0001 /* MetricKitReporter.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 				E97AF2539AF8D1257BC59EBD /* OnDeviceAI */,
 			);
@@ -745,6 +748,7 @@
 				AABB000400000000DEAD0002 /* AppOpenBridge.swift in Sources */,
 				AABB000500000000DEAD0002 /* SmsComposeBridge.swift in Sources */,
 				AABB000600000000DEAD0002 /* WatchBridge.swift in Sources */,
+				AABB000700000000DEAD0002 /* MetricKitReporter.swift in Sources */,
 				12EDBBDA433D748C8F6C54CA /* OnDeviceEngine.swift in Sources */,
 				B8B63957D28DCB3686E6DA18 /* AppleFMEngine.swift in Sources */,
 				20C18BFD47A3C10617091E71 /* MLXEngine.swift in Sources */,

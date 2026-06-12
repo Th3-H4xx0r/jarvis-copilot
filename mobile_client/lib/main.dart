@@ -68,6 +68,7 @@ final ValueNotifier<bool> voiceLaunchRequested = ValueNotifier<bool>(false);
 /// the Coding tab's slot in NavShell._pages.
 final ValueNotifier<int> activeTabIndex = ValueNotifier<int>(0);
 const int kChatTabIndex = 0;
+const int kVoiceTabIndex = 1;
 const int kCodingTabIndex = 4;
 
 void requestVoiceLaunch() {
