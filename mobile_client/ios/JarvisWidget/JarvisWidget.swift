@@ -471,6 +471,41 @@ struct JarvisCodingBody: View {
     }
 }
 
+/// Indeterminate circular spinner for the collapsed Dynamic Island's leading
+/// slot — a `ProgressView`, which (unlike SF-Symbol effects) actually animates
+/// inside a Live Activity. Tinted to the spotlight session's state color.
+@available(iOS 16.2, *)
+struct JCCompactSpinner: View {
+    let color: Color
+    var body: some View {
+        ProgressView()
+            .progressViewStyle(.circular)
+            .controlSize(.mini)
+            .tint(color)
+    }
+}
+
+/// Compact fleet bar for the collapsed island's trailing slot — one small
+/// segment per spotlight session, colored by its state (green working / purple
+/// waiting / grey idle). The whole fleet at a glance.
+@available(iOS 16.2, *)
+struct JCCompactFleetBar: View {
+    let sessions: [JCSession]
+    var body: some View {
+        HStack(spacing: 2) {
+            if sessions.isEmpty {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.white.opacity(0.15)).frame(width: 40, height: 7)
+            } else {
+                ForEach(Array(sessions.enumerated()), id: \.offset) { _, s in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(jcCodingColor(s.state)).frame(width: 13, height: 7)
+                }
+            }
+        }
+    }
+}
+
 @available(iOS 16.2, *)
 struct JarvisLiveActivity: Widget {
     var body: some WidgetConfiguration {
@@ -543,17 +578,13 @@ struct JarvisLiveActivity: Widget {
                 }
             } compactLeading: {
                 if st.mode == "coding" {
-                    Circle().fill(jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
-                        .frame(width: 18, height: 18)
+                    JCCompactSpinner(color: jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
                 } else {
                     JarvisOrb(state: st.state, size: 24)
                 }
             } compactTrailing: {
                 if st.mode == "coding" {
-                    let sp = jcSpotlight(st.sessions)
-                    Text(sp.map { jcCodingStateLabel($0.state) } ?? "idle")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(jcCodingColor(sp?.state ?? "idle"))
+                    JCCompactFleetBar(sessions: jcDecodeSessions(st.sessions))
                 } else {
                     Text(jcStateLabel(st.state))
                         .font(.system(size: 13, weight: .semibold))
@@ -561,8 +592,7 @@ struct JarvisLiveActivity: Widget {
                 }
             } minimal: {
                 if st.mode == "coding" {
-                    Circle().fill(jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
-                        .frame(width: 18, height: 18)
+                    JCCompactSpinner(color: jcCodingColor(jcSpotlight(st.sessions)?.state ?? "idle"))
                 } else {
                     JarvisOrb(state: st.state, size: 22)
                 }

@@ -114,6 +114,9 @@ import AppIntents
     // can no longer look up the controller here. SceneDelegate hands
     // it to us once super.scene(willConnectTo:) has built the engine.
     func attachFlutterController(_ controller: FlutterViewController) {
+        // On-device AI engines (Apple Foundation Models + MLX) + on-device STT.
+        OnDeviceAIPlugin.register(messenger: controller.binaryMessenger)
+
         let ch = FlutterMethodChannel(
             name: "jarviscopilot/pair",
             binaryMessenger: controller.binaryMessenger
