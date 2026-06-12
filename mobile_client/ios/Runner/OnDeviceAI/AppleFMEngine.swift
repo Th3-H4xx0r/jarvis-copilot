@@ -32,6 +32,14 @@ final class AppleFMEngine: OnDeviceEngine {
     /// `@available(iOS 26.0, *)` code (`FMSession`), which we down-cast to.
     private var sessionBox: AnyObject?
 
+    // Cache availability()+prewarm so the router's per-turn check doesn't re-run
+    // FMSession.availability() and prewarm() on every call (wasted ANE/CPU when
+    // turns are back-to-back). Short TTL so a real availability change is still
+    // picked up within a few seconds.
+    private var cachedAvail: EngineAvailability?
+    private var lastAvailCheck = Date.distantPast
+    private static let availCacheTTL: TimeInterval = 5.0
+
     // Cancellation note: `generate`/`route` are `async` and awaited by the
     // plugin's single `inferenceTask`. When the plugin cancels that task (or
     // calls `cancel()`), cancellation propagates cooperatively into the
@@ -46,6 +54,10 @@ final class AppleFMEngine: OnDeviceEngine {
         guard #available(iOS 26.0, *) else {
             return .unavailable("ios-below-26")
         }
+        if let cached = cachedAvail,
+           Date().timeIntervalSince(lastAvailCheck) < Self.availCacheTTL {
+            return cached
+        }
         let avail = FMSession.availability()
         // The router checks availability before every local turn — use that to
         // keep a warm, prewarmed session so the first token isn't cold.
@@ -54,6 +66,8 @@ final class AppleFMEngine: OnDeviceEngine {
             sessionBox = box
             box.prewarm()
         }
+        lastAvailCheck = Date()
+        cachedAvail = avail
         return avail
     }
 
@@ -69,6 +83,7 @@ final class AppleFMEngine: OnDeviceEngine {
         let box = FMSession()
         box.reset()
         sessionBox = box
+        cachedAvail = nil // a fresh box replaced the old one — re-check next time
     }
 
     // MARK: Generate (streaming)
@@ -104,6 +119,7 @@ final class AppleFMEngine: OnDeviceEngine {
         if #available(iOS 26.0, *) {
             (sessionBox as? FMSession)?.invalidate()
         }
+        cachedAvail = nil // force the next availability() to re-prewarm
     }
 
     private static func unavailableError(_ reason: String) -> NSError {

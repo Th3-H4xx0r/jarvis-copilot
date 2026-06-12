@@ -303,6 +303,12 @@ def _coding_alert_text(store, row, event) -> tuple[str, str]:
     return ("🔔 Claude needs you", label)
 
 
+# Per-(session,event) debounce for the mobile banner — a flapping edge must not
+# wake every phone with a banner every few seconds.
+_last_alert: dict = {}
+_ALERT_DEBOUNCE = 5.0  # seconds — catches few-second flapping, lets distinct prompts through
+
+
 def _push_device_alert(title: str, body: str) -> int:
     """Send a VISIBLE banner to every registered mobile device, so a coding
     event reaches the phone even when the app is force-quit (unlike the silent
@@ -515,10 +521,27 @@ def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> 
     # WebUI toast (the channels notify.sh can't reach). The telegram channel in the
     # Code Master matrix still governs notify.sh's behavior client-side.
     if chans.get("mobile"):
-        try:
-            sent["mobile"] = _push_device_alert(title, label) > 0
-        except Exception:
+        # Debounce per (session, event): a session that rapidly re-asserts the
+        # same edge must not wake every phone with a banner every few seconds.
+        import time as _t
+        sid = (row or {}).get("id") or cwd
+        now = _t.monotonic()
+        # Bound the map on a long-running server (one entry per session×event).
+        if len(_last_alert) > 256:
+            cutoff = now - 10 * _ALERT_DEBOUNCE
+            for k in [k for k, ts in _last_alert.items() if ts < cutoff]:
+                _last_alert.pop(k, None)
+        key = f"{sid}\x1f{event}"
+        # No session identity → can't safely debounce (would collide unrelated
+        # sessions); always send.
+        if sid and now - _last_alert.get(key, 0.0) < _ALERT_DEBOUNCE:
             sent["mobile"] = False
+        else:
+            _last_alert[key] = now
+            try:
+                sent["mobile"] = _push_device_alert(title, label) > 0
+            except Exception:
+                sent["mobile"] = False
     if chans.get("toast"):
         try:
             _notify_webui_event(event=event, label=label, title=title)

@@ -179,7 +179,9 @@ struct JarvisOrb: View {
             .font(.system(size: size))
             .foregroundStyle(c.opacity(0.6))
             .blur(radius: size * 0.16)
-        if #available(iOS 17.0, *) {
+        // Only animate the halo while something is happening — a continuously
+        // pulsing widget surface draws power the entire time the activity shows.
+        if #available(iOS 17.0, *), state != "idle" {
             g.symbolEffect(.pulse, options: .repeating)
         } else {
             g

@@ -41,9 +41,10 @@ class CodingChatView extends StatefulWidget {
   State<CodingChatView> createState() => _CodingChatViewState();
 }
 
-class _CodingChatViewState extends State<CodingChatView> {
+class _CodingChatViewState extends State<CodingChatView>
+    with WidgetsBindingObserver {
   // Adaptive poll: snappy while a turn is live, relaxed when idle.
-  static const Duration _pollActive = Duration(milliseconds: 1200);
+  static const Duration _pollActive = Duration(milliseconds: 2500);
   static const Duration _pollIdle = Duration(seconds: 4);
   int _fetchTick = 0; // every Nth incremental poll does a full reconcile
 
@@ -119,6 +120,7 @@ class _CodingChatViewState extends State<CodingChatView> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scroll.addListener(_onScroll);
     // The terminal IS the input channel — make sure the server-side PTY is
     // attached (idempotent; the page keeps it alive across mode toggles).
@@ -139,12 +141,28 @@ class _CodingChatViewState extends State<CodingChatView> {
     _poll?.cancel();
     _poll = Timer(_pollIntervalFor(), () async {
       if (AppLifecycle.isForeground) await _fetch();
-      if (mounted) _scheduleNextPoll();
+      // Stop the loop when backgrounded (no more empty 1-2s wakeups); the
+      // lifecycle observer re-arms it on resume.
+      if (mounted && AppLifecycle.isForeground) _scheduleNextPoll();
     });
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s == AppLifecycleState.paused) {
+      _poll?.cancel();
+    } else if (s == AppLifecycleState.resumed && mounted) {
+      _fetch(); // catch up immediately
+      // This re-arm MUST stay unconditional (not gated on isForeground or the
+      // fetch result) — it's the only path that revives the loop after a
+      // background-during-await stopped it. Gating it risks a stuck poll.
+      _scheduleNextPoll();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
