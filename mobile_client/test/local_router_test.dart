@@ -44,14 +44,12 @@ LocalAiSettings _settings({
   LocalAiTier tier = LocalAiTier.routerCommands,
   bool chat = true,
   bool voice = true,
-  int deadlineMs = 700,
   double conf = 0.55,
 }) {
   return LocalAiSettings()
     ..tier = tier
     ..chatEnabled = chat
     ..voiceEnabled = voice
-    ..deadlineMs = deadlineMs
     ..confidenceFloor = conf;
 }
 
@@ -206,18 +204,19 @@ void main() {
   });
 
   group('LocalRouter resilience', () {
-    test('route timeout → Escalate', () async {
+    test('hang-guard escalates only a wedged inference (not a normal slow one)', () async {
       final r = LocalRouter(
         ai: _FakeAi(
           decision: RoutingDecision(action: 'answer', answer: 'slow', confidence: 1),
           routeDelay: const Duration(milliseconds: 200),
         ),
         catalog: _FakeCatalog(const {}),
-        settings: _settings(deadlineMs: 30),
+        settings: _settings(),
+        hangGuardMs: 30, // tiny guard for the test; production is generous
       );
       final res = await r.handle('hello', VoiceSurface.chat);
       expect(res, isA<Escalate>());
-      expect((res as Escalate).reason, 'timeout');
+      expect((res as Escalate).reason, 'hang-guard');
     });
 
     test('route throwing → Escalate', () async {

@@ -33,6 +33,13 @@ class OnDeviceAi implements OnDeviceAiClient {
   Stream<Map<String, dynamic>>? _stream;
   int _seq = 0;
 
+  /// The server's active JARVIS personality/system prompt, so on-device replies
+  /// speak in the same voice as the server. Populated at startup (and on
+  /// refresh) from GET /api/personality/active. Empty = no persona configured.
+  String persona = '';
+
+  void setPersona(String p) => persona = p.trim();
+
   Stream<Map<String, dynamic>> get _eventStream {
     return _stream ??= _events
         .receiveBroadcastStream()
@@ -63,7 +70,7 @@ class OnDeviceAi implements OnDeviceAiClient {
   Future<RoutingDecision> route(LocalRequest req) async {
     try {
       final res = await _method.invokeMethod('route', {
-        'system': _buildSystemPrompt(req),
+        'system': _buildRoutingPrompt(req),
         'prompt': req.userText,
         'schema': _routingSchemaJson,
         'requestId': _nextRequestId(),
@@ -113,7 +120,7 @@ class OnDeviceAi implements OnDeviceAiClient {
     });
 
     _method.invokeMethod('generate', {
-      'system': _buildSystemPrompt(req),
+      'system': _buildAssistantPrompt(),
       'prompt': req.userText,
       'requestId': requestId,
     }).catchError((e) {
@@ -229,7 +236,20 @@ class OnDeviceAi implements OnDeviceAiClient {
       '{"action":"answer|tool|escalate","answer":"string?","toolName":"string?",'
       '"toolArgs":{},"confidence":0.0,"reason":"string?"}';
 
-  String _buildSystemPrompt(LocalRequest req) {
+  /// Plain assistant prompt for free-form generation (the debug Test box and
+  /// full-local-first streamed answers). Leads with the server persona so the
+  /// on-device reply sounds like the same JARVIS. NOT the router prompt — that
+  /// one tells the model to emit a decision object.
+  String _buildAssistantPrompt() {
+    const base =
+        'Answer the user directly and briefly in plain text. Do not output '
+        'JSON, tool calls, or meta-commentary — just the reply.';
+    return persona.isEmpty
+        ? 'You are JARVIS, a concise and helpful on-device assistant. $base'
+        : '$persona\n\n$base';
+  }
+
+  String _buildRoutingPrompt(LocalRequest req) {
     final tierPolicy = switch (req.tier) {
       LocalAiTier.fullLocalFirst =>
         'You may fully answer the user and may call tools (device-local AND '
@@ -242,9 +262,10 @@ class OnDeviceAi implements OnDeviceAiClient {
       LocalAiTier.off => 'Escalate everything.',
     };
     final surface = req.surface == VoiceSurface.voice ? 'voice' : 'chat';
+    final personaLine = persona.isEmpty ? '' : '$persona\n\n';
     return '''
-You are JARVIS's fast on-device router on the $surface surface. Decide ONE of:
-- "answer": you can fully + correctly handle this yourself right now. Put a short reply in "answer".
+${personaLine}You are JARVIS's fast on-device router on the $surface surface. Decide ONE of:
+- "answer": you can fully + correctly handle this yourself right now. Put a short reply (in JARVIS's voice) in "answer".
 - "tool": the user clearly wants an action that maps to one tool below. Set "toolName" and "toolArgs".
 - "escalate": anything requiring fresh facts, accounts/data, multi-step reasoning, or a server-only tool.
 

@@ -239,20 +239,13 @@ class _OnDeviceAiSettingsPageState extends State<OnDeviceAiSettingsPage> {
 
   List<Widget> _advancedRows() {
     return [
-      ListTile(
-        title: const Text('Escalation deadline', style: TextStyle(color: JcTheme.text)),
-        subtitle: Text('${_s.deadlineMs} ms — local attempt is dropped past this',
-            style: const TextStyle(color: JcTheme.muted, fontSize: 12)),
-      ),
-      Slider(
-        value: _s.deadlineMs.toDouble().clamp(200, 2000),
-        min: 200,
-        max: 2000,
-        divisions: 18,
-        activeColor: JcTheme.cyan,
-        label: '${_s.deadlineMs} ms',
-        onChanged: (v) => setState(() => _s.deadlineMs = v.round()),
-        onChangeEnd: (_) => _save(),
+      const ListTile(
+        title: Text('The model decides escalation',
+            style: TextStyle(color: JcTheme.text)),
+        subtitle: Text(
+            'Each turn runs the on-device model to completion; it chooses to '
+            'answer, act, or hand off to the server. No time limit.',
+            style: TextStyle(color: JcTheme.muted, fontSize: 12)),
       ),
       _switchTile('Confirm outward/destructive actions', _s.confirmLocalActions, (v) {
         setState(() => _s.confirmLocalActions = v);
@@ -324,6 +317,46 @@ class _DebugGenerateState extends State<_DebugGenerate> {
     );
   }
 
+  /// Diagnostic: run the SAME routing decision chat/voice use, and show what the
+  /// model chose (answer/tool/escalate) + confidence + timing. Reveals exactly
+  /// why a turn does or doesn't stay on-device.
+  Future<void> _route() async {
+    final text = _ctrl.text.trim();
+    if (text.isEmpty || _running) return;
+    setState(() {
+      _out = '';
+      _running = true;
+    });
+    final sw = Stopwatch()..start();
+    try {
+      final req = LocalRequest(
+        userText: text,
+        surface: VoiceSurface.chat,
+        toolCatalogJson: '[]',
+        tier: LocalAiTier.fullLocalFirst,
+      );
+      final dec = await OnDeviceAi.instance.route(req);
+      sw.stop();
+      if (!mounted) return;
+      setState(() {
+        _out = 'route in ${sw.elapsedMilliseconds} ms\n'
+            'action: ${dec.action}\n'
+            'confidence: ${dec.confidence}\n'
+            'answer: ${dec.answer ?? "—"}\n'
+            'tool: ${dec.toolName ?? "—"}\n'
+            'reason: ${dec.reason ?? "—"}';
+        _running = false;
+      });
+    } catch (e) {
+      sw.stop();
+      if (!mounted) return;
+      setState(() {
+        _out = 'route failed in ${sw.elapsedMilliseconds} ms\n[error: $e]';
+        _running = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return GlassCard(
@@ -341,12 +374,20 @@ class _DebugGenerateState extends State<_DebugGenerate> {
             onSubmitted: (_) => _run(),
           ),
           const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: GlassButton(
-              label: _running ? 'Running…' : 'Generate',
-              onPressed: _running ? null : _run,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              GlassButton(
+                label: 'Route',
+                ghost: true,
+                onPressed: _running ? null : _route,
+              ),
+              const SizedBox(width: 8),
+              GlassButton(
+                label: _running ? 'Running…' : 'Generate',
+                onPressed: _running ? null : _run,
+              ),
+            ],
           ),
           if (_out.isNotEmpty) ...[
             const SizedBox(height: 12),

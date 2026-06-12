@@ -36,8 +36,11 @@ class LocalAiSettings {
   bool chatEnabled = false;
   bool voiceEnabled = false;
   String activeLocalModelId = 'apple-fm';
-  int deadlineMs = 700;
-  double confidenceFloor = 0.55;
+
+  /// Minimum self-reported confidence to accept a local decision. Default 0 —
+  /// the MODEL decides (via its `action`); confidence never forces escalation
+  /// unless the user raises this.
+  double confidenceFloor = 0.0;
 
   /// Confirm destructive/outward actions before running them locally.
   bool confirmLocalActions = true;
@@ -58,7 +61,6 @@ class LocalAiSettings {
   static const _kChat = 'lai_chat';
   static const _kVoice = 'lai_voice';
   static const _kModel = 'lai_model';
-  static const _kDeadline = 'lai_deadline';
   static const _kConf = 'lai_conf';
   static const _kConfirm = 'lai_confirm';
   static const _kShort = 'lai_short';
@@ -69,9 +71,8 @@ class LocalAiSettings {
     chatEnabled = (await _store.read(_kChat)) == '1';
     voiceEnabled = (await _store.read(_kVoice)) == '1';
     activeLocalModelId = (await _store.read(_kModel)) ?? 'apple-fm';
-    deadlineMs = int.tryParse(await _store.read(_kDeadline) ?? '') ?? 700;
     confidenceFloor =
-        double.tryParse(await _store.read(_kConf) ?? '') ?? 0.55;
+        double.tryParse(await _store.read(_kConf) ?? '') ?? 0.0;
     // Defaults true unless explicitly stored '0'.
     confirmLocalActions = (await _store.read(_kConfirm)) != '0';
     commandShortCircuit = (await _store.read(_kShort)) != '0';
@@ -83,7 +84,6 @@ class LocalAiSettings {
     await _store.write(_kChat, chatEnabled ? '1' : '0');
     await _store.write(_kVoice, voiceEnabled ? '1' : '0');
     await _store.write(_kModel, activeLocalModelId);
-    await _store.write(_kDeadline, '$deadlineMs');
     await _store.write(_kConf, '$confidenceFloor');
     await _store.write(_kConfirm, confirmLocalActions ? '1' : '0');
     await _store.write(_kShort, commandShortCircuit ? '1' : '0');

@@ -20,6 +20,7 @@ import 'services/local_ai_settings.dart';
 import 'services/local_router.dart';
 import 'services/local_tool_catalog.dart';
 import 'services/model_selection.dart';
+import 'services/on_device_ai.dart';
 import 'services/push_handler.dart';
 import 'services/watch_sync.dart';
 import 'services/ws_bridge.dart';
@@ -140,6 +141,8 @@ Future<void> main() async {
   // On-device router: device skills come from the SkillRegistry; the full
   // server tool list is fetched (and cached) from /api/tools/catalog.
   localRouter = LocalRouter(catalog: LocalToolCatalog(api: api));
+  // Pull the server's active JARVIS persona so on-device replies match voice.
+  unawaited(_loadOnDevicePersona());
 
   wake = WakeService(onWake: requestVoiceLaunch)..init();
   location = BackgroundLocation(api: api);
@@ -183,6 +186,19 @@ Future<void> main() async {
   unawaited(_pullPendingVoice(intentsChannel));
 
   runApp(const JarvisCopilotApp());
+}
+
+/// Fetch the server's active personality system prompt so on-device models
+/// speak in the same JARVIS voice. Best-effort; silent on failure.
+Future<void> _loadOnDevicePersona() async {
+  try {
+    final resp = await api.get('/api/personality/active');
+    final data = resp.data;
+    if (data is Map) {
+      final p = (data['prompt'] ?? '').toString();
+      if (p.isNotEmpty) OnDeviceAi.instance.setPersona(p);
+    }
+  } catch (_) {}
 }
 
 class JarvisCopilotApp extends StatefulWidget {

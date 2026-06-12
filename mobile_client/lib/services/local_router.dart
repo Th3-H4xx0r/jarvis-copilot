@@ -20,13 +20,20 @@ class LocalRouter {
     OnDeviceAiClient? ai,
     ToolCatalog? catalog,
     LocalAiSettings? settings,
+    int hangGuardMs = 45000,
   })  : _ai = ai ?? OnDeviceAi.instance,
         _catalog = catalog ?? LocalToolCatalog(),
-        _settings = settings ?? LocalAiSettings.instance;
+        _settings = settings ?? LocalAiSettings.instance,
+        _hangGuardMs = hangGuardMs;
 
   final OnDeviceAiClient _ai;
   final ToolCatalog _catalog;
   final LocalAiSettings _settings;
+
+  /// NOT an escalation deadline — only a generous hang-guard so a stuck
+  /// inference can't wedge the turn forever. The MODEL decides escalation
+  /// (its `action`); this is set high enough to never fire in normal use.
+  final int _hangGuardMs;
 
   Future<RouteResult> handle(String userText, VoiceSurface surface) async {
     final text = userText.trim();
@@ -38,13 +45,14 @@ class LocalRouter {
       return Escalate('${surface.name}-disabled');
     }
 
-    // Whole local attempt (availability + catalog + route) under ONE hard
-    // deadline so a slow probe/fetch never adds latency before escalation.
+    // The model decides whether to escalate (its `action`) — there is NO
+    // time-limit escalation. The timeout here is only a hang-guard against a
+    // wedged inference, generous enough to never fire in normal use.
     try {
       return await _attempt(text, surface)
-          .timeout(Duration(milliseconds: _settings.deadlineMs));
+          .timeout(Duration(milliseconds: _hangGuardMs));
     } on TimeoutException {
-      return const Escalate('timeout');
+      return const Escalate('hang-guard');
     } catch (e) {
       debugPrint('[router] route error: $e');
       return Escalate('error:$e');

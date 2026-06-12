@@ -23,7 +23,7 @@ void main() {
     expect(s.enabledForChat, isFalse);
     expect(s.enabledForVoice, isFalse);
     expect(s.activeLocalModelId, 'apple-fm');
-    expect(s.deadlineMs, 700);
+    expect(s.confidenceFloor, 0.0);
   });
 
   test('save then load round-trips every field', () async {
@@ -33,7 +33,6 @@ void main() {
       ..chatEnabled = true
       ..voiceEnabled = true
       ..activeLocalModelId = 'mlx-community/Qwen2.5-1.5B-Instruct-4bit'
-      ..deadlineMs = 900
       ..confidenceFloor = 0.7
       ..confirmLocalActions = false
       ..commandShortCircuit = false
@@ -46,7 +45,6 @@ void main() {
     expect(b.chatEnabled, isTrue);
     expect(b.voiceEnabled, isTrue);
     expect(b.activeLocalModelId, 'mlx-community/Qwen2.5-1.5B-Instruct-4bit');
-    expect(b.deadlineMs, 900);
     expect(b.confidenceFloor, 0.7);
     expect(b.confirmLocalActions, isFalse);
     expect(b.commandShortCircuit, isFalse);
