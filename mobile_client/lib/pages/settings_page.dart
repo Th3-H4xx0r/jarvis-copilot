@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import '../main.dart' as app;
 import '../services/android_accessibility.dart';
 import '../services/credentials.dart';
+import '../services/local_ai_settings.dart';
+import '../services/on_device_ai_types.dart';
 import '../services/watch_sync.dart';
 import '../theme.dart';
 import '../widgets/glass.dart';
+import 'ondevice_ai_settings_page.dart';
 import 'pair_page.dart';
 import 'watch_companion_page.dart';
 import 'webview_page.dart';
@@ -49,6 +52,17 @@ class _SettingsPageState extends State<SettingsPage> {
     if (s['watchAppInstalled'] != true) return 'Watch app not installed';
     if (s['reachable'] == true) return 'Connected';
     return 'Installed — not reachable';
+  }
+
+  String _onDeviceLabel() {
+    switch (LocalAiSettings.instance.tier) {
+      case LocalAiTier.off:
+        return 'Off — everything on the server';
+      case LocalAiTier.routerCommands:
+        return 'Router + instant commands';
+      case LocalAiTier.fullLocalFirst:
+        return 'Full local-first';
+    }
   }
 
   Future<void> _toggleTrackLocation(bool v) async {
@@ -180,6 +194,17 @@ class _SettingsPageState extends State<SettingsPage> {
               // ── Navigation rows ──
               glassSectionLabel('More'),
               GlassGroup(children: [
+                GlassRow(
+                  icon: Icons.auto_awesome_rounded,
+                  title: 'On-device AI',
+                  subtitle: _onDeviceLabel(),
+                  onTap: () async {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const OnDeviceAiSettingsPage(),
+                    ));
+                    if (mounted) setState(() {});
+                  },
+                ),
                 GlassRow(
                   icon: Icons.tune_rounded,
                   title: 'Server settings',

@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../main.dart' as app;
+import '../services/on_device_ai_types.dart';
 import '../theme.dart';
 import '../voice/voice_controller.dart';
 import '../voice/voice_orb.dart';
 import '../voice/voice_state.dart';
 import '../widgets/glass.dart';
+import '../widgets/model_picker_sheet.dart';
 
 /// Native voice screen — a recreation of the webui voice experience:
 /// a state-coloured orb, live transcript, and two modes (push-to-talk
@@ -158,8 +160,12 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
         backgroundColor: Colors.transparent,
         centerTitle: true,
         actions: [
+          GlassIconButton(
+            icon: Icons.auto_awesome_rounded,
+            onTap: () => showModelPickerSheet(context, VoiceSurface.voice),
+          ),
           Padding(
-            padding: const EdgeInsets.only(right: 16),
+            padding: const EdgeInsets.only(left: 8, right: 16),
             child: ValueListenableBuilder<bool>(
               valueListenable: app.wake.enabled,
               builder: (_, on, __) => GlassIconButton(

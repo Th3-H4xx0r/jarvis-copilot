@@ -6,10 +6,12 @@ import '../chat/chat_controller.dart';
 import '../chat/widgets/message_view.dart';
 import '../chat/widgets/sessions_drawer.dart';
 import '../main.dart' as app;
+import '../services/on_device_ai_types.dart';
 import '../theme.dart';
 import '../voice/voice_orb.dart';
 import '../voice/voice_state.dart';
 import '../widgets/glass.dart';
+import '../widgets/model_picker_sheet.dart';
 
 /// Native chat screen — a from-scratch recreation of the webui chat
 /// interface (sessions sidebar, streaming markdown replies, tool cards,
@@ -127,8 +129,12 @@ class _ChatPageState extends State<ChatPage> {
           ),
         ),
         actions: [
+          GlassIconButton(
+            icon: Icons.auto_awesome_rounded,
+            onTap: () => showModelPickerSheet(context, VoiceSurface.chat),
+          ),
           Padding(
-            padding: const EdgeInsets.only(right: 16),
+            padding: const EdgeInsets.only(left: 8, right: 16),
             child: GlassIconButton(
               icon: Icons.edit_square,
               onTap: () {
