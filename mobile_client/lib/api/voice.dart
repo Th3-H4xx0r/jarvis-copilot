@@ -45,6 +45,27 @@ class VoiceApi {
     return const [];
   }
 
+  /// Synthesize [text] to raw audio bytes (MP3 by default) in the JARVIS voice.
+  /// Decoupled from the agent — used by the on-device layer to speak a locally
+  /// generated reply with the same voice as a server reply. Returns empty on
+  /// failure (e.g. offline) so the caller can fall back.
+  Future<List<int>> ttsBytes({
+    required String text,
+    String format = 'mp3',
+    String? voice,
+  }) async {
+    final resp = await api.postBytes(
+      '/api/voice/synthesize',
+      {
+        'text': text,
+        'format': format,
+        if (voice != null) 'voice': voice,
+      },
+    );
+    final data = resp.data;
+    return (data is List<int>) ? data : const [];
+  }
+
   Stream<Map<String, dynamic>> qualityTurn({
     required String audioBase64,
     required String sessionId,

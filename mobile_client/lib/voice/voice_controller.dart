@@ -14,6 +14,9 @@ import '../api/voice.dart';
 import '../live_activity/live_activity_coordinator.dart';
 import '../main.dart' as app; // for ws.connected (Live Activity footer)
 import '../services/api_client.dart';
+import '../services/local_ai_settings.dart';
+import '../services/model_selection.dart';
+import '../services/on_device_ai_types.dart';
 import 'audio_queue.dart';
 import 'device_icon.dart';
 import 'voice_state.dart';
@@ -438,7 +441,12 @@ class VoiceController extends ChangeNotifier {
           if (active) _set(VoiceState.idle);
         },
       );
-      _sendJson({'type': 'begin_turn', 'sample_rate': _micRate, 'session_id': sid});
+      _sendJson({
+        'type': 'begin_turn',
+        'sample_rate': _micRate,
+        'session_id': sid,
+        ..._voiceModelFields(),
+      });
 
       final stream = await _startMicStream();
       _micSub = stream.listen(_onRealtimeFrame);
@@ -492,16 +500,119 @@ class VoiceController extends ChangeNotifier {
   void _endRealtimeTurn() {
     if (state != VoiceState.listening) return;
     _resumeTimer?.cancel();
-    _sendJson({'type': 'end_turn'});
     _resetVad();
     amplitude.value = 0;
     error = null; // clear any failure message from the previous turn
     // A new user turn begins → clear the previous reply + its highlight so the
     // incoming reply starts fresh (within one realtime session segments would
     // otherwise accumulate across turns). See [_resetSpeech].
+    final transcript = userTranscript.trim();
     _resetSpeech();
     _set(VoiceState.thinking);
+
+    // On-device first: if the local layer can handle this turn, we speak the
+    // reply in the JARVIS voice WITHOUT ever running the server agent. The
+    // server already STT'd the streamed audio into [userTranscript], so we
+    // route on that. Any miss/escalation/error falls through to the server.
+    if (LocalAiSettings.instance.enabledForVoice && transcript.isNotEmpty) {
+      _tryLocalVoice(transcript).then((handled) {
+        if (!active) return;
+        if (handled) {
+          // We never sent end_turn, so this turn's buffered audio is still on
+          // the server. Re-issue begin_turn to discard it (it cleared pcm_buf)
+          // so it can't bleed into the next, escalated turn.
+          _resetServerTurn();
+        } else {
+          _sendServerTurn();
+        }
+      });
+      return;
+    }
+    _sendServerTurn();
+  }
+
+  /// Ask the server to run the agent on the audio it already received.
+  void _sendServerTurn() {
+    _sendJson({'type': 'end_turn'});
     _armThinkingWatchdog(); // reassure if the server is slow / nothing arrives
+  }
+
+  /// Reset the server's per-turn audio buffer (used after we answered a turn
+  /// locally and skipped end_turn) so the next turn starts clean.
+  void _resetServerTurn() {
+    _sendJson({
+      'type': 'begin_turn',
+      'sample_rate': _micRate,
+      if (_sessionId != null) 'session_id': _sessionId,
+      ..._voiceModelFields(),
+    });
+    if (!_audio.isBusy) _scheduleResumeListening();
+  }
+
+  Map<String, dynamic> _voiceModelFields() {
+    final m = ModelSelection.instance.modelFor(VoiceSurface.voice);
+    final p = ModelSelection.instance.providerFor(VoiceSurface.voice);
+    return {
+      if (m != null && m.isNotEmpty) 'model': m,
+      if (p != null && p.isNotEmpty) 'model_provider': p,
+    };
+  }
+
+  /// Try to fully handle the turn on-device. Returns true if handled (spoke a
+  /// local answer or ran a local command); false to escalate to the server.
+  /// Never throws.
+  Future<bool> _tryLocalVoice(String transcript) async {
+    try {
+      final result = await app.localRouter.handle(transcript, VoiceSurface.voice);
+      switch (result) {
+        case DirectAnswer(:final text):
+          await _speakLocal(text);
+          return true;
+        case ToolCall(:final name, :final args, :final requiresConfirm):
+          // Outward/destructive actions defer to the server's approval flow.
+          if (requiresConfirm) return false;
+          final res = await app.runner.run(name, args);
+          final ok = res.error == null;
+          await _speakLocal(
+              ok ? _spokenConfirmation(name, res.result) : "Sorry, that didn't work.");
+          return true;
+        case Escalate():
+          return false;
+      }
+    } catch (e) {
+      debugPrint('[voice] local route failed, escalating: $e');
+      return false;
+    }
+  }
+
+  /// Speak [text] in the JARVIS voice: fetch server TTS (Edge) and play it
+  /// through the SAME audio queue + karaoke as a server reply. Offline (no TTS
+  /// bytes) the reply stays on screen as text and we resume listening.
+  Future<void> _speakLocal(String text) async {
+    _appendSpeech(text); // adds a karaoke segment + flips UI on notify
+    try {
+      final bytes = await _voice.ttsBytes(text: _plainSpeech(text));
+      if (bytes.isNotEmpty) {
+        final tag = _segs.isEmpty ? null : _segs.length - 1;
+        if (tag != null) _segs[tag].audioAssigned = true;
+        _audio.enqueueMp3(Uint8List.fromList(bytes), tag: tag);
+        return; // playback start → speaking; drain → resume listening
+      }
+    } catch (e) {
+      debugPrint('[voice] local JARVIS-voice TTS failed (offline?): $e');
+    }
+    _finalizeSpoken();
+    _scheduleResumeListening();
+  }
+
+  String _spokenConfirmation(String name, Object? result) {
+    if (result is Map) {
+      final note = result['note'] ?? result['message'];
+      if (note != null && note.toString().trim().isNotEmpty) {
+        return note.toString();
+      }
+    }
+    return 'Done — ${name.replaceAll('_', ' ')}.';
   }
 
   /// User explicitly signals end-of-speech (the "Done" button).

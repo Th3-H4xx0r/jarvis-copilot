@@ -112,6 +112,21 @@ class ApiClient {
     return _dio.post('$base$path', data: body, options: opts);
   }
 
+  /// POST expecting a raw binary response (e.g. TTS audio bytes). Uses
+  /// ResponseType.bytes so the body isn't mis-decoded as JSON/text.
+  Future<Response<List<int>>> postBytes(String path, Object body,
+      {Map<String, String>? headers, Duration? timeout}) {
+    return _dio.post<List<int>>(
+      '$base$path',
+      data: body,
+      options: Options(
+        headers: {'Content-Type': 'application/json', ...?headers},
+        responseType: ResponseType.bytes,
+        receiveTimeout: timeout,
+      ),
+    );
+  }
+
   /// Multipart POST (file upload). The cert-pinning adapter + auth-cookie
   /// interceptor apply just like any other request.
   Future<Response<dynamic>> postMultipart(String path, FormData form,
