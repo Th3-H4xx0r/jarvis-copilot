@@ -633,27 +633,65 @@ class VoiceController extends ChangeNotifier {
     }
   }
 
-  /// Speak [text] in the JARVIS voice: fetch server TTS (Edge) and play it
-  /// through the SAME audio queue + karaoke as a server reply. Offline (no TTS
+  /// Speak [text] in the JARVIS voice. Split into sentence-sized chunks and
+  /// TTS each as its OWN clip + karaoke segment — exactly like the server path.
+  /// This is what makes the word-highlight advance (a single big clip leaves it
+  /// stuck) and lets playback start after the first sentence. Offline (no TTS
   /// bytes) the reply stays on screen as text and we resume listening.
   Future<void> _speakLocal(String text) async {
     final epoch = _turnEpoch;
-    _appendSpeech(text); // adds a karaoke segment + flips UI on notify
-    try {
-      final bytes = await _voice.ttsBytes(text: _plainSpeech(text));
+    final chunks = _splitForSpeech(_plainSpeech(text));
+    if (chunks.isEmpty) {
+      _scheduleResumeListening();
+      return;
+    }
+    var anyAudio = false;
+    for (final chunk in chunks) {
       if (epoch != _turnEpoch || !active) return; // superseded / stopped
-      if (bytes.isNotEmpty) {
-        final tag = _segs.isEmpty ? null : _segs.length - 1;
-        if (tag != null) _segs[tag].audioAssigned = true;
-        _audio.enqueueMp3(Uint8List.fromList(bytes), tag: tag);
-        return; // playback start → speaking; drain → resume listening
+      _appendSpeech(chunk); // each chunk is its own karaoke segment
+      try {
+        final bytes = await _voice.ttsBytes(text: chunk);
+        if (epoch != _turnEpoch || !active) return;
+        if (bytes.isNotEmpty) {
+          final tag = _segs.length - 1;
+          _segs[tag].audioAssigned = true;
+          _audio.enqueueMp3(Uint8List.fromList(bytes), tag: tag);
+          anyAudio = true;
+        }
+      } catch (e) {
+        debugPrint('[voice] local JARVIS-voice TTS failed (offline?): $e');
       }
-    } catch (e) {
-      debugPrint('[voice] local JARVIS-voice TTS failed (offline?): $e');
     }
     if (epoch != _turnEpoch || !active) return;
-    _finalizeSpoken();
-    _scheduleResumeListening();
+    if (!anyAudio && !_audio.isBusy) {
+      // Offline / no audio → reply is shown as text; resume listening.
+      _finalizeSpoken();
+      _scheduleResumeListening();
+    }
+  }
+
+  /// Split a reply into sentence/line-sized chunks for per-clip TTS + karaoke,
+  /// merging very short fragments so we don't make a clip per word.
+  List<String> _splitForSpeech(String text) {
+    final parts = text.split(RegExp(r'(?<=[.!?])\s+|\n+'));
+    final out = <String>[];
+    final buf = StringBuffer();
+    for (final part in parts) {
+      final p = part.trim();
+      if (p.isEmpty) continue;
+      if (buf.isEmpty) {
+        buf.write(p);
+      } else if (buf.length < 40) {
+        buf.write(' $p');
+      } else {
+        out.add(buf.toString());
+        buf
+          ..clear()
+          ..write(p);
+      }
+    }
+    if (buf.isNotEmpty) out.add(buf.toString());
+    return out;
   }
 
   /// Persist a completed on-device voice turn into the voice session so it

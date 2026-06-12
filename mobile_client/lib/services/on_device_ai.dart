@@ -250,32 +250,25 @@ class OnDeviceAi implements OnDeviceAiClient {
   }
 
   String _buildRoutingPrompt(LocalRequest req) {
-    final tierPolicy = switch (req.tier) {
-      LocalAiTier.fullLocalFirst =>
-        'You may fully answer the user and may call tools (device-local AND '
-            'client-dispatchable). Escalate only when you need fresh world '
-            'knowledge, multi-step server reasoning, or a server-only tool.',
-      LocalAiTier.routerCommands =>
-        'Only answer trivial, safe, self-contained turns (greetings, quick '
-            'rephrase/summarize of given text, simple device questions). For a '
-            'clear device action, emit a tool call. Escalate ANYTHING else.',
-      LocalAiTier.off => 'Escalate everything.',
-    };
     final surface = req.surface == VoiceSurface.voice ? 'voice' : 'chat';
-    final personaLine = persona.isEmpty ? '' : '$persona\n\n';
+    // NOTE: deliberately persona-FREE. The persona ("you are JARVIS, at your
+    // service…") biases the model to answer everything in character — it must
+    // not leak into the routing DECISION. Persona is applied only when we
+    // generate the actual reply text (see _buildAssistantPrompt).
     return '''
-${personaLine}You are JARVIS on the user's phone, deciding how to handle a $surface turn. You can do TWO things yourself: answer from your own general knowledge, and trigger the device actions listed below. Anything else MUST be escalated to the server.
+You are a strict request CLASSIFIER for an on-device phone assistant. This is NOT a chat — do NOT role-play or answer the user. Output ONLY a decision object.
 
-Choose ONE "action":
-- "answer": greetings, chit-chat, who/what you are, rephrasing or summarizing text the user gave you, and general knowledge you're sure of. Put the FULL reply, in JARVIS's voice, in "answer".
-- "tool": the user clearly wants one of the device actions listed below. Set "toolName" + "toolArgs", and a short spoken confirmation in JARVIS's voice in "answer" (e.g. "Opening Spotify for you, sir.").
-- "escalate": ANYTHING that needs information or capability you don't have — live/current data (weather, news, time, date, prices, traffic, sports), the user's own data (calendar, email, messages, reminders, files, "my schedule", "morning brief", "what's on my calendar"), or any device action NOT in the list below. Put "" in "answer".
+Pick "action":
+- "escalate" (THE DEFAULT): anything needing real-world or live data (weather, news, time/date, prices, sports, traffic), the user's own data or accounts (calendar, email, messages, reminders, files, anything "my ...", a "morning brief"), or any task beyond a plain reply or one of the device actions listed. If answering it would require knowing real facts you can't be certain of, escalate. Put "" in "answer".
+- "answer": ONLY greetings/small-talk, questions about the assistant itself ("who are you", "what can you do"), or rephrasing/summarizing text the user already gave you. Put a short reply in "answer".
+- "tool": the user clearly wants one of the device actions listed below. Set "toolName" + "toolArgs", and a one-line confirmation in "answer".
 
-CRITICAL: NEVER invent weather, dates, schedules, news, prices, or any real-world data. If you would have to make something up, you MUST escalate. Greetings/identity = answer; anything requiring real data = escalate.
-Policy: $tierPolicy
-Set "confidence" 0..1. Return ONLY the decision object: $_routingSchemaJson
+escalate examples: "give me the morning brief", "what's the weather", "what's on my calendar", "any news?", "what time is it", "text mom".
+answer examples: "hello", "who are you", "what can you do", "summarize this: ...".
 
-Device actions you can trigger (name · description):
+When in doubt, ESCALATE. Set "confidence" 0..1. Return ONLY: $_routingSchemaJson
+
+Device actions you can trigger on $surface (name · description):
 ${req.toolCatalogJson}
 ''';
   }
