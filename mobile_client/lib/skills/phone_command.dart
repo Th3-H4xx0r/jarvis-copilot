@@ -58,9 +58,16 @@ Map<String, dynamic> buildPhoneCommand(Map<String, dynamic> args) {
 String rawValueForVerb(String action, Map<String, dynamic> command) {
   if (action == 'open_url') return (command['url'] ?? '').toString();
   if (action == 'send_message') {
-    final to = (command['to'] ?? command['recipient'] ?? '').toString().trim();
+    // Strip the delimiter from each field — the JC Send Message shortcut splits
+    // the input on "|", so a "|" inside the recipient or body would corrupt the
+    // split (recipient picks item 1, body picks the LAST item).
+    final to = (command['to'] ?? command['recipient'] ?? '')
+        .toString()
+        .replaceAll(sendMessageDelimiter, ' ')
+        .trim();
     final msg = (command['message'] ?? command['body'] ?? command['value'] ?? '')
         .toString()
+        .replaceAll(sendMessageDelimiter, ' ')
         .trim();
     return '$to$sendMessageDelimiter$msg';
   }

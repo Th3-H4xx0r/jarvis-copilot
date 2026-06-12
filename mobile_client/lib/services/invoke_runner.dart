@@ -19,6 +19,21 @@ class InvokeResult {
   final String? error;
 }
 
+/// True when a local tool ran WITHOUT throwing but didn't achieve its effect —
+/// today only `open_app`, which returns `{launched:false}` when iOS has no URL
+/// scheme for the requested app (e.g. many bank apps). The local matcher path
+/// uses this to escalate to the server (which can supply a known scheme or
+/// answer honestly) instead of speaking a fabricated "Opening X". A THROWN error
+/// (res.error set) is not a "miss" — it's surfaced normally.
+bool localToolMissed(String name, InvokeResult res) {
+  if (res.error != null) return false;
+  if (name == 'open_app') {
+    final r = res.result;
+    return r is Map && r['launched'] == false;
+  }
+  return false;
+}
+
 /// Central skill dispatch. Whether the invoke arrived via the WS bridge
 /// or via the silent-push poll path, both call into here so:
 ///

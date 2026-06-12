@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'contact_lookup.dart';
 import 'phone_command.dart';
 import 'registry.dart';
 
@@ -110,6 +111,19 @@ Future<Map<String, dynamic>> _runShortcut(
   }
 }
 
+/// Open an installed app BY NAME via the "JC Open App" Shortcut (the system
+/// "Open App" action — opens any app, not just URL-scheme ones, like Siri).
+///
+/// Fire-and-forget: "Open App" hands control to the target app, so we must NOT
+/// pass an x-success callback (it would yank the user back to JarvisCopilot the
+/// instant the target opens). That means we can't observe success — but the
+/// system action is reliable for installed apps. Returns whether the Shortcuts
+/// URL launched (false only if Shortcuts itself couldn't be opened).
+Future<bool> _openAppViaShortcut(String appName) async {
+  final res = await _runShortcut('JC Open App', input: appName, awaitResult: false);
+  return res['ran'] == true;
+}
+
 final List<SkillEntry> iosSkills = [
   SkillEntry(
     name: 'open_app',
@@ -127,13 +141,26 @@ final List<SkillEntry> iosSkills = [
     },
     run: (args) async {
       if (!Platform.isIOS) throw StateError('iOS only');
+      final appName = (args['app'] ?? args['name'] ?? '').toString().trim();
+      final schemeUrl = (args['scheme_url'] ?? '').toString().trim();
       try {
         final r = await _appChannel.invokeMethod<Map>('open', {
-          'app': (args['app'] ?? args['name'] ?? '').toString(),
-          'scheme_url': (args['scheme_url'] ?? '').toString(),
+          'app': appName,
+          'scheme_url': schemeUrl,
         });
-        return Map<String, dynamic>.from(r ?? const {});
+        final res = Map<String, dynamic>.from(r ?? const {});
+        if (res['launched'] == true) return res;
+        // iOS had no URL scheme for this app. Fall back to the system "Open App"
+        // action via the JC Open App Shortcut — it opens ANY installed app by
+        // name (what Siri does), not just scheme-registered ones.
+        if (appName.isNotEmpty && await _openAppViaShortcut(appName)) {
+          return {'launched': true, 'via': 'shortcut', 'app': appName};
+        }
+        return res;
       } on PlatformException catch (e) {
+        if (appName.isNotEmpty && await _openAppViaShortcut(appName)) {
+          return {'launched': true, 'via': 'shortcut', 'app': appName};
+        }
         return {'launched': false, 'error': e.message ?? e.code};
       }
     },
@@ -328,6 +355,14 @@ final List<SkillEntry> iosSkills = [
     run: (args) async {
       if (!Platform.isIOS) throw StateError('iOS only');
       final command = buildPhoneCommand(Map<String, dynamic>.from(args));
+      // Texting: resolve the recipient NAME to a phone number against the device
+      // contacts before handing it to "JC Send Message". Send Message can't
+      // convert loose name text to a contact (it errors), but a bare number needs
+      // no conversion. Falls back to the raw name on no permission / no match.
+      if (command['action'] == 'send_message') {
+        final to = (command['to'] ?? command['recipient'] ?? '').toString();
+        if (to.isNotEmpty) command['to'] = await resolveRecipient(to);
+      }
       // Refuse anything with a native equivalent so we never bounce a Shortcut
       // for open_app/battery/flashlight/alarm/etc. — point JARVIS at the native
       // skill instead.

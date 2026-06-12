@@ -82,8 +82,16 @@ class AppOpenBridge {
                 return
             }
         }
-        // 3. Last-ditch — caller passed a bare scheme like "twitter".
-        if !appName.isEmpty, let url = URL(string: "\(appName)://") {
+        // 3. Last-ditch — try the app's condensed name as a scheme
+        // ("wells fargo" → "wellsfargo://"). Many apps register their squashed
+        // name; UIApplication.open still attempts it whether or not the scheme
+        // is in LSApplicationQueriesSchemes, and reports back whether it
+        // actually launched (so the caller never claims a false success).
+        let condensed = appName.unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
+        if !condensed.isEmpty, let url = URL(string: "\(condensed)://") {
             launch(url: url, matched: appName, result: result)
             return
         }

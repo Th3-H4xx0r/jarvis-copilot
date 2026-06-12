@@ -6,6 +6,7 @@ import '../api/chat.dart';
 import '../api/sessions.dart';
 import '../main.dart' as app;
 import '../services/api_client.dart';
+import '../services/chat_sync_bus.dart';
 import '../services/invoke_runner.dart';
 import '../services/local_ai_settings.dart';
 import '../services/model_selection.dart';
@@ -23,10 +24,18 @@ import 'chat_models.dart';
 class ChatController extends ChangeNotifier {
   ChatController(ApiClient api)
       : _chat = ChatApi(api),
-        _sessions = SessionsApi(api);
+        _sessions = SessionsApi(api) {
+    // Live chats: refresh when a turn is added elsewhere (e.g. a voice
+    // conversation persists to a session). See [ChatSyncBus].
+    _syncSub = ChatSyncBus.instance.onChanged.listen(_onSessionChanged);
+  }
 
   final ChatApi _chat;
   final SessionsApi _sessions;
+
+  StreamSubscription<String?>? _syncSub;
+  Timer? _listPoll;
+  bool _disposed = false;
 
   // ── Sessions ──────────────────────────────────────────────────
   List<ChatSessionSummary> sessions = [];
@@ -60,21 +69,84 @@ class ChatController extends ChangeNotifier {
   bool get isEmpty => messages.isEmpty && !historyLoading;
 
   // ── Sessions list ─────────────────────────────────────────────
-  Future<void> loadSessions() async {
-    sessionsLoading = true;
-    notifyListeners();
+  /// Reload the sessions list. [quiet] skips the loading-spinner toggle and
+  /// swallows errors — used by background refreshes (sync signal, tab focus,
+  /// the visible-tab poll) so they never flash a spinner or stomp the error bar.
+  Future<void> loadSessions({bool quiet = false}) async {
+    if (!quiet) {
+      sessionsLoading = true;
+      notifyListeners();
+    }
     try {
       final raw = await _sessions.list();
+      if (_disposed) return;
       sessions = raw
           .map((m) => ChatSessionSummary.fromJson(m))
           .where((s) => !s.archived && s.id.isNotEmpty)
           .toList()
         ..sort((a, b) => (b.updatedAt ?? 0).compareTo(a.updatedAt ?? 0));
     } catch (e) {
-      error = 'Could not load chats: $e';
+      if (!quiet) error = 'Could not load chats: $e';
     } finally {
-      sessionsLoading = false;
+      if (!quiet) sessionsLoading = false;
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  // ── Live refresh (sync bus, tab focus, visible-tab poll) ──────
+  /// A session changed elsewhere (a voice turn was persisted). Refresh the list
+  /// quietly, and silently re-hydrate the open thread if it's the one that
+  /// changed and we're not mid-stream.
+  void _onSessionChanged(String? changedId) {
+    if (_disposed) return;
+    loadSessions(quiet: true);
+    if (!streaming &&
+        changedId != null &&
+        changedId.isNotEmpty &&
+        changedId == sessionId) {
+      refreshActiveQuietly();
+    }
+  }
+
+  /// Called when the chat tab becomes visible (or the app resumes): pull the
+  /// latest list + open thread so anything added while we were away shows up.
+  Future<void> refreshOnFocus() async {
+    if (_disposed) return;
+    await loadSessions(quiet: true);
+    await refreshActiveQuietly();
+  }
+
+  /// Re-fetch the open thread and re-hydrate it without the open/clear flash.
+  /// No-op while streaming, loading, or sessionless (don't clobber a live turn).
+  Future<void> refreshActiveQuietly() async {
+    final id = sessionId;
+    if (_disposed || id == null || id.isEmpty || streaming || historyLoading) {
+      return;
+    }
+    try {
+      final data = await _sessions.get(id);
+      if (_disposed || id != sessionId || streaming) return; // changed mid-fetch
+      final session = (data?['session'] as Map?) ?? data;
+      final title = (session?['title'] ?? '').toString().trim();
+      if (title.isNotEmpty) sessionTitle = title;
+      final rawMessages = (session?['messages'] as List?) ?? const [];
+      _hydrateHistory(rawMessages);
       notifyListeners();
+    } catch (_) {/* keep the current view on any error */}
+  }
+
+  /// Poll the sessions LIST (cheap; previews + ordering) while the chat tab is
+  /// visible, so it stays live. The open thread is refreshed on focus and on
+  /// sync signals — not polled — to avoid scroll/flicker mid-read.
+  void setListPolling(bool on) {
+    if (on) {
+      if (_listPoll != null) return;
+      _listPoll = Timer.periodic(const Duration(seconds: 6), (_) {
+        if (!streaming) loadSessions(quiet: true);
+      });
+    } else {
+      _listPoll?.cancel();
+      _listPoll = null;
     }
   }
 
@@ -247,10 +319,15 @@ class ChatController extends ChangeNotifier {
         case ToolCall(:final name, :final args, :final requiresConfirm, :final confirmation):
           // Outward/destructive actions defer to the server's approval flow.
           if (requiresConfirm) return false;
+          final InvokeResult res = await app.runner.run(name, args);
+          // open_app can return without throwing yet not launch — iOS has no URL
+          // scheme for that app (e.g. a bank app). Don't fabricate "Opening X":
+          // escalate so the server agent can try a known scheme or answer
+          // honestly. The assistant message is still pristine here.
+          if (localToolMissed(name, res)) return false;
           final tool = ToolInvocation(name: name, args: args);
           assistant.startTool(tool);
           notifyListeners();
-          final InvokeResult res = await app.runner.run(name, args);
           final ok = res.error == null;
           assistant.completeTool(name: name, isError: !ok);
           final summary = ok
@@ -572,7 +649,10 @@ class ChatController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _sub?.cancel();
+    _syncSub?.cancel();
+    _listPoll?.cancel();
     super.dispose();
   }
 }

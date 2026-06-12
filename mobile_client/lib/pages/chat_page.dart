@@ -34,15 +34,32 @@ class _ChatPageState extends State<ChatPage> {
   String? _lastSessionId;
   bool _jumpPending = false;
 
+  bool _wasVisible = false;
+
   @override
   void initState() {
     super.initState();
     _c.addListener(_autoScroll);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _c.openInitial());
+    // Live chats: poll the list only while this tab is visible, and pull the
+    // latest list + open thread each time the tab regains focus, so turns added
+    // elsewhere (a voice conversation) show up without a manual reload.
+    app.activeTabIndex.addListener(_onTabVisibility);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _c.openInitial();
+      _onTabVisibility();
+    });
+  }
+
+  void _onTabVisibility() {
+    final visible = app.activeTabIndex.value == app.kChatTabIndex;
+    _c.setListPolling(visible);
+    if (visible && !_wasVisible) _c.refreshOnFocus(); // became visible → refresh
+    _wasVisible = visible;
   }
 
   @override
   void dispose() {
+    app.activeTabIndex.removeListener(_onTabVisibility);
     _c.removeListener(_autoScroll);
     _c.dispose();
     _composer.dispose();
@@ -59,11 +76,7 @@ class _ChatPageState extends State<ChatPage> {
     }
     if (_jumpPending && !_c.historyLoading && _c.messages.isNotEmpty) {
       _jumpPending = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients) {
-          _scroll.jumpTo(_scroll.position.maxScrollExtent);
-        }
-      });
+      _pinToBottom();
       return;
     }
 
@@ -75,6 +88,21 @@ class _ChatPageState extends State<ChatPage> {
       final max = _scroll.position.maxScrollExtent;
       if (max - _scroll.offset < 240) {
         _scroll.jumpTo(max);
+      }
+    });
+  }
+
+  /// Jump to the very bottom when a chat is opened. A single jump lands short
+  /// because the thread keeps growing taller across frames (markdown, tool
+  /// cards, images render after the first layout), so re-pin a few times over a
+  /// short window until the height settles.
+  void _pinToBottom([int tries = 0]) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      if (tries < 6) {
+        Future.delayed(const Duration(milliseconds: 50),
+            () => _pinToBottom(tries + 1));
       }
     });
   }

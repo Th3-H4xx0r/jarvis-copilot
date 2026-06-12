@@ -52,6 +52,89 @@ def num_var(out_uuid):
 EXT_INPUT = {"Value": {"Type": "ExtensionInput"},
              "WFSerializationType": "WFTextTokenAttachment"}
 
+
+def action_output(out_uuid, out_name):
+    """A whole-value reference to a prior action's output (the Split Text list, a
+    Get-Item-from-List result, …) — used as a WFInput."""
+    return {"Value": {"OutputUUID": out_uuid, "Type": "ActionOutput",
+                      "OutputName": out_name},
+            "WFSerializationType": "WFTextTokenAttachment"}
+
+
+def token_string(out_uuid, out_name):
+    """A TEXT FIELD whose entire content is one variable. The Object-Replacement
+    char (U+FFFC) marks where the attachment sits in the string. Send Message's
+    recipient and body are token-string text fields (not whole-value inputs), so
+    a variable dropped into them serializes this way."""
+    return token_string_multi([(out_uuid, out_name)])
+
+
+def token_string_multi(parts):
+    """Build a token-string text field from a mix of literal strings and
+    (output_uuid, output_name) variable tokens. Each variable occupies one
+    Object-Replacement char in the string; attachmentsByRange maps "{index, 1}"
+    -> the attachment at that char."""
+    s = ""
+    attachments = {}
+    for p in parts:
+        if isinstance(p, str):
+            s += p
+        else:
+            attachments["{%d, 1}" % len(s)] = {
+                "OutputUUID": p[0], "Type": "ActionOutput", "OutputName": p[1]}
+            s += "￼"
+    return {"Value": {"string": s, "attachmentsByRange": attachments},
+            "WFSerializationType": "WFTextTokenString"}
+
+
+def send_message_actions():
+    """JC Send Message — input is "recipient|message". Split on '|', send the
+    SECOND part (body) to the FIRST part (recipient). Recipient is normally a bare
+    phone number (the app resolves a contact name to a number first, and a number
+    needs no contact conversion); a contact name also works if it matches.
+
+    The whole texting bug was a HAND-BUILT shortcut feeding the *unsplit*
+    "recipient|message" string straight into Recipients — so Send Message got
+    "+1510…|hi" and failed to convert it to a contact. Here the Split Text + First/
+    Last-Item extraction is explicit and bulletproof, so Recipients gets a clean
+    value."""
+    split_u, rec_u, msg_u = U(), U(), U()
+    actions = [
+        act("is.workflow.actions.text.split", {
+            "WFInput": EXT_INPUT,
+            "WFTextSeparator": "Custom",
+            "WFTextCustomSeparator": "|",
+            "UUID": split_u,
+        }),
+        act("is.workflow.actions.getitemfromlist", {
+            "WFInput": action_output(split_u, "Split Text"),
+            "WFItemSpecifier": "First Item",
+            "UUID": rec_u,
+        }),
+        act("is.workflow.actions.getitemfromlist", {
+            "WFInput": action_output(split_u, "Split Text"),
+            "WFItemSpecifier": "Last Item",
+            "UUID": msg_u,
+        }),
+    ]
+    # JC_DEBUG=1: show what the split produced BEFORE sending, to confirm the
+    # recipient/body variables actually bind (the bisection method). Remove for
+    # the production build.
+    if os.environ.get("JC_DEBUG"):
+        actions.append(act("is.workflow.actions.notification", {
+            "WFNotificationActionBody": token_string_multi(
+                ["to=[", (rec_u, "Item from List"), "] msg=[",
+                 (msg_u, "Item from List"), "]"]),
+            "WFNotificationActionTitle": "JC Send Message DEBUG",
+            "UUID": U(),
+        }))
+    actions.append(act("is.workflow.actions.sendmessage", {
+        "WFSendMessageContent": token_string(msg_u, "Item from List"),
+        "WFSendMessageActionRecipients": token_string(rec_u, "Item from List"),
+        "UUID": U(),
+    }))
+    return actions
+
 INPUT_CLASSES = [
     "WFAppContentItem", "WFAppStoreAppContentItem", "WFArticleContentItem",
     "WFContactContentItem", "WFDateContentItem", "WFEmailAddressContentItem",
@@ -63,13 +146,22 @@ INPUT_CLASSES = [
 ]
 
 
+def _consumes_input(actions):
+    """True if any action reads the Shortcut Input (ExtensionInput). The editor
+    sets WFWorkflowHasShortcutInputVariables True in that case; leaving it False
+    can make the input arrive EMPTY (the suspected cause of the earlier empty-
+    input shortcut), so we mirror the editor and set it automatically."""
+    import json
+    return "ExtensionInput" in json.dumps(actions)
+
+
 def wrap(actions):
     return {
         "WFQuickActionSurfaces": [],
         "WFWorkflowActions": actions,
         "WFWorkflowClientVersion": "4610",
         "WFWorkflowHasOutputFallback": False,
-        "WFWorkflowHasShortcutInputVariables": False,
+        "WFWorkflowHasShortcutInputVariables": _consumes_input(actions),
         "WFWorkflowIcon": {"WFWorkflowIconGlyphNumber": 61440,
                            "WFWorkflowIconStartColor": -1263359489},
         "WFWorkflowImportQuestions": [],
@@ -101,6 +193,13 @@ SKILLS = {
                                  {"AssertionType": "Turned Off"}),
     "JC Open URL":   [act("is.workflow.actions.openurl",
                           {"WFInput": EXT_INPUT, "UUID": U()})],
+    # Open ANY installed app BY NAME via the system "Open App" action (what Siri
+    # does) — not limited to URL schemes. Input (text) is the app name; "Open
+    # App" coerces it to the matching app. This is the fallback open_app uses
+    # when iOS has no URL scheme for the requested app (e.g. bank apps).
+    "JC Open App":   [act("is.workflow.actions.openapp",
+                          {"WFAppIdentifier": EXT_INPUT, "UUID": U()})],
+    "JC Send Message": send_message_actions(),
 }
 
 

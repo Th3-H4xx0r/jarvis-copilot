@@ -14,6 +14,8 @@ import '../api/voice.dart';
 import '../live_activity/live_activity_coordinator.dart';
 import '../main.dart' as app; // for ws.connected (Live Activity footer)
 import '../services/api_client.dart';
+import '../services/chat_sync_bus.dart';
+import '../services/invoke_runner.dart' show localToolMissed;
 import '../services/local_ai_settings.dart';
 import '../services/model_selection.dart';
 import '../services/on_device_ai.dart';
@@ -549,6 +551,12 @@ class VoiceController extends ChangeNotifier {
       });
       return;
     }
+    // Diagnostic: voice bypassed the on-device layer entirely. The common cause
+    // is the per-surface Voice toggle being off (chat can be on independently).
+    debugPrint('[voice] on-device SKIPPED → server. '
+        'enabledForVoice=${LocalAiSettings.instance.enabledForVoice} '
+        '(tier=${LocalAiSettings.instance.tier.name}, '
+        'voiceToggle=${LocalAiSettings.instance.voiceEnabled}) pcmBytes=${pcm.length}');
     _sendServerTurn();
   }
 
@@ -592,7 +600,15 @@ class VoiceController extends ChangeNotifier {
       final transcript =
           (await OnDeviceAi.instance.transcribe(pcm, sampleRate: _micRate)).trim();
       if (epoch != _turnEpoch) return false; // superseded mid-STT
-      if (transcript.isEmpty) return false; // no on-device STT → server STTs
+      if (transcript.isEmpty) {
+        // On-device STT produced nothing (no Speech permission, on-device
+        // recognition unsupported, or decode failure) → the turn escalates and
+        // the server transcribes. This is the other common "voice never goes
+        // local" cause besides the Voice toggle.
+        debugPrint('[voice] on-device STT empty → escalate (server STT)');
+        return false;
+      }
+      debugPrint('[voice] on-device STT: "$transcript"');
       userTranscript = transcript;
       _escalateText = transcript; // hand to server if we end up escalating
       _pushLiveActivity();
@@ -600,6 +616,8 @@ class VoiceController extends ChangeNotifier {
 
       final result = await app.localRouter.handle(transcript, VoiceSurface.voice);
       if (epoch != _turnEpoch) return false;
+      debugPrint('[voice] route("$transcript") → ${result.runtimeType}'
+          '${result is Escalate ? ' (${result.reason})' : ''}');
       switch (result) {
         case DirectAnswer():
           // Always stream the FULL reply (the guided-gen inline answer is a
@@ -615,6 +633,12 @@ class VoiceController extends ChangeNotifier {
           if (requiresConfirm) return false;
           final res = await app.runner.run(name, args);
           if (epoch != _turnEpoch) return false;
+          // open_app that didn't actually launch (no iOS URL scheme for the app)
+          // → escalate to the server instead of saying we opened it.
+          if (localToolMissed(name, res)) {
+            debugPrint('[voice] open_app miss → escalate to server');
+            return false;
+          }
           final ok = res.error == null;
           final say = ok
               ? (confirmation?.isNotEmpty == true
@@ -700,6 +724,9 @@ class VoiceController extends ChangeNotifier {
     try {
       final sid = await _ensureSession();
       await _sessions.appendLocalTurn(sid, user: user, assistant: assistant);
+      // Live chats: tell the chat screen this session gained a turn so it shows
+      // up without a manual reload.
+      ChatSyncBus.instance.sessionChanged(sid);
     } catch (_) {}
   }
 
@@ -883,6 +910,11 @@ class VoiceController extends ChangeNotifier {
       _pushLiveActivity();
       _scheduleResumeListening();
       return;
+    }
+    // A real exchange happened (server persisted this turn) → tell the chat
+    // screen to refresh so the voice turn appears live in Chats.
+    if (_sessionId != null && assistantText.trim().isNotEmpty) {
+      ChatSyncBus.instance.sessionChanged(_sessionId);
     }
     // If audio is playing/queued, _onPlaybackIdle handles the resume once
     // it drains; otherwise (text-only / empty turn) schedule it now.
