@@ -1067,12 +1067,16 @@ class VoiceController extends ChangeNotifier {
     for (var i = 0; i < tag; i++) {
       _segs[i].localSpoken = _segs[i].words.length;
     }
+    // For an MP3 clip the audio queue fires this TWICE: once with an estimate at
+    // play time, then again with the real decoded duration. The second call is a
+    // schedule correction for the SAME segment — don't reset its progress.
+    final isNew = tag != _curSeg;
     _curSeg = tag;
     final seg = _segs[tag];
     var ms = dur.inMilliseconds;
-    if (ms <= 0) ms = seg.words.length * 300; // MP3 dur unknown → ~200 wpm est
+    if (ms <= 0) ms = seg.words.length * 300; // dur not yet known → ~200 wpm est
     seg.schedule(ms);
-    seg.localSpoken = 0;
+    if (isNew) seg.localSpoken = 0;
     _recomputeSpoken();
   }
 

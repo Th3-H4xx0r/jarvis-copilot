@@ -126,17 +126,52 @@ class AudioQueue {
       // word highlight. PCM is exact; MP3 we ask the player (may be 0 until
       // it loads — the controller falls back to a words×rate estimate).
       if (clip.tag != null) {
-        var durMs = clip.durationMs;
-        if (durMs == null) {
-          final d = await _player.getDuration();
-          durMs = d?.inMilliseconds ?? 0;
+        if (clip.durationMs != null) {
+          // PCM: exact duration, schedule the karaoke immediately.
+          onClipStart?.call(clip.tag, Duration(milliseconds: clip.durationMs!));
+        } else {
+          // MP3: getDuration() right after play() is unreliable on iOS (it returns
+          // null or a stale/wrong value), which gives the karaoke a wrong word
+          // schedule — the highlight sticks on the first word, then jumps to the
+          // end when the next clip starts. Start on an estimate now (so _curSeg is
+          // set and words can advance), then correct the schedule when the REAL
+          // decoded duration arrives via onDurationChanged.
+          onClipStart?.call(clip.tag, Duration.zero);
+          _correctDuration(clip.tag);
         }
-        onClipStart?.call(clip.tag, Duration(milliseconds: durMs));
       }
     } catch (e, st) {
       debugPrint('[audio] play() FAILED: $e\n$st');
       _advance(); // skip a bad clip rather than wedging the queue
     }
+  }
+
+  /// MP3 duration isn't reliably known at play() time, so we re-fire [onClipStart]
+  /// with the REAL decoded duration once it lands — from [AudioPlayer.onDurationChanged]
+  /// (a getDuration() fallback covers the case it already fired). Applied at most
+  /// once per clip, and only while [tag] is still the current clip.
+  void _correctDuration(int? tag) {
+    StreamSubscription<Duration>? sub;
+    Timer? fallback;
+    var applied = false;
+    void apply(Duration? d) {
+      if (applied) return;
+      applied = true;
+      sub?.cancel();
+      fallback?.cancel();
+      if (_currentTag == tag && d != null && d.inMilliseconds > 0) {
+        onClipStart?.call(tag, d);
+      }
+    }
+
+    sub = _player.onDurationChanged.listen(apply);
+    fallback = Timer(const Duration(milliseconds: 350), () async {
+      Duration? d;
+      try {
+        d = await _player.getDuration();
+      } catch (_) {}
+      apply(d);
+    });
   }
 
   /// Drop anything queued and stop playback immediately (barge-in / new
