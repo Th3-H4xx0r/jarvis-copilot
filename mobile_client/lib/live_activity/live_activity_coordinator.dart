@@ -210,8 +210,10 @@ class LiveActivityCoordinator {
         return 0;
       case 'working':
         return 1;
+      case 'idle':
+        return 2;
       default:
-        return 2; // idle
+        return 3; // dim (forgotten detached+idle) — sorts last
     }
   }
 
@@ -231,8 +233,9 @@ class LiveActivityCoordinator {
       if (live.isEmpty) continue;
       total += live.length;
       waiting += live.where((s) => s.liveState == 'waiting').length;
-      // Per-session sub-states ordered waiting>working>idle (for the split bar).
-      final subs = live.map((s) => s.liveState).toList()
+      // Per-session sub-states ordered waiting>working>idle>dim (for the split
+      // bar). fleetState marks a forgotten detached+idle session as 'dim'.
+      final subs = live.map((s) => s.fleetState).toList()
         ..sort((a, b) => _statePriority(a) - _statePriority(b));
       entries.add((
         label: p.name,
@@ -247,9 +250,9 @@ class LiveActivityCoordinator {
       if (s.liveState == 'waiting') waiting += 1;
       entries.add((
         label: _folderName(s),
-        state: s.liveState,
+        state: s.fleetState,
         recency: s.recencyTs,
-        subs: [s.liveState],
+        subs: [s.fleetState],
       ));
     }
     entries.sort((a, b) {
@@ -278,15 +281,17 @@ class LiveActivityCoordinator {
   }
 
   static String _aggregateState(List<CodingSession> live) {
-    if (live.any((s) => s.liveState == 'waiting')) return 'waiting';
-    if (live.any((s) => s.liveState == 'working')) return 'working';
-    return 'idle';
+    if (live.any((s) => s.fleetState == 'waiting')) return 'waiting';
+    if (live.any((s) => s.fleetState == 'working')) return 'working';
+    if (live.any((s) => s.fleetState == 'idle')) return 'idle';
+    return 'dim'; // every live session here is a forgotten detached+idle one
   }
 
   static const Map<String, String> _shortState = {
     'working': 'w',
     'waiting': 'p',
     'idle': 'i',
+    'dim': 'd',
   };
 
   static String _encodeSubs(List<String> subs) =>

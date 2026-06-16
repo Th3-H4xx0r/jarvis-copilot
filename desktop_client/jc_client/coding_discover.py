@@ -116,9 +116,11 @@ _FILE_PUT_MAX_STREAMS = 8
 _FILE_PUT_MAX_RAW_BYTES = 96 * 1024 * 1024
 
 # Tab-separated fields, one line per session. Keep in sync with parse_tmux_list.
+# session_attached = number of clients attached (0 = detached) — lets the fleet
+# de-emphasize a forgotten (detached + idle) session.
 _TMUX_FORMAT = (
     "#{session_name}\t#{pane_current_path}\t#{pane_current_command}\t"
-    "#{session_activity}"
+    "#{session_activity}\t#{session_attached}"
 )
 
 
@@ -287,11 +289,19 @@ def parse_tmux_list(stdout: str) -> list:
             last_activity = float(activity_raw) if activity_raw else 0.0
         except (TypeError, ValueError):
             last_activity = 0.0
+        # session_attached = client count (0 = detached). Absent (old tmux/format)
+        # -> default attached=True so we never wrongly de-emphasize a session.
+        attached_raw = (parts[4] if len(parts) > 4 else "").strip()
+        try:
+            attached = int(attached_raw) > 0 if attached_raw else True
+        except (TypeError, ValueError):
+            attached = True
         sessions.append({
             "tmux_name": name,
             "cwd": cwd,
             "command": command,
             "last_activity": last_activity,
+            "attached": attached,
         })
     return sessions
 
@@ -341,6 +351,9 @@ def _to_wire(sess: dict) -> dict:
         "cwd": cwd,
         "title": title,
         "last_activity": float(sess.get("last_activity") or 0.0),
+        # Whether a tmux client is attached (default True when unknown) — the
+        # server stores it so the fleet can dim a forgotten detached+idle session.
+        "attached": bool(sess.get("attached", True)),
     }
 
 

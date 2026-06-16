@@ -1778,6 +1778,10 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
             # Live working/waiting/idle classified Mac-side (None = capture
             # failed / old client → leave any known state unchanged, don't wipe).
             act = sess.get("activity_state")
+            # Attached-state (a client is viewing the tmux). Old clients omit it →
+            # default attached so we never wrongly dim. Stored so the fleet can
+            # de-emphasize a forgotten (detached + idle) session.
+            att = 1 if sess.get("attached", True) else 0
             tail = sess.get("pane_tail")
             if act == "waiting" and isinstance(tail, str) and tail.strip():
                 _WAITING_TAILS[(device_id, tmux_name)] = tail[-2000:]
@@ -1798,7 +1802,7 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                 # last_activity_at when the device actually reported one, so a
                 # push that omits it doesn't wipe a previously-known value.
                 fields = dict(status="running", title=title, cwd=cwd,
-                              project_id=pid, external=1)
+                              project_id=pid, external=1, attached=att)
                 if last_activity is not None:
                     fields["last_activity_at"] = last_activity
                 if csid:  # never wipe a known csid with an empty re-report
@@ -1829,6 +1833,7 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                     store.update_session(sid, last_activity_at=last_activity)
                 if act is not None:
                     store.update_session(sid, activity_state=act)
+                store.update_session(sid, attached=att)
                 live_changed = True  # a brand-new live session appeared
                 mark_transcript_dirty(csid)
             if csid:

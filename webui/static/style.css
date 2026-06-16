@@ -2704,10 +2704,13 @@ body.cdg-term-fs-open .cdg-term-fsbtn{position:fixed;top:12px;right:16px;z-index
 .cdg-dot-stopped{background:var(--muted);}
 /* history = a past/transcript-only session: muted, no glow (not running) */
 .cdg-dot-history{background:var(--muted);opacity:.55;}
+/* dim = a forgotten (detached + idle) live session: de-emphasized, not hidden */
+.cdg-dot-dim{background:#838B97;opacity:.4;}
 @keyframes cdgPulse{0%,100%{opacity:1}50%{opacity:.45}}
 .cdg-item-state{font-size:10px;font-weight:700;letter-spacing:.3px;margin-right:6px;white-space:nowrap;}
 .cdg-state-working{color:#34D399;}
 .cdg-state-waiting{color:#C084FC;}
+.cdg-state-dim{color:var(--muted);opacity:.6;}
 
 .cdg-form-card{background:var(--surface-subtle);border:1px solid var(--border);border-radius:var(--radius-card);padding:18px 20px;max-width:620px;}
 .cdg-form-title{font-size:1.02rem;font-weight:700;color:var(--text);margin-bottom:14px;}

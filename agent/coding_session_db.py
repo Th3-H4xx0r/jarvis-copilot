@@ -114,6 +114,11 @@ class CodingSessionStore:
                 # sessions survive so it can be Restored from the "Ignored" menu.
                 "ALTER TABLE coding_projects ADD COLUMN "
                 "ignored INTEGER NOT NULL DEFAULT 0",
+                # Whether a tmux client is attached to a discovered session (1/0),
+                # reported by the desktop discovery. NULL/1 = attached (default);
+                # 0 = detached. Lets the fleet de-emphasize a forgotten
+                # (detached + idle) session without hiding it.
+                "ALTER TABLE coding_sessions ADD COLUMN attached INTEGER",
             ):
                 try:
                     c.execute(ddl)
@@ -183,7 +188,7 @@ class CodingSessionStore:
                    "worktree_path", "branch", "last_activity_at",
                    "skip_permissions", "sync_config", "cwd",
                    "device_id", "external", "project_id", "source",
-                   "activity_state"}
+                   "activity_state", "attached"}
         sets = {k: v for k, v in fields.items() if k in allowed}
         if "status" in sets and sets["status"] not in VALID_STATUSES:
             raise ValueError(f"invalid status: {sets['status']!r}")

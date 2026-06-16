@@ -24,7 +24,8 @@ _LIVE_STATUSES = {"running", "starting", "idle"}
 _US = "\x1f"  # unit separator between name and state (matches the Swift decode)
 
 # Per-session sub-state shorthand for the segmented bar (3rd encoded field).
-_SHORT = {"working": "w", "waiting": "p", "idle": "i"}
+# "d" = a forgotten (detached + idle) session — rendered dimmed, sorted last.
+_SHORT = {"working": "w", "waiting": "p", "idle": "i", "dim": "d"}
 _MAX_SUBS = 8  # cap sub-segments per project (budget + legibility)
 
 
@@ -77,6 +78,21 @@ def _live_state(row) -> str:
     return "idle"
 
 
+def _is_dim(row) -> bool:
+    """A FORGOTTEN session: a discovered tmux with NO client attached, sitting
+    idle. De-emphasized (dimmed + sorted last) in the fleet — not hidden. `attached`
+    is 1/None = attached (default); only an explicit 0 means detached."""
+    return (str(row.get("source") or "").startswith("discovered-tmux")
+            and row.get("attached") == 0
+            and _live_state(row) == "idle")
+
+
+def _session_state(row) -> str:
+    """Per-session fleet state: 'dim' for a forgotten detached+idle session, else
+    its live activity state (working/waiting/idle)."""
+    return "dim" if _is_dim(row) else _live_state(row)
+
+
 def _recency(row) -> float:
     raw = row.get("last_activity_at") or row.get("created_at") or 0
     try:
@@ -87,7 +103,8 @@ def _recency(row) -> float:
 
 
 def _priority(state: str) -> int:
-    return {"waiting": 0, "working": 1}.get(state, 2)
+    # dim (forgotten) sorts LAST, after idle.
+    return {"waiting": 0, "working": 1, "idle": 2}.get(state, 3)
 
 
 def _aggregate(states) -> str:
@@ -95,7 +112,9 @@ def _aggregate(states) -> str:
         return "waiting"
     if "working" in states:
         return "working"
-    return "idle"
+    if "idle" in states:
+        return "idle"
+    return "dim"  # every live session here is a forgotten detached+idle one
 
 
 def _folder(cwd) -> str:
@@ -127,7 +146,7 @@ def build_coding_content_state(store, usage=None):
         if not _is_live(r):
             continue
         total += 1
-        st = _live_state(r)
+        st = _session_state(r)  # 'dim' for a forgotten detached+idle session
         if st == "waiting":
             waiting += 1
         pid = r.get("project_id")

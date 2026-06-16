@@ -81,6 +81,7 @@ class CodingSession {
     this.tmuxName,
     this.lastActivityAt,
     this.activityState,
+    this.attached = true,
   });
 
   final String id;
@@ -118,6 +119,11 @@ class CodingSession {
   /// (server-detected from the tmux pane). `null` = unknown / not running.
   final String? activityState;
 
+  /// Whether a tmux client is attached to a discovered session. Defaults to
+  /// `true` (server stores 1/NULL = attached; only an explicit 0 = detached) so
+  /// we never wrongly dim. Drives [isDim] (forgotten detached+idle sessions).
+  final bool attached;
+
   factory CodingSession.fromJson(Map<String, dynamic> j) {
     return CodingSession(
       id: (j['id'] ?? '').toString(),
@@ -138,6 +144,7 @@ class CodingSession {
       tmuxName: _str(j['tmux_name']),
       lastActivityAt: _str(j['last_activity_at']),
       activityState: _str(j['activity_state']),
+      attached: (j['attached'] == null) ? true : _asBool(j['attached']),
     );
   }
 
@@ -200,6 +207,18 @@ class CodingSession {
     }
     return statusClass;
   }
+
+  /// A FORGOTTEN session: a discovered tmux with NO client attached, sitting
+  /// idle. De-emphasized (dimmed + sorted last) in the fleet — not hidden.
+  /// Mirrors the server's `_is_dim` in `agent/coding_la_push.py`.
+  bool get isDim =>
+      (source ?? '').startsWith('discovered-tmux') &&
+      !attached &&
+      liveState == 'idle';
+
+  /// Per-session fleet state: `dim` for a forgotten detached+idle session, else
+  /// [liveState] (`working | waiting | idle`).
+  String get fleetState => isDim ? 'dim' : liveState;
 
   /// A transcript-only (`discovered-transcript`) session that isn't currently
   /// running — a PAST conversation with no live tmux. It can be **resumed** on

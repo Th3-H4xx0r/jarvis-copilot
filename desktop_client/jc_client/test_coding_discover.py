@@ -65,7 +65,7 @@ def test_parse_tmux_list_well_formed():
     assert len(rows) == 2
     assert rows[0] == {
         "tmux_name": "jc-abc", "cwd": "/Users/me/proj",
-        "command": "claude", "last_activity": 1717800000.0,
+        "command": "claude", "last_activity": 1717800000.0, "attached": True,
     }
     assert rows[1]["command"] == "zsh"
     assert rows[1]["last_activity"] == 1717800100.0
@@ -78,14 +78,27 @@ def test_parse_tmux_list_blank_lines_skipped():
 
 
 def test_parse_tmux_list_missing_fields_default():
-    # Only a name; trailing fields absent -> "" / 0.0, not a crash.
+    # Only a name; trailing fields absent -> "" / 0.0 / attached=True, not a crash.
     rows = parse_tmux_list("solo\n")
     assert rows == [{
         "tmux_name": "solo", "cwd": "", "command": "", "last_activity": 0.0,
+        "attached": True,
     }]
     # Non-numeric activity falls back to 0.0.
     rows2 = parse_tmux_list("x\t/p\tclaude\tnot-a-number\n")
     assert rows2[0]["last_activity"] == 0.0
+
+
+def test_parse_tmux_list_attached_field():
+    # 5th field is session_attached (client count): 0 -> detached, >0 -> attached;
+    # absent or non-numeric -> attached=True (never wrongly de-emphasize).
+    rows = parse_tmux_list(
+        "att\t/p\tclaude\t1\t1\n"
+        "det\t/p\tclaude\t2\t0\n"
+        "multi\t/p\tclaude\t3\t2\n"
+        "bad\t/p\tclaude\t4\tx\n")
+    by = {r["tmux_name"]: r["attached"] for r in rows}
+    assert by == {"att": True, "det": False, "multi": True, "bad": True}
 
 
 def test_parse_tmux_list_nameless_line_dropped():
@@ -136,7 +149,7 @@ def test_scan_keeps_only_claude_or_jc():
     for s in sessions:
         assert s["kind"] == "tmux"
         assert set(s) == {"kind", "tmux_name", "cwd", "title",
-                          "last_activity", "activity_state"}
+                          "last_activity", "activity_state", "attached"}
     # title defaults to the cwd basename
     by_name = {s["tmux_name"]: s for s in sessions}
     assert by_name["jc-abc"]["title"] == "proj"

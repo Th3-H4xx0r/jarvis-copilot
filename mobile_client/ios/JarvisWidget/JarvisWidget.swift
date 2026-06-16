@@ -279,18 +279,23 @@ private func jcCodingColor(_ s: String) -> Color {
     switch s {
     case "working": return Color(red: 0.20, green: 0.83, blue: 0.60)  // green
     case "waiting": return Color(red: 0.75, green: 0.52, blue: 0.99)  // purple
+    case "dim":     return Color(red: 0.40, green: 0.42, blue: 0.45)  // muted (forgotten)
     default:        return Color(red: 0.51, green: 0.55, blue: 0.59)  // grey (idle)
     }
 }
 
-/// Color for a per-session sub-state shorthand (w/p/i) in the segmented bar.
+/// Color for a per-session sub-state shorthand (w/p/i/d) in the segmented bar.
 private func jcSubColor(_ s: String) -> Color {
     switch s {
     case "w": return jcCodingColor("working")
     case "p": return jcCodingColor("waiting")
+    case "d": return jcCodingColor("dim")
     default:  return jcCodingColor("idle")
     }
 }
+
+/// A forgotten (detached+idle) entry is de-emphasized: muted color + dimmed.
+private func jcEntryOpacity(_ state: String) -> Double { state == "dim" ? 0.5 : 1.0 }
 private let jcUsage5Color = Color(red: 0.98, green: 0.44, blue: 0.52)    // red
 private let jcUsageWeekColor = Color(red: 0.22, green: 0.74, blue: 0.97) // blue
 
@@ -455,6 +460,8 @@ struct JCLegend: View {
                 .foregroundColor(jcCodingColor(s.state))
         }
         .frame(maxWidth: .infinity)
+        // A forgotten (detached+idle) session is de-emphasized, not hidden.
+        .opacity(jcEntryOpacity(s.state))
     }
 }
 

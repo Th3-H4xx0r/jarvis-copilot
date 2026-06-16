@@ -133,6 +133,59 @@ def test_push_dedupes_and_sends():
     assert len(sent) == 1
 
 
+def test_dim_forgotten_detached_idle_session():
+    # A discovered-tmux session that's idle with NO client attached is "forgotten"
+    # → encoded 'dim' (dimmed + sorted last) but still COUNTED (de-emphasize, not
+    # hide). Alongside an attached working session in the same project, the project
+    # aggregates to the active state and the dim one shows as a 'd' sub-segment.
+    store = FakeStore(
+        sessions=[
+            {"id": "a", "status": "running", "activity_state": "working",
+             "source": "discovered-tmux", "attached": 1,
+             "project_id": "p1", "cwd": "/x/proj", "last_activity_at": 2},
+            {"id": "b", "status": "running", "activity_state": "idle",
+             "source": "discovered-tmux", "attached": 0,
+             "project_id": "p1", "cwd": "/x/proj", "last_activity_at": 1},
+        ],
+        projects=[{"id": "p1", "name": "Proj"}], tokens=[])
+    cs = build_coding_content_state(store)
+    assert cs["sessionTotal"] == 2                  # dim still counts
+    parts = cs["sessions"][0].split(_US)
+    assert parts[:2] == ["Proj", "working"]
+    assert parts[2] == "w,d"                          # working, then dim (sorted last)
+
+
+def test_all_dim_project_aggregates_to_dim_and_sorts_last():
+    store = FakeStore(
+        sessions=[
+            {"id": "act", "status": "running", "activity_state": "working",
+             "source": "discovered-tmux", "attached": 1,
+             "project_id": "p1", "cwd": "/x/a", "last_activity_at": 5},
+            {"id": "forgot", "status": "running", "activity_state": "idle",
+             "source": "discovered-tmux", "attached": 0,
+             "project_id": "p2", "cwd": "/x/b", "last_activity_at": 9},
+        ],
+        projects=[{"id": "p1", "name": "Active"}, {"id": "p2", "name": "Forgotten"}],
+        tokens=[])
+    cs = build_coding_content_state(store)
+    # The all-dim project aggregates to 'dim' and sorts AFTER the active one even
+    # though it's more recent.
+    states = [s.split(_US)[1] for s in cs["sessions"]]
+    assert states == ["working", "dim"]
+    assert cs["sessions"][0].split(_US)[0] == "Active"
+    assert cs["sessions"][1].split(_US)[0] == "Forgotten"
+
+
+def test_attached_idle_is_not_dim():
+    # An ATTACHED idle session (the one you're looking at) is normal idle, never dim.
+    store = FakeStore(
+        [{"id": "s", "status": "running", "activity_state": "idle",
+          "source": "discovered-tmux", "attached": 1,
+          "project_id": None, "cwd": "/x/here", "last_activity_at": 1}], [], [])
+    cs = build_coding_content_state(store)
+    assert cs["sessions"][0].split(_US)[1] == "idle"
+
+
 def test_push_clears_fleet_on_live_to_empty_edge():
     # When the LAST live coding session disappears (e.g. reaped because its Mac
     # went away), build_coding_content_state returns None. Returning 0 here used to

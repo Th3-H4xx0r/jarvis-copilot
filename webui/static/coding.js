@@ -152,10 +152,21 @@ function _cdgDisplayState(s) {
     const act = String((s && s.activity_state) || '').toLowerCase();
     if (act === 'waiting') return 'waiting';
     if (act === 'working') return 'working';
-    if (act === 'idle') return 'idle';
-    return cls === 'running' ? 'working' : 'idle';
+    const st = (act === 'idle') ? 'idle' : (cls === 'running' ? 'working' : 'idle');
+    // A forgotten (detached + idle) discovered tmux is de-emphasized (dimmed),
+    // not hidden. Mirrors the server's `_is_dim` in agent/coding_la_push.py.
+    if (st === 'idle' && _codingIsDim(s)) return 'dim';
+    return st;
   }
   return cls;
+}
+
+// A discovered tmux with NO client attached, sitting idle. `attached` is 1/null =
+// attached (default); only an explicit 0 = detached, so we never wrongly dim.
+function _codingIsDim(s) {
+  const src = String((s && s.source) || '');
+  return src.indexOf('discovered-tmux') === 0 &&
+    s && s.attached != null && Number(s.attached) === 0;
 }
 
 function _cdgStateLabel(state) {
@@ -163,6 +174,7 @@ function _cdgStateLabel(state) {
     case 'working': return 'working';
     case 'waiting': return 'waiting for you';
     case 'idle': return 'idle';
+    case 'dim': return 'idle · detached';
     case 'history': return 'past session (not running)';
     case 'done': return 'done';
     case 'error': return 'error';

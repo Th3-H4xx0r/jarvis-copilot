@@ -942,6 +942,8 @@ class _SessionRow extends StatelessWidget {
         return JcTheme.danger;
       case 'idle':
         return const Color(0xFF838B97);
+      case 'dim': // forgotten (detached + idle): de-emphasized, not hidden
+        return const Color(0xFF5A6068);
       case 'stopped':
         return JcTheme.muted;
       default:
@@ -952,9 +954,10 @@ class _SessionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final transcriptIdle = session.isTranscriptIdle;
-    // liveState refines a running session into working/waiting/idle and returns
-    // 'history' for an idle transcript.
-    final cls = session.liveState;
+    // fleetState refines a running session into working/waiting/idle, marks a
+    // forgotten detached+idle session as 'dim', and returns 'history' for an idle
+    // transcript.
+    final cls = session.fleetState;
     final dot = _dotColor(cls);
     final sub = (session.cwd ?? '').trim();
     final badge = session.badge;
@@ -996,8 +999,9 @@ class _SessionRow extends StatelessWidget {
                       session.displayTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: JcTheme.text,
+                      style: TextStyle(
+                        // Forgotten (detached + idle) sessions are de-emphasized.
+                        color: session.isDim ? JcTheme.muted : JcTheme.text,
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                       ),
