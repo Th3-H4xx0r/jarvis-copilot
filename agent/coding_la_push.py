@@ -180,6 +180,26 @@ def build_coding_content_state(store, usage=None):
     return cs
 
 
+def _resting_content_state():
+    """The 'no live coding' Live Activity state, mirroring the client coordinator's
+    own empty-fleet push (mode 'voice', idle). Pushed ONCE on the live->empty edge
+    so a SUSPENDED device clears the now-gone fleet instead of freezing on it: the
+    native ``LiveActivityManager.update`` never auto-ends, so when the last live
+    session disappears (e.g. reaped because its Mac went away) and we stop pushing,
+    the dead fleet stays frozen on the Dynamic Island / Lock Screen."""
+    return {
+        "state": "idle", "transcript": "", "activity": "",
+        "connected": True, "devices": [], "mode": "voice",
+        "sessions": [], "sessionTotal": 0, "entryTotal": 0,
+        "waitingCount": 0, "usage5": -1, "usageWeek": -1,
+        "usage5Resets": "", "usageWeekResets": "",
+    }
+
+
+_RESTING_SIG = hashlib.sha1(
+    json.dumps(_resting_content_state(), sort_keys=True).encode()).hexdigest()
+
+
 def push_coding_update(store, *, usage=None, force=False, sender=None) -> int:
     """Build the content-state and push to all registered LA tokens IF it
     changed since the last push. Returns the number of successful pushes.
@@ -187,7 +207,14 @@ def push_coding_update(store, *, usage=None, force=False, sender=None) -> int:
     tests). Never raises."""
     cs = build_coding_content_state(store, usage)
     if cs is None:
-        return 0  # nothing live; let the device's own coordinator handle resting
+        # No live coding sessions. Only emit a resting/clear push if we PREVIOUSLY
+        # pushed live coding content — that live->empty edge is when a suspended
+        # device would otherwise freeze on the now-gone fleet. On a cold start (no
+        # prior push) or when we're already resting, stay silent so we never stomp
+        # a voice turn the client owns over the same (shared) activity.
+        if not _last_sig["v"] or _last_sig["v"] == _RESTING_SIG:
+            return 0
+        cs = _resting_content_state()
     sig = hashlib.sha1(json.dumps(cs, sort_keys=True).encode()).hexdigest()
     now = time.monotonic()
     if not force:

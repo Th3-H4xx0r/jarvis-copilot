@@ -26,6 +26,112 @@ from agent.coding_activity_state import classify_pane
 # errored session has no live pane to classify.
 _LIVE_STATUSES = {"running", "starting", "idle"}
 
+# ── reap stale DISCOVERED (Mac) sessions from the live fleet ──────────────────
+# A discovered-tmux row is only retired (status->stopped) by ingest_discovered's
+# reconcile when the Mac sends a NEW push that omits it — which never comes if the
+# Mac is gone. So a disconnected Mac's sessions used to linger forever at
+# status='running' (the disconnect handler only nulls activity_state), showing in
+# the iOS Live Activity as dead gray "idle". This per-tick reap retires them once
+# their owning device has been disconnected past a grace window.
+
+# Disconnected at least this long → retire. Must exceed the 5s discovery cadence
+# AND the 12s activity_state dot-null grace, so a brief WS blip (or a hermes
+# restart the device reconnects through) never reaps+revives.
+REAP_GRACE = 45.0
+
+# device_id -> monotonic time we FIRST observed the device absent. Lazily started
+# in the sweep and cleared the moment the device is connected again, so ONE
+# mechanism gives both the blip grace and the post-restart grace: right after a
+# restart every not-yet-reconnected device is freshly stamped, so nothing reaps
+# until the real devices have had REAP_GRACE seconds to reconnect (clearing it).
+_device_gone_since: dict[str, float] = {}
+
+
+def _connected_device_ids() -> list:
+    """Live set of device_ids with a current WS bridge connection. Lazy webui
+    import so this agent module never hard-depends on the webui layer; returns []
+    if unavailable (tests inject their own)."""
+    try:
+        from api.device_bridge import connected_device_ids
+        return connected_device_ids()
+    except Exception:
+        return []
+
+
+def should_reap_discovered(row, *, connected, gone_since, now,
+                           grace=REAP_GRACE) -> bool:
+    """Pure: should this row be retired from the live fleet because its Mac is
+    gone? True iff it's a LIVE ``discovered-tmux`` row whose owning device is not
+    in ``connected`` and has been clocked absent at least ``grace`` seconds.
+    ``gone_since`` is None until we've first observed the device absent (→ never
+    reap on the first sighting, which is what gives the grace its head start)."""
+    if not str(row.get("source") or "").startswith("discovered-tmux"):
+        return False
+    if row.get("status") not in _LIVE_STATUSES:
+        return False
+    if (row.get("device_id") or "") in connected:
+        return False
+    if gone_since is None:
+        return False
+    return (now - gone_since) >= grace
+
+
+def reap_disconnected_discovered(store, *, rows=None, connected_ids=None,
+                                 now=None, gone_since=None) -> int:
+    """Retire DISCOVERED (Mac) sessions whose owning device has been disconnected
+    past the grace window: ``status->stopped``, ``activity_state->None`` (the row
+    is KEPT as resumable history). Restart-robust — recomputed each tick from the
+    live connection set, not a one-shot timer; self-healing — a reconnecting Mac's
+    next discovery push revives still-alive rows to 'running'. Fires a WebUI SSE
+    notify when it retired anything. Returns the count. All deps injectable."""
+    if connected_ids is None:
+        connected_ids = _connected_device_ids()
+    if now is None:
+        now = time.monotonic()
+    if gone_since is None:
+        gone_since = _device_gone_since
+    connected = set(connected_ids)
+    # Clear the gone-clock for every currently-connected device — covers devices
+    # with no live row this tick, so a stale clock can't later reap a brief blip
+    # with zero grace.
+    for d in [d for d in gone_since if d in connected]:
+        gone_since.pop(d, None)
+    try:
+        rows = rows if rows is not None else store.list_sessions()
+    except Exception:
+        return 0
+    reaped = 0
+    for row in rows:
+        try:
+            if not str(row.get("source") or "").startswith("discovered-tmux"):
+                continue
+            if row.get("status") not in _LIVE_STATUSES:
+                continue
+            dev = row.get("device_id") or ""
+            if dev in connected:
+                continue
+            since = gone_since.get(dev)
+            if since is None:
+                gone_since[dev] = now  # start the grace clock; never reap yet
+                continue
+            if should_reap_discovered(row, connected=connected,
+                                      gone_since=since, now=now):
+                store.update_session(row["id"], status="stopped",
+                                     activity_state=None)
+                reaped += 1
+        except Exception:
+            continue
+    if reaped:
+        # A reap should reach the WebUI instantly (the per-tick LA push is driven
+        # by run_loop's on_tick). Lazy + best-effort so the loop never depends on
+        # the webui layer being importable.
+        try:
+            from api import coding_events
+            coding_events.notify()
+        except Exception:
+            pass
+    return reaped
+
 
 def _notify_server_transition(store, row, prev, state) -> None:
     """Fire a settings-gated coding notification for a SERVER-host activity_state
@@ -299,6 +405,12 @@ def run_loop(manager, *, stop, interval: float = 4.0,
     while not stop():
         try:
             run_status_tick(manager, classify=classify)
+            # Retire DISCOVERED (Mac) sessions whose owning device is gone, so the
+            # Live Activity fleet drops them instead of showing dead gray "idle"
+            # rows forever. Runs every tick, decoupled from run_status_tick (so it
+            # works even on a host whose driver lacks pane capture). on_tick's LA
+            # push then reflects the retirement.
+            reap_disconnected_discovered(manager.store)
             if on_tick is not None:
                 on_tick(manager)
             if disk_guard is not None and tick % max(1, disk_guard_every) == 0:

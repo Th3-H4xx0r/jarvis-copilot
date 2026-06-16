@@ -133,6 +133,52 @@ def test_push_dedupes_and_sends():
     assert len(sent) == 1
 
 
+def test_push_clears_fleet_on_live_to_empty_edge():
+    # When the LAST live coding session disappears (e.g. reaped because its Mac
+    # went away), build_coding_content_state returns None. Returning 0 here used to
+    # mean "no push" → a SUSPENDED device's Dynamic Island froze on the now-dead
+    # fleet (the native LiveActivityManager.update never auto-ends). The server
+    # must push ONE resting/clear state on the live->empty edge.
+    m._last_sig["v"] = ""
+    m._last_push_ts["v"] = 0.0
+    sessions = [{"id": "s", "status": "running", "activity_state": "working",
+                 "project_id": None, "cwd": "/x/a", "last_activity_at": 1}]
+    store = FakeStore(sessions, [], [{"token": "tokA"}])
+    sent = []
+
+    def fake(tok, cs, event="update"):
+        sent.append((tok, cs["mode"], cs["sessionTotal"]))
+        return {"ok": True}
+
+    assert push_coding_update(store, sender=fake) == 1
+    assert sent[-1] == ("tokA", "coding", 1)
+    # the only session vanishes → fleet empty
+    sessions.clear()
+    m._last_push_ts["v"] = 0.0  # bypass the 15s rate-limit for the test
+    assert push_coding_update(store, sender=fake) == 1   # a CLEAR push went out
+    assert sent[-1][0] == "tokA"
+    assert sent[-1][2] == 0                                # sessionTotal 0 → cleared
+    # still empty → idempotent, no repeat clear push
+    m._last_push_ts["v"] = 0.0
+    assert push_coding_update(store, sender=fake) == 0
+
+
+def test_push_silent_when_never_had_live_content():
+    # Cold start with no live coding sessions: stay silent (don't push a resting
+    # state that could stomp a voice turn the client owns over the same activity).
+    m._last_sig["v"] = ""
+    m._last_push_ts["v"] = 0.0
+    store = FakeStore([], [], [{"token": "tokA"}])
+    sent = []
+
+    def fake(tok, cs, event="update"):
+        sent.append(tok)
+        return {"ok": True}
+
+    assert push_coding_update(store, sender=fake) == 0
+    assert sent == []
+
+
 def test_push_drops_unregistered_token():
     m._last_sig["v"] = ""
     store = FakeStore(
