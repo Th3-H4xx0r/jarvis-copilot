@@ -42,6 +42,21 @@ def test_merge_ignores_dedups_and_appends():
     assert merge_ignores([]) == DEFAULT_IGNORES
 
 
+def test_default_ignores_excludes_flutter_machine_specific():
+    # A Flutter repo's ios/Flutter/ephemeral tree (absolute symlinks) plus the
+    # machine-specific generated files (.dart_tool / .packages / .flutter-plugins* /
+    # Generated.xcconfig / flutter_export_environment.sh) DIFFER on every machine and
+    # Flutter regenerates them constantly — so bidi-syncing a live Flutter checkout
+    # creates permanent, ever-regenerating conflicts that wedge the sync in
+    # "auto-resolving…" forever (the healer also can't resolve the absolute
+    # symlinks). They must be ignored — the same class as the already-ignored
+    # ".symlinks".
+    for pat in ("ephemeral", ".dart_tool", ".packages",
+                ".flutter-plugins", ".flutter-plugins-dependencies",
+                "Generated.xcconfig", "flutter_export_environment.sh"):
+        assert pat in DEFAULT_IGNORES, f"{pat!r} missing from DEFAULT_IGNORES"
+
+
 def test_status_argv_and_terminate_argv():
     assert status_argv("mutagen", "jc-x") == [
         "mutagen", "sync", "list", "--template", "{{json .}}", "jc-x"]
