@@ -880,6 +880,21 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                                        force=True)
                 except Exception:
                     pass
+                # If a custom Dynamic Island design is PINNED, force-push it AFTER
+                # the coding push so the new token gets the pinned design (the
+                # shared activity is last-write-wins).
+                try:
+                    from api import island_la_push
+                    from api.island_store import store_for_request
+                    isl = store_for_request()
+                    sel = isl.get_selection()
+                    pid = sel.get("pinnedId")
+                    if (sel.get("mode") == "pinned"
+                            and pid not in (None, "", "voice", "coding")):
+                        island_la_push.push_design_update(
+                            isl, manager.store, pid, force=True)
+                except Exception:
+                    pass
                 return _ok({"ok": True})
             return _run(_store)
         return _err(404, "not found")

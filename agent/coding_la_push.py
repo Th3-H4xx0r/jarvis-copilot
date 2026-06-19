@@ -183,6 +183,9 @@ def build_coding_content_state(store, usage=None):
         "sessions": sessions, "sessionTotal": total, "entryTotal": len(entries),
         "waitingCount": waiting,
         "usage5": -1, "usageWeek": -1, "usage5Resets": "", "usageWeekResets": "",
+        # Custom-design fields — empty for coding, but ALL ContentState keys must
+        # be present (Swift's synthesized Decodable applies no defaults).
+        "designId": "", "designVersion": 0, "data": "",
     }
     if usage:
         # Set each ring independently so a missing window (e.g. weekly absent)
@@ -212,6 +215,7 @@ def _resting_content_state():
         "sessions": [], "sessionTotal": 0, "entryTotal": 0,
         "waitingCount": 0, "usage5": -1, "usageWeek": -1,
         "usage5Resets": "", "usageWeekResets": "",
+        "designId": "", "designVersion": 0, "data": "",
     }
 
 
@@ -224,6 +228,19 @@ def push_coding_update(store, *, usage=None, force=False, sender=None) -> int:
     changed since the last push. Returns the number of successful pushes.
     ``sender`` defaults to ``api.push.apns.send_live_activity`` (injected in
     tests). Never raises."""
+    # Yield the shared activity to a PINNED custom Dynamic Island design
+    # (precedence: voice > pinned custom > coding). The client coordinator
+    # enforces this while awake; mirror it server-side so a suspended phone isn't
+    # stomped back to the coding fleet. Best-effort: never let it break coding.
+    if not force:
+        try:
+            from api.island_store import store_for_request  # noqa: PLC0415
+            sel = store_for_request().get_selection()
+            if (sel.get("mode") == "pinned"
+                    and sel.get("pinnedId") not in (None, "", "coding", "voice")):
+                return 0
+        except Exception:
+            pass
     cs = build_coding_content_state(store, usage)
     if cs is None:
         # No live coding sessions. Only emit a resting/clear push if we PREVIOUSLY

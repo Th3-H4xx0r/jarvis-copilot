@@ -285,6 +285,29 @@ import AppIntents
             LiveActivityManager.startPushTokenObservation()
         }
 
+        // Dynamic Island Designs: design-catalog cache channel. Dart syncs the
+        // design catalog from the server and hands each design's layout-tree JSON
+        // here; we write it into the shared App Group container so the JarvisWidget
+        // extension (a SEPARATE process) can read `island/design-<id>.json` when
+        // it renders a custom Live Activity. The ContentState only carries
+        // {designId, version, data} — the tree itself is too big for the ~4KB cap.
+        let islandChannel = FlutterMethodChannel(
+            name: "jarviscopilot/island",
+            binaryMessenger: controller.binaryMessenger
+        )
+        islandChannel.setMethodCallHandler { (call, result) in
+            switch call.method {
+            case "cacheDesigns":
+                let args = (call.arguments as? [String: Any]) ?? [:]
+                let designs = (args["designs"] as? [[String: Any]]) ?? []
+                result(IslandDesignCache.cache(designs))
+            case "clearDesignCache":
+                result(IslandDesignCache.clear())
+            default:
+                result(FlutterMethodNotImplemented)
+            }
+        }
+
         // Direct-APNs push channel: native forwards the device token + silent
         // pushes to Dart (jarviscopilot/apnspush).
         AppDelegate.pushChannel = FlutterMethodChannel(
@@ -339,6 +362,11 @@ import AppIntents
             // Coding Live Activity tap → just bring the app forward. (Switching
             // to the Coding tab in-app is a follow-up; the important thing here is
             // NOT to fall through to the pairing handler below.)
+            break
+        case "island":
+            // Custom-design Live Activity tap → just bring the app forward (the
+            // in-app Dynamic Island settings tab is a follow-up). Importantly, do
+            // NOT fall through to the pairing handler below.
             break
         default:
             forwardPairDeepLink(url)
@@ -631,7 +659,13 @@ enum LiveActivityManager {
             usage5: (args["usage5"] as? Int) ?? -1,
             usageWeek: (args["usageWeek"] as? Int) ?? -1,
             usage5Resets: (args["usage5Resets"] as? String) ?? "",
-            usageWeekResets: (args["usageWeekResets"] as? String) ?? ""
+            usageWeekResets: (args["usageWeekResets"] as? String) ?? "",
+            // Custom-design fields (mode == "custom"). The layout tree itself is
+            // cached on-device (see the jarviscopilot/island channel); only the
+            // selector + live values ride in the ContentState.
+            designId: (args["designId"] as? String) ?? "",
+            designVersion: (args["designVersion"] as? Int) ?? 0,
+            data: (args["data"] as? String) ?? ""
         )
     }
 
@@ -644,10 +678,13 @@ enum LiveActivityManager {
         let content = ActivityContent(state: state, staleDate: nil)
         if let existing = Activity<JarvisActivityAttributes>.activities.first {
             Task { await existing.update(content) }
-        } else if (state.mode == "coding" && state.sessionTotal > 0) || state.state != "idle" {
+        } else if (state.mode == "coding" && state.sessionTotal > 0)
+                    || (state.mode == "custom" && !state.designId.isEmpty)
+                    || state.state != "idle" {
             // Spin one up when something is happening: a live voice turn OR live
-            // coding sessions (the latter is the auto-launch path — the activity
-            // appears without the user ever opening the Voice screen).
+            // coding sessions OR a selected custom design (each an auto-launch
+            // path — the activity appears without the user ever opening the Voice
+            // screen).
             // Try to start WITH a push token (enables APNs push-to-update). If
             // the app isn't entitled for push — e.g. a free Apple account with no
             // Push Notifications capability — that request FAILS, so fall back to
@@ -705,6 +742,59 @@ enum LiveActivityManager {
                 }
             }
         }
+    }
+}
+
+// ── Dynamic Island Designs: on-device design cache ───────────────
+//
+// The Live Activity ContentState (~4KB cap) can't carry a full layout tree, so
+// designs are cached as JSON files in the shared App Group container. The Runner
+// app writes them here (from Dart's catalog sync); the JarvisWidget extension —
+// a SEPARATE process — reads `island/design-<id>.json` when it renders a custom
+// design. Both targets must list the SAME App Group entitlement (see
+// Runner.entitlements + JarvisWidget.entitlements) or containerURL returns nil.
+enum IslandDesignCache {
+    /// MUST match the App Group id in Runner.entitlements +
+    /// JarvisWidget.entitlements and the constant in JarvisWidget.swift.
+    static let appGroupId = "group.com.jarviscopilot.jarviscopilotMobileAndIOS"
+
+    /// `<AppGroupContainer>/island/` — created on demand.
+    private static func islandDir() -> URL? {
+        guard let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupId) else { return nil }
+        let dir = container.appendingPathComponent("island", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Write each design's JSON string to `island/design-<id>.json`. Each entry:
+    /// `{"id": String, "version": Int, "json": String}`. Returns true on success
+    /// (best-effort — a single bad entry is skipped, not fatal).
+    static func cache(_ designs: [[String: Any]]) -> Bool {
+        guard let dir = islandDir() else { return false }
+        for d in designs {
+            guard let id = d["id"] as? String, !id.isEmpty,
+                  let json = d["json"] as? String else { continue }
+            // Keep the id filesystem-safe (catalog ids are slugs, but be defensive
+            // so a crafted id can't escape the island dir).
+            let safe = id.replacingOccurrences(
+                of: "/", with: "_").replacingOccurrences(of: "..", with: "_")
+            let file = dir.appendingPathComponent("design-\(safe).json")
+            try? json.data(using: .utf8)?.write(to: file, options: .atomic)
+        }
+        return true
+    }
+
+    /// Remove the cached designs (the `island` dir contents). Returns true.
+    static func clear() -> Bool {
+        guard let dir = islandDir() else { return false }
+        let fm = FileManager.default
+        if let items = try? fm.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil) {
+            for item in items { try? fm.removeItem(at: item) }
+        }
+        return true
     }
 }
 

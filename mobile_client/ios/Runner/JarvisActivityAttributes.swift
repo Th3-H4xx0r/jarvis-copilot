@@ -28,7 +28,9 @@ struct JarvisActivityAttributes: ActivityAttributes {
         // When voice is idle and there are live Claude Code sessions, the same
         // activity flips to a fleet view (Scheme 4). When voice is active it
         // stays "voice" and the fields above drive the (unchanged) voice UI.
-        /// "voice" (existing UI) or "coding" (the Claude Code fleet view).
+        /// "voice" (existing UI), "coding" (the Claude Code fleet view), or
+        /// "custom" (a data-driven design rendered by JCDesignView from a layout
+        /// tree cached on-device by `designId`).
         var mode: String = "voice"
         /// Up to ~4 spotlight sessions, each encoded "name\u{1f}state[\u{1f}subs]"
         /// where state ∈ working|waiting|idle and the optional 3rd field is a
@@ -50,6 +52,29 @@ struct JarvisActivityAttributes: ActivityAttributes {
         /// Short reset hints, e.g. "2h 10m" / "Mon" ("" = hide).
         var usage5Resets: String = ""
         var usageWeekResets: String = ""
+
+        // ── Custom mode (Dynamic Island Designs) ─────────────────────────────
+        // When `mode == "custom"`, JCDesignView (in JarvisWidget) renders a
+        // data-driven layout tree instead of the voice/coding views. The tree
+        // itself is NOT in the ContentState (it would blow the ~4KB cap) — it is
+        // cached on-device under the App Group `island/design-<designId>.json`
+        // (written via the `jarviscopilot/island` channel). The state carries
+        // only the design selector + the live values to bind into it.
+        //
+        // IMPORTANT: Swift synthesizes NO defaults for missing Codable keys, so
+        // every pusher (Dart coordinator, coding_la_push, island_la_push, the
+        // resting state) must ALWAYS send these three keys. The defaults here are
+        // only the in-process fallback for a struct built without them.
+        /// Id of the cached design to render. "" → fall back (never crash/blank).
+        var designId: String = ""
+        /// Version of the cached design; lets the widget pick the right cached
+        /// file / a future cache to ignore a stale design. 0 = unset.
+        var designVersion: Int = 0
+        /// JSON-encoded object string of the live values bound into the design
+        /// (resolved ValueRefs: `{"$":"key"}` reads keys from this object).
+        /// Kept as a string so the 4KB cap is measured on the wire, not on a
+        /// nested Codable. "" → no bindings (render literals / placeholders).
+        var data: String = ""
     }
     var title: String = "JARVIS"
 }

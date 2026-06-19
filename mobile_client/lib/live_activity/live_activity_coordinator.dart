@@ -5,7 +5,12 @@ import 'dart:math';
 import 'package:flutter/services.dart';
 
 import '../api/coding_sessions.dart';
+import '../api/island_designs.dart';
 import '../coding/coding_models.dart';
+import '../island/island_auto.dart';
+import '../island/island_bindings.dart';
+import '../island/island_models.dart';
+import '../island/island_sync.dart';
 import '../services/app_lifecycle.dart';
 import '../services/credentials.dart';
 import 'la_poll_policy.dart';
@@ -43,10 +48,18 @@ class LiveActivity {
 class LiveActivityCoordinator {
   LiveActivityCoordinator(this._api) {
     instance = this;
+    _island = IslandApi(_api.api);
     // Receive the per-activity APNs push token from native and register it so
     // the server can push-to-update the activity while the app is suspended.
     LiveActivity.setPushTokenHandler(_onPushToken);
   }
+
+  // ── custom Dynamic Island designs ──
+  late final IslandApi _island;
+  final IslandSync _islandSync = IslandSync();
+  IslandCatalog _catalog = IslandCatalog.empty;
+  DateTime _lastIslandFetch = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _islandFetchInterval = Duration(seconds: 15);
 
   String _lastToken = '';
 
@@ -198,11 +211,38 @@ class LiveActivityCoordinator {
         _lastUsageFetch = DateTime.now();
       }
       _applyFleet(view, usage); // usage==null → _applyFleet keeps the last snapshot
+      await _maybeRefreshIsland();
       _push();
     } catch (_) {
       // transient — keep the last snapshot, retry next tick
     }
   }
+
+  /// Fetch the Dynamic Island design catalog + selection (rarely changes, so
+  /// gated) and cache changed designs into the iOS App Group. Best-effort: an
+  /// older server / offline keeps the last catalog (empty → legacy voice/coding
+  /// behavior).
+  Future<void> _maybeRefreshIsland() async {
+    final now = DateTime.now();
+    if (now.difference(_lastIslandFetch) < _islandFetchInterval) return;
+    _lastIslandFetch = now;
+    try {
+      final cat = await _island.fetchCatalog();
+      _catalog = cat;
+      await _islandSync.sync(cat.designs);
+    } catch (_) {
+      // keep the previous catalog
+    }
+  }
+
+  /// Global live sources the auto-engine + binding resolver can read. Per-design
+  /// jarvis.* values come from the server (catalog.data), not here.
+  Sources _buildSources() => <String, dynamic>{
+        'time.now': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        'coding.sessions': _sessionTotal,
+        if (_usage5 >= 0) 'coding.usage5': _usage5,
+        if (_usageWeek >= 0) 'coding.usageWeek': _usageWeek,
+      };
 
   static int _statePriority(String s) {
     switch (s) {
@@ -311,10 +351,49 @@ class LiveActivityCoordinator {
   void _push() {
     if (!_enabled) return;
     final voiceActive = _voiceState != 'idle';
-    final mode = voiceActive
-        ? 'voice'
-        : (_sessionTotal > 0 ? 'coding' : 'voice');
-    final coding = mode == 'coding';
+    final codingLive = _sessionTotal > 0;
+
+    String mode;
+    var coding = false;
+    var designId = '';
+    var designVersion = 0;
+    var dataJson = '';
+
+    if (_catalog.entries.isEmpty) {
+      // Island catalog not loaded yet (or older server) → legacy behavior:
+      // voice wins, else coding when sessions live, else voice-idle launcher.
+      mode = voiceActive ? 'voice' : (codingLive ? 'coding' : 'voice');
+      coding = mode == 'coding';
+    } else {
+      final sources = _buildSources();
+      final active = selectActiveDesign(
+        catalog: _catalog,
+        voiceActive: voiceActive,
+        codingLive: codingLive,
+        sources: sources,
+        now: DateTime.now(),
+      );
+      if (active.isCustom && active.id != null) {
+        final d = _catalog.designById(active.id!);
+        if (d != null) {
+          mode = 'custom';
+          designId = d.id;
+          designVersion = d.version;
+          dataJson = jsonEncode(
+              resolveData(d, sources, _catalog.dataFor(d.id)));
+        } else {
+          mode = codingLive ? 'coding' : 'voice';
+          coding = mode == 'coding';
+        }
+      } else if (active.kind == 'coding') {
+        mode = 'coding';
+        coding = true;
+      } else {
+        // 'voice' (active turn or pinned) or 'none' (resting launcher)
+        mode = 'voice';
+      }
+    }
+
     final args = <String, dynamic>{
       'state': _voiceState,
       'transcript': _voiceTranscript,
@@ -330,6 +409,9 @@ class LiveActivityCoordinator {
       'usageWeek': coding ? _usageWeek : -1,
       'usage5Resets': coding ? _usage5Resets : '',
       'usageWeekResets': coding ? _usageWeekResets : '',
+      'designId': designId,
+      'designVersion': designVersion,
+      'data': dataJson,
     };
     // Collision-proof dedupe: encode the structured args (a session title with a
     // delimiter char can't fake-match like a join() would).

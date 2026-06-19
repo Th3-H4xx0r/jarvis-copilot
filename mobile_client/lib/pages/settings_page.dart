@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 
@@ -10,6 +11,7 @@ import '../services/on_device_ai_types.dart';
 import '../services/watch_sync.dart';
 import '../theme.dart';
 import '../widgets/glass.dart';
+import 'island_designs_page.dart';
 import 'ondevice_ai_settings_page.dart';
 import 'pair_page.dart';
 import 'watch_companion_page.dart';
@@ -220,6 +222,15 @@ class _SettingsPageState extends State<SettingsPage> {
                   title: 'Accessibility access',
                   onTap: _openAccessibilitySettings,
                 ),
+                if (Platform.isIOS)
+                  GlassRow(
+                    icon: Icons.dashboard_customize_rounded,
+                    title: 'Dynamic Island',
+                    subtitle: 'Custom Lock Screen / Dynamic Island designs.',
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const IslandDesignsPage(),
+                    )),
+                  ),
                 GlassRow(
                   icon: Icons.watch_rounded,
                   title: 'Apple Watch companion',

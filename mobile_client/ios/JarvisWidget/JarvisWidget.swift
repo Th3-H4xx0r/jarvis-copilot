@@ -515,6 +515,1050 @@ struct JCCompactFleetBar: View {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// MARK: - Dynamic Island Designs — data-driven renderer (JCDesignView)
+// ══════════════════════════════════════════════════════════════════════════
+//
+// When ContentState.mode == "custom", the activity renders a declarative layout
+// tree instead of the hard-coded voice/coding views. The tree is NOT in the
+// ContentState (4KB cap) — it's cached on-device by the Runner app under the
+// shared App Group `island/design-<id>.json` and read here (a SEPARATE process).
+// The ContentState carries only {designId, designVersion, data}; `data` is a
+// JSON object string of the live values bound into the tree via ValueRefs.
+//
+// Animation inside a Live Activity is limited to Text(timerInterval:),
+// ProgressView, content-update transitions, and SF-Symbol .symbolEffect (iOS 17+
+// only) — everything else is static between pushes. The renderer never crashes
+// and never goes blank: a missing/corrupt design falls back to the app name +
+// data.title; unknown node types are skipped; recursion/count are clamped.
+
+// ── App Group container access ───────────────────────────────────────────────
+enum JCDesignCache {
+    /// MUST match Runner.entitlements + JarvisWidget.entitlements +
+    /// IslandDesignCache.appGroupId (AppDelegate.swift).
+    static let appGroupId = "group.com.jarviscopilot.jarviscopilotMobileAndIOS"
+
+    /// Read + decode `island/design-<id>.json`. Returns nil if missing/corrupt.
+    static func load(_ designId: String) -> JCDesign? {
+        guard !designId.isEmpty,
+              let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: appGroupId) else { return nil }
+        let safe = designId.replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "..", with: "_")
+        let file = container
+            .appendingPathComponent("island", isDirectory: true)
+            .appendingPathComponent("design-\(safe).json")
+        guard let data = try? Data(contentsOf: file) else { return nil }
+        return try? JSONDecoder().decode(JCDesign.self, from: data)
+    }
+}
+
+// ── Decodable layout model ───────────────────────────────────────────────────
+
+/// Top-level cached design object.
+struct JCDesign: Decodable {
+    var schema: Int = 1
+    var id: String = ""
+    var version: Int = 0
+    var name: String = ""
+    var icon: String = ""
+    var tint: String = ""
+    var presentations: JCPresentations = JCPresentations()
+
+    enum CodingKeys: String, CodingKey {
+        case schema, id, version, name, icon, tint, presentations
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schema = (try? c.decode(Int.self, forKey: .schema)) ?? 1
+        id = (try? c.decode(String.self, forKey: .id)) ?? ""
+        version = (try? c.decode(Int.self, forKey: .version)) ?? 0
+        name = (try? c.decode(String.self, forKey: .name)) ?? ""
+        icon = (try? c.decode(String.self, forKey: .icon)) ?? ""
+        tint = (try? c.decode(String.self, forKey: .tint)) ?? ""
+        presentations = (try? c.decode(JCPresentations.self, forKey: .presentations))
+            ?? JCPresentations()
+    }
+    init() {}
+}
+
+struct JCPresentations: Decodable {
+    var expanded: JCNode?
+    var lockScreen: JCNode?
+    var compactLeading: JCNode?
+    var compactTrailing: JCNode?
+    var minimal: JCNode?
+
+    enum CodingKeys: String, CodingKey {
+        case expanded, lockScreen, compactLeading, compactTrailing, minimal
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        expanded = try? c.decode(JCNode.self, forKey: .expanded)
+        lockScreen = try? c.decode(JCNode.self, forKey: .lockScreen)
+        compactLeading = try? c.decode(JCNode.self, forKey: .compactLeading)
+        compactTrailing = try? c.decode(JCNode.self, forKey: .compactTrailing)
+        minimal = try? c.decode(JCNode.self, forKey: .minimal)
+    }
+    init() {}
+}
+
+/// A node in the layout tree: `{type, ...props, style?, when?}`. The `type` is a
+/// dynamic string (forward-compat: unknown types render as a placeholder/omit),
+/// so props are decoded leniently into a loosely-typed bag.
+struct JCNode: Decodable {
+    var type: String = ""
+    var style: JCStyle?
+    var when: JCJSON?          // condition; nil = always shown
+    var props: [String: JCJSON] = [:]
+
+    /// Convenience prop accessors (all optional / tolerant of missing keys).
+    func ref(_ key: String) -> JCValueRef? { props[key].map(JCValueRef.init) }
+    func node(_ key: String) -> JCNode? { props[key]?.asNode() }
+    func nodes(_ key: String) -> [JCNode] { props[key]?.asNodeArray() ?? [] }
+    func string(_ key: String) -> String? { props[key]?.asString }
+    func int(_ key: String) -> Int? { props[key]?.asInt }
+    func double(_ key: String) -> Double? { props[key]?.asDouble }
+    func bool(_ key: String) -> Bool? { props[key]?.asBool }
+
+    private struct DynKey: CodingKey {
+        var stringValue: String; var intValue: Int? = nil
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
+    }
+    init(from decoder: Decoder) throws {
+        guard let c = try? decoder.container(keyedBy: DynKey.self) else {
+            return  // not an object → empty placeholder node
+        }
+        for key in c.allKeys {
+            switch key.stringValue {
+            case "type":
+                type = (try? c.decode(String.self, forKey: key)) ?? ""
+            case "style":
+                style = try? c.decode(JCStyle.self, forKey: key)
+            case "when":
+                when = try? c.decode(JCJSON.self, forKey: key)
+            default:
+                if let v = try? c.decode(JCJSON.self, forKey: key) {
+                    props[key.stringValue] = v
+                }
+            }
+        }
+    }
+    init(type: String) { self.type = type }
+}
+
+/// Per-node visual overrides — all optional.
+struct JCStyle: Decodable {
+    var color: String?
+    var font: String?
+    var size: Double?
+    var weight: String?
+    var opacity: Double?
+    var padding: Double?
+    var align: String?
+    var tint: String?
+    var width: Double?
+    var height: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case color, font, size, weight, opacity, padding, align, tint, width, height
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        color = try? c.decode(String.self, forKey: .color)
+        font = try? c.decode(String.self, forKey: .font)
+        size = try? c.decode(Double.self, forKey: .size)
+        weight = try? c.decode(String.self, forKey: .weight)
+        opacity = try? c.decode(Double.self, forKey: .opacity)
+        padding = try? c.decode(Double.self, forKey: .padding)
+        align = try? c.decode(String.self, forKey: .align)
+        tint = try? c.decode(String.self, forKey: .tint)
+        width = try? c.decode(Double.self, forKey: .width)
+        height = try? c.decode(Double.self, forKey: .height)
+    }
+}
+
+/// A tolerant JSON value (used for props, ValueRefs, conditions, list rows).
+indirect enum JCJSON: Decodable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case array([JCJSON])
+    case object([String: JCJSON])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null; return }
+        if let b = try? c.decode(Bool.self) { self = .bool(b); return }
+        if let n = try? c.decode(Double.self) { self = .number(n); return }
+        if let s = try? c.decode(String.self) { self = .string(s); return }
+        if let a = try? c.decode([JCJSON].self) { self = .array(a); return }
+        if let o = try? c.decode([String: JCJSON].self) { self = .object(o); return }
+        self = .null
+    }
+
+    var asString: String? {
+        switch self {
+        case .string(let s): return s
+        case .number(let n): return JCJSON.numberString(n)
+        case .bool(let b): return b ? "true" : "false"
+        default: return nil
+        }
+    }
+    var asDouble: Double? {
+        switch self {
+        case .number(let n): return n
+        case .string(let s): return Double(s)
+        case .bool(let b): return b ? 1 : 0
+        default: return nil
+        }
+    }
+    var asInt: Int? { asDouble.map { Int($0) } }
+    var asBool: Bool? {
+        switch self {
+        case .bool(let b): return b
+        case .number(let n): return n != 0
+        case .string(let s): return s == "true" || s == "1"
+        default: return nil
+        }
+    }
+    var asObject: [String: JCJSON]? { if case .object(let o) = self { return o }; return nil }
+    var asArray: [JCJSON]? { if case .array(let a) = self { return a }; return nil }
+
+    func asNode() -> JCNode? {
+        guard let o = asObject else { return nil }
+        return JCJSON.decodeNode(from: o)
+    }
+    func asNodeArray() -> [JCNode]? {
+        guard let a = asArray else { return nil }
+        return a.compactMap { $0.asNode() }
+    }
+
+    /// Re-encode an object value back into a JCNode (props were captured as JCJSON
+    /// so nested child nodes need re-materializing through the JCNode decoder).
+    static func decodeNode(from obj: [String: JCJSON]) -> JCNode? {
+        guard let data = try? JSONEncoder().encode(JCJSONBox(obj)) else { return nil }
+        return try? JSONDecoder().decode(JCNode.self, from: data)
+    }
+
+    static func numberString(_ n: Double) -> String {
+        if n == n.rounded() && abs(n) < 1e15 { return String(Int(n)) }
+        return String(n)
+    }
+}
+
+/// Encodable wrapper so a captured JCJSON object can be re-serialized (to feed
+/// the JCNode decoder for nested children). Only the object case is needed.
+private struct JCJSONBox: Encodable {
+    let obj: [String: JCJSON]
+    init(_ obj: [String: JCJSON]) { self.obj = obj }
+    struct DynKey: CodingKey {
+        var stringValue: String; var intValue: Int? = nil
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: DynKey.self)
+        for (k, v) in obj {
+            try JCJSON.encodeValue(v, into: &c, key: DynKey(stringValue: k)!)
+        }
+    }
+}
+
+extension JCJSON {
+    fileprivate static func encodeValue(
+        _ v: JCJSON, into c: inout KeyedEncodingContainer<JCJSONBox.DynKey>,
+        key: JCJSONBox.DynKey
+    ) throws {
+        switch v {
+        case .string(let s): try c.encode(s, forKey: key)
+        case .number(let n): try c.encode(n, forKey: key)
+        case .bool(let b): try c.encode(b, forKey: key)
+        case .null: try c.encodeNil(forKey: key)
+        case .array(let a): try c.encode(JCJSONArrayBox(a), forKey: key)
+        case .object(let o): try c.encode(JCJSONBox(o), forKey: key)
+        }
+    }
+}
+
+private struct JCJSONArrayBox: Encodable {
+    let arr: [JCJSON]
+    init(_ arr: [JCJSON]) { self.arr = arr }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.unkeyedContainer()
+        for v in arr {
+            switch v {
+            case .string(let s): try c.encode(s)
+            case .number(let n): try c.encode(n)
+            case .bool(let b): try c.encode(b)
+            case .null: try c.encodeNil()
+            case .array(let a): try c.encode(JCJSONArrayBox(a))
+            case .object(let o): try c.encode(JCJSONBox(o))
+            }
+        }
+    }
+}
+
+// ── ValueRef resolution + binding context ────────────────────────────────────
+
+/// A ValueRef: literal, `{"$":"key"}`, `{"$row":"field"}`, or `{"src":...}` (the
+/// last resolves UPSTREAM — the widget treats an unresolved src as missing).
+/// Optional transforms: `"fmt":"{}%"` and `"map":{"working":"#34c759",...}`.
+struct JCValueRef {
+    let raw: JCJSON
+    init(_ raw: JCJSON) { self.raw = raw }
+
+    /// Resolve to a display string, or nil when missing/unbound.
+    func string(_ ctx: JCBindingContext) -> String? {
+        resolve(ctx).flatMap { applyTransforms($0, kind: .string) }
+    }
+    /// Resolve to a number (0–100 progress, gauge values, etc.), or nil.
+    func double(_ ctx: JCBindingContext) -> Double? {
+        guard let v = resolve(ctx) else { return nil }
+        if case .string = v, let s = applyTransforms(v, kind: .string) { return Double(s) }
+        return v.asDouble
+    }
+    func array(_ ctx: JCBindingContext) -> [JCJSON]? { resolve(ctx)?.asArray }
+
+    /// The raw bound JCJSON (literal or looked-up), before fmt/map.
+    func resolve(_ ctx: JCBindingContext) -> JCJSON? {
+        switch raw {
+        case .object(let o):
+            if let key = o["$"]?.asString { return ctx.data[key] }
+            if let field = o["$row"]?.asString { return ctx.row?[field] }
+            // A source binding resolves to data[key] too — the coordinator (awake)
+            // or server (suspended) places the resolved value under the src key.
+            // Absent → nil (renders as missing), never a crash.
+            if let key = o["src"]?.asString { return ctx.data[key] }
+            return raw  // a plain object literal (rare) — pass through
+        default:
+            return raw  // literal string/number/bool
+        }
+    }
+
+    private enum Kind { case string }
+    private func applyTransforms(_ v: JCJSON, kind: Kind) -> String? {
+        var s: String?
+        // map: value → mapped string (e.g. state → hex color, or label).
+        if case .object(let o) = raw, let mapObj = o["map"]?.asObject,
+           let key = v.asString, let mapped = mapObj[key]?.asString {
+            s = mapped
+        } else {
+            s = v.asString
+        }
+        guard var out = s else { return nil }
+        // fmt: "{}" placeholder substitution (e.g. "{}%").
+        if case .object(let o) = raw, let fmt = o["fmt"]?.asString {
+            out = fmt.replacingOccurrences(of: "{}", with: out)
+        }
+        return out
+    }
+
+    /// Mapped color hex for ValueRefs whose map yields color strings.
+    func color(_ ctx: JCBindingContext) -> Color? {
+        guard let s = string(ctx) else { return nil }
+        return jcParseColor(s)
+    }
+}
+
+/// Holds the decoded `data` dict + the current `$row` (inside a list template).
+struct JCBindingContext {
+    let data: [String: JCJSON]
+    var row: [String: JCJSON]?
+
+    init(dataJSON: String) {
+        if let d = dataJSON.data(using: .utf8),
+           let obj = try? JSONDecoder().decode([String: JCJSON].self, from: d) {
+            data = obj
+        } else {
+            data = [:]
+        }
+        row = nil
+    }
+    private init(data: [String: JCJSON], row: [String: JCJSON]?) {
+        self.data = data; self.row = row
+    }
+    func withRow(_ row: [String: JCJSON]) -> JCBindingContext {
+        JCBindingContext(data: data, row: row)
+    }
+}
+
+// ── Color + condition helpers ────────────────────────────────────────────────
+
+/// Parse a color: #rrggbb / #rrggbbaa hex, or a small named palette that matches
+/// the coding-mode colors. Returns nil for unknown.
+func jcParseColor(_ s: String) -> Color? {
+    let t = s.trimmingCharacters(in: .whitespaces)
+    if t.hasPrefix("#") {
+        let hex = String(t.dropFirst())
+        guard let val = UInt64(hex, radix: 16) else { return nil }
+        let r, g, b, a: Double
+        switch hex.count {
+        case 6:
+            r = Double((val >> 16) & 0xff) / 255
+            g = Double((val >> 8) & 0xff) / 255
+            b = Double(val & 0xff) / 255
+            a = 1
+        case 8:
+            r = Double((val >> 24) & 0xff) / 255
+            g = Double((val >> 16) & 0xff) / 255
+            b = Double((val >> 8) & 0xff) / 255
+            a = Double(val & 0xff) / 255
+        default:
+            return nil
+        }
+        return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
+    }
+    switch t.lowercased() {
+    case "white": return .white
+    case "black": return .black
+    case "clear": return .clear
+    case "green": return jcCodingColor("working")
+    case "purple", "violet": return jcCodingColor("waiting")
+    case "grey", "gray": return jcCodingColor("idle")
+    case "red": return jcUsage5Color
+    case "blue": return jcUsageWeekColor
+    case "cyan": return jcStateColor("listening")
+    case "pink": return jcStateColor("speaking")
+    default: return nil
+    }
+}
+
+/// Evaluate a `when` condition expression against the binding context. Unknown /
+/// malformed → true (fail-open so a typo doesn't blank the whole design).
+func jcEvalCondition(_ expr: JCJSON?, _ ctx: JCBindingContext) -> Bool {
+    guard let expr = expr else { return true }
+    guard let o = expr.asObject, let op = o["op"]?.asString else { return true }
+    func operand(_ key: String) -> JCJSON? {
+        guard let v = o[key] else { return nil }
+        return JCValueRef(v).resolve(ctx)
+    }
+    switch op {
+    case "and":
+        return (o["items"]?.asArray ?? []).allSatisfy { jcEvalCondition($0, ctx) }
+    case "or":
+        return (o["items"]?.asArray ?? []).contains { jcEvalCondition($0, ctx) }
+    case "not":
+        return !jcEvalCondition(o["item"], ctx)
+    case "exists":
+        return operand("a") != nil
+    case "eq":
+        return (operand("a")?.asString) == (operand("b")?.asString)
+    case "ne":
+        return (operand("a")?.asString) != (operand("b")?.asString)
+    case "gt":
+        if let a = operand("a")?.asDouble, let b = operand("b")?.asDouble { return a > b }
+        return false
+    case "lt":
+        if let a = operand("a")?.asDouble, let b = operand("b")?.asDouble { return a < b }
+        return false
+    case "between":
+        if let v = operand("a")?.asDouble,
+           let lo = operand("lo")?.asDouble, let hi = operand("hi")?.asDouble {
+            return v >= lo && v <= hi
+        }
+        return false
+    default:
+        return true
+    }
+}
+
+// ── The renderer ─────────────────────────────────────────────────────────────
+
+/// Recursive renderer with depth/count safety clamps. Build one per render pass
+/// (the count is mutated). Unknown node types render nothing. Never crashes.
+@available(iOS 16.2, *)
+final class JCDesignRenderer {
+    private var count = 0
+    private let maxDepth = 8
+    private let maxNodes = 60
+    let tint: Color
+
+    init(tint: Color) { self.tint = tint }
+
+    func render(_ node: JCNode?, _ ctx: JCBindingContext, depth: Int = 0) -> AnyView {
+        guard let node = node, depth <= maxDepth, count < maxNodes else {
+            return AnyView(EmptyView())
+        }
+        // `when` gating — skip a node (and its subtree) when its condition fails.
+        if !jcEvalCondition(node.when, ctx) { return AnyView(EmptyView()) }
+        count += 1
+        let view = body(node, ctx, depth: depth)
+        return AnyView(applyStyle(view, node.style, ctx))
+    }
+
+    @ViewBuilder
+    private func body(_ n: JCNode, _ ctx: JCBindingContext, depth: Int) -> some View {
+        switch n.type {
+        // ── Containers ──────────────────────────────────────────────────────
+        case "hstack":
+            HStack(alignment: jcVAlign(n.string("align")), spacing: jcSpacing(n)) {
+                ForEach(jcIndexed(n.nodes("children")), id: \.0) { _, child in
+                    render(child, ctx, depth: depth + 1)
+                }
+            }
+        case "vstack":
+            VStack(alignment: jcHAlign(n.string("align")), spacing: jcSpacing(n)) {
+                ForEach(jcIndexed(n.nodes("children")), id: \.0) { _, child in
+                    render(child, ctx, depth: depth + 1)
+                }
+            }
+        case "zstack":
+            ZStack {
+                ForEach(jcIndexed(n.nodes("children")), id: \.0) { _, child in
+                    render(child, ctx, depth: depth + 1)
+                }
+            }
+        case "grid":
+            let cols = max(1, n.int("columns") ?? 2)
+            let items = Array(repeating: GridItem(.flexible(), spacing: jcSpacing(n)),
+                              count: cols)
+            LazyVGrid(columns: items, spacing: jcSpacing(n)) {
+                ForEach(jcIndexed(n.nodes("children")), id: \.0) { _, child in
+                    render(child, ctx, depth: depth + 1)
+                }
+            }
+        case "list":
+            renderList(n, ctx, depth: depth)
+        case "spacer":
+            if let m = n.double("minLength") { Spacer(minLength: CGFloat(m)) } else { Spacer() }
+        case "regions":
+            // Outside the DI expanded region wiring (lock screen), flatten the
+            // regions into a vertical stack so nothing is lost.
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(["leading", "trailing", "center", "bottom"], id: \.self) { key in
+                    render(n.node(key), ctx, depth: depth + 1)
+                }
+            }
+        // ── Leaves ──────────────────────────────────────────────────────────
+        case "text":
+            jcText(n.ref("value")?.string(ctx) ?? "", n, ctx)
+                .lineLimit(n.int("lineLimit") ?? 1)
+        case "titleSubtitle":
+            VStack(alignment: .leading, spacing: 2) {
+                jcText(n.ref("title")?.string(ctx) ?? "", n, ctx, size: 14, weight: .bold)
+                    .lineLimit(1)
+                jcText(n.ref("subtitle")?.string(ctx) ?? "", n, ctx,
+                       size: 11, weight: .semibold, opacity: 0.6)
+                    .lineLimit(1)
+            }
+        case "stat":
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                jcText(n.ref("value")?.string(ctx) ?? "—", n, ctx, size: 22, weight: .heavy)
+                if let unit = n.ref("unit")?.string(ctx) {
+                    jcText(unit, n, ctx, size: 11, weight: .semibold, opacity: 0.6)
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                if let cap = n.ref("caption")?.string(ctx) {
+                    jcText(cap, n, ctx, size: 9, weight: .medium, opacity: 0.5)
+                        .offset(y: 12)
+                }
+            }
+        case "symbol":
+            jcSymbol(n, ctx)
+        case "symbolValue":
+            HStack(spacing: 5) {
+                if let name = n.ref("symbol")?.string(ctx) {
+                    Image(systemName: name).font(.system(size: n.style?.size.map { CGFloat($0) } ?? 13))
+                        .foregroundStyle(n.style?.color.flatMap(jcParseColor) ?? .white)
+                }
+                jcText(n.ref("value")?.string(ctx) ?? "", n, ctx, size: 13, weight: .semibold)
+            }
+        case "image":
+            jcImage(n, ctx)
+        case "dot":
+            Circle()
+                .fill(n.ref("color")?.color(ctx) ?? tint)
+                .frame(width: 8, height: 8)
+        case "badge":
+            jcBadge(n, ctx)
+        case "progress":
+            jcProgress(n, ctx)
+        case "segbar":
+            jcSegbar(n, ctx)
+        case "gauge":
+            jcGauge(n, ctx)
+        case "timer":
+            jcTimer(n, ctx)
+        case "keyValue":
+            jcKeyValue(n, ctx)
+        case "sparkline":
+            jcSparkline(n, ctx)
+        case "iconStrip":
+            jcIconStrip(n, ctx)
+        case "waveform":
+            jcWaveform(n)
+        case "divider":
+            Divider().overlay(Color.white.opacity(0.18))
+        case "accent":
+            RoundedRectangle(cornerRadius: 2)
+                .fill(n.ref("color")?.color(ctx) ?? tint)
+                .frame(width: 3)
+        default:
+            // Unknown type → render nothing (forward-compat).
+            EmptyView()
+        }
+    }
+
+    // ── List ────────────────────────────────────────────────────────────────
+    @ViewBuilder
+    private func renderList(_ n: JCNode, _ ctx: JCBindingContext, depth: Int) -> some View {
+        let rows = (n.ref("data")?.array(ctx) ?? []).compactMap { $0.asObject }
+        let maxRows = max(0, min(n.int("max") ?? rows.count, rows.count))
+        if rows.isEmpty {
+            render(n.node("empty"), ctx, depth: depth + 1)
+        } else if let cols = n.int("columns"), cols > 1 {
+            let items = Array(repeating: GridItem(.flexible(), spacing: 6), count: cols)
+            LazyVGrid(columns: items, alignment: .leading, spacing: 6) {
+                ForEach(0..<maxRows, id: \.self) { i in
+                    render(n.node("row"), ctx.withRow(rows[i]), depth: depth + 1)
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(0..<maxRows, id: \.self) { i in
+                    render(n.node("row"), ctx.withRow(rows[i]), depth: depth + 1)
+                }
+            }
+        }
+    }
+
+    // ── Leaf builders ─────────────────────────────────────────────────────────
+    private func jcText(_ s: String, _ n: JCNode, _ ctx: JCBindingContext,
+                        size: CGFloat = 13, weight: Font.Weight = .medium,
+                        opacity: Double = 1) -> some View {
+        let sz = n.style?.size.map { CGFloat($0) } ?? size
+        let w = n.style?.weight.flatMap(jcWeight) ?? weight
+        let col = n.style?.color.flatMap(jcParseColor) ?? .white
+        let op = n.style?.opacity ?? opacity
+        return Text(s).font(.system(size: sz, weight: w)).foregroundStyle(col.opacity(op))
+    }
+
+    @ViewBuilder
+    private func jcSymbol(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        let name = n.ref("name")?.string(ctx) ?? n.string("name") ?? "questionmark"
+        let sz = n.style?.size.map { CGFloat($0) } ?? 16
+        let col = n.style?.color.flatMap(jcParseColor) ?? n.style?.tint.flatMap(jcParseColor) ?? .white
+        let img = Image(systemName: name).font(.system(size: sz)).foregroundStyle(col)
+        if #available(iOS 17.0, *), let effect = n.string("effect") {
+            switch effect {
+            case "pulse": img.symbolEffect(.pulse, options: .repeating)
+            case "bounce": img.symbolEffect(.bounce, options: .repeating)
+            case "variableColor": img.symbolEffect(.variableColor, options: .repeating)
+            default: img
+            }
+        } else {
+            img
+        }
+    }
+
+    @ViewBuilder
+    private func jcImage(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        // No remote/asset loading inside the extension — `source` is treated as an
+        // SF Symbol name for safety (placeholder otherwise). The shared orb image
+        // is available under the reserved source "orb".
+        let source = n.ref("source")?.string(ctx) ?? n.string("source") ?? ""
+        let w = n.style?.width.map { CGFloat($0) } ?? 28
+        let h = n.style?.height.map { CGFloat($0) } ?? w
+        let shape = n.string("shape") ?? "circle"
+        let base: AnyView = {
+            if source == "orb", let ui = jarvisOrbUIImage {
+                return AnyView(Image(uiImage: ui).resizable().scaledToFill())
+            } else if !source.isEmpty {
+                return AnyView(Image(systemName: source).resizable().scaledToFit()
+                    .foregroundStyle(.white))
+            }
+            return AnyView(Rectangle().fill(Color.white.opacity(0.1)))
+        }()
+        base
+            .frame(width: w, height: h)
+            .clipShape(shape == "rounded"
+                ? JCAnyShape(RoundedRectangle(cornerRadius: 6))
+                : JCAnyShape(Circle()))
+    }
+
+    private func jcBadge(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        let text = n.ref("text")?.string(ctx) ?? ""
+        let c = n.ref("color")?.color(ctx) ?? tint
+        return Text(text)
+            .font(.system(size: 10, weight: .heavy)).tracking(0.5)
+            .foregroundStyle(c)
+            .padding(.vertical, 4).padding(.horizontal, 9)
+            .background(Capsule().fill(c.opacity(0.2)))
+            .overlay(Capsule().stroke(c.opacity(0.45), lineWidth: 1))
+    }
+
+    private func jcProgress(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        let v = jcClamp01((n.ref("value")?.double(ctx) ?? 0) / jcScale(n))
+        let c = n.ref("tint")?.color(ctx) ?? n.style?.tint.flatMap(jcParseColor) ?? tint
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.14))
+                Capsule().fill(c).frame(width: geo.size.width * CGFloat(v))
+            }
+        }
+        .frame(height: 8)
+    }
+
+    private func jcSegbar(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        let segs = (n.ref("segments")?.array(ctx) ?? []).compactMap { $0.asObject }
+        return HStack(spacing: 2) {
+            if segs.isEmpty {
+                RoundedRectangle(cornerRadius: 2).fill(Color.white.opacity(0.12)).frame(height: 8)
+            } else {
+                ForEach(jcIndexed(segs), id: \.0) { _, seg in
+                    let weight = max(0.0001, seg["weight"]?.asDouble ?? 1)
+                    let c = seg["color"]?.asString.flatMap(jcParseColor) ?? tint
+                    RoundedRectangle(cornerRadius: 2).fill(c)
+                        .frame(height: 8)
+                        .frame(maxWidth: .infinity)
+                        .layoutPriority(weight)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func jcGauge(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        // style "single" → one ring; "concentric" → nested rings (both built from
+        // the `rings:[{value,tint}]` prop, with a single-`value` fallback).
+        let rings = gaugeRingsFromProps(n, ctx)
+        let label = n.ref("label")?.string(ctx)
+        ZStack {
+            ForEach(jcIndexed(rings), id: \.0) { i, ring in
+                let d: CGFloat = 46 - CGFloat(i) * 16
+                Circle().stroke(Color.white.opacity(0.14), lineWidth: 4).frame(width: d, height: d)
+                Circle().trim(from: 0, to: CGFloat(jcClamp01(ring.value)))
+                    .stroke(ring.tint, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .rotationEffect(.degrees(-90)).frame(width: d, height: d)
+            }
+            if let label = label {
+                Text(label).font(.system(size: 11, weight: .heavy)).foregroundStyle(.white)
+            }
+        }
+        .frame(width: 48, height: 48)
+    }
+
+    private struct GaugeRing { let value: Double; let tint: Color }
+    private func gaugeRingsFromProps(_ n: JCNode, _ ctx: JCBindingContext) -> [GaugeRing] {
+        // rings: [{value, tint}] — value 0..1 (or 0..100 with scale).
+        let raw = n.props["rings"]?.asArray ?? []
+        let scale = jcScale(n)
+        let rings = raw.compactMap { item -> GaugeRing? in
+            guard let o = item.asObject else { return nil }
+            let val = JCValueRef(o["value"] ?? .null).double(ctx) ?? (o["value"]?.asDouble ?? 0)
+            let tintC = o["tint"]?.asString.flatMap(jcParseColor) ?? tint
+            return GaugeRing(value: val / scale, tint: tintC)
+        }
+        if rings.isEmpty {
+            // single-style fallback: one ring from `value`.
+            let v = (n.ref("value")?.double(ctx) ?? 0) / scale
+            return [GaugeRing(value: v, tint: tint)]
+        }
+        return rings
+    }
+
+    @ViewBuilder
+    private func jcTimer(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        // `to` is an epoch seconds (number) or ISO string we parse to a Date.
+        let toRef = n.ref("to")
+        if let date = jcParseDate(toRef?.resolve(ctx)) {
+            let countdown = (n.string("mode") ?? "countdown") == "countdown"
+            let range = countdown ? date...Date.distantFuture : Date.distantPast...date
+            Text(timerInterval: range, countsDown: countdown)
+                .font(.system(size: n.style?.size.map { CGFloat($0) } ?? 15,
+                              weight: n.style?.weight.flatMap(jcWeight) ?? .semibold))
+                .foregroundStyle(n.style?.color.flatMap(jcParseColor) ?? .white)
+                .monospacedDigit()
+        } else {
+            Text("--:--").font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.4)).monospacedDigit()
+        }
+    }
+
+    private func jcKeyValue(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        let pairs = (n.props["pairs"]?.asArray ?? []).compactMap { $0.asObject }
+        return VStack(alignment: .leading, spacing: 4) {
+            ForEach(jcIndexed(pairs), id: \.0) { _, p in
+                HStack {
+                    Text(JCValueRef(p["label"] ?? .null).string(ctx) ?? "")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.55))
+                    Spacer(minLength: 8)
+                    Text(JCValueRef(p["value"] ?? .null).string(ctx) ?? "")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+    }
+
+    private func jcSparkline(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        let pts = (n.ref("points")?.array(ctx) ?? []).compactMap { $0.asDouble }
+        let c = n.ref("tint")?.color(ctx) ?? n.style?.tint.flatMap(jcParseColor) ?? tint
+        let kind = n.string("kind") ?? "line"
+        return JCSparklineShape(points: pts, filled: kind == "area")
+            .stroke(c, style: StrokeStyle(lineWidth: 2, lineJoin: .round))
+            .background(
+                kind == "area"
+                    ? AnyView(JCSparklineShape(points: pts, filled: true)
+                        .fill(c.opacity(0.18)))
+                    : AnyView(EmptyView())
+            )
+            .frame(height: 22)
+    }
+
+    private func jcIconStrip(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        let items = (n.ref("items")?.array(ctx) ?? []).compactMap { $0.asString }
+        let maxN = n.int("max") ?? items.count
+        let shown = Array(items.prefix(max(0, maxN)))
+        return HStack(spacing: 12) {
+            ForEach(jcIndexed(shown), id: \.0) { _, name in
+                Image(systemName: name).font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            if items.count > shown.count {
+                Text("+\(items.count - shown.count)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+        }
+    }
+
+    private func jcWaveform(_ n: JCNode) -> some View {
+        // Static bars (a Live Activity can't drive a continuous custom animation);
+        // reads as a "voice" affordance.
+        HStack(spacing: 3) {
+            ForEach(0..<7, id: \.self) { i in
+                Capsule().fill(tint.opacity(0.8))
+                    .frame(width: 3, height: [10.0, 18, 8, 22, 12, 16, 9][i % 7])
+            }
+        }
+    }
+
+    // ── Style application ─────────────────────────────────────────────────────
+    @ViewBuilder
+    private func applyStyle<V: View>(_ view: V, _ style: JCStyle?, _ ctx: JCBindingContext) -> some View {
+        let padded = view.padding(style?.padding.map { CGFloat($0) } ?? 0)
+        let sized = padded
+            .frame(width: style?.width.map { CGFloat($0) },
+                   height: style?.height.map { CGFloat($0) })
+        if let op = style?.opacity {
+            sized.opacity(op)
+        } else {
+            sized
+        }
+    }
+}
+
+// ── Small helpers ────────────────────────────────────────────────────────────
+
+private func jcIndexed<T>(_ items: [T]) -> [(Int, T)] { Array(items.enumerated()) }
+private func jcSpacing(_ n: JCNode) -> CGFloat { CGFloat(n.double("spacing") ?? 6) }
+private func jcScale(_ n: JCNode) -> Double {
+    // progress/gauge values may be 0..1 or 0..100; `scale` (default 1) lets the
+    // author say 100. Heuristic: if no scale given and value>1 looks like a pct.
+    n.double("scale") ?? 1
+}
+private func jcClamp01(_ v: Double) -> Double { max(0, min(1, v)) }
+
+private func jcHAlign(_ s: String?) -> HorizontalAlignment {
+    switch s { case "center": return .center; case "trailing": return .trailing; default: return .leading }
+}
+private func jcVAlign(_ s: String?) -> VerticalAlignment {
+    switch s { case "top": return .top; case "bottom": return .bottom; case "firstBaseline": return .firstTextBaseline; default: return .center }
+}
+private func jcWeight(_ s: String) -> Font.Weight {
+    switch s {
+    case "ultraLight": return .ultraLight
+    case "thin": return .thin
+    case "light": return .light
+    case "regular": return .regular
+    case "medium": return .medium
+    case "semibold": return .semibold
+    case "bold": return .bold
+    case "heavy": return .heavy
+    case "black": return .black
+    default: return .regular
+    }
+}
+private func jcParseDate(_ v: JCJSON?) -> Date? {
+    guard let v = v else { return nil }
+    if let n = v.asDouble, n > 0 {
+        // epoch seconds (>1e12 → ms)
+        return Date(timeIntervalSince1970: n > 1_000_000_000_000 ? n / 1000 : n)
+    }
+    if let s = v.asString {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = iso.date(from: s) { return d }
+        iso.formatOptions = [.withInternetDateTime]
+        if let d = iso.date(from: s) { return d }
+    }
+    return nil
+}
+
+/// A line/area path for sparkline points, normalized to its frame.
+struct JCSparklineShape: Shape {
+    let points: [Double]
+    let filled: Bool
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        guard points.count > 1 else { return p }
+        let lo = points.min() ?? 0, hi = points.max() ?? 1
+        let span = hi - lo == 0 ? 1 : hi - lo
+        let stepX = rect.width / CGFloat(points.count - 1)
+        func pt(_ i: Int) -> CGPoint {
+            let y = rect.height - CGFloat((points[i] - lo) / span) * rect.height
+            return CGPoint(x: CGFloat(i) * stepX, y: y)
+        }
+        p.move(to: pt(0))
+        for i in 1..<points.count { p.addLine(to: pt(i)) }
+        if filled {
+            p.addLine(to: CGPoint(x: rect.width, y: rect.height))
+            p.addLine(to: CGPoint(x: 0, y: rect.height))
+            p.closeSubpath()
+        }
+        return p
+    }
+}
+
+/// Type-erased Shape so a node can pick its clip shape at runtime. (Named JC* to
+/// avoid shadowing SwiftUI's own iOS-16 `AnyShape` and any deployment ambiguity.)
+struct JCAnyShape: Shape {
+    private let pathFn: (CGRect) -> Path
+    init<S: Shape>(_ shape: S) { pathFn = { shape.path(in: $0) } }
+    func path(in rect: CGRect) -> Path { pathFn(rect) }
+}
+
+// ── Top-level custom design view (lock screen + region routing) ──────────────
+
+/// Renders the cached design for `mode == "custom"`. Loads `design-<id>.json`
+/// from the App Group; decodes; falls back to (app name + data.title) when the
+/// design is missing/corrupt. Never crashes, never blank.
+@available(iOS 16.2, *)
+struct JCDesignView: View {
+    let st: JarvisActivityAttributes.ContentState
+    /// Which presentation node to render. `.lockScreen` uses lockScreen ?? expanded.
+    var presentation: JCPresentation = .lockScreen
+
+    enum JCPresentation { case lockScreen, expanded, compactLeading, compactTrailing, minimal }
+
+    /// Compact / minimal slots are tiny — their fallback is just the orb.
+    private var isCompact: Bool {
+        switch presentation {
+        case .compactLeading, .compactTrailing, .minimal: return true
+        default: return false
+        }
+    }
+
+    var body: some View {
+        if let design = JCDesignCache.load(st.designId) {
+            let ctx = JCBindingContext(dataJSON: st.data)
+            let tint = jcParseColor(design.tint) ?? jcCodingColor("working")
+            let renderer = JCDesignRenderer(tint: tint)
+            let node = pickNode(design)
+            content(renderer, node, ctx)
+        } else {
+            JCDesignFallback(st: st, compact: isCompact)
+        }
+    }
+
+    @ViewBuilder
+    private func content(_ r: JCDesignRenderer, _ node: JCNode?, _ ctx: JCBindingContext) -> some View {
+        if node == nil {
+            JCDesignFallback(st: st, compact: isCompact)
+        } else {
+            switch presentation {
+            case .lockScreen, .expanded:
+                r.render(node, ctx)
+                    .padding(.horizontal, 16).padding(.vertical, 13)
+            default:
+                r.render(node, ctx)
+            }
+        }
+    }
+
+    private func pickNode(_ d: JCDesign) -> JCNode? {
+        switch presentation {
+        case .lockScreen: return d.presentations.lockScreen ?? d.presentations.expanded
+        case .expanded: return d.presentations.expanded
+        case .compactLeading: return d.presentations.compactLeading
+        case .compactTrailing: return d.presentations.compactTrailing
+        case .minimal: return d.presentations.minimal
+        }
+    }
+}
+
+/// Fallback when the design is missing/corrupt: the app name + an optional
+/// `data.title` so the activity is never blank and never crashes.
+@available(iOS 16.2, *)
+struct JCDesignFallback: View {
+    let st: JarvisActivityAttributes.ContentState
+    var compact: Bool = false
+    private var title: String? {
+        let ctx = JCBindingContext(dataJSON: st.data)
+        return ctx.data["title"]?.asString
+    }
+    var body: some View {
+        if compact {
+            JarvisOrb(state: "idle", size: 22)
+        } else {
+            HStack(spacing: 10) {
+                JarvisOrb(state: "idle", size: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("JARVIS").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
+                    if let t = title, !t.isEmpty {
+                        Text(t).font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 13)
+        }
+    }
+}
+
+/// Expanded Dynamic Island region builder for a custom design. A top-level
+/// `regions` node maps children to the native DI regions; otherwise the whole
+/// expanded tree goes in the bottom region.
+@available(iOS 16.2, *)
+@DynamicIslandExpandedContentBuilder
+func jcDesignExpandedRegions(
+    _ st: JarvisActivityAttributes.ContentState
+) -> DynamicIslandExpandedContent<some View> {
+    let design = JCDesignCache.load(st.designId)
+    let ctx = JCBindingContext(dataJSON: st.data)
+    let tint = design.flatMap { jcParseColor($0.tint) } ?? jcCodingColor("working")
+    let node = design?.presentations.expanded
+    if let node = node, node.type == "regions" {
+        DynamicIslandExpandedRegion(.leading) {
+            JCDesignRenderer(tint: tint).render(node.node("leading"), ctx)
+        }
+        DynamicIslandExpandedRegion(.trailing) {
+            JCDesignRenderer(tint: tint).render(node.node("trailing"), ctx)
+        }
+        DynamicIslandExpandedRegion(.center) {
+            JCDesignRenderer(tint: tint).render(node.node("center"), ctx)
+        }
+        DynamicIslandExpandedRegion(.bottom) {
+            JCDesignRenderer(tint: tint).render(node.node("bottom"), ctx)
+        }
+    } else {
+        DynamicIslandExpandedRegion(.bottom) {
+            if let node = node {
+                JCDesignRenderer(tint: tint).render(node, ctx)
+            } else {
+                JCDesignFallback(st: st)
+            }
+        }
+    }
+}
+
 @available(iOS 16.2, *)
 struct JarvisLiveActivity: Widget {
     var body: some WidgetConfiguration {
@@ -522,10 +1566,25 @@ struct JarvisLiveActivity: Widget {
             JarvisLockScreen(st: context.state)
                 .activityBackgroundTint(Color.black.opacity(0.65))
                 .activitySystemActionForegroundColor(.white)
-                .widgetURL(URL(string: context.state.mode == "coding"
-                    ? "jarviscopilot://coding" : "jarviscopilot://voice"))
+                .widgetURL(URL(string: jcWidgetURL(context.state)))
         } dynamicIsland: { context in
             let st = context.state
+            // Custom data-driven design (Dynamic Island Designs). A `regions`
+            // top-level node maps to the native DI regions; otherwise the whole
+            // expanded tree lands in the bottom region. Compact/minimal pull from
+            // their presentation nodes, with the orb/fallback as a safety net.
+            if st.mode == "custom" {
+                return DynamicIsland {
+                    jcDesignExpandedRegions(st)
+                } compactLeading: {
+                    JCDesignView(st: st, presentation: .compactLeading)
+                } compactTrailing: {
+                    JCDesignView(st: st, presentation: .compactTrailing)
+                } minimal: {
+                    JCDesignView(st: st, presentation: .minimal)
+                }
+                .widgetURL(URL(string: jcWidgetURL(st)))
+            }
             return DynamicIsland {
                 // Header left-aligned: orb + JARVIS/Connected sit together on the
                 // leading side (a little padding off the orb), state pill trailing.
@@ -606,9 +1665,19 @@ struct JarvisLiveActivity: Widget {
                     JarvisOrb(state: st.state, size: 22)
                 }
             }
-            .widgetURL(URL(string: st.mode == "coding"
-                ? "jarviscopilot://coding" : "jarviscopilot://voice"))
+            .widgetURL(URL(string: jcWidgetURL(st)))
         }
+    }
+}
+
+/// Deep-link target for a tap on the activity. Coding → coding tab; custom →
+/// the island tab; voice (and fallback) → the Voice screen.
+@available(iOS 16.2, *)
+private func jcWidgetURL(_ st: JarvisActivityAttributes.ContentState) -> String {
+    switch st.mode {
+    case "coding": return "jarviscopilot://coding"
+    case "custom": return "jarviscopilot://island"
+    default: return "jarviscopilot://voice"
     }
 }
 
@@ -618,7 +1687,11 @@ struct JarvisLiveActivity: Widget {
 struct JarvisLockScreen: View {
     let st: JarvisActivityAttributes.ContentState
     var body: some View {
-        if st.mode == "coding" {
+        if st.mode == "custom" {
+            // Data-driven custom design (Dynamic Island Designs). Renders the
+            // cached layout tree; falls back to app name + data.title if missing.
+            JCDesignView(st: st, presentation: .lockScreen)
+        } else if st.mode == "coding" {
             // Coding fleet view (Scheme 4): header + segmented bar + legend.
             JarvisCodingBody(st: st)
                 .padding(.horizontal, 16).padding(.vertical, 13)

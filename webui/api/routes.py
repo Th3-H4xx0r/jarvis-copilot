@@ -3466,6 +3466,16 @@ def handle_get(handler, parsed) -> bool:
             "GET", sub, None, manager=default_manager())
         return j(handler, payload, status=status)
 
+    if parsed.path.startswith("/api/island"):
+        from api.island_routes import ISLAND_PATH_PREFIX, handle_island_request
+        from api.island_store import store_for_request
+        sub = parsed.path[len(ISLAND_PATH_PREFIX):]
+        if parsed.query:
+            sub += "?" + parsed.query
+        status, payload = handle_island_request(
+            "GET", sub, None, store_for_request())
+        return j(handler, payload, status=status)
+
     if parsed.path.startswith("/session/static/"):
         # Strip the leading "/session" so _serve_static() sees a path that
         # starts with "/static/" (its required prefix). _serve_static enforces
@@ -4712,6 +4722,22 @@ def handle_post(handler, parsed) -> bool:
                 coding_events.notify()
             except Exception:
                 pass
+        return j(handler, payload, status=status)
+
+    if parsed.path.startswith("/api/island"):
+        from api.island_routes import ISLAND_PATH_PREFIX, handle_island_request
+        from api.island_store import store_for_request
+        sub = parsed.path[len(ISLAND_PATH_PREFIX):]
+        if parsed.query:
+            sub += "?" + parsed.query
+        token_store = None
+        try:
+            from api.coding_routes import default_manager
+            token_store = default_manager().store
+        except Exception:
+            token_store = None
+        status, payload = handle_island_request(
+            "POST", sub, body, store_for_request(), token_store=token_store)
         return j(handler, payload, status=status)
 
     if parsed.path == "/api/session/recovery/repair-safe":
@@ -6514,6 +6540,16 @@ def handle_delete(handler, parsed) -> bool:
                 coding_events.notify()
             except Exception:
                 pass
+        return j(handler, payload, status=status)
+
+    if parsed.path.startswith("/api/island"):
+        from api.island_routes import ISLAND_PATH_PREFIX, handle_island_request
+        from api.island_store import store_for_request
+        sub = parsed.path[len(ISLAND_PATH_PREFIX):]
+        if parsed.query:
+            sub += "?" + parsed.query
+        status, payload = handle_island_request(
+            "DELETE", sub, body, store_for_request())
         return j(handler, payload, status=status)
 
     if parsed.path.startswith("/api/kanban/"):

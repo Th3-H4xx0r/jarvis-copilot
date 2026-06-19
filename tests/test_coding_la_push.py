@@ -60,10 +60,12 @@ def test_build_content_state_aggregates_by_project():
     assert cs["sessions"][0].split(_US) == ["IntelliStock", "waiting", "p,w"]
     # A single-session row omits the 3rd field (renders as one solid segment).
     assert cs["sessions"][1].split(_US) == ["jarvis-copilot", "working"]
-    # ALL Codable keys present (Swift Decodable needs every one).
+    # ALL Codable keys present (Swift Decodable needs every one) — including the
+    # custom-design fields added for Dynamic Island Designs.
     for k in ("state", "transcript", "activity", "connected", "devices", "mode",
               "sessions", "sessionTotal", "entryTotal", "waitingCount",
-              "usage5", "usageWeek", "usage5Resets", "usageWeekResets"):
+              "usage5", "usageWeek", "usage5Resets", "usageWeekResets",
+              "designId", "designVersion", "data"):
         assert k in cs
 
 

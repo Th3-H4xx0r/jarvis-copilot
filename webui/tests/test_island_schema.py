@@ -1,0 +1,198 @@
+"""Unit tests for the Dynamic Island design-tree validator (api.island_schema).
+
+Pure validation — no I/O, no server. Run from the webui/ dir:
+    cd webui && python3 -m pytest tests/test_island_schema.py
+"""
+from __future__ import annotations
+
+from api import island_schema as s
+
+
+def _minimal():
+    return {
+        "id": "demo", "version": 1, "name": "Demo",
+        "presentations": {"expanded": {"type": "text", "value": "hi"}},
+    }
+
+
+def test_minimal_valid():
+    assert s.validate_design(_minimal()) == []
+    assert s.is_valid(_minimal())
+
+
+def test_deploy_status_example_valid():
+    design = {
+        "id": "deploy-status", "version": 1, "name": "Deploy status",
+        "icon": "shippingbox.fill", "tint": "#0a84ff",
+        "presentations": {
+            "expanded": {"type": "vstack", "spacing": 8, "children": [
+                {"type": "hstack", "children": [
+                    {"type": "symbol", "name": "shippingbox.fill",
+                     "style": {"tint": "#0a84ff"}},
+                    {"type": "titleSubtitle", "title": {"$": "repo"},
+                     "subtitle": {"$": "branch"}},
+                    {"type": "spacer"},
+                    {"type": "gauge", "style": "single",
+                     "rings": [{"value": {"$": "pct"}, "tint": "#0a84ff"}]}]},
+                {"type": "progress", "value": {"$": "pct"},
+                 "tint": {"$": "state",
+                          "map": {"running": "#0a84ff", "passed": "#34c759"}}},
+                {"type": "list", "data": {"$": "steps"}, "max": 3, "row":
+                    {"type": "hstack", "children": [
+                        {"type": "dot", "color": {"$row": "state",
+                         "map": {"ok": "#34c759"}}},
+                        {"type": "text", "value": {"$row": "name"}},
+                        {"type": "spacer"},
+                        {"type": "text", "value": {"$row": "dur"}}]}}]},
+            "compactLeading": {"type": "symbol", "name": "shippingbox.fill"},
+            "compactTrailing": {"type": "text",
+                                "value": {"$": "pct", "fmt": "{}%"}},
+            "minimal": {"type": "dot", "color": {"$": "state"}},
+        },
+    }
+    assert s.validate_design(design) == []
+
+
+def test_not_an_object():
+    assert s.validate_design([]) == ["design must be an object"]
+
+
+def test_bad_id():
+    d = _minimal(); d["id"] = "Bad ID!"
+    assert any("id must be" in e for e in s.validate_design(d))
+
+
+def test_missing_expanded():
+    d = _minimal(); d["presentations"] = {"minimal": {"type": "divider"}}
+    assert any("expanded is required" in e for e in s.validate_design(d))
+
+
+def test_unknown_presentation():
+    d = _minimal(); d["presentations"]["bogus"] = {"type": "divider"}
+    assert any("unknown presentation" in e for e in s.validate_design(d))
+
+
+def test_unknown_node_type():
+    d = _minimal(); d["presentations"]["expanded"] = {"type": "blink"}
+    assert any("unknown node type" in e for e in s.validate_design(d))
+
+
+def test_row_binding_outside_list_rejected():
+    d = _minimal()
+    d["presentations"]["expanded"] = {"type": "text", "value": {"$row": "x"}}
+    assert any("$row binding only valid inside a list" in e
+               for e in s.validate_design(d))
+
+
+def test_row_binding_inside_list_ok():
+    d = _minimal()
+    d["presentations"]["expanded"] = {
+        "type": "list", "data": {"$": "rows"},
+        "row": {"type": "text", "value": {"$row": "x"}}}
+    assert s.validate_design(d) == []
+
+
+def test_unknown_source():
+    d = _minimal()
+    d["presentations"]["expanded"] = {"type": "text", "value": {"src": "nope.x"}}
+    assert any("unknown source" in e for e in s.validate_design(d))
+
+
+def test_known_namespace_source_ok():
+    d = _minimal()
+    d["presentations"]["expanded"] = {"type": "text",
+                                      "value": {"src": "jarvis.deployPct"}}
+    assert s.validate_design(d) == []
+
+
+def test_binding_needs_exactly_one_key():
+    d = _minimal()
+    d["presentations"]["expanded"] = {"type": "text",
+                                      "value": {"$": "a", "src": "time.now"}}
+    assert any("exactly one of" in e for e in s.validate_design(d))
+
+
+def test_list_requires_row():
+    d = _minimal()
+    d["presentations"]["expanded"] = {"type": "list", "data": {"$": "rows"}}
+    assert any(".row is required" in e for e in s.validate_design(d))
+
+
+def test_array_prop_rejects_scalar():
+    d = _minimal()
+    d["presentations"]["expanded"] = {"type": "segbar", "segments": "nope"}
+    assert any("expected a list or array binding" in e
+               for e in s.validate_design(d))
+
+
+def test_array_prop_accepts_binding_and_list():
+    d = _minimal()
+    d["presentations"]["expanded"] = {
+        "type": "sparkline", "points": {"$": "series"}}
+    assert s.validate_design(d) == []
+
+
+def test_gauge_requires_rings():
+    d = _minimal()
+    d["presentations"]["expanded"] = {"type": "gauge", "style": "single"}
+    assert any("rings must be a non-empty list" in e
+               for e in s.validate_design(d))
+
+
+def test_regions_only_in_expanded():
+    d = _minimal()
+    d["presentations"]["minimal"] = {"type": "regions",
+                                     "leading": {"type": "divider"}}
+    assert any("only allowed at the top of presentations.expanded" in e
+               for e in s.validate_design(d))
+
+
+def test_regions_in_expanded_ok():
+    d = _minimal()
+    d["presentations"]["expanded"] = {"type": "regions",
+                                      "leading": {"type": "symbol", "name": "bolt"},
+                                      "bottom": {"type": "text", "value": "x"}}
+    assert s.validate_design(d) == []
+
+
+def test_too_deep():
+    node = {"type": "text", "value": "x"}
+    for _ in range(10):
+        node = {"type": "vstack", "children": [node]}
+    d = _minimal(); d["presentations"]["expanded"] = node
+    assert any("too deep" in e for e in s.validate_design(d))
+
+
+def test_too_many_nodes():
+    children = [{"type": "divider"} for _ in range(s.MAX_NODES + 5)]
+    d = _minimal()
+    d["presentations"]["expanded"] = {"type": "vstack", "children": children}
+    assert any("too many nodes" in e for e in s.validate_design(d))
+
+
+def test_missing_required_leaf_prop():
+    d = _minimal()
+    d["presentations"]["expanded"] = {"type": "progress"}  # value required
+    assert any(".value is required for progress" in e
+               for e in s.validate_design(d))
+
+
+def test_condition_validation():
+    good = {"op": "and", "items": [
+        {"op": "gt", "a": {"src": "battery.level"}, "b": 20},
+        {"op": "exists", "a": {"$": "x"}}]}
+    assert s.validate_condition(good) == []
+    bad = {"op": "frobnicate"}
+    assert any("unknown condition op" in e for e in s.validate_condition(bad))
+
+
+def test_when_on_node_validated():
+    d = _minimal()
+    d["presentations"]["expanded"] = {
+        "type": "text", "value": "x", "when": {"op": "nope"}}
+    assert any("unknown condition op" in e for e in s.validate_design(d))
+
+
+def test_bad_tint():
+    d = _minimal(); d["tint"] = "octarine"
+    assert any("tint must be" in e for e in s.validate_design(d))

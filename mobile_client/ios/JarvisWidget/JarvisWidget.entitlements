@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  App Group: lets the JarvisWidget extension read the Dynamic Island design
+	  cache (island/design-<id>.json) written by the Runner app. The id MUST match
+	  Runner.entitlements + IslandDesignCache.appGroupId (AppDelegate.swift) +
+	  JCDesignCache.appGroupId (JarvisWidget.swift), or containerURL returns nil.
+
+	  This file is wired into the JarvisWidget target's Debug + Release build
+	  configs as CODE_SIGN_ENTITLEMENTS in Runner.xcodeproj/project.pbxproj. If a
+	  future Xcode resync drops that, re-add it manually:
+	  TODO(app-group): JarvisWidget target → Build Settings → Code Signing
+	  Entitlements = JarvisWidget/JarvisWidget.entitlements (Debug + Release).
+	-->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.jarviscopilot.jarviscopilotMobileAndIOS</string>
+	</array>
+</dict>
+</plist>
