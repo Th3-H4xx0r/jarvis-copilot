@@ -86,4 +86,18 @@ void main() {
     expect(IslandCatalog.empty.designs, isEmpty);
     expect(IslandCatalog.empty.selection.isAuto, isTrue);
   });
+
+  test('contentSig changes on a layout edit even without a version bump', () {
+    IslandDesign d(String value) => IslandDesign.fromJson({
+          'id': 'd',
+          'version': 1, // SAME version
+          'presentations': {
+            'expanded': {'type': 'text', 'value': value}
+          }
+        });
+    // Same version, different tree → different signature (so it re-caches live).
+    expect(d('x').contentSig == d('y').contentSig, isFalse);
+    // Identical content → same signature (no spurious re-cache/push).
+    expect(d('x').contentSig == d('x').contentSig, isTrue);
+  });
 }

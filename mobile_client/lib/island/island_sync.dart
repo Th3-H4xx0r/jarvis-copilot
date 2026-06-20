@@ -27,10 +27,11 @@ class IslandNative {
 }
 
 /// Caches design definitions to the App Group, re-pushing only the ones whose
-/// `(id, version)` changed since last sync — so a steady catalog produces no
-/// channel chatter.
+/// CONTENT changed since last sync — keyed on [IslandDesign.contentSig] (the
+/// whole tree), NOT `version`, so a layout edit re-caches live even when Jarvis
+/// doesn't bump the version. A steady catalog produces no channel chatter.
 class IslandSync {
-  final Map<String, int> _cached = {};
+  final Map<String, int> _cached = {}; // id -> content signature
 
   Future<void> sync(List<IslandDesign> designs) async {
     final ids = designs.map((d) => d.id).toSet();
@@ -43,12 +44,12 @@ class IslandSync {
     }
     final changed = <IslandDesign>[];
     for (final d in designs) {
-      if (_cached[d.id] != d.version) changed.add(d);
+      if (_cached[d.id] != d.contentSig) changed.add(d);
     }
     if (changed.isEmpty) return;
     await IslandNative.cacheDesigns(changed);
     for (final d in changed) {
-      _cached[d.id] = d.version;
+      _cached[d.id] = d.contentSig;
     }
   }
 

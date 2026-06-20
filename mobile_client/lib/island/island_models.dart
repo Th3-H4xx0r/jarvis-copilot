@@ -26,6 +26,11 @@ class IslandDesign {
   /// The full tree as JSON — what gets cached into the iOS App Group container.
   String get jsonString => jsonEncode(raw);
 
+  /// A signature of the design's CONTENT (the whole tree), not just its version.
+  /// Drives cache-busting + push de-dupe so a layout edit applies live even when
+  /// Jarvis forgets to bump `version`.
+  int get contentSig => jsonString.hashCode;
+
   factory IslandDesign.fromJson(Map<String, dynamic> m) => IslandDesign(
         id: (m['id'] ?? '').toString(),
         name: (m['name'] ?? m['id'] ?? '').toString(),

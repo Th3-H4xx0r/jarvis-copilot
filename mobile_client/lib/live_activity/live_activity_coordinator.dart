@@ -59,7 +59,7 @@ class LiveActivityCoordinator {
   final IslandSync _islandSync = IslandSync();
   IslandCatalog _catalog = IslandCatalog.empty;
   DateTime _lastIslandFetch = DateTime.fromMillisecondsSinceEpoch(0);
-  static const Duration _islandFetchInterval = Duration(seconds: 15);
+  static const Duration _islandFetchInterval = Duration(seconds: 5);
 
   String _lastToken = '';
 
@@ -165,6 +165,10 @@ class LiveActivityCoordinator {
     _poll = Timer.periodic(_pollInterval, (_) {
       if (!_enabled) return;
       if (AppLifecycle.isForeground) {
+        // Refresh the island catalog on its OWN cadence (gated internally to
+        // _islandFetchInterval) so layout/selection/data edits apply live even
+        // when the coding poll is throttled to its slow idle interval.
+        unawaited(_maybeRefreshIsland());
         final now = DateTime.now();
         final want = laPollInterval(
           voiceActive: _voiceState != 'idle',
@@ -223,13 +227,15 @@ class LiveActivityCoordinator {
   /// older server / offline keeps the last catalog (empty → legacy voice/coding
   /// behavior).
   Future<void> _maybeRefreshIsland() async {
+    if (!Credentials.instance.isPaired) return;
     final now = DateTime.now();
     if (now.difference(_lastIslandFetch) < _islandFetchInterval) return;
     _lastIslandFetch = now;
     try {
       final cat = await _island.fetchCatalog();
       _catalog = cat;
-      await _islandSync.sync(cat.designs);
+      await _islandSync.sync(cat.designs); // re-caches changed trees (by content)
+      _push(); // reflect a layout/selection/data change immediately
     } catch (_) {
       // keep the previous catalog
     }
@@ -396,7 +402,11 @@ class LiveActivityCoordinator {
         if (d != null) {
           mode = 'custom';
           designId = d.id;
-          designVersion = d.version;
+          // Use the CONTENT signature (not `version`) so any layout edit changes
+          // the pushed state → the widget re-renders + re-reads the fresh cached
+          // design, even when Jarvis didn't bump the version. The widget keys its
+          // cache by id (ignores this value); it only needs to vary on change.
+          designVersion = d.contentSig;
           dataJson = jsonEncode(
               resolveData(d, sources, _catalog.dataFor(d.id)));
         } else {
