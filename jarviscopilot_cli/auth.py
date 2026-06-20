@@ -5675,6 +5675,103 @@ def get_api_key_provider_status(provider_id: str) -> Dict[str, Any]:
     }
 
 
+# =============================================================================
+# Claude Code subscription token (setup-token)
+# -----------------------------------------------------------------------------
+# A `claude setup-token` value is a *subscription* OAuth token (sk-ant-oat…).
+# When injected into the `claude -p` subprocess as CLAUDE_CODE_OAUTH_TOKEN it
+# authenticates headlessly via the Claude Code subscription path — NOT the
+# rate-limited raw API — so it survives container redeploys without relying on
+# the CLI's own ~/.claude file login.
+#
+# It is stored ONLY in the credential_pool (never the process env): if it ever
+# leaked into os.environ the `anthropic` provider would pick it up via its
+# api_key_env_vars (…, "CLAUDE_CODE_OAUTH_TOKEN") and route it to
+# api.anthropic.com — re-introducing the exact "out of extra usage" bug this
+# provider exists to avoid.
+# =============================================================================
+
+_CLAUDE_CODE_TOKEN_SOURCE = "setup_token"
+
+
+def _looks_like_claude_oauth_token(token: str) -> bool:
+    """True when ``token`` looks like a Claude Code setup/OAuth token."""
+    return (token or "").strip().startswith("sk-ant-")
+
+
+def store_claude_code_setup_token(
+    token: str, *, label: str = "Claude Code (setup-token)"
+) -> Path:
+    """Persist a ``claude setup-token`` subscription token in the credential pool.
+
+    Overwrites any previously-stored token (one subscription per profile).
+    Raises AuthError on an empty/malformed value.
+    """
+    tok = (token or "").strip()
+    if not tok:
+        raise AuthError(
+            "Empty Claude Code setup-token.",
+            provider="claude-code",
+            code="empty_token",
+        )
+    if not _looks_like_claude_oauth_token(tok):
+        raise AuthError(
+            "That doesn't look like a Claude Code setup-token (expected an "
+            "'sk-ant-…' value produced by `claude setup-token`).",
+            provider="claude-code",
+            code="invalid_token",
+        )
+    now = datetime.now(timezone.utc).isoformat()
+    entry = {
+        "id": "claude-code-setup-" + uuid.uuid4().hex[:12],
+        "label": label,
+        "auth_type": "oauth",
+        "priority": 0,
+        "source": _CLAUDE_CODE_TOKEN_SOURCE,
+        "token": tok,
+        "created_at": now,
+        "updated_at": now,
+    }
+    return write_credential_pool("claude-code", [entry])
+
+
+def resolve_claude_code_oauth_token() -> Optional[str]:
+    """Return the stored Claude Code subscription token, or None.
+
+    Reads ONLY from the credential pool (never the process env) so a stray
+    CLAUDE_CODE_OAUTH_TOKEN in the environment can't silently become the
+    inference token. The lowest-``priority`` entry that carries a token wins
+    (matching the rest of the pool's "0 = highest priority" convention).
+    """
+    try:
+        entries = read_credential_pool("claude-code")
+    except Exception:
+        return None
+    best: Optional[str] = None
+    best_priority: Optional[float] = None
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        tok = str(entry.get("token") or "").strip()
+        if not tok:
+            continue
+        raw_pri = entry.get("priority")
+        pri = float(raw_pri) if isinstance(raw_pri, (int, float)) else 0.0
+        if best is None or pri < (best_priority if best_priority is not None else pri + 1):
+            best, best_priority = tok, pri
+    return best
+
+
+def has_claude_code_setup_token() -> bool:
+    """True when a Claude Code setup-token is stored in the credential pool."""
+    return bool(resolve_claude_code_oauth_token())
+
+
+def clear_claude_code_setup_token() -> Path:
+    """Remove any stored Claude Code setup-token."""
+    return write_credential_pool("claude-code", [])
+
+
 def get_external_process_provider_status(provider_id: str) -> Dict[str, Any]:
     """Status snapshot for providers that run a local subprocess."""
     pconfig = PROVIDER_REGISTRY.get(provider_id)
@@ -5715,6 +5812,11 @@ def get_external_process_provider_status(provider_id: str) -> Dict[str, Any]:
             except Exception:
                 # Subprocess failure — keep the optimistic default.
                 pass
+        # A stored setup-token is an independent, redeploy-proof auth path: it
+        # counts as logged-in even if the CLI's own file login is absent.
+        has_token = has_claude_code_setup_token()
+        if has_token and not logged_in:
+            logged_in = True
         return {
             "configured": bool(resolved_command),
             "provider": provider_id,
@@ -5724,6 +5826,7 @@ def get_external_process_provider_status(provider_id: str) -> Dict[str, Any]:
             "resolved_command": resolved_command,
             "base_url": pconfig.inference_base_url,
             "logged_in": logged_in,
+            "has_setup_token": has_token,
             "subscription_type": login_info.get("subscriptionType", ""),
             "email": login_info.get("email", ""),
         }

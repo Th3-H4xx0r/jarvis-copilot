@@ -1,5 +1,7 @@
 """Tests for the shared external-CLI shim helpers."""
 
+import json
+
 from agent.external_cli_shim import (
     extract_tool_calls_from_text,
     format_messages_as_prompt,
@@ -148,3 +150,134 @@ def test_copilot_acp_imports_still_work_after_refactor():
     assert callable(cac._extract_tool_calls_from_text)
     # The copilot module preserves its own preamble via _COPILOT_ACP_HEADER_LINES.
     assert any("ACP agent backend" in line for line in cac._COPILOT_ACP_HEADER_LINES)
+
+
+# ── Output sanitisation (leaked internal-marker stripping) ───────────────────
+
+from agent.external_cli_shim import (  # noqa: E402
+    sanitize_model_text,
+    extract_image_blocks,
+    build_stream_json_user_input,
+)
+
+
+def test_sanitize_strips_mangled_tool_result_block_and_keeps_reply():
+    leaked = (
+        "Tracker updated with the Air India logo.\n\n"
+        "<!-- jc:toolresult name=readfile (internal context — do not reproduce) -->\n"
+        '{"content":"1|#!/usr/bin/env python3 SECRET"}\n'
+        "<!-- /jc:toolresult -->"
+    )
+    out = sanitize_model_text(leaked)
+    assert "Air India logo" in out
+    assert "jc:toolresult" not in out and "SECRET" not in out
+
+
+def test_sanitize_strips_correct_spelling_and_truncated_block():
+    out = sanitize_model_text(
+        'Done.\n<!-- jc:tool_result name=execute_code -->\n{"stdout":"x"}')
+    assert out.strip() == "Done." and "tool_result" not in out
+
+
+def test_sanitize_strips_xml_echo_and_orphan_comment_line():
+    assert sanitize_model_text('<toolresult>{"a":1}</toolresult>ok') == "ok"
+    # A non-tool_result orphan comment line is removed; surrounding prose survives.
+    out = sanitize_model_text("line1\n<!-- some marker -->\nline2")
+    assert "line1" in out and "line2" in out and "<!--" not in out
+    # An opening tool_result marker plus tool-output JSON: the marker comment and
+    # the tool-I/O line are stripped; surrounding prose survives.
+    out2 = sanitize_model_text('intro\n<!-- jc:tool_result name=terminal -->\n{"output":"x","exit_code":0}')
+    assert out2.strip() == "intro" and "exit_code" not in out2
+    # Generic (non-tool) JSON a user asked for is NOT stripped.
+    assert '{"leaked":1}' in sanitize_model_text('answer\n{"leaked":1}')
+
+
+def test_sanitize_leaves_clean_text_unchanged():
+    txt = "The weather is 68F, partly cloudy."
+    assert sanitize_model_text(txt) == txt
+    assert sanitize_model_text("") == ""
+
+
+def test_extract_image_blocks_data_url_and_passthrough():
+    blocks = extract_image_blocks([{"role": "user", "content": [
+        {"type": "text", "text": "hi"},
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,QUJD"}},
+    ]}])
+    assert blocks == [{"type": "image",
+                       "source": {"type": "base64", "media_type": "image/jpeg", "data": "QUJD"}}]
+    # already-claude-shaped passes through; non-image content ignored
+    assert extract_image_blocks([{"role": "user", "content": "plain"}]) == []
+
+
+def test_build_stream_json_user_input_shape():
+    line = build_stream_json_user_input("hello", [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "QUJD"}}])
+    obj = json.loads(line)
+    assert obj["type"] == "user" and obj["message"]["role"] == "user"
+    assert obj["message"]["content"][0] == {"type": "text", "text": "hello"}
+    assert obj["message"]["content"][1]["type"] == "image"
+
+
+# ── Tool-call history in the prompt (the infinite-loop root cause) ───────────
+
+def test_prompt_shows_prior_tool_calls_so_model_does_not_repeat():
+    """Regression for the infinite-loop bug: the model must SEE the tool calls it
+    already made (with results) so it stops re-issuing them every iteration."""
+    messages = [
+        {"role": "user", "content": "turn on now"},
+        {"role": "assistant", "content": "Right away, sir.",
+         "tool_calls": [{"id": "1", "type": "function",
+                         "function": {"name": "ha_call_service",
+                                      "arguments": '{"entity_id":"light.loft"}'}}]},
+        {"role": "tool", "name": "ha_call_service", "content": '{"result":"success"}'},
+    ]
+    prompt = format_messages_as_prompt(messages, header_lines=["H"])
+    assert "ha_call_service" in prompt          # model sees what it already called
+    assert "already" in prompt.lower()          # ...marked as already executed
+
+
+def test_prompt_keeps_assistant_turn_that_is_only_a_tool_call():
+    """A pure tool-call assistant turn (empty content) must NOT vanish."""
+    messages = [
+        {"role": "user", "content": "x"},
+        {"role": "assistant", "content": "",
+         "tool_calls": [{"id": "1", "type": "function",
+                         "function": {"name": "foo_tool", "arguments": "{}"}}]},
+    ]
+    prompt = format_messages_as_prompt(messages, header_lines=["H"])
+    assert "foo_tool" in prompt
+
+
+def test_prompt_continuation_points_at_results_after_a_tool_turn():
+    messages = [
+        {"role": "user", "content": "do it"},
+        {"role": "assistant", "content": "",
+         "tool_calls": [{"id": "1", "type": "function",
+                         "function": {"name": "foo_tool", "arguments": "{}"}}]},
+        {"role": "tool", "name": "foo_tool", "content": "ok"},
+    ]
+    prompt = format_messages_as_prompt(messages, header_lines=["H"]).lower()
+    # After a tool result, the model is steered to use results / not repeat,
+    # rather than re-addressing the user request from scratch.
+    assert "do not repeat" in prompt or "already" in prompt
+
+
+# ── Sanitiser precision (no false positives) ─────────────────────────────────
+
+def test_sanitize_preserves_legit_content_reviewer_cases():
+    # Inline HTML comment: strip the comment span, keep the surrounding prose.
+    out = sanitize_model_text("To hide an element add <!-- TODO --> to your HTML.")
+    assert "To hide an element add" in out and "to your HTML." in out and "<!--" not in out
+    # A transcript the user asked the model to print keeps its role labels.
+    assert sanitize_model_text("User: hello\nAssistant: hi there") == "User: hello\nAssistant: hi there"
+    # Isolated tool-shaped JSON a user asked for is NOT stripped.
+    assert '"exit_code": 0' in sanitize_model_text('Here:\n{"output": "hello", "exit_code": 0}')
+    assert '"type": "function"' in sanitize_model_text('Schema:\n{"type": "function", "name": "foo"}')
+    assert '"loaded": true' in sanitize_model_text('{"loaded": true, "count": 3}')
+
+
+def test_sanitize_drops_tool_output_json_only_next_to_a_marker():
+    # Adjacent to a jc marker → dropped (transcript dump).
+    leak = 'intro\n<!-- jc:tool_result name=terminal -->\n{"output":"x","exit_code":0}\noutro'
+    out = sanitize_model_text(leak)
+    assert "intro" in out and "outro" in out and "exit_code" not in out and "jc:tool_result" not in out

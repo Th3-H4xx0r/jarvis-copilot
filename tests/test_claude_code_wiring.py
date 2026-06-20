@@ -144,3 +144,50 @@ def test_runtime_provider_resolves_claude_code_to_marker_dict():
         # that the registry config exposes the right marker URL. The full
         # resolve_provider flow has many other dependencies tested separately.
         assert rp.resolve_external_process_provider_credentials("claude-code") == fake_creds
+
+
+# --- Claude Code setup-token storage / resolution ---------------------------
+
+def test_store_and_resolve_setup_token(monkeypatch):
+    saved = {}
+
+    def fake_write(provider_id, entries):
+        saved[provider_id] = entries
+        from pathlib import Path
+        return Path("/tmp/auth.json")
+
+    def fake_read(provider_id=None):
+        return saved.get("claude-code", []) if provider_id == "claude-code" else {}
+
+    monkeypatch.setattr(auth_mod, "write_credential_pool", fake_write)
+    monkeypatch.setattr(auth_mod, "read_credential_pool", fake_read)
+
+    auth_mod.store_claude_code_setup_token("sk-ant-oat01-ABC")
+    assert saved["claude-code"][0]["token"] == "sk-ant-oat01-ABC"
+    assert saved["claude-code"][0]["source"] == "setup_token"
+    assert auth_mod.resolve_claude_code_oauth_token() == "sk-ant-oat01-ABC"
+    assert auth_mod.has_claude_code_setup_token() is True
+
+
+def test_store_setup_token_rejects_bad_value(monkeypatch):
+    monkeypatch.setattr(auth_mod, "write_credential_pool", lambda *a, **k: None)
+    with pytest.raises(auth_mod.AuthError) as e1:
+        auth_mod.store_claude_code_setup_token("")
+    assert e1.value.code == "empty_token"
+    with pytest.raises(auth_mod.AuthError) as e2:
+        auth_mod.store_claude_code_setup_token("not-a-token")
+    assert e2.value.code == "invalid_token"
+
+
+def test_resolve_setup_token_none_when_empty_pool(monkeypatch):
+    monkeypatch.setattr(auth_mod, "read_credential_pool", lambda provider_id=None: [])
+    assert auth_mod.resolve_claude_code_oauth_token() is None
+    assert auth_mod.has_claude_code_setup_token() is False
+
+
+def test_status_reports_has_setup_token(monkeypatch):
+    monkeypatch.setattr(auth_mod, "has_claude_code_setup_token", lambda: True)
+    with mock.patch("jarviscopilot_cli.auth.shutil.which", return_value="/usr/local/bin/claude"):
+        status = auth_mod.get_external_process_provider_status("claude-code")
+    assert status["has_setup_token"] is True
+    assert status["logged_in"] is True

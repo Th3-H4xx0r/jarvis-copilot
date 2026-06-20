@@ -530,3 +530,160 @@ def test_constructor_tolerates_openai_client_kwargs():
     )
     assert c.api_key == "ignored"
     assert c.base_url == "claude-cli://local"
+
+
+# ── Managed setup-token injection (durable auth) ─────────────────────────────
+
+def test_subprocess_env_injects_managed_setup_token(monkeypatch):
+    """A JarvisCopilot-managed setup-token is injected as CLAUDE_CODE_OAUTH_TOKEN
+    into the subprocess (subscription billing, redeploy-proof) while the raw-API
+    key is still scrubbed."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-leaked")
+    monkeypatch.delenv("HERMES_CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    c = ClaudeCodeClient()
+    payload = {"type": "result", "is_error": False, "result": "ok",
+               "stop_reason": "end_turn", "usage": {}}
+    with mock.patch("agent.claude_code_client._resolve_injected_oauth_token",
+                    return_value="sk-ant-oat01-MANAGED"), \
+         mock.patch("agent.claude_code_client.subprocess.run",
+                    return_value=_fake_run(json.dumps(payload))) as run:
+        c.chat.completions.create(
+            model="claude-haiku-4-5", messages=[{"role": "user", "content": "x"}])
+    env = run.call_args.kwargs["env"]
+    assert env.get("CLAUDE_CODE_OAUTH_TOKEN") == "sk-ant-oat01-MANAGED"
+    assert "ANTHROPIC_API_KEY" not in env
+
+
+def test_subprocess_env_scrubs_ambient_oauth_token_without_managed_token(monkeypatch):
+    """With no managed token, an ambient CLAUDE_CODE_OAUTH_TOKEN is scrubbed so a
+    stray/wrong value can't drive billing — the CLI falls back to ~/.claude."""
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "ambient-stray")
+    monkeypatch.delenv("HERMES_CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    c = ClaudeCodeClient()
+    payload = {"type": "result", "is_error": False, "result": "ok",
+               "stop_reason": "end_turn", "usage": {}}
+    with mock.patch("agent.claude_code_client._resolve_injected_oauth_token",
+                    return_value=None), \
+         mock.patch("agent.claude_code_client.subprocess.run",
+                    return_value=_fake_run(json.dumps(payload))) as run:
+        c.chat.completions.create(
+            model="claude-haiku-4-5", messages=[{"role": "user", "content": "x"}])
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in run.call_args.kwargs["env"]
+
+
+def test_resolve_injected_oauth_token_prefers_env_override(monkeypatch):
+    from agent.claude_code_client import _resolve_injected_oauth_token
+    monkeypatch.setenv("HERMES_CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-ENV")
+    assert _resolve_injected_oauth_token() == "sk-ant-oat01-ENV"
+
+
+# ── Leaked internal-marker suppression ───────────────────────────────────────
+
+def test_create_strips_leaked_tool_result_from_nonstream_reply():
+    c = ClaudeCodeClient()
+    leaked = (
+        "The tracker now shows the Air India logo.\n\n"
+        "<!-- jc:toolresult name=readfile (internal context — do not reproduce) -->\n"
+        '{"content":"1|#!/usr/bin/env python3 secret"}\n'
+        "<!-- /jc:toolresult -->"
+    )
+    payload = {"type": "result", "is_error": False, "result": leaked,
+               "stop_reason": "end_turn", "usage": {}}
+    with mock.patch("agent.claude_code_client.subprocess.run",
+                    return_value=_fake_run(json.dumps(payload))):
+        resp = c.chat.completions.create(
+            model="claude-haiku-4-5", messages=[{"role": "user", "content": "x"}])
+    content = resp.choices[0].message.content
+    assert "Air India logo" in content
+    assert "jc:toolresult" not in content and "secret" not in content
+
+
+def test_stream_suppresses_leaked_tool_result_across_chunks():
+    """A leaked `<!-- jc:tool_result -->` block (even split across deltas) is
+    suppressed; clean text before and after it still streams."""
+    c = ClaudeCodeClient()
+    lines = _ndjson_events(text_chunks=[
+        "The tracker is updated. ",
+        "<!-- jc:tool",                       # marker split across chunks
+        "_result name=readfile -->\n",
+        '{"content":"secret file body"}\n',
+        "<!-- /jc:tool_result -->",
+        " All done.",
+    ])
+    with mock.patch("agent.claude_code_client.subprocess.Popen",
+                    return_value=_FakePopen(lines)):
+        chunks = list(c.chat.completions.create(
+            stream=True, model="claude-haiku-4-5",
+            messages=[{"role": "user", "content": "hi"}]))
+    content = "".join(
+        ch.choices[0].delta.content for ch in chunks
+        if ch.choices and ch.choices[0].delta.content)
+    assert "The tracker is updated." in content
+    assert "All done." in content
+    assert "secret file body" not in content
+    assert "jc:tool_result" not in content and "<!--" not in content
+
+
+# ── Vision / image input ─────────────────────────────────────────────────────
+
+_IMG_MSGS = [{"role": "user", "content": [
+    {"type": "text", "text": "what is this?"},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,QUJD"}},
+]}]
+
+
+def test_image_request_engages_stream_json_input():
+    c = ClaudeCodeClient()
+    payload = {"type": "result", "is_error": False, "result": "a cat",
+               "stop_reason": "end_turn", "usage": {}}
+    with mock.patch("agent.claude_code_client.subprocess.run",
+                    return_value=_fake_run(json.dumps(payload))) as run:
+        resp = c.chat.completions.create(model="claude-opus-4-8", messages=_IMG_MSGS)
+    argv = run.call_args.args[0]
+    assert "--input-format" in argv
+    assert argv[argv.index("--input-format") + 1] == "stream-json"
+    sent = json.loads(run.call_args.kwargs["input"])
+    assert sent["type"] == "user"
+    kinds = [b["type"] for b in sent["message"]["content"]]
+    assert kinds[0] == "text" and "image" in kinds
+    assert resp.choices[0].message.content == "a cat"
+
+
+def test_text_only_request_does_not_use_stream_json_input():
+    c = ClaudeCodeClient()
+    payload = {"type": "result", "is_error": False, "result": "hi",
+               "stop_reason": "end_turn", "usage": {}}
+    with mock.patch("agent.claude_code_client.subprocess.run",
+                    return_value=_fake_run(json.dumps(payload))) as run:
+        c.chat.completions.create(
+            model="claude-opus-4-8", messages=[{"role": "user", "content": "hi"}])
+    argv = run.call_args.args[0]
+    assert "--input-format" not in argv  # proven plain-stdin path untouched
+    assert not run.call_args.kwargs["input"].lstrip().startswith("{")
+
+
+def test_stream_recovers_tool_call_after_leaked_marker():
+    """Regression: a real <tool_call> emitted AFTER a leaked `<!--` marker must
+    still be parsed (buffered extract), the leak stripped, finish=tool_calls."""
+    c = ClaudeCodeClient()
+    lines = _ndjson_events(text_chunks=[
+        "I will note this.\n",
+        "<!-- jc:tool_result name=x -->\n",
+        '{"output":"junk","exit_code":0}\n',
+        'now run: <tool_call>{"id":"t1","type":"function",'
+        '"function":{"name":"foo","arguments":"{}"}}</tool_call>',
+    ])
+    with mock.patch("agent.claude_code_client.subprocess.Popen",
+                    return_value=_FakePopen(lines)):
+        chunks = list(c.chat.completions.create(
+            stream=True, model="claude-opus-4-8",
+            messages=[{"role": "user", "content": "x"}]))
+    content = "".join(ch.choices[0].delta.content for ch in chunks
+                      if ch.choices and ch.choices[0].delta.content)
+    tool_names = [ch.choices[0].delta.tool_calls[0].function.name for ch in chunks
+                  if ch.choices and ch.choices[0].delta.tool_calls]
+    finishes = [ch.choices[0].finish_reason for ch in chunks
+                if ch.choices and ch.choices[0].finish_reason]
+    assert "foo" in tool_names
+    assert "junk" not in content and "exit_code" not in content and "jc:tool_result" not in content
+    assert finishes == ["tool_calls"]

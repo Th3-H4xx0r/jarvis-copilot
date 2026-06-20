@@ -38,7 +38,10 @@ CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 CODEX_FLOW_MAX_WAIT_SECONDS = 15 * 60
 
 _ALLOWED_ONBOARDING_OAUTH_PROVIDERS = {"openai-codex", "anthropic", "claude", "claude-code"}
-_ANTHROPIC_PROVIDER_ALIASES = {"anthropic", "claude", "claude-code"}
+# Only the legitimate Anthropic-API providers normalize to "anthropic".
+# "claude-code" is the local-CLI subscription path and must stay distinct so
+# onboarding routes it to the Claude Code flow (not the api.anthropic.com path).
+_ANTHROPIC_PROVIDER_ALIASES = {"anthropic", "claude"}
 _REJECTED_ONBOARDING_OAUTH_PROVIDERS = {
     "nous",
     "qwen-oauth",
@@ -53,6 +56,15 @@ _REJECTED_ONBOARDING_OAUTH_PROVIDERS = {
 ANTHROPIC_CREDENTIAL_POLL_SECONDS = 5
 ANTHROPIC_FLOW_MAX_WAIT_SECONDS = 15 * 60
 ANTHROPIC_PUBLIC_LINK_ERROR = "Claude Code credential linking failed. Check server logs."
+
+CLAUDE_CODE_CREDENTIAL_POLL_SECONDS = 5
+CLAUDE_CODE_FLOW_MAX_WAIT_SECONDS = 15 * 60
+CLAUDE_CODE_DEFAULT_MODEL_FALLBACK = "claude-opus-4-8"
+CLAUDE_CODE_ACTION_REQUIRED = (
+    "No Claude Code login was found on this server. Run 'claude login' (or "
+    "'claude setup-token') in a terminal on the host (jarvis.pkrishna.dev), "
+    "then return here — this page will detect it automatically."
+)
 
 _OAUTH_FLOWS: dict[str, dict[str, Any]] = {}
 _OAUTH_FLOWS_LOCK = threading.Lock()
@@ -368,6 +380,216 @@ def _anthropic_public_status_payload(flow_id: str, flow: dict[str, Any]) -> dict
     return payload
 
 
+# ── Claude Code (local CLI subscription) onboarding ────────────────────────
+
+def _claude_code_default_model() -> str:
+    """Return an ``@claude-code:``-tagged default model id.
+
+    Persisting the default model in the ``@provider:model`` form makes
+    ``set_hermes_default_model`` resolve and store ``provider: "claude-code"``,
+    which is what keeps the local-CLI subscription path sticky (instead of the
+    api.anthropic.com path). Prefers the live/static claude-code catalog's first
+    id; falls back to a known-good opus id.
+    """
+    bare = CLAUDE_CODE_DEFAULT_MODEL_FALLBACK
+    try:
+        from jarviscopilot_cli.models import provider_model_ids
+
+        ids = provider_model_ids("claude-code")
+        for candidate in ids if isinstance(ids, list) else []:
+            # provider_model_ids may yield plain id strings or {"id": ...} dicts.
+            if isinstance(candidate, str) and candidate.strip():
+                bare = candidate.strip()
+                break
+            if isinstance(candidate, dict):
+                cid = str(candidate.get("id") or "").strip()
+                if cid:
+                    bare = cid
+                    break
+    except Exception as exc:
+        logger.debug("claude-code model catalog lookup failed: %s", exc)
+    return f"@claude-code:{bare}"
+
+
+def _persist_claude_code_default() -> None:
+    """Make ``provider: "claude-code"`` the sticky active default."""
+    from api.config import set_hermes_default_model
+
+    set_hermes_default_model(_claude_code_default_model())
+
+
+def _claude_code_public_start_payload(flow_id: str, flow: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "ok": True,
+        "provider": "claude-code",
+        "flow_id": flow_id,
+        "status": flow.get("status", "pending"),
+        "poll_interval_seconds": flow.get(
+            "poll_interval_seconds", CLAUDE_CODE_CREDENTIAL_POLL_SECONDS
+        ),
+    }
+    if flow.get("status") == "error" and flow.get("error"):
+        payload["error"] = str(flow.get("error"))[:300]
+    if flow.get("status") == "pending":
+        payload["action_required"] = CLAUDE_CODE_ACTION_REQUIRED
+    if flow.get("expires_at"):
+        payload["expires_at"] = flow["expires_at"]
+    return payload
+
+
+def _claude_code_public_status_payload(flow_id: str, flow: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "ok": True,
+        "provider": "claude-code",
+        "flow_id": flow_id,
+        "status": flow.get("status", "error"),
+    }
+    if flow.get("status") == "error" and flow.get("error"):
+        payload["error"] = str(flow.get("error"))[:300]
+    if flow.get("status") == "pending":
+        payload["action_required"] = CLAUDE_CODE_ACTION_REQUIRED
+    return payload
+
+
+def _claude_code_login_status() -> dict[str, Any]:
+    from jarviscopilot_cli.auth import get_external_process_provider_status
+
+    return get_external_process_provider_status("claude-code") or {}
+
+
+def _spawn_claude_code_login_worker(flow_id: str) -> None:
+    worker = threading.Thread(
+        target=_run_claude_code_login_worker, args=(flow_id,), daemon=True,
+    )
+    worker.start()
+
+
+def _run_claude_code_login_worker(flow_id: str) -> None:
+    """Poll for a Claude Code login appearing until found, cancelled, or expired."""
+    while True:
+        with _OAUTH_FLOWS_LOCK:
+            flow = dict(_OAUTH_FLOWS.get(flow_id) or {})
+        if not flow:
+            return
+        if flow.get("status") != "pending":
+            return
+        if float(flow.get("expires_at") or 0) <= time.time():
+            _set_flow_status(flow_id, "expired")
+            return
+
+        time.sleep(max(
+            1,
+            int(flow.get("poll_interval_seconds") or CLAUDE_CODE_CREDENTIAL_POLL_SECONDS),
+        ))
+
+        # Re-check status under lock (cancel may have arrived during sleep).
+        with _OAUTH_FLOWS_LOCK:
+            live = _OAUTH_FLOWS.get(flow_id)
+            if not live or live.get("status") != "pending":
+                return
+
+        try:
+            status = _claude_code_login_status()
+            if not status.get("logged_in"):
+                continue
+
+            # Re-check under lock before persisting — cancel must win.
+            with _OAUTH_FLOWS_LOCK:
+                current = _OAUTH_FLOWS.get(flow_id)
+                if not current or current.get("status") != "pending":
+                    return
+
+            _persist_claude_code_default()
+            with _OAUTH_FLOWS_LOCK:
+                current = _OAUTH_FLOWS.get(flow_id)
+                if current and current.get("status") == "pending":
+                    current["status"] = "success"
+                    current["updated_at"] = time.time()
+                    _drop_sensitive_flow_fields(current)
+            return
+        except Exception as exc:
+            logger.warning("Claude Code login polling failed: %s", exc)
+            with _OAUTH_FLOWS_LOCK:
+                current = _OAUTH_FLOWS.get(flow_id)
+                if current and current.get("status") == "pending":
+                    current["status"] = "error"
+                    current["updated_at"] = time.time()
+                    current["error"] = str(exc)
+                    _drop_sensitive_flow_fields(current)
+            return
+
+
+def _start_claude_code_flow(
+    hermes_home: Path, *, setup_token: str | None = None
+) -> dict[str, Any]:
+    """Start or immediately complete the Claude Code (local CLI) onboarding flow.
+
+    When a ``claude setup-token`` value is supplied it is stored first (an
+    independent, redeploy-proof auth path). Then the host login state is read:
+    if logged in, the sticky ``provider: "claude-code"`` default is persisted and
+    the flow completes immediately; otherwise a pending flow polls until a host
+    login appears.
+    """
+    flow_id = uuid.uuid4().hex
+
+    if setup_token:
+        from jarviscopilot_cli import auth as _auth
+
+        try:
+            _auth.store_claude_code_setup_token(setup_token)
+        except _auth.AuthError as exc:
+            flow = {
+                "provider": "claude-code",
+                "status": "error",
+                "hermes_home": str(hermes_home),
+                "error": str(exc),
+                "created_at": time.time(),
+                "updated_at": time.time(),
+            }
+            with _OAUTH_FLOWS_LOCK:
+                _OAUTH_FLOWS[flow_id] = flow
+            return {
+                "ok": False,
+                "provider": "claude-code",
+                "status": "error",
+                "flow_id": flow_id,
+                "error": str(exc),
+            }
+
+    status = _claude_code_login_status()
+
+    if status.get("logged_in"):
+        # Logged in already (CLI file login or a stored setup-token) — persist
+        # the sticky default and complete immediately.
+        _persist_claude_code_default()
+        flow = {
+            "provider": "claude-code",
+            "status": "success",
+            "hermes_home": str(hermes_home),
+            "created_at": time.time(),
+            "updated_at": time.time(),
+        }
+        with _OAUTH_FLOWS_LOCK:
+            _OAUTH_FLOWS[flow_id] = flow
+        return _public_start_payload(flow_id, flow)
+
+    # Not logged in — register a pending flow that polls for a host login.
+    expires_at = time.time() + CLAUDE_CODE_FLOW_MAX_WAIT_SECONDS
+    flow = {
+        "provider": "claude-code",
+        "status": "pending",
+        "expires_at": expires_at,
+        "poll_interval_seconds": CLAUDE_CODE_CREDENTIAL_POLL_SECONDS,
+        "hermes_home": str(hermes_home),
+        "created_at": time.time(),
+        "updated_at": time.time(),
+    }
+    with _OAUTH_FLOWS_LOCK:
+        _OAUTH_FLOWS[flow_id] = flow
+    _spawn_claude_code_login_worker(flow_id)
+    return _public_start_payload(flow_id, flow)
+
+
 def _spawn_anthropic_credential_worker(flow_id: str) -> None:
     worker = threading.Thread(
         target=_run_anthropic_credential_worker, args=(flow_id,), daemon=True,
@@ -537,6 +759,8 @@ def _public_start_payload(flow_id: str, flow: dict[str, Any]) -> dict[str, Any]:
     provider = flow.get("provider", "openai-codex")
     if provider == "anthropic":
         return _anthropic_public_start_payload(flow_id, flow)
+    if provider == "claude-code":
+        return _claude_code_public_start_payload(flow_id, flow)
     return _codex_public_start_payload(flow_id, flow)
 
 
@@ -544,6 +768,8 @@ def _public_status_payload(flow_id: str, flow: dict[str, Any]) -> dict[str, Any]
     provider = flow.get("provider", "openai-codex")
     if provider == "anthropic":
         return _anthropic_public_status_payload(flow_id, flow)
+    if provider == "claude-code":
+        return _claude_code_public_status_payload(flow_id, flow)
     return _codex_public_status_payload(flow_id, flow)
 
 
@@ -687,6 +913,14 @@ def start_onboarding_oauth_flow(body: dict[str, Any] | None) -> dict[str, Any]:
                 "in WebUI onboarding right now"
             )
         raise ValueError("provider is required")
+
+    # Claude Code = local-CLI subscription path (NOT api.anthropic.com). Route
+    # it to its own flow before the Anthropic-API alias check below.
+    if provider == "claude-code":
+        return _start_claude_code_flow(
+            _get_active_hermes_home(),
+            setup_token=str((body or {}).get("setup_token") or "").strip() or None,
+        )
 
     # Normalize Claude aliases to canonical "anthropic"
     if provider in _ANTHROPIC_PROVIDER_ALIASES:

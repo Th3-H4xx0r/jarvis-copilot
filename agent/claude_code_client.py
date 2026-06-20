@@ -20,8 +20,11 @@ from types import SimpleNamespace
 from typing import Any
 
 from agent.external_cli_shim import (
+    build_stream_json_user_input as _build_stream_json_user_input,
+    extract_image_blocks as _extract_image_blocks,
     extract_tool_calls_from_text as _extract_tool_calls_from_text,
     format_messages_as_prompt as _format_messages_as_prompt,
+    sanitize_model_text as _sanitize_model_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,6 +63,11 @@ _HEADER_LINES = [
     "block with one JSON object whose keys are id/type/function{name,arguments}; "
     "arguments must be a JSON string. Do not call tools yourself — emit text only.",
     "If no tool is needed, answer the user normally as the assistant.",
+    "The transcript marks tools you have ALREADY executed as "
+    "`[already executed — do NOT call again: …]`, with their results following. "
+    "NEVER re-issue a tool call that already has a result — doing so loops "
+    "forever. Use the results to proceed, and once the user's request is "
+    "satisfied give a single final answer with NO tool call.",
     # CRITICAL anti-leakage rules. Past tool results appear in the transcript
     # inside HTML-comment markers (`<!-- jc:tool_result … -->`) so claude
     # treats them as metadata, not as a format to mimic. These rules MUST be
@@ -158,6 +166,28 @@ def _resolve_home_dir() -> str:
     return os.environ.get("HOME", "") or os.path.expanduser("~") or "/tmp"
 
 
+def _resolve_injected_oauth_token() -> str | None:
+    """Resolve a JarvisCopilot-managed Claude Code subscription token, if any.
+
+    Order: an explicit per-deployment override env var, then the setup-token
+    stored in the active profile's credential pool. Returns None when neither
+    is present (the CLI then falls back to its own ``~/.claude`` file login).
+    """
+    tok = os.getenv("HERMES_CLAUDE_CODE_OAUTH_TOKEN", "").strip()
+    if tok:
+        return tok
+    try:
+        from jarviscopilot_cli.auth import resolve_claude_code_oauth_token
+        stored = resolve_claude_code_oauth_token()
+        if stored:
+            return stored.strip()
+    except Exception:
+        # Auth store unavailable (e.g. import/profile error) — fall back to
+        # the CLI's own login rather than failing the request.
+        logger.debug("claude-code: could not resolve a managed setup-token", exc_info=True)
+    return None
+
+
 def _build_subprocess_env() -> dict[str, str]:
     env = os.environ.copy()
     env["HOME"] = _resolve_home_dir()
@@ -165,19 +195,30 @@ def _build_subprocess_env() -> dict[str, str]:
     # the child from auto-attaching to the parent's session/IDE state.
     env.pop("CLAUDE_CODE_ENTRYPOINT", None)
     env.pop("CLAUDECODE", None)
-    # Critical: scrub Anthropic API credentials from the subprocess env.
-    # If ANTHROPIC_API_KEY (or related) is set in the parent, the `claude` CLI
-    # will silently use API billing instead of the user's Max subscription —
-    # which is exactly the behaviour this provider exists to avoid.
+    # Critical: always scrub raw-API billing credentials. If ANTHROPIC_API_KEY
+    # (or the bedrock/vertex switches) reaches the CLI it silently bills the
+    # rate-limited API path — the "out of extra usage" route this provider
+    # exists to avoid.
     for k in (
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_TOKEN",
         "ANTHROPIC_AUTH_TOKEN",
-        "CLAUDE_CODE_OAUTH_TOKEN",
         "CLAUDE_CODE_USE_BEDROCK",
         "CLAUDE_CODE_USE_VERTEX",
     ):
         env.pop(k, None)
+    # Subscription auth. A JarvisCopilot-managed setup-token (from
+    # `claude setup-token`, stored in the credential pool) is a *subscription*
+    # OAuth token: injecting it as CLAUDE_CODE_OAUTH_TOKEN bills the Claude Code
+    # subscription path, not the API, and survives container redeploys. It is
+    # injected ONLY into this subprocess. Without a managed token we scrub any
+    # ambient value and let `claude` use its own ~/.claude file login (the
+    # proven default on the server).
+    token = _resolve_injected_oauth_token()
+    if token:
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+    else:
+        env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
     return env
 
 
@@ -277,7 +318,9 @@ class ClaudeCodeClient:
 
     # --- internals ----------------------------------------------------------
 
-    def _build_argv(self, model: str | None, *, stream: bool = False) -> list[str]:
+    def _build_argv(
+        self, model: str | None, *, stream: bool = False, input_stream_json: bool = False
+    ) -> list[str]:
         argv = [
             self._command,
             "-p",
@@ -288,6 +331,10 @@ class ClaudeCodeClient:
             "--strict-mcp-config",                # ignore global MCP config
             "--no-session-persistence",           # one-shot
         ]
+        if input_stream_json:
+            # Vision path: stdin carries a JSON user turn with image blocks
+            # rather than plain text (see _build_stream_json_user_input).
+            argv += ["--input-format", "stream-json"]
         if stream:
             # --include-partial-messages emits content_block_delta events as the
             # model generates; --verbose is required alongside --print for the
@@ -321,12 +368,21 @@ class ClaudeCodeClient:
             role_renderers=_ROLE_RENDERERS,
         )
         eff_timeout = _norm_timeout(timeout if timeout is not None else self._timeout)
-        argv = self._build_argv(model)
+        # Vision: when the conversation carries images, send a stream-json user
+        # turn (text + base64 image blocks) instead of the plain-text prompt.
+        # Text-only requests keep the proven plain-stdin path untouched.
+        image_blocks = _extract_image_blocks(messages or [])
+        if image_blocks:
+            stdin_payload = _build_stream_json_user_input(prompt, image_blocks)
+            argv = self._build_argv(model, input_stream_json=True)
+        else:
+            stdin_payload = prompt
+            argv = self._build_argv(model)
 
         try:
             cp = subprocess.run(
                 argv,
-                input=prompt,
+                input=stdin_payload,
                 capture_output=True,
                 text=True,
                 timeout=eff_timeout,
@@ -373,6 +429,10 @@ class ClaudeCodeClient:
 
         result_text = data.get("result") or ""
         tool_calls, cleaned = _extract_tool_calls_from_text(result_text)
+        # Deterministic safety net: strip any internal tool-result markers the
+        # model echoed back into its visible reply (the header asks it not to,
+        # but weaker/faster generations sometimes do anyway).
+        cleaned = _sanitize_model_text(cleaned)
 
         usage_in = data.get("usage") or {}
         prompt_toks = int(usage_in.get("input_tokens") or 0)
@@ -441,7 +501,13 @@ class ClaudeCodeClient:
             role_renderers=_ROLE_RENDERERS,
         )
         eff_timeout = _norm_timeout(timeout if timeout is not None else self._timeout)
-        argv = self._build_argv(model, stream=True)
+        # Vision: same stream-json INPUT switch as the non-streaming path.
+        image_blocks = _extract_image_blocks(messages or [])
+        if image_blocks:
+            prompt = _build_stream_json_user_input(prompt, image_blocks)
+            argv = self._build_argv(model, stream=True, input_stream_json=True)
+        else:
+            argv = self._build_argv(model, stream=True)
 
         try:
             proc = subprocess.Popen(
@@ -474,85 +540,41 @@ class ClaudeCodeClient:
             raise
 
         model_name = model or "claude-code"
-        emitted_finish = False
-        tc_emit_idx = 0
 
-        # Tool-call state machine
-        _TC_OPEN, _TC_CLOSE = "<tool_call>", "</tool_call>"
-        mode = "text"          # "text" | "tool_call"
-        held = ""               # text held back (possible partial <tool_call>)
-        tc_buf = ""             # text inside <tool_call>...</tool_call>
-
-        def _build_chunk(
-            *, content=None, tool_calls=None, reasoning=None, finish_reason=None,
-        ):
+        def _build_chunk(*, content=None, tool_calls=None, finish_reason=None):
             delta = SimpleNamespace(
                 content=content,
                 tool_calls=tool_calls,
-                reasoning_content=reasoning,
-                reasoning=reasoning,
+                reasoning_content=None,
+                reasoning=None,
             )
             return SimpleNamespace(
-                choices=[SimpleNamespace(
-                    index=0, delta=delta, finish_reason=finish_reason,
-                )],
+                choices=[SimpleNamespace(index=0, delta=delta, finish_reason=finish_reason)],
                 model=model_name,
                 usage=None,
             )
 
-        def _emit_tool_call(json_text: str):
-            """Parse a <tool_call> body and yield the corresponding delta chunk."""
-            nonlocal tc_emit_idx
-            try:
-                obj = json.loads(json_text.strip())
-            except Exception:
-                return None
-            if not isinstance(obj, dict):
-                return None
-            fn = obj.get("function") or {}
-            if not isinstance(fn, dict):
-                return None
-            name = fn.get("name")
-            if not isinstance(name, str) or not name.strip():
-                return None
-            args = fn.get("arguments", "{}")
-            if not isinstance(args, str):
-                args = json.dumps(args, ensure_ascii=False)
-            call_id = obj.get("id")
-            if not isinstance(call_id, str) or not call_id.strip():
-                call_id = f"cli_call_{tc_emit_idx + 1}"
-            tc_delta = SimpleNamespace(
-                index=tc_emit_idx,
-                id=call_id,
-                type="function",
-                function=SimpleNamespace(name=name.strip(), arguments=args),
-                extra_content=None,
-            )
-            tc_emit_idx += 1
-            return _build_chunk(tool_calls=[tc_delta])
-
-        def _flushable_suffix(buf: str) -> tuple[str, str]:
-            """Split `buf` into (safe_to_emit, hold_back).
-
-            Holds back a trailing prefix of `<tool_call>` so a tag that
-            straddles a chunk boundary isn't streamed as text.
-            """
-            for i in range(min(len(buf), len(_TC_OPEN)), 0, -1):
-                if buf.endswith(_TC_OPEN[:i]):
-                    return buf[: len(buf) - i], buf[len(buf) - i:]
-            return buf, ""
-
+        # Buffer the whole generation, then extract tool calls + sanitise the
+        # content in ONE pass — exactly like the non-streaming path. This is
+        # deliberately NOT token-incremental: the model can echo leaked
+        # transcript scaffolding (tool-result markers, role labels, raw tool
+        # JSON) mid-stream, and only the COMPLETE text can be cleaned without
+        # (a) showing the leak before we can classify it, or (b) dropping a real
+        # <tool_call> that appears after a leaked marker. claude-code replies are
+        # short and fast, so the latency cost is negligible.
+        text_parts: list[str] = []
+        usage_event: dict[str, Any] = {}
+        raw_stop = "end_turn"
+        got_result = False
         try:
             assert proc.stdout is not None
             start_time = time.monotonic()
             for raw_line in proc.stdout:
-                # Coarse wall-clock timeout — the agent has its own
-                # stall-detection on the stream side; this is just a hard cap.
+                # Coarse wall-clock cap; the agent has its own stall detection.
                 if time.monotonic() - start_time > eff_timeout:
                     raise RuntimeError(
                         f"Claude Code CLI streaming timed out after {eff_timeout:.0f}s."
                     )
-
                 line = (raw_line or "").strip()
                 if not line:
                     continue
@@ -560,127 +582,31 @@ class ClaudeCodeClient:
                     event = json.loads(line)
                 except Exception:
                     continue
-
                 etype = event.get("type")
-
-                # Surface explicit error events from the CLI immediately.
                 if etype == "result" and event.get("is_error"):
                     msg = event.get("result") or event.get("error") or "unknown error"
                     raise RuntimeError(f"Claude Code error: {msg}")
-
                 if etype == "assistant":
-                    # Update model name if it shows up in the snapshot.
                     m = (event.get("message") or {}).get("model")
                     if m:
                         model_name = m
                     continue
-
                 if etype == "stream_event":
                     sub = event.get("event") or {}
-                    stype = sub.get("type")
-
-                    if stype == "content_block_delta":
+                    if sub.get("type") == "content_block_delta":
                         d = sub.get("delta") or {}
-                        dtype = d.get("type")
-
-                        if dtype == "thinking_delta":
-                            # Suppress reasoning deltas for claude-code so the
-                            # WebUI doesn't render claude's internal thinking
-                            # inline in the chat bubble. The model still uses
-                            # extended thinking internally — we just don't
-                            # propagate it to display consumers.
-                            continue
-
-                        if dtype != "text_delta":
-                            # Ignore signature_delta etc.
-                            continue
-
-                        text = d.get("text") or ""
-                        if not text:
-                            continue
-
-                        if mode == "tool_call":
-                            tc_buf += text
-                            if _TC_CLOSE in tc_buf:
-                                end = tc_buf.index(_TC_CLOSE)
-                                json_text = tc_buf[:end]
-                                tail = tc_buf[end + len(_TC_CLOSE):]
-                                tc_chunk = _emit_tool_call(json_text)
-                                if tc_chunk is not None:
-                                    yield tc_chunk
-                                mode = "text"
-                                tc_buf = ""
-                                held = tail
-                            continue
-
-                        # mode == "text"
-                        held += text
-                        if _TC_OPEN in held:
-                            idx = held.index(_TC_OPEN)
-                            pre = held[:idx]
-                            if pre:
-                                yield _build_chunk(content=pre)
-                            mode = "tool_call"
-                            tc_buf = held[idx + len(_TC_OPEN):]
-                            held = ""
-                            if _TC_CLOSE in tc_buf:
-                                end = tc_buf.index(_TC_CLOSE)
-                                tc_chunk = _emit_tool_call(tc_buf[:end])
-                                if tc_chunk is not None:
-                                    yield tc_chunk
-                                tail = tc_buf[end + len(_TC_CLOSE):]
-                                mode = "text"
-                                tc_buf = ""
-                                held = tail
-                            continue
-
-                        safe, hold = _flushable_suffix(held)
-                        if safe:
-                            yield _build_chunk(content=safe)
-                        held = hold
-
-                    elif stype == "message_delta":
-                        # Usage updates land here too; the final result event
-                        # carries the canonical totals so we ignore mid-stream.
-                        pass
-
-                    elif stype == "message_stop":
-                        pass
-
+                        # thinking_delta / signature_delta are never displayed.
+                        if d.get("type") == "text_delta":
+                            t = d.get("text") or ""
+                            if t:
+                                text_parts.append(t)
+                    continue
                 if etype == "result":
-                    # Flush any leftover held text or unterminated tool_call.
-                    if mode == "tool_call" and tc_buf:
-                        # Tool-call open but never closed — fall back to text.
-                        yield _build_chunk(content=_TC_OPEN + tc_buf)
-                        tc_buf = ""
-                    if held:
-                        yield _build_chunk(content=held)
-                        held = ""
-
-                    # Emit finish_reason (so the streaming consumer's
-                    # "did we get a finish?" check passes) then a final
-                    # empty-choices chunk carrying usage (per OpenAI shape).
+                    usage_event = event.get("usage") or {}
                     raw_stop = event.get("stop_reason") or "end_turn"
-                    finish = _STOP_REASON_TO_FINISH.get(raw_stop, "stop")
-                    yield _build_chunk(finish_reason=finish)
-                    emitted_finish = True
-
-                    u = event.get("usage") or {}
-                    prompt_toks = int(u.get("input_tokens") or 0)
-                    completion_toks = int(u.get("output_tokens") or 0)
-                    cached = int(u.get("cache_read_input_tokens") or 0)
-                    usage = SimpleNamespace(
-                        prompt_tokens=prompt_toks,
-                        completion_tokens=completion_toks,
-                        total_tokens=prompt_toks + completion_toks,
-                        prompt_tokens_details=SimpleNamespace(cached_tokens=cached),
-                    )
-                    yield SimpleNamespace(
-                        choices=[], usage=usage, model=model_name,
-                    )
+                    got_result = True
                     break
         finally:
-            # Clean up the subprocess.
             try:
                 if proc.poll() is None:
                     proc.terminate()
@@ -691,8 +617,8 @@ class ClaudeCodeClient:
             except Exception:
                 pass
 
-        if not emitted_finish:
-            # Stream ended without a result event (process died mid-stream).
+        if not got_result and not text_parts:
+            # Process died mid-stream with no output — surface it.
             stderr_tail = ""
             try:
                 if proc.stderr is not None:
@@ -702,6 +628,40 @@ class ClaudeCodeClient:
             raise RuntimeError(
                 f"Claude Code CLI stream ended unexpectedly. stderr: {stderr_tail}"
             )
+
+        full_text = "".join(text_parts)
+        tool_calls, cleaned = _extract_tool_calls_from_text(full_text)
+        cleaned = _sanitize_model_text(cleaned)
+
+        if cleaned:
+            yield _build_chunk(content=cleaned)
+
+        for idx, tc in enumerate(tool_calls):
+            fn = getattr(tc, "function", None)
+            name = getattr(fn, "name", "") if fn is not None else ""
+            args = getattr(fn, "arguments", "{}") if fn is not None else "{}"
+            if not isinstance(args, str):
+                args = json.dumps(args, ensure_ascii=False)
+            call_id = getattr(tc, "id", None) or f"cli_call_{idx + 1}"
+            yield _build_chunk(tool_calls=[SimpleNamespace(
+                index=idx, id=call_id, type="function",
+                function=SimpleNamespace(name=name, arguments=args),
+                extra_content=None,
+            )])
+
+        finish = "tool_calls" if tool_calls else _STOP_REASON_TO_FINISH.get(raw_stop, "stop")
+        yield _build_chunk(finish_reason=finish)
+
+        prompt_toks = int(usage_event.get("input_tokens") or 0)
+        completion_toks = int(usage_event.get("output_tokens") or 0)
+        cached = int(usage_event.get("cache_read_input_tokens") or 0)
+        usage = SimpleNamespace(
+            prompt_tokens=prompt_toks,
+            completion_tokens=completion_toks,
+            total_tokens=prompt_toks + completion_toks,
+            prompt_tokens_details=SimpleNamespace(cached_tokens=cached),
+        )
+        yield SimpleNamespace(choices=[], usage=usage, model=model_name)
 
 
 # Map claude stop_reasons to OpenAI finish_reasons (mirrors

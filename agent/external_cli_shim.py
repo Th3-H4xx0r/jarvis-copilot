@@ -15,16 +15,214 @@ and parsing.
 
 from __future__ import annotations
 
+import base64
 import json
+import logging
 import re
 from types import SimpleNamespace
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 _TOOL_CALL_JSON_RE = re.compile(
     r"\{\s*\"id\"\s*:\s*\"[^\"]+\"\s*,\s*\"type\"\s*:\s*\"function\"\s*,\s*\"function\"\s*:\s*\{.*?\}\s*\}",
     re.DOTALL,
 )
+
+# ── Output sanitisation ──────────────────────────────────────────────────────
+#
+# An external CLI used as a pure text generator is fed past tool results in the
+# transcript wrapped in HTML-comment markers (``<!-- jc:tool_result … -->`` …
+# ``<!-- /jc:tool_result -->``). The header instructs the model NOT to reproduce
+# them, but weaker/faster generations sometimes echo the whole block — including
+# the raw JSON tool output — straight into the visible reply (often mangling the
+# tag, e.g. ``jc:toolresult``). JarvisCopilot already renders tool results as
+# separate UI elements, so any such echo is pure noise. These deterministic
+# strippers are the real fix: they run on the model's OUTPUT and never depend on
+# the model obeying instructions. ``tool_?result`` matches both the correct and
+# the mangled (underscore-dropped) spellings.
+
+# The model echoes tool-result markers in several mangled shapes:
+#   (1) paired single-line comments:  <!-- jc:tool_result name=x --> … <!-- /jc:tool_result -->
+#   (2) one multi-line comment:        <!--\njc:tool_result name=x\n<body>\n-->
+#   (3) the mangled spelling jc:toolresult (underscore dropped) in either form.
+# Strip the PAIRED block (markers + the content between them) FIRST so we don't
+# eat interleaved reply prose, then any remaining single jc:tool_result comment.
+_PAIRED_RESULT_BLOCK_RE = re.compile(
+    r"<!--(?:(?!-->)[\s\S])*?jc:tool_?result(?:(?!-->)[\s\S])*?-->"   # opening marker comment
+    r"[\s\S]*?"                                                        # tool-result body
+    r"<!--(?:(?!-->)[\s\S])*?/\s*jc:tool_?result(?:(?!-->)[\s\S])*?-->",  # closing marker comment
+    re.IGNORECASE,
+)
+_RESULT_COMMENT_RE = re.compile(
+    r"<!--(?:(?!-->)[\s\S])*?jc:tool_?result(?:(?!-->)[\s\S])*?-->",
+    re.IGNORECASE,
+)
+# Echoed XML-style tool-result element (an older mimicry shape).
+_ECHOED_TOOLRESULT_XML_RE = re.compile(
+    r"<\s*tool_?result\b.*?<\s*/\s*tool_?result\s*>",
+    re.DOTALL | re.IGNORECASE,
+)
+_EXCESS_BLANKS_RE = re.compile(r"\n{3,}")
+
+# A leaked transcript reproduces the format JarvisCopilot feeds the model. Some
+# signals are UNAMBIGUOUS leaks — jc markers, comment fragments, <tool_result>
+# XML, echoed tool-CALL JSON, and a bare/marker-introducing role label — and are
+# always dropped (`_is_leak_line`). Others are AMBIGUOUS — tool-output JSON like
+# `{"exit_code":0}` that a user might legitimately ask the model to print — and
+# are dropped ONLY when adjacent to an unambiguous leak line (i.e. part of a
+# transcript dump). Isolated user-requested JSON and ordinary prose survive.
+_HARD_LABEL_RE = re.compile(
+    r"^\s*(?:User|Assistant|Tool|System|Context|Human|AI)\s*:\s*(?:<!--|$)",
+    re.IGNORECASE,
+)
+_XML_TOOL_RESULT_LINE_RE = re.compile(r"^\s*</?\s*tool_?result\b", re.IGNORECASE)
+_GENERIC_COMMENT_SPAN_RE = re.compile(r"<!--[\s\S]*?-->")
+# Ambiguous tool-OUTPUT JSON signatures (contextual drop only).
+_TOOL_RESULT_JSON_SIGNATURES = (
+    '"exit_code"', '"stdout"', '"stderr"', '"output"', '"loaded"', '"schemas"',
+)
+
+
+def _is_echoed_tool_call_line(stripped: str) -> bool:
+    """An echoed past tool call — an Anthropic ``toolu_`` id or the function-call
+    shape. Effectively never produced as genuine reply prose."""
+    if not stripped.startswith(("{", "[")):
+        return False
+    if '"toolu_' in stripped:
+        return True
+    has_fn = '"type": "function"' in stripped or '"type":"function"' in stripped
+    return has_fn and '"id"' in stripped
+
+
+def _is_tool_result_json_line(stripped: str) -> bool:
+    return stripped.startswith(("{", "[")) and any(
+        sig in stripped for sig in _TOOL_RESULT_JSON_SIGNATURES
+    )
+
+
+def _is_leak_line(line: str) -> bool:
+    """True when a line is UNAMBIGUOUS leaked transcript scaffolding.
+
+    High precision: only signals that effectively never occur in genuine reply
+    prose. Ambiguous tool-output JSON is handled contextually by
+    ``sanitize_model_text`` and is intentionally NOT flagged here.
+    """
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if "<!--" in stripped or stripped.startswith("-->") or stripped == "-->":
+        return True
+    low = stripped.lower()
+    if "jc:tool_result" in low or "jc:toolresult" in low:
+        return True
+    if _XML_TOOL_RESULT_LINE_RE.match(line):
+        return True
+    if _HARD_LABEL_RE.match(line):
+        return True
+    if _is_echoed_tool_call_line(stripped):
+        return True
+    return False
+
+
+def looks_like_leak_start(partial_line: str) -> bool:
+    """Heuristic for an in-progress line that may resolve into leaked scaffolding.
+
+    Conservative: only flags lines that begin like a label, a JSON/array object,
+    or a tag — normal prose is never flagged.
+    """
+    t = partial_line.lstrip()
+    if not t:
+        return False
+    if t[0] in "{[<":
+        return True
+    if re.match(r"^(?:User|Assistant|Tool|System|Context|Human|AI)\b\s*:?", t, re.IGNORECASE):
+        return True
+    return False
+
+
+def sanitize_model_text(text: str) -> str:
+    """Strip leaked internal transcript scaffolding from model output.
+
+    Deterministic safety net for the text-shim providers (claude-code,
+    copilot-acp). Removes jc tool-result marker blocks/comments (incl. the
+    mangled ``jc:toolresult`` spelling and multi-line form), echoed
+    ``<tool_result>`` XML, and any leftover HTML-comment SPAN (keeping the prose
+    around it). Then drops leaked transcript lines: unambiguous ones always, and
+    ambiguous tool-output JSON only when adjacent to an unambiguous leak line (a
+    transcript dump). A user's own isolated JSON and ordinary prose are
+    preserved. Returns text unchanged when there's nothing to strip.
+    """
+    if not isinstance(text, str) or not text:
+        return text or ""
+    # 1. Paired jc tool-result blocks (marker + arbitrary body + marker), then
+    #    echoed <tool_result>…</tool_result> XML.
+    cleaned = _PAIRED_RESULT_BLOCK_RE.sub("", text)
+    cleaned = _ECHOED_TOOLRESULT_XML_RE.sub("", cleaned)
+
+    # 2. Single line pass. jc-marker lines are HARD-dropped IN PLACE (they stay
+    #    as anchors so adjacent ambiguous tool-output JSON drops with them);
+    #    multi-line HTML comments are dropped through their close.
+    lines = cleaned.split("\n")
+    n = len(lines)
+    drop = [False] * n
+    soft = [False] * n
+    inside_comment = False
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if inside_comment:
+            drop[i] = True
+            if "-->" in line:
+                inside_comment = False
+            continue
+        low = s.lower()
+        hard = (
+            "jc:tool_result" in low
+            or "jc:toolresult" in low
+            or bool(_XML_TOOL_RESULT_LINE_RE.match(line))
+            or bool(_HARD_LABEL_RE.match(line))
+            or _is_echoed_tool_call_line(s)
+            or s.startswith("-->")
+        )
+        # Opening of a multi-line HTML comment → drop through its close.
+        if "<!--" in line and "-->" not in line.split("<!--", 1)[1]:
+            inside_comment = True
+            hard = True
+        drop[i] = hard
+        if not hard and _is_tool_result_json_line(s):
+            soft[i] = True
+
+    def _prev_nonblank(i: int) -> int:
+        j = i - 1
+        while j >= 0 and not lines[j].strip():
+            j -= 1
+        return j
+
+    def _next_nonblank(i: int) -> int:
+        j = i + 1
+        while j < n and not lines[j].strip():
+            j += 1
+        return j
+
+    # 3. Drop an ambiguous tool-output JSON line when a non-blank neighbour is
+    #    already dropped; propagate so a whole contiguous dump goes.
+    changed = True
+    while changed:
+        changed = False
+        for i in range(n):
+            if soft[i] and not drop[i]:
+                p, q = _prev_nonblank(i), _next_nonblank(i)
+                if (p >= 0 and drop[p]) or (q < n and drop[q]):
+                    drop[i] = True
+                    changed = True
+
+    cleaned = "\n".join(lines[i] for i in range(n) if not drop[i])
+    # 4. Strip any residual COMPLETE generic comment span on surviving lines
+    #    (keeps the prose around an inline `<!-- … -->`).
+    cleaned = _GENERIC_COMMENT_SPAN_RE.sub("", cleaned)
+    cleaned = _EXCESS_BLANKS_RE.sub("\n\n", cleaned)
+    return cleaned.strip()
 
 # Generic preamble used when a backend doesn't supply its own ``header_lines``.
 _DEFAULT_HEADER_LINES = [
@@ -58,6 +256,43 @@ def render_message_content(content: Any) -> str:
                     parts.append(text.strip())
         return "\n".join(parts).strip()
     return str(content).strip()
+
+
+def _summarize_tool_calls(tool_calls: Any) -> str:
+    """Render an assistant message's tool_calls as ``name(args), name(args)``.
+
+    Accepts both dict-shaped (``{"function": {"name", "arguments"}}``) and
+    object-shaped (``tc.function.name``) tool calls. Arguments are truncated so
+    a large payload (e.g. a diff) doesn't bloat the prompt. Returns "" when there
+    are no usable calls.
+    """
+    if not tool_calls:
+        return ""
+    parts: list[str] = []
+    for tc in tool_calls:
+        fn = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)
+        if isinstance(fn, dict):
+            name = str(fn.get("name") or "").strip()
+            args = fn.get("arguments")
+        elif fn is not None:
+            name = str(getattr(fn, "name", "") or "").strip()
+            args = getattr(fn, "arguments", None)
+        else:
+            name, args = "", None
+        if not name:
+            continue
+        if args is None:
+            args = ""
+        if not isinstance(args, str):
+            try:
+                args = json.dumps(args, ensure_ascii=False)
+            except Exception:
+                args = str(args)
+        args = args.strip()
+        if len(args) > 200:
+            args = args[:200] + "…"
+        parts.append(f"{name}({args})" if args else f"{name}()")
+    return ", ".join(parts)
 
 
 def format_messages_as_prompt(
@@ -117,6 +352,7 @@ def format_messages_as_prompt(
         sections.append(f"Tool choice hint: {json.dumps(tool_choice, ensure_ascii=False)}")
 
     transcript: list[str] = []
+    last_role = ""
     for message in messages:
         if not isinstance(message, dict):
             continue
@@ -128,7 +364,14 @@ def format_messages_as_prompt(
 
         content = message.get("content")
         rendered = render_message_content(content)
-        if not rendered:
+        # CRITICAL: an assistant turn is often a *pure tool call* (empty content).
+        # Rendering its tool_calls is what lets the model see what it has ALREADY
+        # done across agent-loop iterations — without it the model re-issues the
+        # same call every turn and the loop never terminates.
+        tool_calls_summary = (
+            _summarize_tool_calls(message.get("tool_calls")) if role == "assistant" else ""
+        )
+        if not rendered and not tool_calls_summary:
             continue
 
         # Per-role custom renderer (e.g. claude-code wraps tool results in
@@ -147,12 +390,33 @@ def format_messages_as_prompt(
                 "tool": "Tool",
                 "context": "Context",
             }.get(role, role.title())
-            transcript.append(f"{label}:\n{rendered}")
+            body_parts: list[str] = []
+            if rendered:
+                body_parts.append(rendered)
+            if tool_calls_summary:
+                # Descriptive, NON-executable form: shows history so the model
+                # doesn't repeat the call, but isn't a `<tool_call>` it could echo
+                # back and have re-extracted/re-run.
+                body_parts.append(
+                    f"[already executed — do NOT call again: {tool_calls_summary}]"
+                )
+            transcript.append(f"{label}:\n" + "\n".join(body_parts))
+        last_role = role
 
     if transcript:
         sections.append("Conversation transcript:\n\n" + "\n\n".join(transcript))
 
-    sections.append("Continue the conversation from the latest user request.")
+    if last_role == "tool":
+        # After tool results, steer the model to USE them rather than re-address
+        # the user's request from scratch (which re-greets and re-calls → loop).
+        sections.append(
+            "The tool results above are from calls you ALREADY made. Do NOT "
+            "repeat any tool call that already has a result above. Use the "
+            "results to continue toward the user's goal, or give your final "
+            "answer with no tool call."
+        )
+    else:
+        sections.append("Continue the conversation from the latest user request.")
     return "\n\n".join(section.strip() for section in sections if section and section.strip())
 
 
@@ -233,3 +497,105 @@ def extract_tool_calls_from_text(text: str) -> tuple[list[SimpleNamespace], str]
 
     cleaned = "\n".join(p.strip() for p in parts if p and p.strip()).strip()
     return extracted, cleaned
+
+
+# ── Vision / image input ─────────────────────────────────────────────────────
+#
+# The text-prompt path (``format_messages_as_prompt`` → stdin) drops images.
+# To support vision the claude-code client switches to the CLI's stream-json
+# INPUT format and sends one user turn carrying the flattened text prompt plus
+# the conversation's images as base64 ``image`` content blocks. These helpers
+# extract images from OpenAI-shaped messages and build that JSON turn. They are
+# only engaged when at least one image is present, so text-only requests keep
+# the proven plain-stdin path untouched.
+
+_IMAGE_FETCH_TIMEOUT_SECONDS = 12.0
+
+
+def _parse_data_url(url: str) -> tuple[str, str] | None:
+    """Parse a ``data:<media>;base64,<data>`` URL → (media_type, b64_data)."""
+    if not isinstance(url, str) or not url.startswith("data:"):
+        return None
+    try:
+        header, b64data = url.split(",", 1)
+    except ValueError:
+        return None
+    meta = header[len("data:"):]
+    if "base64" not in meta.lower():
+        return None
+    media_type = (meta.split(";", 1)[0] or "").strip() or "image/png"
+    data = b64data.strip()
+    return (media_type, data) if data else None
+
+
+def _image_block_from_url(url: str) -> dict[str, Any] | None:
+    """Build a claude ``image`` content block from a data: or http(s) URL.
+
+    data: URLs are decoded inline. http(s) URLs are fetched + base64-encoded
+    (the CLI runs with native tools disabled, so it can't fetch them itself).
+    Any failure returns None — the caller drops that image rather than erroring.
+    """
+    parsed = _parse_data_url(url)
+    if parsed:
+        media_type, data = parsed
+        return {"type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": data}}
+    if isinstance(url, str) and url.startswith(("http://", "https://")):
+        try:
+            import urllib.request
+
+            req = urllib.request.Request(url, headers={"User-Agent": "JarvisCopilot"})
+            with urllib.request.urlopen(req, timeout=_IMAGE_FETCH_TIMEOUT_SECONDS) as resp:
+                raw = resp.read()
+                ctype = (resp.headers.get("Content-Type") or "image/png").split(";")[0].strip()
+            media_type = ctype or "image/png"
+            return {"type": "image",
+                    "source": {"type": "base64", "media_type": media_type,
+                               "data": base64.b64encode(raw).decode("ascii")}}
+        except Exception:
+            logger.debug("claude-code: could not fetch image url for vision", exc_info=True)
+            return None
+    return None
+
+
+def extract_image_blocks(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collect claude ``image`` content blocks from OpenAI-shaped messages.
+
+    Handles OpenAI ``{"type":"image_url","image_url":{"url":…}}`` (and the bare
+    string form) plus already-claude-shaped ``{"type":"image","source":{…}}``.
+    """
+    blocks: list[dict[str, Any]] = []
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            itype = item.get("type")
+            if itype == "image_url":
+                iu = item.get("image_url")
+                if isinstance(iu, dict):
+                    url = iu.get("url") or ""
+                elif isinstance(iu, str):
+                    url = iu
+                else:
+                    url = ""
+                block = _image_block_from_url(url) if url else None
+                if block:
+                    blocks.append(block)
+            elif itype == "image" and isinstance(item.get("source"), dict):
+                blocks.append({"type": "image", "source": item["source"]})
+    return blocks
+
+
+def build_stream_json_user_input(prompt_text: str, image_blocks: list[dict[str, Any]]) -> str:
+    """Build one claude stream-json INPUT line: a user turn with text + images."""
+    content: list[dict[str, Any]] = [{"type": "text", "text": prompt_text or ""}]
+    content.extend(image_blocks or [])
+    return json.dumps(
+        {"type": "user", "message": {"role": "user", "content": content}},
+        ensure_ascii=False,
+    )

@@ -248,7 +248,10 @@ def test_claude_provider_aliases_normalize_to_anthropic(monkeypatch, tmp_path):
     monkeypatch.setattr(oauth, "_read_claude_code_credentials", lambda: None)
     monkeypatch.setattr(oauth, "_spawn_anthropic_credential_worker", lambda fid: None)
 
-    for alias in ("anthropic", "claude", "claude-code"):
+    # Only the Anthropic-API aliases normalize to "anthropic". "claude-code" is
+    # the local-CLI subscription path and now has its own flow (see
+    # test_claude_code_onboarding.py), so it must NOT fold into anthropic here.
+    for alias in ("anthropic", "claude"):
         payload = oauth.start_onboarding_oauth_flow({"provider": alias})
         assert payload["ok"] is True
         assert payload["provider"] == "anthropic"
@@ -411,9 +414,22 @@ def test_anthropic_cancel_missing_flow_keeps_requested_provider():
 
     oauth._OAUTH_FLOWS.clear()
 
-    assert oauth.cancel_onboarding_oauth_flow({"flow_id": "missing", "provider": "claude-code"}) == {
+    # "claude" still normalizes to the Anthropic-API provider, so a cancel of a
+    # missing flow keeps that requested-provider label.
+    assert oauth.cancel_onboarding_oauth_flow({"flow_id": "missing", "provider": "claude"}) == {
         "ok": True,
         "provider": "anthropic",
+        "flow_id": "missing",
+        "status": "cancelled",
+    }
+
+    # "claude-code" is no longer an Anthropic alias; the cancel return label for
+    # a missing flow falls back to "openai-codex" (the actual claude-code flow,
+    # when present in the registry, still cancels under its own provider — see
+    # test_claude_code_onboarding.py).
+    assert oauth.cancel_onboarding_oauth_flow({"flow_id": "missing", "provider": "claude-code"}) == {
+        "ok": True,
+        "provider": "openai-codex",
         "flow_id": "missing",
         "status": "cancelled",
     }
