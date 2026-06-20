@@ -64,7 +64,9 @@ _PROVIDER_QUOTA_TIMEOUT_SECONDS = 3.0
 _ACCOUNT_USAGE_SUBPROCESS_TIMEOUT_SECONDS = 35.0
 _ACCOUNT_USAGE_CACHE_TTL_SECONDS = 45.0
 _ACCOUNT_USAGE_CACHE_MAX_ENTRIES = 64
-_ACCOUNT_USAGE_PROVIDERS = frozenset({"openai-codex", "anthropic"})
+# claude-code reuses the Anthropic OAuth usage snapshot (same subscription token
+# that the Dynamic Island reads) — see agent/account_usage.fetch_account_usage.
+_ACCOUNT_USAGE_PROVIDERS = frozenset({"openai-codex", "anthropic", "claude-code"})
 
 # Upper bound on simultaneous profile-isolated quota probe subprocesses.
 # Each probe runs a Python child for up to 35 s; capping concurrency prevents
@@ -1441,6 +1443,142 @@ def get_provider_quota(provider_id: str | None = None, *, refresh: bool = False)
             "quota": None,
             "message": "OpenRouter quota status is temporarily unavailable.",
         }
+
+
+# Providers probed by the aggregate /api/provider/quota/all endpoint (mobile).
+# anthropic is intentionally absent here: it shares the SAME subscription token as
+# claude-code (resolve_anthropic_token), so it is only added as a fallback when
+# claude-code itself is unavailable — otherwise the two would render identical
+# duplicate cards. Order here is the display order on the client.
+_ALL_QUOTA_CANDIDATE_PROVIDERS = ("claude-code", "openai-codex", "openrouter")
+
+
+def _openrouter_quota_to_window(quota: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Map OpenRouter's credits ``quota`` dict to a uniform window (bar + %).
+
+    Returns a window with ``used_percent`` when the key has a hard limit, a
+    detail-only window (no bar) for pay-as-you-go keys, or None when there is
+    nothing usable to show.
+    """
+    quota = quota or {}
+    limit = quota.get("limit")
+    remaining = quota.get("limit_remaining")
+    usage = quota.get("usage")
+    if isinstance(limit, (int, float)) and float(limit) > 0:
+        if isinstance(remaining, (int, float)):
+            used = max(0.0, float(limit) - float(remaining))
+        elif isinstance(usage, (int, float)):
+            used = max(0.0, float(usage))
+        else:
+            used = None
+        if used is not None:
+            used_percent = max(0.0, min(100.0, used / float(limit) * 100.0))
+            return {
+                "label": "Credits",
+                "used_percent": used_percent,
+                "remaining_percent": max(0.0, 100.0 - used_percent),
+                "reset_at": None,
+                "detail": f"${max(0.0, float(limit) - used):.2f} of ${float(limit):.2f} remaining",
+            }
+    if isinstance(usage, (int, float)):
+        return {
+            "label": "Credits",
+            "used_percent": None,
+            "remaining_percent": None,
+            "reset_at": None,
+            "detail": f"${float(usage):.2f} used",
+        }
+    return None
+
+
+def _normalize_quota_block(provider: str, result: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Reduce a single get_provider_quota result to a uniform per-provider block.
+
+    Returns None unless the provider is configured AND has usable usage data, so
+    every block the client renders has at least one window or detail.
+    """
+    if not isinstance(result, dict) or result.get("status") != "available":
+        return None
+    display_name = result.get("display_name") or _PROVIDER_DISPLAY.get(
+        provider, provider.replace("-", " ").title()
+    )
+    account_limits = result.get("account_limits") or None
+    windows: list[dict[str, Any]] = []
+    details: list[str] = []
+    fetched_at = None
+    plan = None
+    pool = None
+    if account_limits:
+        for window in account_limits.get("windows") or []:
+            if not isinstance(window, dict) or not window.get("label"):
+                continue
+            windows.append({
+                "label": window.get("label"),
+                "used_percent": window.get("used_percent"),
+                "remaining_percent": window.get("remaining_percent"),
+                "reset_at": window.get("reset_at"),
+                "detail": window.get("detail"),
+            })
+        details = [str(d).strip() for d in (account_limits.get("details") or []) if str(d).strip()]
+        fetched_at = account_limits.get("fetched_at")
+        plan = account_limits.get("plan")
+        if isinstance(account_limits.get("pool"), dict):
+            pool = account_limits["pool"]
+    else:
+        window = _openrouter_quota_to_window(result.get("quota"))
+        if window:
+            windows.append(window)
+    if not windows and not details:
+        return None
+    block = {
+        "provider": provider,
+        "display_name": display_name,
+        "status": "available",
+        "label": result.get("label"),
+        "plan": plan,
+        "windows": windows,
+        "details": details,
+        "fetched_at": fetched_at,
+        "message": result.get("message"),
+    }
+    if pool is not None:
+        block["pool"] = pool
+    return block
+
+
+def get_all_provider_quota(*, refresh: bool = False) -> dict[str, Any]:
+    """Quota for every configured quota-capable provider, for the mobile card.
+
+    Mirrors the web Providers panel but in one call: claude-code, openai-codex
+    and openrouter (anthropic only as a claude-code fallback — same token). Only
+    providers that are configured and have usable usage data are returned, each
+    normalized to ``windows`` carrying ``used_percent`` for a progress bar + %.
+    """
+    def _block_for(provider: str) -> dict[str, Any] | None:
+        # Isolate each provider: one provider raising must not blank the whole
+        # card. The aggregate would otherwise amplify a single failure (e.g. a
+        # codex pool subprocess error) into a 500 that hides every provider.
+        try:
+            result = get_provider_quota(provider, refresh=refresh)
+        except Exception:
+            logger.debug("aggregate quota probe failed for %s", provider, exc_info=True)
+            return None
+        return _normalize_quota_block(provider, result)
+
+    blocks: list[dict[str, Any]] = []
+    claude_code_available = False
+    for provider in _ALL_QUOTA_CANDIDATE_PROVIDERS:
+        block = _block_for(provider)
+        if block is None:
+            continue
+        if provider == "claude-code":
+            claude_code_available = True
+        blocks.append(block)
+    if not claude_code_available:
+        anthropic_block = _block_for("anthropic")
+        if anthropic_block is not None:
+            blocks.insert(0, anthropic_block)
+    return {"ok": True, "providers": blocks}
 
 
 def _provider_is_oauth(provider_id: str) -> bool:

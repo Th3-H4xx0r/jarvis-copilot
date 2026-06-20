@@ -11,6 +11,7 @@ import '../services/on_device_ai_types.dart';
 import '../services/watch_sync.dart';
 import '../theme.dart';
 import '../widgets/glass.dart';
+import '../widgets/quota_card.dart';
 import 'island_designs_page.dart';
 import 'ondevice_ai_settings_page.dart';
 import 'pair_page.dart';
@@ -191,6 +192,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   last: true,
                 ),
               ]),
+              const SizedBox(height: 26),
+
+              // ── Quota & usage (Claude Code, Codex, …) ──
+              const QuotaUsageCard(),
               const SizedBox(height: 26),
 
               // ── Navigation rows ──

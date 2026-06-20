@@ -95,6 +95,44 @@ def test_fetch_account_usage_codex(monkeypatch):
     assert "Credits balance: $12.50" in snapshot.details
 
 
+def test_fetch_account_usage_claude_code_routes_to_anthropic_oauth(monkeypatch):
+    """claude-code reuses the Anthropic OAuth usage snapshot, labeled Claude Code."""
+    monkeypatch.setattr("agent.account_usage.resolve_anthropic_token", lambda: "oauth-subscription-token")
+    monkeypatch.setattr("agent.account_usage._is_oauth_token", lambda token: True)
+    monkeypatch.setattr(
+        "agent.account_usage.httpx.Client",
+        lambda timeout=15.0: _Client(
+            {
+                "five_hour": {"utilization": 0.45, "resets_at": "2030-03-17T17:30:00Z"},
+                "seven_day": {"utilization": 0.18, "resets_at": "2030-03-24T12:30:00Z"},
+            }
+        ),
+    )
+
+    snapshot = fetch_account_usage("claude-code")
+
+    assert snapshot is not None
+    assert snapshot.provider == "claude-code"
+    assert len(snapshot.windows) == 2
+    assert snapshot.windows[0].label == "Current session"
+    assert snapshot.windows[0].used_percent == 45.0
+    assert snapshot.windows[1].label == "Current week"
+    assert snapshot.windows[1].used_percent == 18.0
+
+
+def test_fetch_account_usage_claude_code_non_oauth_is_labeled_claude_code(monkeypatch):
+    """A non-OAuth (API-key) account yields a Claude-Code-labeled unavailable reason."""
+    monkeypatch.setattr("agent.account_usage.resolve_anthropic_token", lambda: "sk-ant-apikey")
+    monkeypatch.setattr("agent.account_usage._is_oauth_token", lambda token: False)
+
+    snapshot = fetch_account_usage("claude-code")
+
+    assert snapshot is not None
+    assert snapshot.provider == "claude-code"
+    assert snapshot.unavailable_reason is not None
+    assert "Claude Code account limits" in snapshot.unavailable_reason
+
+
 def test_render_account_usage_lines_includes_reset_and_provider():
     snapshot = AccountUsageSnapshot(
         provider="openai-codex",

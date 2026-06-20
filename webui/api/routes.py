@@ -2159,7 +2159,7 @@ from api.run_journal import (
     read_run_events,
     stale_interrupted_event,
 )
-from api.providers import get_providers, get_provider_quota, get_provider_cost_history, set_provider_key, remove_provider_key
+from api.providers import get_providers, get_provider_quota, get_all_provider_quota, get_provider_cost_history, set_provider_key, remove_provider_key
 from api.onboarding import (
     apply_onboarding_setup,
     get_onboarding_status,
@@ -3738,6 +3738,11 @@ def handle_get(handler, parsed) -> bool:
         provider_id = (query.get("provider", [""])[0] or None)
         refresh = (query.get("refresh", [""])[0] or "").strip().lower() in {"1", "true", "yes", "on"}
         return j(handler, get_provider_quota(provider_id, refresh=refresh))
+
+    if parsed.path == "/api/provider/quota/all":
+        query = parse_qs(parsed.query)
+        refresh = (query.get("refresh", [""])[0] or "").strip().lower() in {"1", "true", "yes", "on"}
+        return j(handler, get_all_provider_quota(refresh=refresh))
 
     if parsed.path == "/api/provider/cost-history":
         query = parse_qs(parsed.query)

@@ -6505,6 +6505,17 @@ function _formatProviderQuotaPercent(value){
   if(!Number.isFinite(n)) return '—';
   return Math.max(0,Math.min(100,Math.round(n)))+'%';
 }
+// A usage progress bar for a quota window. Width tracks used_percent; the fill
+// shifts amber/red as it nears the limit. Returns '' when usage is unknown so
+// the window still shows "—" without a misleading empty bar.
+function _providerQuotaBar(usedPercent){
+  if(usedPercent===null||usedPercent===undefined||(typeof usedPercent==='string'&&usedPercent.trim()==='')) return '';
+  const n=Number(usedPercent);
+  if(!Number.isFinite(n)) return '';
+  const pct=Math.max(0,Math.min(100,n));
+  const level=pct>=90?' is-critical':(pct>=75?' is-high':'');
+  return `<div class="provider-quota-bar${level}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}"><div class="provider-quota-bar-fill" style="width:${pct}%"></div></div>`;
+}
 
 function _formatProviderQuotaReset(value){
   if(!value) return '';
@@ -6613,7 +6624,7 @@ function _buildProviderQuotaPoolBreakdown(accountLimits){
       const reset=_formatProviderQuotaReset(w&&w.reset_at);
       const meta=_providerQuotaWindowMeta(used,reset);
       const detail=(w&&w.detail)?String(w.detail).trim():'';
-      return `<div class="provider-quota-pool-window"><span>${esc(_formatProviderQuotaWindowLabel(accountLimits,w))}</span><strong>${esc(remaining)}</strong>${meta.length?`<small>${esc(meta.join(' · '))}</small>`:''}${detail?`<small class="provider-quota-window-detail">${esc(detail)}</small>`:''}</div>`;
+      return `<div class="provider-quota-pool-window"><span>${esc(_formatProviderQuotaWindowLabel(accountLimits,w))}</span><strong>${esc(remaining)}</strong>${_providerQuotaBar(w&&w.used_percent)}${meta.length?`<small>${esc(meta.join(' · '))}</small>`:''}${detail?`<small class="provider-quota-window-detail">${esc(detail)}</small>`:''}</div>`;
     }).join(''):`<div class="provider-quota-pool-note">${esc(unavailableReason||t('provider_quota_pool_no_windows'))}</div>`;
     const detailHtml=details.length?`<div class="provider-quota-pool-details">${details.map(d=>`<span>${esc(d)}</span>`).join('')}</div>`:'';
     return `
@@ -6659,6 +6670,7 @@ function _buildProviderQuotaCard(status){
         <div class="provider-quota-metric provider-quota-window">
           <span>${esc(_formatProviderQuotaWindowLabel(accountLimits,w))}</span>
           <strong>${esc(_formatProviderQuotaPercent(w&&w.remaining_percent))}</strong>
+          ${_providerQuotaBar(w&&w.used_percent)}
           ${meta.length?`<small>${esc(meta.join(' · '))}</small>`:''}
           ${detail?`<small class="provider-quota-window-detail">${esc(detail)}</small>`:''}
         </div>

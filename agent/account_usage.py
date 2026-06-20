@@ -172,16 +172,21 @@ def _fetch_codex_account_usage() -> Optional[AccountUsageSnapshot]:
     )
 
 
-def _fetch_anthropic_account_usage() -> Optional[AccountUsageSnapshot]:
+def _fetch_anthropic_account_usage(
+    *, provider: str = "anthropic", unavailable_label: str = "Anthropic"
+) -> Optional[AccountUsageSnapshot]:
+    # Claude Code's subscription quota is the SAME Anthropic OAuth usage snapshot
+    # (both resolve the same subscription token via resolve_anthropic_token), so
+    # claude-code reuses this fetch with only the provider label changed.
     token = (resolve_anthropic_token() or "").strip()
     if not token:
         return None
     if not _is_oauth_token(token):
         return AccountUsageSnapshot(
-            provider="anthropic",
+            provider=provider,
             source="oauth_usage_api",
             fetched_at=_utc_now(),
-            unavailable_reason="Anthropic account limits are only available for OAuth-backed Claude accounts.",
+            unavailable_reason=f"{unavailable_label} account limits are only available for OAuth-backed Claude accounts.",
         )
     headers = {
         "Authorization": f"Bearer {token}",
@@ -225,7 +230,7 @@ def _fetch_anthropic_account_usage() -> Optional[AccountUsageSnapshot]:
                 f"Extra usage: {used_credits:.2f} / {monthly_limit:.2f} {currency}"
             )
     return AccountUsageSnapshot(
-        provider="anthropic",
+        provider=provider,
         source="oauth_usage_api",
         fetched_at=_utc_now(),
         windows=tuple(windows),
@@ -319,6 +324,12 @@ def fetch_account_usage(
             return _fetch_codex_account_usage()
         if normalized == "anthropic":
             return _fetch_anthropic_account_usage()
+        if normalized == "claude-code":
+            # Same Anthropic OAuth subscription usage the Dynamic Island reads,
+            # just labeled as Claude Code.
+            return _fetch_anthropic_account_usage(
+                provider="claude-code", unavailable_label="Claude Code"
+            )
         if normalized == "openrouter":
             return _fetch_openrouter_account_usage(base_url, api_key)
     except Exception:
