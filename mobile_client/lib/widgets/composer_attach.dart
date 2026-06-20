@@ -133,13 +133,17 @@ class AttachmentChips extends StatelessWidget {
   }
 
   Widget _chip(ComposerAttachHost host, PendingAttachment a) {
+    // Show a real thumbnail for an image (its bytes) or a video (its poster
+    // frame); fall back to a type icon for plain files.
+    final Uint8List? thumb =
+        a.isImage ? a.bytes : (a.isVideo ? a.posterBytes : null);
     final icon = a.isVideo
         ? Icons.movie_rounded
         : a.isImage
             ? Icons.image_rounded
             : Icons.insert_drive_file_rounded;
     return Container(
-      padding: const EdgeInsets.only(left: 10, right: 2),
+      padding: EdgeInsets.only(left: thumb != null ? 4 : 10, right: 2),
       decoration: BoxDecoration(
         color: JcTheme.glassFill,
         borderRadius: BorderRadius.circular(19),
@@ -148,7 +152,7 @@ class AttachmentChips extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: JcTheme.muted),
+          _leading(thumb, icon, a.isVideo),
           const SizedBox(width: 6),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 130),
@@ -168,6 +172,40 @@ class AttachmentChips extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _leading(Uint8List? thumb, IconData icon, bool isVideo) {
+    if (thumb == null) {
+      return Icon(icon, size: 15, color: JcTheme.muted);
+    }
+    final image = ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.memory(
+        thumb,
+        width: 30,
+        height: 30,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, __, ___) => Icon(icon, size: 15, color: JcTheme.muted),
+      ),
+    );
+    if (!isVideo) return image;
+    // A small play badge over the video poster.
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        image,
+        Container(
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.45),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.play_arrow_rounded, size: 12, color: Colors.white),
+        ),
+      ],
     );
   }
 }

@@ -63,9 +63,15 @@ class _UserBubble extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 6),
                   child: Wrap(
                     spacing: 6,
+                    runSpacing: 6,
                     children: [
-                      for (final a in message.attachments)
-                        _AttachmentChip(name: a),
+                      for (var i = 0; i < message.attachments.length; i++)
+                        _AttachmentChip(
+                          name: message.attachments[i],
+                          thumb: i < message.attachmentThumbs.length
+                              ? message.attachmentThumbs[i]
+                              : null,
+                        ),
                     ],
                   ),
                 ),
@@ -242,11 +248,33 @@ class _ErrorText extends StatelessWidget {
 }
 
 class _AttachmentChip extends StatelessWidget {
-  const _AttachmentChip({required this.name});
+  const _AttachmentChip({required this.name, this.thumb});
   final String name;
+
+  /// In-memory image/poster bytes (current session) — when present the bubble
+  /// shows a real preview instead of a filename chip.
+  final Uint8List? thumb;
 
   @override
   Widget build(BuildContext context) {
+    final t = thumb;
+    if (t != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.memory(
+          t,
+          width: 160,
+          height: 120,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => _fileChip(),
+        ),
+      );
+    }
+    return _fileChip();
+  }
+
+  Widget _fileChip() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(

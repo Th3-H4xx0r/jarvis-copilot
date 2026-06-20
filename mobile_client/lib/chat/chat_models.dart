@@ -8,6 +8,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 /// A row in the sessions list (`GET /api/sessions`).
 class ChatSessionSummary {
@@ -101,17 +102,25 @@ class ChatMessage {
     List<ChatBlock>? blocks,
     this.reasoning = '',
     List<String>? attachments,
+    List<Uint8List?>? attachmentThumbs,
     this.streaming = false,
     this.isError = false,
     this.onDevice = false,
     this.ts,
   })  : blocks = blocks ?? <ChatBlock>[],
-        attachments = attachments ?? const [];
+        attachments = attachments ?? const [],
+        attachmentThumbs = attachmentThumbs ?? const [];
 
   final String role; // user | assistant | system
   final List<ChatBlock> blocks;
   String reasoning;
   final List<String> attachments;
+
+  /// In-memory image/poster bytes for the attachments of a JUST-SENT message, so
+  /// the bubble can show a real preview this session. Aligned with [attachments]
+  /// by index; an entry is null for a non-image file. Empty on history reload
+  /// (the server only stores names) → the bubble falls back to a file chip.
+  final List<Uint8List?> attachmentThumbs;
   bool streaming;
   bool isError;
 
@@ -172,11 +181,13 @@ class ChatMessage {
     }
   }
 
-  factory ChatMessage.user(String text, {List<String>? attachments}) {
+  factory ChatMessage.user(String text,
+      {List<String>? attachments, List<Uint8List?>? attachmentThumbs}) {
     return ChatMessage(
       role: 'user',
       blocks: [TextBlock(text)],
       attachments: attachments,
+      attachmentThumbs: attachmentThumbs,
     );
   }
 

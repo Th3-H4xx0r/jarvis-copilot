@@ -370,7 +370,10 @@ class ChatController extends ChangeNotifier implements ComposerAttachHost {
     _pending.clear();
 
     messages.add(ChatMessage.user(trimmed,
-        attachments: pending.map((a) => a.name).toList()));
+        attachments: pending.map((a) => a.name).toList(),
+        attachmentThumbs: pending
+            .map((a) => a.isImage ? a.bytes : (a.isVideo ? a.posterBytes : null))
+            .toList()));
     final assistant = ChatMessage(role: 'assistant', streaming: true);
     messages.add(assistant);
     _live = assistant;
