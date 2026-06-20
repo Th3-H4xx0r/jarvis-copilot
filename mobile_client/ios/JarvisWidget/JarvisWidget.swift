@@ -1300,8 +1300,8 @@ final class JCDesignRenderer {
                 }
                 .frame(height: 8)
                 if let tip = tip {
-                    jcTipView(tip)
-                        .position(x: jcTipX(geo.size.width, v, tip.size),
+                    self.jcTipView(tip)
+                        .position(x: self.jcTipX(geo.size.width, v, tip.size),
                                   y: geo.size.height / 2)
                 }
             }
@@ -1330,8 +1330,8 @@ final class JCDesignRenderer {
                     }
                 }
                 if let tip = tip, let frac = frac {
-                    jcTipView(tip)
-                        .position(x: jcTipX(geo.size.width, frac, tip.size),
+                    self.jcTipView(tip)
+                        .position(x: self.jcTipX(geo.size.width, frac, tip.size),
                                   y: geo.size.height / 2)
                 }
             }
