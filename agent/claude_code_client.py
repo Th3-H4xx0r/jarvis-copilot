@@ -88,6 +88,13 @@ _HEADER_LINES = [
     "To CALL a tool you MUST emit a real <tool_call>{...}</tool_call> block — "
     "that is the ONLY thing that runs a tool. NEVER write a `(result of …)` note "
     "or any history line yourself; writing one runs nothing.",
+    "Work AUTONOMOUSLY to completion. If your reply mentions a next step ("
+    "\"Now I'll…\", \"Next I'll…\", \"Let me…\"), you MUST emit its "
+    "<tool_call>{...}</tool_call> in the SAME turn. NEVER end your turn just to "
+    "report progress, narrate a plan, or ask to continue — a turn with no "
+    "<tool_call> is treated as FINISHED and stalls the task until the user nudges "
+    "you. Keep emitting tool calls until the WHOLE request is done; only THEN "
+    "give a tool-call-free final answer.",
     # CRITICAL anti-leakage rules. Past tool results appear in the transcript
     # inside HTML-comment markers (`<!-- jc:tool_result … -->`) so claude
     # treats them as metadata, not as a format to mimic. These rules MUST be
