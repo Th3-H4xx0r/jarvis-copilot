@@ -159,6 +159,14 @@ def _explicit_aux_vision_override(cfg: Optional[Dict[str, Any]]) -> bool:
     return True
 
 
+# CLI/shim providers that always run a known vision-capable model family but
+# have NO models.dev provider entry — so a caps lookup returns None and `auto`
+# image routing would wrongly fall back to the vision_analyze text sidecar
+# instead of attaching the image natively. claude-code always shells to Claude
+# (opus/sonnet/haiku — all accept image input), so it natively supports vision.
+_ALWAYS_VISION_PROVIDERS = frozenset({"claude-code"})
+
+
 def _lookup_supports_vision(
     provider: str,
     model: str,
@@ -168,13 +176,16 @@ def _lookup_supports_vision(
 
     Consults the user's ``supports_vision`` override in config.yaml first
     (so custom/local models declared as vision-capable don't fall through to
-    text routing in ``auto`` mode), then falls back to models.dev.
+    text routing in ``auto`` mode), then a known-vision shim allow-list, then
+    falls back to models.dev.
     """
     override = _supports_vision_override(cfg, provider, model)
     if override is not None:
         return override
     if not provider or not model:
         return None
+    if provider.strip().lower() in _ALWAYS_VISION_PROVIDERS:
+        return True
     try:
         from agent.models_dev import get_model_capabilities
         caps = get_model_capabilities(provider, model)

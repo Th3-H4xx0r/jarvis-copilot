@@ -107,6 +107,19 @@ class TestDecideImageInputMode:
         with patch("agent.image_routing._lookup_supports_vision", return_value=True):
             assert decide_image_input_mode("anthropic", "claude-sonnet-4", None) == "native"
 
+    def test_claude_code_resolves_native_despite_no_models_dev_entry(self):
+        # claude-code has no models.dev provider entry (caps lookup → None), but it
+        # always runs Claude (vision-capable). It must use NATIVE attachment, not
+        # the vision_analyze text sidecar — the bug behind "vision pipeline is down".
+        from agent.image_routing import _lookup_supports_vision
+        for model in ("claude-opus-4-8", "opus", "claude-sonnet-4-6"):
+            assert _lookup_supports_vision("claude-code", model, None) is True
+            assert decide_image_input_mode("claude-code", model, None) == "native"
+
+    def test_claude_code_still_respects_explicit_text_mode(self):
+        cfg = {"agent": {"image_input_mode": "text"}}
+        assert decide_image_input_mode("claude-code", "opus", cfg) == "text"
+
     def test_invalid_mode_coerces_to_auto(self):
         cfg = {"agent": {"image_input_mode": "weird-value"}}
         with patch("agent.image_routing._lookup_supports_vision", return_value=True):
