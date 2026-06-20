@@ -1240,34 +1240,103 @@ final class JCDesignRenderer {
             .overlay(Capsule().stroke(c.opacity(0.45), lineWidth: 1))
     }
 
+    // A configurable icon placed at the tip (fill edge) of a progress/segbar.
+    // `symbol` is an SF Symbol so any shape works (airplane / circle.fill / arrow);
+    // `color` defaults to the bar tint. See jcParseTip / jcTipView.
+    private struct JCTip { let symbol: String; let color: Color?; let size: CGFloat; let rotation: Double }
+
+    private func jcParseTip(_ n: JCNode, _ ctx: JCBindingContext) -> JCTip? {
+        guard let raw = n.props["tip"] else { return nil }
+        // string shorthand: "tip":"airplane" (a bare number/bool is NOT a symbol)
+        if case .string(let s) = raw, !s.isEmpty {
+            return JCTip(symbol: s, color: nil, size: 13, rotation: 0)
+        }
+        guard let o = raw.asObject,
+              let sym = JCValueRef(o["symbol"] ?? .null).string(ctx), !sym.isEmpty
+        else { return nil }
+        let color = o["color"].map(JCValueRef.init)?.color(ctx)
+        let size = CGFloat(o["size"]?.asDouble ?? 13)
+        let rotation = o["rotation"]?.asDouble ?? 0
+        return JCTip(symbol: sym, color: color, size: size, rotation: rotation)
+    }
+
+    private func jcTipView(_ tip: JCTip) -> some View {
+        Image(systemName: tip.symbol)
+            .font(.system(size: tip.size, weight: .semibold))
+            .foregroundStyle(tip.color ?? tint)
+            .rotationEffect(.degrees(tip.rotation))
+            .shadow(color: .black.opacity(0.35), radius: 1.5, x: 0, y: 0.5)
+    }
+
+    // Center-x for the tip icon: the fill edge (width * fraction), clamped so the
+    // icon stays fully on the bar at the extremes.
+    private func jcTipX(_ width: CGFloat, _ frac: Double, _ size: CGFloat) -> CGFloat {
+        let edge = width * CGFloat(jcClamp01(frac))
+        return min(max(edge, size / 2), max(size / 2, width - size / 2))
+    }
+
+    // segbar tip position: explicit `progress` (0–1) wins, else elapsed fraction
+    // of `from`→`to` (epoch/ISO), computed at render time. nil → no tip.
+    private func jcSegbarFraction(_ n: JCNode, _ ctx: JCBindingContext) -> Double? {
+        if let p = n.ref("progress")?.double(ctx) {
+            return jcClamp01(p / jcScale(n))
+        }
+        if let from = jcParseDate(n.ref("from")?.resolve(ctx)),
+           let to = jcParseDate(n.ref("to")?.resolve(ctx)), to > from {
+            return jcClamp01(Date().timeIntervalSince(from) / to.timeIntervalSince(from))
+        }
+        return nil
+    }
+
     private func jcProgress(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
         let v = jcClamp01((n.ref("value")?.double(ctx) ?? 0) / jcScale(n))
         let c = n.ref("tint")?.color(ctx) ?? n.style?.tint.flatMap(jcParseColor) ?? tint
+        let tip = jcParseTip(n, ctx)
         return GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.14))
-                Capsule().fill(c).frame(width: geo.size.width * CGFloat(v))
+            ZStack {
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.14))
+                    Capsule().fill(c).frame(width: geo.size.width * CGFloat(v))
+                }
+                .frame(height: 8)
+                if let tip = tip {
+                    jcTipView(tip)
+                        .position(x: jcTipX(geo.size.width, v, tip.size),
+                                  y: geo.size.height / 2)
+                }
             }
         }
-        .frame(height: 8)
+        .frame(height: max(8, tip?.size ?? 8))
     }
 
     private func jcSegbar(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
         let segs = (n.ref("segments")?.array(ctx) ?? []).compactMap { $0.asObject }
-        return HStack(spacing: 2) {
-            if segs.isEmpty {
-                RoundedRectangle(cornerRadius: 2).fill(Color.white.opacity(0.12)).frame(height: 8)
-            } else {
-                ForEach(jcIndexed(segs), id: \.0) { _, seg in
-                    let weight = max(0.0001, seg["weight"]?.asDouble ?? 1)
-                    let c = seg["color"]?.asString.flatMap(jcParseColor) ?? self.tint
-                    RoundedRectangle(cornerRadius: 2).fill(c)
-                        .frame(height: 8)
-                        .frame(maxWidth: .infinity)
-                        .layoutPriority(weight)
+        let tip = jcParseTip(n, ctx)
+        let frac = jcSegbarFraction(n, ctx)
+        return GeometryReader { geo in
+            ZStack {
+                HStack(spacing: 2) {
+                    if segs.isEmpty {
+                        RoundedRectangle(cornerRadius: 2).fill(Color.white.opacity(0.12)).frame(height: 8)
+                    } else {
+                        ForEach(jcIndexed(segs), id: \.0) { _, seg in
+                            let weight = max(0.0001, seg["weight"]?.asDouble ?? 1)
+                            let c = seg["color"]?.asString.flatMap(jcParseColor) ?? self.tint
+                            RoundedRectangle(cornerRadius: 2).fill(c)
+                                .frame(height: 8)
+                                .frame(maxWidth: .infinity)
+                                .layoutPriority(weight)
+                        }
+                    }
+                }
+                if let tip = tip, let frac = frac {
+                    jcTipView(tip)
+                        .position(x: jcTipX(geo.size.width, frac, tip.size),
+                                  y: geo.size.height / 2)
                 }
             }
         }
+        .frame(height: max(8, tip?.size ?? 8))
     }
 
     @ViewBuilder

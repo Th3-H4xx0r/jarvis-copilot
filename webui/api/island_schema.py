@@ -81,6 +81,10 @@ _OPTIONAL_VALUE_PROPS: dict[str, dict[str, str]] = {
     "timer": {"format": "value"},
     "badge": {"color": "value"},
     "progress": {"tint": "value"},
+    # segbar tip position: explicit `progress` (0–1) wins, else elapsed fraction of
+    # `from`→`to` dates (computed on-device at each update). `tip` itself (an
+    # object/string) is validated separately by _validate_tip.
+    "segbar": {"progress": "value", "from": "value", "to": "value"},
     "symbol": {"effect": "value"},
     "waveform": {"active": "value"},
     "accent": {"color": "value"},
@@ -269,6 +273,31 @@ def _validate_node(node, path, errors, counter, depth, in_row):
                     else:
                         _validate_value(p.get("value"), f"{path}.pairs[{i}].value",
                                         errors, in_row=in_row)
+        if ntype in ("progress", "segbar") and "tip" in node:
+            _validate_tip(node["tip"], f"{path}.tip", errors, in_row=in_row)
+
+
+def _validate_tip(tip, path, errors, *, in_row=False):
+    """A tip indicator is an SF Symbol name (string) or an object
+    {symbol, color?, size?, rotation?}. `symbol`/`color` may be bindings;
+    `size`/`rotation` are literal numbers (the renderer does not resolve
+    bindings for them)."""
+    if isinstance(tip, str):
+        if not tip.strip():
+            errors.append(f"{path}: symbol name must be non-empty")
+        return
+    if not isinstance(tip, dict):
+        errors.append(f"{path} must be a symbol name (string) or an object")
+        return
+    if "symbol" not in tip:
+        errors.append(f"{path}.symbol is required")
+    else:
+        _validate_value(tip["symbol"], f"{path}.symbol", errors, in_row=in_row)
+    if "color" in tip:
+        _validate_value(tip["color"], f"{path}.color", errors, in_row=in_row)
+    for key in ("size", "rotation"):
+        if key in tip and not isinstance(tip[key], (int, float)):
+            errors.append(f"{path}.{key} must be a number")
 
 
 def _validate_value(v, path, errors, allow_array=False, in_row=False,

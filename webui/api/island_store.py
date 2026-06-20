@@ -46,7 +46,7 @@ _DEFAULT_CUSTOM_PRIORITY = 10
 # disabled in the Auto rotation (you pin it to view it).
 DEMO_ID = "demo"
 DEMO_DESIGN = {
-    "schema": 1, "id": DEMO_ID, "version": 5,
+    "schema": 1, "id": DEMO_ID, "version": 6,
     "name": "UI Example (max size)",
     "icon": "rectangle.on.rectangle.angled", "tint": "#0a84ff",
     "presentations": {
@@ -74,7 +74,8 @@ DEMO_DESIGN = {
             "bottom": {"type": "vstack", "spacing": 10, "style": {"minHeight": 82},
                        "children": [
                 {"type": "badge", "text": "BOTTOM (full width)", "color": "#0a84ff"},
-                {"type": "progress", "value": 0.7, "tint": "#0a84ff"},
+                {"type": "progress", "value": 0.7, "tint": "#0a84ff",
+                 "tip": {"symbol": "airplane", "color": "#FFFFFF", "size": 13}},
                 {"type": "hstack", "spacing": 40, "align": "center", "children": [
                     {"type": "spacer"},
                     {"type": "symbol", "name": "backward.fill", "style": {"size": 24}},

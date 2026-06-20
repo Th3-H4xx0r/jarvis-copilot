@@ -9,7 +9,17 @@ void main() {
     expect((pres['expanded'] as Map)['type'], 'regions');
     final d = IslandDesign.fromJson(Map<String, dynamic>.from(islandDemoDesign));
     expect(d.name, 'UI Example (max size)');
-    expect(d.version, 4);
+    expect(d.version, 6);
+  });
+
+  test('bundled demo progress bar carries a tip indicator', () {
+    final expanded =
+        (islandDemoDesign['presentations'] as Map)['expanded'] as Map;
+    final bottom = (expanded['bottom'] as Map)['children'] as List;
+    final progress =
+        bottom.firstWhere((n) => n is Map && n['type'] == 'progress') as Map;
+    expect(progress['tip'], isA<Map>());
+    expect((progress['tip'] as Map)['symbol'], 'airplane');
   });
 
   test('injectBundledDemo replaces the server demo + preserves user overrides', () {
@@ -29,7 +39,7 @@ void main() {
     final demos =
         (raw['designs'] as List).where((d) => d['id'] == 'demo').toList();
     expect(demos.length, 1); // server copy replaced, not duplicated
-    expect((demos.first as Map)['version'], 4); // bundled version wins
+    expect((demos.first as Map)['version'], 6); // bundled version wins
     expect(((demos.first as Map)['presentations'] as Map)['expanded']['type'],
         'regions');
     // deploy untouched

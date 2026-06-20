@@ -139,8 +139,8 @@ insets for you, so design with breathing room:
 | `image` | `source` (SF Symbol name, the reserved `"orb"`, **or an `http(s)` image URL** — also accepts a `{"$":k}`/`{"src":k}` binding resolving to one of those), `fallback?` (SF Symbol shown until a remote image is cached), `shape?` (`"circle"`/`"rounded"`/`"rect"`), `style.width/height` |
 | `dot` | `color` |
 | `badge` | `text`, `color?` |
-| `progress` | `value` (0–1), `tint?` |
-| `segbar` | `segments:<ValueRef → array of {weight,color}>` |
+| `progress` | `value` (0–1), `tint?`, `tip?` (icon at the fill edge — see **Tip indicators**) |
+| `segbar` | `segments:<ValueRef → array of {weight,color}>`, `progress?` (0–1) **or** `from?`/`to?` (dates) to position a `tip?` |
 | `gauge` | `style:"single"\|"concentric"`, `rings:[{value,tint}]`, `label?` |
 | `timer` | `to` (date ValueRef — ISO string / epoch), `mode?` (`"countdown"`/`"countup"`), `format?` (`"relative"` = "5 days, 18 hr" → "23 min", best for **multi-day**; omit = clock `HH:MM:SS` that ticks every second). **Both tick on-device offline** — give a real future/past `to`, never pre-format the countdown as static `text`. |
 | `keyValue` | `pairs:[{label,value}]` |
@@ -158,6 +158,36 @@ render after a new URL appears may briefly show the `fallback` SF Symbol (or a
 placeholder dot) until the download lands, then it sticks. Use a small size
 (logos look right at ~14–22 pt) and always set a `fallback` so the leaf is never
 blank. Prefer a stable, hotlink-friendly image URL.
+
+### Tip indicators (icon at the fill edge)
+
+`progress` and `segbar` can carry a **`tip`** — an SF Symbol drawn **ON** the bar
+at the fill edge (a plane on a flight route, a dot, an arrow). It sits centered on
+the line — NOT as a separate element floating beside/above the bar.
+
+```jsonc
+"tip": { "symbol": "airplane", "color": "#FFFFFF", "size": 13, "rotation": 0 }
+// shorthand: "tip": "airplane"   (color follows the bar tint; size 13; no rotation)
+```
+
+- **`progress`**: the tip rides the existing `value` (0–1) — no extra prop needed.
+- **`segbar`**: give it a position — an explicit **`progress`** (0–1) wins, else
+  **`from`/`to`** dates (epoch s / ISO) and the tip sits at the elapsed fraction.
+  A `tip` with no `progress`/`from`/`to` on a segbar is ignored.
+
+```jsonc
+// flight route with the plane riding two legs (SFO → LAX → TST):
+{ "type":"segbar",
+  "segments":[{"weight":1,"color":"#a78bfa"},{"weight":1,"color":"#a78bfa"}],
+  "from":{"$":"departAt"}, "to":{"$":"arriveAt"},
+  "tip":{"symbol":"airplane","color":"#FFFFFF","size":13} }
+```
+
+**It does NOT continuously glide.** The icon is placed at the fraction computed
+**at each Live Activity update** (it jumps forward when the activity refreshes or
+the user glances). Only the native `timeProgress`/`timer` controls animate
+continuously offline — so for a *self-gliding* flight bar use `timeProgress` (no
+tip), and for a *plane-on-the-route* look use a `segbar` with `from`/`to` + `tip`.
 
 Any prop above that takes a value can be a **literal or a ValueRef** (next section).
 `timer` is the one truly-live, server-independent element — it keeps ticking while the phone

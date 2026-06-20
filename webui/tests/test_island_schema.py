@@ -20,6 +20,59 @@ def test_minimal_valid():
     assert s.is_valid(_minimal())
 
 
+def _design(node):
+    return {"id": "x", "version": 1, "name": "X",
+            "presentations": {"expanded": node}}
+
+
+def test_progress_tip_string_shorthand_valid():
+    assert s.validate_design(_design(
+        {"type": "progress", "value": 0.4, "tip": "airplane"})) == []
+
+
+def test_progress_tip_object_valid():
+    assert s.validate_design(_design(
+        {"type": "progress", "value": {"$": "frac"},
+         "tip": {"symbol": "airplane", "color": "#FFFFFF", "size": 13, "rotation": 12}})) == []
+
+
+def test_segbar_tip_with_from_to_dates_valid():
+    assert s.validate_design(_design({
+        "type": "segbar",
+        "segments": [{"weight": 1, "color": "#a78bfa"}, {"weight": 1, "color": "#a78bfa"}],
+        "from": {"$": "departAt"}, "to": {"$": "arriveAt"},
+        "tip": {"symbol": "airplane", "rotation": 0}})) == []
+
+
+def test_segbar_tip_with_explicit_progress_valid():
+    assert s.validate_design(_design({
+        "type": "segbar", "segments": [{"weight": 1, "color": "#a78bfa"}],
+        "progress": {"$": "frac"}, "tip": "airplane"})) == []
+
+
+def test_tip_object_requires_symbol():
+    errs = s.validate_design(_design(
+        {"type": "progress", "value": 0.4, "tip": {"color": "#fff"}}))
+    assert any("tip.symbol is required" in e for e in errs)
+
+
+def test_tip_size_must_be_a_number():
+    errs = s.validate_design(_design(
+        {"type": "progress", "value": 0.4, "tip": {"symbol": "airplane", "size": "big"}}))
+    assert any("tip.size must be a number" in e for e in errs)
+
+
+def test_empty_string_tip_is_rejected():
+    errs = s.validate_design(_design(
+        {"type": "segbar", "segments": [{"weight": 1, "color": "#fff"}], "progress": 0.5, "tip": "  "}))
+    assert any("symbol name must be non-empty" in e for e in errs)
+
+
+def test_tip_on_unsupported_leaf_is_ignored():
+    # timer doesn't support a tip; the prop is simply not validated (no error).
+    assert s.validate_design(_design({"type": "timer", "to": 123, "tip": "airplane"})) == []
+
+
 def test_deploy_status_example_valid():
     design = {
         "id": "deploy-status", "version": 1, "name": "Deploy status",

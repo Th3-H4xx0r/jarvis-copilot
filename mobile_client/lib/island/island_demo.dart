@@ -12,7 +12,7 @@
 const Map<String, dynamic> islandDemoDesign = {
   'schema': 1,
   'id': 'demo',
-  'version': 5,
+  'version': 6,
   'name': 'UI Example (max size)',
   'icon': 'rectangle.on.rectangle.angled',
   'tint': '#0a84ff',
@@ -61,7 +61,12 @@ const Map<String, dynamic> islandDemoDesign = {
         'style': {'minHeight': 82},
         'children': [
           {'type': 'badge', 'text': 'BOTTOM (full width)', 'color': '#0a84ff'},
-          {'type': 'progress', 'value': 0.7, 'tint': '#0a84ff'},
+          {
+            'type': 'progress',
+            'value': 0.7,
+            'tint': '#0a84ff',
+            'tip': {'symbol': 'airplane', 'color': '#FFFFFF', 'size': 13},
+          },
           {
             'type': 'hstack',
             'spacing': 40,
@@ -87,7 +92,7 @@ const Map<String, dynamic> islandDemoCatalogEntry = {
   'id': 'demo',
   'name': 'UI Example (max size)',
   'icon': 'rectangle.on.rectangle.angled',
-  'version': 5,
+  'version': 6,
   'builtin': true,
   'enabled': false,
   'priority': 1,
