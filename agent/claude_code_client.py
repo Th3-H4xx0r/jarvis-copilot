@@ -25,6 +25,8 @@ from agent.external_cli_shim import (
     extract_tool_calls_from_text as _extract_tool_calls_from_text,
     filter_repeat_tool_calls as _filter_repeat_tool_calls,
     format_messages_as_prompt as _format_messages_as_prompt,
+    is_stream_suspicious_line as _is_stream_suspicious_line,
+    looks_like_leak_start as _looks_like_leak_start,
     sanitize_model_text as _sanitize_model_text,
 )
 
@@ -32,6 +34,20 @@ logger = logging.getLogger(__name__)
 
 CLAUDE_CLI_MARKER_BASE_URL = "claude-cli://local"
 _DEFAULT_TIMEOUT_SECONDS = 900.0
+
+# Effort/thinking level passed to `claude -p --effort`. Opus 4.8 defaults to a
+# high effort that, on the text-shim, can spend the turn "thinking" (dropped
+# thinking_delta) and emit no `<tool_call>` — so we cap it. Override with
+# HERMES_CLAUDE_CODE_EFFORT (low|medium|high|xhigh|max; "none"/"" disables).
+_ALLOWED_EFFORT = {"low", "medium", "high", "xhigh", "max"}
+_DEFAULT_EFFORT = "medium"
+
+
+def _resolve_effort() -> str | None:
+    raw = (os.environ.get("HERMES_CLAUDE_CODE_EFFORT", _DEFAULT_EFFORT) or "").strip().lower()
+    if raw in ("", "none", "off", "default"):
+        return None
+    return raw if raw in _ALLOWED_EFFORT else _DEFAULT_EFFORT
 
 def _render_tool_result(content: str, message: dict[str, Any]) -> str:
     """Wrap a past tool result in an HTML comment block.
@@ -334,7 +350,14 @@ class ClaudeCodeClient:
             "--setting-sources", "",              # skip user/project/local settings
             "--strict-mcp-config",                # ignore global MCP config
             "--no-session-persistence",           # one-shot
+            # Drop per-machine system-prompt sections (cwd/env/memory/git status)
+            # we don't want anyway → a smaller prompt every turn (faster, less
+            # memory pressure on the long transcripts we re-send).
+            "--exclude-dynamic-system-prompt-sections",
         ]
+        effort = _resolve_effort()
+        if effort:
+            argv += ["--effort", effort]
         if input_stream_json:
             # Vision path: stdin carries a JSON user turn with image blocks
             # rather than plain text (see _build_stream_json_user_input).
@@ -363,6 +386,15 @@ class ClaudeCodeClient:
                 model=model, messages=messages, tools=tools,
                 tool_choice=tool_choice, timeout=timeout,
             )
+        # Vision: images REQUIRE --input-format stream-json, and the CLI only
+        # accepts that with --output-format stream-json. The old non-stream combo
+        # (stream-json IN + json OUT) is rejected outright (exit code 1), so run
+        # the proven streaming path and aggregate it into one completion.
+        if _extract_image_blocks(messages or []):
+            return self._aggregate_stream_completion(
+                model=model, messages=messages, tools=tools,
+                tool_choice=tool_choice, timeout=timeout,
+            )
         prompt = _format_messages_as_prompt(
             messages or [],
             model=model,
@@ -372,16 +404,8 @@ class ClaudeCodeClient:
             role_renderers=_ROLE_RENDERERS,
         )
         eff_timeout = _norm_timeout(timeout if timeout is not None else self._timeout)
-        # Vision: when the conversation carries images, send a stream-json user
-        # turn (text + base64 image blocks) instead of the plain-text prompt.
-        # Text-only requests keep the proven plain-stdin path untouched.
-        image_blocks = _extract_image_blocks(messages or [])
-        if image_blocks:
-            stdin_payload = _build_stream_json_user_input(prompt, image_blocks)
-            argv = self._build_argv(model, input_stream_json=True)
-        else:
-            stdin_payload = prompt
-            argv = self._build_argv(model)
+        stdin_payload = prompt
+        argv = self._build_argv(model)
 
         try:
             cp = subprocess.run(
@@ -464,6 +488,66 @@ class ClaudeCodeClient:
             usage=usage,
             model=model or "claude-code",
         )
+
+    def _aggregate_stream_completion(
+        self,
+        *,
+        model: str | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: Any = None,
+        timeout: Any = None,
+    ) -> Any:
+        """Run the streaming path and fold it into ONE non-streaming completion.
+
+        Used for image requests (the only path that can carry images is
+        stream-json in+out). Reuses the proven streaming generator so vision goes
+        through a valid flag combo instead of the rejected stream-json/json mix.
+        """
+        content_parts: list[str] = []
+        tool_calls: list[Any] = []
+        usage = None
+        finish_reason = "stop"
+        model_name = model or "claude-code"
+        for chunk in self._stream_chat_completion(
+            model=model, messages=messages, tools=tools,
+            tool_choice=tool_choice, timeout=timeout,
+        ):
+            if not getattr(chunk, "choices", None):
+                if getattr(chunk, "usage", None) is not None:
+                    usage = chunk.usage
+                    model_name = getattr(chunk, "model", model_name) or model_name
+                continue
+            ch = chunk.choices[0]
+            delta = getattr(ch, "delta", None)
+            if delta is not None:
+                if getattr(delta, "content", None):
+                    content_parts.append(delta.content)
+                for tc in (getattr(delta, "tool_calls", None) or []):
+                    fn = getattr(tc, "function", None)
+                    tool_calls.append(SimpleNamespace(
+                        id=getattr(tc, "id", None),
+                        type="function",
+                        function=SimpleNamespace(
+                            name=getattr(fn, "name", "") if fn is not None else "",
+                            arguments=getattr(fn, "arguments", "{}") if fn is not None else "{}",
+                        ),
+                    ))
+            if getattr(ch, "finish_reason", None):
+                finish_reason = ch.finish_reason
+        content = "".join(content_parts)
+        if usage is None:
+            usage = SimpleNamespace(
+                prompt_tokens=0, completion_tokens=0, total_tokens=0,
+                prompt_tokens_details=SimpleNamespace(cached_tokens=0),
+            )
+        message = SimpleNamespace(
+            content=content if content else None,
+            tool_calls=tool_calls,
+            reasoning=None, reasoning_content=None, reasoning_details=None,
+        )
+        choice = SimpleNamespace(message=message, finish_reason=finish_reason)
+        return SimpleNamespace(choices=[choice], usage=usage, model=model_name)
 
     # ─── Streaming ────────────────────────────────────────────────────────
     #
@@ -559,18 +643,39 @@ class ClaudeCodeClient:
                 usage=None,
             )
 
-        # Buffer the whole generation, then extract tool calls + sanitise the
-        # content in ONE pass — exactly like the non-streaming path. This is
-        # deliberately NOT token-incremental: the model can echo leaked
-        # transcript scaffolding (tool-result markers, role labels, raw tool
-        # JSON) mid-stream, and only the COMPLETE text can be cleaned without
-        # (a) showing the leak before we can classify it, or (b) dropping a real
-        # <tool_call> that appears after a leaked marker. claude-code replies are
-        # short and fast, so the latency cost is negligible.
-        text_parts: list[str] = []
+        # Optimistic streaming: emit CLEAN prose live (token-by-token), but the
+        # instant a line is tool-call-ish or leak-ish, switch to buffering the
+        # REST of the turn and run the proven extract+sanitise on that whole
+        # suspicious tail. This gives live output for the common case while
+        # keeping the contextual cleaner's cross-line context — pure per-line
+        # sanitising would drop that context (see test_stream_recovers_*).
+        #   pending           — clean-mode line assembly (held until safe to flush)
+        #   suspicious_tail    — buffered remainder once suspicion trips
+        pending = ""
+        suspicious_tail = ""
+        buffering = False
+        streamed_any = False
         usage_event: dict[str, Any] = {}
         raw_stop = "end_turn"
         got_result = False
+
+        def _flush_complete_lines():
+            # Emit safe complete lines; trip `buffering` on the first suspicious
+            # one, capturing it + the rest of `pending` into the tail.
+            nonlocal pending, buffering, suspicious_tail, streamed_any
+            out = []
+            while "\n" in pending:
+                one, rest = pending.split("\n", 1)
+                if _is_stream_suspicious_line(one):
+                    buffering = True
+                    suspicious_tail = one + "\n" + rest
+                    pending = ""
+                    return out
+                pending = rest
+                streamed_any = True
+                out.append(one + "\n")
+            return out
+
         try:
             assert proc.stdout is not None
             start_time = time.monotonic()
@@ -603,8 +708,23 @@ class ClaudeCodeClient:
                         # thinking_delta / signature_delta are never displayed.
                         if d.get("type") == "text_delta":
                             t = d.get("text") or ""
-                            if t:
-                                text_parts.append(t)
+                            if not t:
+                                continue
+                            if buffering:
+                                suspicious_tail += t
+                                continue
+                            pending += t
+                            for piece in _flush_complete_lines():
+                                yield _build_chunk(content=piece)
+                            # Flush a safe partial last line (no '<' that could
+                            # open a tag, not a leak-ish start, not already a
+                            # complete leak signal) for low latency.
+                            if (not buffering and pending and "<" not in pending
+                                    and not _looks_like_leak_start(pending)
+                                    and not _is_stream_suspicious_line(pending)):
+                                streamed_any = True
+                                yield _build_chunk(content=pending)
+                                pending = ""
                     continue
                 if etype == "result":
                     usage_event = event.get("usage") or {}
@@ -622,7 +742,18 @@ class ClaudeCodeClient:
             except Exception:
                 pass
 
-        if not got_result and not text_parts:
+        # A trailing partial line with no newline: classify + route it.
+        if not buffering and pending:
+            if _is_stream_suspicious_line(pending):
+                buffering = True
+                suspicious_tail = pending
+                pending = ""
+            else:
+                streamed_any = True
+                yield _build_chunk(content=pending)
+                pending = ""
+
+        if not got_result and not streamed_any and not suspicious_tail:
             # Process died mid-stream with no output — surface it.
             stderr_tail = ""
             try:
@@ -634,13 +765,16 @@ class ClaudeCodeClient:
                 f"Claude Code CLI stream ended unexpectedly. stderr: {stderr_tail}"
             )
 
-        full_text = "".join(text_parts)
-        tool_calls, cleaned = _extract_tool_calls_from_text(full_text)
-        tool_calls = _filter_repeat_tool_calls(tool_calls, messages or [])
-        cleaned = _sanitize_model_text(cleaned)
-
-        if cleaned:
-            yield _build_chunk(content=cleaned)
+        # Authoritative pass over the buffered suspicious tail: extract tool calls
+        # + sanitise leaked scaffolding with full cross-line context.
+        tool_calls: list[Any] = []
+        if suspicious_tail:
+            tcs, cleaned = _extract_tool_calls_from_text(suspicious_tail)
+            tcs = _filter_repeat_tool_calls(tcs, messages or [])
+            cleaned = _sanitize_model_text(cleaned)
+            tool_calls = tcs
+            if cleaned:
+                yield _build_chunk(content=cleaned)
 
         for idx, tc in enumerate(tool_calls):
             fn = getattr(tc, "function", None)

@@ -632,21 +632,146 @@ _IMG_MSGS = [{"role": "user", "content": [
 ]}]
 
 
-def test_image_request_engages_stream_json_input():
+def test_image_request_routes_through_streaming_with_valid_flag_combo():
+    # Images require stream-json INPUT, which the CLI only accepts with
+    # stream-json OUTPUT. A non-streamed image request must therefore use the
+    # streaming Popen path (valid combo), NOT subprocess.run with json output
+    # (the old combo the CLI rejects with exit code 1).
     c = ClaudeCodeClient()
-    payload = {"type": "result", "is_error": False, "result": "a cat",
-               "stop_reason": "end_turn", "usage": {}}
-    with mock.patch("agent.claude_code_client.subprocess.run",
-                    return_value=_fake_run(json.dumps(payload))) as run:
+    lines = _ndjson_events(text_chunks=["a ", "cat"])
+    fake = _FakePopen(lines)
+    with mock.patch("agent.claude_code_client.subprocess.Popen",
+                    return_value=fake) as popen, \
+         mock.patch("agent.claude_code_client.subprocess.run",
+                    side_effect=AssertionError("vision must not use subprocess.run")):
         resp = c.chat.completions.create(model="claude-opus-4-8", messages=_IMG_MSGS)
-    argv = run.call_args.args[0]
-    assert "--input-format" in argv
+    argv = popen.call_args.args[0]
     assert argv[argv.index("--input-format") + 1] == "stream-json"
-    sent = json.loads(run.call_args.kwargs["input"])
+    assert argv[argv.index("--output-format") + 1] == "stream-json"  # valid combo
+    sent = json.loads(fake.stdin.write.call_args.args[0])
     assert sent["type"] == "user"
     kinds = [b["type"] for b in sent["message"]["content"]]
     assert kinds[0] == "text" and "image" in kinds
+    # streaming folded into ONE completion
     assert resp.choices[0].message.content == "a cat"
+
+
+def test_argv_sets_effort_and_excludes_dynamic_sections():
+    c = ClaudeCodeClient()
+    payload = {"type": "result", "is_error": False, "result": "ok",
+               "stop_reason": "end_turn", "usage": {}}
+    with mock.patch("agent.claude_code_client.subprocess.run",
+                    return_value=_fake_run(json.dumps(payload))) as run:
+        c.chat.completions.create(
+            model="claude-opus-4-8", messages=[{"role": "user", "content": "hi"}])
+    argv = run.call_args.args[0]
+    assert "--exclude-dynamic-system-prompt-sections" in argv
+    assert "--effort" in argv
+    assert argv[argv.index("--effort") + 1] in {"low", "medium", "high", "xhigh", "max"}
+
+
+def test_effort_env_override(monkeypatch):
+    monkeypatch.setenv("HERMES_CLAUDE_CODE_EFFORT", "low")
+    c = ClaudeCodeClient()
+    payload = {"type": "result", "is_error": False, "result": "ok",
+               "stop_reason": "end_turn", "usage": {}}
+    with mock.patch("agent.claude_code_client.subprocess.run",
+                    return_value=_fake_run(json.dumps(payload))) as run:
+        c.chat.completions.create(
+            model="claude-opus-4-8", messages=[{"role": "user", "content": "hi"}])
+    argv = run.call_args.args[0]
+    assert argv[argv.index("--effort") + 1] == "low"
+
+
+def test_effort_env_none_disables_flag(monkeypatch):
+    monkeypatch.setenv("HERMES_CLAUDE_CODE_EFFORT", "none")
+    c = ClaudeCodeClient()
+    payload = {"type": "result", "is_error": False, "result": "ok",
+               "stop_reason": "end_turn", "usage": {}}
+    with mock.patch("agent.claude_code_client.subprocess.run",
+                    return_value=_fake_run(json.dumps(payload))) as run:
+        c.chat.completions.create(
+            model="claude-opus-4-8", messages=[{"role": "user", "content": "hi"}])
+    assert "--effort" not in run.call_args.args[0]
+
+
+def test_stream_emits_clean_prose_incrementally_before_completion():
+    # Clean prose should stream as multiple content chunks (live), not a single
+    # buffered dump at the end.
+    c = ClaudeCodeClient()
+    lines = _ndjson_events(text_chunks=["First line.\n", "Second line.\n", "Third."])
+    with mock.patch("agent.claude_code_client.subprocess.Popen",
+                    return_value=_FakePopen(lines)):
+        chunks = list(c.chat.completions.create(
+            stream=True, model="claude-opus-4-8",
+            messages=[{"role": "user", "content": "x"}]))
+    content_chunks = [ch.choices[0].delta.content for ch in chunks
+                      if ch.choices and ch.choices[0].delta.content]
+    assert len(content_chunks) >= 2  # streamed incrementally, not one buffered blob
+    assert "".join(content_chunks) == "First line.\nSecond line.\nThird."
+    finishes = [ch.choices[0].finish_reason for ch in chunks
+                if ch.choices and ch.choices[0].finish_reason]
+    assert finishes == ["stop"]
+
+
+def test_stream_does_not_leak_bare_marker_streamed_piecewise():
+    # Regression: a bare jc:tool_result marker streamed in pieces (no <!-- wrapper,
+    # no '<') must NOT escape via the partial-line live flush.
+    c = ClaudeCodeClient()
+    lines = _ndjson_events(text_chunks=["jc:", "tool_result ", "secret-body ", "stuff\n", "Real answer."])
+    with mock.patch("agent.claude_code_client.subprocess.Popen",
+                    return_value=_FakePopen(lines)):
+        chunks = list(c.chat.completions.create(
+            stream=True, model="claude-opus-4-8",
+            messages=[{"role": "user", "content": "x"}]))
+    content = "".join(ch.choices[0].delta.content for ch in chunks
+                      if ch.choices and ch.choices[0].delta.content)
+    assert "jc:tool_result" not in content and "secret-body" not in content
+    assert "Real answer." in content
+
+
+def test_stream_does_not_leak_inline_already_executed_span():
+    # Regression: an inline [already executed …] span mid-prose must be stripped,
+    # not streamed live.
+    c = ClaudeCodeClient()
+    lines = _ndjson_events(text_chunks=[
+        "Sure thing. [already executed - do NOT call again: foo] Continuing now.\n",
+        "Done.",
+    ])
+    with mock.patch("agent.claude_code_client.subprocess.Popen",
+                    return_value=_FakePopen(lines)):
+        chunks = list(c.chat.completions.create(
+            stream=True, model="claude-opus-4-8",
+            messages=[{"role": "user", "content": "x"}]))
+    content = "".join(ch.choices[0].delta.content for ch in chunks
+                      if ch.choices and ch.choices[0].delta.content)
+    assert "already executed" not in content
+    assert "Sure thing." in content and "Continuing now." in content and "Done." in content
+
+
+def test_stream_clean_prose_then_tool_call():
+    # Prose streams live, then a <tool_call> after it is intercepted + parsed.
+    c = ClaudeCodeClient()
+    lines = _ndjson_events(text_chunks=[
+        "Let me check.\n",
+        '<tool_call>{"id":"t1","type":"function",'
+        '"function":{"name":"lookup","arguments":"{}"}}</tool_call>',
+    ])
+    with mock.patch("agent.claude_code_client.subprocess.Popen",
+                    return_value=_FakePopen(lines)):
+        chunks = list(c.chat.completions.create(
+            stream=True, model="claude-opus-4-8",
+            messages=[{"role": "user", "content": "x"}]))
+    content = "".join(ch.choices[0].delta.content for ch in chunks
+                      if ch.choices and ch.choices[0].delta.content)
+    tool_names = [ch.choices[0].delta.tool_calls[0].function.name for ch in chunks
+                  if ch.choices and ch.choices[0].delta.tool_calls]
+    finishes = [ch.choices[0].finish_reason for ch in chunks
+                if ch.choices and ch.choices[0].finish_reason]
+    assert "Let me check." in content
+    assert "<tool_call>" not in content and "lookup" not in content
+    assert tool_names == ["lookup"]
+    assert finishes == ["tool_calls"]
 
 
 def test_text_only_request_does_not_use_stream_json_input():

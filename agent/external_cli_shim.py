@@ -148,6 +148,41 @@ def looks_like_leak_start(partial_line: str) -> bool:
         return True
     if re.match(r"^(?:User|Assistant|Tool|System|Context|Human|AI)\b\s*:?", t, re.IGNORECASE):
         return True
+    # Scaffolding substrings the contextual sanitiser strips even mid-line. Hold
+    # the partial (until a newline lets the FULL line be classified) so a marker
+    # streamed piece-by-piece ("jc:" then "tool_result …") can't leak live.
+    low = t.lower()
+    if (low.startswith("jc:") or "jc:tool" in low or "-->" in t
+            or "tool_result" in low or "already execut" in low or "result of" in low):
+        return True
+    return False
+
+
+def is_stream_suspicious_line(line: str) -> bool:
+    """True when a COMPLETE streamed line must NOT be emitted live.
+
+    Used by the optimistic streamer: clean prose streams token-by-token, but the
+    instant a line is (or may be part of) leaked scaffolding, ambiguous
+    tool-output JSON, or a ``<tool_call>``/``<tool_result>`` block, the streamer
+    switches to buffering the REST of the turn so the contextual
+    ``sanitize_model_text`` + ``extract_tool_calls_from_text`` still see the whole
+    suspicious tail with its cross-line context intact.
+    """
+    if not line:
+        return False
+    if "<tool_call>" in line or "</tool_call>" in line:
+        return True
+    low = line.lower()
+    if "<tool_result" in low or "</tool_result" in low:
+        return True
+    if _is_leak_line(line):
+        return True
+    if _is_tool_result_json_line(line.strip()):
+        return True
+    # Inline spans the contextual sanitiser strips anywhere in a line (not just
+    # at line start) — match here so they trip buffering instead of streaming.
+    if _ALREADY_EXECUTED_SPAN_RE.search(line) or _RESULT_OF_NOTE_RE.search(line):
+        return True
     return False
 
 
