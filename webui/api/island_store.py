@@ -46,49 +46,52 @@ _DEFAULT_CUSTOM_PRIORITY = 10
 # disabled in the Auto rotation (you pin it to view it).
 DEMO_ID = "demo"
 DEMO_DESIGN = {
-    "schema": 1, "id": DEMO_ID, "version": 1,
+    "schema": 1, "id": DEMO_ID, "version": 2,
     "name": "UI Example (max size)",
     "icon": "rectangle.on.rectangle.angled", "tint": "#0a84ff",
     "presentations": {
-        "expanded": {"type": "vstack", "spacing": 12, "children": [
-            {"type": "hstack", "spacing": 12, "align": "center", "children": [
-                {"type": "image", "source": "orb",
-                 "style": {"width": 58, "height": 58}},
-                {"type": "vstack", "spacing": 2, "children": [
-                    {"type": "text", "value": "Dynamic Island Demo",
-                     "style": {"size": 18, "weight": "bold"}},
-                    {"type": "text", "value": "Max-size UI example",
+        # Use the `regions` container: a TALL element in `leading` makes the top
+        # row (beside the camera) tall, and `bottom` adds the rest — together they
+        # fill the expanded island like Apple Music. A single bottom-only tree
+        # leaves the top collapsed and stays short.
+        "expanded": {"type": "regions",
+            "leading": {"type": "image", "source": "orb",
+                        "style": {"width": 72, "height": 72}},
+            "center": {"type": "vstack", "spacing": 3, "children": [
+                {"type": "text", "value": "Dynamic Island Demo",
+                 "style": {"size": 17, "weight": "bold"}},
+                {"type": "text", "value": "Max-size UI example",
+                 "style": {"size": 14, "color": "#8e8e93"}},
+            ]},
+            "trailing": {"type": "symbol", "name": "waveform",
+                         "style": {"size": 26, "tint": "#0a84ff"}},
+            "bottom": {"type": "vstack", "spacing": 14, "children": [
+                {"type": "progress", "value": 0.7, "tint": "#0a84ff"},
+                {"type": "hstack", "children": [
+                    {"type": "text", "value": "4:18",
+                     "style": {"size": 13, "color": "#8e8e93"}},
+                    {"type": "spacer"},
+                    {"type": "text", "value": "-0:09",
                      "style": {"size": 13, "color": "#8e8e93"}},
                 ]},
-                {"type": "spacer"},
-                {"type": "symbol", "name": "waveform",
-                 "style": {"size": 24, "tint": "#0a84ff"}},
+                {"type": "hstack", "spacing": 38, "align": "center", "children": [
+                    {"type": "spacer"},
+                    {"type": "symbol", "name": "backward.fill", "style": {"size": 30}},
+                    {"type": "symbol", "name": "pause.fill", "style": {"size": 40}},
+                    {"type": "symbol", "name": "forward.fill", "style": {"size": 30}},
+                    {"type": "spacer"},
+                ]},
+                {"type": "divider"},
+                {"type": "hstack", "spacing": 16, "align": "center", "children": [
+                    {"type": "keyValue", "pairs": [{"label": "Tempo", "value": "128 BPM"}]},
+                    {"type": "spacer"},
+                    {"type": "keyValue", "pairs": [{"label": "Key", "value": "A minor"}]},
+                    {"type": "spacer"},
+                    {"type": "gauge", "style": "single",
+                     "rings": [{"value": 0.62, "tint": "#34c759"}]},
+                ]},
             ]},
-            {"type": "progress", "value": 0.7, "tint": "#0a84ff"},
-            {"type": "hstack", "children": [
-                {"type": "text", "value": "0:42",
-                 "style": {"size": 12, "color": "#8e8e93"}},
-                {"type": "spacer"},
-                {"type": "text", "value": "-2:18",
-                 "style": {"size": 12, "color": "#8e8e93"}},
-            ]},
-            {"type": "hstack", "spacing": 30, "align": "center", "children": [
-                {"type": "spacer"},
-                {"type": "symbol", "name": "backward.fill", "style": {"size": 26}},
-                {"type": "symbol", "name": "pause.fill", "style": {"size": 34}},
-                {"type": "symbol", "name": "forward.fill", "style": {"size": 26}},
-                {"type": "spacer"},
-            ]},
-            {"type": "divider"},
-            {"type": "hstack", "spacing": 16, "align": "center", "children": [
-                {"type": "keyValue", "pairs": [{"label": "Tempo", "value": "128 BPM"}]},
-                {"type": "spacer"},
-                {"type": "keyValue", "pairs": [{"label": "Key", "value": "A minor"}]},
-                {"type": "spacer"},
-                {"type": "gauge", "style": "single",
-                 "rings": [{"value": 0.62, "tint": "#34c759"}]},
-            ]},
-        ]},
+        },
         "compactLeading": {"type": "symbol", "name": "rectangle.on.rectangle.angled"},
         "compactTrailing": {"type": "text", "value": "DEMO"},
         "minimal": {"type": "symbol", "name": "rectangle.on.rectangle.angled"},

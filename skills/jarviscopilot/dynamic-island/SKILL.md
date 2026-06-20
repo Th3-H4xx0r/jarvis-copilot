@@ -82,6 +82,11 @@ insets for you, so design with breathing room:
   groups and the island expands to show them all (iOS caps the absolute maximum, but it's generous
   — you have up to ~12 levels deep / ~160 nodes). Don't shrink a rich design to feel "safe"; use
   the available space when you have a lot to show.
+- **For MAXIMUM height (Apple-Music-sized), use the `regions` container.** The expanded island's
+  height = the top row (`leading`/`trailing`/`center`, beside the camera) **plus** `bottom`. So put
+  a **tall element in `leading`** — e.g. a big `image` with `style.height` ~70 (like album art) —
+  and rich content in `bottom`; the two stack to fill the island. A single bottom-only tree leaves
+  the top row collapsed and stays short. (See the built-in "UI Example (max size)" design.)
 - **Don't over-pad — especially the top.** The renderer ALREADY adds safe margins (it insets the
   expanded island horizontally and the lock screen on all sides), so your design should add little
   or NO root padding. `style.padding` is **uniform (all edges)**, so a big value adds an unwanted
