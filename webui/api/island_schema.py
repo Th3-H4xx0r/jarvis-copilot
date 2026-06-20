@@ -76,6 +76,9 @@ _OPTIONAL_VALUE_PROPS: dict[str, dict[str, str]] = {
     # URL (pre-downloaded to the App Group cache and rendered offline on-device);
     # fallback is an SF Symbol shown until a remote image is cached.
     "image": {"fallback": "value"},
+    # timer.format: "relative" → "5 days, 18 hr" (best for multi-day); omit/other
+    # → clock HH:MM:SS. Both tick on-device offline.
+    "timer": {"format": "value"},
     "badge": {"color": "value"},
     "progress": {"tint": "value"},
     "symbol": {"effect": "value"},

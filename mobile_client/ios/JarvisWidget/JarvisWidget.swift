@@ -1312,16 +1312,35 @@ final class JCDesignRenderer {
 
     @ViewBuilder
     private func jcTimer(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
-        // `to` is an epoch seconds (number) or ISO string we parse to a Date.
+        // `to` is epoch seconds (number) or an ISO string parsed to a Date. The
+        // countdown/up runs ON-DEVICE (offline) — iOS drives these natively, no
+        // code or network. `format:"relative"` → "5 days, 18 hr" (coarse, best
+        // for multi-day); default → clock HH:MM:SS that ticks every second.
         let toRef = n.ref("to")
+        let fmt = (n.string("format") ?? "").lowercased()
+        let size = n.style?.size.map { CGFloat($0) } ?? 15
+        let weight = n.style?.weight.flatMap(jcWeight) ?? .semibold
+        let color = n.style?.color.flatMap(jcParseColor) ?? .white
         if let date = jcParseDate(toRef?.resolve(ctx)) {
             let countdown = (n.string("mode") ?? "countdown") == "countdown"
-            let range = countdown ? date...Date.distantFuture : Date.distantPast...date
-            Text(timerInterval: range, countsDown: countdown)
-                .font(.system(size: n.style?.size.map { CGFloat($0) } ?? 15,
-                              weight: n.style?.weight.flatMap(jcWeight) ?? .semibold))
-                .foregroundStyle(n.style?.color.flatMap(jcParseColor) ?? .white)
-                .monospacedDigit()
+            if fmt == "relative" {
+                // Human, self-updating ("in 5 days" magnitude → "23 min").
+                Text(date, style: .relative)
+                    .font(.system(size: size, weight: weight))
+                    .foregroundStyle(color).monospacedDigit()
+            } else {
+                // CRITICAL: for a countdown the interval must END at the target
+                // (now…date). The old `date…distantFuture` counted down to the
+                // distant future → a giant bogus number that never moved. Build a
+                // valid (lower ≤ upper) range; a past target collapses to 00:00.
+                let now = Date()
+                let range: ClosedRange<Date> = countdown
+                    ? (now <= date ? now...date : date...now)
+                    : (date <= now ? date...Date.distantFuture : now...Date.distantFuture)
+                Text(timerInterval: range, countsDown: countdown)
+                    .font(.system(size: size, weight: weight))
+                    .foregroundStyle(color).monospacedDigit()
+            }
         } else {
             Text("--:--").font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.4)).monospacedDigit()

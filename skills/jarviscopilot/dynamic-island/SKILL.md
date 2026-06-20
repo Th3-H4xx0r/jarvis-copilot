@@ -142,7 +142,7 @@ insets for you, so design with breathing room:
 | `progress` | `value` (0–1), `tint?` |
 | `segbar` | `segments:<ValueRef → array of {weight,color}>` |
 | `gauge` | `style:"single"\|"concentric"`, `rings:[{value,tint}]`, `label?` |
-| `timer` | `mode:"countdown"\|"countup"`, `to` (a date ValueRef — ISO string / epoch) |
+| `timer` | `to` (date ValueRef — ISO string / epoch), `mode?` (`"countdown"`/`"countup"`), `format?` (`"relative"` = "5 days, 18 hr" → "23 min", best for **multi-day**; omit = clock `HH:MM:SS` that ticks every second). **Both tick on-device offline** — give a real future/past `to`, never pre-format the countdown as static `text`. |
 | `keyValue` | `pairs:[{label,value}]` |
 | `sparkline` | `points` (ValueRef → number array), `kind?` (`"line"`/`"bar"`), `tint?` |
 | `iconStrip` | `items` (ValueRef → array of SF Symbol names), `max?` |
@@ -315,7 +315,7 @@ sources freeze offline; `timeProgress`/`timer` are the live offline elements.)
     // status flanks the camera on the RIGHT:
     "trailing": {"type":"vstack","spacing":1,"style":{"align":"trailing"},"children":[
       {"type":"badge","text":{"$":"phase"},"color":"#34c759"},
-      {"type":"timer","to":{"$":"arriveAt"},"style":{"size":13}}]},
+      {"type":"timer","to":{"$":"arriveAt"},"format":"relative","style":{"size":13}}]},
     // wide content (route + progress) goes full-width BELOW the camera:
     "bottom": {"type":"vstack","spacing":10,"style":{"minHeight":80},"children":[
       {"type":"timeProgress","from":{"$":"departAt"},"to":{"$":"arriveAt"},"tint":"#0a84ff"},
