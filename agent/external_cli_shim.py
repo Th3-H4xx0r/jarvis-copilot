@@ -79,6 +79,9 @@ _HARD_LABEL_RE = re.compile(
 )
 _XML_TOOL_RESULT_LINE_RE = re.compile(r"^\s*</?\s*tool_?result\b", re.IGNORECASE)
 _GENERIC_COMMENT_SPAN_RE = re.compile(r"<!--[\s\S]*?-->")
+# Defense-in-depth: an `[already executed — do NOT call again: …]` history note
+# (if the model ever echoes one) is internal scaffolding, never reply prose.
+_ALREADY_EXECUTED_SPAN_RE = re.compile(r"\[already executed\b[^\]\n]*\]", re.IGNORECASE)
 # Ambiguous tool-OUTPUT JSON signatures (contextual drop only).
 _TOOL_RESULT_JSON_SIGNATURES = (
     '"exit_code"', '"stdout"', '"stderr"', '"output"', '"loaded"', '"schemas"',
@@ -115,6 +118,8 @@ def _is_leak_line(line: str) -> bool:
     if "<!--" in stripped or stripped.startswith("-->") or stripped == "-->":
         return True
     low = stripped.lower()
+    if low.startswith("[already executed"):
+        return True
     if "jc:tool_result" in low or "jc:toolresult" in low:
         return True
     if _XML_TOOL_RESULT_LINE_RE.match(line):
@@ -160,6 +165,7 @@ def sanitize_model_text(text: str) -> str:
     #    echoed <tool_result>…</tool_result> XML.
     cleaned = _PAIRED_RESULT_BLOCK_RE.sub("", text)
     cleaned = _ECHOED_TOOLRESULT_XML_RE.sub("", cleaned)
+    cleaned = _ALREADY_EXECUTED_SPAN_RE.sub("", cleaned)
 
     # 2. Single line pass. jc-marker lines are HARD-dropped IN PLACE (they stay
     #    as anchors so adjacent ambiguous tool-output JSON drops with them);
@@ -364,15 +370,26 @@ def format_messages_as_prompt(
 
         content = message.get("content")
         rendered = render_message_content(content)
-        # CRITICAL: an assistant turn is often a *pure tool call* (empty content).
-        # Rendering its tool_calls is what lets the model see what it has ALREADY
-        # done across agent-loop iterations — without it the model re-issues the
-        # same call every turn and the loop never terminates.
-        tool_calls_summary = (
-            _summarize_tool_calls(message.get("tool_calls")) if role == "assistant" else ""
-        )
-        if not rendered and not tool_calls_summary:
+        if not rendered:
+            # A pure tool-call assistant turn (empty content) carries no prose.
+            # The "you already ran this" signal that prevents the agent loop is
+            # attached to the tool RESULT below instead — rendering the call as a
+            # text line taught the model a competing, non-executable format it
+            # then mimicked (#claude-code loop/skip).
             continue
+
+        # Attach an explicit "already executed — do not repeat" note to each tool
+        # RESULT so the model can see which tools it already ran (the signal that
+        # actually breaks the loop) without a separate mimicable call line. For
+        # claude-code this rides INSIDE the <!-- jc:tool_result --> marker, so an
+        # echo is stripped by sanitize_model_text and never mimicked as a call.
+        if role == "tool":
+            tname = str(message.get("name") or "").strip()
+            if tname:
+                rendered = (
+                    f"(result of `{tname}` — you already called it; "
+                    f"do NOT call `{tname}` again)\n{rendered}"
+                )
 
         # Per-role custom renderer (e.g. claude-code wraps tool results in
         # <tool_result> tags). Falls back to the default labelled-block style.
@@ -390,17 +407,7 @@ def format_messages_as_prompt(
                 "tool": "Tool",
                 "context": "Context",
             }.get(role, role.title())
-            body_parts: list[str] = []
-            if rendered:
-                body_parts.append(rendered)
-            if tool_calls_summary:
-                # Descriptive, NON-executable form: shows history so the model
-                # doesn't repeat the call, but isn't a `<tool_call>` it could echo
-                # back and have re-extracted/re-run.
-                body_parts.append(
-                    f"[already executed — do NOT call again: {tool_calls_summary}]"
-                )
-            transcript.append(f"{label}:\n" + "\n".join(body_parts))
+            transcript.append(f"{label}:\n{rendered}")
         last_role = role
 
     if transcript:

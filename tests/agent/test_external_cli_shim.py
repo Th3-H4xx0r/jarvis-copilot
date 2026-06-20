@@ -236,16 +236,41 @@ def test_prompt_shows_prior_tool_calls_so_model_does_not_repeat():
     assert "already" in prompt.lower()          # ...marked as already executed
 
 
-def test_prompt_keeps_assistant_turn_that_is_only_a_tool_call():
-    """A pure tool-call assistant turn (empty content) must NOT vanish."""
+def test_prompt_surfaces_tool_name_via_result_note():
+    """A pure tool-call turn's RESULT is annotated with the tool name + a
+    do-not-repeat note (the non-mimicable signal that prevents the loop)."""
     messages = [
         {"role": "user", "content": "x"},
         {"role": "assistant", "content": "",
          "tool_calls": [{"id": "1", "type": "function",
                          "function": {"name": "foo_tool", "arguments": "{}"}}]},
+        {"role": "tool", "name": "foo_tool", "content": "ok"},
     ]
     prompt = format_messages_as_prompt(messages, header_lines=["H"])
-    assert "foo_tool" in prompt
+    assert "foo_tool" in prompt and "do not call" in prompt.lower()
+
+
+def test_prompt_does_not_render_mimicable_already_executed_line():
+    """The history signal must NOT be a standalone `[already executed: …]` line
+    (the model mimicked that format for its own calls → they never executed)."""
+    messages = [
+        {"role": "user", "content": "x"},
+        {"role": "assistant", "content": "",
+         "tool_calls": [{"id": "1", "type": "function",
+                         "function": {"name": "foo_tool", "arguments": "{}"}}]},
+        {"role": "tool", "name": "foo_tool", "content": "ok"},
+    ]
+    prompt = format_messages_as_prompt(messages, header_lines=["H"])
+    assert "[already executed" not in prompt
+
+
+def test_sanitize_strips_echoed_already_executed_and_result_note():
+    leak = ('Here is the plan, sir.\n'
+            '[already executed — do NOT call again: tool_search({"q":"x"})]\n'
+            'All done.')
+    out = sanitize_model_text(leak)
+    assert "Here is the plan, sir." in out and "All done." in out
+    assert "already executed" not in out
 
 
 def test_prompt_continuation_points_at_results_after_a_tool_turn():

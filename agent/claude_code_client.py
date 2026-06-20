@@ -63,11 +63,14 @@ _HEADER_LINES = [
     "block with one JSON object whose keys are id/type/function{name,arguments}; "
     "arguments must be a JSON string. Do not call tools yourself — emit text only.",
     "If no tool is needed, answer the user normally as the assistant.",
-    "The transcript marks tools you have ALREADY executed as "
-    "`[already executed — do NOT call again: …]`, with their results following. "
-    "NEVER re-issue a tool call that already has a result — doing so loops "
-    "forever. Use the results to proceed, and once the user's request is "
-    "satisfied give a single final answer with NO tool call.",
+    "Each tool RESULT in the transcript is prefixed `(result of `X` — you "
+    "already called it; do NOT call `X` again)`. That is history: NEVER re-issue "
+    "a tool that already has a result (doing so loops forever). Use the results "
+    "to proceed, and once the request is satisfied give one final answer with NO "
+    "tool call.",
+    "To CALL a tool you MUST emit a real <tool_call>{...}</tool_call> block — "
+    "that is the ONLY thing that runs a tool. NEVER write a `(result of …)` note "
+    "or any history line yourself; writing one runs nothing.",
     # CRITICAL anti-leakage rules. Past tool results appear in the transcript
     # inside HTML-comment markers (`<!-- jc:tool_result … -->`) so claude
     # treats them as metadata, not as a format to mimic. These rules MUST be
