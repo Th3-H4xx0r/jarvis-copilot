@@ -996,19 +996,19 @@ final class JCDesignRenderer {
         case "hstack":
             HStack(alignment: jcVAlign(n.string("align")), spacing: jcSpacing(n)) {
                 ForEach(jcIndexed(n.nodes("children")), id: \.0) { _, child in
-                    render(child, ctx, depth: depth + 1)
+                    self.render(child, ctx, depth: depth + 1)
                 }
             }
         case "vstack":
             VStack(alignment: jcHAlign(n.string("align")), spacing: jcSpacing(n)) {
                 ForEach(jcIndexed(n.nodes("children")), id: \.0) { _, child in
-                    render(child, ctx, depth: depth + 1)
+                    self.render(child, ctx, depth: depth + 1)
                 }
             }
         case "zstack":
             ZStack {
                 ForEach(jcIndexed(n.nodes("children")), id: \.0) { _, child in
-                    render(child, ctx, depth: depth + 1)
+                    self.render(child, ctx, depth: depth + 1)
                 }
             }
         case "grid":
@@ -1017,7 +1017,7 @@ final class JCDesignRenderer {
                               count: cols)
             LazyVGrid(columns: items, spacing: jcSpacing(n)) {
                 ForEach(jcIndexed(n.nodes("children")), id: \.0) { _, child in
-                    render(child, ctx, depth: depth + 1)
+                    self.render(child, ctx, depth: depth + 1)
                 }
             }
         case "list":
@@ -1029,7 +1029,7 @@ final class JCDesignRenderer {
             // regions into a vertical stack so nothing is lost.
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(["leading", "trailing", "center", "bottom"], id: \.self) { key in
-                    render(n.node(key), ctx, depth: depth + 1)
+                    self.render(n.node(key), ctx, depth: depth + 1)
                 }
             }
         // ── Leaves ──────────────────────────────────────────────────────────
@@ -1114,13 +1114,13 @@ final class JCDesignRenderer {
             let items = Array(repeating: GridItem(.flexible(), spacing: 6), count: cols)
             LazyVGrid(columns: items, alignment: .leading, spacing: 6) {
                 ForEach(0..<maxRows, id: \.self) { i in
-                    render(n.node("row"), ctx.withRow(rows[i]), depth: depth + 1)
+                    self.render(n.node("row"), ctx.withRow(rows[i]), depth: depth + 1)
                 }
             }
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(0..<maxRows, id: \.self) { i in
-                    render(n.node("row"), ctx.withRow(rows[i]), depth: depth + 1)
+                    self.render(n.node("row"), ctx.withRow(rows[i]), depth: depth + 1)
                 }
             }
         }
@@ -1211,7 +1211,7 @@ final class JCDesignRenderer {
             } else {
                 ForEach(jcIndexed(segs), id: \.0) { _, seg in
                     let weight = max(0.0001, seg["weight"]?.asDouble ?? 1)
-                    let c = seg["color"]?.asString.flatMap(jcParseColor) ?? tint
+                    let c = seg["color"]?.asString.flatMap(jcParseColor) ?? self.tint
                     RoundedRectangle(cornerRadius: 2).fill(c)
                         .frame(height: 8)
                         .frame(maxWidth: .infinity)
@@ -1333,7 +1333,7 @@ final class JCDesignRenderer {
         // reads as a "voice" affordance.
         HStack(spacing: 3) {
             ForEach(0..<7, id: \.self) { i in
-                Capsule().fill(tint.opacity(0.8))
+                Capsule().fill(self.tint.opacity(0.8))
                     .frame(width: 3, height: [10.0, 18, 8, 22, 12, 16, 9][i % 7])
             }
         }
@@ -1523,42 +1523,6 @@ struct JCDesignFallback: View {
     }
 }
 
-/// Expanded Dynamic Island region builder for a custom design. A top-level
-/// `regions` node maps children to the native DI regions; otherwise the whole
-/// expanded tree goes in the bottom region.
-@available(iOS 16.2, *)
-@DynamicIslandExpandedContentBuilder
-func jcDesignExpandedRegions(
-    _ st: JarvisActivityAttributes.ContentState
-) -> DynamicIslandExpandedContent<some View> {
-    let design = JCDesignCache.load(st.designId)
-    let ctx = JCBindingContext(dataJSON: st.data)
-    let tint = design.flatMap { jcParseColor($0.tint) } ?? jcCodingColor("working")
-    let node = design?.presentations.expanded
-    if let node = node, node.type == "regions" {
-        DynamicIslandExpandedRegion(.leading) {
-            JCDesignRenderer(tint: tint).render(node.node("leading"), ctx)
-        }
-        DynamicIslandExpandedRegion(.trailing) {
-            JCDesignRenderer(tint: tint).render(node.node("trailing"), ctx)
-        }
-        DynamicIslandExpandedRegion(.center) {
-            JCDesignRenderer(tint: tint).render(node.node("center"), ctx)
-        }
-        DynamicIslandExpandedRegion(.bottom) {
-            JCDesignRenderer(tint: tint).render(node.node("bottom"), ctx)
-        }
-    } else {
-        DynamicIslandExpandedRegion(.bottom) {
-            if let node = node {
-                JCDesignRenderer(tint: tint).render(node, ctx)
-            } else {
-                JCDesignFallback(st: st)
-            }
-        }
-    }
-}
-
 @available(iOS 16.2, *)
 struct JarvisLiveActivity: Widget {
     var body: some WidgetConfiguration {
@@ -1574,8 +1538,39 @@ struct JarvisLiveActivity: Widget {
             // expanded tree lands in the bottom region. Compact/minimal pull from
             // their presentation nodes, with the orb/fallback as a safety net.
             if st.mode == "custom" {
+                let design = JCDesignCache.load(st.designId)
+                let ctx = JCBindingContext(dataJSON: st.data)
+                let tint = design.flatMap { jcParseColor($0.tint) } ?? jcCodingColor("working")
+                let node = design?.presentations.expanded
+                let isRegions = (node?.type == "regions")
+                // Declare the four regions inline (mirrors the coding pattern) so
+                // the @DynamicIslandExpandedContentBuilder body is straight-line;
+                // all branching lives inside each region's ViewBuilder closure.
                 return DynamicIsland {
-                    jcDesignExpandedRegions(st)
+                    DynamicIslandExpandedRegion(.leading) {
+                        if isRegions {
+                            JCDesignRenderer(tint: tint).render(node?.node("leading"), ctx)
+                        }
+                    }
+                    DynamicIslandExpandedRegion(.trailing) {
+                        if isRegions {
+                            JCDesignRenderer(tint: tint).render(node?.node("trailing"), ctx)
+                        }
+                    }
+                    DynamicIslandExpandedRegion(.center) {
+                        if isRegions {
+                            JCDesignRenderer(tint: tint).render(node?.node("center"), ctx)
+                        }
+                    }
+                    DynamicIslandExpandedRegion(.bottom) {
+                        if isRegions {
+                            JCDesignRenderer(tint: tint).render(node?.node("bottom"), ctx)
+                        } else if let node = node {
+                            JCDesignRenderer(tint: tint).render(node, ctx)
+                        } else {
+                            JCDesignFallback(st: st)
+                        }
+                    }
                 } compactLeading: {
                     JCDesignView(st: st, presentation: .compactLeading)
                 } compactTrailing: {
