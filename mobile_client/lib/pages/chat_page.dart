@@ -10,6 +10,7 @@ import '../services/on_device_ai_types.dart';
 import '../theme.dart';
 import '../voice/voice_orb.dart';
 import '../voice/voice_state.dart';
+import '../widgets/composer_attach.dart';
 import '../widgets/glass.dart';
 import '../widgets/model_picker_sheet.dart';
 
@@ -109,7 +110,8 @@ class _ChatPageState extends State<ChatPage> {
 
   void _send() {
     final text = _composer.text;
-    if (text.trim().isEmpty || _c.streaming) return;
+    // Allow an attachment-only send (empty text + pending attachments).
+    if ((text.trim().isEmpty && _c.attachments.isEmpty) || _c.streaming) return;
     _composer.clear();
     _c.send(text);
     FocusScope.of(context).unfocus();
@@ -355,14 +357,36 @@ class _Composer extends StatelessWidget {
               borderRadius: BorderRadius.circular(26),
               border: Border.all(color: JcTheme.glassBorder),
             ),
-            padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            padding: const EdgeInsets.fromLTRB(6, 8, 8, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 140),
-                    child: TextField(
+                Padding(
+                  padding: const EdgeInsets.only(left: 8, right: 4),
+                  child: AttachmentChips(host: chat),
+                ),
+                ListenableBuilder(
+                  listenable: chat,
+                  builder: (context, _) => chat.attachError == null
+                      ? const SizedBox.shrink()
+                      : Padding(
+                          padding: const EdgeInsets.only(left: 10, bottom: 4),
+                          child: Text(
+                            chat.attachError!,
+                            style: const TextStyle(
+                                color: Colors.redAccent, fontSize: 12),
+                          ),
+                        ),
+                ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    AttachButton(host: chat),
+                    Expanded(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 140),
+                        child: TextField(
                       controller: controller,
                       minLines: 1,
                       maxLines: 6,
@@ -396,6 +420,8 @@ class _Composer extends StatelessWidget {
                     onSend: onSend,
                     onStop: chat.cancel,
                   ),
+                ),
+                  ],
                 ),
               ],
             ),

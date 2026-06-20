@@ -39,8 +39,9 @@ dependencies:
   timezone: ^0.9.2             # set_alarm zonedSchedule (TZDateTime)
   flutter_timezone: ^1.0.8     # resolve the device's local timezone for alarms
   geolocator: ^11.0.0          # get_location
-  image_picker: ^1.0.7         # take_photo, pick_photo
+  image_picker: ^1.0.7         # take_photo, pick_photo, pick_video
   file_picker: ^8.0.7          # attach arbitrary files to a coding session
+  video_thumbnail: ^0.5.3      # first-frame poster for chat video attachments
   flutter_tts: ^4.0.2          # text_to_speech
   record: ^5.0.4               # record_audio
   flutter_contacts: ^1.1.7+1   # read_contacts (Android + iOS)

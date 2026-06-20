@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
+
 import '../services/api_client.dart';
 
 /// One streaming chat turn. Mirrors the Web UI contract:
@@ -25,6 +27,7 @@ class ChatApi {
     String? provider,
     String? workspace,
     String? profile,
+    List<Map<String, dynamic>>? attachments,
   }) async* {
     final start = await startMessage(
       sessionId: sessionId,
@@ -33,6 +36,7 @@ class ChatApi {
       provider: provider,
       workspace: workspace,
       profile: profile,
+      attachments: attachments,
     );
     yield {'event': 'started', ...start};
     final streamId = (start['stream_id'] ?? '').toString();
@@ -49,6 +53,7 @@ class ChatApi {
     String? provider,
     String? workspace,
     String? profile,
+    List<Map<String, dynamic>>? attachments,
   }) async {
     final resp = await api.postJson('/api/chat/start', {
       'session_id': sessionId,
@@ -57,8 +62,23 @@ class ChatApi {
       if (provider != null && provider.isNotEmpty) 'model_provider': provider,
       if (workspace != null && workspace.isNotEmpty) 'workspace': workspace,
       if (profile != null && profile.isNotEmpty) 'profile': profile,
+      if (attachments != null && attachments.isNotEmpty) 'attachments': attachments,
     });
     return Map<String, dynamic>.from(resp.data as Map);
+  }
+
+  /// Upload one composer attachment to `/api/upload` (multipart). Returns the
+  /// full result map `{filename, path, mime, size, is_image}` — the shape
+  /// `/api/chat/start` expects in its `attachments[]`.
+  Future<Map<String, dynamic>> uploadFile(
+      String sessionId, List<int> bytes, String filename) async {
+    final form = FormData.fromMap({
+      'session_id': sessionId,
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+    final resp = await api.postMultipart('/api/upload', form,
+        timeout: const Duration(seconds: 60));
+    return Map<String, dynamic>.from((resp.data as Map?) ?? const {});
   }
 
   Stream<Map<String, dynamic>> streamEvents(String streamId) {

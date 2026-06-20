@@ -1,6 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../api/chat.dart';
 import '../api/sessions.dart';
@@ -12,6 +16,7 @@ import '../services/local_ai_settings.dart';
 import '../services/model_selection.dart';
 import '../services/on_device_ai.dart';
 import '../services/on_device_ai_types.dart';
+import '../widgets/composer_attach.dart';
 import 'chat_models.dart';
 
 /// Drives the native chat screen. Owns the sessions list, the active
@@ -21,7 +26,7 @@ import 'chat_models.dart';
 /// The streaming model mirrors the webui: POST /api/chat/start returns a
 /// stream_id, then GET /api/chat/stream (SSE) delivers token/tool/done
 /// events which we fold into the trailing assistant [ChatMessage].
-class ChatController extends ChangeNotifier {
+class ChatController extends ChangeNotifier implements ComposerAttachHost {
   ChatController(ApiClient api)
       : _chat = ChatApi(api),
         _sessions = SessionsApi(api) {
@@ -54,6 +59,109 @@ class ChatController extends ChangeNotifier {
   ChatMessage? _live; // the assistant message currently being filled
   DateTime? _turnStartedAt; // for the per-message "Done in Xs" status
   String? error;
+
+  // ── Composer attachments (photos / videos / files) ────────────
+  final ImagePicker _picker = ImagePicker();
+  final List<PendingAttachment> _pending = [];
+  static const int _maxVideoBytes = 100 * 1024 * 1024; // 100 MB
+
+  /// A transient pick error (oversize/cancelled-failure) the composer can show.
+  String? attachError;
+
+  @override
+  List<PendingAttachment> get attachments => _pending;
+
+  @override
+  Future<void> pickCameraPhoto() => _addImage(ImageSource.camera);
+
+  @override
+  Future<void> pickGalleryPhoto() => _addImage(ImageSource.gallery);
+
+  Future<void> _addImage(ImageSource src) async {
+    attachError = null;
+    try {
+      final x = await _picker.pickImage(
+          source: src, maxWidth: 2048, imageQuality: 85);
+      if (x == null) return; // cancelled
+      final bytes = await x.readAsBytes();
+      _pending.add(PendingAttachment(name: x.name, bytes: bytes, isImage: true));
+      notifyListeners();
+    } catch (_) {
+      attachError = 'Couldn’t add that photo.';
+      notifyListeners();
+    }
+  }
+
+  @override
+  Future<void> pickVideo() async {
+    attachError = null;
+    try {
+      final x = await _picker.pickVideo(source: ImageSource.gallery);
+      if (x == null) return; // cancelled
+      // Check the file size BEFORE reading it into memory (a multi-GB video
+      // would OOM the app otherwise).
+      final fileLen = await File(x.path).length();
+      if (fileLen > _maxVideoBytes) {
+        attachError = 'That video is too large (max 100 MB).';
+        notifyListeners();
+        return;
+      }
+      final bytes = await x.readAsBytes();
+      Uint8List? poster;
+      try {
+        poster = await VideoThumbnail.thumbnailData(
+            video: x.path,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 1024,
+            quality: 70);
+      } catch (_) {
+        poster = null; // poster is best-effort; the file still uploads
+      }
+      _pending.add(PendingAttachment(
+          name: x.name, bytes: bytes, isVideo: true, posterBytes: poster));
+      notifyListeners();
+    } catch (_) {
+      attachError = 'Couldn’t add that video.';
+      notifyListeners();
+    }
+  }
+
+  @override
+  Future<void> pickFiles() async {
+    attachError = null;
+    try {
+      final res =
+          await FilePicker.platform.pickFiles(allowMultiple: true, withData: true);
+      if (res == null) return; // cancelled
+      for (final f in res.files) {
+        final data = f.bytes;
+        if (data == null) continue;
+        _pending.add(PendingAttachment(
+            name: f.name, bytes: data, isImage: _looksImage(f.name)));
+      }
+      notifyListeners();
+    } catch (_) {
+      attachError = 'Couldn’t add that file.';
+      notifyListeners();
+    }
+  }
+
+  @override
+  void removeAttachment(PendingAttachment a) {
+    _pending.remove(a);
+    notifyListeners();
+  }
+
+  bool _looksImage(String name) {
+    final n = name.toLowerCase();
+    return n.endsWith('.png') ||
+        n.endsWith('.jpg') ||
+        n.endsWith('.jpeg') ||
+        n.endsWith('.gif') ||
+        n.endsWith('.webp') ||
+        n.endsWith('.heic');
+  }
+
 
   /// An open clarify question from the agent ({question, choices}). The UI shows
   /// the question + choice chips; answering posts to /api/clarify/respond so the
@@ -247,17 +355,22 @@ class ChatController extends ChangeNotifier {
   // ── Send a message ────────────────────────────────────────────
   Future<void> send(String text, {bool forceServer = false}) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return;
     // A typed reply while a clarify is open answers it (the turn is still
-    // streaming/blocked, so don't start a new one).
+    // streaming/blocked, so don't start a new one). Leave any pending
+    // attachments queued for the next real send.
     if (pendingClarify != null) {
       await respondClarify(trimmed);
       return;
     }
+    final pending = List<PendingAttachment>.of(_pending);
+    if (trimmed.isEmpty && pending.isEmpty) return; // nothing to send
     if (streaming) return;
     error = null;
+    attachError = null;
+    _pending.clear();
 
-    messages.add(ChatMessage.user(trimmed));
+    messages.add(ChatMessage.user(trimmed,
+        attachments: pending.map((a) => a.name).toList()));
     final assistant = ChatMessage(role: 'assistant', streaming: true);
     messages.add(assistant);
     _live = assistant;
@@ -269,18 +382,23 @@ class ChatController extends ChangeNotifier {
       // On-device first: if the local layer fully handles the turn, we never
       // hit the server. Any miss/escalation/error falls through transparently.
       // [forceServer] (the "Try on server" retry) skips the local layer.
+      // Attachments always go to the server (the on-device layer can't take them).
       if (!forceServer &&
+          pending.isEmpty &&
           LocalAiSettings.instance.enabledForChat &&
           await _tryLocal(trimmed, assistant)) {
         return;
       }
 
       final id = await _ensureSession();
+      final uploaded = await uploadChatAttachments(
+          pending, (name, bytes) => _chat.uploadFile(id, bytes, name));
       final start = await _chat.startMessage(
         sessionId: id,
         text: trimmed,
         model: ModelSelection.instance.modelFor(VoiceSurface.chat),
         provider: ModelSelection.instance.providerFor(VoiceSurface.chat),
+        attachments: uploaded.isEmpty ? null : uploaded,
       );
       _streamId = (start['stream_id'] ?? '').toString();
       if (_streamId == null || _streamId!.isEmpty) {
@@ -689,4 +807,29 @@ double? _asDouble(Object? v) {
   if (v == null) return null;
   if (v is num) return v.toDouble();
   return double.tryParse(v.toString());
+}
+
+/// Upload each pending attachment (and a video's first-frame poster as a second
+/// vision image) via [upload], returning the result maps for `/api/chat/start`'s
+/// `attachments[]`. A failed upload is skipped so the rest + the text still send.
+/// Top-level + dependency-injected so it's unit-testable without the controller.
+Future<List<Map<String, dynamic>>> uploadChatAttachments(
+  List<PendingAttachment> pending,
+  Future<Map<String, dynamic>> Function(String name, List<int> bytes) upload,
+) async {
+  final out = <Map<String, dynamic>>[];
+  for (final a in pending) {
+    try {
+      final up = await upload(a.name, a.bytes);
+      if (up.isNotEmpty) out.add(up);
+      final poster = a.posterBytes;
+      if (poster != null && poster.isNotEmpty) {
+        final p = await upload('${a.name}.poster.jpg', poster);
+        if (p.isNotEmpty) out.add(p);
+      }
+    } catch (_) {
+      // skip this attachment; keep the others + the message text
+    }
+  }
+  return out;
 }
