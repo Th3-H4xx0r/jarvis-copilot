@@ -92,11 +92,20 @@ insets for you, so design with breathing room:
   or NO root padding. `style.padding` is **uniform (all edges)**, so a big value adds an unwanted
   top/bottom gap and pushes content down. Use **0–4 at most** on the root; rely on the renderer's
   margins + a `spacer` for spacing.
-- **Prefer one full-width tree for simple designs.** A non-`regions` `expanded` tree lands in
-  the safe bottom area — that's the easiest way to avoid the camera. Only use the `regions`
-  container when you specifically want accents *beside* the camera: put them in `leading` /
-  `trailing`, the main content in `bottom`, and leave `center` empty or a single glyph. **Never**
-  put important content in the top-center.
+- **Put content BESIDE the camera with `regions` — don't dump everything below it.** A
+  non-`regions` `expanded` tree lands ENTIRELY in the **bottom** (full-width, below the camera),
+  leaving the space beside the camera empty — that's why a stack/grid root renders only below the
+  pill. To use the sides, make `expanded` a **`regions`** node:
+  - `leading` and `trailing` **flank the camera** — they are **narrow**, so put *compact* content
+    there: a logo `image` (~16–24pt), a short code/flight #, a status `badge`, a `dot`, or a
+    `timer`. **Not** wide text or a 3-airport route.
+  - `center` sits just under the camera — a small title or single glyph (or leave it empty).
+  - `bottom` is **full-width** — put the wide stuff here: routes (`SFO → LHR → BLR`), progress
+    bars, times, lists. Give it `"style":{"minHeight":~80}` to fill toward the cap.
+  - e.g. a **flight**: logo + flight # in `leading`, status / "Leg 1 of 2" in `trailing`, the
+    route + progress + times in `bottom` (see the "Flight VS20" example below).
+  You **cannot** render *above* the camera (it's the physical lens) — only beside (`leading`/
+  `trailing`) and below (`center`/`bottom`).
 - **Stop rows from running together.** Put a `spacer` between a leading label and a trailing
   value; set `lineLimit` on `text`; keep `grid` / `list` to **≤ 3 columns**.
 - **Don't pin widths near the screen edge.** Let elements size to content and use `spacer` for
@@ -299,9 +308,15 @@ sources freeze offline; `timeProgress`/`timer` are the live offline elements.)
 // Flight VS20 — keeps progressing offline
 { "id":"flight-vs20","version":1,"name":"Flight VS20","icon":"airplane","tint":"#0a84ff",
   "presentations": { "expanded": { "type":"regions",
-    "leading": {"type":"symbol","name":"airplane","style":{"size":34,"tint":"#0a84ff"}},
-    "center": {"type":"titleSubtitle","title":"VS20","subtitle":{"$":"phase"}},
-    "trailing": {"type":"timer","to":{"$":"arriveAt"},"style":{"size":15}},
+    // logo + flight # flank the camera on the LEFT (leading is narrow — keep it compact):
+    "leading": {"type":"hstack","spacing":6,"children":[
+      {"type":"image","source":"https://pics.avs.io/200/200/VS.png","fallback":"airplane","shape":"rounded","style":{"width":20,"height":20}},
+      {"type":"text","value":"VS20","style":{"size":20,"weight":"bold"}}]},
+    // status flanks the camera on the RIGHT:
+    "trailing": {"type":"vstack","spacing":1,"style":{"align":"trailing"},"children":[
+      {"type":"badge","text":{"$":"phase"},"color":"#34c759"},
+      {"type":"timer","to":{"$":"arriveAt"},"style":{"size":13}}]},
+    // wide content (route + progress) goes full-width BELOW the camera:
     "bottom": {"type":"vstack","spacing":10,"style":{"minHeight":80},"children":[
       {"type":"timeProgress","from":{"$":"departAt"},"to":{"$":"arriveAt"},"tint":"#0a84ff"},
       {"type":"hstack","children":[
