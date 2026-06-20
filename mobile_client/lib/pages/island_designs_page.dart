@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/island_designs.dart';
@@ -64,6 +66,9 @@ class _IslandDesignsPageState extends State<IslandDesignsPage> {
     setState(() => _busy = true);
     try {
       await op();
+      // Poke the coordinator so the Dynamic Island switches immediately rather
+      // than waiting for its throttled poll to notice the new selection.
+      unawaited(app.liveActivityCoordinator.refreshIslandNow());
       await _load();
     } catch (_) {
       if (mounted) {

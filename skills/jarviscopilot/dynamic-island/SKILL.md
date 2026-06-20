@@ -70,6 +70,28 @@ or one short value; iOS gives them almost no room.
 
 A **`Node`** is `{ "type": "...", ...props, "style"?: {...}, "when"?: <expr> }`.
 
+### Layout & safe margins (rounded corners + the camera) — READ THIS
+
+The Dynamic Island and Lock-Screen banner have **rounded corners**, and the expanded island
+wraps around the **front camera** at top-center. Content flush to the edges gets clipped and
+anything centered at the very top collides with the camera. The renderer does **not** add
+insets for you, so design with breathing room:
+
+- **Pad the outermost node.** Give the root of `expanded` (and `lockScreen`) a
+  `"style": {"padding": 12}` (use ~10–14) so nothing touches the rounded corners. This is the
+  single most important fix for "content overflowing the ends".
+- **Prefer one full-width tree for simple designs.** A non-`regions` `expanded` tree lands in
+  the safe bottom area — that's the easiest way to avoid the camera. Only use the `regions`
+  container when you specifically want accents *beside* the camera: put them in `leading` /
+  `trailing`, the main content in `bottom`, and leave `center` empty or a single glyph. **Never**
+  put important content in the top-center.
+- **Stop rows from running together.** Put a `spacer` between a leading label and a trailing
+  value; set `lineLimit` on `text`; keep `grid` / `list` to **≤ 3 columns**.
+- **Don't pin widths near the screen edge.** Let elements size to content and use `spacer` for
+  distribution; avoid large fixed `style.width`.
+- **Compact pills are ~30 pt each, beside the camera** — one symbol or a ≤ 4-char value;
+  `minimal` is a single glyph/dot. Never put long text there.
+
 ### Containers
 
 | type | props | notes |
@@ -215,6 +237,9 @@ omit `days` for every day; omit the whole schedule for always-eligible).
 - **Sleep-critical → server sources + `timer`.** If the island must update while the phone is
   in the user's pocket, bind to `jarvis.*` / `coding.*` / `weather.*` / server `calendar.*`,
   or use a native `timer`. Don't depend on `battery.*` / `location.*` / `health.*` for that.
+- **Respect the rounded corners + camera.** Pad the outer `expanded` / `lockScreen` node
+  (`"style":{"padding":12}`), keep content off the edges, avoid the top-center, and put a
+  `spacer` between leading/trailing items. See **Layout & safe margins** above.
 - **Keep `data` small** (it rides in a ~4 KB push). Push only the keys your bindings read.
 - **SF Symbols only** for `symbol`/`icon`/`iconStrip` (e.g. `bolt.fill`, `checkmark.seal.fill`).
 - **Don't author for non-iOS users.** Check the platform first.

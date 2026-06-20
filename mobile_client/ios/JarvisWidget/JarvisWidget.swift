@@ -1563,13 +1563,19 @@ struct JarvisLiveActivity: Widget {
                         }
                     }
                     DynamicIslandExpandedRegion(.bottom) {
-                        if isRegions {
-                            JCDesignRenderer(tint: tint).render(node?.node("bottom"), ctx)
-                        } else if let node = node {
-                            JCDesignRenderer(tint: tint).render(node, ctx)
-                        } else {
-                            JCDesignFallback(st: st)
+                        // Small safety inset so wide content (bars/lists) doesn't
+                        // run into the island's rounded corners; designs should
+                        // still pad their own root (see the skill's layout rules).
+                        Group {
+                            if isRegions {
+                                JCDesignRenderer(tint: tint).render(node?.node("bottom"), ctx)
+                            } else if let node = node {
+                                JCDesignRenderer(tint: tint).render(node, ctx)
+                            } else {
+                                JCDesignFallback(st: st)
+                            }
                         }
+                        .padding(.horizontal, 6)
                     }
                 } compactLeading: {
                     JCDesignView(st: st, presentation: .compactLeading)

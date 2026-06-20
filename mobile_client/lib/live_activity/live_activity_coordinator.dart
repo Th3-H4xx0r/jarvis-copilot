@@ -235,6 +235,24 @@ class LiveActivityCoordinator {
     }
   }
 
+  /// Force an immediate island-catalog refresh + re-push, bypassing the poll
+  /// cadence + fetch gate. Called by the Settings tab right after the user
+  /// changes the selection / auto-rules so the Dynamic Island switches NOW
+  /// instead of waiting for the (idle-throttled) poll — otherwise the coordinator
+  /// keeps applying its stale selection and the change feels non-deterministic.
+  Future<void> refreshIslandNow() async {
+    if (!_enabled) return;
+    _lastIslandFetch = DateTime.fromMillisecondsSinceEpoch(0); // bust the gate
+    try {
+      final cat = await _island.fetchCatalog();
+      _catalog = cat;
+      await _islandSync.sync(cat.designs);
+    } catch (_) {
+      // offline / older server → keep the last catalog
+    }
+    _push();
+  }
+
   /// Global live sources the auto-engine + binding resolver can read. Per-design
   /// jarvis.* values come from the server (catalog.data), not here.
   Sources _buildSources() => <String, dynamic>{
