@@ -127,7 +127,7 @@ insets for you, so design with breathing room:
 | `stat` | `value`, `unit?`, `caption?` |
 | `symbol` | `name` (SF Symbol), `effect?` (e.g. `"pulse"`, `"bounce"`, `"variableColor"`) |
 | `symbolValue` | `symbol`, `value` |
-| `image` | `source`, `shape?` (`"circle"`/`"rounded"`/`"rect"`) |
+| `image` | `source` (SF Symbol name, the reserved `"orb"`, **or an `http(s)` image URL** — also accepts a `{"$":k}`/`{"src":k}` binding resolving to one of those), `fallback?` (SF Symbol shown until a remote image is cached), `shape?` (`"circle"`/`"rounded"`/`"rect"`), `style.width/height` |
 | `dot` | `color` |
 | `badge` | `text`, `color?` |
 | `progress` | `value` (0–1), `tint?` |
@@ -140,6 +140,15 @@ insets for you, so design with breathing room:
 | `waveform` | `active?` (bool) |
 | `divider` | — |
 | `accent` | `color` |
+
+**Remote images (`image.source` = an `http(s)` URL):** the widget extension cannot
+fetch at render time, so the app **pre-downloads** referenced URLs into the App
+Group cache and the widget renders them **from disk** — which means they also
+display **offline** once cached (e.g. an airline logo during a flight). The first
+render after a new URL appears may briefly show the `fallback` SF Symbol (or a
+placeholder dot) until the download lands, then it sticks. Use a small size
+(logos look right at ~14–22 pt) and always set a `fallback` so the leaf is never
+blank. Prefer a stable, hotlink-friendly image URL.
 
 Any prop above that takes a value can be a **literal or a ValueRef** (next section).
 `timer` is the one truly-live, server-independent element — it keeps ticking while the phone

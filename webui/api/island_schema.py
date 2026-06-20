@@ -72,6 +72,10 @@ _REQUIRED_PROPS: dict[str, dict[str, str]] = {
 }
 _OPTIONAL_VALUE_PROPS: dict[str, dict[str, str]] = {
     "stat": {"unit": "value", "caption": "value"},
+    # image.source may be an SF Symbol name, the reserved "orb", or an http(s)
+    # URL (pre-downloaded to the App Group cache and rendered offline on-device);
+    # fallback is an SF Symbol shown until a remote image is cached.
+    "image": {"fallback": "value"},
     "badge": {"color": "value"},
     "progress": {"tint": "value"},
     "symbol": {"effect": "value"},

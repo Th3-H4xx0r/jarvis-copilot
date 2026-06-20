@@ -2,6 +2,7 @@ import WidgetKit
 import SwiftUI
 import AppIntents
 import UIKit
+import CryptoKit
 
 /// iOS Lock Screen + Home Screen widget that quick-launches JarvisCopilot
 /// straight into the Voice screen. Tapping opens `jarviscopilot://voice`, which
@@ -550,6 +551,30 @@ enum JCDesignCache {
             .appendingPathComponent("design-\(safe).json")
         guard let data = try? Data(contentsOf: file) else { return nil }
         return try? JSONDecoder().decode(JCDesign.self, from: data)
+    }
+}
+
+// ── App Group image cache (read-only in the widget) ──────────────────────────
+// Remote island images are downloaded by the app into
+// `<AppGroupContainer>/island/images/<sha256(url)>` (see IslandImageCache in
+// AppDelegate.swift). The widget extension cannot fetch at render time, so it
+// only ever READS the pre-downloaded file. The filename hash MUST match the app.
+enum JCImageCache {
+    static let appGroupId = JCDesignCache.appGroupId
+
+    static func fileName(for url: String) -> String {
+        SHA256.hash(data: Data(url.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The cached file for a remote image URL, or nil if not (yet) downloaded.
+    static func localFile(for source: String) -> URL? {
+        guard source.hasPrefix("http"),
+              let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: appGroupId) else { return nil }
+        let file = container
+            .appendingPathComponent("island/images", isDirectory: true)
+            .appendingPathComponent(fileName(for: source))
+        return FileManager.default.fileExists(atPath: file.path) ? file : nil
     }
 }
 
@@ -1165,17 +1190,33 @@ final class JCDesignRenderer {
 
     @ViewBuilder
     private func jcImage(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
-        // No remote/asset loading inside the extension — `source` is treated as an
-        // SF Symbol name for safety (placeholder otherwise). The shared orb image
-        // is available under the reserved source "orb".
+        // `source` may be:
+        //   • the reserved "orb" → the shared JARVIS orb image,
+        //   • a remote http(s) URL → rendered from the App Group cache the app
+        //     pre-downloaded (the extension can't fetch at render time; until
+        //     it's cached, `fallback` SF Symbol / a placeholder is shown),
+        //   • otherwise an SF Symbol name.
         let source = n.ref("source")?.string(ctx) ?? n.string("source") ?? ""
+        let fallback = n.ref("fallback")?.string(ctx) ?? n.string("fallback") ?? ""
         let w = n.style?.width.map { CGFloat($0) } ?? 28
         let h = n.style?.height.map { CGFloat($0) } ?? w
         let shape = n.string("shape") ?? "circle"
         let base: AnyView = {
             if source == "orb", let ui = jarvisOrbUIImage {
                 return AnyView(Image(uiImage: ui).resizable().scaledToFill())
-            } else if !source.isEmpty {
+            }
+            if source.hasPrefix("http") {
+                if let file = JCImageCache.localFile(for: source),
+                   let ui = UIImage(contentsOfFile: file.path) {
+                    return AnyView(Image(uiImage: ui).resizable().scaledToFit())
+                }
+                if !fallback.isEmpty {
+                    return AnyView(Image(systemName: fallback).resizable().scaledToFit()
+                        .foregroundStyle(.white))
+                }
+                return AnyView(Rectangle().fill(Color.white.opacity(0.1)))
+            }
+            if !source.isEmpty {
                 return AnyView(Image(systemName: source).resizable().scaledToFit()
                     .foregroundStyle(.white))
             }

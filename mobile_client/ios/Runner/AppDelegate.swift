@@ -674,6 +674,9 @@ enum LiveActivityManager {
     /// never auto-ends here, so it lingers as a tap-to-talk launcher.
     static func update(_ args: [String: Any]) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        // Pre-download any remote image URLs bound into the pushed data payload
+        // (e.g. an airline logo) so the widget can render them from the cache.
+        IslandImageCache.prefetch(IslandImageCache.urls(inJSON: (args["data"] as? String) ?? ""))
         let state = contentState(args)
         let content = ActivityContent(state: state, staleDate: nil)
         if let existing = Activity<JarvisActivityAttributes>.activities.first {
@@ -782,6 +785,9 @@ enum IslandDesignCache {
                 of: "/", with: "_").replacingOccurrences(of: "..", with: "_")
             let file = dir.appendingPathComponent("design-\(safe).json")
             try? json.data(using: .utf8)?.write(to: file, options: .atomic)
+            // Pre-download any remote image URLs the design references so the
+            // widget (which can't fetch at render time) renders them offline.
+            IslandImageCache.prefetch(IslandImageCache.urls(inJSON: json))
         }
         return true
     }
@@ -795,6 +801,64 @@ enum IslandDesignCache {
             for item in items { try? fm.removeItem(at: item) }
         }
         return true
+    }
+}
+
+// Downloads remote island image URLs into the App Group so the widget extension
+// (which cannot fetch at render time) can render them from disk, including
+// offline once cached. Best-effort + idempotent: an already-cached URL is
+// skipped, a failed download just leaves the leaf showing its fallback.
+enum IslandImageCache {
+    static let appGroupId = IslandDesignCache.appGroupId
+
+    /// Deterministic filename for a URL. MUST match JCImageCache in JarvisWidget.swift.
+    static func fileName(for url: String) -> String {
+        SHA256.hash(data: Data(url.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func imagesDir() -> URL? {
+        guard let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupId) else { return nil }
+        let dir = container.appendingPathComponent("island/images", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Async-download any not-yet-cached http(s) image URLs.
+    static func prefetch(_ urls: [String]) {
+        guard let dir = imagesDir() else { return }
+        let fm = FileManager.default
+        for raw in Set(urls) {
+            guard raw.hasPrefix("http"), let u = URL(string: raw) else { continue }
+            let file = dir.appendingPathComponent(fileName(for: raw))
+            if fm.fileExists(atPath: file.path) { continue }  // already cached
+            URLSession.shared.dataTask(with: u) { data, _, _ in
+                guard let data = data, !data.isEmpty,
+                      UIImage(data: data) != nil else { return }
+                try? data.write(to: file, options: .atomic)
+            }.resume()
+        }
+    }
+
+    /// Collect every http(s) URL string anywhere in a JSON-object string (used
+    /// to harvest image `source` URLs from a design tree or a data payload).
+    static func urls(inJSON jsonString: String) -> [String] {
+        guard !jsonString.isEmpty,
+              let data = jsonString.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) else { return [] }
+        var out: [String] = []
+        func walk(_ v: Any) {
+            if let s = v as? String {
+                if s.hasPrefix("http://") || s.hasPrefix("https://") { out.append(s) }
+            } else if let a = v as? [Any] {
+                for e in a { walk(e) }
+            } else if let m = v as? [String: Any] {
+                for e in m.values { walk(e) }
+            }
+        }
+        walk(obj)
+        return out
     }
 }
 
