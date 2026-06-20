@@ -46,7 +46,7 @@ _DEFAULT_CUSTOM_PRIORITY = 10
 # disabled in the Auto rotation (you pin it to view it).
 DEMO_ID = "demo"
 DEMO_DESIGN = {
-    "schema": 1, "id": DEMO_ID, "version": 3,
+    "schema": 1, "id": DEMO_ID, "version": 4,
     "name": "UI Example (max size)",
     "icon": "rectangle.on.rectangle.angled", "tint": "#0a84ff",
     "presentations": {
@@ -66,20 +66,13 @@ DEMO_DESIGN = {
             ]},
             "trailing": {"type": "symbol", "name": "waveform",
                          "style": {"size": 22, "tint": "#0a84ff"}},
-            "bottom": {"type": "vstack", "spacing": 12, "style": {"minHeight": 86},
+            "bottom": {"type": "vstack", "spacing": 14, "style": {"minHeight": 86},
                        "children": [
                 {"type": "progress", "value": 0.7, "tint": "#0a84ff"},
-                {"type": "hstack", "children": [
-                    {"type": "text", "value": "4:18",
-                     "style": {"size": 13, "color": "#8e8e93"}},
-                    {"type": "spacer"},
-                    {"type": "text", "value": "-0:09",
-                     "style": {"size": 13, "color": "#8e8e93"}},
-                ]},
                 {"type": "hstack", "spacing": 40, "align": "center", "children": [
                     {"type": "spacer"},
                     {"type": "symbol", "name": "backward.fill", "style": {"size": 26}},
-                    {"type": "symbol", "name": "pause.fill", "style": {"size": 32}},
+                    {"type": "symbol", "name": "pause.fill", "style": {"size": 34}},
                     {"type": "symbol", "name": "forward.fill", "style": {"size": 26}},
                     {"type": "spacer"},
                 ]},

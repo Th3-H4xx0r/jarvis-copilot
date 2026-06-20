@@ -193,6 +193,39 @@ def test_when_on_node_validated():
     assert any("unknown condition op" in e for e in s.validate_design(d))
 
 
+def test_time_progress_requires_from_and_to():
+    d = _minimal()
+    d["presentations"]["expanded"] = {"type": "timeProgress", "to": 100}
+    assert any(".from is required" in e for e in s.validate_design(d))
+
+
+def test_time_progress_valid():
+    d = _minimal()
+    d["presentations"]["expanded"] = {"type": "timeProgress",
+                                      "from": {"$": "dep"}, "to": {"$": "arr"}}
+    assert s.validate_design(d) == []
+
+
+def test_timeline_validation():
+    d = _minimal()
+    d["timeline"] = [{"at": 100, "data": {"phase": "Boarding"}}]
+    assert s.validate_design(d) == []
+    d["timeline"] = [{"at": "nope", "data": {}}]
+    assert any("timeline[0].at" in e for e in s.validate_design(d))
+    d["timeline"] = "x"
+    assert any("timeline must be a list" in e for e in s.validate_design(d))
+
+
+def test_notifications_validation():
+    d = _minimal()
+    d["notifications"] = [{"at": 100, "title": "Boarding", "body": "Gate A1"}]
+    assert s.validate_design(d) == []
+    d["notifications"] = [{"at": 100, "title": ""}]
+    assert any("title must be" in e for e in s.validate_design(d))
+    d["notifications"] = [{"title": "x"}]
+    assert any("notifications[0].at" in e for e in s.validate_design(d))
+
+
 def test_bad_tint():
     d = _minimal(); d["tint"] = "octarine"
     assert any("tint must be" in e for e in s.validate_design(d))

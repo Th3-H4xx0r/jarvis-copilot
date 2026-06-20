@@ -1,3 +1,4 @@
+import '../island/island_demo.dart';
 import '../island/island_models.dart';
 import '../services/api_client.dart';
 
@@ -9,12 +10,15 @@ class IslandApi {
   IslandApi(this.api);
   final ApiClient api;
 
-  /// GET /api/island/designs -> {designs, catalog, selection, data}
+  /// GET /api/island/designs -> {designs, catalog, selection, data}.
+  /// The bundled demo is merged client-side so an app rebuild always shows the
+  /// latest "UI Example (max size)" even if hermes is behind.
   Future<IslandCatalog> fetchCatalog() async {
     final resp = await api.get('/api/island/designs');
     final data = resp.data;
-    if (data is! Map) return IslandCatalog.empty;
-    return IslandCatalog.fromJson(Map<String, dynamic>.from(data));
+    final map = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+    injectBundledDemo(map);
+    return IslandCatalog.fromJson(map);
   }
 
   /// POST /api/island/designs — create or update a design (server validates).

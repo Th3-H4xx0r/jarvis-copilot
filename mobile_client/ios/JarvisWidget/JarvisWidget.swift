@@ -1089,6 +1089,8 @@ final class JCDesignRenderer {
             jcGauge(n, ctx)
         case "timer":
             jcTimer(n, ctx)
+        case "timeProgress":
+            jcTimeProgress(n, ctx)
         case "keyValue":
             jcKeyValue(n, ctx)
         case "sparkline":
@@ -1282,6 +1284,26 @@ final class JCDesignRenderer {
         } else {
             Text("--:--").font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.4)).monospacedDigit()
+        }
+    }
+
+    @ViewBuilder
+    private func jcTimeProgress(_ n: JCNode, _ ctx: JCBindingContext) -> some View {
+        // A self-filling progress bar from `from`→`to` (epoch/ISO dates). Renders
+        // OFFLINE with no code: ProgressView(timerInterval:) advances on its own,
+        // so flight progress keeps moving with no network.
+        let barTint = n.ref("tint")?.color(ctx)
+            ?? n.style?.tint.flatMap(jcParseColor) ?? tint
+        if let from = jcParseDate(n.ref("from")?.resolve(ctx)),
+           let to = jcParseDate(n.ref("to")?.resolve(ctx)), to > from {
+            ProgressView(timerInterval: from...to, countsDown: false)
+                .progressViewStyle(.linear)
+                .tint(barTint)
+                .labelsHidden()
+        } else {
+            ProgressView(value: 0.0)
+                .progressViewStyle(.linear)
+                .tint(barTint)
         }
     }
 

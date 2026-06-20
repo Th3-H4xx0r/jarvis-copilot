@@ -10,9 +10,11 @@ import '../coding/coding_models.dart';
 import '../island/island_auto.dart';
 import '../island/island_bindings.dart';
 import '../island/island_models.dart';
+import '../island/island_offline.dart';
 import '../island/island_sync.dart';
 import '../services/app_lifecycle.dart';
 import '../services/credentials.dart';
+import '../skills/common.dart' show scheduleIslandNotifications, cancelIslandNotifications;
 import 'la_poll_policy.dart';
 
 /// Thin channel wrapper to the native `LiveActivityManager` (AppDelegate).
@@ -268,6 +270,28 @@ class LiveActivityCoordinator {
         if (_usageWeek >= 0) 'coding.usageWeek': _usageWeek,
       };
 
+  // ── offline-plan notifications (deduped so the ~5s poll doesn't reschedule) ──
+  String _notifSig = '';
+  String _notifDesignId = '';
+
+  void _syncPlanNotifications(IslandDesign? d) {
+    final id = d?.id ?? '';
+    final notifs = d?.notifications ?? const <Map<String, dynamic>>[];
+    final sig = '$id|${notificationsSignature(notifs)}';
+    if (sig == _notifSig) return; // unchanged → don't churn the scheduler
+    if (_notifDesignId.isNotEmpty && _notifDesignId != id) {
+      unawaited(cancelIslandNotifications(_notifDesignId)); // switched away
+    }
+    _notifSig = sig;
+    _notifDesignId = id;
+    if (id.isEmpty) return;
+    if (notifs.isNotEmpty) {
+      unawaited(scheduleIslandNotifications(id, notifs));
+    } else {
+      unawaited(cancelIslandNotifications(id));
+    }
+  }
+
   static int _statePriority(String s) {
     switch (s) {
       case 'waiting':
@@ -382,6 +406,7 @@ class LiveActivityCoordinator {
     var designId = '';
     var designVersion = 0;
     var dataJson = '';
+    IslandDesign? activeDesign; // the active custom design (for the offline plan)
 
     if (_catalog.entries.isEmpty) {
       // Island catalog not loaded yet (or older server) → legacy behavior:
@@ -407,8 +432,14 @@ class LiveActivityCoordinator {
           // design, even when Jarvis didn't bump the version. The widget keys its
           // cache by id (ignores this value); it only needs to vary on change.
           designVersion = d.contentSig;
-          dataJson = jsonEncode(
-              resolveData(d, sources, _catalog.dataFor(d.id)));
+          activeDesign = d;
+          // Overlay the current offline-timeline keyframe (clock-driven) on top
+          // of the resolved data — so discrete phases (boarding→in-flight→landed)
+          // advance by the clock even with no network, whenever this runs.
+          final base = resolveData(d, sources, _catalog.dataFor(d.id));
+          final kf = currentKeyframeData(
+              d.timeline, DateTime.now().millisecondsSinceEpoch ~/ 1000);
+          dataJson = jsonEncode(kf.isEmpty ? base : {...base, ...kf});
         } else {
           mode = codingLive ? 'coding' : 'voice';
           coding = mode == 'coding';
@@ -421,6 +452,8 @@ class LiveActivityCoordinator {
         mode = 'voice';
       }
     }
+
+    _syncPlanNotifications(activeDesign);
 
     final args = <String, dynamic>{
       'state': _voiceState,

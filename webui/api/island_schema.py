@@ -28,8 +28,8 @@ _HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 CONTAINER_TYPES = {"hstack", "vstack", "zstack", "grid", "list", "spacer", "regions"}
 LEAF_TYPES = {
     "text", "titleSubtitle", "stat", "symbol", "symbolValue", "image", "dot",
-    "badge", "progress", "segbar", "gauge", "timer", "keyValue", "sparkline",
-    "iconStrip", "waveform", "divider", "accent",
+    "badge", "progress", "segbar", "gauge", "timer", "timeProgress", "keyValue",
+    "sparkline", "iconStrip", "waveform", "divider", "accent",
 }
 NODE_TYPES = CONTAINER_TYPES | LEAF_TYPES
 
@@ -66,6 +66,7 @@ _REQUIRED_PROPS: dict[str, dict[str, str]] = {
     "progress": {"value": "value"},
     "segbar": {"segments": "array"},
     "timer": {"to": "value"},
+    "timeProgress": {"from": "value", "to": "value"},
     "sparkline": {"points": "array"},
     "iconStrip": {"items": "array"},
 }
@@ -127,7 +128,45 @@ def validate_design(design: Any) -> list[str]:
                        in_row=False)
     if counter[0] > MAX_NODES:
         errors.append(f"too many nodes ({counter[0]} > {MAX_NODES})")
+    _validate_timeline(design.get("timeline"), errors)
+    _validate_notifications(design.get("notifications"), errors)
     return errors
+
+
+def _validate_timeline(tl, errors) -> None:
+    """Optional offline keyframe timeline: [{at: epoch seconds, data: {...}}]."""
+    if tl is None:
+        return
+    if not isinstance(tl, list):
+        errors.append("timeline must be a list")
+        return
+    for i, kf in enumerate(tl):
+        if not isinstance(kf, dict):
+            errors.append(f"timeline[{i}] must be an object")
+            continue
+        if not isinstance(kf.get("at"), (int, float)):
+            errors.append(f"timeline[{i}].at must be epoch seconds (number)")
+        if not isinstance(kf.get("data"), dict):
+            errors.append(f"timeline[{i}].data must be an object")
+
+
+def _validate_notifications(ns, errors) -> None:
+    """Optional pre-scheduled local notifications: [{at, title, body}]."""
+    if ns is None:
+        return
+    if not isinstance(ns, list):
+        errors.append("notifications must be a list")
+        return
+    for i, n in enumerate(ns):
+        if not isinstance(n, dict):
+            errors.append(f"notifications[{i}] must be an object")
+            continue
+        if not isinstance(n.get("at"), (int, float)):
+            errors.append(f"notifications[{i}].at must be epoch seconds (number)")
+        if not isinstance(n.get("title"), str) or not n["title"].strip():
+            errors.append(f"notifications[{i}].title must be a non-empty string")
+        if "body" in n and not isinstance(n["body"], str):
+            errors.append(f"notifications[{i}].body must be a string")
 
 
 def validate_condition(expr: Any, path: str = "condition") -> list[str]:

@@ -253,9 +253,61 @@ omit `days` for every day; omit the whole schedule for always-eligible).
   margins, so keep root `style.padding` to **0–4** (it's uniform/all-edges — big values add an
   unwanted top/bottom gap). Avoid the top-center, and put a `spacer` between leading/trailing
   items. See **Layout & safe margins** above.
+- **No fake/static time text.** Don't hardcode timestamps like `"4:18"` / `"-0:09"` in a `text`
+  element — they look frozen/fake. Use `timer` or `timeProgress` for live time, or omit it.
 - **Keep `data` small** (it rides in a ~4 KB push). Push only the keys your bindings read.
 - **SF Symbols only** for `symbol`/`icon`/`iconStrip` (e.g. `bolt.fill`, `checkmark.seal.fill`).
 - **Don't author for non-iOS users.** Check the platform first.
+
+---
+
+## Offline plans (no service — e.g. on a flight)
+
+When the phone loses service, the server can't push, so an island normally goes
+stale. To keep it updating OFFLINE, build the design with **time-aware** pieces
+that the device runs locally — set this up BEFORE the user loses service. Three
+offline-capable tools:
+
+1. **Time-driven elements (continuous, 100% offline, system-rendered):**
+   - `timer {to, mode}` — auto-ticking countdown/up.
+   - **`timeProgress {from, to}`** — a bar that fills from `from`→`to` (epoch
+     seconds or ISO) **on its own, no network** — the flight-progress bar.
+   Bind these to ABSOLUTE dates (departure/arrival), not server values.
+2. **`timeline: [{at, data}]`** (top-level design field) — discrete keyframes
+   applied by the clock. The device overlays the data of the entry with the
+   greatest `at` (epoch s) ≤ now. Use for phases (boarding → in-flight → landed).
+   Best-effort while the phone is fully suspended; advances whenever the user
+   glances / a notification reopens the app; the time-driven bar covers the gap.
+3. **`notifications: [{at, title, body}]`** (top-level) — pre-scheduled LOCAL
+   notifications that fire offline at exact times (boarding call, "landing soon").
+
+**Install flow:** while online, `create`/`update` the design with these fields and
+`pin` it. The device caches it; the island then runs offline. (Keep the design's
+visible text values in `timeline` keyframes or as literals — `{"src":...}` device
+sources freeze offline; `timeProgress`/`timer` are the live offline elements.)
+
+```jsonc
+// Flight VS20 — keeps progressing offline
+{ "id":"flight-vs20","version":1,"name":"Flight VS20","icon":"airplane","tint":"#0a84ff",
+  "presentations": { "expanded": { "type":"regions",
+    "leading": {"type":"symbol","name":"airplane","style":{"size":34,"tint":"#0a84ff"}},
+    "center": {"type":"titleSubtitle","title":"VS20","subtitle":{"$":"phase"}},
+    "trailing": {"type":"timer","to":{"$":"arriveAt"},"style":{"size":15}},
+    "bottom": {"type":"vstack","spacing":10,"style":{"minHeight":80},"children":[
+      {"type":"timeProgress","from":{"$":"departAt"},"to":{"$":"arriveAt"},"tint":"#0a84ff"},
+      {"type":"hstack","children":[
+        {"type":"text","value":"SFO"},{"type":"spacer"},{"type":"text","value":"LHR"}]}
+    ]}}},
+  // departAt/arriveAt are epoch seconds; phase advances by the clock offline:
+  "timeline":[
+    {"at":1718000000,"data":{"phase":"Boarding","departAt":1718003600,"arriveAt":1718039600}},
+    {"at":1718003600,"data":{"phase":"In flight"}},
+    {"at":1718039600,"data":{"phase":"Landed"}}],
+  "notifications":[
+    {"at":1718002800,"title":"Boarding soon","body":"VS20 gate A12"},
+    {"at":1718038000,"title":"Landing soon","body":"VS20 → LHR"}]
+}
+```
 
 ---
 

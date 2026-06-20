@@ -86,6 +86,71 @@ Future<void> _ensureTz() async {
   _tzReady = true;
 }
 
+// ── Dynamic Island offline-plan notifications ───────────────────────────────
+// Pre-scheduled local notifications fire OFFLINE at their times (no network).
+// Each design gets a stable id slot range so a re-sync cancels + reschedules only
+// that design's plan notifications.
+const int _islandNotifBase = 0x1B000000;
+const int _islandNotifPerDesign = 64;
+
+// A single fixed slot block — only ONE custom design is ever active and a
+// re-sync cancels the whole block first, so per-design buckets (which could
+// collide) aren't needed: cancel(0..63) clears everything ever scheduled here.
+int _islandNotifSlot(int index) =>
+    _islandNotifBase + (index % _islandNotifPerDesign);
+
+/// Cancel ALL previously-scheduled offline-plan notifications (the [designId] is
+/// accepted for call-site clarity; the slot block is shared).
+Future<void> cancelIslandNotifications(String designId) async {
+  await _ensureNotifications();
+  for (var i = 0; i < _islandNotifPerDesign; i++) {
+    try {
+      await _localNotifications.cancel(_islandNotifSlot(i));
+    } catch (_) {}
+  }
+}
+
+/// Schedule a design's offline-plan notifications (cancels its prior ones first).
+/// Items are `[{at: epochSeconds, title, body?}]`; past/invalid entries skipped.
+Future<void> scheduleIslandNotifications(
+    String designId, List<Map<String, dynamic>> items) async {
+  await _ensureNotifications();
+  await _ensureTz();
+  await cancelIslandNotifications(designId);
+  final nowMs = DateTime.now().millisecondsSinceEpoch;
+  const androidDetails = AndroidNotificationDetails(
+    'jc_island_channel', 'Dynamic Island',
+    channelDescription: 'Live Activity offline plan alerts',
+    importance: Importance.high, priority: Priority.high,
+  );
+  const iosDetails =
+      DarwinNotificationDetails(interruptionLevel: InterruptionLevel.timeSensitive);
+  const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+  var i = 0;
+  for (final it in items) {
+    if (i >= _islandNotifPerDesign) break;
+    final at = it['at'];
+    final atSec =
+        at is num ? at.toInt() : (at is String ? int.tryParse(at) : null);
+    if (atSec == null) continue;
+    final whenMs = atSec * 1000;
+    if (whenMs <= nowMs) continue; // past → skip
+    final title = (it['title'] ?? '').toString();
+    if (title.isEmpty) continue;
+    final body = (it['body'] ?? '').toString();
+    final when = tz.TZDateTime.fromMillisecondsSinceEpoch(tz.local, whenMs);
+    try {
+      await _localNotifications.zonedSchedule(
+        _islandNotifSlot(i), title, body, when, details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      i++;
+    } catch (_) {}
+  }
+}
+
 final FlutterTts _tts = FlutterTts();
 final Battery _battery = Battery();
 final ImagePicker _imagePicker = ImagePicker();

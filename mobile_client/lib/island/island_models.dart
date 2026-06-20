@@ -31,6 +31,13 @@ class IslandDesign {
   /// Jarvis forgets to bump `version`.
   int get contentSig => jsonString.hashCode;
 
+  /// Offline keyframe timeline `[{at: epochSeconds, data: {...}}]` — the
+  /// coordinator overlays the current keyframe's data by the clock.
+  List<Map<String, dynamic>> get timeline => _mapList(raw['timeline']);
+
+  /// Pre-scheduled local notifications `[{at, title, body}]` that fire offline.
+  List<Map<String, dynamic>> get notifications => _mapList(raw['notifications']);
+
   factory IslandDesign.fromJson(Map<String, dynamic> m) => IslandDesign(
         id: (m['id'] ?? '').toString(),
         name: (m['name'] ?? m['id'] ?? '').toString(),
@@ -174,3 +181,10 @@ int _asInt(dynamic v, int dflt) {
 
 Map<String, dynamic>? _asMap(dynamic v) =>
     v is Map ? Map<String, dynamic>.from(v) : null;
+
+List<Map<String, dynamic>> _mapList(dynamic v) => v is List
+    ? v
+        .whereType<Map>()
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList(growable: false)
+    : const [];
