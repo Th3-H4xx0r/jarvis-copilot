@@ -12,17 +12,23 @@
 const Map<String, dynamic> islandDemoDesign = {
   'schema': 1,
   'id': 'demo',
-  'version': 4,
+  'version': 5,
   'name': 'UI Example (max size)',
   'icon': 'rectangle.on.rectangle.angled',
   'tint': '#0a84ff',
   'presentations': {
+    // Each region is LABELED so the expanded island visibly proves the
+    // leading/trailing slots render BESIDE the camera cutout (not just below it).
     'expanded': {
       'type': 'regions',
       'leading': {
-        'type': 'image',
-        'source': 'orb',
-        'style': {'width': 52, 'height': 52},
+        'type': 'vstack',
+        'spacing': 4,
+        'style': {'align': 'leading'},
+        'children': [
+          {'type': 'badge', 'text': 'LEADING', 'color': '#34c759'},
+          {'type': 'image', 'source': 'orb', 'style': {'width': 38, 'height': 38}},
+        ],
       },
       'center': {
         'type': 'vstack',
@@ -30,26 +36,31 @@ const Map<String, dynamic> islandDemoDesign = {
         'children': [
           {
             'type': 'text',
-            'value': 'Dynamic Island Demo',
-            'style': {'size': 16, 'weight': 'bold'},
+            'value': 'Regions Demo',
+            'style': {'size': 15, 'weight': 'bold'},
           },
           {
             'type': 'text',
-            'value': 'Max-size UI example',
-            'style': {'size': 13, 'color': '#8e8e93'},
+            'value': 'beside + below the camera',
+            'style': {'size': 11, 'color': '#8e8e93'},
           },
         ],
       },
       'trailing': {
-        'type': 'symbol',
-        'name': 'waveform',
-        'style': {'size': 22, 'tint': '#0a84ff'},
+        'type': 'vstack',
+        'spacing': 4,
+        'style': {'align': 'trailing'},
+        'children': [
+          {'type': 'badge', 'text': 'TRAILING', 'color': '#ff9f0a'},
+          {'type': 'symbol', 'name': 'waveform', 'style': {'size': 22, 'tint': '#0a84ff'}},
+        ],
       },
       'bottom': {
         'type': 'vstack',
-        'spacing': 14,
-        'style': {'minHeight': 86},
+        'spacing': 10,
+        'style': {'minHeight': 82},
         'children': [
+          {'type': 'badge', 'text': 'BOTTOM (full width)', 'color': '#0a84ff'},
           {'type': 'progress', 'value': 0.7, 'tint': '#0a84ff'},
           {
             'type': 'hstack',
@@ -57,9 +68,9 @@ const Map<String, dynamic> islandDemoDesign = {
             'align': 'center',
             'children': [
               {'type': 'spacer'},
-              {'type': 'symbol', 'name': 'backward.fill', 'style': {'size': 26}},
-              {'type': 'symbol', 'name': 'pause.fill', 'style': {'size': 34}},
-              {'type': 'symbol', 'name': 'forward.fill', 'style': {'size': 26}},
+              {'type': 'symbol', 'name': 'backward.fill', 'style': {'size': 24}},
+              {'type': 'symbol', 'name': 'pause.fill', 'style': {'size': 32}},
+              {'type': 'symbol', 'name': 'forward.fill', 'style': {'size': 24}},
               {'type': 'spacer'},
             ],
           },
@@ -76,7 +87,7 @@ const Map<String, dynamic> islandDemoCatalogEntry = {
   'id': 'demo',
   'name': 'UI Example (max size)',
   'icon': 'rectangle.on.rectangle.angled',
-  'version': 4,
+  'version': 5,
   'builtin': true,
   'enabled': false,
   'priority': 1,

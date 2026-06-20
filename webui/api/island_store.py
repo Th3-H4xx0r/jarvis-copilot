@@ -46,34 +46,40 @@ _DEFAULT_CUSTOM_PRIORITY = 10
 # disabled in the Auto rotation (you pin it to view it).
 DEMO_ID = "demo"
 DEMO_DESIGN = {
-    "schema": 1, "id": DEMO_ID, "version": 4,
+    "schema": 1, "id": DEMO_ID, "version": 5,
     "name": "UI Example (max size)",
     "icon": "rectangle.on.rectangle.angled", "tint": "#0a84ff",
     "presentations": {
-        # The expanded island is CAPPED at ~144pt by iOS — you fill that cap, you
-        # can't exceed it. The trick is balance (like Spotify/Apple Music): a
-        # moderate album-art-style `leading` + a `bottom` of progress + controls
-        # that together reach the cap WITHOUT overstuffing (overstuffing clips the
-        # lower rows). `bottom.style.minHeight` nudges it to fill the cap.
+        # Each region is LABELED so the expanded island visibly proves the
+        # leading/trailing slots render BESIDE the camera cutout (not just below).
+        # The expanded island is CAPPED at ~144pt by iOS; `bottom.style.minHeight`
+        # + the side rows fill the cap without overstuffing (which clips).
         "expanded": {"type": "regions",
-            "leading": {"type": "image", "source": "orb",
-                        "style": {"width": 52, "height": 52}},
-            "center": {"type": "vstack", "spacing": 2, "children": [
-                {"type": "text", "value": "Dynamic Island Demo",
-                 "style": {"size": 16, "weight": "bold"}},
-                {"type": "text", "value": "Max-size UI example",
-                 "style": {"size": 13, "color": "#8e8e93"}},
+            "leading": {"type": "vstack", "spacing": 4, "style": {"align": "leading"},
+                        "children": [
+                {"type": "badge", "text": "LEADING", "color": "#34c759"},
+                {"type": "image", "source": "orb", "style": {"width": 38, "height": 38}},
             ]},
-            "trailing": {"type": "symbol", "name": "waveform",
-                         "style": {"size": 22, "tint": "#0a84ff"}},
-            "bottom": {"type": "vstack", "spacing": 14, "style": {"minHeight": 86},
+            "center": {"type": "vstack", "spacing": 2, "children": [
+                {"type": "text", "value": "Regions Demo",
+                 "style": {"size": 15, "weight": "bold"}},
+                {"type": "text", "value": "beside + below the camera",
+                 "style": {"size": 11, "color": "#8e8e93"}},
+            ]},
+            "trailing": {"type": "vstack", "spacing": 4, "style": {"align": "trailing"},
+                         "children": [
+                {"type": "badge", "text": "TRAILING", "color": "#ff9f0a"},
+                {"type": "symbol", "name": "waveform", "style": {"size": 22, "tint": "#0a84ff"}},
+            ]},
+            "bottom": {"type": "vstack", "spacing": 10, "style": {"minHeight": 82},
                        "children": [
+                {"type": "badge", "text": "BOTTOM (full width)", "color": "#0a84ff"},
                 {"type": "progress", "value": 0.7, "tint": "#0a84ff"},
                 {"type": "hstack", "spacing": 40, "align": "center", "children": [
                     {"type": "spacer"},
-                    {"type": "symbol", "name": "backward.fill", "style": {"size": 26}},
-                    {"type": "symbol", "name": "pause.fill", "style": {"size": 34}},
-                    {"type": "symbol", "name": "forward.fill", "style": {"size": 26}},
+                    {"type": "symbol", "name": "backward.fill", "style": {"size": 24}},
+                    {"type": "symbol", "name": "pause.fill", "style": {"size": 32}},
+                    {"type": "symbol", "name": "forward.fill", "style": {"size": 24}},
                     {"type": "spacer"},
                 ]},
             ]},
