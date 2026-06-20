@@ -449,10 +449,10 @@ def _fetch_codex_entry_snapshot(entry):
     return _codex_snapshot_from_usage_payload(payload), True, None
 
 
-def _best_remaining_by_window(rows):
+def _best_remaining_by_window(rows, statuses=("available",)):
     best = {}
     for row in rows:
-        if row.get("status") != "available":
+        if row.get("status") not in statuses:
             continue
         label = row.get("label") or "Credential"
         for window in row.get("windows") or []:
@@ -506,6 +506,11 @@ def _codex_pool_snapshot(entries, rows, queried):
         if plan and plan not in plans:
             plans.append(plan)
     best_windows = _best_remaining_by_window(rows)
+    if not best_windows:
+        # No credential is currently available, but a rate-limited (exhausted)
+        # one still reports the Session/Weekly quota + reset times (what the
+        # Codex site shows) — surface those instead of a blank section.
+        best_windows = _best_remaining_by_window(rows, ("exhausted", "unavailable"))
     pool = {
         "total_credentials": len(entries),
         "queried_credentials": queried,
@@ -525,12 +530,16 @@ def _codex_pool_snapshot(entries, rows, queried):
     if plans:
         details.append("Plans: " + ", ".join(plans))
     plan = plans[0] if len(plans) == 1 else None
+    window_detail = (
+        "Best of " + str(len(available_rows)) + " available credentials"
+        if available_rows else None
+    )
     windows = tuple(
         SimpleNamespace(
             label=window.get("label"),
             used_percent=window.get("used_percent"),
             reset_at=window.get("reset_at"),
-            detail="Best of " + str(len(available_rows)) + " available credentials",
+            detail=window_detail,
         )
         for window in best_windows
     )
@@ -577,16 +586,30 @@ def _probe_codex_pool_entry(item):
     windows = _snapshot_windows_payload(snapshot) if snapshot is not None else []
     details = _snapshot_details_payload(snapshot) if snapshot is not None else []
     snapshot_available = _snapshot_available(snapshot)
-    status = "available" if snapshot_available else "unavailable"
+    # A credential the pool has rate-limited is "exhausted" for rotation, but its
+    # usage endpoint still reports the Session/Weekly quota + reset times — keep
+    # those windows and surface the retry/reset instead of dropping everything.
+    pool_exhausted = _entry_is_pool_exhausted(entry)
+    if pool_exhausted:
+        status = "exhausted"
+    elif snapshot_available:
+        status = "available"
+    else:
+        status = "unavailable"
     row = {
         "label": label,
         "status": status,
         "plan": getattr(snapshot, "plan", None) if snapshot is not None else None,
         "windows": windows,
         "details": details,
-        "unavailable_reason": None if snapshot_available else _safe_unavailable_reason(reason or getattr(snapshot, "unavailable_reason", None)),
+        "unavailable_reason": (
+            _entry_pool_exhausted_reason(entry) if pool_exhausted
+            else (None if snapshot_available else _safe_unavailable_reason(reason or getattr(snapshot, "unavailable_reason", None)))
+        ),
         "fetched_at": _iso(getattr(snapshot, "fetched_at", None)) if snapshot is not None else None,
     }
+    if pool_exhausted:
+        row["retry_after"] = _entry_pool_retry_after(entry)
     return index, row, did_query_count
 
 
@@ -601,8 +624,17 @@ def _fetch_codex_account_usage_from_pool():
         rows_by_index = {}
         probe_items = []
         queried = 0
-        for index, entry in enumerate(entries, start=1):
-            if _entry_is_pool_exhausted(entry):
+        entries_indexed = list(enumerate(entries, start=1))
+        # Normally an exhausted credential is shown from pool metadata WITHOUT a
+        # fresh probe (respect its cooldown). But if EVERY credential is exhausted
+        # we'd otherwise show nothing — so probe them to surface the live
+        # Session/Weekly quota + resets (the usage endpoint reports them even
+        # while completions are rate-limited).
+        all_exhausted = bool(entries_indexed) and all(
+            _entry_is_pool_exhausted(entry) for _index, entry in entries_indexed
+        )
+        for index, entry in entries_indexed:
+            if _entry_is_pool_exhausted(entry) and not all_exhausted:
                 rows_by_index[index] = _codex_pool_exhausted_row(entry, index)
             else:
                 probe_items.append((index, entry))

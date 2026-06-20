@@ -735,6 +735,92 @@ def test_codex_account_usage_subprocess_keeps_legacy_reason_when_pool_misses(mon
     assert snapshot["fetched_at"] == "2030-03-17T12:30:00Z"
 
 
+def test_codex_account_usage_subprocess_probes_fully_exhausted_pool_for_windows(monkeypatch, capsys):
+    """When EVERY Codex credential is rate-limited, still probe the usage endpoint
+    so the Session + Weekly quota and reset times show (what the Codex site shows)
+    instead of a blank section."""
+    import api.providers as providers
+
+    def b64url(payload: bytes) -> str:
+        return base64.urlsafe_b64encode(payload).rstrip(b"=").decode("ascii")
+
+    token = ".".join((
+        b64url(b'{"alg":"none","typ":"JWT"}'),
+        b64url(json.dumps({
+            "https://api.openai.com/auth": {"chatgpt_account_id": "acct-spent"},
+        }).encode("utf-8")),
+        b64url(b"signature"),
+    ))
+    seen = []
+
+    agent_mod = types.ModuleType("agent")
+    agent_mod.__path__ = []
+    account_usage_mod = types.ModuleType("agent.account_usage")
+    credential_pool_mod = types.ModuleType("agent.credential_pool")
+
+    def fake_fetch_account_usage(provider, *, base_url=None, api_key=None):
+        return None
+
+    class FakePool:
+        def entries(self):
+            return [
+                SimpleNamespace(
+                    label="Solo",
+                    runtime_api_key=token,
+                    runtime_base_url="https://chatgpt.com/backend-api/codex",
+                    last_status="exhausted",
+                    last_status_at=1_900_000_000,
+                    last_error_code=None,
+                    last_error_reset_at=None,
+                ),
+            ]
+
+        def select(self):
+            raise AssertionError("quota display must not rotate credential_pool selection")
+
+    def fake_load_pool(provider):
+        return FakePool()
+
+    def fake_urlopen(req, timeout):
+        seen.append(req.full_url)
+        payload = {
+            "plan_type": "plus",
+            "rate_limit": {
+                "primary_window": {"used_percent": 100, "reset_at": "2030-03-17T17:30:00Z"},
+                "secondary_window": {"used_percent": 92, "reset_at": "2030-03-24T12:30:00Z"},
+            },
+        }
+        return _FakeResponse(json.dumps(payload).encode("utf-8"))
+
+    account_usage_mod.fetch_account_usage = fake_fetch_account_usage
+    credential_pool_mod.load_pool = fake_load_pool
+    monkeypatch.setitem(sys.modules, "agent", agent_mod)
+    monkeypatch.setitem(sys.modules, "agent.account_usage", account_usage_mod)
+    monkeypatch.setitem(sys.modules, "agent.credential_pool", credential_pool_mod)
+    monkeypatch.setattr(providers.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sys, "argv", ["quota-probe", "openai-codex", ""])
+
+    exec(providers._ACCOUNT_USAGE_SUBPROCESS_CODE, {"__name__": "__main__"})
+
+    out = capsys.readouterr().out.strip()
+    snapshot = json.loads(out)
+
+    # the fully-exhausted pool WAS probed (so we have live windows)
+    assert seen == ["https://chatgpt.com/backend-api/wham/usage"]
+    # Session + Weekly windows surface with their reset times
+    assert [w["label"] for w in snapshot["windows"]] == ["Session", "Weekly"]
+    assert snapshot["windows"][0]["used_percent"] == 100
+    assert snapshot["windows"][0]["reset_at"] == "2030-03-17T17:30:00Z"
+    assert snapshot["windows"][1]["reset_at"] == "2030-03-24T12:30:00Z"
+    # the snapshot stays "not available" (rate-limited) but keeps the pool detail
+    assert snapshot["available"] is False
+    assert snapshot["pool"]["available_credentials"] == 0
+    assert snapshot["pool"]["exhausted_credentials"] == 1
+    assert snapshot["pool"]["credentials"][0]["status"] == "exhausted"
+    assert snapshot["pool"]["credentials"][0]["windows"][0]["label"] == "Session"
+    assert token not in out
+
+
 def test_account_usage_pool_payload_round_trips_to_provider_quota_status():
     """Parent process serialization must preserve pooled credential summaries."""
     import api.providers as providers

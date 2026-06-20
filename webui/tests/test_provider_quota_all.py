@@ -231,6 +231,45 @@ def test_get_all_provider_quota_keeps_exhausted_codex_visible(monkeypatch):
     assert any("exhausted" in d for d in codex["details"])
 
 
+def test_get_all_provider_quota_exhausted_codex_keeps_session_and_weekly(monkeypatch):
+    """An exhausted Codex that still reports Session/Weekly windows shows them
+    (with resets) — not the generic 'all used' single-bar fallback."""
+    import api.providers as providers
+
+    def fake(provider, refresh=False):
+        if provider == "openai-codex":
+            return {
+                "ok": False, "provider": "openai-codex", "display_name": "OpenAI Codex",
+                "supported": True, "status": "unavailable", "quota": None,
+                "account_limits": {
+                    "provider": "openai-codex", "source": "usage_api_pool", "title": "Account limits",
+                    "plan": "Plus",
+                    "windows": [
+                        {"label": "Session", "used_percent": 100.0, "remaining_percent": 0.0,
+                         "reset_at": "2030-03-17T17:30:00Z", "detail": None},
+                        {"label": "Weekly", "used_percent": 92.0, "remaining_percent": 8.0,
+                         "reset_at": "2030-03-24T12:30:00Z", "detail": None},
+                    ],
+                    "details": ["0/1 credentials available", "1 exhausted"],
+                    "available": False,
+                    "unavailable_reason": "No Codex pool credentials returned available account limits.",
+                    "fetched_at": "2030-03-17T12:30:00Z",
+                    "pool": {"total_credentials": 1, "available_credentials": 0, "exhausted_credentials": 1},
+                },
+                "message": "OpenAI Codex account limits are unavailable.",
+            }
+        return {"status": "no_key", "provider": provider}
+
+    monkeypatch.setattr(providers, "get_provider_quota", fake)
+    result = providers.get_all_provider_quota()
+
+    codex = next(b for b in result["providers"] if b["provider"] == "openai-codex")
+    assert [w["label"] for w in codex["windows"]] == ["Session", "Weekly"]
+    assert codex["windows"][0]["reset_at"] == "2030-03-17T17:30:00Z"
+    assert codex["windows"][1]["used_percent"] == 92.0
+    assert codex["available"] is False
+
+
 def test_get_all_provider_quota_omits_codex_with_zero_pool_credentials(monkeypatch):
     """A Codex provider with no pool credentials at all is not configured → omitted."""
     import api.providers as providers
