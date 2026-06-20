@@ -98,6 +98,19 @@ void main() {
       expect(find.text('61%'), findsOneWidget);
       // one progress bar per window (3 total)
       expect(find.byType(FractionallySizedBox), findsNWidgets(3));
+      // ...and the fill must actually have height. Regression: a childless
+      // DecoratedBox inside a width-only FractionallySizedBox collapsed to 0px.
+      final fsb =
+          tester.widget<FractionallySizedBox>(find.byType(FractionallySizedBox).first);
+      expect(fsb.heightFactor, 1.0);
+      final fillSize = tester.getSize(find
+          .descendant(
+            of: find.byType(FractionallySizedBox).first,
+            matching: find.byType(DecoratedBox),
+          )
+          .first);
+      expect(fillSize.height, greaterThan(0));
+      expect(fillSize.width, greaterThan(0)); // 45% window → non-zero fill
     });
 
     testWidgets('null used_percent shows "—" and an empty bar', (tester) async {

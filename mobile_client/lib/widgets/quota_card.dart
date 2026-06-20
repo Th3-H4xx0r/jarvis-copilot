@@ -274,9 +274,13 @@ class _QuotaBar extends StatelessWidget {
       child: Container(
         height: 6,
         color: JcTheme.glassBorder,
-        alignment: Alignment.centerLeft,
         child: FractionallySizedBox(
+          // heightFactor:1 forces the (childless) fill to the full 6px height —
+          // without it the loose cross-axis constraint collapses it to 0 and the
+          // bar shows only the track. centerLeft anchors the fill to the left.
+          alignment: Alignment.centerLeft,
           widthFactor: frac == 0 ? 0.0 : frac.toDouble(),
+          heightFactor: 1.0,
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(999),
