@@ -82,6 +82,10 @@ _GENERIC_COMMENT_SPAN_RE = re.compile(r"<!--[\s\S]*?-->")
 # Defense-in-depth: an `[already executed — do NOT call again: …]` history note
 # (if the model ever echoes one) is internal scaffolding, never reply prose.
 _ALREADY_EXECUTED_SPAN_RE = re.compile(r"\[already executed\b[^\]\n]*\]", re.IGNORECASE)
+# An echoed "(result of `X` — you already called it; do NOT call `X` again)" note
+# (from an older transcript format, or a paraphrase) is internal scaffolding.
+_RESULT_OF_NOTE_RE = re.compile(
+    r"\(\s*result of\b[^)\n]*?already called it[^)\n]*\)", re.IGNORECASE)
 # Ambiguous tool-OUTPUT JSON signatures (contextual drop only).
 _TOOL_RESULT_JSON_SIGNATURES = (
     '"exit_code"', '"stdout"', '"stderr"', '"output"', '"loaded"', '"schemas"',
@@ -166,6 +170,7 @@ def sanitize_model_text(text: str) -> str:
     cleaned = _PAIRED_RESULT_BLOCK_RE.sub("", text)
     cleaned = _ECHOED_TOOLRESULT_XML_RE.sub("", cleaned)
     cleaned = _ALREADY_EXECUTED_SPAN_RE.sub("", cleaned)
+    cleaned = _RESULT_OF_NOTE_RE.sub("", cleaned)
 
     # 2. Single line pass. jc-marker lines are HARD-dropped IN PLACE (they stay
     #    as anchors so adjacent ambiguous tool-output JSON drops with them);
@@ -378,18 +383,11 @@ def format_messages_as_prompt(
             # then mimicked (#claude-code loop/skip).
             continue
 
-        # Attach an explicit "already executed — do not repeat" note to each tool
-        # RESULT so the model can see which tools it already ran (the signal that
-        # actually breaks the loop) without a separate mimicable call line. For
-        # claude-code this rides INSIDE the <!-- jc:tool_result --> marker, so an
-        # echo is stripped by sanitize_model_text and never mimicked as a call.
-        if role == "tool":
-            tname = str(message.get("name") or "").strip()
-            if tname:
-                rendered = (
-                    f"(result of `{tname}` — you already called it; "
-                    f"do NOT call `{tname}` again)\n{rendered}"
-                )
+        # NOTE: we deliberately do NOT annotate tool results with a "you already
+        # called X" note here — the model echoed that note verbatim into its
+        # reply (confusing output). Loop/repeat prevention is now enforced
+        # DETERMINISTICALLY by filter_repeat_tool_calls() (drops a turn whose
+        # calls are all exact repeats), not by hoping the model reads a note.
 
         # Per-role custom renderer (e.g. claude-code wraps tool results in
         # <tool_result> tags). Falls back to the default labelled-block style.
@@ -504,6 +502,60 @@ def extract_tool_calls_from_text(text: str) -> tuple[list[SimpleNamespace], str]
 
     cleaned = "\n".join(p.strip() for p in parts if p and p.strip()).strip()
     return extracted, cleaned
+
+
+def _canon_tool_args(args: Any) -> str:
+    """Canonicalise tool-call arguments so formatting differences don't defeat a
+    repeat comparison (JSON re-serialised with sorted keys when possible)."""
+    if args is None:
+        return ""
+    if not isinstance(args, str):
+        try:
+            return json.dumps(args, sort_keys=True, ensure_ascii=False)
+        except Exception:
+            return str(args)
+    s = args.strip()
+    try:
+        return json.dumps(json.loads(s), sort_keys=True, ensure_ascii=False)
+    except Exception:
+        return s
+
+
+def _tool_call_key(tc: Any) -> tuple[str, str]:
+    fn = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)
+    if isinstance(fn, dict):
+        name, args = fn.get("name"), fn.get("arguments")
+    elif fn is not None:
+        name, args = getattr(fn, "name", None), getattr(fn, "arguments", None)
+    else:
+        name, args = None, None
+    return (str(name or "").strip(), _canon_tool_args(args))
+
+
+def filter_repeat_tool_calls(
+    tool_calls: list[SimpleNamespace], messages: list[dict[str, Any]] | None
+) -> list[SimpleNamespace]:
+    """Deterministic loop-breaker for the text-shim providers.
+
+    The model sometimes re-emits the SAME tool call(s) it already made in a prior
+    turn (an infinite/near-infinite agent loop). If EVERY freshly-parsed call is
+    an exact (name + canonical-args) repeat of one already in the history, the
+    turn is a pure repeat → return [] so the loop ends with a final answer
+    instead of re-running. If even one call is new, keep them all (real progress
+    is being made — never interfere). Independent of the model reading any note.
+    """
+    if not tool_calls:
+        return tool_calls
+    seen: set[tuple[str, str]] = set()
+    for m in messages or []:
+        if not isinstance(m, dict) or m.get("role") != "assistant":
+            continue
+        for tc in m.get("tool_calls") or []:
+            seen.add(_tool_call_key(tc))
+    if not seen:
+        return tool_calls
+    fresh = [tc for tc in tool_calls if _tool_call_key(tc) not in seen]
+    return tool_calls if fresh else []
 
 
 # ── Vision / image input ─────────────────────────────────────────────────────

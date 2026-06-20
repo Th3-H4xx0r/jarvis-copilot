@@ -220,25 +220,34 @@ def test_build_stream_json_user_input_shape():
 
 # ── Tool-call history in the prompt (the infinite-loop root cause) ───────────
 
-def test_prompt_shows_prior_tool_calls_so_model_does_not_repeat():
-    """Regression for the infinite-loop bug: the model must SEE the tool calls it
-    already made (with results) so it stops re-issuing them every iteration."""
-    messages = [
-        {"role": "user", "content": "turn on now"},
-        {"role": "assistant", "content": "Right away, sir.",
-         "tool_calls": [{"id": "1", "type": "function",
-                         "function": {"name": "ha_call_service",
-                                      "arguments": '{"entity_id":"light.loft"}'}}]},
-        {"role": "tool", "name": "ha_call_service", "content": '{"result":"success"}'},
+def test_filter_repeat_tool_calls_breaks_a_pure_repeat_loop():
+    """Loop prevention is now DETERMINISTIC: a turn whose calls are all exact
+    repeats of already-executed ones is dropped (forces a final answer), without
+    relying on the model reading any prompt note."""
+    from types import SimpleNamespace
+    from agent.external_cli_shim import filter_repeat_tool_calls
+
+    def tc(name, args="{}"):
+        return SimpleNamespace(id="x", function=SimpleNamespace(name=name, arguments=args))
+
+    history = [
+        {"role": "assistant", "tool_calls": [{"id": "1", "type": "function",
+            "function": {"name": "patch", "arguments": '{"v": 13}'}}]},
+        {"role": "tool", "name": "patch", "content": "ok"},
     ]
-    prompt = format_messages_as_prompt(messages, header_lines=["H"])
-    assert "ha_call_service" in prompt          # model sees what it already called
-    assert "already" in prompt.lower()          # ...marked as already executed
+    # exact repeat (incl. cosmetic arg whitespace/key-order) → dropped
+    assert filter_repeat_tool_calls([tc("patch", '{"v":13}')], history) == []
+    assert filter_repeat_tool_calls([tc("patch", '{ "v" : 13 }')], history) == []
+    # a NEW call → kept (never block real progress)
+    assert len(filter_repeat_tool_calls([tc("read_file", '{"p":"a"}')], history)) == 1
+    # mixed (at least one new) → all kept
+    assert len(filter_repeat_tool_calls(
+        [tc("patch", '{"v":13}'), tc("read_file", '{"p":"a"}')], history)) == 2
 
 
-def test_prompt_surfaces_tool_name_via_result_note():
-    """A pure tool-call turn's RESULT is annotated with the tool name + a
-    do-not-repeat note (the non-mimicable signal that prevents the loop)."""
+def test_prompt_does_not_inject_a_result_note():
+    """The prompt must NOT annotate tool results with a "(result of X — you
+    already called it…)" note — the model echoed it verbatim (confusing output)."""
     messages = [
         {"role": "user", "content": "x"},
         {"role": "assistant", "content": "",
@@ -247,7 +256,7 @@ def test_prompt_surfaces_tool_name_via_result_note():
         {"role": "tool", "name": "foo_tool", "content": "ok"},
     ]
     prompt = format_messages_as_prompt(messages, header_lines=["H"])
-    assert "foo_tool" in prompt and "do not call" in prompt.lower()
+    assert "you already called it" not in prompt and "result of `foo_tool`" not in prompt
 
 
 def test_prompt_does_not_render_mimicable_already_executed_line():
@@ -267,10 +276,11 @@ def test_prompt_does_not_render_mimicable_already_executed_line():
 def test_sanitize_strips_echoed_already_executed_and_result_note():
     leak = ('Here is the plan, sir.\n'
             '[already executed — do NOT call again: tool_search({"q":"x"})]\n'
+            '(result of `patch` — you already called it; do NOT call `patch` again)\n'
             'All done.')
     out = sanitize_model_text(leak)
     assert "Here is the plan, sir." in out and "All done." in out
-    assert "already executed" not in out
+    assert "already executed" not in out and "already called it" not in out
 
 
 def test_prompt_continuation_points_at_results_after_a_tool_turn():

@@ -23,6 +23,7 @@ from agent.external_cli_shim import (
     build_stream_json_user_input as _build_stream_json_user_input,
     extract_image_blocks as _extract_image_blocks,
     extract_tool_calls_from_text as _extract_tool_calls_from_text,
+    filter_repeat_tool_calls as _filter_repeat_tool_calls,
     format_messages_as_prompt as _format_messages_as_prompt,
     sanitize_model_text as _sanitize_model_text,
 )
@@ -432,9 +433,10 @@ class ClaudeCodeClient:
 
         result_text = data.get("result") or ""
         tool_calls, cleaned = _extract_tool_calls_from_text(result_text)
-        # Deterministic safety net: strip any internal tool-result markers the
-        # model echoed back into its visible reply (the header asks it not to,
-        # but weaker/faster generations sometimes do anyway).
+        # Deterministic loop-breaker: if every call is an exact repeat of one
+        # already executed in this conversation, drop them so the turn ends.
+        tool_calls = _filter_repeat_tool_calls(tool_calls, messages or [])
+        # Strip any internal scaffolding the model echoed into its visible reply.
         cleaned = _sanitize_model_text(cleaned)
 
         usage_in = data.get("usage") or {}
@@ -634,6 +636,7 @@ class ClaudeCodeClient:
 
         full_text = "".join(text_parts)
         tool_calls, cleaned = _extract_tool_calls_from_text(full_text)
+        tool_calls = _filter_repeat_tool_calls(tool_calls, messages or [])
         cleaned = _sanitize_model_text(cleaned)
 
         if cleaned:
