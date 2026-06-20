@@ -77,9 +77,11 @@ wraps around the **front camera** at top-center. Content flush to the edges gets
 anything centered at the very top collides with the camera. The renderer does **not** add
 insets for you, so design with breathing room:
 
-- **Pad the outermost node.** Give the root of `expanded` (and `lockScreen`) a
-  `"style": {"padding": 12}` (use ~10–14) so nothing touches the rounded corners. This is the
-  single most important fix for "content overflowing the ends".
+- **Don't over-pad — especially the top.** The renderer ALREADY adds safe margins (it insets
+  the expanded island horizontally and the lock screen on all sides), so your design should add
+  little or NO root padding. `style.padding` is **uniform (all edges)** and the island is short,
+  so a big value wastes vertical space and pushes content down (too much top gap). Use **0–4 at
+  most** on the root; rely on the renderer's margins + a `spacer` for horizontal spacing.
 - **Prefer one full-width tree for simple designs.** A non-`regions` `expanded` tree lands in
   the safe bottom area — that's the easiest way to avoid the camera. Only use the `regions`
   container when you specifically want accents *beside* the camera: put them in `leading` /
@@ -237,9 +239,10 @@ omit `days` for every day; omit the whole schedule for always-eligible).
 - **Sleep-critical → server sources + `timer`.** If the island must update while the phone is
   in the user's pocket, bind to `jarvis.*` / `coding.*` / `weather.*` / server `calendar.*`,
   or use a native `timer`. Don't depend on `battery.*` / `location.*` / `health.*` for that.
-- **Respect the rounded corners + camera.** Pad the outer `expanded` / `lockScreen` node
-  (`"style":{"padding":12}`), keep content off the edges, avoid the top-center, and put a
-  `spacer` between leading/trailing items. See **Layout & safe margins** above.
+- **Respect the rounded corners + camera, but don't over-pad.** The renderer already adds safe
+  margins, so keep root `style.padding` to **0–4** (it's uniform/all-edges — big values waste the
+  island's short height and add too much top gap). Avoid the top-center, and put a `spacer`
+  between leading/trailing items. See **Layout & safe margins** above.
 - **Keep `data` small** (it rides in a ~4 KB push). Push only the keys your bindings read.
 - **SF Symbols only** for `symbol`/`icon`/`iconStrip` (e.g. `bolt.fill`, `checkmark.seal.fill`).
 - **Don't author for non-iOS users.** Check the platform first.
