@@ -1494,11 +1494,15 @@ def _openrouter_quota_to_window(quota: dict[str, Any] | None) -> dict[str, Any] 
 def _normalize_quota_block(provider: str, result: dict[str, Any] | None) -> dict[str, Any] | None:
     """Reduce a single get_provider_quota result to a uniform per-provider block.
 
-    Returns None unless the provider is configured AND has usable usage data, so
-    every block the client renders has at least one window or detail.
+    Returns a block for any provider that is CONFIGURED — including one whose
+    quota is currently exhausted / temporarily unavailable (e.g. the Codex
+    credential pool is spent). Those keep their section visible with a full
+    "used up" bar instead of disappearing. Only truly-unconfigured providers
+    (no key / no OAuth / no pool credentials) return None.
     """
-    if not isinstance(result, dict) or result.get("status") != "available":
+    if not isinstance(result, dict):
         return None
+    status = result.get("status")
     display_name = result.get("display_name") or _PROVIDER_DISPLAY.get(
         provider, provider.replace("-", " ").title()
     )
@@ -1508,6 +1512,7 @@ def _normalize_quota_block(provider: str, result: dict[str, Any] | None) -> dict
     fetched_at = None
     plan = None
     pool = None
+    unavailable_reason = None
     if account_limits:
         for window in account_limits.get("windows") or []:
             if not isinstance(window, dict) or not window.get("label"):
@@ -1522,18 +1527,39 @@ def _normalize_quota_block(provider: str, result: dict[str, Any] | None) -> dict
         details = [str(d).strip() for d in (account_limits.get("details") or []) if str(d).strip()]
         fetched_at = account_limits.get("fetched_at")
         plan = account_limits.get("plan")
+        unavailable_reason = account_limits.get("unavailable_reason")
         if isinstance(account_limits.get("pool"), dict):
             pool = account_limits["pool"]
-    else:
+    elif status == "available":
         window = _openrouter_quota_to_window(result.get("quota"))
         if window:
             windows.append(window)
-    if not windows and not details:
+
+    available = status == "available"
+    pool_has_credentials = isinstance(pool, dict) and int(pool.get("total_credentials") or 0) > 0
+    # Omit only providers that aren't configured at all. A configured-but-spent
+    # provider (windowless because its whole pool is exhausted) still has pool
+    # credentials, so it stays.
+    if not (available or windows or pool_has_credentials):
         return None
+    # Configured but no readable windows → exhausted/rate-limited. Synthesize a
+    # full bar so the card shows "used up" (with the reset, when known) rather
+    # than an empty section.
+    if not windows:
+        reset_at = pool.get("next_reset_at") if isinstance(pool, dict) else None
+        windows = [{
+            "label": "All quota used",
+            "used_percent": 100.0,
+            "remaining_percent": 0.0,
+            "reset_at": reset_at,
+            "detail": None,
+        }]
     block = {
         "provider": provider,
         "display_name": display_name,
-        "status": "available",
+        "status": status,
+        "available": available,
+        "unavailable_reason": unavailable_reason,
         "label": result.get("label"),
         "plan": plan,
         "windows": windows,

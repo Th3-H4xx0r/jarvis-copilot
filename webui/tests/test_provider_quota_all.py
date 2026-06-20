@@ -177,6 +177,75 @@ def test_get_all_provider_quota_falls_back_to_anthropic_when_claude_code_unavail
     assert "openai-codex" in provider_ids
 
 
+def _codex_exhausted(total_credentials=1, next_reset_at="2030-03-17T18:46:40Z"):
+    """A get_provider_quota result for a Codex pool whose credentials are spent."""
+    return {
+        "ok": False,
+        "provider": "openai-codex",
+        "display_name": "OpenAI Codex",
+        "supported": True,
+        "status": "unavailable",
+        "quota": None,
+        "account_limits": {
+            "provider": "openai-codex",
+            "source": "usage_api_pool",
+            "title": "Account limits",
+            "plan": None,
+            "windows": [],
+            "details": [f"0/{total_credentials} credentials available", f"{total_credentials} exhausted"],
+            "available": False,
+            "unavailable_reason": "No Codex pool credentials returned available account limits.",
+            "fetched_at": "2030-03-17T12:30:00Z",
+            "pool": {
+                "total_credentials": total_credentials,
+                "available_credentials": 0,
+                "exhausted_credentials": total_credentials,
+                "failed_credentials": 0,
+                "next_reset_at": next_reset_at,
+                "credentials": [],
+            },
+        },
+        "message": "OpenAI Codex account limits are unavailable.",
+    }
+
+
+def test_get_all_provider_quota_keeps_exhausted_codex_visible(monkeypatch):
+    """A spent Codex pool must NOT disappear — it stays as a full 'used up' bar."""
+    import api.providers as providers
+
+    def fake(provider, refresh=False):
+        if provider == "openai-codex":
+            return _codex_exhausted()
+        return {"status": "no_key", "provider": provider}
+
+    monkeypatch.setattr(providers, "get_provider_quota", fake)
+    result = providers.get_all_provider_quota()
+
+    codex = next((b for b in result["providers"] if b["provider"] == "openai-codex"), None)
+    assert codex is not None, "exhausted Codex section should remain visible"
+    assert codex["available"] is False
+    assert len(codex["windows"]) == 1
+    assert codex["windows"][0]["used_percent"] == 100.0
+    assert codex["windows"][0]["remaining_percent"] == 0.0
+    assert codex["windows"][0]["reset_at"] == "2030-03-17T18:46:40Z"
+    assert any("exhausted" in d for d in codex["details"])
+
+
+def test_get_all_provider_quota_omits_codex_with_zero_pool_credentials(monkeypatch):
+    """A Codex provider with no pool credentials at all is not configured → omitted."""
+    import api.providers as providers
+
+    def fake(provider, refresh=False):
+        if provider == "openai-codex":
+            return _codex_exhausted(total_credentials=0)
+        return {"status": "no_key", "provider": provider}
+
+    monkeypatch.setattr(providers, "get_provider_quota", fake)
+    result = providers.get_all_provider_quota()
+
+    assert all(b["provider"] != "openai-codex" for b in result["providers"])
+
+
 def test_get_all_provider_quota_omits_unconfigured_providers(monkeypatch):
     import api.providers as providers
 
