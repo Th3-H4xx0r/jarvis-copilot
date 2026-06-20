@@ -271,8 +271,13 @@ omit `days` for every day; omit the whole schedule for always-eligible).
   margins, so keep root `style.padding` to **0–4** (it's uniform/all-edges — big values add an
   unwanted top/bottom gap). Avoid the top-center, and put a `spacer` between leading/trailing
   items. See **Layout & safe margins** above.
-- **No fake/static time text.** Don't hardcode timestamps like `"4:18"` / `"-0:09"` in a `text`
-  element — they look frozen/fake. Use `timer` or `timeProgress` for live time, or omit it.
+- **NEVER compute a countdown/clock string into a `text` value — this is the #1 mistake.** A
+  `text` like `"BLR in 5d 18h"`, `"4:18"`, or `"-0:09"` is **frozen**: it only changes when you
+  push new data, so it reads stale within seconds and dies offline. For ANY remaining / elapsed /
+  clock time, use a **`timer`** node bound to the absolute target date (`"to"`); for a progress
+  fill use **`timeProgress {from,to}`** — both tick on-device with **no network**. For a
+  **multi-day** countdown set `"format":"relative"` (→ `"5 days, 18 hr"` → `"23 min"`); omit it for
+  a per-second clock `HH:MM:SS`. Do **not** pre-format the time yourself — let the node do it.
 - **Keep `data` small** (it rides in a ~4 KB push). Push only the keys your bindings read.
 - **SF Symbols only** for `symbol`/`icon`/`iconStrip` (e.g. `bolt.fill`, `checkmark.seal.fill`).
 - **Don't author for non-iOS users.** Check the platform first.
