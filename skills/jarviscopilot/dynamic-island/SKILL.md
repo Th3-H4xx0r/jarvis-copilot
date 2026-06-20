@@ -77,16 +77,16 @@ wraps around the **front camera** at top-center. Content flush to the edges gets
 anything centered at the very top collides with the camera. The renderer does **not** add
 insets for you, so design with breathing room:
 
-- **Go big — the expanded island grows to fit your content.** It is NOT a fixed small height:
-  add multiple rows, sections, a multi-row `list`, larger fonts/elements, or a `vstack` of several
-  groups and the island expands to show them all (iOS caps the absolute maximum, but it's generous
-  — you have up to ~12 levels deep / ~160 nodes). Don't shrink a rich design to feel "safe"; use
-  the available space when you have a lot to show.
-- **For MAXIMUM height (Apple-Music-sized), use the `regions` container.** The expanded island's
-  height = the top row (`leading`/`trailing`/`center`, beside the camera) **plus** `bottom`. So put
-  a **tall element in `leading`** — e.g. a big `image` with `style.height` ~70 (like album art) —
-  and rich content in `bottom`; the two stack to fill the island. A single bottom-only tree leaves
-  the top row collapsed and stays short. (See the built-in "UI Example (max size)" design.)
+- **The expanded island is CAPPED at ~144pt by iOS — fill it, don't exceed it.** This is a hard
+  system limit (even Spotify/Apple Music hit it). The goal is to FILL ~144pt cleanly, not to add
+  endless rows: **overstuffing clips the lower rows** (they get cut off, like our first demo did).
+  Aim for ~3–4 well-sized rows total.
+- **To fill the cap (Spotify/Apple-Music style), use the `regions` container + balance.** The
+  expanded height = the top row (`leading`/`trailing`/`center`, beside the camera) **plus**
+  `bottom`. Put a **moderate album-art-style `image` (~50pt) in `leading`**, the title in `center`,
+  an accent in `trailing`, and progress + a control row in `bottom`. Add `"style":{"minHeight":~86}`
+  to the `bottom` container to nudge it to fill the cap. A bottom-only tree leaves the top row
+  collapsed (short); too much content clips. (See the built-in "UI Example (max size)" design.)
 - **Don't over-pad — especially the top.** The renderer ALREADY adds safe margins (it insets the
   expanded island horizontally and the lock screen on all sides), so your design should add little
   or NO root padding. `style.padding` is **uniform (all edges)**, so a big value adds an unwanted

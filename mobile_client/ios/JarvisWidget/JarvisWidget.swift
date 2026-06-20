@@ -660,9 +660,11 @@ struct JCStyle: Decodable {
     var tint: String?
     var width: Double?
     var height: Double?
+    var minHeight: Double?  // force a container to fill toward the ~144pt cap
 
     enum CodingKeys: String, CodingKey {
-        case color, font, size, weight, opacity, padding, align, tint, width, height
+        case color, font, size, weight, opacity, padding, align, tint, width,
+             height, minHeight
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -676,6 +678,7 @@ struct JCStyle: Decodable {
         tint = try? c.decode(String.self, forKey: .tint)
         width = try? c.decode(Double.self, forKey: .width)
         height = try? c.decode(Double.self, forKey: .height)
+        minHeight = try? c.decode(Double.self, forKey: .minHeight)
     }
 }
 
@@ -1345,15 +1348,14 @@ final class JCDesignRenderer {
     // ── Style application ─────────────────────────────────────────────────────
     @ViewBuilder
     private func applyStyle<V: View>(_ view: V, _ style: JCStyle?, _ ctx: JCBindingContext) -> some View {
-        let padded = view.padding(style?.padding.map { CGFloat($0) } ?? 0)
-        let sized = padded
+        // Note: the expanded Dynamic Island is capped at ~144pt by iOS; minHeight
+        // lets a content-light container fill toward that cap (nil = no-op).
+        return view
+            .padding(style?.padding.map { CGFloat($0) } ?? 0)
             .frame(width: style?.width.map { CGFloat($0) },
                    height: style?.height.map { CGFloat($0) })
-        if let op = style?.opacity {
-            sized.opacity(op)
-        } else {
-            sized
-        }
+            .frame(minHeight: style?.minHeight.map { CGFloat($0) }, alignment: .top)
+            .opacity(style?.opacity ?? 1)
     }
 }
 
