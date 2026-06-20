@@ -157,7 +157,7 @@ def test_regions_in_expanded_ok():
 
 def test_too_deep():
     node = {"type": "text", "value": "x"}
-    for _ in range(10):
+    for _ in range(s.MAX_DEPTH + 3):
         node = {"type": "vstack", "children": [node]}
     d = _minimal(); d["presentations"]["expanded"] = node
     assert any("too deep" in e for e in s.validate_design(d))

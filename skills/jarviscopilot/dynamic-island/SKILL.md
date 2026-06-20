@@ -77,11 +77,16 @@ wraps around the **front camera** at top-center. Content flush to the edges gets
 anything centered at the very top collides with the camera. The renderer does **not** add
 insets for you, so design with breathing room:
 
-- **Don't over-pad — especially the top.** The renderer ALREADY adds safe margins (it insets
-  the expanded island horizontally and the lock screen on all sides), so your design should add
-  little or NO root padding. `style.padding` is **uniform (all edges)** and the island is short,
-  so a big value wastes vertical space and pushes content down (too much top gap). Use **0–4 at
-  most** on the root; rely on the renderer's margins + a `spacer` for horizontal spacing.
+- **Go big — the expanded island grows to fit your content.** It is NOT a fixed small height:
+  add multiple rows, sections, a multi-row `list`, larger fonts/elements, or a `vstack` of several
+  groups and the island expands to show them all (iOS caps the absolute maximum, but it's generous
+  — you have up to ~12 levels deep / ~160 nodes). Don't shrink a rich design to feel "safe"; use
+  the available space when you have a lot to show.
+- **Don't over-pad — especially the top.** The renderer ALREADY adds safe margins (it insets the
+  expanded island horizontally and the lock screen on all sides), so your design should add little
+  or NO root padding. `style.padding` is **uniform (all edges)**, so a big value adds an unwanted
+  top/bottom gap and pushes content down. Use **0–4 at most** on the root; rely on the renderer's
+  margins + a `spacer` for spacing.
 - **Prefer one full-width tree for simple designs.** A non-`regions` `expanded` tree lands in
   the safe bottom area — that's the easiest way to avoid the camera. Only use the `regions`
   container when you specifically want accents *beside* the camera: put them in `leading` /
@@ -230,7 +235,7 @@ omit `days` for every day; omit the whole schedule for always-eligible).
 
 ## Authoring rules (must follow)
 
-- **Depth ≤ 8, total nodes ≤ 60.** The validator rejects oversize trees at create time and the
+- **Depth ≤ 12, total nodes ≤ 160.** The validator rejects oversize trees at create time and the
   renderer clamps defensively. Keep compact/minimal presentations to 1–3 nodes.
 - **Create before you push.** `set-data` to an unknown `id` has nothing to render. Order:
   `create` → (`pin` or rely on `auto`) → `set-data` as values change.
@@ -240,9 +245,9 @@ omit `days` for every day; omit the whole schedule for always-eligible).
   in the user's pocket, bind to `jarvis.*` / `coding.*` / `weather.*` / server `calendar.*`,
   or use a native `timer`. Don't depend on `battery.*` / `location.*` / `health.*` for that.
 - **Respect the rounded corners + camera, but don't over-pad.** The renderer already adds safe
-  margins, so keep root `style.padding` to **0–4** (it's uniform/all-edges — big values waste the
-  island's short height and add too much top gap). Avoid the top-center, and put a `spacer`
-  between leading/trailing items. See **Layout & safe margins** above.
+  margins, so keep root `style.padding` to **0–4** (it's uniform/all-edges — big values add an
+  unwanted top/bottom gap). Avoid the top-center, and put a `spacer` between leading/trailing
+  items. See **Layout & safe margins** above.
 - **Keep `data` small** (it rides in a ~4 KB push). Push only the keys your bindings read.
 - **SF Symbols only** for `symbol`/`icon`/`iconStrip` (e.g. `bolt.fill`, `checkmark.seal.fill`).
 - **Don't author for non-iOS users.** Check the platform first.
@@ -413,7 +418,7 @@ The server validator is the source of truth for design validity — a malformed 
 
 - **iOS only** — check the platform before authoring; otherwise tell the user it's not available.
 - **Create before set-data**; **bump `version`** on every layout edit.
-- **Depth ≤ 8 / ≤ 60 nodes**; tiny compact + minimal presentations.
+- **Depth ≤ 12 / ≤ 160 nodes** (fill the expanded space when you have a lot); tiny compact + minimal presentations.
 - **Sleep-critical islands → server sources (`jarvis.*`/`coding.*`/`weather.*`/server calendar) +
   native `timer`.** Device sources (`battery`/`location`/`health`) freeze when suspended.
 - **Persona styling:** if the user has set a personality (e.g. JARVIS), keep the persona voice

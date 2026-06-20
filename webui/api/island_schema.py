@@ -16,8 +16,11 @@ from typing import Any
 
 # Defensive bounds (mirrored by the Swift renderer's clamps). A design past
 # these is rejected at author time rather than truncated silently on-device.
-MAX_DEPTH = 8
-MAX_NODES = 60
+# Generous, not a layout limit — the expanded island + lock screen size to their
+# content, so a rich design can fill the full available height. These only guard
+# against pathological/cyclic trees.
+MAX_DEPTH = 12
+MAX_NODES = 160
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")

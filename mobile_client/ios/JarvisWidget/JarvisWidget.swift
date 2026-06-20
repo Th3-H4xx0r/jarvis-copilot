@@ -972,8 +972,11 @@ func jcEvalCondition(_ expr: JCJSON?, _ ctx: JCBindingContext) -> Bool {
 @available(iOS 16.2, *)
 final class JCDesignRenderer {
     private var count = 0
-    private let maxDepth = 8
-    private let maxNodes = 60
+    // Generous safety clamps (not a layout limit): the expanded island + lock
+    // screen size to their content, so a rich design can fill the full available
+    // height. These only guard against pathological/cyclic trees.
+    private let maxDepth = 12
+    private let maxNodes = 160
     let tint: Color
 
     init(tint: Color) { self.tint = tint }
