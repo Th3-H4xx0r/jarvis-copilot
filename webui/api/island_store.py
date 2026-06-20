@@ -40,6 +40,61 @@ BUILTINS = [
 _BUILTIN_IDS = {b["id"] for b in BUILTINS}
 _DEFAULT_CUSTOM_PRIORITY = 10
 
+# A built-in, non-deletable DEMO design: a rich, tall layout that fills the
+# expanded island so the user can see how large a custom design can get. It's a
+# real design tree (rendered by the generic widget), all-literal (no bindings),
+# disabled in the Auto rotation (you pin it to view it).
+DEMO_ID = "demo"
+DEMO_DESIGN = {
+    "schema": 1, "id": DEMO_ID, "version": 1,
+    "name": "UI Example (max size)",
+    "icon": "rectangle.on.rectangle.angled", "tint": "#0a84ff",
+    "presentations": {
+        "expanded": {"type": "vstack", "spacing": 12, "children": [
+            {"type": "hstack", "spacing": 12, "align": "center", "children": [
+                {"type": "image", "source": "orb",
+                 "style": {"width": 58, "height": 58}},
+                {"type": "vstack", "spacing": 2, "children": [
+                    {"type": "text", "value": "Dynamic Island Demo",
+                     "style": {"size": 18, "weight": "bold"}},
+                    {"type": "text", "value": "Max-size UI example",
+                     "style": {"size": 13, "color": "#8e8e93"}},
+                ]},
+                {"type": "spacer"},
+                {"type": "symbol", "name": "waveform",
+                 "style": {"size": 24, "tint": "#0a84ff"}},
+            ]},
+            {"type": "progress", "value": 0.7, "tint": "#0a84ff"},
+            {"type": "hstack", "children": [
+                {"type": "text", "value": "0:42",
+                 "style": {"size": 12, "color": "#8e8e93"}},
+                {"type": "spacer"},
+                {"type": "text", "value": "-2:18",
+                 "style": {"size": 12, "color": "#8e8e93"}},
+            ]},
+            {"type": "hstack", "spacing": 30, "align": "center", "children": [
+                {"type": "spacer"},
+                {"type": "symbol", "name": "backward.fill", "style": {"size": 26}},
+                {"type": "symbol", "name": "pause.fill", "style": {"size": 34}},
+                {"type": "symbol", "name": "forward.fill", "style": {"size": 26}},
+                {"type": "spacer"},
+            ]},
+            {"type": "divider"},
+            {"type": "hstack", "spacing": 16, "align": "center", "children": [
+                {"type": "keyValue", "pairs": [{"label": "Tempo", "value": "128 BPM"}]},
+                {"type": "spacer"},
+                {"type": "keyValue", "pairs": [{"label": "Key", "value": "A minor"}]},
+                {"type": "spacer"},
+                {"type": "gauge", "style": "single",
+                 "rings": [{"value": 0.62, "tint": "#34c759"}]},
+            ]},
+        ]},
+        "compactLeading": {"type": "symbol", "name": "rectangle.on.rectangle.angled"},
+        "compactTrailing": {"type": "text", "value": "DEMO"},
+        "minimal": {"type": "symbol", "name": "rectangle.on.rectangle.angled"},
+    },
+}
+
 
 def _default_meta(entry_id: str, *, builtin: bool, name: str = "",
                   icon: str = "", priority: int | None = None,
@@ -91,10 +146,12 @@ class IslandStore:
         return sorted(p.stem for p in d.glob("*.json"))
 
     def get_design(self, design_id: str) -> dict | None:
+        if design_id == DEMO_ID:
+            return dict(DEMO_DESIGN)
         return _read_json(self._design_path(design_id), None)
 
     def list_designs(self) -> list[dict]:
-        out = []
+        out = [dict(DEMO_DESIGN)]  # built-in demo first (a real, renderable tree)
         for did in self.list_design_ids():
             doc = self.get_design(did)
             if doc:
@@ -107,7 +164,7 @@ class IslandStore:
         if errors:
             return False, errors
         did = design["id"]
-        if did in _BUILTIN_IDS:
+        if did in _BUILTIN_IDS or did == DEMO_ID:
             return False, [f"'{did}' is a reserved built-in id"]
         self._designs_dir.mkdir(parents=True, exist_ok=True)
         _write_json(self._design_path(did), design)
@@ -127,7 +184,7 @@ class IslandStore:
         return True, []
 
     def delete_design(self, design_id: str) -> bool:
-        if design_id in _BUILTIN_IDS:
+        if design_id in _BUILTIN_IDS or design_id == DEMO_ID:
             return False
         removed = False
         p = self._design_path(design_id)
@@ -160,6 +217,14 @@ class IslandStore:
                          if k in ("enabled", "priority", "conditions",
                                   "schedule")})
             out.append(meta)
+        # Built-in DEMO design (a real, renderable tree) — non-deletable, OFF in
+        # the Auto rotation by default; the user pins it to view the max-size UI.
+        demo_meta = _default_meta(DEMO_ID, builtin=True, name=DEMO_DESIGN["name"],
+                                  icon=DEMO_DESIGN["icon"], priority=1)
+        demo_meta["enabled"] = False
+        demo_meta.update({k: v for k, v in stored.get(DEMO_ID, {}).items()
+                          if k in ("enabled", "priority", "conditions", "schedule")})
+        out.append(demo_meta)
         # Custom designs: ensure every design file has a catalog row.
         for did in self.list_design_ids():
             meta = stored.get(did)
@@ -175,7 +240,8 @@ class IslandStore:
 
     def set_rules(self, entry_id: str, *, enabled=None, priority=None,
                   conditions=..., schedule=...) -> tuple[bool, list[str]]:
-        if entry_id not in _BUILTIN_IDS and entry_id not in self.list_design_ids():
+        if (entry_id not in _BUILTIN_IDS and entry_id != DEMO_ID
+                and entry_id not in self.list_design_ids()):
             return False, [f"unknown entry {entry_id!r}"]
         if conditions not in (..., None):
             errs = island_schema.validate_condition(conditions)
@@ -218,6 +284,7 @@ class IslandStore:
             if not pinned_id:
                 return False, ["pinned mode requires pinnedId"]
             if (pinned_id not in _BUILTIN_IDS
+                    and pinned_id != DEMO_ID
                     and pinned_id not in self.list_design_ids()):
                 return False, [f"unknown design {pinned_id!r}"]
         self.base.mkdir(parents=True, exist_ok=True)

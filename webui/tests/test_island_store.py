@@ -120,6 +120,25 @@ def test_snapshot_shape(tmp_path):
     assert any(d["id"] == "deploy" for d in snap["designs"])
 
 
+def test_demo_design_is_a_builtin_renderable(tmp_path):
+    st = IslandStore(tmp_path)
+    # It's a real design tree (so the widget can render it), surfaced in designs.
+    assert any(d["id"] == "demo" for d in st.list_designs())
+    assert st.get_design("demo") is not None
+    # A non-deletable catalog entry, OFF in Auto by default.
+    cat = {c["id"]: c for c in st.get_catalog()}
+    assert cat["demo"]["builtin"] is True
+    assert cat["demo"]["enabled"] is False
+    assert st.delete_design("demo") is False
+    # Pinnable; the id is reserved (can't be overwritten by a custom upsert).
+    ok, _ = st.set_selection("pinned", "demo")
+    assert ok and st.get_selection()["pinnedId"] == "demo"
+    bad, errs = st.upsert_design({
+        "id": "demo", "version": 1, "name": "x",
+        "presentations": {"expanded": {"type": "divider"}}})
+    assert not bad and any("reserved" in e for e in errs)
+
+
 def test_profiles_isolated(tmp_path):
     a = IslandStore(tmp_path, "alice")
     b = IslandStore(tmp_path, "bob")
