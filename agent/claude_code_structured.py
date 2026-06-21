@@ -26,9 +26,15 @@ _DEFAULT_TIMEOUT = 900.0
 
 
 def structured_enabled() -> bool:
-    return (os.environ.get("HERMES_CLAUDE_CODE_STRUCTURED", "") or "").strip().lower() in {
-        "1", "true", "yes", "on",
-    }
+    """Default ON. The structured MCP engine (claude drives via native tool_use) is
+    the proven path for claude-code; the legacy text-shim (``<tool_call>`` parsing)
+    silently stalled when the model emitted a prose "I'll do X" turn with no tool
+    call. Set ``HERMES_CLAUDE_CODE_STRUCTURED=0`` (or false/no/off) to fall back to
+    the text-shim."""
+    raw = (os.environ.get("HERMES_CLAUDE_CODE_STRUCTURED", "") or "").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return True
 
 
 def _build_argv(command: str, model_cli: str, mcp_config: str, system_prompt: str) -> list[str]:
@@ -59,9 +65,12 @@ def run_structured_turn(
     timeout: float = _DEFAULT_TIMEOUT,
     on_text: Callable[[str], None] | None = None,
     on_tool_event: Callable[[str, dict[str, Any], str], None] | None = None,
+    should_abort: Callable[[], bool] | None = None,
 ) -> SimpleNamespace:
     """Drive one structured turn. ``execute_tool(name, args) -> result_text`` runs a
-    JC tool. Returns ``SimpleNamespace(text, tool_events, is_error, error, usage)``.
+    JC tool. ``should_abort`` (polled on a side thread) terminates the CLI promptly
+    when the user interrupts — even while the reader is parked in ``readline()``.
+    Returns ``SimpleNamespace(text, tool_events, is_error, error, usage)``.
     """
     mcp_tools = openai_tools_to_mcp(tools)
     tool_events: list[dict[str, Any]] = []
@@ -95,6 +104,8 @@ def run_structured_turn(
     bridge.start()
     proc: subprocess.Popen | None = None
     watchdog: threading.Timer | None = None
+    abort_poll: threading.Thread | None = None
+    aborted = threading.Event()
     try:
         argv = _build_argv(command, model_cli, bridge.mcp_config_json(), system_prompt)
         proc = subprocess.Popen(
@@ -120,9 +131,32 @@ def run_structured_turn(
         watchdog.daemon = True
         watchdog.start()
 
+        # Abort poller: the stdout reader blocks in readline() while the CLI is
+        # busy (e.g. waiting on a tool), so it can't notice an interrupt on its
+        # own. A side thread polls should_abort() and terminates the CLI so the
+        # turn unwinds promptly when the user says "stop".
+        if should_abort is not None:
+            def _poll_abort() -> None:
+                while not aborted.is_set():
+                    try:
+                        if should_abort():
+                            aborted.set()
+                            if proc is not None and proc.poll() is None:
+                                proc.terminate()
+                            return
+                    except Exception:
+                        pass
+                    aborted.wait(0.3)
+            abort_poll = threading.Thread(target=_poll_abort, name="jc-mcp-abort", daemon=True)
+            abort_poll.start()
+
         start = time.monotonic()
         assert proc.stdout is not None
         for raw in proc.stdout:
+            if aborted.is_set():
+                is_error = True
+                error = "structured claude turn aborted (interrupt)"
+                break
             if time.monotonic() - start > timeout:
                 is_error = True
                 error = f"structured claude turn timed out after {timeout:.0f}s"
@@ -154,6 +188,12 @@ def run_structured_turn(
         is_error = True
         error = str(exc)
     finally:
+        aborted.set()  # stop the abort poller
+        if abort_poll is not None:
+            try:
+                abort_poll.join(timeout=1.0)
+            except Exception:
+                pass
         if watchdog is not None:
             try:
                 watchdog.cancel()

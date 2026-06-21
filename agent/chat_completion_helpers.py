@@ -90,6 +90,13 @@ def interruptible_api_call(agent, api_kwargs: dict):
     the main retry loop can try again with backoff / credential rotation /
     provider fallback.
     """
+    # claude-code STRUCTURED engine: claude drives the task via native MCP tool_use
+    # (no <tool_call> text), so a "let me read X" turn becomes a real tool call
+    # instead of silently ending the loop. Returns an OpenAI-shaped response.
+    from agent.claude_code_structured_runtime import should_use_structured, run_claude_structured_response
+    if should_use_structured(agent, api_kwargs):
+        return run_claude_structured_response(agent, api_kwargs)
+
     result = {"response": None, "error": None}
     request_client_holder = {"client": None, "owner_tid": None}
     request_client_lock = threading.Lock()
@@ -1226,6 +1233,12 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
     """
     if agent._interrupt_requested:
         raise InterruptedError("Agent interrupted before streaming API call")
+
+    # claude-code STRUCTURED engine: drive the task via native MCP tool_use and
+    # stream assistant text live through _fire_stream_delta (see runtime glue).
+    from agent.claude_code_structured_runtime import should_use_structured, run_claude_structured_response
+    if should_use_structured(agent, api_kwargs):
+        return run_claude_structured_response(agent, api_kwargs, on_first_delta=on_first_delta)
 
     if agent.api_mode == "codex_responses":
         # Codex streams internally via _run_codex_stream. The main dispatch
