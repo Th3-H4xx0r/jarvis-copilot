@@ -141,10 +141,22 @@ class ApiClient {
     );
   }
 
-  Future<Response<dynamic>> deleteJson(String path,
+  Future<Response<dynamic>> patchJson(String path, Object body,
       {Map<String, String>? headers}) {
+    return _dio.patch(
+      '$base$path',
+      data: body,
+      options: Options(
+        headers: {'Content-Type': 'application/json', ...?headers},
+      ),
+    );
+  }
+
+  Future<Response<dynamic>> deleteJson(String path,
+      {Object? body, Map<String, String>? headers}) {
     return _dio.delete(
       '$base$path',
+      data: body,
       options: Options(headers: headers),
     );
   }
