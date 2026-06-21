@@ -93,9 +93,16 @@ def interruptible_api_call(agent, api_kwargs: dict):
     # claude-code STRUCTURED engine: claude drives the task via native MCP tool_use
     # (no <tool_call> text), so a "let me read X" turn becomes a real tool call
     # instead of silently ending the loop. Returns an OpenAI-shaped response.
-    from agent.claude_code_structured_runtime import should_use_structured, run_claude_structured_response
+    from agent.claude_code_structured_runtime import (
+        should_use_structured, run_claude_structured_response, StructuredTurnFailed,
+    )
     if should_use_structured(agent, api_kwargs):
-        return run_claude_structured_response(agent, api_kwargs)
+        try:
+            return run_claude_structured_response(agent, api_kwargs)
+        except StructuredTurnFailed as _sf:
+            logger.warning("claude-code structured turn failed before streaming; "
+                           "falling back to text-shim. %s", _sf)
+            # fall through to the normal (text-shim) path below
 
     result = {"response": None, "error": None}
     request_client_holder = {"client": None, "owner_tid": None}
@@ -1236,9 +1243,16 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
 
     # claude-code STRUCTURED engine: drive the task via native MCP tool_use and
     # stream assistant text live through _fire_stream_delta (see runtime glue).
-    from agent.claude_code_structured_runtime import should_use_structured, run_claude_structured_response
+    from agent.claude_code_structured_runtime import (
+        should_use_structured, run_claude_structured_response, StructuredTurnFailed,
+    )
     if should_use_structured(agent, api_kwargs):
-        return run_claude_structured_response(agent, api_kwargs, on_first_delta=on_first_delta)
+        try:
+            return run_claude_structured_response(agent, api_kwargs, on_first_delta=on_first_delta)
+        except StructuredTurnFailed as _sf:
+            logger.warning("claude-code structured turn failed before streaming; "
+                           "falling back to text-shim. %s", _sf)
+            # fall through to the normal (text-shim) streaming path below
 
     if agent.api_mode == "codex_responses":
         # Codex streams internally via _run_codex_stream. The main dispatch

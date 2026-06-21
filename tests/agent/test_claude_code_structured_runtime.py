@@ -233,16 +233,35 @@ def test_run_structured_response_raises_on_interrupt(monkeypatch):
         rt.run_claude_structured_response(agent, {"messages": [], "tools": []})
 
 
-def test_run_structured_response_raises_on_hard_error(monkeypatch):
+def test_hard_failure_before_streaming_is_soft_failable(monkeypatch):
+    """If the turn errors before any text reached the user, raise the soft
+    StructuredTurnFailed so the caller can retry on the text-shim."""
     monkeypatch.setenv("HERMES_CLAUDE_CODE_STRUCTURED", "1")
 
     def _fake(*, should_abort=None, on_text=None, execute_tool=None, **kw):
         return SimpleNamespace(text="", tool_events=[], is_error=True,
-                               error="CLI exploded", usage={})
+                               error="Broken pipe", usage={})
     monkeypatch.setattr(rt, "run_structured_turn", _fake)
 
-    with pytest.raises(RuntimeError, match="CLI exploded"):
+    with pytest.raises(rt.StructuredTurnFailed, match="Broken pipe"):
         rt.run_claude_structured_response(FakeAgent(), {"messages": [], "tools": []})
+
+
+def test_hard_failure_after_streaming_is_not_soft_failable(monkeypatch):
+    """If text already streamed to the user, a later error must NOT silently fall
+    back (that would duplicate output) — surface a plain RuntimeError instead."""
+    monkeypatch.setenv("HERMES_CLAUDE_CODE_STRUCTURED", "1")
+
+    def _fake(*, should_abort=None, on_text=None, execute_tool=None, **kw):
+        if on_text:
+            on_text("partial answer…")
+        return SimpleNamespace(text="", tool_events=[], is_error=True,
+                               error="mid-stream boom", usage={})
+    monkeypatch.setattr(rt, "run_structured_turn", _fake)
+
+    with pytest.raises(RuntimeError) as ei:
+        rt.run_claude_structured_response(FakeAgent(), {"messages": [], "tools": []})
+    assert not isinstance(ei.value, rt.StructuredTurnFailed)
 
 
 # ── real-CLI e2e (opt-in) ────────────────────────────────────────────────────

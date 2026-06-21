@@ -38,6 +38,12 @@ from typing import Any
 
 from agent.claude_code_structured import run_structured_turn, structured_enabled
 
+
+class StructuredTurnFailed(RuntimeError):
+    """A structured turn hard-failed BEFORE streaming anything to the user, so the
+    caller can safely fall back to the text-shim for this turn (no duplicate
+    output). Distinct from a mid-stream failure, which must surface as-is."""
+
 # A short, fixed --system-prompt. The agent's REAL system prompt (identity, skills,
 # memory) and the conversation history are folded into the stdin user text instead
 # (see _build_user_text) — keeping --system-prompt tiny avoids ARG_MAX limits, the
@@ -178,6 +184,7 @@ def run_claude_structured_response(agent: Any, api_kwargs: dict, *, on_first_del
     effective_task_id = getattr(agent, "_current_task_id", None) or ""
 
     first = {"done": False}
+    streamed = {"any": False}
 
     def _fire_first() -> None:
         if not first["done"] and on_first_delta is not None:
@@ -189,6 +196,8 @@ def run_claude_structured_response(agent: Any, api_kwargs: dict, *, on_first_del
 
     def _on_text(text: str) -> None:
         _fire_first()
+        if text:
+            streamed["any"] = True
         try:
             agent._fire_stream_delta(text)
         except Exception:
@@ -310,9 +319,12 @@ def run_claude_structured_response(agent: Any, api_kwargs: dict, *, on_first_del
 
     text = (res.text or "").strip()
     if res.is_error and not text:
-        raise RuntimeError(
-            f"claude-code structured turn failed: {res.error or 'unknown error'}"
-        )
+        msg = f"claude-code structured turn failed: {res.error or 'unknown error'}"
+        # Nothing reached the user yet → let the caller retry on the text-shim
+        # rather than hard-failing the turn (e.g. an environment/CLI issue).
+        if not streamed["any"]:
+            raise StructuredTurnFailed(msg)
+        raise RuntimeError(msg)
 
     u = res.usage or {}
     prompt_toks = int(u.get("input_tokens") or 0)
