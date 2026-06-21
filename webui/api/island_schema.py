@@ -49,7 +49,13 @@ _SOURCE_KEYS = {
 _SOURCE_NAMESPACES = ("jarvis.", "weather.", "coding.", "health.", "calendar.",
                       "device.", "battery.", "location.", "time.")
 
-_CONDITION_OPS = {"and", "or", "not", "eq", "ne", "gt", "lt", "exists", "between"}
+_CONDITION_OPS = {"and", "or", "not", "eq", "ne", "gt", "lt", "exists", "between",
+                  "after", "before"}
+
+# On-device clock binding kinds (computed from the device clock at render time —
+# update OFFLINE with no server push). See _validate_clock + the iOS renderer's
+# jcResolveClock.
+_CLOCK_KINDS = {"phase", "fraction", "remaining", "elapsed", "index"}
 
 # Per-leaf required value-bearing props. Each maps a prop name -> "value" (a
 # scalar/binding ValueRef) or "array" (a list-or-binding). Optional props are
@@ -317,9 +323,12 @@ def _validate_value(v, path, errors, allow_array=False, in_row=False,
             errors.append(f"{path}: a list is not allowed here")
         return
     if isinstance(v, dict):
+        if "clock" in v:
+            _validate_clock(v, path, errors)
+            return
         keys = {"$", "$row", "src"} & set(v.keys())
         if len(keys) != 1:
-            errors.append(f"{path}: binding must have exactly one of $, $row, src")
+            errors.append(f"{path}: binding must have exactly one of $, $row, src, clock")
             return
         key = next(iter(keys))
         ref = v[key]
@@ -335,6 +344,68 @@ def _validate_value(v, path, errors, allow_array=False, in_row=False,
             errors.append(f"{path}.map must be an object")
         return
     errors.append(f"{path}: invalid value")
+
+
+def _validate_timestamp(v, path, errors):
+    """A clock timestamp: an epoch number, an ISO/epoch STRING, or a binding that
+    resolves to one. The device parses these with jcParseDate and never errors, so
+    rejecting wrong TYPES here (a list, a bool, a nested object) is the only place a
+    typo is caught — otherwise it silently fail-opens / renders empty."""
+    if isinstance(v, bool):
+        errors.append(f"{path} must be an epoch number or ISO date string, not a bool")
+    elif isinstance(v, (int, float)):
+        return
+    elif isinstance(v, str):
+        if not v.strip():
+            errors.append(f"{path}: empty timestamp")
+    elif isinstance(v, dict):
+        _validate_value(v, path, errors)  # a $/src binding resolving to a timestamp
+    else:
+        errors.append(f"{path} must be an epoch number, ISO date string, or binding")
+
+
+def _validate_clock(v, path, errors):
+    """An on-device clock binding: {"clock": <kind>, …} computed from Date() at
+    render time (updates OFFLINE). `at`/`from`/`to`/`keys[].at` are epoch seconds or
+    ISO strings (NOT segment ordinals — they are absolute times)."""
+    kind = v.get("clock")
+    if kind not in _CLOCK_KINDS:
+        errors.append(f"{path}.clock: unknown kind {kind!r} (expected one of "
+                      f"{sorted(_CLOCK_KINDS)})")
+        return
+    if kind in ("phase", "index"):
+        keys = v.get("keys")
+        if not isinstance(keys, list) or not keys:
+            errors.append(f"{path}.keys must be a non-empty list")
+        elif kind == "phase":
+            for i, k in enumerate(keys):
+                if not isinstance(k, dict) or "at" not in k or "value" not in k:
+                    errors.append(f"{path}.keys[{i}] must have 'at' and 'value'")
+                else:
+                    _validate_timestamp(k["at"], f"{path}.keys[{i}].at", errors)
+        else:  # index: keys are bare timestamps
+            for i, k in enumerate(keys):
+                _validate_timestamp(k, f"{path}.keys[{i}]", errors)
+    elif kind == "fraction":
+        for req in ("from", "to"):
+            if req not in v:
+                errors.append(f"{path}: clock 'fraction' needs '{req}'")
+            else:
+                _validate_timestamp(v[req], f"{path}.{req}", errors)
+    elif kind == "remaining":
+        if "to" not in v:
+            errors.append(f"{path}: clock 'remaining' needs 'to'")
+        else:
+            _validate_timestamp(v["to"], f"{path}.to", errors)
+    elif kind == "elapsed":
+        if "from" not in v:
+            errors.append(f"{path}: clock 'elapsed' needs 'from'")
+        else:
+            _validate_timestamp(v["from"], f"{path}.from", errors)
+    if "fmt" in v and not isinstance(v["fmt"], str):
+        errors.append(f"{path}.fmt must be a string")
+    if "map" in v and not isinstance(v["map"], dict):
+        errors.append(f"{path}.map must be an object")
 
 
 def _validate_condition(expr, path, errors, depth=0):
@@ -363,6 +434,12 @@ def _validate_condition(expr, path, errors, depth=0):
         _validate_value(expr.get("a"), f"{path}.a", errors, required=True)
         if "lo" not in expr or "hi" not in expr:
             errors.append(f"{path}: between needs lo and hi")
+    elif op in ("after", "before"):
+        # time condition: operand is the device clock (now) vs the `at` timestamp.
+        if "at" not in expr:
+            errors.append(f"{path}.at is required")
+        else:
+            _validate_timestamp(expr["at"], f"{path}.at", errors)
     else:  # eq/ne/gt/lt
         _validate_value(expr.get("a"), f"{path}.a", errors, required=True)
         _validate_value(expr.get("b"), f"{path}.b", errors, required=True)

@@ -73,6 +73,100 @@ def test_tip_on_unsupported_leaf_is_ignored():
     assert s.validate_design(_design({"type": "timer", "to": 123, "tip": "airplane"})) == []
 
 
+def test_clock_phase_binding_valid():
+    # offline status/label switching: a text value computed from the device clock
+    assert s.validate_design(_design({
+        "type": "text",
+        "value": {"clock": "phase",
+                  "keys": [{"at": 1718000000, "value": "Boarding"},
+                           {"at": 1718003600, "value": "In flight"}],
+                  "default": "Scheduled"}})) == []
+
+
+def test_clock_phase_with_map_and_fmt_valid():
+    assert s.validate_design(_design({
+        "type": "badge",
+        "text": {"clock": "phase", "keys": [{"at": 1, "value": "flying"}],
+                 "map": {"flying": "Flying"}, "fmt": "{}"}})) == []
+
+
+def test_clock_fraction_drives_tip_valid():
+    assert s.validate_design(_design({
+        "type": "segbar",
+        "segments": [{"weight": 1, "color": "#a78bfa"}],
+        "progress": {"clock": "fraction", "from": {"$": "departAt"}, "to": 1718039600},
+        "tip": {"symbol": "airplane"}})) == []
+
+
+def test_clock_remaining_and_elapsed_and_index_valid():
+    for node in (
+        {"type": "stat", "value": {"clock": "remaining", "to": 1718039600, "fmt": "{}s"}},
+        {"type": "stat", "value": {"clock": "elapsed", "from": 1718000000}},
+        {"type": "stat", "value": {"clock": "index", "keys": [1, 2, 3]}},
+    ):
+        assert s.validate_design(_design(node)) == [], node
+
+
+def test_clock_unknown_kind_rejected():
+    errs = s.validate_design(_design({"type": "text", "value": {"clock": "wobble"}}))
+    assert any("unknown kind" in e for e in errs)
+
+
+def test_clock_fraction_missing_from_to_rejected():
+    errs = s.validate_design(_design({"type": "text", "value": {"clock": "fraction", "to": 1}}))
+    assert any("needs 'from'" in e for e in errs)
+
+
+def test_clock_phase_missing_keys_rejected():
+    errs = s.validate_design(_design({"type": "text", "value": {"clock": "phase"}}))
+    assert any("keys must be a non-empty list" in e for e in errs)
+
+
+def test_clock_phase_key_missing_at_or_value_rejected():
+    errs = s.validate_design(_design({"type": "text",
+        "value": {"clock": "phase", "keys": [{"at": 1}]}}))
+    assert any("must have 'at' and 'value'" in e for e in errs)
+
+
+def test_clock_timestamp_wrong_type_rejected():
+    # a list / bool timestamp passes presence but is unparseable on-device → reject
+    errs = s.validate_design(_design({"type": "text",
+        "value": {"clock": "fraction", "from": [1, 2], "to": 3}}))
+    assert any("from must be an epoch number" in e for e in errs)
+    errs = s.validate_design(_design({"type": "text",
+        "value": {"clock": "remaining", "to": True}}))
+    assert any("to must be an epoch number or ISO date string, not a bool" in e for e in errs)
+    errs = s.validate_design(_design({"type": "text",
+        "value": {"clock": "phase", "keys": [{"at": [1], "value": "x"}]}}))
+    assert any("keys[0].at must be an epoch number" in e for e in errs)
+
+
+def test_clock_timestamp_string_and_epoch_and_binding_ok():
+    for ts in ("2030-03-17T17:30:00Z", 1718039600, {"$": "departAt"}):
+        assert s.validate_design(_design({"type": "text",
+            "value": {"clock": "remaining", "to": ts}})) == [], ts
+
+
+def test_time_condition_after_before_valid():
+    # show the gate only after arrival (offline boundary)
+    assert s.validate_design({
+        "id": "x", "version": 1, "name": "X",
+        "presentations": {"expanded": {"type": "vstack", "children": [
+            {"type": "text", "value": "Gate B12",
+             "when": {"op": "after", "at": 1718039600}},
+            {"type": "text", "value": "Boarding soon",
+             "when": {"op": "before", "at": 1718003600}},
+        ]}}}) == []
+
+
+def test_time_condition_after_missing_at_rejected():
+    errs = s.validate_design({
+        "id": "x", "version": 1, "name": "X",
+        "presentations": {"expanded": {"type": "text", "value": "hi",
+            "when": {"op": "after"}}}})
+    assert any(".at is required" in e for e in errs)
+
+
 def test_deploy_status_example_valid():
     design = {
         "id": "deploy-status", "version": 1, "name": "Deploy status",

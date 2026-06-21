@@ -860,6 +860,10 @@ struct JCValueRef {
             // or server (suspended) places the resolved value under the src key.
             // Absent → nil (renders as missing), never a crash.
             if let key = o["src"]?.asString { return ctx.data[key] }
+            // On-device CLOCK binding: computed from Date() at render time, so it's
+            // correct OFFLINE on every render/glance (no server push). Flows through
+            // the normal map/fmt pipeline. See jcResolveClock.
+            if o["clock"] != nil { return jcResolveClock(o) }
             return raw  // a plain object literal (rare) — pass through
         default:
             return raw  // literal string/number/bool
@@ -954,6 +958,46 @@ func jcParseColor(_ s: String) -> Color? {
     }
 }
 
+/// On-device clock-driven value, computed from `Date()` so a design updates OFFLINE
+/// on each render/glance (no server push). Returns a JCJSON that flows through the
+/// normal string/double/color (map/fmt) pipeline. Unknown kind / bad timestamps →
+/// nil (node renders empty) or a safe default; never crashes.
+func jcResolveClock(_ o: [String: JCJSON]) -> JCJSON? {
+    guard let kind = o["clock"]?.asString else { return nil }
+    let now = Date()
+    switch kind {
+    case "phase":
+        // value of the latest key whose `at` <= now; else `default`.
+        var best: (Date, JCJSON)?
+        for k in (o["keys"]?.asArray ?? []) {
+            guard let ko = k.asObject, let at = jcParseDate(ko["at"]), at <= now else { continue }
+            if best == nil || at > best!.0 { best = (at, ko["value"] ?? .null) }
+        }
+        if let b = best { return b.1 }
+        return o["default"]
+    case "fraction":
+        guard let to = jcParseDate(o["to"]) else { return JCJSON.number(0) }
+        guard let from = jcParseDate(o["from"]), to > from else {
+            return JCJSON.number(now >= to ? 1 : 0)
+        }
+        return JCJSON.number(jcClamp01(now.timeIntervalSince(from) / to.timeIntervalSince(from)))
+    case "remaining":
+        guard let to = jcParseDate(o["to"]) else { return nil }
+        return JCJSON.number(max(0, to.timeIntervalSince(now)))
+    case "elapsed":
+        guard let from = jcParseDate(o["from"]) else { return nil }
+        return JCJSON.number(max(0, now.timeIntervalSince(from)))
+    case "index":
+        // 0-based index of the current segment; `keys` are sorted segment START times.
+        let ts = (o["keys"]?.asArray ?? []).compactMap { jcParseDate($0) }.sorted()
+        if ts.isEmpty { return JCJSON.number(0) }
+        let passed = ts.filter { $0 <= now }.count
+        return JCJSON.number(Double(max(0, min(ts.count - 1, passed - 1))))
+    default:
+        return nil
+    }
+}
+
 /// Evaluate a `when` condition expression against the binding context. Unknown /
 /// malformed → true (fail-open so a typo doesn't blank the whole design).
 func jcEvalCondition(_ expr: JCJSON?, _ ctx: JCBindingContext) -> Bool {
@@ -988,6 +1032,15 @@ func jcEvalCondition(_ expr: JCJSON?, _ ctx: JCBindingContext) -> Bool {
             return v >= lo && v <= hi
         }
         return false
+    // On-device TIME conditions (operand = now), so a node can appear/switch at a
+    // boundary OFFLINE. fail-open (true) on an unparseable `at` so a typo doesn't
+    // blank the node.
+    case "after":
+        guard let at = jcParseDate(operand("at")) else { return true }
+        return Date() >= at
+    case "before":
+        guard let at = jcParseDate(operand("at")) else { return true }
+        return Date() < at
     default:
         return true
     }

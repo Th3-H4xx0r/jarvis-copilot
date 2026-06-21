@@ -211,6 +211,7 @@ Anywhere a value is expected, use one of:
 | **data binding** `{"$":"key"}` | path into the pushed `data` object (dotted paths ok: `{"$":"deploy.pct"}`) |
 | **source binding** `{"src":"battery.level"}` | a **known live source** the client/server resolves into `data` upstream |
 | **row field** `{"$row":"name"}` | a field of the current item — **only inside a `list` `row`** |
+| **clock binding** `{"clock":"phase",...}` | computed **on-device from the wall clock** at render time — updates **OFFLINE**, no push. See **Offline on-device execution** |
 
 Add transforms to any binding:
 
@@ -265,6 +266,7 @@ JSON expression form:
 | `gt` / `lt` | `a`, `b` | a > b / a < b |
 | `exists` | `a` | a is present / non-null |
 | `between` | `a`, `lo`, `hi` | lo ≤ a ≤ hi |
+| `after` / `before` | `at` (date) | **now ≥ at** / **now < at** — evaluated on-device, so a node appears/switches at a time boundary **OFFLINE**. Window = `{"op":"and","items":[{"op":"after","at":A},{"op":"before","at":B}]}` |
 
 Operands are themselves ValueRefs or literals, e.g.
 `{"op":"gt","a":{"src":"battery.level"},"b":20}` or
@@ -313,6 +315,62 @@ omit `days` for every day; omit the whole schedule for always-eligible).
 - **Don't author for non-iOS users.** Check the platform first.
 
 ---
+
+## Offline on-device execution (clock bindings + time conditions)
+
+The phone re-evaluates the design **from the device clock every time it renders**
+(push, glance/wake, Dynamic Island expand, system refresh). So you can make values,
+labels, colors, positions, and visibility **functions of time** that are correct
+**OFFLINE** — no `set-data`, no push. Use a **`clock` binding** (a ValueRef) or a
+**time condition** (`after`/`before`).
+
+**What's possible offline — be honest about the two regimes:**
+- ✅ **Discrete / computed-at-render** (phase label, active leg, a gate that appears
+  after arrival, a tip at the current fraction): correct **whenever the user looks**.
+  It steps on each render, not every frame.
+- ✅ **Continuous animation**: ONLY the native `timer` and `timeProgress` controls
+  (iOS drives them frame-by-frame offline). A separate icon/text view **cannot**
+  self-glide — don't try. For a moving fill use `timeProgress`; for a plane that
+  must visibly glide, that's the bar itself.
+
+### `clock` binding kinds (all from absolute epoch-seconds / ISO timestamps)
+
+| form | resolves to |
+|---|---|
+| `{"clock":"phase","keys":[{"at":T0,"value":"Boarding"},{"at":T1,"value":"In flight"}],"default":"Scheduled"}` | the `value` of the latest key with `at ≤ now` → **offline status/label switching** (combine with `map` for colors/badges) |
+| `{"clock":"fraction","from":T0,"to":T1}` | clamped `0–1` elapsed → drives a `progress` value or a `tip` position **on-device** |
+| `{"clock":"remaining","to":T1}` / `{"clock":"elapsed","from":T0}` | seconds (use `fmt`, e.g. `"{}s"`) |
+| `{"clock":"index","keys":[T0,T1,T2]}` | 0-based index of the current segment (`keys` are segment START times) → **which leg is active** |
+
+`map`/`fmt` apply after, e.g. `{"clock":"phase","keys":[...],"map":{"In flight":"#34c759"}}`
+for an offline color/badge flip.
+
+### Corrected flight example — fully offline, data-driven
+
+```jsonc
+{ "type":"vstack","spacing":6,"children":[
+  // status label flips Scheduled→Boarding→In flight→Landed on-device:
+  {"type":"badge","color":{"clock":"phase","keys":[
+        {"at":1718000000,"value":"#8e8e93"},{"at":1718003600,"value":"#34c759"},
+        {"at":1718039600,"value":"#0a84ff"}],"default":"#8e8e93"},
+   "text":{"clock":"phase","keys":[
+        {"at":1718000000,"value":"Boarding"},{"at":1718003600,"value":"In flight"},
+        {"at":1718039600,"value":"Landed"}],"default":"Scheduled"}},
+  // route with a plane at the current fraction (steps on each glance):
+  {"type":"segbar","segments":[{"weight":1,"color":"#a78bfa"},{"weight":1,"color":"#a78bfa"}],
+   "progress":{"clock":"fraction","from":1718003600,"to":1718039600},
+   "tip":{"symbol":"airplane","color":"#fff"}},
+  // a self-gliding fill bonus (native, frame-by-frame offline):
+  {"type":"timeProgress","from":1718003600,"to":1718039600,"tint":"#0a84ff"},
+  // the gate is shown ONLY after arrival — offline boundary:
+  {"type":"text","value":"Gate B12","when":{"op":"after","at":1718039600}}
+]}
+```
+
+Phase 2 (coming): scheduled **offline jobs** — a top-level `jobs:[{at,notify,action?}]`
+that fires local notifications/alarms offline at `at`, with an optional phone action
+that runs **when the user taps** the notification (iOS can't run an action
+autonomously while suspended).
 
 ## Offline plans (no service — e.g. on a flight)
 
