@@ -162,6 +162,79 @@ def _voice_session_local_date(created_at) -> "Optional[object]":
         return None
 
 
+def _preferred_voice_model(all_sessions) -> tuple:
+    """The model/provider the user is ACTIVELY using — the most recently updated
+    non-voice, non-archived chat that has a concrete model + provider.
+
+    Voice has no model picker of its own, so it must follow the user's choice. The
+    global default can be a different provider (e.g. Codex) than what the user
+    actually picks per-session (e.g. ``@claude-code:…``), so reading the global
+    default routed voice to the wrong model. The raw ``anthropic`` API path is
+    skipped on purpose — it's the rate-limited "out of extra usage" route that the
+    claude-code CLI exists to replace. Returns (model, provider) or ("", None).
+    """
+    best = None  # (updated_at, model, provider)
+    try:
+        for row in all_sessions():
+            g = (lambda k: row.get(k) if isinstance(row, dict) else getattr(row, k, None))
+            if g("source_tag") == _VOICE_SOURCE_TAG or g("archived"):
+                continue
+            model = str(g("model") or "").strip()
+            prov = str(g("model_provider") or "").strip()
+            if not model or not prov or prov == "anthropic":
+                continue
+            try:
+                upd = float(g("updated_at") or 0)
+            except Exception:
+                upd = 0.0
+            if best is None or upd > best[0]:
+                best = (upd, model, prov)
+    except Exception:
+        pass
+    if best:
+        return best[1], best[2]
+    return "", None
+
+
+def _claude_code_available() -> bool:
+    """True when claude-code is a configured provider for this user (they have at
+    least one claude-code session). Cheap in-memory scan; used to decide whether
+    it's safe to redirect a voice turn off the raw anthropic API."""
+    try:
+        from api.models import all_sessions  # type: ignore
+        for row in all_sessions():
+            g = (lambda k: row.get(k) if isinstance(row, dict) else getattr(row, k, None))
+            prov = str(g("model_provider") or "").strip().lower()
+            mdl = str(g("model") or "").strip().lower()
+            if prov == "claude-code" or mdl.startswith("@claude-code:"):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _maybe_redirect_voice_anthropic(model, provider) -> tuple:
+    """Voice on the raw ``anthropic`` API is the rate-limited "out of extra usage"
+    path that the claude-code subscription provider exists to replace. When a voice
+    turn resolves to anthropic but claude-code is configured, route the SAME Claude
+    model through claude-code so voice works on the subscription instead of 400ing.
+    No-op for non-anthropic turns or users without claude-code. Opt out with
+    HERMES_VOICE_ALLOW_ANTHROPIC=1."""
+    import os
+    prov = str(provider or "").strip().lower()
+    mdl = str(model or "").strip()
+    is_anthropic = prov == "anthropic" or mdl.lower().startswith("@anthropic:")
+    if not is_anthropic:
+        return model, provider
+    if str(os.environ.get("HERMES_VOICE_ALLOW_ANTHROPIC", "")).strip().lower() in {"1", "true", "yes", "on"}:
+        return model, provider
+    if not _claude_code_available():
+        return model, provider
+    bare = mdl.split(":", 1)[1] if mdl.startswith("@") and ":" in mdl else mdl
+    bare = bare.strip() or "claude-sonnet-4-6"
+    return f"@claude-code:{bare}", "claude-code"
+
+
 def get_or_create_voice_session():
     """Return TODAY's dedicated 'Voice' chat session, rotating it daily.
 
@@ -236,13 +309,15 @@ def get_or_create_voice_session():
     # create a duplicate "Voice" session (a request that loses the race finds
     # the winner's session on its scan).
     with _VOICE_SESSION_LOCK:
-        # Resolve the user's CURRENT default model/provider (keeps Codex; never
-        # forces Claude). Voice always tracks this so it can't get stuck on a
-        # stale provider.
-        try:
-            eff_model, eff_provider, _ = _resolve_compatible_session_model_state(None, None)
-        except Exception:
-            eff_model, eff_provider = "", None
+        # Track the model the user is ACTIVELY using (their most recent real chat)
+        # so voice follows their per-session pick — e.g. @claude-code:… — instead
+        # of a different global default. Fall back to the resolved global default.
+        eff_model, eff_provider = _preferred_voice_model(all_sessions)
+        if not eff_model:
+            try:
+                eff_model, eff_provider, _ = _resolve_compatible_session_model_state(None, None)
+            except Exception:
+                eff_model, eff_provider = "", None
 
         existing = _scan_today()
         if existing is not None:
@@ -833,6 +908,9 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     # uses, so an empty/stale/cross-provider override is normalized identically.
     raw_model = (model_override or "").strip() or getattr(s, "model", None)
     raw_provider = (provider_override or "").strip() or getattr(s, "model_provider", None)
+    # Keep voice off the rate-limited raw anthropic API ("out of extra usage") when
+    # claude-code is available — route the same Claude model through the subscription.
+    raw_model, raw_provider = _maybe_redirect_voice_anthropic(raw_model, raw_provider)
     try:
         eff_model, eff_provider, was_normalized = _resolve_compatible_session_model_state(
             raw_model,
