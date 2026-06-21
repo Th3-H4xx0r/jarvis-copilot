@@ -1196,7 +1196,17 @@ def run_conversation(
                     )
                 else:
                     response = agent._interruptible_api_call(api_kwargs)
-                
+
+                # claude-code STRUCTURED turns execute tools internally and return
+                # one final message; write those tool calls into the transcript so
+                # the tool-call cards render + persist like a normal tool turn.
+                if getattr(response, "_jc_structured_tool_events", None):
+                    try:
+                        from agent.claude_code_structured_runtime import inject_structured_tool_history
+                        inject_structured_tool_history(messages, response)
+                    except Exception:
+                        logger.debug("structured tool-history injection failed", exc_info=True)
+
                 api_duration = time.time() - api_start_time
                 
                 # Stop thinking spinner silently -- the response box or tool

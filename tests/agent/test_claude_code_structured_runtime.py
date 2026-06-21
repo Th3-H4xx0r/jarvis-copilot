@@ -219,6 +219,38 @@ def test_execute_tool_reports_error_state_to_progress(monkeypatch):
     assert completed[0][1].get("is_error") is True
 
 
+def test_response_carries_tool_events_and_injects_transcript(monkeypatch):
+    """The structured response carries the tools it ran, and
+    inject_structured_tool_history writes assistant(tool_call)+tool(result) rows
+    so the tool-call cards render + persist."""
+    monkeypatch.setenv("HERMES_CLAUDE_CODE_STRUCTURED", "1")
+    captured = {}
+    monkeypatch.setattr(rt, "run_structured_turn", _stub_run_structured_turn(captured))
+
+    resp = rt.run_claude_structured_response(FakeAgent(), {
+        "model": "m", "messages": [{"role": "user", "content": "go"}],
+        "tools": [{"type": "function", "function": {"name": "read_file", "parameters": {}}}],
+    })
+    events = getattr(resp, "_jc_structured_tool_events", None)
+    assert events and events[0]["name"] == "read_file"
+
+    messages = [{"role": "user", "content": "go"}]
+    rt.inject_structured_tool_history(messages, resp)
+    # one assistant(tool_call) + one tool(result) appended
+    assert messages[1]["role"] == "assistant" and messages[1]["tool_calls"][0]["function"]["name"] == "read_file"
+    assert messages[2]["role"] == "tool" and messages[2]["name"] == "read_file"
+    assert messages[1]["tool_calls"][0]["id"] == messages[2]["tool_call_id"]  # correlated
+    # idempotent — marker cleared, a second call is a no-op
+    rt.inject_structured_tool_history(messages, resp)
+    assert len(messages) == 3
+
+
+def test_inject_tool_history_noop_without_events():
+    messages = [{"role": "user", "content": "hi"}]
+    rt.inject_structured_tool_history(messages, SimpleNamespace())
+    assert messages == [{"role": "user", "content": "hi"}]
+
+
 def test_run_structured_response_raises_on_interrupt(monkeypatch):
     monkeypatch.setenv("HERMES_CLAUDE_CODE_STRUCTURED", "1")
 

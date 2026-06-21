@@ -344,4 +344,53 @@ def run_claude_structured_response(agent: Any, api_kwargs: dict, *, on_first_del
         reasoning_details=None,
     )
     choice = SimpleNamespace(message=message, finish_reason="stop")
-    return SimpleNamespace(choices=[choice], usage=usage, model=model or "claude-code")
+    resp = SimpleNamespace(choices=[choice], usage=usage, model=model or "claude-code")
+    # Carry the tools claude ran so the loop can write them into the transcript —
+    # the structured turn collapses a multi-step tool conversation into one final
+    # message, so without this the tool-call cards have nothing to render from on
+    # reload (see inject_structured_tool_history).
+    resp._jc_structured_tool_events = list(getattr(res, "tool_events", None) or [])
+    return resp
+
+
+def inject_structured_tool_history(messages: list, response: Any) -> None:
+    """Append assistant(tool_call)+tool(result) pairs for each tool a structured
+    turn ran, so the transcript looks like a normal multi-step tool turn and the
+    UI renders + persists the tool-call cards. Idempotent: clears the marker after
+    consuming so a retry of the same response can't double-inject."""
+    events = getattr(response, "_jc_structured_tool_events", None)
+    if not events:
+        return
+    try:
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            name = str(ev.get("name") or "").strip()
+            if not name:
+                continue
+            raw_args = ev.get("arguments")
+            try:
+                arg_str = json.dumps(raw_args if isinstance(raw_args, dict) else {}, ensure_ascii=False)
+            except Exception:
+                arg_str = "{}"
+            tcid = "call_" + uuid.uuid4().hex[:24]
+            messages.append({
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": tcid, "type": "function",
+                    "function": {"name": name, "arguments": arg_str},
+                }],
+            })
+            result = ev.get("result")
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tcid,
+                "name": name,
+                "content": "" if result is None else str(result),
+            })
+    finally:
+        try:
+            response._jc_structured_tool_events = None
+        except Exception:
+            pass

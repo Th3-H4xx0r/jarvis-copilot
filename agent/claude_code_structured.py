@@ -191,6 +191,19 @@ def run_structured_turn(
             elif etype == "result":
                 is_error = bool(ev.get("is_error"))
                 usage = ev.get("usage") or {}
+                # Fallback: if no `assistant` text block was seen (some replies
+                # land only in the final result), use the result text so the turn
+                # isn't treated as empty (which breaks voice → "no_reply" and
+                # triggers wasteful empty-response retries in chat).
+                if not text_parts:
+                    rtext = ev.get("result")
+                    if isinstance(rtext, str) and rtext.strip():
+                        text_parts.append(rtext)
+                        if on_text is not None:
+                            try:
+                                on_text(rtext)
+                            except Exception:
+                                pass
                 break
     except Exception as exc:
         is_error = True

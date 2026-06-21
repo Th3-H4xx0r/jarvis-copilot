@@ -153,15 +153,33 @@ _VOICE_SOURCE_TAG = "voice"
 _VOICE_SESSION_LOCK = threading.Lock()
 
 
+def _voice_session_local_date(created_at) -> "Optional[object]":
+    """The local calendar date a session was created (for daily rotation)."""
+    from datetime import date as _date
+    try:
+        return _date.fromtimestamp(float(created_at)) if created_at else None
+    except Exception:
+        return None
+
+
 def get_or_create_voice_session():
-    """Return the persistent dedicated 'Voice' chat session, creating it once.
+    """Return TODAY's dedicated 'Voice' chat session, rotating it daily.
 
     Voice turns route here instead of whatever chat happens to be most recent —
     a coding/CLI/Telegram session can be wired to a provider+model combination
     (e.g. Codex with an empty model) that voice can't run, which is what made
-    mobile voice silently fail. The session is marked source_tag='voice' and
-    created with the user's resolved default model/provider. Returns the
-    Session object; raises _VoiceAgentError if the store is unavailable.
+    mobile voice silently fail.
+
+    Two things this guarantees:
+      • **Fresh history each day** — a voice session created on a previous day is
+        archived and a new one is started, so the spoken context never grows
+        unbounded across days.
+      • **Always the current model** — the session is (re)pinned to the user's
+        resolved DEFAULT model/provider every time. A long-lived voice session
+        pinned to a since-replaced provider (e.g. `anthropic`, which 400s with
+        "out of extra usage") was why voice broke after switching to claude-code.
+
+    Returns the Session object; raises _VoiceAgentError if the store is unavailable.
     """
     _ensure_hermes_on_path()
     try:
@@ -173,42 +191,73 @@ def get_or_create_voice_session():
     except Exception as exc:
         raise _VoiceAgentError(f"webui session store unavailable: {exc}", status=500)
     import uuid as _uuid
+    from datetime import date as _date
 
-    def _scan_existing():
-        # Find the one dedicated voice chat (source_tag=="voice", not archived).
+    today = _date.today()
+
+    def _scan_today():
+        # Return today's dedicated voice chat; archive any from previous days so
+        # the next voice turn starts with fresh history.
+        found = None
+        stale: list[str] = []
         try:
             for row in all_sessions():
                 if isinstance(row, dict):
-                    tag = row.get("source_tag")
-                    archived = row.get("archived")
-                    sid = row.get("session_id")
+                    tag = row.get("source_tag"); archived = row.get("archived")
+                    sid = row.get("session_id"); created = row.get("created_at")
                 else:
                     tag = getattr(row, "source_tag", None)
                     archived = getattr(row, "archived", False)
                     sid = getattr(row, "session_id", None)
-                if tag == _VOICE_SOURCE_TAG and not archived and sid:
-                    try:
-                        return get_session(sid)
-                    except KeyError:
-                        continue
+                    created = getattr(row, "created_at", None)
+                if tag != _VOICE_SOURCE_TAG or archived or not sid:
+                    continue
+                if _voice_session_local_date(created) == today:
+                    if found is None:
+                        try:
+                            found = get_session(sid)
+                        except KeyError:
+                            pass
+                else:
+                    stale.append(sid)  # a previous day's voice session
         except Exception:
             pass
-        return None
+        # Archive yesterday's voice session(s) — keep the history, just retire it.
+        for sid in stale:
+            try:
+                old = get_session(sid)
+                old.archived = True
+                old.save()
+            except Exception:
+                pass
+        return found
 
     # Hold the lock across scan AND create so concurrent callers don't each
     # create a duplicate "Voice" session (a request that loses the race finds
     # the winner's session on its scan).
     with _VOICE_SESSION_LOCK:
-        existing = _scan_existing()
-        if existing is not None:
-            return existing
-
-        # Create a fresh dedicated voice session pinned to the resolved default
-        # model/provider (keeps Codex; never forces Claude).
+        # Resolve the user's CURRENT default model/provider (keeps Codex; never
+        # forces Claude). Voice always tracks this so it can't get stuck on a
+        # stale provider.
         try:
             eff_model, eff_provider, _ = _resolve_compatible_session_model_state(None, None)
         except Exception:
             eff_model, eff_provider = "", None
+
+        existing = _scan_today()
+        if existing is not None:
+            # Re-pin to the current default so a model switch (e.g. anthropic →
+            # claude-code) takes effect immediately instead of next session.
+            try:
+                want_model = eff_model or None
+                if existing.model != want_model or existing.model_provider != eff_provider:
+                    existing.model = want_model
+                    existing.model_provider = eff_provider
+                    existing.save()
+            except Exception:
+                pass
+            return existing
+
         try:
             ws = get_last_workspace() or str(Path.home())
         except Exception:
