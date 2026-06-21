@@ -37,16 +37,44 @@ void main() {
     });
   });
 
-  group('notificationsSignature', () {
+  group('scheduledItemsSignature', () {
     test('stable for equal lists, sensitive to change', () {
       final a = <Map<String, dynamic>>[{'at': 1, 'title': 'x', 'body': 'y'}];
       final b = <Map<String, dynamic>>[{'at': 1, 'title': 'x', 'body': 'y'}];
       final c = <Map<String, dynamic>>[{'at': 2, 'title': 'x', 'body': 'y'}];
-      expect(notificationsSignature(a), notificationsSignature(b));
-      expect(notificationsSignature(a) == notificationsSignature(c), isFalse);
+      expect(scheduledItemsSignature(a), scheduledItemsSignature(b));
+      expect(scheduledItemsSignature(a) == scheduledItemsSignature(c), isFalse);
+    });
+    test('order-independent (sorted internally)', () {
+      final a = <Map<String, dynamic>>[
+        {'at': 1, 'title': 'x'},
+        {'at': 2, 'title': 'y'},
+      ];
+      final b = <Map<String, dynamic>>[
+        {'at': 2, 'title': 'y'},
+        {'at': 1, 'title': 'x'},
+      ];
+      expect(scheduledItemsSignature(a), scheduledItemsSignature(b));
+    });
+    test('a changed tap-action reschedules (action is part of the signature)', () {
+      final base = <Map<String, dynamic>>[{'at': 1, 'title': 'x'}];
+      final withA = <Map<String, dynamic>>[
+        {'at': 1, 'title': 'x', 'action': {'skill': 'run_code'}},
+      ];
+      final withB = <Map<String, dynamic>>[
+        {'at': 1, 'title': 'x', 'action': {'skill': 'set_alarm'}},
+      ];
+      expect(scheduledItemsSignature(base) == scheduledItemsSignature(withA), isFalse);
+      expect(scheduledItemsSignature(withA) == scheduledItemsSignature(withB), isFalse);
+    });
+    test('control-byte separators avoid field/row collisions', () {
+      // "1|x" style content must not let two different lists collide.
+      final a = <Map<String, dynamic>>[{'at': 1, 'title': 'x', 'body': 'yz'}];
+      final b = <Map<String, dynamic>>[{'at': 1, 'title': 'xy', 'body': 'z'}];
+      expect(scheduledItemsSignature(a) == scheduledItemsSignature(b), isFalse);
     });
     test('empty list → empty signature', () {
-      expect(notificationsSignature(const []), '');
+      expect(scheduledItemsSignature(const []), '');
     });
   });
 }

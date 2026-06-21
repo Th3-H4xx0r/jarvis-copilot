@@ -26,6 +26,7 @@ import 'dart:typed_data';
 import 'registry.dart';
 import 'android.dart' as android_skills;
 import 'ios.dart' as ios_skills;
+import '../services/pending_actions.dart';
 import '../services/watch_sync.dart';
 
 /// Returns every Tier-1 skill plus any platform-specific ones for the
@@ -53,8 +54,44 @@ Future<void> _ensureNotifications() async {
   const iosInit = DarwinInitializationSettings();
   await _localNotifications.initialize(
     const InitializationSettings(android: androidInit, iOS: iosInit),
+    onDidReceiveNotificationResponse: _onIslandNotifResponse,
   );
   _notificationsInited = true;
+}
+
+/// A tapped offline-job notification: decode its `action` payload → enqueue it so
+/// the foreground drain runs it (iOS can't run it autonomously while suspended).
+void _onIslandNotifResponse(NotificationResponse response) {
+  _enqueueIslandActionPayload(response.payload);
+}
+
+void _enqueueIslandActionPayload(String? payload) {
+  if (payload == null || payload.isEmpty) return;
+  try {
+    final decoded = jsonDecode(payload);
+    if (decoded is! Map || decoded['__jcIslandAction'] != true) return;
+    final action = decoded['action'];
+    if (action is! Map) return;
+    final skill = (action['skill'] ?? '').toString();
+    if (skill.isEmpty) return;
+    final args = action['args'] is Map
+        ? Map<String, dynamic>.from(action['args'] as Map)
+        : <String, dynamic>{};
+    PendingActions.instance.add(skill, args);
+  } catch (_) {}
+}
+
+/// COLD-LAUNCH path: when a notification tap launches a killed app, the response
+/// callback may not fire — pull the launch payload at startup and enqueue it.
+/// Call once from main() after the app is up.
+Future<void> handleIslandNotificationLaunch() async {
+  try {
+    await _ensureNotifications();
+    final details = await _localNotifications.getNotificationAppLaunchDetails();
+    if (details?.didNotificationLaunchApp ?? false) {
+      _enqueueIslandActionPayload(details?.notificationResponse?.payload);
+    }
+  } catch (_) {}
 }
 
 /// Shared local-notification helper (also used by the connection monitor).
@@ -139,12 +176,22 @@ Future<void> scheduleIslandNotifications(
     if (title.isEmpty) continue;
     final body = (it['body'] ?? '').toString();
     final when = tz.TZDateTime.fromMillisecondsSinceEpoch(tz.local, whenMs);
+    // A job's optional action travels in the notification payload; tapping it
+    // enqueues + runs the action (foreground-required) — see _onIslandNotifResponse.
+    String? payload;
+    final action = it['action'];
+    if (action is Map && (action['skill'] ?? '').toString().isNotEmpty) {
+      try {
+        payload = jsonEncode({'__jcIslandAction': true, 'action': action});
+      } catch (_) {}
+    }
     try {
       await _localNotifications.zonedSchedule(
         _islandNotifSlot(i), title, body, when, details,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
+        payload: payload,
       );
       i++;
     } catch (_) {}

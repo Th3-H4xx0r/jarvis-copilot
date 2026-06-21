@@ -167,6 +167,47 @@ def test_time_condition_after_missing_at_rejected():
     assert any(".at is required" in e for e in errs)
 
 
+def _with_jobs(jobs):
+    d = _minimal()
+    d["jobs"] = jobs
+    return d
+
+
+def test_jobs_notify_only_valid():
+    assert s.validate_design(_with_jobs([
+        {"at": 1718002800, "notify": {"title": "Boarding soon", "body": "Gate A12"}},
+    ])) == []
+
+
+def test_jobs_with_tap_action_valid():
+    assert s.validate_design(_with_jobs([
+        {"at": 1718038000, "notify": {"title": "Landing soon"},
+         "action": {"skill": "open_app", "args": {"scheme_url": "maps://"}}},
+    ])) == []
+
+
+def test_jobs_not_a_list_rejected():
+    assert any("jobs must be a list" in e for e in s.validate_design(_with_jobs({})))
+
+
+def test_jobs_missing_at_and_title_rejected():
+    errs = s.validate_design(_with_jobs([{"notify": {}}]))
+    assert any("jobs[0].at must be epoch" in e for e in errs)
+    assert any("jobs[0].notify.title must be a non-empty string" in e for e in errs)
+
+
+def test_jobs_action_needs_skill():
+    errs = s.validate_design(_with_jobs([
+        {"at": 1, "notify": {"title": "x"}, "action": {"args": {}}}]))
+    assert any("jobs[0].action.skill must be a non-empty string" in e for e in errs)
+
+
+def test_jobs_action_args_must_be_object():
+    errs = s.validate_design(_with_jobs([
+        {"at": 1, "notify": {"title": "x"}, "action": {"skill": "open_url", "args": "nope"}}]))
+    assert any("jobs[0].action.args must be an object" in e for e in errs)
+
+
 def test_deploy_status_example_valid():
     design = {
         "id": "deploy-status", "version": 1, "name": "Deploy status",

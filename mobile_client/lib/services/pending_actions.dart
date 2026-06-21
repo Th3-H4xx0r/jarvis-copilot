@@ -23,8 +23,15 @@ class PendingActions {
 
   final List<PendingAction> _q = [];
 
+  /// Set by main.dart to a foreground-drain. Called after each [add] so an action
+  /// enqueued by a notification TAP (which may land just after the resume-drain
+  /// already ran) still executes promptly. The callback itself no-ops while
+  /// backgrounded, so the existing defer-while-backgrounded path is unaffected.
+  void Function()? onChanged;
+
   void add(String skill, Map<String, dynamic> args, {DateTime? at}) {
     _q.add(PendingAction(skill, Map<String, dynamic>.from(args), at ?? DateTime.now()));
+    onChanged?.call();
   }
 
   bool get isEmpty => _q.isEmpty;

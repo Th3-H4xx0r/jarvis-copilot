@@ -367,10 +367,28 @@ for an offline color/badge flip.
 ]}
 ```
 
-Phase 2 (coming): scheduled **offline jobs** — a top-level `jobs:[{at,notify,action?}]`
-that fires local notifications/alarms offline at `at`, with an optional phone action
-that runs **when the user taps** the notification (iOS can't run an action
-autonomously while suspended).
+### Scheduled offline jobs (`jobs`) — fire a notification + optional tap-action
+
+A top-level **`jobs`** array schedules things that happen **at a time, offline**.
+When a design is pinned (while online) the phone schedules each job; they then fire
+**with no network**. Generalizes `notifications`.
+
+```jsonc
+"jobs": [
+  { "at": 1718002800, "notify": {"title":"Boarding soon", "body":"VS20 · Gate A12"} },
+  { "at": 1718038000, "notify": {"title":"Landing soon", "body":"VS20 → LHR"},
+    "action": {"skill":"open_app", "args":{"scheme_url":"maps://"}} }
+]
+```
+
+- `at` — epoch seconds. `notify` — `{title, body?}` (a **local notification that fires
+  offline**, time-sensitive).
+- `action?` — `{skill, args?}` — a JarvisCopilot device skill that runs **when the
+  user TAPS the notification** (it foregrounds the app and runs the skill).
+- **Honest limit:** iOS cannot run an action **autonomously** while suspended — an
+  action only runs on tap. For purely-informational alerts, omit `action`.
+- Pair with the clock bindings above: the job fires the alert at a boundary while the
+  island's `clock:phase` label already shows the new phase on render.
 
 ## Offline plans (no service — e.g. on a flight)
 

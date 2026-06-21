@@ -276,8 +276,10 @@ class LiveActivityCoordinator {
 
   void _syncPlanNotifications(IslandDesign? d) {
     final id = d?.id ?? '';
-    final notifs = d?.notifications ?? const <Map<String, dynamic>>[];
-    final sig = '$id|${notificationsSignature(notifs)}';
+    // Unified offline scheduler input: legacy `notifications` + `jobs` (which can
+    // carry a tap `action`), normalized to {at,title,body,action?}.
+    final items = d?.offlineScheduledItems ?? const <Map<String, dynamic>>[];
+    final sig = '$id|${scheduledItemsSignature(items)}';
     if (sig == _notifSig) return; // unchanged → don't churn the scheduler
     if (_notifDesignId.isNotEmpty && _notifDesignId != id) {
       unawaited(cancelIslandNotifications(_notifDesignId)); // switched away
@@ -285,8 +287,8 @@ class LiveActivityCoordinator {
     _notifSig = sig;
     _notifDesignId = id;
     if (id.isEmpty) return;
-    if (notifs.isNotEmpty) {
-      unawaited(scheduleIslandNotifications(id, notifs));
+    if (items.isNotEmpty) {
+      unawaited(scheduleIslandNotifications(id, items));
     } else {
       unawaited(cancelIslandNotifications(id));
     }

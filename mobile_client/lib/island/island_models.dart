@@ -38,6 +38,36 @@ class IslandDesign {
   /// Pre-scheduled local notifications `[{at, title, body}]` that fire offline.
   List<Map<String, dynamic>> get notifications => _mapList(raw['notifications']);
 
+  /// Offline scheduled jobs `[{at, notify:{title,body?}, action?:{skill,args?}}]`
+  /// — generalizes `notifications`. Each fires a local notification OFFLINE at
+  /// `at`; the optional `action` runs when the user TAPS it.
+  List<Map<String, dynamic>> get jobs => _mapList(raw['jobs']);
+
+  /// Unified, normalized scheduled items the offline scheduler consumes:
+  /// `notifications` (no action) + `jobs` (notify + optional action), each
+  /// `{at, title, body, action?}`. Items missing a usable `at`/`title` are kept
+  /// here and filtered by the scheduler.
+  List<Map<String, dynamic>> get offlineScheduledItems {
+    final out = <Map<String, dynamic>>[];
+    // Legacy `notifications` are notify-only — tap-actions are a `jobs`-only
+    // feature (the schema validates `action` on jobs, not on notifications).
+    for (final n in notifications) {
+      out.add({
+        'at': n['at'], 'title': n['title'], 'body': n['body'],
+      });
+    }
+    for (final j in jobs) {
+      final notify = j['notify'] is Map
+          ? Map<String, dynamic>.from(j['notify'] as Map)
+          : const <String, dynamic>{};
+      out.add({
+        'at': j['at'], 'title': notify['title'], 'body': notify['body'],
+        if (j['action'] is Map) 'action': j['action'],
+      });
+    }
+    return out;
+  }
+
   factory IslandDesign.fromJson(Map<String, dynamic> m) => IslandDesign(
         id: (m['id'] ?? '').toString(),
         name: (m['name'] ?? m['id'] ?? '').toString(),

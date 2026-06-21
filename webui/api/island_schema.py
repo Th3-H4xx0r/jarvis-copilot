@@ -147,6 +147,7 @@ def validate_design(design: Any) -> list[str]:
         errors.append(f"too many nodes ({counter[0]} > {MAX_NODES})")
     _validate_timeline(design.get("timeline"), errors)
     _validate_notifications(design.get("notifications"), errors)
+    _validate_jobs(design.get("jobs"), errors)
     return errors
 
 
@@ -184,6 +185,43 @@ def _validate_notifications(ns, errors) -> None:
             errors.append(f"notifications[{i}].title must be a non-empty string")
         if "body" in n and not isinstance(n["body"], str):
             errors.append(f"notifications[{i}].body must be a string")
+
+
+def _validate_jobs(jobs, errors) -> None:
+    """Optional offline scheduled jobs: [{at, notify:{title,body?}, action?:{skill,args?}}].
+
+    Each job fires a LOCAL notification OFFLINE at `at`; an optional `action` runs
+    when the user TAPS it (foreground-required — iOS can't run it autonomously while
+    suspended). Generalizes `notifications`.
+    """
+    if jobs is None:
+        return
+    if not isinstance(jobs, list):
+        errors.append("jobs must be a list")
+        return
+    for i, j in enumerate(jobs):
+        if not isinstance(j, dict):
+            errors.append(f"jobs[{i}] must be an object")
+            continue
+        if not isinstance(j.get("at"), (int, float)):
+            errors.append(f"jobs[{i}].at must be epoch seconds (number)")
+        notify = j.get("notify")
+        if not isinstance(notify, dict):
+            errors.append(f"jobs[{i}].notify must be an object with a title")
+        else:
+            if not isinstance(notify.get("title"), str) or not notify["title"].strip():
+                errors.append(f"jobs[{i}].notify.title must be a non-empty string")
+            if "body" in notify and not isinstance(notify["body"], str):
+                errors.append(f"jobs[{i}].notify.body must be a string")
+        action = j.get("action")
+        if action is not None:
+            if not isinstance(action, dict):
+                errors.append(f"jobs[{i}].action must be an object {{skill, args?}}")
+            else:
+                if not isinstance(action.get("skill"), str) or not action["skill"].strip():
+                    errors.append(f"jobs[{i}].action.skill must be a non-empty string")
+                if "args" in action and not isinstance(action["args"], dict):
+                    errors.append(f"jobs[{i}].action.args must be an object")
 
 
 def validate_condition(expr: Any, path: str = "condition") -> list[str]:

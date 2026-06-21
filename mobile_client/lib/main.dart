@@ -186,6 +186,14 @@ Future<void> main() async {
   });
   unawaited(_pullPendingVoice(intentsChannel));
 
+  // A tapped offline-job notification enqueues its action; run it immediately when
+  // we're already foreground (the tap may land just after the resume-drain ran).
+  PendingActions.instance.onChanged = () {
+    if (AppLifecycle.isForeground) unawaited(_runPendingForegroundActions());
+  };
+  // Cold launch via a notification tap: pull the launch action payload.
+  unawaited(common_skills.handleIslandNotificationLaunch());
+
   runApp(const JarvisCopilotApp());
 }
 
