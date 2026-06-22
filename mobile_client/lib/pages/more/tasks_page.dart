@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../api/crons.dart';
 import '../../main.dart' as app;
+import '../../services/api_client.dart' show apiErrorMessage;
 import '../../theme.dart';
 import '../../widgets/async_view.dart';
 import '../../widgets/detail_sheet.dart';
@@ -84,7 +85,7 @@ class _TasksPageState extends State<TasksPage> {
       _snack(okMsg);
       await _ctrl.refresh();
     } catch (e) {
-      _snack('$e');
+      _snack(apiErrorMessage(e));
     }
   }
 
@@ -98,7 +99,7 @@ class _TasksPageState extends State<TasksPage> {
       await _api.run(id);
       _snack('Run started');
     } catch (e) {
-      _snack('$e');
+      _snack(apiErrorMessage(e));
     } finally {
       if (mounted) {
         setState(() => _startingRuns.remove(id));
@@ -233,7 +234,7 @@ class _TasksPageState extends State<TasksPage> {
           if (mounted) await _ctrl.refresh();
           return true;
         } catch (e) {
-          _snack('$e');
+          _snack(apiErrorMessage(e));
           return false;
         }
       },

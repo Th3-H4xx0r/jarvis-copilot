@@ -141,6 +141,20 @@ class JcTheme {
         style: TextButton.styleFrom(foregroundColor: accent),
       ),
       dividerTheme: const DividerThemeData(color: glassBorder, thickness: 1, space: 1),
+      // SnackBars: dark surface with LIGHT text. Without this, Material's
+      // default content color is onInverseSurface (dark), which renders
+      // dark-on-dark and unreadable once we override the background.
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: surfaceAlt,
+        contentTextStyle: const TextStyle(
+            color: text, fontFamily: fontFamily, fontSize: 14),
+        actionTextColor: cyan,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: glassBorder),
+        ),
+      ),
     );
   }
 }

@@ -166,17 +166,14 @@ class KanbanApi {
     return _asMap(resp.data);
   }
 
-  /// Delete a task. The bridge has no DELETE-task route (only /boards/:slug
-  /// and /links), so we try DELETE first then fall back to the supported
-  /// `PATCH {status: 'archived'}`, which removes it from every visible column.
+  /// Delete a task = ARCHIVE it (matches the web). The bridge has no
+  /// DELETE-task route (only /boards/:slug and /links), and permanent removal
+  /// requires the task to be archived first anyway; archiving removes it from
+  /// every visible column, which is what "delete" means in the UI. We go
+  /// straight to `PATCH {status: 'archived'}` — attempting the missing DELETE
+  /// route just 500s.
   Future<Map<String, dynamic>> deleteTask(String id, {String? board}) async {
-    try {
-      final resp = await api.deleteJson(_withBoard('/api/kanban/tasks/$id', board));
-      return _asMap(resp.data);
-    } catch (_) {
-      // No delete route (404/405) or any transport error → archive instead.
-      return patchTask(id, {'status': 'archived'}, board: board);
-    }
+    return patchTask(id, {'status': 'archived'}, board: board);
   }
 
   /// POST /api/kanban/boards. The bridge requires a `slug`; derive one from

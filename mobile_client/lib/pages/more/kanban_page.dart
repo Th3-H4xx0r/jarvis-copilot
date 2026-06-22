@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../api/kanban.dart';
 import '../../api/profiles.dart';
 import '../../main.dart' as app;
+import '../../services/api_client.dart' show apiErrorMessage;
 import '../../theme.dart';
 import '../../widgets/async_view.dart';
 import '../../widgets/detail_sheet.dart';
@@ -104,7 +105,9 @@ class _KanbanPageState extends State<KanbanPage> {
   void _showError(Object e) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$e'), backgroundColor: JcTheme.danger),
+      SnackBar(
+          content: Text(apiErrorMessage(e)),
+          backgroundColor: JcTheme.danger),
     );
   }
 
@@ -125,12 +128,21 @@ class _KanbanPageState extends State<KanbanPage> {
     try {
       final res = await _api.dispatch(slug: _boardSlug);
       if (!mounted) return;
-      final n = res['spawned'] ?? res['claimed'] ?? res['count'];
+      final raw = res['spawned'] ?? res['claimed'] ?? res['count'];
+      int? n;
+      if (raw is int) {
+        n = raw;
+      } else if (raw is num) {
+        n = raw.toInt();
+      } else if (raw is List) {
+        n = raw.length;
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(n != null
-            ? 'Dispatcher ran — $n worker${n == 1 ? '' : 's'} started'
-            : 'Dispatcher ran'),
-        backgroundColor: JcTheme.surfaceAlt,
+        content: Text(n == null
+            ? 'Dispatcher ran'
+            : n == 0
+                ? 'Dispatcher ran — no ready tasks to start'
+                : 'Dispatcher ran — $n worker${n == 1 ? '' : 's'} started'),
       ));
       await _ctrl.refresh();
     } catch (e) {

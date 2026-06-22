@@ -339,6 +339,25 @@ class ApiClient {
   }
 }
 
+/// Extract a clean, user-facing message from an error — prefers the server's
+/// `{error: ...}` body on a Dio response, then a short text body, then a
+/// status-code line. Avoids dumping the raw multi-line DioException at users.
+String apiErrorMessage(Object e) {
+  if (e is DioException) {
+    final data = e.response?.data;
+    if (data is Map && data['error'] != null) {
+      return data['error'].toString();
+    }
+    if (data is String && data.trim().isNotEmpty && data.trim().length < 300) {
+      return data.trim();
+    }
+    final code = e.response?.statusCode;
+    if (code != null) return 'Request failed ($code)';
+    return e.message ?? 'Network error';
+  }
+  return '$e';
+}
+
 class _AuthInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
