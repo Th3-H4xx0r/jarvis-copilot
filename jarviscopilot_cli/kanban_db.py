@@ -5557,6 +5557,69 @@ def _worker_terminal_timeout_env(
     return str(desired)
 
 
+def _claude_code_worker_available() -> bool:
+    """True when the claude-code subscription is usable for a worker subprocess.
+
+    Checks the credential pool first (fast), then falls back to the live
+    `claude auth status` login probe so a `~/.claude` login (no managed token)
+    still counts. Mirrors how the webui decides claude-code is configured.
+    """
+    try:
+        from jarviscopilot_cli.auth import has_claude_code_setup_token
+        if has_claude_code_setup_token():
+            return True
+    except Exception:
+        pass
+    try:
+        from jarviscopilot_cli.auth import get_external_process_provider_status
+        st = get_external_process_provider_status("claude-code")
+        return bool(st.get("logged_in"))
+    except Exception:
+        return False
+
+
+def _apply_worker_model(cmd: list, task: Task) -> None:
+    """Append the model/provider flags for a dispatched kanban worker.
+
+    The worker would otherwise inherit the global config default, which on a
+    claude-code setup resolves to the dead `anthropic` OAuth API (HTTP 400
+    "You're out of extra usage"). So, mirroring the voice redirect in
+    webui/api/voice.py, route the worker to the claude-code subscription when
+    it's configured. Opt out with HERMES_KANBAN_ALLOW_ANTHROPIC=1.
+    """
+    override = (task.model_override or "").strip()
+    is_anthropic = override.startswith("@anthropic:") or "anthropic" in override.lower()
+
+    # A non-anthropic explicit override is honoured as-is.
+    if override and not is_anthropic:
+        cmd.extend(["-m", override])
+        return
+
+    if os.environ.get("HERMES_KANBAN_ALLOW_ANTHROPIC"):
+        if override:
+            cmd.extend(["-m", override])
+        return
+
+    if not _claude_code_worker_available():
+        if override:
+            cmd.extend(["-m", override])
+        return
+
+    # Redirect to claude-code: strip any @prov: prefix to the bare Claude id,
+    # defaulting to the claude-code provider default.
+    bare = override
+    if bare.startswith("@") and ":" in bare:
+        bare = bare.split(":", 1)[1]
+    bare = bare.strip()
+    if not bare:
+        try:
+            from jarviscopilot_cli.models import get_default_model_for_provider
+            bare = get_default_model_for_provider("claude-code")
+        except Exception:
+            bare = "claude-sonnet-4-6"
+    cmd.extend(["-m", bare, "--provider", "claude-code"])
+
+
 def _default_spawn(
     task: Task,
     workspace: str,
@@ -5681,8 +5744,7 @@ def _default_spawn(
         for sk in task.skills:
             if sk and sk != "kanban-worker":
                 cmd.extend(["--skills", sk])
-    if task.model_override:
-        cmd.extend(["-m", task.model_override])
+    _apply_worker_model(cmd, task)
     cmd.extend([
         "chat",
         "-q", prompt,
