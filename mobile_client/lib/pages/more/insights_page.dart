@@ -7,14 +7,16 @@ import '../../widgets/async_view.dart';
 import '../../widgets/glass.dart';
 import '../../widgets/status_pill.dart';
 
-/// Native "Insights" screen — token usage / cost analytics at parity with the
-/// web Insights panel. Shows totals, a per-model breakdown, a daily-token trend
-/// and an activity histogram (by weekday, falling back to nothing if absent),
-/// for a selectable lookback window (7 / 30 / 90 / 365 days).
+/// Native "Insights" screen — FULL parity with the web "Usage Analytics"
+/// Insights panel. Top→bottom it shows: a period selector, host system health
+/// (CPU/RAM/Disk), LLM Wiki status, the headline stat cards, a daily-token
+/// chart, the per-message breakdown for the active conversation, a token
+/// breakdown, and a per-model table — each as a glass card that only renders
+/// when its data is present.
 ///
-/// The web panel's per-message list is keyed on a single `session_id`, which we
-/// don't have a picker for here, so it's omitted (the web panel only shows it
-/// when one session is selected) — the overview dashboard is the parity target.
+/// The four sub-fetches (overview, system health, wiki status, per-message)
+/// run in parallel and degrade independently: a failed/empty sub-fetch hides
+/// just its own section, never crashing the screen.
 class InsightsPage extends StatefulWidget {
   const InsightsPage({super.key});
 
@@ -34,6 +36,36 @@ class _InsightsPageState extends State<InsightsPage> {
     _ctrl.refresh();
   }
 
+  /// Fan-out load: overview + system health + wiki status + per-message (for
+  /// the active session) in parallel. Each piece degrades on its own — a
+  /// failed health/wiki/message fetch just yields an empty section.
+  Future<_InsightsBundle> _load() async {
+    final results = await Future.wait<dynamic>([
+      _api.overview(days: _days),
+      _api.systemHealth(),
+      _api.wikiStatus(),
+      _api.activeSessionId().then((id) async {
+        if (id == null || id.isEmpty) return <String, dynamic>{'_noSession': true};
+        final msgs = await _api.messages(sessionId: id);
+        return <String, dynamic>{'session_id': id, 'messages': msgs};
+      }),
+    ]);
+    final overview = (results[0] as Map<String, dynamic>);
+    final health = (results[1] as Map<String, dynamic>);
+    final wiki = (results[2] as Map<String, dynamic>);
+    final msgEnvelope = (results[3] as Map<String, dynamic>);
+    final hasSession = msgEnvelope['_noSession'] != true;
+    return _InsightsBundle(
+      overview: overview,
+      health: health,
+      wiki: wiki,
+      hasSession: hasSession,
+      messages: hasSession
+          ? (msgEnvelope['messages'] as List).cast<Map<String, dynamic>>()
+          : const [],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -47,13 +79,13 @@ class _InsightsPageState extends State<InsightsPage> {
             children: [
               _PeriodSelector(days: _days, onChanged: _setDays),
               Expanded(
-                child: AsyncView<Map<String, dynamic>>(
+                child: AsyncView<_InsightsBundle>(
                   controller: _ctrl,
-                  loader: () => _api.overview(days: _days),
-                  isEmpty: (d) => d.isEmpty,
+                  loader: _load,
+                  isEmpty: (b) => b.overview.isEmpty,
                   emptyText: 'No usage data yet.',
-                  builder: (context, data, refresh) =>
-                      _InsightsBody(data: data, days: _days),
+                  builder: (context, bundle, refresh) =>
+                      _InsightsBody(bundle: bundle, days: _days),
                 ),
               ),
             ],
@@ -62,6 +94,24 @@ class _InsightsPageState extends State<InsightsPage> {
       ),
     );
   }
+}
+
+/// The four parallel sub-fetches, bundled for the body. `hasSession` is false
+/// when there's no open conversation to drill into (so the Messages section
+/// hides entirely rather than showing an empty list).
+class _InsightsBundle {
+  const _InsightsBundle({
+    required this.overview,
+    required this.health,
+    required this.wiki,
+    required this.hasSession,
+    required this.messages,
+  });
+  final Map<String, dynamic> overview;
+  final Map<String, dynamic> health;
+  final Map<String, dynamic> wiki;
+  final bool hasSession;
+  final List<Map<String, dynamic>> messages;
 }
 
 /// Segmented period control (7 / 30 / 90 / 365 days), wrapped in a glass pill
@@ -131,34 +181,366 @@ class _PeriodSelector extends StatelessWidget {
 }
 
 class _InsightsBody extends StatelessWidget {
-  const _InsightsBody({required this.data, required this.days});
-  final Map<String, dynamic> data;
+  const _InsightsBody({required this.bundle, required this.days});
+  final _InsightsBundle bundle;
   final int days;
 
   @override
   Widget build(BuildContext context) {
+    final data = bundle.overview;
     final models = parseModelStats(data['models']);
     final daily = parseRows(data['daily_tokens']);
-    final byDay = parseRows(data['activity_by_day']);
-    final byHour = parseRows(data['activity_by_hour']);
+
+    final healthOk = bundle.health['available'] != false &&
+        (bundle.health['cpu'] != null ||
+            bundle.health['memory'] != null ||
+            bundle.health['disk'] != null);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
       children: [
+        // 2. System health
+        if (healthOk) ...[
+          SectionHeader(
+            'System health',
+            trailing: StatusPill(
+              bundle.health['status'] == 'partial' ? 'PARTIAL' : 'LIVE',
+              color: bundle.health['status'] == 'partial'
+                  ? JcTheme.blue
+                  : JcTheme.success,
+              live: true,
+              dense: true,
+            ),
+          ),
+          _SystemHealthCard(health: bundle.health),
+          const SizedBox(height: 20),
+        ],
+
+        // 3. LLM Wiki
+        const SectionHeader('LLM Wiki'),
+        _WikiCard(wiki: bundle.wiki),
+        const SizedBox(height: 20),
+
+        // 4. Stat cards
+        const SectionHeader('Overview'),
         _StatGrid(data: data),
         const SizedBox(height: 20),
+
+        // 5. Daily tokens
+        const SectionHeader('Daily tokens'),
+        _DailyTokensCard(daily: daily),
+        const SizedBox(height: 20),
+
+        // 6. Messages (this conversation) — only when there's an open chat.
+        if (bundle.hasSession) ...[
+          const SectionHeader('Messages (this conversation)'),
+          _MessagesCard(messages: bundle.messages),
+          const SizedBox(height: 20),
+        ],
+
+        // 7. Token breakdown
+        const SectionHeader('Token breakdown'),
+        _TokenBreakdownCard(data: data),
+        const SizedBox(height: 20),
+
+        // 8. Models
         const SectionHeader('By model'),
         _ModelsCard(models: models),
-        const SizedBox(height: 20),
-        const SectionHeader('Activity'),
-        _ActivityCard(daily: daily, byDay: byDay, byHour: byHour),
+        const SizedBox(height: 4),
+
+        Padding(
+          padding: const EdgeInsets.only(top: 14),
+          child: Text(
+            'Local WebUI session data · last $days days',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: JcTheme.muted.withValues(alpha: 0.6),
+              fontSize: 10.5,
+            ),
+          ),
+        ),
       ],
     );
   }
 }
 
-/// Top-of-screen totals as a 2-column grid of GlassCard stat tiles:
-/// sessions, messages, in/out tokens, total tokens, cost.
+// ── 2. System health ────────────────────────────────────────────────────────
+
+/// CPU / RAM / Disk as labelled progress bars. RAM/Disk show a "used / total"
+/// byte subtitle; CPU shows just the percent. Missing metrics are skipped.
+class _SystemHealthCard extends StatelessWidget {
+  const _SystemHealthCard({required this.health});
+  final Map<String, dynamic> health;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <Widget>[];
+    void add(String label, dynamic metric) {
+      final pct = systemHealthPercent(metric);
+      if (pct == null) return;
+      if (rows.isNotEmpty) rows.add(const SizedBox(height: 14));
+      rows.add(_MetricBar(
+        label: label,
+        percent: pct,
+        subtitle: systemHealthBytesLabel(metric),
+      ));
+    }
+
+    add('CPU', health['cpu']);
+    add('RAM', health['memory']);
+    add('Disk', health['disk']);
+
+    return GlassCard(
+      child: rows.isEmpty
+          ? const _EmptyBlock(
+              icon: Icons.speed_outlined,
+              text: 'Host metrics unavailable.',
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Current VPS resource usage',
+                  style: TextStyle(color: JcTheme.muted, fontSize: 11.5),
+                ),
+                const SizedBox(height: 14),
+                ...rows,
+              ],
+            ),
+    );
+  }
+}
+
+class _MetricBar extends StatelessWidget {
+  const _MetricBar({
+    required this.label,
+    required this.percent,
+    required this.subtitle,
+  });
+  final String label;
+  final double percent; // 0..100
+  final String subtitle;
+
+  Color get _color {
+    if (percent >= 90) return JcTheme.danger;
+    if (percent >= 70) return JcTheme.accentAlt;
+    return JcTheme.cyan;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final frac = (percent / 100).clamp(0.0, 1.0);
+    final pctText = '${percent.toStringAsFixed(percent % 1 == 0 ? 0 : 1)}%';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: JcTheme.text,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (subtitle.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: JcTheme.muted, fontSize: 11),
+                ),
+              ),
+            ] else
+              const Spacer(),
+            Text(
+              pctText,
+              style: TextStyle(
+                color: _color,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Stack(
+            children: [
+              Container(height: 8, color: JcTheme.glassFill),
+              FractionallySizedBox(
+                widthFactor: frac,
+                child: Container(
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: _color,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── 3. LLM Wiki ─────────────────────────────────────────────────────────────
+
+/// Knowledge-base observability: availability pill + status note + small stat
+/// tiles (Enabled / Entries / Pages / Raw files / Last updated / Last writer).
+class _WikiCard extends StatelessWidget {
+  const _WikiCard({required this.wiki});
+  final Map<String, dynamic> wiki;
+
+  @override
+  Widget build(BuildContext context) {
+    final available = wiki['available'] == true;
+    final status = (wiki['status'] ?? 'error').toString();
+    final isReady = available && status == 'ready';
+    final isEmpty = available && status == 'empty';
+    final isError = status == 'error';
+
+    final String badgeText;
+    final Color badgeColor;
+    if (isReady) {
+      badgeText = 'Available';
+      badgeColor = JcTheme.success;
+    } else if (isError) {
+      badgeText = 'Error';
+      badgeColor = JcTheme.danger;
+    } else if (isEmpty) {
+      badgeText = 'Empty';
+      badgeColor = JcTheme.accentAlt;
+    } else {
+      badgeText = 'Unavailable';
+      badgeColor = JcTheme.muted;
+    }
+
+    final note = isReady
+        ? 'LLM Wiki is configured and page metadata is visible without exposing wiki content.'
+        : isEmpty
+            ? 'LLM Wiki exists but has no entity, concept, comparison, or query pages yet.'
+            : isError
+                ? 'Unable to inspect LLM Wiki status${wiki['error'] != null ? ': ${wiki['error']}' : ''}.'
+                : 'No LLM Wiki directory was found. Set WIKI_PATH or skills.config.wiki.path to enable status visibility.';
+
+    final tiles = <_KV>[
+      _KV('Enabled', wiki['enabled'] == true ? 'Yes' : 'No'),
+      _KV('Entries', formatTokenCount(wiki['entry_count'])),
+      _KV('Pages', formatTokenCount(wiki['page_count'])),
+      _KV('Raw files', formatTokenCount(wiki['raw_source_count'])),
+      _KV('Last updated', _formatTimestamp(wiki['last_updated'])),
+      _KV('Last writer', (wiki['last_writer'] ?? 'Not available').toString()),
+    ];
+
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Knowledge-base observability',
+                  style: TextStyle(color: JcTheme.muted, fontSize: 11.5),
+                ),
+              ),
+              StatusPill(badgeText, color: badgeColor, dense: true),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            note,
+            style: const TextStyle(color: JcTheme.text, fontSize: 12.5, height: 1.35),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [for (final t in tiles) _KvTile(kv: t)],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _formatTimestamp(dynamic value) {
+    if (value == null) return 'Never';
+    final s = value.toString();
+    final dt = DateTime.tryParse(s);
+    if (dt == null) return s;
+    final l = dt.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${l.year}-${two(l.month)}-${two(l.day)} ${two(l.hour)}:${two(l.minute)}';
+  }
+}
+
+class _KV {
+  const _KV(this.label, this.value);
+  final String label;
+  final String value;
+}
+
+/// A compact key/value chip used in the Wiki card grid (label over value).
+class _KvTile extends StatelessWidget {
+  const _KvTile({required this.kv});
+  final _KV kv;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        // Two-up grid that survives narrow phones; 6px gutter from Wrap spacing.
+        final width = (c.maxWidth - 10) / 2;
+        return Container(
+          width: width.clamp(120.0, 480.0),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: JcTheme.glassFill,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: JcTheme.glassBorder),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                kv.label.toUpperCase(),
+                style: const TextStyle(
+                  color: JcTheme.muted,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                kv.value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: JcTheme.text,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ── 4. Stat cards ───────────────────────────────────────────────────────────
+
+/// Headline totals as a 2-column grid of GlassCard stat tiles:
+/// sessions, messages, tokens, cost (matching the web's four overview cards).
 class _StatGrid extends StatelessWidget {
   const _StatGrid({required this.data});
   final Map<String, dynamic> data;
@@ -170,13 +552,9 @@ class _StatGrid extends StatelessWidget {
           Icons.forum_outlined, JcTheme.cyan),
       _Stat('Messages', formatTokenCount(data['total_messages']),
           Icons.tag, JcTheme.blue),
-      _Stat('Input tokens', formatTokensCompact(data['total_input_tokens']),
-          Icons.south_west, JcTheme.primaryBlue),
-      _Stat('Output tokens', formatTokensCompact(data['total_output_tokens']),
-          Icons.north_east, JcTheme.accent),
-      _Stat('Total tokens', formatTokensCompact(data['total_tokens']),
-          Icons.memory, JcTheme.accentAlt),
-      _Stat('Cost', formatCost(data['total_cost']),
+      _Stat('Tokens', formatTokensCompact(data['total_tokens']),
+          Icons.memory, JcTheme.accent),
+      _Stat('Est. cost', formatCost(data['total_cost']),
           Icons.attach_money, JcTheme.success),
     ];
     return GridView.count(
@@ -257,7 +635,445 @@ class _StatTile extends StatelessWidget {
   }
 }
 
-/// Per-model breakdown: each model's sessions, token total, and cost.
+// ── 5. Daily tokens ─────────────────────────────────────────────────────────
+
+/// Daily token usage as proportional horizontal bars (input vs output stacked
+/// in a single bar where both exist), with date labels. No chart package.
+class _DailyTokensCard extends StatelessWidget {
+  const _DailyTokensCard({required this.daily});
+  final List<Map<String, dynamic>> daily;
+
+  @override
+  Widget build(BuildContext context) {
+    final bars = daily
+        .map((r) => _DailyBar(
+              label: _dayLabel(r['date']),
+              input: insightsNum(r['input_tokens']),
+              output: insightsNum(r['output_tokens']),
+            ))
+        .toList();
+    final trimmed = _trim(bars);
+    final hasData = trimmed.any((b) => b.total > 0);
+
+    return GlassCard(
+      child: hasData
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _DailyBarList(data: trimmed),
+                const SizedBox(height: 12),
+                const _Legend(),
+              ],
+            )
+          : const _EmptyBlock(
+              icon: Icons.show_chart,
+              text: 'No token usage recorded.',
+            ),
+    );
+  }
+
+  // Drop leading all-zero days, then keep at most the last 30 buckets so the
+  // inline list stays readable on a 1y window.
+  List<_DailyBar> _trim(List<_DailyBar> bars) {
+    var start = 0;
+    while (start < bars.length - 1 && bars[start].total == 0) {
+      start++;
+    }
+    final t = bars.sublist(start);
+    return t.length > 30 ? t.sublist(t.length - 30) : t;
+  }
+
+  static String _dayLabel(dynamic date) {
+    final s = (date ?? '').toString();
+    return s.length >= 10 ? s.substring(5) : s; // "2026-06-21" → "06-21"
+  }
+}
+
+class _DailyBar {
+  const _DailyBar({
+    required this.label,
+    required this.input,
+    required this.output,
+  });
+  final String label;
+  final num input;
+  final num output;
+  num get total => input + output;
+}
+
+class _DailyBarList extends StatelessWidget {
+  const _DailyBarList({required this.data});
+  final List<_DailyBar> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final max = data.fold<num>(1, (m, b) => b.total > m ? b.total : m);
+    return Column(
+      children: data.map((b) {
+        final inFrac = (b.input / max).clamp(0.0, 1.0).toDouble();
+        final outFrac = (b.output / max).clamp(0.0, 1.0).toDouble();
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 46,
+                child: Text(
+                  b.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: JcTheme.muted, fontSize: 11),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Stack(
+                    children: [
+                      Container(height: 16, color: JcTheme.glassFill),
+                      Row(
+                        children: [
+                          if (inFrac > 0)
+                            Expanded(
+                              flex: (inFrac * 1000).round(),
+                              child: Container(
+                                height: 16,
+                                color: JcTheme.primaryBlue,
+                              ),
+                            ),
+                          if (outFrac > 0)
+                            Expanded(
+                              flex: (outFrac * 1000).round(),
+                              child: Container(
+                                height: 16,
+                                color: JcTheme.accent,
+                              ),
+                            ),
+                          // Remaining track space (keeps bars proportional).
+                          Expanded(
+                            flex: (((1 - inFrac - outFrac).clamp(0.0, 1.0)) *
+                                    1000)
+                                .round()
+                                .clamp(0, 1000),
+                            child: const SizedBox(height: 16),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 52,
+                child: Text(
+                  formatTokensCompact(b.total),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: JcTheme.text,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _Legend extends StatelessWidget {
+  const _Legend();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget item(Color c, String label) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration:
+                  BoxDecoration(color: c, borderRadius: BorderRadius.circular(3)),
+            ),
+            const SizedBox(width: 6),
+            Text(label,
+                style: const TextStyle(color: JcTheme.muted, fontSize: 11)),
+          ],
+        );
+    return Row(
+      children: [
+        item(JcTheme.primaryBlue, 'Input'),
+        const SizedBox(width: 16),
+        item(JcTheme.accent, 'Output'),
+      ],
+    );
+  }
+}
+
+// ── 6. Messages (this conversation) ─────────────────────────────────────────
+
+/// Per-message rows for the active conversation: # / Input / Output / Total,
+/// each with a small input-composition colour bar where one is available.
+class _MessagesCard extends StatelessWidget {
+  const _MessagesCard({required this.messages});
+  final List<Map<String, dynamic>> messages;
+
+  @override
+  Widget build(BuildContext context) {
+    if (messages.isEmpty) {
+      return const GlassCard(
+        child: _EmptyBlock(
+          icon: Icons.chat_bubble_outline,
+          text: 'No messages recorded yet.',
+        ),
+      );
+    }
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _MsgHeaderRow(),
+          const SizedBox(height: 6),
+          const Divider(height: 1, color: JcTheme.glassBorder),
+          for (final (i, m) in messages.indexed) ...[
+            if (i > 0) const Divider(height: 1, color: JcTheme.glassBorder),
+            _MessageRow(message: m),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            'Input composition is estimated (~chars ÷ 4); in/out totals are exact.',
+            style: TextStyle(
+              color: JcTheme.muted.withValues(alpha: 0.8),
+              fontSize: 10.5,
+              height: 1.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MsgHeaderRow extends StatelessWidget {
+  const _MsgHeaderRow();
+
+  @override
+  Widget build(BuildContext context) {
+    const style = TextStyle(
+      color: JcTheme.muted,
+      fontSize: 10.5,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.4,
+    );
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          SizedBox(width: 34, child: Text('#', style: style)),
+          Expanded(child: Text('INPUT', textAlign: TextAlign.right, style: style)),
+          Expanded(child: Text('OUTPUT', textAlign: TextAlign.right, style: style)),
+          Expanded(child: Text('TOTAL', textAlign: TextAlign.right, style: style)),
+        ],
+      ),
+    );
+  }
+}
+
+class _MessageRow extends StatelessWidget {
+  const _MessageRow({required this.message});
+  final Map<String, dynamic> message;
+
+  @override
+  Widget build(BuildContext context) {
+    final turn = (message['turn'] ?? '').toString();
+    final inT = insightsNum(message['input_tokens']);
+    final outT = insightsNum(message['output_tokens']);
+    final cached = insightsNum(message['cache_read_tokens']) > 0;
+    final comp = messageComposition(message);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      child: Column(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 34,
+                child: Text(
+                  '#$turn',
+                  style: const TextStyle(
+                    color: JcTheme.text,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    if (cached) ...[
+                      const Icon(Icons.bolt, size: 12, color: JcTheme.cyan),
+                      const SizedBox(width: 2),
+                    ],
+                    Text(
+                      formatTokensCompact(inT),
+                      style: const TextStyle(color: JcTheme.text, fontSize: 12.5),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  formatTokensCompact(outT),
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(color: JcTheme.text, fontSize: 12.5),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  formatTokensCompact(inT + outT),
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    color: JcTheme.text,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (comp.isNotEmpty) ...[
+            const SizedBox(height: 7),
+            _CompositionBar(composition: comp),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A thin stacked bar of the input-composition sections (largest first),
+/// coloured per section. Mirrors the web's `_compositionBar`.
+class _CompositionBar extends StatelessWidget {
+  const _CompositionBar({required this.composition});
+  final Map<String, num> composition;
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = composition.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final total = entries.fold<num>(0, (s, e) => s + e.value);
+    if (total <= 0) return const SizedBox.shrink();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: SizedBox(
+        height: 6,
+        child: Row(
+          children: [
+            for (final e in entries)
+              Expanded(
+                flex: (e.value / total * 1000).round().clamp(1, 1000),
+                child: Container(color: _sectionColor(e.key)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Section → colour, mirroring the web panel's `_INSIGHTS_SECTION_META`.
+Color _sectionColor(String key) {
+  switch (key) {
+    case 'identity':
+      return const Color(0xFF7C5CFF);
+    case 'behavioral_guidance':
+      return const Color(0xFF4F8CFF);
+    case 'tool_use_guidance':
+      return const Color(0xFF3FB6C9);
+    case 'lazy_manifest':
+      return const Color(0xFF2DBF7E);
+    case 'skills_catalog':
+      return const Color(0xFF8BC34A);
+    case 'env_profile':
+      return const Color(0xFFC9B03F);
+    case 'context_files':
+      return const Color(0xFFE0913A);
+    case 'memory':
+      return const Color(0xFFE0573A);
+    case 'external_memory':
+      return const Color(0xFFD24B86);
+    case 'timestamp':
+      return const Color(0xFF9AA0A6);
+    case 'system_prompt':
+      return const Color(0xFF7C5CFF);
+    case 'tool_schemas':
+      return const Color(0xFFA06BFF);
+    case 'conversation_history':
+      return const Color(0xFF5B6FB0);
+    case 'user_message':
+      return const Color(0xFF34C759);
+    default:
+      return const Color(0xFF6B7280);
+  }
+}
+
+// ── 7. Token breakdown ──────────────────────────────────────────────────────
+
+/// Input / Output / Total rows from the overview totals.
+class _TokenBreakdownCard extends StatelessWidget {
+  const _TokenBreakdownCard({required this.data});
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      child: Column(
+        children: [
+          _row('Input tokens', formatTokensCompact(data['total_input_tokens'])),
+          const Divider(height: 18, color: JcTheme.glassBorder),
+          _row('Output tokens', formatTokensCompact(data['total_output_tokens'])),
+          const Divider(height: 18, color: JcTheme.glassBorder),
+          _row('Total', formatTokensCompact(data['total_tokens']), bold: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(String label, String value, {bool bold = false}) => Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: bold ? JcTheme.text : JcTheme.muted,
+              fontSize: 13.5,
+              fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: JcTheme.text,
+              fontSize: 14.5,
+              fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+            ),
+          ),
+        ],
+      );
+}
+
+// ── 8. Models ───────────────────────────────────────────────────────────────
+
+/// Per-model breakdown: Model · Sessions · Tokens · Cost · Share.
 class _ModelsCard extends StatelessWidget {
   const _ModelsCard({required this.models});
   final List<Map<String, dynamic>> models;
@@ -294,6 +1110,9 @@ class _ModelRow extends StatelessWidget {
     final sessions = formatTokenCount(model['sessions']);
     final tokens = formatTokensCompact(model['total_tokens']);
     final cost = formatCost(model['cost']);
+    final share = insightsNum(
+            model['cost_share'] ?? model['token_share'] ?? model['session_share'])
+        .round();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
@@ -315,7 +1134,7 @@ class _ModelRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  '$sessions sessions · $tokens tokens',
+                  '$sessions sessions · $tokens tokens · $share% share',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: JcTheme.muted, fontSize: 12),
@@ -331,196 +1150,7 @@ class _ModelRow extends StatelessWidget {
   }
 }
 
-/// Activity card: a daily-token mini bar chart, plus an activity-by-weekday
-/// histogram. Both are Container-width-proportional bars (no chart package).
-class _ActivityCard extends StatelessWidget {
-  const _ActivityCard({
-    required this.daily,
-    required this.byDay,
-    required this.byHour,
-  });
-  final List<Map<String, dynamic>> daily;
-  final List<Map<String, dynamic>> byDay;
-  final List<Map<String, dynamic>> byHour;
-
-  @override
-  Widget build(BuildContext context) {
-    // Daily-token rows: bar value = input + output tokens for the day.
-    final dailyBars = daily
-        .map((r) => _BarDatum(
-              label: _dayLabel(r['date']),
-              value: insightsNum(r['input_tokens']) +
-                  insightsNum(r['output_tokens']),
-              valueLabel: formatTokensCompact(
-                  insightsNum(r['input_tokens']) +
-                      insightsNum(r['output_tokens'])),
-            ))
-        .toList();
-
-    // Activity-by-day rows (weekday → sessions).
-    final dowBars = byDay
-        .map((r) => _BarDatum(
-              label: (r['day'] ?? '').toString(),
-              value: insightsNum(r['sessions']),
-              valueLabel: formatTokenCount(r['sessions']),
-            ))
-        .toList();
-
-    final hasDaily = dailyBars.any((b) => b.value > 0);
-    final hasDow = dowBars.any((b) => b.value > 0);
-
-    return GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _SubLabel('Daily tokens'),
-          const SizedBox(height: 10),
-          if (hasDaily)
-            _BarList(data: _trimLeadingZeros(dailyBars))
-          else
-            const _EmptyBlock(
-              icon: Icons.show_chart,
-              text: 'No token usage recorded.',
-            ),
-          const SizedBox(height: 18),
-          const Divider(height: 1, color: JcTheme.glassBorder),
-          const SizedBox(height: 18),
-          const _SubLabel('Sessions by weekday'),
-          const SizedBox(height: 10),
-          if (hasDow)
-            _BarList(data: dowBars)
-          else
-            const _EmptyBlock(
-              icon: Icons.calendar_today_outlined,
-              text: 'No activity recorded.',
-            ),
-        ],
-      ),
-    );
-  }
-
-  // Drop leading all-zero days so a 1y window doesn't bury real data; keep at
-  // most the last 30 buckets so the inline list stays readable.
-  List<_BarDatum> _trimLeadingZeros(List<_BarDatum> bars) {
-    var start = 0;
-    while (start < bars.length - 1 && bars[start].value == 0) {
-      start++;
-    }
-    final trimmed = bars.sublist(start);
-    if (trimmed.length > 30) {
-      return trimmed.sublist(trimmed.length - 30);
-    }
-    return trimmed;
-  }
-
-  static String _dayLabel(dynamic date) {
-    final s = (date ?? '').toString();
-    // "2026-06-21" → "06-21"
-    return s.length >= 10 ? s.substring(5) : s;
-  }
-}
-
-class _BarDatum {
-  const _BarDatum({
-    required this.label,
-    required this.value,
-    required this.valueLabel,
-  });
-  final String label;
-  final num value;
-  final String valueLabel;
-}
-
-/// A column of proportional horizontal bars. Robust to empty input.
-class _BarList extends StatelessWidget {
-  const _BarList({required this.data});
-  final List<_BarDatum> data;
-
-  @override
-  Widget build(BuildContext context) {
-    if (data.isEmpty) {
-      return const _EmptyBlock(icon: Icons.bar_chart, text: 'No data.');
-    }
-    final max = data.fold<num>(1, (m, b) => b.value > m ? b.value : m);
-    return Column(
-      children: data.map((b) {
-        final frac = (b.value / max).clamp(0.0, 1.0).toDouble();
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 46,
-                child: Text(
-                  b.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: JcTheme.muted, fontSize: 11),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, c) => Stack(
-                    children: [
-                      Container(
-                        height: 16,
-                        decoration: BoxDecoration(
-                          color: JcTheme.glassFill,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      Container(
-                        height: 16,
-                        width: (c.maxWidth * frac)
-                            .clamp(b.value > 0 ? 8.0 : 0.0, c.maxWidth),
-                        decoration: BoxDecoration(
-                          gradient: blueGradient(),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              SizedBox(
-                width: 50,
-                child: Text(
-                  b.valueLabel,
-                  textAlign: TextAlign.right,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: JcTheme.text,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
-/// A small muted sub-label inside a card (e.g. the two chart sections).
-class _SubLabel extends StatelessWidget {
-  const _SubLabel(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Text(
-        text,
-        style: const TextStyle(
-          color: JcTheme.text,
-          fontSize: 13.5,
-          fontWeight: FontWeight.w600,
-        ),
-      );
-}
+// ── Shared ──────────────────────────────────────────────────────────────────
 
 /// Icon + text empty state for a card body.
 class _EmptyBlock extends StatelessWidget {

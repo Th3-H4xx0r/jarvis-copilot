@@ -284,51 +284,48 @@ class _TasksPageState extends State<TasksPage> {
     final toast = job['toast_notifications'] is bool
         ? (job['toast_notifications'] as bool)
         : true;
+    final prompt = (job['prompt'] ?? '').toString().trim();
+    final deliver = (job['deliver'] ?? '').toString();
     final nextRun = formatCronTime(job['next_run'] ?? job['next_run_at']);
     final lastRun = formatCronTime(job['last_run'] ?? job['last_run_at']);
+
+    // Build the 2-up info grid from the non-empty fields.
+    final tiles = <Widget>[];
+    void add(IconData icon, String label, String value) {
+      if (value.trim().isNotEmpty) tiles.add(_InfoTile(icon, label, value));
+    }
+    add(Icons.schedule_rounded, 'Schedule', cronSchedule(job));
+    add(Icons.arrow_forward_rounded, 'Next run', nextRun);
+    add(Icons.history_rounded, 'Last run', lastRun);
+    add(Icons.person_outline, 'Profile', (job['profile'] ?? '').toString());
+    add(_deliverIcon(deliver), 'Deliver', _deliverLabel(deliver));
+    add(Icons.memory_rounded, 'Model', (job['model'] ?? '').toString());
+    add(Icons.extension_outlined, 'Skills', skills);
+    add(Icons.notifications_none_rounded, 'Toasts',
+        toast ? 'Enabled' : 'Disabled');
+    final grid = <Widget>[];
+    for (var i = 0; i < tiles.length; i += 2) {
+      grid.add(Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: tiles[i]),
+              const SizedBox(width: 10),
+              if (i + 1 < tiles.length)
+                Expanded(child: tiles[i + 1])
+              else
+                const Expanded(child: SizedBox()),
+            ],
+          ),
+        ),
+      ));
+    }
 
     showDetailSheet(
       context: context,
       title: (job['name'] ?? 'Task').toString(),
-      actions: [
-        ElevatedButton.icon(
-          onPressed: () {
-            Navigator.of(context).pop();
-            _runAction(() => _api.run(id), 'Run started');
-          },
-          icon: const Icon(Icons.play_arrow_rounded, size: 18),
-          label: const Text('Run now'),
-        ),
-        OutlinedButton.icon(
-          onPressed: () {
-            Navigator.of(context).pop();
-            if (paused) {
-              _runAction(() => _api.resume(id), 'Task resumed');
-            } else {
-              _runAction(() => _api.pause(id), 'Task paused');
-            }
-          },
-          icon: Icon(paused ? Icons.play_circle_outline : Icons.pause, size: 18),
-          label: Text(paused ? 'Resume' : 'Pause'),
-        ),
-        OutlinedButton.icon(
-          onPressed: () {
-            Navigator.of(context).pop();
-            _openForm(existing: job);
-          },
-          icon: const Icon(Icons.edit_outlined, size: 18),
-          label: const Text('Edit'),
-        ),
-        OutlinedButton.icon(
-          onPressed: () {
-            Navigator.of(context).pop();
-            _confirmDelete(job);
-          },
-          style: OutlinedButton.styleFrom(foregroundColor: JcTheme.danger),
-          icon: const Icon(Icons.delete_outline, size: 18),
-          label: const Text('Delete'),
-        ),
-      ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -337,24 +334,40 @@ class _TasksPageState extends State<TasksPage> {
             color: cronStatusColor(statusKey),
             live: statusKey == 'running',
           ),
-          const SizedBox(height: 12),
-          DetailRow('Prompt', (job['prompt'] ?? '').toString()),
-          DetailRow('Schedule', cronSchedule(job)),
-          DetailRow('Next run', nextRun),
-          DetailRow('Last run', lastRun),
-          DetailRow('Skills', skills),
-          DetailRow('Model', (job['model'] ?? '').toString()),
-          DetailRow('Profile', (job['profile'] ?? '').toString()),
-          DetailRow('Deliver', (job['deliver'] ?? '').toString()),
-          DetailRow('Completion toasts', toast ? 'Enabled' : 'Disabled'),
           const SizedBox(height: 16),
-          const Text('Run history',
-              style: TextStyle(
-                  color: JcTheme.text,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
+          if (prompt.isNotEmpty) ...[
+            _PromptCard(prompt),
+            const SizedBox(height: 18),
+          ],
+          const SectionHeader('Details'),
+          ...grid,
+          const SizedBox(height: 10),
+          const SectionHeader('Run history'),
           _RunHistory(api: _api, jobId: id),
+          const SizedBox(height: 20),
+          _DetailActionBar(
+            paused: paused,
+            onRun: () {
+              Navigator.of(context).pop();
+              _runAction(() => _api.run(id), 'Run started');
+            },
+            onPauseResume: () {
+              Navigator.of(context).pop();
+              if (paused) {
+                _runAction(() => _api.resume(id), 'Task resumed');
+              } else {
+                _runAction(() => _api.pause(id), 'Task paused');
+              }
+            },
+            onEdit: () {
+              Navigator.of(context).pop();
+              _openForm(existing: job);
+            },
+            onDelete: () {
+              Navigator.of(context).pop();
+              _confirmDelete(job);
+            },
+          ),
         ],
       ),
     );
@@ -612,6 +625,201 @@ class _RunButton extends StatelessWidget {
                   color: running ? JcTheme.muted : JcTheme.primaryBlue,
                   size: 20,
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A highlighted card showing the task's prompt (its instruction).
+class _PromptCard extends StatelessWidget {
+  const _PromptCard(this.prompt);
+  final String prompt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [
+          JcTheme.accent.withValues(alpha: 0.12),
+          JcTheme.cyan.withValues(alpha: 0.04),
+        ]),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: JcTheme.accent.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(children: [
+            Icon(Icons.bolt_rounded, size: 14, color: JcTheme.accent),
+            SizedBox(width: 6),
+            Text('PROMPT',
+                style: TextStyle(
+                    color: JcTheme.accent,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6)),
+          ]),
+          const SizedBox(height: 8),
+          Text(prompt,
+              style: const TextStyle(
+                  color: JcTheme.text, fontSize: 14, height: 1.4)),
+        ],
+      ),
+    );
+  }
+}
+
+/// A compact labelled metric tile for the detail info grid.
+class _InfoTile extends StatelessWidget {
+  const _InfoTile(this.icon, this.label, this.value);
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: JcTheme.surfaceAlt,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: JcTheme.glassBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(icon, size: 13, color: JcTheme.muted),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(label.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: JcTheme.muted,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5)),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Text(value,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: JcTheme.text, fontSize: 14, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+}
+
+/// The detail sheet's action bar — a clean 2×2 grid of equal buttons.
+class _DetailActionBar extends StatelessWidget {
+  const _DetailActionBar({
+    required this.paused,
+    required this.onRun,
+    required this.onPauseResume,
+    required this.onEdit,
+    required this.onDelete,
+  });
+  final bool paused;
+  final VoidCallback onRun;
+  final VoidCallback onPauseResume;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(children: [
+          Expanded(
+            child: _ActionButton(
+                icon: Icons.play_arrow_rounded,
+                label: 'Run now',
+                primary: true,
+                onTap: onRun),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _ActionButton(
+                icon: paused ? Icons.play_circle_outline : Icons.pause_rounded,
+                label: paused ? 'Resume' : 'Pause',
+                onTap: onPauseResume),
+          ),
+        ]),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(
+            child: _ActionButton(
+                icon: Icons.edit_outlined, label: 'Edit', onTap: onEdit),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _ActionButton(
+                icon: Icons.delete_outline_rounded,
+                label: 'Delete',
+                danger: true,
+                onTap: onDelete),
+          ),
+        ]),
+      ],
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  const _ActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.primary = false,
+    this.danger = false,
+  });
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool primary;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? JcTheme.danger : (primary ? Colors.white : JcTheme.text);
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          height: 48,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            gradient: primary ? blueGradient() : null,
+            color: primary ? null : JcTheme.glassFill,
+            border: primary
+                ? null
+                : Border.all(
+                    color: danger
+                        ? JcTheme.danger.withValues(alpha: 0.45)
+                        : JcTheme.glassBorder),
+          ),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 18, color: color),
+                const SizedBox(width: 7),
+                Text(label,
+                    style: TextStyle(
+                        color: color, fontSize: 14, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
         ),
       ),
     );
