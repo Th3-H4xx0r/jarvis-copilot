@@ -1175,6 +1175,55 @@ def _attempt_db_rebuild(path: Path) -> bool:
         return False
 
 
+@contextlib.contextmanager
+def _heal_lock(path: Path):
+    """Cross-process exclusive lock around DB repair.
+
+    The integrity guard runs on EVERY connect, across many webui threads and
+    worker processes. Without serialization, several of them would REINDEX /
+    dump-rebuild / ``os.replace`` the SAME file at once — and those concurrent
+    in-place rewrites are what escalate a recoverable index inconsistency into
+    unrecoverable page corruption. Hold this lock so exactly one process repairs
+    at a time; the rest wait, then re-check (it's already healed) and move on.
+
+    Best-effort: a no-op if ``fcntl`` is unavailable (Windows).
+    """
+    lock_path = Path(str(path) + ".heal.lock")
+    fh = None
+    try:
+        try:
+            fh = open(lock_path, "w")
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        except Exception:
+            fh = None  # locking unavailable — proceed unserialized (best-effort)
+        yield
+    finally:
+        if fh is not None:
+            try:
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+            try:
+                fh.close()
+            except Exception:
+                pass
+
+
+def _integrity_ok(path: Path) -> bool:
+    """Quick ``PRAGMA integrity_check`` — True only when the DB is clean."""
+    try:
+        probe = sqlite3.connect(str(path), timeout=5, isolation_level=None)
+        try:
+            row = probe.execute("PRAGMA integrity_check").fetchone()
+        finally:
+            probe.close()
+        return bool(row) and (row[0] or "").lower() == "ok"
+    except sqlite3.Error:
+        return False
+
+
 def _guard_existing_db_is_healthy(path: Path) -> None:
     """Run ``PRAGMA integrity_check`` on an existing non-empty DB file.
 
@@ -1229,18 +1278,22 @@ def _guard_existing_db_is_healthy(path: Path) -> None:
         reason = f"sqlite refused to open file: {exc}"
     if reason is None:
         return
-    # Back up FIRST so an in-place repair attempt can never lose data, then try
-    # to rebuild indexes — most kanban corruption is a stale/inconsistent index
-    # (e.g. "wrong # of entries in index idx_runs_task"), which REINDEX fixes
-    # losslessly. Only refuse if the DB is still unhealthy afterward.
-    backup = _backup_corrupt_db(resolved)
-    # Escalating self-heal: cheap index rebuild first, then a full row-replay
-    # rebuild for corruption REINDEX can't touch. Only refuse if both fail.
-    if _attempt_reindex_repair(resolved):
-        return
-    if _attempt_db_rebuild(resolved):
-        return
-    raise KanbanDbCorruptError(resolved, backup, reason)
+    # Repair under a cross-process lock so concurrent connects can't rebuild the
+    # same file simultaneously (which corrupts it further). Once we hold the
+    # lock, re-check: a peer may have just healed it.
+    with _heal_lock(resolved):
+        if _integrity_ok(resolved):
+            return
+        # Back up FIRST so an in-place repair attempt can never lose data, then
+        # escalate: cheap index rebuild (fixes a stale index losslessly), then a
+        # full row-replay rebuild for corruption REINDEX can't touch. Only
+        # refuse if both fail.
+        backup = _backup_corrupt_db(resolved)
+        if _attempt_reindex_repair(resolved):
+            return
+        if _attempt_db_rebuild(resolved):
+            return
+        raise KanbanDbCorruptError(resolved, backup, reason)
 
 
 def connect(
