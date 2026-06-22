@@ -987,7 +987,7 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
           .taskLog(kanbanTaskId(widget.task), board: widget.board);
       if (mounted) setState(() => _log = log);
     } catch (e) {
-      if (mounted) setState(() => _logError = '$e');
+      if (mounted) setState(() => _logError = apiErrorMessage(e));
     } finally {
       if (mounted) setState(() => _logLoading = false);
     }

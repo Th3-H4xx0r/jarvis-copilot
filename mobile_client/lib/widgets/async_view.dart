@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/api_client.dart' show apiErrorMessage;
 import '../theme.dart';
 
 /// Owns the loading / error / empty / [RefreshIndicator] boilerplate that every
@@ -77,7 +78,7 @@ class _AsyncViewState<T> extends State<AsyncView<T>> {
       final d = await widget.loader();
       if (mounted) setState(() => _data = d);
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = apiErrorMessage(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
