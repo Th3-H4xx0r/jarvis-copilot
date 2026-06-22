@@ -244,7 +244,7 @@ class _KanbanPageState extends State<KanbanPage> {
             onChanged: (v) => setLocal(() => column = v ?? 'todo'),
           ),
         ),
-        FormTextField(label: 'Assignee', controller: assigneeC, hint: 'Optional'),
+        _AssigneeField(api: _api, controller: assigneeC, board: _boardSlug),
         FormTextField(
             label: 'Priority',
             controller: priorityC,
@@ -288,7 +288,7 @@ class _KanbanPageState extends State<KanbanPage> {
       fields: [
         FormTextField(label: 'Title', controller: titleC),
         FormTextField(label: 'Description', controller: descC, maxLines: 4),
-        FormTextField(label: 'Assignee', controller: assigneeC),
+        _AssigneeField(api: _api, controller: assigneeC, board: _boardSlug),
         FormTextField(
             label: 'Priority',
             controller: priorityC,
@@ -1085,6 +1085,127 @@ class _SheetAction extends StatelessWidget {
       onPressed: onTap,
       icon: Icon(icon, size: 18, color: color),
       label: Text(label, style: TextStyle(color: color)),
+    );
+  }
+}
+
+/// Assignee picker for the task forms: a dropdown of the board's known
+/// assignees (+ Unassigned) plus a "Custom…" option that reveals a free-text
+/// field. Writes the chosen value into [controller] so the form's onSave reads
+/// it unchanged. Falls back to a plain text field if the assignee list fails.
+class _AssigneeField extends StatefulWidget {
+  const _AssigneeField({
+    required this.api,
+    required this.controller,
+    this.board,
+  });
+  final KanbanApi api;
+  final TextEditingController controller;
+  final String? board;
+
+  @override
+  State<_AssigneeField> createState() => _AssigneeFieldState();
+}
+
+class _AssigneeFieldState extends State<_AssigneeField> {
+  static const _custom = '__custom__';
+  static const _none = '__none__';
+
+  List<String> _known = [];
+  String _selection = _none;
+  bool _loading = true;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final raw = await widget.api.assignees(slug: widget.board);
+      final names = <String>[];
+      for (final n in raw) {
+        final t = n.trim();
+        if (t.isNotEmpty && !names.contains(t)) names.add(t);
+      }
+      if (!mounted) return;
+      final initial = widget.controller.text.trim();
+      setState(() {
+        _known = names;
+        if (initial.isEmpty) {
+          _selection = _none;
+        } else if (_known.contains(initial)) {
+          _selection = initial;
+        } else {
+          _selection = _custom; // a typed/unknown value
+        }
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _failed = true;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Graceful fallback: a plain text field if we couldn't load the list.
+    if (_failed) {
+      return FormTextField(
+          label: 'Assignee', controller: widget.controller, hint: 'Optional');
+    }
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 14),
+        child: Row(children: [
+          SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: 10),
+          Text('Loading assignees…',
+              style: TextStyle(color: JcTheme.muted, fontSize: 13)),
+        ]),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FormDropdown<String>(
+          label: 'Assignee',
+          value: _selection,
+          items: [
+            const DropdownMenuItem(value: _none, child: Text('Unassigned')),
+            for (final n in _known)
+              DropdownMenuItem(value: n, child: Text(n)),
+            const DropdownMenuItem(value: _custom, child: Text('Custom…')),
+          ],
+          onChanged: (v) {
+            setState(() {
+              _selection = v ?? _none;
+              if (_selection == _none) {
+                widget.controller.text = '';
+              } else if (_selection != _custom) {
+                widget.controller.text = _selection;
+              } else if (_known.contains(widget.controller.text.trim())) {
+                // Switching from a known name to Custom — start blank.
+                widget.controller.text = '';
+              }
+            });
+          },
+        ),
+        if (_selection == _custom)
+          FormTextField(
+              label: 'Custom assignee',
+              controller: widget.controller,
+              hint: 'Type a name'),
+      ],
     );
   }
 }

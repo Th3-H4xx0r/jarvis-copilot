@@ -7,6 +7,7 @@ import '../../main.dart' as app;
 import '../../theme.dart';
 import '../../widgets/form_sheet.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/status_pill.dart';
 
 /// Native "Workspaces" screen — full parity with the webui Workspaces panel.
 ///
@@ -100,11 +101,28 @@ class _WorkspacesPageState extends State<WorkspacesPage> {
       title: 'Rename workspace',
       saveLabel: 'Rename',
       fields: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: Text(
-            w.path,
-            style: const TextStyle(color: JcTheme.muted, fontSize: 12),
+        Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: JcTheme.surfaceAlt,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: JcTheme.glassBorder),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.folder_outlined,
+                  size: 16, color: JcTheme.muted),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  w.path,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: JcTheme.muted, fontSize: 12.5),
+                ),
+              ),
+            ],
           ),
         ),
         FormTextField(
@@ -212,9 +230,11 @@ class _WorkspacesPageState extends State<WorkspacesPage> {
         onRefresh: _load,
         child: ListView(
           children: const [
-            SizedBox(height: 120),
-            _CenterMsg(
-              'No workspaces yet.\nTap + to add a folder for the agent to work in.',
+            SizedBox(height: 100),
+            _EmptyState(
+              icon: Icons.folder_open_outlined,
+              title: 'No workspaces yet',
+              hint: 'Tap + to add a folder for the agent to work in.',
             ),
           ],
         ),
@@ -223,7 +243,7 @@ class _WorkspacesPageState extends State<WorkspacesPage> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ReorderableListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         itemCount: _workspaces.length,
         onReorderItem: _onReorder,
         proxyDecorator: (child, index, animation) => Material(
@@ -266,22 +286,34 @@ class _WorkspaceRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = isLast ? JcTheme.success : JcTheme.muted;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: GlassCard(
         blur: false,
         fill: JcTheme.surface,
-        padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+        padding: const EdgeInsets.fromLTRB(10, 12, 6, 12),
+        borderColor: isLast
+            ? JcTheme.success.withValues(alpha: 0.35)
+            : JcTheme.glassBorder,
         child: Row(
           children: [
-            ReorderableDragStartListener(
-              index: index,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 6),
-                child: Icon(Icons.drag_indicator,
-                    size: 20, color: JcTheme.muted),
+            // Folder icon chip — tinted on the active workspace.
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: accent.withValues(alpha: isLast ? 0.16 : 0.10),
+                border: Border.all(color: JcTheme.glassBorder),
+              ),
+              child: Icon(
+                isLast ? Icons.folder_rounded : Icons.folder_outlined,
+                size: 19,
+                color: accent,
               ),
             ),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -296,32 +328,41 @@ class _WorkspaceRow extends StatelessWidget {
                           style: const TextStyle(
                             color: JcTheme.text,
                             fontSize: 15,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
                       if (isLast) ...[
                         const SizedBox(width: 8),
-                        const _LastUsedBadge(),
+                        const StatusPill(
+                          'LAST USED',
+                          color: JcTheme.success,
+                          dense: true,
+                        ),
                       ],
                     ],
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Text(
                     workspace.path,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: JcTheme.muted,
-                      fontSize: 12,
+                      fontSize: 12.5,
                     ),
                   ),
                 ],
               ),
             ),
             PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, color: JcTheme.muted),
+              icon: Icon(Icons.more_vert,
+                  color: JcTheme.muted.withValues(alpha: 0.9)),
               color: JcTheme.surfaceAlt,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: const BorderSide(color: JcTheme.glassBorder),
+              ),
               onSelected: (v) {
                 if (v == 'rename') onRename();
                 if (v == 'remove') onRemove();
@@ -329,41 +370,39 @@ class _WorkspaceRow extends StatelessWidget {
               itemBuilder: (_) => const [
                 PopupMenuItem(
                   value: 'rename',
-                  child: Text('Rename',
-                      style: TextStyle(color: JcTheme.text)),
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit_outlined,
+                          size: 18, color: JcTheme.text),
+                      SizedBox(width: 10),
+                      Text('Rename',
+                          style: TextStyle(color: JcTheme.text)),
+                    ],
+                  ),
                 ),
                 PopupMenuItem(
                   value: 'remove',
-                  child: Text('Remove',
-                      style: TextStyle(color: JcTheme.danger)),
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline,
+                          size: 18, color: JcTheme.danger),
+                      SizedBox(width: 10),
+                      Text('Remove',
+                          style: TextStyle(color: JcTheme.danger)),
+                    ],
+                  ),
                 ),
               ],
             ),
+            ReorderableDragStartListener(
+              index: index,
+              child: const Padding(
+                padding: EdgeInsets.only(left: 2, right: 6),
+                child: Icon(Icons.drag_handle_rounded,
+                    size: 22, color: JcTheme.muted),
+              ),
+            ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LastUsedBadge extends StatelessWidget {
-  const _LastUsedBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: JcTheme.success.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: const Text(
-        'LAST USED',
-        style: TextStyle(
-          color: JcTheme.success,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.3,
         ),
       ),
     );
@@ -510,6 +549,58 @@ class _PathFieldWithSuggestionsState
             ),
           ),
       ],
+    );
+  }
+}
+
+/// A polished empty state: a framed icon, a bold title, and a muted hint.
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.hint,
+  });
+  final IconData icon;
+  final String title;
+  final String hint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: JcTheme.glassFill,
+                border: Border.all(color: JcTheme.glassBorder),
+              ),
+              child: Icon(icon, size: 28, color: JcTheme.muted),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: JcTheme.text,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              hint,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: JcTheme.muted, fontSize: 13),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

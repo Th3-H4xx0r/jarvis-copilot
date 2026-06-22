@@ -5,6 +5,7 @@ import '../../main.dart' as app;
 import '../../theme.dart';
 import '../../widgets/async_view.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/status_pill.dart';
 
 /// Native viewer/editor for the agent's long-term memory — MEMORY.md
 /// ("My Notes") and USER.md ("User Profile"). Full parity with the webui
@@ -27,8 +28,16 @@ extension _MemorySectionMeta on _MemorySection {
 
   String get label => this == _MemorySection.user ? 'User Profile' : 'My Notes';
 
+  IconData get icon => this == _MemorySection.user
+      ? Icons.person_outline
+      : Icons.psychology_outlined;
+
   String get emptyText =>
       this == _MemorySection.user ? 'No profile yet.' : 'No notes yet.';
+
+  String get emptyHint => this == _MemorySection.user
+      ? 'Tap the pencil to tell the agent about yourself.'
+      : 'Tap the pencil to jot down notes for the agent.';
 
   /// Keys into the GET /api/memory response map.
   String get contentKey => this == _MemorySection.user ? 'user' : 'memory';
@@ -96,6 +105,7 @@ class _MemoryPageState extends State<MemoryPage> {
                 content: _contentFor(_section),
                 mtime: _mtimeFor(_section),
                 emptyText: _section.emptyText,
+                emptyHint: _section.emptyHint,
               );
             },
           ),
@@ -112,6 +122,7 @@ class _MemoryBody extends StatelessWidget {
     required this.content,
     required this.mtime,
     required this.emptyText,
+    required this.emptyHint,
   });
 
   final _MemorySection section;
@@ -119,6 +130,7 @@ class _MemoryBody extends StatelessWidget {
   final String content;
   final String mtime;
   final String emptyText;
+  final String emptyHint;
 
   @override
   Widget build(BuildContext context) {
@@ -126,65 +138,30 @@ class _MemoryBody extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: SegmentedButton<_MemorySection>(
-            segments: const [
-              ButtonSegment(
-                value: _MemorySection.memory,
-                label: Text('My Notes'),
-                icon: Icon(Icons.psychology_outlined),
-              ),
-              ButtonSegment(
-                value: _MemorySection.user,
-                label: Text('User Profile'),
-                icon: Icon(Icons.person_outline),
-              ),
-            ],
-            selected: {section},
-            onSelectionChanged: (sel) => onSectionChanged(sel.first),
-            showSelectedIcon: false,
-            style: ButtonStyle(
-              backgroundColor: WidgetStateProperty.resolveWith((states) =>
-                  states.contains(WidgetState.selected)
-                      ? JcTheme.accent.withValues(alpha: 0.30)
-                      : JcTheme.surfaceAlt),
-              foregroundColor: WidgetStateProperty.resolveWith((states) =>
-                  states.contains(WidgetState.selected)
-                      ? JcTheme.text
-                      : JcTheme.muted),
-              side: const WidgetStatePropertyAll(
-                BorderSide(color: JcTheme.glassBorder),
-              ),
-            ),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: _SectionToggle(
+            section: section,
+            onChanged: onSectionChanged,
           ),
         ),
         Expanded(
           child: content.trim().isEmpty
-              ? _EmptyState(emptyText)
+              ? _EmptyState(
+                  icon: section.icon,
+                  text: emptyText,
+                  hint: emptyHint,
+                )
               : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   children: [
-                    if (mtime.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.schedule,
-                                size: 14, color: JcTheme.muted),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'Last edited $mtime',
-                                style: const TextStyle(
-                                    color: JcTheme.muted, fontSize: 12),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    if (mtime.isNotEmpty) ...[
+                      _MtimeChip(mtime: mtime),
+                      const SizedBox(height: 12),
+                    ],
                     GlassCard(
                       blur: false,
                       fill: JcTheme.surface,
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
                       child: SelectableText(
                         content,
                         style: const TextStyle(
@@ -204,9 +181,142 @@ class _MemoryBody extends StatelessWidget {
   }
 }
 
+/// A clean segmented control for the My Notes / User Profile toggle, styled as
+/// a single rounded glass track with a tinted selected segment.
+class _SectionToggle extends StatelessWidget {
+  const _SectionToggle({required this.section, required this.onChanged});
+
+  final _MemorySection section;
+  final ValueChanged<_MemorySection> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: JcTheme.surfaceAlt,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: JcTheme.glassBorder),
+      ),
+      child: Row(
+        children: [
+          for (final s in _MemorySection.values)
+            Expanded(
+              child: _SegmentTab(
+                icon: s.icon,
+                label: s.label,
+                selected: s == section,
+                onTap: () => onChanged(s),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SegmentTab extends StatelessWidget {
+  const _SegmentTab({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? JcTheme.text : JcTheme.muted;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          decoration: BoxDecoration(
+            color: selected
+                ? JcTheme.accent.withValues(alpha: 0.28)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected
+                  ? JcTheme.accent.withValues(alpha: 0.45)
+                  : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A subtle "last edited" chip with a clock icon.
+class _MtimeChip extends StatelessWidget {
+  const _MtimeChip({required this.mtime});
+  final String mtime;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: JcTheme.glassFill,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: JcTheme.glassBorder),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.schedule, size: 13, color: JcTheme.muted),
+            const SizedBox(width: 6),
+            Text(
+              'Last edited $mtime',
+              style: const TextStyle(color: JcTheme.muted, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _EmptyState extends StatelessWidget {
-  const _EmptyState(this.text);
+  const _EmptyState({
+    required this.icon,
+    required this.text,
+    required this.hint,
+  });
+  final IconData icon;
   final String text;
+  final String hint;
 
   @override
   Widget build(BuildContext context) {
@@ -217,10 +327,36 @@ class _EmptyState extends StatelessWidget {
         Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text(
-              text,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: JcTheme.muted),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: JcTheme.glassFill,
+                    border: Border.all(color: JcTheme.glassBorder),
+                  ),
+                  child: Icon(icon, size: 28, color: JcTheme.muted),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  text,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: JcTheme.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  hint,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: JcTheme.muted, fontSize: 13),
+                ),
+              ],
             ),
           ),
         ),
@@ -341,11 +477,34 @@ class _MemoryEditorPageState extends State<_MemoryEditorPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10, left: 2),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.edit_note,
+                            size: 16, color: JcTheme.muted),
+                        const SizedBox(width: 6),
+                        const Expanded(
+                          child: Text(
+                            'Markdown supported',
+                            style: TextStyle(
+                                color: JcTheme.muted, fontSize: 12),
+                          ),
+                        ),
+                        if (_dirty)
+                          const StatusPill(
+                            'UNSAVED',
+                            color: JcTheme.accentAlt,
+                            dense: true,
+                          ),
+                      ],
+                    ),
+                  ),
                   Expanded(
                     child: GlassCard(
                       blur: false,
                       fill: JcTheme.surface,
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(14),
                       child: TextField(
                         controller: _controller,
                         onChanged: (_) => setState(() {}),

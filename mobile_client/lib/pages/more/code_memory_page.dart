@@ -7,6 +7,7 @@ import '../../widgets/async_view.dart';
 import '../../widgets/detail_sheet.dart';
 import '../../widgets/form_sheet.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/status_pill.dart';
 
 /// Native "Code memory" screen at parity with the web Code-memory panel: the
 /// shared per-project store of code-knowledge + session handoffs that Claude /
@@ -72,24 +73,43 @@ class _CodeMemoryPageState extends State<CodeMemoryPage> {
         ? _asInt(s['sessions'])
         : o.projects.fold<int>(0, (a, p) => a + _projHandoffs(p));
     final lastActivity = s['last_activity'];
+    final rel = lastActivity == null ? '' : relativeTime(lastActivity);
 
     return GlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _stat('Projects', '$totalProjects'),
-              _stat('Knowledge', '$totalKnowledge'),
-              _stat('Handoffs', '$totalHandoffs'),
+              _stat(Icons.folder_outlined, JcTheme.blue, 'Projects',
+                  '$totalProjects'),
+              _statDivider(),
+              _stat(Icons.lightbulb_outline, JcTheme.cyan, 'Knowledge',
+                  '$totalKnowledge'),
+              _statDivider(),
+              _stat(Icons.history_edu_outlined, JcTheme.accent, 'Handoffs',
+                  '$totalHandoffs'),
             ],
           ),
-          if (lastActivity != null &&
-              relativeTime(lastActivity).isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              'Last active ${relativeTime(lastActivity)}',
-              style: const TextStyle(color: JcTheme.muted, fontSize: 12),
+          if (rel.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(8, 14, 8, 0),
+              child: Divider(height: 1, color: JcTheme.glassBorder),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+              child: Row(
+                children: [
+                  const Icon(Icons.schedule, size: 13, color: JcTheme.muted),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Last active $rel',
+                    style: const TextStyle(color: JcTheme.muted, fontSize: 12),
+                  ),
+                ],
+              ),
             ),
           ],
         ],
@@ -97,9 +117,18 @@ class _CodeMemoryPageState extends State<CodeMemoryPage> {
     );
   }
 
-  Widget _stat(String label, String num) => Expanded(
+  Widget _statDivider() => Container(
+        width: 1,
+        height: 40,
+        color: JcTheme.glassBorder,
+      );
+
+  Widget _stat(IconData icon, Color color, String label, String num) =>
+      Expanded(
         child: Column(
           children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(height: 6),
             Text(num,
                 style: const TextStyle(
                     color: JcTheme.text,
@@ -122,10 +151,10 @@ class _CodeMemoryPageState extends State<CodeMemoryPage> {
     final hand = _projHandoffs(p);
     final lastSeen = p['last_seen'];
     final rel = relativeTime(lastSeen);
-    final meta = StringBuffer('$know knowledge · $hand handoffs');
-    if (rel.isNotEmpty) meta.write(' · $rel');
 
     return GlassCard(
+      blur: false,
+      padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
       onTap: () => Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => _CmProjectPage(
           api: _api,
@@ -135,13 +164,29 @@ class _CodeMemoryPageState extends State<CodeMemoryPage> {
         ),
       )),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Leading repo icon.
+          Container(
+            width: 40,
+            height: 40,
+            margin: const EdgeInsets.only(right: 12, top: 2),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: JcTheme.blue.withValues(alpha: 0.12),
+              border: Border.all(color: JcTheme.glassBorder),
+            ),
+            child: const Icon(Icons.account_tree_outlined,
+                size: 19, color: JcTheme.blue),
+          ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   title.isEmpty ? '(unnamed)' : title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                       color: JcTheme.text,
                       fontSize: 16,
@@ -155,16 +200,38 @@ class _CodeMemoryPageState extends State<CodeMemoryPage> {
                       style: const TextStyle(
                           color: JcTheme.muted, fontSize: 12)),
                 ],
-                const SizedBox(height: 4),
-                Text(meta.toString(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: JcTheme.muted, fontSize: 13)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    StatusPill('$know knowledge',
+                        color: JcTheme.cyan, dense: true),
+                    StatusPill('$hand handoffs',
+                        color: JcTheme.accent, dense: true),
+                    if (rel.isNotEmpty)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.schedule,
+                              size: 12, color: JcTheme.muted),
+                          const SizedBox(width: 4),
+                          Text(rel,
+                              style: const TextStyle(
+                                  color: JcTheme.muted, fontSize: 12)),
+                        ],
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
-          Icon(Icons.chevron_right_rounded,
-              color: JcTheme.muted.withValues(alpha: 0.7)),
+          Padding(
+            padding: const EdgeInsets.only(top: 10, left: 4),
+            child: Icon(Icons.chevron_right_rounded,
+                color: JcTheme.muted.withValues(alpha: 0.7)),
+          ),
         ],
       ),
     );
@@ -225,10 +292,10 @@ class _CodeMemoryPageState extends State<CodeMemoryPage> {
                   const SizedBox(height: 12),
                   if (shown.isEmpty)
                     const Padding(
-                      padding: EdgeInsets.only(top: 40),
-                      child: Center(
-                        child: Text('No matching projects.',
-                            style: TextStyle(color: JcTheme.muted)),
+                      padding: EdgeInsets.only(top: 48),
+                      child: _EmptyState(
+                        icon: Icons.search_off_rounded,
+                        message: 'No matching projects.',
                       ),
                     )
                   else
@@ -281,14 +348,32 @@ class _CmProjectPage extends StatelessWidget {
           child: SafeArea(
             child: Column(
               children: [
-                const TabBar(
-                  indicatorColor: JcTheme.accent,
-                  labelColor: JcTheme.text,
-                  unselectedLabelColor: JcTheme.muted,
-                  tabs: [
-                    Tab(text: 'Knowledge'),
-                    Tab(text: 'Handoffs'),
-                  ],
+                Container(
+                  margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  decoration: BoxDecoration(
+                    color: JcTheme.glassFill,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: JcTheme.glassBorder),
+                  ),
+                  child: const TabBar(
+                    indicator: BoxDecoration(
+                      color: JcTheme.accent,
+                      borderRadius: BorderRadius.all(Radius.circular(11)),
+                    ),
+                    indicatorSize: TabBarIndicatorSize.tab,
+                    indicatorPadding: EdgeInsets.all(4),
+                    dividerColor: Colors.transparent,
+                    labelColor: Colors.white,
+                    unselectedLabelColor: JcTheme.muted,
+                    labelStyle:
+                        TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                    unselectedLabelStyle:
+                        TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    tabs: [
+                      Tab(text: 'Knowledge'),
+                      Tab(text: 'Handoffs'),
+                    ],
+                  ),
                 ),
                 Expanded(
                   child: TabBarView(
@@ -490,12 +575,35 @@ class _CmEntriesTabState extends State<_CmEntriesTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (ts.isNotEmpty) DetailRow('When', ts),
-          DetailRow('Type', type),
-          const SizedBox(height: 4),
-          SelectableText(
-            content.isEmpty ? '(empty)' : content,
-            style: const TextStyle(color: JcTheme.text, fontSize: 15),
+          Row(
+            children: [
+              StatusPill(
+                type,
+                color: _isSessions ? JcTheme.accent : JcTheme.cyan,
+                dense: true,
+              ),
+              if (ts.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                const Icon(Icons.schedule, size: 13, color: JcTheme.muted),
+                const SizedBox(width: 4),
+                Text(ts,
+                    style: const TextStyle(color: JcTheme.muted, fontSize: 12)),
+              ],
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: JcTheme.surfaceAlt,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: SelectableText(
+              content.isEmpty ? '(empty)' : content,
+              style: const TextStyle(
+                  color: JcTheme.text, fontSize: 14.5, height: 1.45),
+            ),
           ),
         ],
       ),
@@ -580,9 +688,9 @@ class _CmEntriesTabState extends State<_CmEntriesTab> {
                 : 'No matches.',
             builder: (context, entries, refresh) {
               return ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 itemCount: entries.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (_, i) {
                   final e = entries[i];
                   final type =
@@ -590,27 +698,56 @@ class _CmEntriesTabState extends State<_CmEntriesTab> {
                           .toString();
                   final rel = relativeTime(e['ts']);
                   return GlassCard(
+                    blur: false,
+                    padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
                     onTap: () => _open(e),
-                    child: Column(
+                    child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            _typeBadge(type),
-                            const Spacer(),
-                            if (rel.isNotEmpty)
-                              Text(rel,
-                                  style: const TextStyle(
-                                      color: JcTheme.muted, fontSize: 12)),
-                          ],
+                        Padding(
+                          padding: const EdgeInsets.only(top: 1, right: 11),
+                          child: Icon(
+                            _isSessions
+                                ? Icons.history_edu_outlined
+                                : Icons.lightbulb_outline,
+                            size: 18,
+                            color: _isSessions ? JcTheme.accent : JcTheme.cyan,
+                          ),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _entryTitle(e),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: JcTheme.text, fontSize: 14, height: 1.35),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _entryTitle(e),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: JcTheme.text,
+                                    fontSize: 14.5,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.35),
+                              ),
+                              const SizedBox(height: 7),
+                              Row(
+                                children: [
+                                  StatusPill(
+                                    type,
+                                    color: _isSessions
+                                        ? JcTheme.accent
+                                        : JcTheme.cyan,
+                                    dense: true,
+                                  ),
+                                  const Spacer(),
+                                  if (rel.isNotEmpty)
+                                    Text(rel,
+                                        style: const TextStyle(
+                                            color: JcTheme.muted,
+                                            fontSize: 12)),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -623,22 +760,29 @@ class _CmEntriesTabState extends State<_CmEntriesTab> {
       ],
     );
   }
+}
 
-  Widget _typeBadge(String type) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-        decoration: BoxDecoration(
-          color: JcTheme.accent.withValues(alpha: 0.18),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(
-          type,
-          style: const TextStyle(
-            color: JcTheme.accent,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      );
+/// A simple icon + message empty state, centered.
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.icon, required this.message});
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 38, color: JcTheme.muted.withValues(alpha: 0.7)),
+          const SizedBox(height: 12),
+          Text(message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: JcTheme.muted, fontSize: 13)),
+        ],
+      ),
+    );
+  }
 }
 
 /// Format a timestamp as a short relative string ("just now", "5m ago",

@@ -5,6 +5,7 @@ import '../../main.dart' as app;
 import '../../theme.dart';
 import '../../widgets/async_view.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/status_pill.dart';
 
 /// Native "Insights" screen — token usage / cost analytics at parity with the
 /// web Insights panel. Shows totals, a per-model breakdown, a daily-token trend
@@ -63,36 +64,65 @@ class _InsightsPageState extends State<InsightsPage> {
   }
 }
 
+/// Segmented period control (7 / 30 / 90 / 365 days), wrapped in a glass pill
+/// so it reads as one tidy control rather than a bare Material segment row.
 class _PeriodSelector extends StatelessWidget {
   const _PeriodSelector({required this.days, required this.onChanged});
   final int days;
   final ValueChanged<int> onChanged;
 
+  static const _options = <int, String>{
+    7: '7d',
+    30: '30d',
+    90: '90d',
+    365: '1y',
+  };
+
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: SegmentedButton<int>(
-        segments: const [
-          ButtonSegment(value: 7, label: Text('7d')),
-          ButtonSegment(value: 30, label: Text('30d')),
-          ButtonSegment(value: 90, label: Text('90d')),
-          ButtonSegment(value: 365, label: Text('1y')),
-        ],
-        selected: {days},
-        onSelectionChanged: (sel) => onChanged(sel.first),
-        showSelectedIcon: false,
-        style: ButtonStyle(
-          backgroundColor: WidgetStateProperty.resolveWith((states) =>
-              states.contains(WidgetState.selected)
-                  ? JcTheme.accent.withValues(alpha: 0.30)
-                  : JcTheme.surfaceAlt),
-          foregroundColor: WidgetStateProperty.resolveWith((states) =>
-              states.contains(WidgetState.selected)
-                  ? JcTheme.text
-                  : JcTheme.muted),
-          side: const WidgetStatePropertyAll(
-            BorderSide(color: JcTheme.glassBorder),
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: JcTheme.glassFill,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: JcTheme.glassBorder),
+        ),
+        child: Row(
+          children: [
+            for (final entry in _options.entries)
+              Expanded(child: _segment(entry.key, entry.value)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _segment(int value, String label) {
+    final selected = value == days;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => onChanged(value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            gradient: selected ? blueGradient() : null,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : JcTheme.muted,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.3,
+            ),
           ),
         ),
       ),
@@ -113,107 +143,113 @@ class _InsightsBody extends StatelessWidget {
     final byHour = parseRows(data['activity_by_hour']);
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
       children: [
-        _TotalsCard(data: data),
-        const SizedBox(height: 12),
+        _StatGrid(data: data),
+        const SizedBox(height: 20),
+        const SectionHeader('By model'),
         _ModelsCard(models: models),
-        const SizedBox(height: 12),
+        const SizedBox(height: 20),
+        const SectionHeader('Activity'),
         _ActivityCard(daily: daily, byDay: byDay, byHour: byHour),
       ],
     );
   }
 }
 
-/// Top-of-screen totals: sessions, messages, in/out tokens, cost.
-class _TotalsCard extends StatelessWidget {
-  const _TotalsCard({required this.data});
+/// Top-of-screen totals as a 2-column grid of GlassCard stat tiles:
+/// sessions, messages, in/out tokens, total tokens, cost.
+class _StatGrid extends StatelessWidget {
+  const _StatGrid({required this.data});
   final Map<String, dynamic> data;
 
   @override
   Widget build(BuildContext context) {
     final tiles = <_Stat>[
       _Stat('Sessions', formatTokenCount(data['total_sessions']),
-          Icons.forum_outlined),
+          Icons.forum_outlined, JcTheme.cyan),
       _Stat('Messages', formatTokenCount(data['total_messages']),
-          Icons.tag),
-      _Stat('Input tokens', formatTokenCount(data['total_input_tokens']),
-          Icons.south_west),
-      _Stat('Output tokens', formatTokenCount(data['total_output_tokens']),
-          Icons.north_east),
-      _Stat('Total tokens', formatTokenCount(data['total_tokens']),
-          Icons.memory),
+          Icons.tag, JcTheme.blue),
+      _Stat('Input tokens', formatTokensCompact(data['total_input_tokens']),
+          Icons.south_west, JcTheme.primaryBlue),
+      _Stat('Output tokens', formatTokensCompact(data['total_output_tokens']),
+          Icons.north_east, JcTheme.accent),
+      _Stat('Total tokens', formatTokensCompact(data['total_tokens']),
+          Icons.memory, JcTheme.accentAlt),
       _Stat('Cost', formatCost(data['total_cost']),
-          Icons.attach_money),
+          Icons.attach_money, JcTheme.success),
     ];
-    return GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _CardTitle('Totals'),
-          const SizedBox(height: 12),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: 2.4,
-            children: tiles.map((s) => _StatTile(stat: s)).toList(),
-          ),
-        ],
-      ),
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      childAspectRatio: 1.65,
+      children: tiles.map((s) => _StatTile(stat: s)).toList(),
     );
   }
 }
 
 class _Stat {
-  const _Stat(this.label, this.value, this.icon);
+  const _Stat(this.label, this.value, this.icon, this.color);
   final String label;
   final String value;
   final IconData icon;
+  final Color color;
 }
 
+/// A single stat tile: tinted icon chip, then a big number over a muted label.
 class _StatTile extends StatelessWidget {
   const _StatTile({required this.stat});
   final _Stat stat;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: JcTheme.glassFill,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: JcTheme.glassBorder),
-      ),
-      child: Row(
+    return GlassCard(
+      blur: false,
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Icon(stat.icon, size: 18, color: JcTheme.primaryBlue),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  stat.value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: JcTheme.text,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  stat.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: JcTheme.muted, fontSize: 11),
-                ),
-              ],
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: stat.color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(9),
             ),
+            child: Icon(stat.icon, size: 17, color: stat.color),
+          ),
+          const SizedBox(height: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                stat.value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: JcTheme.text,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.4,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                stat.label.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: JcTheme.muted,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -229,17 +265,21 @@ class _ModelsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _CardTitle('By model'),
-          const SizedBox(height: 8),
-          if (models.isEmpty)
-            const _EmptyLine('No model usage in this period.')
-          else
-            ...models.map((m) => _ModelRow(model: m)),
-        ],
-      ),
+      child: models.isEmpty
+          ? const _EmptyBlock(
+              icon: Icons.layers_outlined,
+              text: 'No model usage in this period.',
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final (i, m) in models.indexed) ...[
+                  if (i > 0)
+                    const Divider(height: 1, color: JcTheme.glassBorder),
+                  _ModelRow(model: m),
+                ],
+              ],
+            ),
     );
   }
 }
@@ -255,7 +295,7 @@ class _ModelRow extends StatelessWidget {
     final tokens = formatTokensCompact(model['total_tokens']);
     final cost = formatCost(model['cost']);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -269,11 +309,11 @@ class _ModelRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: JcTheme.text,
-                    fontSize: 14,
+                    fontSize: 14.5,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   '$sessions sessions · $tokens tokens',
                   maxLines: 1,
@@ -284,14 +324,7 @@ class _ModelRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          Text(
-            cost,
-            style: const TextStyle(
-              color: JcTheme.cyan,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+          StatusPill(cost, color: JcTheme.cyan, dense: true),
         ],
       ),
     );
@@ -340,29 +373,27 @@ class _ActivityCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _CardTitle('Activity'),
+          const _SubLabel('Daily tokens'),
           const SizedBox(height: 10),
-          const Text('Daily tokens',
-              style: TextStyle(
-                  color: JcTheme.muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
           if (hasDaily)
             _BarList(data: _trimLeadingZeros(dailyBars))
           else
-            const _EmptyLine('No token usage recorded.'),
-          const SizedBox(height: 16),
-          const Text('Sessions by weekday',
-              style: TextStyle(
-                  color: JcTheme.muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
+            const _EmptyBlock(
+              icon: Icons.show_chart,
+              text: 'No token usage recorded.',
+            ),
+          const SizedBox(height: 18),
+          const Divider(height: 1, color: JcTheme.glassBorder),
+          const SizedBox(height: 18),
+          const _SubLabel('Sessions by weekday'),
+          const SizedBox(height: 10),
           if (hasDow)
             _BarList(data: dowBars)
           else
-            const _EmptyLine('No activity recorded.'),
+            const _EmptyBlock(
+              icon: Icons.calendar_today_outlined,
+              text: 'No activity recorded.',
+            ),
         ],
       ),
     );
@@ -407,13 +438,15 @@ class _BarList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (data.isEmpty) return const _EmptyLine('No data.');
+    if (data.isEmpty) {
+      return const _EmptyBlock(icon: Icons.bar_chart, text: 'No data.');
+    }
     final max = data.fold<num>(1, (m, b) => b.value > m ? b.value : m);
     return Column(
       children: data.map((b) {
         final frac = (b.value / max).clamp(0.0, 1.0).toDouble();
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
+          padding: const EdgeInsets.symmetric(vertical: 4),
           child: Row(
             children: [
               SizedBox(
@@ -425,40 +458,44 @@ class _BarList extends StatelessWidget {
                   style: const TextStyle(color: JcTheme.muted, fontSize: 11),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, c) => Stack(
                     children: [
                       Container(
-                        height: 14,
+                        height: 16,
                         decoration: BoxDecoration(
                           color: JcTheme.glassFill,
-                          borderRadius: BorderRadius.circular(7),
+                          borderRadius: BorderRadius.circular(8),
                         ),
                       ),
                       Container(
-                        height: 14,
+                        height: 16,
                         width: (c.maxWidth * frac)
-                            .clamp(b.value > 0 ? 6.0 : 0.0, c.maxWidth),
+                            .clamp(b.value > 0 ? 8.0 : 0.0, c.maxWidth),
                         decoration: BoxDecoration(
-                          gradient: JcTheme.brandGradient,
-                          borderRadius: BorderRadius.circular(7),
+                          gradient: blueGradient(),
+                          borderRadius: BorderRadius.circular(8),
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               SizedBox(
-                width: 48,
+                width: 50,
                 child: Text(
                   b.valueLabel,
                   textAlign: TextAlign.right,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: JcTheme.text, fontSize: 11),
+                  style: const TextStyle(
+                    color: JcTheme.text,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -469,8 +506,9 @@ class _BarList extends StatelessWidget {
   }
 }
 
-class _CardTitle extends StatelessWidget {
-  const _CardTitle(this.text);
+/// A small muted sub-label inside a card (e.g. the two chart sections).
+class _SubLabel extends StatelessWidget {
+  const _SubLabel(this.text);
   final String text;
 
   @override
@@ -478,20 +516,33 @@ class _CardTitle extends StatelessWidget {
         text,
         style: const TextStyle(
           color: JcTheme.text,
-          fontSize: 16,
-          fontWeight: FontWeight.w700,
+          fontSize: 13.5,
+          fontWeight: FontWeight.w600,
         ),
       );
 }
 
-class _EmptyLine extends StatelessWidget {
-  const _EmptyLine(this.text);
+/// Icon + text empty state for a card body.
+class _EmptyBlock extends StatelessWidget {
+  const _EmptyBlock({required this.icon, required this.text});
+  final IconData icon;
   final String text;
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Text(text,
-            style: const TextStyle(color: JcTheme.muted, fontSize: 13)),
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 18, color: JcTheme.muted),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                text,
+                style: const TextStyle(color: JcTheme.muted, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
       );
 }

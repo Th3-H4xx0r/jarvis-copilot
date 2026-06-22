@@ -7,6 +7,7 @@ import '../../widgets/async_view.dart';
 import '../../widgets/detail_sheet.dart';
 import '../../widgets/form_sheet.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/status_pill.dart';
 
 /// Native "Profiles" screen at parity with the web Profiles panel: list every
 /// profile, switch the active one, create new ones, and delete (non-default,
@@ -37,6 +38,8 @@ class _ProfilesPageState extends State<ProfilesPage> {
     if (p['is_default'] == true) return true;
     return (p['name'] ?? '').toString() == 'default';
   }
+
+  bool _gatewayRunning(Map<String, dynamic> p) => p['gateway_running'] == true;
 
   void _toast(String msg) {
     if (!mounted) return;
@@ -108,6 +111,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
     final isActive = name == active;
     final isDefault = _isDefault(p);
     final canDelete = !isDefault && !isActive;
+    final running = _gatewayRunning(p);
 
     showDetailSheet<void>(
       context: context,
@@ -115,6 +119,22 @@ class _ProfilesPageState extends State<ProfilesPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (isActive)
+                const StatusPill('ACTIVE', color: JcTheme.success),
+              if (isDefault)
+                const StatusPill('DEFAULT', color: JcTheme.blue),
+              StatusPill(
+                running ? 'GATEWAY RUNNING' : 'GATEWAY IDLE',
+                color: running ? JcTheme.primaryBlue : JcTheme.muted,
+                live: running,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
           DetailRow('Name', name),
           DetailRow('Model', _model(p)),
           DetailRow('Provider', _provider(p)),
@@ -125,6 +145,7 @@ class _ProfilesPageState extends State<ProfilesPage> {
         if (!isActive)
           GlassButton(
             label: 'Switch to this profile',
+            icon: Icons.swap_horiz_rounded,
             onPressed: () {
               Navigator.of(context).pop();
               _switchTo(name);
@@ -262,51 +283,14 @@ class _ProfilesPageState extends State<ProfilesPage> {
                 separatorBuilder: (_, __) => const SizedBox(height: 12),
                 itemBuilder: (_, i) {
                   final p = profiles[i];
-                  final name = (p['name'] ?? '').toString();
-                  final isActive = name == active;
-                  final model = _model(p);
-                  final provider = _provider(p);
-                  final sub = [model, provider]
-                      .where((s) => s.isNotEmpty)
-                      .join(' · ');
-                  return GlassCard(
+                  return _ProfileCard(
+                    profile: p,
+                    isActive: (p['name'] ?? '').toString() == active,
+                    isDefault: _isDefault(p),
+                    running: _gatewayRunning(p),
+                    model: _model(p),
+                    provider: _provider(p),
                     onTap: () => _openDetail(p, active),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                name.isEmpty ? '(unnamed)' : name,
-                                style: const TextStyle(
-                                  color: JcTheme.text,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              if (sub.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  sub,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      color: JcTheme.muted, fontSize: 13),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        if (isActive) ...[
-                          const SizedBox(width: 10),
-                          _activeBadge(),
-                        ],
-                        const SizedBox(width: 6),
-                        Icon(Icons.chevron_right_rounded,
-                            color: JcTheme.muted.withValues(alpha: 0.7)),
-                      ],
-                    ),
                   );
                 },
               );
@@ -316,21 +300,114 @@ class _ProfilesPageState extends State<ProfilesPage> {
       ),
     );
   }
+}
 
-  Widget _activeBadge() => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: JcTheme.success.withValues(alpha: 0.18),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: const Text(
-          'ACTIVE',
-          style: TextStyle(
-            color: JcTheme.success,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.5,
+class _ProfileCard extends StatelessWidget {
+  const _ProfileCard({
+    required this.profile,
+    required this.isActive,
+    required this.isDefault,
+    required this.running,
+    required this.model,
+    required this.provider,
+    required this.onTap,
+  });
+
+  final Map<String, dynamic> profile;
+  final bool isActive;
+  final bool isDefault;
+  final bool running;
+  final String model;
+  final String provider;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (profile['name'] ?? '').toString();
+    final sub = [model, provider].where((s) => s.isNotEmpty).join(' · ');
+    final dotColor = running ? JcTheme.primaryBlue : JcTheme.muted;
+    return GlassCard(
+      blur: false,
+      onTap: onTap,
+      padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+      borderColor: isActive
+          ? JcTheme.success.withValues(alpha: 0.40)
+          : JcTheme.glassBorder,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Leading gateway-state rail.
+          Padding(
+            padding: const EdgeInsets.only(top: 4, right: 12),
+            child: running
+                ? PulsingDot(color: dotColor, size: 9)
+                : Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(
+                        shape: BoxShape.circle, color: dotColor),
+                  ),
           ),
-        ),
-      );
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name.isEmpty ? '(unnamed)' : name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: JcTheme.text,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    if (isActive) ...[
+                      const SizedBox(width: 8),
+                      const StatusPill('ACTIVE',
+                          color: JcTheme.success, dense: true),
+                    ],
+                    if (isDefault) ...[
+                      const SizedBox(width: 6),
+                      const StatusPill('DEFAULT',
+                          color: JcTheme.blue, dense: true),
+                    ],
+                  ],
+                ),
+                if (sub.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      const Icon(Icons.memory_rounded,
+                          size: 13, color: JcTheme.muted),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          sub,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: JcTheme.muted, fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(Icons.chevron_right_rounded,
+                color: JcTheme.muted.withValues(alpha: 0.7)),
+          ),
+        ],
+      ),
+    );
+  }
 }

@@ -7,6 +7,7 @@ import '../../api/server_logs.dart';
 import '../../main.dart' as app;
 import '../../theme.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/status_pill.dart';
 
 /// Native "Server logs" screen — at parity with the web logs panel
 /// (`webui/static/panels.js` `loadLogs`). Tails an active-profile server log
@@ -157,7 +158,6 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _controls(),
-              const Divider(height: 1, color: JcTheme.glassBorder),
               Expanded(child: _body()),
               _footer(),
             ],
@@ -169,82 +169,117 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
 
   Widget _controls() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 10,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              _dropdown<String>(
-                label: 'File',
-                value: _file,
-                items: [
-                  for (final f in serverLogFiles)
-                    DropdownMenuItem(value: f, child: Text(f)),
-                ],
-                onChanged: (v) {
-                  if (v == null) return;
-                  setState(() => _file = v);
-                  _load();
-                },
-              ),
-              _dropdown<int>(
-                label: 'Tail',
-                value: _tail,
-                items: const [
-                  DropdownMenuItem(value: 100, child: Text('100')),
-                  DropdownMenuItem(value: 200, child: Text('200')),
-                  DropdownMenuItem(value: 500, child: Text('500')),
-                  DropdownMenuItem(value: 1000, child: Text('1000')),
-                ],
-                onChanged: (v) {
-                  if (v == null) return;
-                  setState(() => _tail = v);
-                  _load();
-                },
-              ),
-              _dropdown<_SeverityFilter>(
-                label: 'Show',
-                value: _filter,
-                items: const [
-                  DropdownMenuItem(value: _SeverityFilter.all, child: Text('All')),
-                  DropdownMenuItem(
-                      value: _SeverityFilter.warnings, child: Text('Warn+')),
-                  DropdownMenuItem(
-                      value: _SeverityFilter.errors, child: Text('Errors')),
-                ],
-                onChanged: (v) {
-                  if (v == null) return;
-                  setState(() => _filter = v);
-                },
-              ),
-              _copyButton(),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              _toggle(
-                label: 'Wrap',
-                value: _wrap,
-                onChanged: (v) => setState(() => _wrap = v),
-              ),
-              const SizedBox(width: 16),
-              _toggle(
-                label: 'Auto-refresh',
-                value: _autoRefresh,
-                onChanged: (v) {
-                  setState(() => _autoRefresh = v);
-                  _syncAutoRefresh();
-                },
-              ),
-            ],
-          ),
-        ],
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: GlassCard(
+        blur: false,
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _dropdown<String>(
+                  label: 'File',
+                  value: _file,
+                  items: [
+                    for (final f in serverLogFiles)
+                      DropdownMenuItem(value: f, child: Text(f)),
+                  ],
+                  onChanged: (v) {
+                    if (v == null) return;
+                    setState(() => _file = v);
+                    _load();
+                  },
+                ),
+                _dropdown<int>(
+                  label: 'Tail',
+                  value: _tail,
+                  items: const [
+                    DropdownMenuItem(value: 100, child: Text('100')),
+                    DropdownMenuItem(value: 200, child: Text('200')),
+                    DropdownMenuItem(value: 500, child: Text('500')),
+                    DropdownMenuItem(value: 1000, child: Text('1000')),
+                  ],
+                  onChanged: (v) {
+                    if (v == null) return;
+                    setState(() => _tail = v);
+                    _load();
+                  },
+                ),
+                _dropdown<_SeverityFilter>(
+                  label: 'Show',
+                  value: _filter,
+                  items: const [
+                    DropdownMenuItem(value: _SeverityFilter.all, child: Text('All')),
+                    DropdownMenuItem(
+                        value: _SeverityFilter.warnings, child: Text('Warn+')),
+                    DropdownMenuItem(
+                        value: _SeverityFilter.errors, child: Text('Errors')),
+                  ],
+                  onChanged: (v) {
+                    if (v == null) return;
+                    setState(() => _filter = v);
+                  },
+                ),
+                _copyButton(),
+              ],
+            ),
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: JcTheme.glassBorder),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _toggle(
+                  label: 'Wrap',
+                  value: _wrap,
+                  onChanged: (v) => setState(() => _wrap = v),
+                ),
+                const SizedBox(width: 8),
+                _toggle(
+                  label: 'Live',
+                  value: _autoRefresh,
+                  onChanged: (v) {
+                    setState(() => _autoRefresh = v);
+                    _syncAutoRefresh();
+                  },
+                ),
+                const Spacer(),
+                _legend(),
+              ],
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  /// Compact severity legend so the line colours are decodable at a glance.
+  Widget _legend() {
+    Widget chip(Color c, String label) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: c),
+            ),
+            const SizedBox(width: 4),
+            Text(label,
+                style: const TextStyle(color: JcTheme.muted, fontSize: 11)),
+          ],
+        );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        chip(JcTheme.danger, 'Error'),
+        const SizedBox(width: 10),
+        chip(JcTheme.blue, 'Warn'),
+        const SizedBox(width: 10),
+        chip(JcTheme.muted, 'Info'),
+      ],
     );
   }
 
@@ -257,15 +292,20 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       decoration: BoxDecoration(
-        color: JcTheme.glassFill,
+        color: JcTheme.surfaceAlt,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: JcTheme.glassBorder),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('$label  ',
-              style: const TextStyle(color: JcTheme.muted, fontSize: 13)),
+          Text(label,
+              style: const TextStyle(
+                  color: JcTheme.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3)),
+          const SizedBox(width: 6),
           DropdownButton<T>(
             value: value,
             items: items,
@@ -273,7 +313,9 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
             isDense: true,
             underline: const SizedBox.shrink(),
             dropdownColor: JcTheme.surface,
-            style: const TextStyle(color: JcTheme.text, fontSize: 14),
+            borderRadius: BorderRadius.circular(12),
+            style: const TextStyle(
+                color: JcTheme.text, fontSize: 14, fontWeight: FontWeight.w600),
             icon: const Icon(Icons.arrow_drop_down, color: JcTheme.muted),
           ),
         ],
@@ -289,38 +331,46 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(label, style: const TextStyle(color: JcTheme.text, fontSize: 14)),
-        const SizedBox(width: 4),
+        Text(label, style: const TextStyle(color: JcTheme.text, fontSize: 13)),
         Switch(
           value: value,
           onChanged: onChanged,
           activeThumbColor: JcTheme.accent,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
       ],
     );
   }
 
   Widget _copyButton() {
+    final disabled = _filtered.isEmpty;
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: _filtered.isEmpty ? null : _copyAll,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: JcTheme.glassFill,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: JcTheme.glassBorder),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.copy_all_outlined, size: 16, color: JcTheme.text),
-              SizedBox(width: 6),
-              Text('Copy', style: TextStyle(color: JcTheme.text, fontSize: 14)),
-            ],
+        onTap: disabled ? null : _copyAll,
+        child: Opacity(
+          opacity: disabled ? 0.5 : 1,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(
+              color: JcTheme.surfaceAlt,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: JcTheme.glassBorder),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.copy_all_outlined, size: 15, color: JcTheme.text),
+                SizedBox(width: 6),
+                Text('Copy',
+                    style: TextStyle(
+                        color: JcTheme.text,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600)),
+              ],
+            ),
           ),
         ),
       ),
@@ -338,6 +388,9 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              const Icon(Icons.error_outline,
+                  size: 32, color: JcTheme.danger),
+              const SizedBox(height: 12),
               Text(_error!,
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: JcTheme.danger)),
@@ -353,33 +406,62 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(
-            _hint.isNotEmpty ? _hint : 'No log lines.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: JcTheme.muted),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.article_outlined,
+                  size: 32, color: JcTheme.muted),
+              const SizedBox(height: 12),
+              Text(
+                _hint.isNotEmpty ? _hint : 'No log lines.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: JcTheme.muted),
+              ),
+            ],
           ),
         ),
       );
     }
 
     final list = ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       itemCount: lines.length,
       itemBuilder: (_, i) {
         final line = lines[i];
-        final color = _lineColor(logSeverity(line));
+        final sev = logSeverity(line);
+        final color = _lineColor(sev);
+        // A thin coloured rail in front of warn/error lines so they stand out
+        // even when scanning fast; info lines get a transparent rail to align.
+        final railColor =
+            sev == 'info' ? Colors.transparent : color.withValues(alpha: 0.7);
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 1),
-          child: Text(
-            line,
-            softWrap: _wrap,
-            overflow: _wrap ? TextOverflow.clip : TextOverflow.visible,
-            style: TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 12,
-              height: 1.35,
-              color: color,
-            ),
+          padding: const EdgeInsets.symmetric(vertical: 1.5),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 3,
+                margin: const EdgeInsets.only(top: 2, right: 8),
+                height: 13,
+                decoration: BoxDecoration(
+                  color: railColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  line,
+                  softWrap: _wrap,
+                  overflow: _wrap ? TextOverflow.clip : TextOverflow.visible,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    height: 1.4,
+                    color: color,
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -405,28 +487,70 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
     final total = _lines.length;
     final shown = _filtered.length;
     final countLabel =
-        _filter == _SeverityFilter.all ? '$total lines' : '$shown / $total lines';
+        _filter == _SeverityFilter.all ? '$total' : '$shown / $total';
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
       decoration: const BoxDecoration(
         border: Border(top: BorderSide(color: JcTheme.glassBorder)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '$countLabel · ${_bytesLabel(_totalBytes)} · ${_mtimeLabel()}',
-            style: const TextStyle(color: JcTheme.muted, fontSize: 12),
+          Row(
+            children: [
+              if (_autoRefresh) ...[
+                const PulsingDot(color: JcTheme.success, size: 7),
+                const SizedBox(width: 6),
+                const Text('LIVE',
+                    style: TextStyle(
+                      color: JcTheme.success,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6,
+                    )),
+                const SizedBox(width: 12),
+              ],
+              Expanded(
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _metaItem(Icons.notes_outlined, '$countLabel lines'),
+                    _metaItem(
+                        Icons.straighten_outlined, _bytesLabel(_totalBytes)),
+                    _metaItem(Icons.schedule, _mtimeLabel()),
+                  ],
+                ),
+              ),
+            ],
           ),
           if (_truncated) ...[
-            const SizedBox(height: 4),
-            const Text(
-              'Truncated — showing the tail of a large file.',
-              style: TextStyle(color: JcTheme.blue, fontSize: 12),
+            const SizedBox(height: 6),
+            const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.content_cut, size: 13, color: JcTheme.blue),
+                SizedBox(width: 5),
+                Text(
+                  'Truncated — showing the tail of a large file.',
+                  style: TextStyle(color: JcTheme.blue, fontSize: 12),
+                ),
+              ],
             ),
           ],
         ],
       ),
     );
   }
+
+  Widget _metaItem(IconData icon, String text) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: JcTheme.muted),
+          const SizedBox(width: 5),
+          Text(text,
+              style: const TextStyle(color: JcTheme.muted, fontSize: 12)),
+        ],
+      );
 }

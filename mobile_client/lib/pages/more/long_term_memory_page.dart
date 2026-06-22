@@ -6,6 +6,7 @@ import '../../api/jarvis_memory.dart';
 import '../../main.dart' as app;
 import '../../theme.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/status_pill.dart';
 
 /// Native "Long-term memory" screen — the jarvis_memory semantic store (the
 /// same data the webui "Long-term memory" panel renders).
@@ -265,28 +266,52 @@ class _LongTermMemoryPageState extends State<LongTermMemoryPage> {
 
   Widget _unavailable(String? message) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 80, 24, 24),
+      padding: const EdgeInsets.fromLTRB(16, 64, 16, 24),
       children: [
-        const Icon(Icons.memory_outlined, size: 48, color: JcTheme.muted),
-        const SizedBox(height: 16),
-        const Text(
-          'Long-term memory store unavailable',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-              color: JcTheme.text, fontSize: 17, fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          message ??
-              'The jarvis_memory store isn’t initialized yet. Run '
-                  'memory setup and choose jarvis_memory, then chat — turns are '
-                  'captured automatically and become searchable here.',
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: JcTheme.muted, fontSize: 13, height: 1.5),
-        ),
-        const SizedBox(height: 20),
-        Center(
-          child: TextButton(onPressed: _reload, child: const Text('Retry')),
+        GlassCard(
+          padding: const EdgeInsets.fromLTRB(20, 28, 20, 24),
+          child: Column(
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: JcTheme.muted.withValues(alpha: 0.12),
+                  border: Border.all(color: JcTheme.glassBorder),
+                ),
+                child: const Icon(Icons.cloud_off_rounded,
+                    size: 30, color: JcTheme.muted),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Memory store unavailable',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: JcTheme.text,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                message ??
+                    'The jarvis_memory store isn’t initialized yet. Run '
+                        'memory setup and choose jarvis_memory, then chat — '
+                        'turns are captured automatically and become '
+                        'searchable here.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    color: JcTheme.muted, fontSize: 13, height: 1.5),
+              ),
+              const SizedBox(height: 20),
+              GlassButton(
+                label: 'Retry',
+                icon: Icons.refresh,
+                ghost: true,
+                onPressed: _reload,
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -299,29 +324,46 @@ class _LongTermMemoryPageState extends State<LongTermMemoryPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(
-                '${data.count}',
-                style: const TextStyle(
-                  color: JcTheme.text,
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
-                  height: 1.0,
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: JcTheme.accent.withValues(alpha: 0.14),
+                  border: Border.all(color: JcTheme.glassBorder),
                 ),
+                child: const Icon(Icons.psychology_outlined,
+                    size: 24, color: JcTheme.accent),
               ),
-              const SizedBox(width: 8),
-              const Padding(
-                padding: EdgeInsets.only(bottom: 4),
-                child: Text(
-                  'memories',
-                  style: TextStyle(color: JcTheme.muted, fontSize: 13),
-                ),
+              const SizedBox(width: 14),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${data.count}',
+                    style: const TextStyle(
+                      color: JcTheme.text,
+                      fontSize: 30,
+                      fontWeight: FontWeight.w800,
+                      height: 1.0,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'memories stored',
+                    style: TextStyle(color: JcTheme.muted, fontSize: 13),
+                  ),
+                ],
               ),
             ],
           ),
           if (namespaces.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
+            const Divider(height: 1, color: JcTheme.glassBorder),
+            const SizedBox(height: 14),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -380,16 +422,23 @@ class _LongTermMemoryPageState extends State<LongTermMemoryPage> {
           ? 'No memories captured yet.'
           : 'No memories match “$_lastQuery”.';
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        child: Center(
-          child: Text(msg,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: JcTheme.muted, fontSize: 13)),
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: _SectionEmpty(
+          icon: _lastQuery.isEmpty
+              ? Icons.inventory_2_outlined
+              : Icons.search_off_rounded,
+          message: msg,
         ),
       );
     }
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        SectionHeader(
+          _lastQuery.isEmpty ? 'Recent' : 'Results',
+          trailing: StatusPill('${_results.length}',
+              color: JcTheme.cyan, dense: true),
+        ),
         for (final e in _results)
           _MemoryEntryCard(
             entry: e,
@@ -403,25 +452,29 @@ class _LongTermMemoryPageState extends State<LongTermMemoryPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Expanded(child: glassReflectionsLabel),
-            GlassButton(
-              label: 'Run reflection',
-              icon: Icons.auto_awesome,
-              ghost: true,
-              onPressed: _runReflections,
-            ),
-          ],
+        SectionHeader(
+          'Reflections',
+          trailing: reflections.isEmpty
+              ? null
+              : StatusPill('${reflections.length}',
+                  color: JcTheme.accent, dense: true),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 4),
+        SizedBox(
+          width: double.infinity,
+          child: GlassButton(
+            label: 'Run reflection',
+            icon: Icons.auto_awesome,
+            full: true,
+            onPressed: _runReflections,
+          ),
+        ),
+        const SizedBox(height: 14),
         if (reflections.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              'No insights yet — they appear as Jarvis reviews your memory.',
-              style: TextStyle(color: JcTheme.muted, fontSize: 13),
-            ),
+          const _SectionEmpty(
+            icon: Icons.auto_awesome_outlined,
+            message:
+                'No insights yet — they appear as Jarvis reviews your memory.',
           )
         else
           for (final r in reflections)
@@ -433,12 +486,6 @@ class _LongTermMemoryPageState extends State<LongTermMemoryPage> {
     );
   }
 }
-
-const Widget glassReflectionsLabel = Text(
-  'Reflections',
-  style: TextStyle(
-      color: JcTheme.text, fontSize: 18, fontWeight: FontWeight.w700),
-);
 
 class _NamespaceChip extends StatelessWidget {
   const _NamespaceChip({required this.name, required this.count});
@@ -496,35 +543,46 @@ class _MemoryEntryCard extends StatelessWidget {
         [source, namespace].where((s) => s.isNotEmpty).join(' · ');
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 10),
       child: GlassCard(
         blur: false,
         fill: JcTheme.surface,
-        padding: const EdgeInsets.fromLTRB(14, 12, 8, 10),
+        padding: const EdgeInsets.fromLTRB(14, 13, 8, 11),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               body,
               style: const TextStyle(
-                  color: JcTheme.text, fontSize: 14, height: 1.4),
+                  color: JcTheme.text, fontSize: 14, height: 1.45),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Row(
               children: [
                 if (meta.isNotEmpty)
                   Expanded(
-                    child: Text(meta,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: JcTheme.muted, fontSize: 11)),
+                    child: Row(
+                      children: [
+                        Icon(Icons.label_outline,
+                            size: 13,
+                            color: JcTheme.muted.withValues(alpha: 0.8)),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text(meta,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: JcTheme.muted, fontSize: 11.5)),
+                        ),
+                      ],
+                    ),
                   )
                 else
                   const Spacer(),
                 if (score is num) ...[
                   const SizedBox(width: 8),
-                  _ScorePill(score: score.toDouble()),
+                  StatusPill(score.toDouble().toStringAsFixed(2),
+                      color: JcTheme.cyan, dense: true),
                 ],
                 IconButton(
                   visualDensity: VisualDensity.compact,
@@ -537,27 +595,6 @@ class _MemoryEntryCard extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _ScorePill extends StatelessWidget {
-  const _ScorePill({required this.score});
-  final double score;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        color: JcTheme.cyan.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        score.toStringAsFixed(2),
-        style: const TextStyle(
-            color: JcTheme.cyan, fontSize: 11, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -577,41 +614,32 @@ class _ReflectionCard extends StatelessWidget {
     final showBody = body.isNotEmpty && body != title;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 10),
       child: GlassCard(
         blur: false,
         fill: JcTheme.surface,
-        padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+        padding: const EdgeInsets.fromLTRB(14, 13, 8, 13),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                const Icon(Icons.auto_awesome,
+                    size: 16, color: JcTheme.accent),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     title,
                     style: const TextStyle(
                         color: JcTheme.text,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600),
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700),
                   ),
                 ),
                 if (kind.isNotEmpty) ...[
                   const SizedBox(width: 8),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: JcTheme.accent.withValues(alpha: 0.16),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(kind,
-                        style: const TextStyle(
-                            color: JcTheme.accent,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700)),
-                  ),
+                  StatusPill(kind, color: JcTheme.accent, dense: true),
                 ],
                 TextButton(
                   onPressed: onDismiss,
@@ -626,11 +654,40 @@ class _ReflectionCard extends StatelessWidget {
               ],
             ),
             if (showBody) ...[
-              const SizedBox(height: 4),
-              Text(body,
-                  style: const TextStyle(
-                      color: JcTheme.muted, fontSize: 12, height: 1.4)),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.only(left: 24, right: 6),
+                child: Text(body,
+                    style: const TextStyle(
+                        color: JcTheme.muted, fontSize: 12.5, height: 1.45)),
+              ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A compact in-list empty state: a soft icon above a muted message.
+class _SectionEmpty extends StatelessWidget {
+  const _SectionEmpty({required this.icon, required this.message});
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 32, color: JcTheme.muted.withValues(alpha: 0.7)),
+            const SizedBox(height: 10),
+            Text(message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: JcTheme.muted, fontSize: 13)),
           ],
         ),
       ),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../api/crons.dart';
@@ -7,6 +9,7 @@ import '../../widgets/async_view.dart';
 import '../../widgets/detail_sheet.dart';
 import '../../widgets/form_sheet.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/status_pill.dart';
 
 /// Native "Tasks (cron)" screen — full parity with the web Tasks panel.
 ///
@@ -23,6 +26,32 @@ class TasksPage extends StatefulWidget {
 class _TasksPageState extends State<TasksPage> {
   late final CronsApi _api = CronsApi(app.api);
   final AsyncViewController _ctrl = AsyncViewController();
+
+  /// Auto-refresh poll: runs only while at least one job is actively running,
+  /// so the running indicator + status stay live without constant polling.
+  Timer? _poll;
+
+  /// Job ids whose run() call is in flight — drives a spinner on that card's
+  /// Run button for immediate feedback before the status flips to RUNNING.
+  final Set<String> _startingRuns = {};
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  /// Start/stop the live poll based on whether anything is running.
+  void _syncPoll(bool anyRunning) {
+    if (anyRunning) {
+      _poll ??= Timer.periodic(const Duration(seconds: 4), (_) {
+        if (mounted) _ctrl.refresh();
+      });
+    } else {
+      _poll?.cancel();
+      _poll = null;
+    }
+  }
 
   /// Seed for the skills chip picker — the union of skills across all loaded
   /// jobs, so editing an existing job keeps its skills selectable.
@@ -55,6 +84,25 @@ class _TasksPageState extends State<TasksPage> {
       await _ctrl.refresh();
     } catch (e) {
       _snack('$e');
+    }
+  }
+
+  /// Run a job straight from its card, with a spinner on the Run button while
+  /// the request is in flight and the live poll kicked on immediately.
+  Future<void> _runJob(Map<String, dynamic> job) async {
+    final id = cronJobId(job);
+    setState(() => _startingRuns.add(id));
+    _syncPoll(true);
+    try {
+      await _api.run(id);
+      _snack('Run started');
+    } catch (e) {
+      _snack('$e');
+    } finally {
+      if (mounted) {
+        setState(() => _startingRuns.remove(id));
+        await _ctrl.refresh();
+      }
     }
   }
 
@@ -283,7 +331,11 @@ class _TasksPageState extends State<TasksPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _StatusBadge(statusKey),
+          StatusPill(
+            cronStatusLabel(statusKey),
+            color: cronStatusColor(statusKey),
+            live: statusKey == 'running',
+          ),
           const SizedBox(height: 12),
           DetailRow('Prompt', (job['prompt'] ?? '').toString()),
           DetailRow('Schedule', cronSchedule(job)),
@@ -331,16 +383,27 @@ class _TasksPageState extends State<TasksPage> {
             emptyText: 'No scheduled tasks yet.',
             builder: (ctx, jobs, refresh) {
               _harvestSkills(jobs);
+              final anyRunning = jobs.any((j) =>
+                  cronStatusKey(j) == 'running' ||
+                  _startingRuns.contains(cronJobId(j)));
+              WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => _syncPoll(anyRunning));
               return ListView.builder(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 itemCount: jobs.length,
-                itemBuilder: (_, i) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _JobCard(
-                    job: jobs[i],
-                    onTap: () => _openDetail(jobs[i]),
-                  ),
-                ),
+                itemBuilder: (_, i) {
+                  final job = jobs[i];
+                  final id = cronJobId(job);
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _JobCard(
+                      job: job,
+                      starting: _startingRuns.contains(id),
+                      onTap: () => _openDetail(job),
+                      onRun: () => _runJob(job),
+                    ),
+                  );
+                },
               );
             },
           ),
@@ -351,81 +414,181 @@ class _TasksPageState extends State<TasksPage> {
 }
 
 class _JobCard extends StatelessWidget {
-  const _JobCard({required this.job, required this.onTap});
+  const _JobCard({
+    required this.job,
+    required this.onTap,
+    required this.onRun,
+    this.starting = false,
+  });
   final Map<String, dynamic> job;
   final VoidCallback onTap;
+  final VoidCallback onRun;
+  final bool starting;
 
   @override
   Widget build(BuildContext context) {
     final statusKey = cronStatusKey(job);
+    final running = statusKey == 'running' || starting;
+    final paused = cronIsPaused(job);
+    final color = running ? JcTheme.primaryBlue : cronStatusColor(statusKey);
     final schedule = cronSchedule(job);
     final nextRun = (job['next_run'] ?? job['next_run_at'] ?? '').toString();
     final lastRun = (job['last_run'] ?? job['last_run_at'] ?? '').toString();
     return GlassCard(
       blur: false,
       onTap: onTap,
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
+      borderColor: running
+          ? JcTheme.primaryBlue.withValues(alpha: 0.45)
+          : JcTheme.glassBorder,
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  (job['name'] ?? '(unnamed)').toString(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: JcTheme.text,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700),
-                ),
-              ),
-              const SizedBox(width: 8),
-              _StatusBadge(statusKey),
-            ],
+          // Leading status rail.
+          Padding(
+            padding: const EdgeInsets.only(top: 3, right: 12),
+            child: running
+                ? PulsingDot(color: color, size: 9)
+                : Container(
+                    width: 9,
+                    height: 9,
+                    decoration:
+                        BoxDecoration(shape: BoxShape.circle, color: color),
+                  ),
           ),
-          if (schedule.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(schedule,
-                style: const TextStyle(color: JcTheme.muted, fontSize: 13)),
-          ],
-          if (nextRun.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text('Next: $nextRun',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: JcTheme.muted, fontSize: 12)),
-          ],
-          if (lastRun.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Text('Last: $lastRun',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: JcTheme.muted, fontSize: 12)),
-          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        (job['name'] ?? '(unnamed)').toString(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: JcTheme.text,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    StatusPill(
+                      starting ? 'STARTING' : cronStatusLabel(statusKey),
+                      color: color,
+                      live: running,
+                      dense: true,
+                    ),
+                  ],
+                ),
+                if (schedule.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      const Icon(Icons.schedule,
+                          size: 13, color: JcTheme.muted),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(schedule,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: JcTheme.muted, fontSize: 13)),
+                      ),
+                    ],
+                  ),
+                ],
+                if (nextRun.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text('Next · $nextRun',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: JcTheme.muted, fontSize: 12)),
+                ],
+                if (lastRun.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text('Last · $lastRun',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: JcTheme.muted, fontSize: 12)),
+                ],
+              ],
+            ),
+          ),
+          // Trailing Run button.
+          _RunButton(
+            running: running,
+            starting: starting,
+            paused: paused,
+            onRun: onRun,
+          ),
         ],
       ),
     );
   }
 }
 
-class _StatusBadge extends StatelessWidget {
-  const _StatusBadge(this.statusKey);
-  final String statusKey;
+/// A prominent square Run button (filled accent), matching the coding-bar
+/// style. Shows a spinner while starting and a steady glow while running.
+class _RunButton extends StatelessWidget {
+  const _RunButton({
+    required this.running,
+    required this.starting,
+    required this.paused,
+    required this.onRun,
+  });
+  final bool running;
+  final bool starting;
+  final bool paused;
+  final VoidCallback onRun;
 
   @override
   Widget build(BuildContext context) {
-    final color = cronStatusColor(statusKey);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        cronStatusLabel(statusKey),
-        style: TextStyle(
-            color: color, fontSize: 11, fontWeight: FontWeight.w700),
+    final active = running || starting;
+    return Padding(
+      padding: const EdgeInsets.only(left: 6, top: 2),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: active ? null : onRun,
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              gradient: active ? null : blueGradient(),
+              color: active ? JcTheme.glassFill : null,
+              border: active
+                  ? Border.all(color: JcTheme.glassBorder)
+                  : null,
+              boxShadow: active
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: JcTheme.primaryBlue.withValues(alpha: 0.35),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+            ),
+            child: starting
+                ? const Padding(
+                    padding: EdgeInsets.all(11),
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: JcTheme.primaryBlue),
+                  )
+                : Icon(
+                    running ? Icons.autorenew : Icons.play_arrow_rounded,
+                    color: active ? JcTheme.primaryBlue : Colors.white,
+                    size: 22,
+                  ),
+          ),
+        ),
       ),
     );
   }
