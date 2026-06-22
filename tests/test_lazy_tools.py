@@ -215,6 +215,47 @@ def test_apply_partition_noop_when_disabled(monkeypatch):
     assert a._lazy_tools_manifest == ""
 
 
+def test_apply_partition_skipped_for_claude_code_structured(monkeypatch):
+    # The claude-code structured (MCP) engine drives a whole turn with a FIXED
+    # native tool list and can't pull a deferred tool's schema mid-turn, so lazy
+    # partitioning is skipped: the full tool set stays directly callable and the
+    # broken-on-this-engine tool_search meta-tool is dropped.
+    _enable_lazy(monkeypatch)
+    import agent.claude_code_structured as ccs
+    monkeypatch.setattr(ccs, "structured_enabled", lambda: True, raising=False)
+    a = _AgentForPartition(
+        ["tool_search", "web_search", "browser_navigate"] + [f"d{i}" for i in range(7)])
+    a.provider = "claude-code"
+    lt.apply_lazy_partition(a)
+    adv = {t["function"]["name"] for t in a.tools}
+    assert "browser_navigate" in adv          # deferred tool stays directly callable
+    assert "d0" in adv                         # nothing deferred to the manifest
+    assert "tool_search" not in adv            # broken meta-tool dropped
+    assert "tool_search" not in a.valid_tool_names
+    assert a._lazy_tools_manifest == ""        # no manifest / lazy guidance injected
+
+
+def test_apply_partition_active_for_claude_code_text_shim(monkeypatch):
+    # With the structured engine OFF (text-shim), claude-code runs the normal
+    # executor loop where tool_search works, so lazy partitioning still applies.
+    _enable_lazy(monkeypatch)
+    import agent.claude_code_structured as ccs
+    monkeypatch.setattr(ccs, "structured_enabled", lambda: False, raising=False)
+    a = _AgentForPartition(["tool_search", "web_search"] + [f"d{i}" for i in range(7)])
+    a.provider = "claude-code"
+    lt.apply_lazy_partition(a)
+    assert a._lazy_tools_manifest             # manifest built (lazy active)
+
+
+def test_apply_partition_active_for_non_claude_code(monkeypatch):
+    # Other providers (codex/anthropic/…) use the normal loop; lazy stays on.
+    _enable_lazy(monkeypatch)
+    a = _AgentForPartition(["tool_search", "web_search"] + [f"d{i}" for i in range(7)])
+    a.provider = "openai-codex"
+    lt.apply_lazy_partition(a)
+    assert a._lazy_tools_manifest
+
+
 def test_available_tool_names_includes_deferred():
     a = _AgentForPartition(["tool_search", "web_search"])
     a._lazy_all_tool_names = {"tool_search", "web_search", "browser_navigate"}

@@ -133,6 +133,30 @@ def build_manifest_text(deferred: List[Dict[str, str]]) -> str:
 
 # ── partition application + availability (mid-session safe) ──────────────────
 
+def _routes_through_structured_engine(agent) -> bool:
+    """True when this agent runs through the claude-code STRUCTURED (MCP) engine.
+
+    That engine drives an entire turn with a FIXED native tool list registered up
+    front (claude calls tools via the MCP bridge), so it has no working way to pull
+    a deferred tool's schema mid-turn: ``tool_search`` isn't intercepted on the
+    structured ``_invoke_tool`` path (it hits the registry stub → an error result),
+    and even if it were, mutating ``agent.tools`` can't add a tool to an
+    already-started CLI turn. Lazy partitioning would therefore make every deferred
+    tool (headless ``browser_*``, messaging, …) PERMANENTLY unreachable to
+    claude-code, so we skip it for this engine and hand claude the full tool set.
+
+    The text-shim path (``HERMES_CLAUDE_CODE_STRUCTURED=0``) and every other
+    provider run the normal executor loop, where ``tool_search`` works — they keep
+    lazy loading."""
+    try:
+        if getattr(agent, "provider", "") != "claude-code":
+            return False
+        from agent.claude_code_structured import structured_enabled
+        return bool(structured_enabled())
+    except Exception:
+        return False
+
+
 def apply_lazy_partition(agent) -> None:
     """Partition ``agent.tools`` into a lean advertised core (plus any tools
     already loaded this session) and a deferred manifest, mutating the agent in
@@ -148,6 +172,23 @@ def apply_lazy_partition(agent) -> None:
     if not hasattr(agent, "_lazy_tools_manifest"):
         agent._lazy_tools_manifest = ""
     if not lazy_tools_enabled() or not getattr(agent, "tools", None):
+        return
+    if _routes_through_structured_engine(agent):
+        # Full native tool set — claude calls every tool (browser_* included)
+        # directly. Drop the now-pointless tool_search meta-tool so the model
+        # doesn't waste a turn on a dead-end path, and leave the manifest empty so
+        # no lazy guidance / "Deferred tools" section is injected (both are gated on
+        # _lazy_tools_manifest being non-empty). See _routes_through_structured_engine.
+        agent.tools = [
+            t for t in agent.tools
+            if (t.get("function", {}) or {}).get("name") != "tool_search"
+        ]
+        agent.valid_tool_names = {
+            (t.get("function", {}) or {}).get("name") for t in agent.tools
+        }
+        agent.valid_tool_names.discard(None)
+        agent._lazy_all_tool_names = set(agent.valid_tool_names)
+        agent._lazy_tools_manifest = ""
         return
     core_names = get_lazy_core_names() | set(agent._lazy_loaded_tools)
     core, deferred = partition_lazy_tools(agent.tools, core_names)
