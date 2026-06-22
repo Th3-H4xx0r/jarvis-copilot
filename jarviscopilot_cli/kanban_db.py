@@ -5602,8 +5602,8 @@ def _profile_model_string(profile_home: Optional[str]) -> str:
         return ""
 
 
-def _apply_worker_model(cmd: list, task: Task, profile_home: Optional[str] = None) -> None:
-    """Append the model/provider flags for a dispatched kanban worker.
+def _worker_chat_flags(task: Task, profile_home: Optional[str] = None) -> list:
+    """Model/provider flags to append AFTER the ``chat`` subcommand for a worker.
 
     A worker inherits its assignee profile's config. On a claude-code setup the
     ``default`` profile's bare ``claude-…`` model infers the dead ``anthropic``
@@ -5611,21 +5611,24 @@ def _apply_worker_model(cmd: list, task: Task, profile_home: Optional[str] = Non
     Mirror the voice redirect: when the profile (or a per-task override) resolves
     to anthropic-claude, reroute it to the claude-code subscription with the same
     Claude model. Profiles on other providers (e.g. ``glm-5-1`` → GLM) are left
-    untouched. Opt out entirely with HERMES_KANBAN_ALLOW_ANTHROPIC=1.
+    untouched (empty list ⇒ use the profile's own config). Opt out entirely with
+    HERMES_KANBAN_ALLOW_ANTHROPIC=1.
+
+    IMPORTANT: these flags MUST go after ``chat`` — the ``-m``/``--provider``
+    options belong to the chat subparser; placed BEFORE the subcommand they're
+    clobbered by the subparser defaults (and a stray top-level ``--provider``
+    corrupts the chat namespace → ``args.verbose`` AttributeError).
     """
     if os.environ.get("HERMES_KANBAN_ALLOW_ANTHROPIC"):
-        if task.model_override:
-            cmd.extend(["-m", str(task.model_override)])
-        return
+        ov = (task.model_override or "").strip()
+        return ["-m", ov] if ov else []
 
     override = (task.model_override or "").strip()
     if override:
         # A per-task override wins; only reroute it if it's anthropic-claude.
         if _model_is_anthropic_claude(override):
-            cmd.extend(["-m", _bare_model_id(override), "--provider", "claude-code"])
-        else:
-            cmd.extend(["-m", override])
-        return
+            return ["-m", _bare_model_id(override), "--provider", "claude-code"]
+        return ["-m", override]
 
     # No override: inspect the assignee profile's configured model. Redirect
     # when it would land on anthropic-claude — including an EMPTY model, which
@@ -5634,10 +5637,8 @@ def _apply_worker_model(cmd: list, task: Task, profile_home: Optional[str] = Non
     # @glm:/GLM model) is left untouched.
     model_str = _profile_model_string(profile_home)
     if not model_str.strip() or _model_is_anthropic_claude(model_str):
-        cmd.extend([
-            "-m", _bare_model_id(model_str),
-            "--provider", "claude-code",
-        ])
+        return ["-m", _bare_model_id(model_str), "--provider", "claude-code"]
+    return []
 
 
 def _default_spawn(
@@ -5764,11 +5765,11 @@ def _default_spawn(
         for sk in task.skills:
             if sk and sk != "kanban-worker":
                 cmd.extend(["--skills", sk])
-    _apply_worker_model(cmd, task, env.get("HERMES_HOME"))
-    cmd.extend([
-        "chat",
-        "-q", prompt,
-    ])
+    # Model/provider flags belong to the `chat` subparser, so they go AFTER
+    # the subcommand (before-chat placement is clobbered by subparser defaults).
+    cmd.append("chat")
+    cmd.extend(_worker_chat_flags(task, env.get("HERMES_HOME")))
+    cmd.extend(["-q", prompt])
     # Redirect output to a per-task log under <board-root>/logs/.
     # Anchored at the board root (not the shared kanban root), so
     # `hermes kanban log` on a specific board reads its own file and
