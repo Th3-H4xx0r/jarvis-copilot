@@ -124,6 +124,20 @@ _RATE_LIMIT_PATTERNS = [
     "servicequotaexceededexception",
 ]
 
+# Overload patterns (transient backend saturation — HTTP 503/529).  Some
+# backends (notably the local claude-code shim, which surfaces the CLI's
+# "API Error: 529 Overloaded" as a plain RuntimeError with no .status_code)
+# only carry the overload signal in the message text.  Use explicit phrases
+# to avoid matching a bare "529" that happens to appear inside a request id.
+_OVERLOAD_PATTERNS = [
+    "overloaded",
+    "error 529",
+    "api error: 529",
+    "529 overloaded",
+    "503 service unavailable",
+    "service unavailable",
+]
+
 # Usage-limit patterns that need disambiguation (could be billing OR rate_limit)
 _USAGE_LIMIT_PATTERNS = [
     "usage limit",
@@ -975,6 +989,15 @@ def _classify_by_message(
             FailoverReason.image_too_large,
             retryable=True,
         )
+
+    # Overload patterns (HTTP 503/529) surfaced only in message text.  The
+    # local claude-code shim raises a plain RuntimeError whose message is like
+    # "claude-code structured turn failed: ... API Error: 529 Overloaded ..."
+    # with no .status_code, so it never reaches the {503, 529} status path.
+    # Treat as overloaded → retryable so the conversation loop backs off and
+    # retries instead of aborting the worker on a transient claude.ai overload.
+    if any(p in error_msg for p in _OVERLOAD_PATTERNS):
+        return result_fn(FailoverReason.overloaded, retryable=True)
 
     # Usage-limit patterns need the same disambiguation as 402: some providers
     # surface "usage limit" errors without an HTTP status code.  A transient

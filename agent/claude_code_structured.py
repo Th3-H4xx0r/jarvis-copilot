@@ -191,12 +191,20 @@ def run_structured_turn(
             elif etype == "result":
                 is_error = bool(ev.get("is_error"))
                 usage = ev.get("usage") or {}
+                rtext = ev.get("result")
+                if is_error:
+                    # On an error result, the CLI puts the failure text (e.g.
+                    # "API Error: 529 Overloaded ...") in `result`. Surface it as
+                    # `error` — NOT as assistant text — so the caller raises and
+                    # the classifier can read the 529 (overloaded → retryable)
+                    # instead of treating the error string as a real reply.
+                    if isinstance(rtext, str) and rtext.strip():
+                        error = rtext.strip()
                 # Fallback: if no `assistant` text block was seen (some replies
                 # land only in the final result), use the result text so the turn
                 # isn't treated as empty (which breaks voice → "no_reply" and
                 # triggers wasteful empty-response retries in chat).
-                if not text_parts:
-                    rtext = ev.get("result")
+                elif not text_parts:
                     if isinstance(rtext, str) and rtext.strip():
                         text_parts.append(rtext)
                         if on_text is not None:

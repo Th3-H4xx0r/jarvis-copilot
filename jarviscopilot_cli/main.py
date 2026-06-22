@@ -1818,7 +1818,10 @@ def select_provider_and_model(args=None):
         config_provider = model_cfg.get("provider")
 
     effective_provider = (
-        config_provider or os.getenv("HERMES_INFERENCE_PROVIDER") or "auto"
+        os.getenv("HERMES_FORCE_PROVIDER", "").strip()
+        or config_provider
+        or os.getenv("HERMES_INFERENCE_PROVIDER")
+        or "auto"
     )
     compatible_custom_providers = get_compatible_custom_providers(config)
     active = None

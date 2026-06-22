@@ -425,6 +425,13 @@ def _resolve_runtime_from_pool_entry(
 
 def resolve_requested_provider(requested: Optional[str] = None) -> str:
     """Resolve provider request from explicit arg, config, then env."""
+    # An authoritative FORCE override (set by the kanban worker routing) wins
+    # over everything — including a profile config that pins the dead anthropic
+    # API — so the worker actually runs on the routed provider.
+    force_provider = os.getenv("HERMES_FORCE_PROVIDER", "").strip().lower()
+    if force_provider:
+        return force_provider
+
     if requested and requested.strip():
         return requested.strip().lower()
 

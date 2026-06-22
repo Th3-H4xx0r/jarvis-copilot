@@ -1224,6 +1224,32 @@ def _integrity_ok(path: Path) -> bool:
         return False
 
 
+def _offline_repair_db(path) -> bool:
+    """Repair a corrupt kanban DB OFFLINE — caller MUST guarantee the DB is
+    quiesced (gateway + webui stopped, no live workers), because this rewrites
+    the file in place. This is the ONLY sanctioned repair path; the connect-time
+    guard never repairs a live DB. Returns True if the DB is healthy afterward.
+
+    Usage on the server::
+
+        systemctl stop jarviscopilot-webui
+        python3 -c "import jarviscopilot_cli.kanban_db as k; \\
+            print(k._offline_repair_db('/root/.jarviscopilot/kanban.db'))"
+        systemctl start jarviscopilot-webui
+    """
+    p = Path(os.path.expanduser(str(path)))
+    if not p.exists() or p.stat().st_size == 0:
+        return True
+    if _integrity_ok(p):
+        return True
+    _backup_corrupt_db(p)
+    # REINDEX first (lossless for index inconsistency); then a full dump-rebuild
+    # for page damage. Safe here ONLY because the caller has quiesced the DB.
+    if _attempt_reindex_repair(p):
+        return True
+    return _attempt_db_rebuild(p)
+
+
 def _guard_existing_db_is_healthy(path: Path) -> None:
     """Run ``PRAGMA integrity_check`` on an existing non-empty DB file.
 
@@ -1278,22 +1304,18 @@ def _guard_existing_db_is_healthy(path: Path) -> None:
         reason = f"sqlite refused to open file: {exc}"
     if reason is None:
         return
-    # Repair under a cross-process lock so concurrent connects can't rebuild the
-    # same file simultaneously (which corrupts it further). Once we hold the
-    # lock, re-check: a peer may have just healed it.
-    with _heal_lock(resolved):
-        if _integrity_ok(resolved):
-            return
-        # Back up FIRST so an in-place repair attempt can never lose data, then
-        # escalate: cheap index rebuild (fixes a stale index losslessly), then a
-        # full row-replay rebuild for corruption REINDEX can't touch. Only
-        # refuse if both fail.
-        backup = _backup_corrupt_db(resolved)
-        if _attempt_reindex_repair(resolved):
-            return
-        if _attempt_db_rebuild(resolved):
-            return
-        raise KanbanDbCorruptError(resolved, backup, reason)
+    # FAIL CLOSED — never repair a LIVE, multi-process DB in place. The kanban
+    # DB is opened concurrently by the gateway dispatcher, every worker
+    # subprocess, the webui request threads and the SSE pollers. REINDEX /
+    # wal_checkpoint(TRUNCATE) / dump-rebuild + os.replace all rewrite or swap
+    # the file out from under those open handles — and THAT is what escalated a
+    # benign index inconsistency into unrecoverable page corruption
+    # ("unable to get the page", error 522). So we preserve a backup and refuse;
+    # genuine recovery is an explicit, single-owner OFFLINE step
+    # (`jarviscopilot kanban repair` / a reset), never an implicit side effect of
+    # opening the DB. See _offline_repair_db.
+    backup = _backup_corrupt_db(resolved)
+    raise KanbanDbCorruptError(resolved, backup, reason)
 
 
 def connect(
@@ -5814,7 +5836,9 @@ def _apply_worker_routing_env(env: dict, task: Task, profile_home: Optional[str]
     ``default`` profile's bare ``claude-…`` model resolves to the dead
     ``anthropic`` OAuth API (HTTP 400 "out of extra usage"), so every such task
     aborts. We force the claude-code subscription by setting
-    HERMES_INFERENCE_PROVIDER / HERMES_INFERENCE_MODEL on the worker env, which:
+    HERMES_FORCE_PROVIDER / HERMES_FORCE_MODEL (checked FIRST, ahead of the
+    profile config) plus the legacy HERMES_INFERENCE_PROVIDER /
+    HERMES_INFERENCE_MODEL fallbacks on the worker env, which:
 
       * the provider resolver reads (runtime_provider.py / main.py) as a
         fallback WITHOUT clobbering the profile's structured ``model:`` dict — a
@@ -5831,8 +5855,13 @@ def _apply_worker_routing_env(env: dict, task: Task, profile_home: Optional[str]
     override = (task.model_override or "").strip()
     if override:
         if _model_is_anthropic_claude(override):
-            env["HERMES_INFERENCE_MODEL"] = _bare_model_id(override)
+            bare = _bare_model_id(override)
+            env["HERMES_INFERENCE_MODEL"] = bare
             env["HERMES_INFERENCE_PROVIDER"] = "claude-code"
+            # FORCE vars win FIRST in provider/model resolution, ahead of any
+            # profile config that would otherwise pin the dead anthropic API.
+            env["HERMES_FORCE_MODEL"] = bare
+            env["HERMES_FORCE_PROVIDER"] = "claude-code"
         else:
             # Honour a non-anthropic per-task override (keeps its own provider).
             env["HERMES_INFERENCE_MODEL"] = override
@@ -5840,8 +5869,13 @@ def _apply_worker_routing_env(env: dict, task: Task, profile_home: Optional[str]
 
     provider, model = _profile_model_config(profile_home)
     if _profile_targets_claude(provider, model):
-        env["HERMES_INFERENCE_MODEL"] = _bare_model_id(model) if model else "claude-sonnet-4-6"
+        bare = _bare_model_id(model) if model else "claude-sonnet-4-6"
+        env["HERMES_INFERENCE_MODEL"] = bare
         env["HERMES_INFERENCE_PROVIDER"] = "claude-code"
+        # FORCE vars win FIRST in provider/model resolution, ahead of any
+        # profile config that would otherwise pin the dead anthropic API.
+        env["HERMES_FORCE_MODEL"] = bare
+        env["HERMES_FORCE_PROVIDER"] = "claude-code"
 
 
 def _default_spawn(

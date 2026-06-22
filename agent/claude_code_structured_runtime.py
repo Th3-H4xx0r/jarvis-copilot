@@ -31,6 +31,7 @@ so the rest of the agent loop is unchanged.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import uuid
 from types import SimpleNamespace
@@ -39,10 +40,39 @@ from typing import Any
 from agent.claude_code_structured import run_structured_turn, structured_enabled
 
 
+# Matches the CLI's "API Error: 529 ..." / "Error 529 ..." shapes so the HTTP
+# status can be lifted out of the message text and attached to the raised
+# exception (the CLI gives us no structured status code).
+_API_STATUS_RE = re.compile(r"(?:api error|error)[:\s]+(\d{3})\b", re.IGNORECASE)
+
+
+def _parse_status_code(msg: str) -> int | None:
+    """Pull a leading 3-digit HTTP status out of an 'API Error: NNN' message."""
+    if not msg:
+        return None
+    m = _API_STATUS_RE.search(msg)
+    if m:
+        try:
+            code = int(m.group(1))
+            if 100 <= code < 600:
+                return code
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
 class StructuredTurnFailed(RuntimeError):
     """A structured turn hard-failed BEFORE streaming anything to the user, so the
     caller can safely fall back to the text-shim for this turn (no duplicate
-    output). Distinct from a mid-stream failure, which must surface as-is."""
+    output). Distinct from a mid-stream failure, which must surface as-is.
+
+    Carries an optional ``status_code`` parsed from the CLI error text (e.g.
+    529 from "API Error: 529 Overloaded") so the error classifier can route it
+    through its native HTTP-status path (503/529 → overloaded, retryable)."""
+
+    def __init__(self, *args, status_code: int | None = None):
+        super().__init__(*args)
+        self.status_code = status_code
 
 # A short, fixed --system-prompt. The agent's REAL system prompt (identity, skills,
 # memory) and the conversation history are folded into the stdin user text instead
@@ -320,11 +350,19 @@ def run_claude_structured_response(agent: Any, api_kwargs: dict, *, on_first_del
     text = (res.text or "").strip()
     if res.is_error and not text:
         msg = f"claude-code structured turn failed: {res.error or 'unknown error'}"
+        # The CLI carries no structured HTTP status, so lift it out of the error
+        # text (e.g. "API Error: 529 Overloaded") and attach it to the raised
+        # exception. _extract_status_code() reads .status_code, letting the
+        # classifier route 503/529 through its native overloaded→retryable path.
+        status_code = _parse_status_code(res.error or "")
         # Nothing reached the user yet → let the caller retry on the text-shim
         # rather than hard-failing the turn (e.g. an environment/CLI issue).
         if not streamed["any"]:
-            raise StructuredTurnFailed(msg)
-        raise RuntimeError(msg)
+            raise StructuredTurnFailed(msg, status_code=status_code)
+        exc = RuntimeError(msg)
+        if status_code is not None:
+            exc.status_code = status_code
+        raise exc
 
     u = res.usage or {}
     prompt_toks = int(u.get("input_tokens") or 0)

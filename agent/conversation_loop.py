@@ -2522,6 +2522,7 @@ def run_conversation(
                     FailoverReason.rate_limit,
                     FailoverReason.billing,
                 }
+                is_overloaded = classified.reason == FailoverReason.overloaded
                 if is_rate_limited and agent._fallback_index < len(agent._fallback_chain):
                     # Don't eagerly fallback if credential pool rotation may
                     # still recover.  See _pool_may_recover_from_rate_limit
@@ -3048,7 +3049,15 @@ def run_conversation(
                                 _retry_after = min(float(_ra_raw), 120)  # Cap at 2 minutes
                             except (TypeError, ValueError):
                                 pass
-                wait_time = _retry_after if _retry_after else jittered_backoff(retry_count, base_delay=2.0, max_delay=60.0)
+                if _retry_after:
+                    wait_time = _retry_after
+                elif is_overloaded:
+                    # claude.ai / upstream overloads can persist a few minutes —
+                    # allow a longer backoff cap so we keep retrying instead of
+                    # exhausting attempts against a transient saturation.
+                    wait_time = jittered_backoff(retry_count, base_delay=5.0, max_delay=180.0)
+                else:
+                    wait_time = jittered_backoff(retry_count, base_delay=2.0, max_delay=60.0)
                 if is_rate_limited:
                     agent._emit_status(f"⏱️ Rate limited. Waiting {wait_time:.1f}s (attempt {retry_count + 1}/{max_retries})...")
                 else:

@@ -153,7 +153,8 @@ def run_oneshot(
     # the mismatch.  Require the caller to be explicit.  Validate BEFORE the
     # stderr redirect so the message actually reaches the terminal.
     env_model_early = os.getenv("HERMES_INFERENCE_MODEL", "").strip()
-    if provider and not ((model or "").strip() or env_model_early):
+    force_model_early = os.getenv("HERMES_FORCE_MODEL", "").strip()
+    if provider and not ((model or "").strip() or env_model_early or force_model_early):
         sys.stderr.write(
             "jarviscopilot -z: --provider requires --model (or HERMES_INFERENCE_MODEL). "
             "Pass both explicitly, or neither to use your configured defaults.\n"
@@ -241,8 +242,11 @@ def _run_agent(
     else:
         cfg_model = model_cfg.get("default") or model_cfg.get("model") or ""
 
+    # An authoritative FORCE override (set by the kanban worker routing) wins
+    # over the explicit arg, env, and config so the worker uses the routed model.
+    force_model = os.getenv("HERMES_FORCE_MODEL", "").strip()
     env_model = os.getenv("HERMES_INFERENCE_MODEL", "").strip()
-    effective_model = (model or "").strip() or env_model or cfg_model
+    effective_model = force_model or (model or "").strip() or env_model or cfg_model
 
     # Resolve effective provider: explicit arg → (auto-detect from model if
     # model was explicit) → env / config (handled inside resolve_runtime_provider).
@@ -279,7 +283,8 @@ def _run_agent(
                 if isinstance(model_cfg, dict):
                     cfg_provider = str(model_cfg.get("provider") or "").strip().lower()
                 current_provider = (
-                    cfg_provider
+                    os.getenv("HERMES_FORCE_PROVIDER", "").strip().lower()
+                    or cfg_provider
                     or os.getenv("HERMES_INFERENCE_PROVIDER", "").strip().lower()
                     or "auto"
                 )
