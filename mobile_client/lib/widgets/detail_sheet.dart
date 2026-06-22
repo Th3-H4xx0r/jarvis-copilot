@@ -5,7 +5,9 @@ import '../theme.dart';
 /// An OPAQUE scrollable bottom sheet for showing a record's full detail plus
 /// action buttons. Opaque ([JcTheme.surface]) on purpose — see [showFormSheet].
 ///
-/// Caps at 85% of screen height and scrolls. Pop with a value via
+/// Caps at 85% of screen height; only [child] scrolls. [footer] is pinned
+/// full-width below the scroll area (use it for an always-visible action bar);
+/// [actions] render as a wrapping row beneath that. Pop with a value via
 /// `Navigator.of(context).pop(result)` from inside [child] (e.g. after a
 /// mutation) so the caller can react.
 Future<T?> showDetailSheet<T>({
@@ -13,6 +15,7 @@ Future<T?> showDetailSheet<T>({
   required String title,
   required Widget child,
   List<Widget>? actions,
+  Widget? footer,
 }) {
   return showModalBottomSheet<T>(
     context: context,
@@ -51,6 +54,10 @@ Future<T?> showDetailSheet<T>({
               ),
               const SizedBox(height: 12),
               Flexible(child: SingleChildScrollView(child: child)),
+              if (footer != null) ...[
+                const SizedBox(height: 16),
+                footer,
+              ],
               if (actions != null && actions.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 Wrap(

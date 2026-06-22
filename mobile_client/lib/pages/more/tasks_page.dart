@@ -344,31 +344,30 @@ class _TasksPageState extends State<TasksPage> {
           const SizedBox(height: 10),
           const SectionHeader('Run history'),
           _RunHistory(api: _api, jobId: id),
-          const SizedBox(height: 20),
-          _DetailActionBar(
-            paused: paused,
-            onRun: () {
-              Navigator.of(context).pop();
-              _runAction(() => _api.run(id), 'Run started');
-            },
-            onPauseResume: () {
-              Navigator.of(context).pop();
-              if (paused) {
-                _runAction(() => _api.resume(id), 'Task resumed');
-              } else {
-                _runAction(() => _api.pause(id), 'Task paused');
-              }
-            },
-            onEdit: () {
-              Navigator.of(context).pop();
-              _openForm(existing: job);
-            },
-            onDelete: () {
-              Navigator.of(context).pop();
-              _confirmDelete(job);
-            },
-          ),
         ],
+      ),
+      footer: _DetailActionBar(
+        paused: paused,
+        onRun: () {
+          Navigator.of(context).pop();
+          _runAction(() => _api.run(id), 'Run started');
+        },
+        onPauseResume: () {
+          Navigator.of(context).pop();
+          if (paused) {
+            _runAction(() => _api.resume(id), 'Task resumed');
+          } else {
+            _runAction(() => _api.pause(id), 'Task paused');
+          }
+        },
+        onEdit: () {
+          Navigator.of(context).pop();
+          _openForm(existing: job);
+        },
+        onDelete: () {
+          Navigator.of(context).pop();
+          _confirmDelete(job);
+        },
       ),
     );
   }

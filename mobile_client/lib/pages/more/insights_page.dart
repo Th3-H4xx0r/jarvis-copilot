@@ -897,13 +897,18 @@ class _MessageRow extends StatelessWidget {
     final cached = insightsNum(message['cache_read_tokens']) > 0;
     final comp = messageComposition(message);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 9),
-      child: Column(
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => _showComposition(context, message),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          child: Column(
             children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
               SizedBox(
                 width: 34,
                 child: Text(
@@ -950,11 +955,13 @@ class _MessageRow extends StatelessWidget {
               ),
             ],
           ),
-          if (comp.isNotEmpty) ...[
-            const SizedBox(height: 7),
-            _CompositionBar(composition: comp),
-          ],
-        ],
+              if (comp.isNotEmpty) ...[
+                const SizedBox(height: 7),
+                _CompositionBar(composition: comp),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1023,6 +1030,241 @@ Color _sectionColor(String key) {
       return const Color(0xFF34C759);
     default:
       return const Color(0xFF6B7280);
+  }
+}
+
+/// Section → human label, mirroring the web panel's `_INSIGHTS_SECTION_META`.
+String _sectionLabel(String key) {
+  switch (key) {
+    case 'identity':
+      return 'Identity / SOUL.md';
+    case 'behavioral_guidance':
+      return 'Behavioral guidance';
+    case 'tool_use_guidance':
+      return 'Tool-use guidance';
+    case 'lazy_manifest':
+      return 'Deferred-tools manifest';
+    case 'skills_catalog':
+      return 'Skills catalog';
+    case 'env_profile':
+      return 'Environment & profile';
+    case 'context_files':
+      return 'Context files';
+    case 'memory':
+      return 'Memory (MEMORY/USER.md)';
+    case 'external_memory':
+      return 'External memory';
+    case 'timestamp':
+      return 'Timestamp';
+    case 'system_prompt':
+      return 'System prompt';
+    case 'tool_schemas':
+      return 'Tool schemas';
+    case 'conversation_history':
+      return 'Conversation history';
+    case 'user_message':
+      return 'User message';
+    case 'other':
+      return 'Other (system)';
+    default:
+      return key; // unknown keys (e.g. system_message) show their raw key
+  }
+}
+
+/// Tap-through composition modal for a single message — mirrors the web's
+/// `showMsgComposition`: per-section token counts + percentages, sorted desc.
+void _showComposition(BuildContext context, Map<String, dynamic> message) {
+  final comp = messageComposition(message);
+  final entries = comp.entries.where((e) => e.value > 0).toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  final total = entries.fold<num>(0, (s, e) => s + e.value);
+  final turn = (message['turn'] ?? '').toString();
+  final inT = insightsNum(message['input_tokens']);
+  final outT = insightsNum(message['output_tokens']);
+  final cache = insightsNum(message['cache_read_tokens']);
+  final reasoning = insightsNum(message['reasoning_tokens']);
+  final latency = message['latency_s'];
+  final model = (message['model'] ?? '').toString();
+
+  Widget hdr(String label, num value) => Text.rich(TextSpan(children: [
+        TextSpan(
+            text: '$label: ',
+            style: const TextStyle(color: JcTheme.muted, fontSize: 12.5)),
+        TextSpan(
+            text: formatTokenCount(value),
+            style: const TextStyle(
+                color: JcTheme.text,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700)),
+      ]));
+
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: JcTheme.surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+    ),
+    builder: (ctx) => ConstrainedBox(
+      constraints:
+          BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.85),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: BoxDecoration(
+                  color: JcTheme.muted.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('Composition — #$turn',
+                      style: const TextStyle(
+                          color: JcTheme.text,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700)),
+                ),
+                GestureDetector(
+                  onTap: () => Navigator.of(ctx).pop(),
+                  child: const Icon(Icons.close_rounded,
+                      color: JcTheme.muted, size: 22),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 16,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                hdr('Input', inT),
+                hdr('Output', outT),
+                if (cache > 0) hdr('Cache hit', cache),
+                if (reasoning > 0) hdr('Reasoning', reasoning),
+                if (latency is num)
+                  Text('${latency.toStringAsFixed(1)}s',
+                      style: const TextStyle(
+                          color: JcTheme.muted, fontSize: 12.5)),
+                if (model.isNotEmpty)
+                  Text(model,
+                      style: const TextStyle(
+                          color: JcTheme.cyan,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Input composition is estimated (~chars ÷ 4); the in/out totals '
+              'are exact from the API.',
+              style: TextStyle(
+                  color: JcTheme.muted.withValues(alpha: 0.8),
+                  fontSize: 11,
+                  height: 1.3),
+            ),
+            const SizedBox(height: 14),
+            Flexible(
+              child: entries.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Text('No composition data for this message.',
+                          style: TextStyle(color: JcTheme.muted)),
+                    )
+                  : SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          for (final e in entries)
+                            _CompRow(
+                              label: _sectionLabel(e.key),
+                              color: _sectionColor(e.key),
+                              value: e.value,
+                              pct: total > 0 ? e.value / total * 100 : 0,
+                            ),
+                        ],
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// One section row in the composition modal: dot + label + value/% + bar.
+class _CompRow extends StatelessWidget {
+  const _CompRow({
+    required this.label,
+    required this.color,
+    required this.value,
+    required this.pct,
+  });
+  final String label;
+  final Color color;
+  final num value;
+  final double pct;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                    color: color, borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: JcTheme.text, fontSize: 13.5)),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${formatTokenCount(value)}  (${pct.toStringAsFixed(1)}%)',
+                style: const TextStyle(color: JcTheme.muted, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: SizedBox(
+              height: 6,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: (pct * 10).round().clamp(1, 1000),
+                    child: Container(color: color),
+                  ),
+                  Expanded(
+                    flex: ((100 - pct) * 10).round().clamp(0, 1000),
+                    child: Container(color: JcTheme.glassFill),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
