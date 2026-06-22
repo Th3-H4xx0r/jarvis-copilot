@@ -9,6 +9,7 @@ import '../../widgets/async_view.dart';
 import '../../widgets/detail_sheet.dart';
 import '../../widgets/form_sheet.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/picker.dart';
 import '../../widgets/status_pill.dart';
 
 /// Native "Tasks (cron)" screen — full parity with the web Tasks panel.
@@ -169,12 +170,13 @@ class _TasksPageState extends State<TasksPage> {
               ),
               FormDropdown<String>(
                 label: 'Deliver',
+                sheetTitle: 'Deliver results to',
                 value: deliverOptions.contains(deliver)
                     ? deliver
                     : deliverOptions.first,
-                items: deliverOptions
-                    .map((d) =>
-                        DropdownMenuItem(value: d, child: Text(d)))
+                options: deliverOptions
+                    .map((d) => PickerOption(d, _deliverLabel(d),
+                        icon: _deliverIcon(d)))
                     .toList(),
                 onChanged: (v) => setSheet(() => deliver = v ?? deliver),
               ),
@@ -281,10 +283,8 @@ class _TasksPageState extends State<TasksPage> {
     final toast = job['toast_notifications'] is bool
         ? (job['toast_notifications'] as bool)
         : true;
-    final nextRun =
-        (job['next_run'] ?? job['next_run_at'] ?? '').toString();
-    final lastRun =
-        (job['last_run'] ?? job['last_run_at'] ?? '').toString();
+    final nextRun = formatCronTime(job['next_run'] ?? job['next_run_at']);
+    final lastRun = formatCronTime(job['last_run'] ?? job['last_run_at']);
 
     showDetailSheet(
       context: context,
@@ -413,6 +413,40 @@ class _TasksPageState extends State<TasksPage> {
   }
 }
 
+String _deliverLabel(String d) {
+  switch (d) {
+    case 'local':
+      return 'In-app only';
+    case 'origin':
+      return 'Originating chat';
+    case 'telegram':
+      return 'Telegram';
+    case 'discord':
+      return 'Discord';
+    case 'slack':
+      return 'Slack';
+    default:
+      return d.isEmpty ? '—' : '${d[0].toUpperCase()}${d.substring(1)}';
+  }
+}
+
+IconData _deliverIcon(String d) {
+  switch (d) {
+    case 'local':
+      return Icons.phone_iphone_rounded;
+    case 'origin':
+      return Icons.reply_rounded;
+    case 'telegram':
+      return Icons.send_rounded;
+    case 'discord':
+      return Icons.forum_rounded;
+    case 'slack':
+      return Icons.tag_rounded;
+    default:
+      return Icons.notifications_none_rounded;
+  }
+}
+
 class _JobCard extends StatelessWidget {
   const _JobCard({
     required this.job,
@@ -429,165 +463,154 @@ class _JobCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final statusKey = cronStatusKey(job);
     final running = statusKey == 'running' || starting;
-    final paused = cronIsPaused(job);
     final color = running ? JcTheme.primaryBlue : cronStatusColor(statusKey);
     final schedule = cronSchedule(job);
-    final nextRun = (job['next_run'] ?? job['next_run_at'] ?? '').toString();
-    final lastRun = (job['last_run'] ?? job['last_run_at'] ?? '').toString();
+    final next = formatCronTime(job['next_run'] ?? job['next_run_at']);
+    final last = formatCronTime(job['last_run'] ?? job['last_run_at']);
     return GlassCard(
       blur: false,
       onTap: onTap,
-      padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
+      padding: const EdgeInsets.fromLTRB(16, 15, 12, 15),
       borderColor: running
-          ? JcTheme.primaryBlue.withValues(alpha: 0.45)
+          ? JcTheme.primaryBlue.withValues(alpha: 0.5)
           : JcTheme.glassBorder,
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Leading status rail.
-          Padding(
-            padding: const EdgeInsets.only(top: 3, right: 12),
-            child: running
-                ? PulsingDot(color: color, size: 9)
-                : Container(
-                    width: 9,
-                    height: 9,
-                    decoration:
-                        BoxDecoration(shape: BoxShape.circle, color: color),
-                  ),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        (job['name'] ?? '(unnamed)').toString(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: JcTheme.text,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    StatusPill(
-                      starting ? 'STARTING' : cronStatusLabel(statusKey),
-                      color: color,
-                      live: running,
-                      dense: true,
-                    ),
-                  ],
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Text(
+                  (job['name'] ?? '(unnamed)').toString(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: JcTheme.text,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700),
                 ),
-                if (schedule.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      const Icon(Icons.schedule,
-                          size: 13, color: JcTheme.muted),
-                      const SizedBox(width: 5),
-                      Expanded(
-                        child: Text(schedule,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                color: JcTheme.muted, fontSize: 13)),
-                      ),
-                    ],
-                  ),
-                ],
-                if (nextRun.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text('Next · $nextRun',
+              ),
+              const SizedBox(width: 10),
+              StatusPill(
+                starting ? 'STARTING' : cronStatusLabel(statusKey),
+                color: color,
+                live: running,
+                dense: true,
+              ),
+              const SizedBox(width: 10),
+              _RunButton(running: running, starting: starting, onRun: onRun),
+            ],
+          ),
+          if (schedule.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.schedule_rounded,
+                    size: 14, color: JcTheme.muted),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(schedule,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          color: JcTheme.muted, fontSize: 12)),
-                ],
-                if (lastRun.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text('Last · $lastRun',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: JcTheme.muted, fontSize: 12)),
-                ],
+                          color: JcTheme.muted, fontSize: 13)),
+                ),
               ],
             ),
-          ),
-          // Trailing Run button.
-          _RunButton(
-            running: running,
-            starting: starting,
-            paused: paused,
-            onRun: onRun,
-          ),
+          ],
+          if (next.isNotEmpty || last.isNotEmpty) ...[
+            const SizedBox(height: 7),
+            Row(
+              children: [
+                if (next.isNotEmpty)
+                  _MetaChip(Icons.arrow_forward_rounded, 'Next', next),
+                if (next.isNotEmpty && last.isNotEmpty)
+                  const SizedBox(width: 14),
+                if (last.isNotEmpty)
+                  _MetaChip(Icons.history_rounded, 'Last', last),
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-/// A prominent square Run button (filled accent), matching the coding-bar
-/// style. Shows a spinner while starting and a steady glow while running.
+/// A small "label value" meta with a leading icon (Next/Last run).
+class _MetaChip extends StatelessWidget {
+  const _MetaChip(this.icon, this.label, this.value);
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: JcTheme.muted.withValues(alpha: 0.8)),
+        const SizedBox(width: 4),
+        Text('$label ',
+            style: TextStyle(
+                color: JcTheme.muted.withValues(alpha: 0.7), fontSize: 12)),
+        Text(value,
+            style: const TextStyle(
+                color: JcTheme.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w600)),
+      ],
+    );
+  }
+}
+
+/// A compact, restrained Run control — a 36px glass circle with an accent
+/// play glyph. Spins while starting; shows a muted refresh glyph while running.
 class _RunButton extends StatelessWidget {
   const _RunButton({
     required this.running,
     required this.starting,
-    required this.paused,
     required this.onRun,
   });
   final bool running;
   final bool starting;
-  final bool paused;
   final VoidCallback onRun;
 
   @override
   Widget build(BuildContext context) {
     final active = running || starting;
-    return Padding(
-      padding: const EdgeInsets.only(left: 6, top: 2),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: active ? null : onRun,
-          child: Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              gradient: active ? null : blueGradient(),
-              color: active ? JcTheme.glassFill : null,
-              border: active
-                  ? Border.all(color: JcTheme.glassBorder)
-                  : null,
-              boxShadow: active
-                  ? null
-                  : [
-                      BoxShadow(
-                        color: JcTheme.primaryBlue.withValues(alpha: 0.35),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: active ? null : onRun,
+        child: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: active
+                ? JcTheme.glassFill
+                : JcTheme.primaryBlue.withValues(alpha: 0.16),
+            border: Border.all(
+              color: active
+                  ? JcTheme.glassBorder
+                  : JcTheme.primaryBlue.withValues(alpha: 0.5),
             ),
-            child: starting
-                ? const Padding(
-                    padding: EdgeInsets.all(11),
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: JcTheme.primaryBlue),
-                  )
-                : Icon(
-                    running ? Icons.autorenew : Icons.play_arrow_rounded,
-                    color: active ? JcTheme.primaryBlue : Colors.white,
-                    size: 22,
-                  ),
           ),
+          child: starting
+              ? const Padding(
+                  padding: EdgeInsets.all(9),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: JcTheme.primaryBlue),
+                )
+              : Icon(
+                  running ? Icons.autorenew_rounded : Icons.play_arrow_rounded,
+                  color: running ? JcTheme.muted : JcTheme.primaryBlue,
+                  size: 20,
+                ),
         ),
       ),
     );

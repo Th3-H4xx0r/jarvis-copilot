@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import 'picker.dart';
 
 /// An OPAQUE modal bottom sheet for create/edit forms. Opaque
 /// ([JcTheme.surface]) is deliberate — translucent sheets bleed the aurora
@@ -120,6 +121,22 @@ class _FormSheetBodyState extends State<_FormSheetBody> {
   }
 }
 
+/// An uppercase muted field label — the modern form-field caption.
+class FormFieldLabel extends StatelessWidget {
+  const FormFieldLabel(this.text, {super.key});
+  final String text;
+  @override
+  Widget build(BuildContext context) => Text(
+        text.toUpperCase(),
+        style: const TextStyle(
+          color: JcTheme.muted,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.6,
+        ),
+      );
+}
+
 /// Labelled multiline-capable text field for use inside [showFormSheet].
 class FormTextField extends StatelessWidget {
   const FormTextField({
@@ -140,18 +157,34 @@ class FormTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: JcTheme.muted, fontSize: 13)),
-          const SizedBox(height: 6),
+          FormFieldLabel(label),
+          const SizedBox(height: 7),
           TextField(
             controller: controller,
             maxLines: maxLines,
             keyboardType: keyboardType,
-            style: const TextStyle(color: JcTheme.text),
-            decoration: InputDecoration(hintText: hint, isDense: true),
+            style: const TextStyle(color: JcTheme.text, fontSize: 15),
+            cursorColor: JcTheme.cyan,
+            decoration: InputDecoration(
+              hintText: hint,
+              isDense: true,
+              filled: true,
+              fillColor: JcTheme.surfaceAlt,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: JcTheme.glassBorder),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: JcTheme.cyan, width: 1.4),
+              ),
+            ),
           ),
         ],
       ),
@@ -159,37 +192,38 @@ class FormTextField extends StatelessWidget {
   }
 }
 
-/// Labelled dropdown for use inside [showFormSheet].
+/// Labelled select for use inside [showFormSheet]. Opens a themed picker sheet
+/// (no stock Material dropdown menu).
 class FormDropdown<T> extends StatelessWidget {
   const FormDropdown({
     super.key,
     required this.label,
     required this.value,
-    required this.items,
+    required this.options,
     required this.onChanged,
+    this.sheetTitle,
   });
 
   final String label;
   final T value;
-  final List<DropdownMenuItem<T>> items;
+  final List<PickerOption<T>> options;
   final ValueChanged<T?> onChanged;
+  final String? sheetTitle;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: JcTheme.muted, fontSize: 13)),
-          const SizedBox(height: 6),
-          DropdownButtonFormField<T>(
-            initialValue: value,
-            isExpanded: true,
-            dropdownColor: JcTheme.surfaceAlt,
-            items: items,
+          FormFieldLabel(label),
+          const SizedBox(height: 7),
+          PickerField<T>(
+            value: value,
+            options: options,
             onChanged: onChanged,
-            decoration: const InputDecoration(isDense: true),
+            sheetTitle: sheetTitle ?? label,
           ),
         ],
       ),

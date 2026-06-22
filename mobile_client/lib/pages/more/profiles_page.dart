@@ -7,6 +7,7 @@ import '../../widgets/async_view.dart';
 import '../../widgets/detail_sheet.dart';
 import '../../widgets/form_sheet.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/picker.dart';
 import '../../widgets/status_pill.dart';
 
 /// Native "Profiles" screen at parity with the web Profiles panel: list every
@@ -195,11 +196,11 @@ class _ProfilesPageState extends State<ProfilesPage> {
           builder: (ctx, setLocal) => FormDropdown<String?>(
             label: 'Clone from (optional)',
             value: cloneFrom,
-            items: [
-              const DropdownMenuItem<String?>(
-                  value: null, child: Text('None')),
-              ...names.map((n) =>
-                  DropdownMenuItem<String?>(value: n, child: Text(n))),
+            options: [
+              const PickerOption<String?>(null, 'None',
+                  icon: Icons.block_flipped),
+              ...names.map((n) => PickerOption<String?>(n, n,
+                  icon: Icons.account_circle_outlined)),
             ],
             onChanged: (v) => setLocal(() => cloneFrom = v),
           ),

@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../api/kanban.dart';
+import '../../api/profiles.dart';
 import '../../main.dart' as app;
 import '../../theme.dart';
 import '../../widgets/async_view.dart';
 import '../../widgets/detail_sheet.dart';
 import '../../widgets/form_sheet.dart';
 import '../../widgets/glass.dart';
+import '../../widgets/picker.dart';
 
 /// Native Kanban screen at parity with the web kanban panel, rendered as a
 /// status-grouped LIST (one section per column) rather than a horizontal
@@ -114,6 +116,79 @@ class _KanbanPageState extends State<KanbanPage> {
       await _ctrl.refresh();
     } catch (e) {
       _showError(e);
+    }
+  }
+
+  /// Run the dispatcher: claims ready+assigned tasks and spawns workers. The
+  /// global action; assigned tasks (incl. the one being viewed) get picked up.
+  Future<void> _runDispatcher() async {
+    try {
+      final res = await _api.dispatch(slug: _boardSlug);
+      if (!mounted) return;
+      final n = res['spawned'] ?? res['claimed'] ?? res['count'];
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(n != null
+            ? 'Dispatcher ran — $n worker${n == 1 ? '' : 's'} started'
+            : 'Dispatcher ran'),
+        backgroundColor: JcTheme.surfaceAlt,
+      ));
+      await _ctrl.refresh();
+    } catch (e) {
+      _showError(e);
+    }
+  }
+
+  /// Per-task run: the dispatcher only claims ready+assigned tasks, so guide
+  /// the user to assign first, then run.
+  Future<void> _runTask(Map<String, dynamic> task) async {
+    final assignee = '${task['assignee'] ?? ''}'.trim();
+    if (assignee.isEmpty) {
+      _showError('Assign a profile to this task first (Edit → Assignee), then Run.');
+      return;
+    }
+    await _runDispatcher();
+  }
+
+  Future<void> _openBoardPicker() async {
+    final options = [
+      for (final b in _boards)
+        PickerOption<String>(
+          '${b['slug']}',
+          '${b['name'] ?? b['title'] ?? b['slug']}',
+          subtitle: b['total'] != null ? '${b['total']} task(s)' : null,
+          icon: Icons.view_kanban_rounded,
+        ),
+    ];
+    if (options.isEmpty) return;
+    final picked = await showPickerSheet<String>(
+      context: context,
+      title: 'Switch board',
+      options: options,
+      selected: _currentSlug,
+    );
+    if (picked != null && picked != _currentSlug) _switchBoard(picked);
+  }
+
+  Future<void> _openBoardActions(Map<String, dynamic>? current) async {
+    final action = await showPickerSheet<String>(
+      context: context,
+      title: 'Board',
+      options: const [
+        PickerOption('create', 'New board', icon: Icons.add_rounded),
+        PickerOption('rename', 'Rename board', icon: Icons.edit_outlined),
+        PickerOption('archive', 'Archive board', icon: Icons.archive_outlined),
+      ],
+    );
+    switch (action) {
+      case 'create':
+        _createBoard();
+        break;
+      case 'rename':
+        if (current != null) _renameBoard(current);
+        break;
+      case 'archive':
+        if (current != null) _archiveBoard(current);
+        break;
     }
   }
 
@@ -237,14 +312,14 @@ class _KanbanPageState extends State<KanbanPage> {
             value: column,
             // 'running' is excluded as a create target — the bridge rejects a
             // direct status write to 'running' with HTTP 400.
-            items: [
+            options: [
               for (final c in kanbanColumns.where((c) => c != 'running'))
-                DropdownMenuItem(value: c, child: Text(_columnLabel(c))),
+                PickerOption(c, _columnLabel(c), icon: _columnIcon(c)),
             ],
             onChanged: (v) => setLocal(() => column = v ?? 'todo'),
           ),
         ),
-        _AssigneeField(api: _api, controller: assigneeC, board: _boardSlug),
+        _AssigneeField(controller: assigneeC),
         FormTextField(
             label: 'Priority',
             controller: priorityC,
@@ -288,7 +363,7 @@ class _KanbanPageState extends State<KanbanPage> {
       fields: [
         FormTextField(label: 'Title', controller: titleC),
         FormTextField(label: 'Description', controller: descC, maxLines: 4),
-        _AssigneeField(api: _api, controller: assigneeC, board: _boardSlug),
+        _AssigneeField(controller: assigneeC),
         FormTextField(
             label: 'Priority',
             controller: priorityC,
@@ -447,6 +522,15 @@ class _KanbanPageState extends State<KanbanPage> {
       child: _TaskDetailBody(api: _api, task: task, board: _boardSlug),
       actions: [
         _SheetAction(
+          icon: Icons.bolt_rounded,
+          label: 'Run',
+          primary: true,
+          onTap: () {
+            Navigator.of(context).pop();
+            _runTask(task);
+          },
+        ),
+        _SheetAction(
           icon: Icons.swap_horiz,
           label: 'Move',
           onTap: () {
@@ -536,94 +620,59 @@ class _KanbanPageState extends State<KanbanPage> {
   }
 
   Widget _boardSwitcher() {
-    final label = _currentSlug == null
-        ? 'Board'
-        : (_boardForSlug(_currentSlug!)?['name']?.toString() ?? _currentSlug!);
+    final current =
+        _currentSlug == null ? null : _boardForSlug(_currentSlug!);
+    final label = current?['name']?.toString() ??
+        current?['title']?.toString() ??
+        _currentSlug ??
+        'Board';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
       child: Row(
         children: [
           Expanded(
-            child: GlassCard(
-              blur: false,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: PopupMenuButton<String>(
-                color: JcTheme.surface,
-                offset: const Offset(0, 44),
-                onSelected: _switchBoard,
-                itemBuilder: (ctx) => [
-                  for (final b in _boards)
-                    PopupMenuItem<String>(
-                      value: '${b['slug']}',
-                      child: Row(
-                        children: [
-                          if (b['is_current'] == true)
-                            const Padding(
-                              padding: EdgeInsets.only(right: 8),
-                              child: Icon(Icons.check,
-                                  size: 16, color: JcTheme.accent),
-                            ),
-                          Expanded(
-                            child: Text(
-                              '${b['name'] ?? b['title'] ?? b['slug']}',
-                              style: const TextStyle(color: JcTheme.text),
-                            ),
-                          ),
-                          if (b['total'] != null)
-                            Text('${b['total']}',
-                                style: const TextStyle(
-                                    color: JcTheme.muted, fontSize: 12)),
-                        ],
-                      ),
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(15),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(15),
+                onTap: _openBoardPicker,
+                child: GradientBorder(
+                  radius: 14,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.view_kanban_rounded,
+                            size: 18, color: JcTheme.cyan),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(label,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: JcTheme.text,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700)),
+                        ),
+                        const Icon(Icons.expand_more_rounded,
+                            color: JcTheme.muted, size: 22),
+                      ],
                     ),
-                ],
-                child: Row(
-                  children: [
-                    const Icon(Icons.view_kanban,
-                        size: 18, color: JcTheme.primaryBlue),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(label,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: JcTheme.text,
-                              fontWeight: FontWeight.w600)),
-                    ),
-                    const Icon(Icons.arrow_drop_down, color: JcTheme.muted),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
+          const SizedBox(width: 10),
+          _HeaderActionButton(
+            icon: Icons.bolt_rounded,
+            tint: JcTheme.primaryBlue,
+            onTap: _runDispatcher,
+          ),
           const SizedBox(width: 8),
-          GlassCard(
-            blur: false,
-            padding: EdgeInsets.zero,
-            child: PopupMenuButton<String>(
-              color: JcTheme.surface,
-              icon: const Icon(Icons.more_vert, color: JcTheme.text),
-              onSelected: (v) {
-                final current = _currentSlug == null
-                    ? null
-                    : _boardForSlug(_currentSlug!);
-                switch (v) {
-                  case 'create':
-                    _createBoard();
-                    break;
-                  case 'rename':
-                    if (current != null) _renameBoard(current);
-                    break;
-                  case 'archive':
-                    if (current != null) _archiveBoard(current);
-                    break;
-                }
-              },
-              itemBuilder: (ctx) => const [
-                PopupMenuItem(value: 'create', child: Text('New board…')),
-                PopupMenuItem(value: 'rename', child: Text('Rename board…')),
-                PopupMenuItem(value: 'archive', child: Text('Archive board')),
-              ],
-            ),
+          _HeaderActionButton(
+            icon: Icons.more_horiz_rounded,
+            onTap: () => _openBoardActions(current),
           ),
         ],
       ),
@@ -631,14 +680,16 @@ class _KanbanPageState extends State<KanbanPage> {
   }
 
   Widget _filterBar() {
-    return SizedBox(
-      height: 44,
+    return Container(
+      height: 50,
+      alignment: Alignment.centerLeft,
       child: ListView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         children: [
-          _filterChip('All', null),
-          for (final c in kanbanColumns) _filterChip(_columnLabel(c), c),
+          Center(child: _filterChip('All', null)),
+          for (final c in kanbanColumns)
+            Center(child: _filterChip(_columnLabel(c), c)),
         ],
       ),
     );
@@ -648,15 +699,39 @@ class _KanbanPageState extends State<KanbanPage> {
     final selected = _columnFilter == value;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        label: Text(label),
-        selected: selected,
-        onSelected: (_) => setState(() => _columnFilter = value),
-        backgroundColor: JcTheme.surfaceAlt,
-        selectedColor: JcTheme.accent.withValues(alpha: 0.3),
-        labelStyle:
-            TextStyle(color: selected ? JcTheme.text : JcTheme.muted),
-        side: const BorderSide(color: JcTheme.glassBorder),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(999),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: () => setState(() => _columnFilter = value),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              gradient: selected ? blueGradient() : null,
+              color: selected ? null : JcTheme.glassFill,
+              border: Border.all(
+                  color:
+                      selected ? Colors.transparent : JcTheme.glassBorder),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: JcTheme.primaryBlue.withValues(alpha: 0.3),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Text(label,
+                style: TextStyle(
+                    color: selected ? Colors.white : JcTheme.muted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600)),
+          ),
+        ),
       ),
     );
   }
@@ -773,6 +848,25 @@ class _KanbanPageState extends State<KanbanPage> {
   static String _columnLabel(String col) {
     if (col.isEmpty) return col;
     return col[0].toUpperCase() + col.substring(1);
+  }
+
+  static IconData _columnIcon(String col) {
+    switch (col) {
+      case 'triage':
+        return Icons.inbox_rounded;
+      case 'todo':
+        return Icons.radio_button_unchecked;
+      case 'ready':
+        return Icons.play_circle_outline;
+      case 'running':
+        return Icons.autorenew_rounded;
+      case 'blocked':
+        return Icons.block;
+      case 'done':
+        return Icons.check_circle_outline;
+      default:
+        return Icons.label_outline;
+    }
   }
 
   static Color _columnColor(String col) {
@@ -1064,22 +1158,36 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
   }
 }
 
-/// A small frosted action button for the detail sheet's action row.
+/// A small action control for the detail sheet's action row. [primary] renders
+/// a filled CTA (used for Run); otherwise a frosted text button.
 class _SheetAction extends StatelessWidget {
   const _SheetAction({
     required this.icon,
     required this.label,
     required this.onTap,
     this.danger = false,
+    this.primary = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
   final bool danger;
+  final bool primary;
 
   @override
   Widget build(BuildContext context) {
+    if (primary) {
+      return ElevatedButton.icon(
+        onPressed: onTap,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: JcTheme.primaryBlue,
+          foregroundColor: Colors.white,
+        ),
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+      );
+    }
     final color = danger ? JcTheme.danger : JcTheme.text;
     return TextButton.icon(
       onPressed: onTap,
@@ -1089,19 +1197,14 @@ class _SheetAction extends StatelessWidget {
   }
 }
 
-/// Assignee picker for the task forms: a dropdown of the board's known
-/// assignees (+ Unassigned) plus a "Custom…" option that reveals a free-text
-/// field. Writes the chosen value into [controller] so the form's onSave reads
-/// it unchanged. Falls back to a plain text field if the assignee list fails.
+/// Assignee picker sourced from the real JarvisCopilot profiles (the
+/// dispatcher claims a task by activating its assignee profile). Options are
+/// the profile names + Unassigned + Custom…; a typed/legacy value (e.g. a
+/// removed profile) is preserved via the Custom path. Writes into [controller]
+/// so the form's onSave reads it unchanged.
 class _AssigneeField extends StatefulWidget {
-  const _AssigneeField({
-    required this.api,
-    required this.controller,
-    this.board,
-  });
-  final KanbanApi api;
+  const _AssigneeField({required this.controller});
   final TextEditingController controller;
-  final String? board;
 
   @override
   State<_AssigneeField> createState() => _AssigneeFieldState();
@@ -1111,7 +1214,8 @@ class _AssigneeFieldState extends State<_AssigneeField> {
   static const _custom = '__custom__';
   static const _none = '__none__';
 
-  List<String> _known = [];
+  late final ProfilesApi _profiles = ProfilesApi(app.api);
+  List<String> _names = [];
   String _selection = _none;
   bool _loading = true;
   bool _failed = false;
@@ -1124,22 +1228,25 @@ class _AssigneeFieldState extends State<_AssigneeField> {
 
   Future<void> _load() async {
     try {
-      final raw = await widget.api.assignees(slug: widget.board);
+      final data = await _profiles.list();
+      final raw = data['profiles'];
       final names = <String>[];
-      for (final n in raw) {
-        final t = n.trim();
-        if (t.isNotEmpty && !names.contains(t)) names.add(t);
+      if (raw is List) {
+        for (final p in raw) {
+          final n = (p is Map ? (p['name'] ?? '') : p).toString().trim();
+          if (n.isNotEmpty && !names.contains(n)) names.add(n);
+        }
       }
       if (!mounted) return;
       final initial = widget.controller.text.trim();
       setState(() {
-        _known = names;
+        _names = names;
         if (initial.isEmpty) {
           _selection = _none;
-        } else if (_known.contains(initial)) {
+        } else if (_names.contains(initial)) {
           _selection = initial;
         } else {
-          _selection = _custom; // a typed/unknown value
+          _selection = _custom; // a legacy / non-profile value — keep it
         }
         _loading = false;
       });
@@ -1155,23 +1262,29 @@ class _AssigneeFieldState extends State<_AssigneeField> {
 
   @override
   Widget build(BuildContext context) {
-    // Graceful fallback: a plain text field if we couldn't load the list.
     if (_failed) {
       return FormTextField(
           label: 'Assignee', controller: widget.controller, hint: 'Optional');
     }
     if (_loading) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 14),
-        child: Row(children: [
-          SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2)),
-          SizedBox(width: 10),
-          Text('Loading assignees…',
-              style: TextStyle(color: JcTheme.muted, fontSize: 13)),
-        ]),
+        padding: EdgeInsets.only(bottom: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            FormFieldLabel('Assignee'),
+            SizedBox(height: 7),
+            Row(children: [
+              SizedBox(
+                  width: 15,
+                  height: 15,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
+              SizedBox(width: 10),
+              Text('Loading profiles…',
+                  style: TextStyle(color: JcTheme.muted, fontSize: 13)),
+            ]),
+          ],
+        ),
       );
     }
     return Column(
@@ -1179,12 +1292,18 @@ class _AssigneeFieldState extends State<_AssigneeField> {
       children: [
         FormDropdown<String>(
           label: 'Assignee',
+          sheetTitle: 'Assign to profile',
           value: _selection,
-          items: [
-            const DropdownMenuItem(value: _none, child: Text('Unassigned')),
-            for (final n in _known)
-              DropdownMenuItem(value: n, child: Text(n)),
-            const DropdownMenuItem(value: _custom, child: Text('Custom…')),
+          options: [
+            const PickerOption(_none, 'Unassigned',
+                subtitle: 'Sits in Ready — won\'t auto-run',
+                icon: Icons.person_off_outlined),
+            for (final n in _names)
+              PickerOption(n, n,
+                  subtitle: 'JarvisCopilot profile',
+                  icon: Icons.account_circle_outlined),
+            const PickerOption(_custom, 'Custom…',
+                subtitle: 'Type a name', icon: Icons.edit_outlined),
           ],
           onChanged: (v) {
             setState(() {
@@ -1193,8 +1312,7 @@ class _AssigneeFieldState extends State<_AssigneeField> {
                 widget.controller.text = '';
               } else if (_selection != _custom) {
                 widget.controller.text = _selection;
-              } else if (_known.contains(widget.controller.text.trim())) {
-                // Switching from a known name to Custom — start blank.
+              } else if (_names.contains(widget.controller.text.trim())) {
                 widget.controller.text = '';
               }
             });
@@ -1206,6 +1324,45 @@ class _AssigneeFieldState extends State<_AssigneeField> {
               controller: widget.controller,
               hint: 'Type a name'),
       ],
+    );
+  }
+}
+
+/// A 44px circular header action (dispatcher / board menu). A tinted glass
+/// circle with a hairline border; [tint] colours the icon + ring.
+class _HeaderActionButton extends StatelessWidget {
+  const _HeaderActionButton({
+    required this.icon,
+    required this.onTap,
+    this.tint,
+  });
+  final IconData icon;
+  final VoidCallback onTap;
+  final Color? tint;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = tint ?? JcTheme.text;
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: c.withValues(alpha: tint == null ? 0.08 : 0.16),
+            border: Border.all(
+                color: tint == null
+                    ? JcTheme.glassBorder
+                    : c.withValues(alpha: 0.5)),
+          ),
+          child: Icon(icon, color: c, size: 22),
+        ),
+      ),
     );
   }
 }

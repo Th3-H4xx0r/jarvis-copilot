@@ -69,6 +69,19 @@ class KanbanApi {
         .toList(growable: false);
   }
 
+  /// Run the dispatcher once: claim ready+assigned tasks and spawn workers.
+  /// POST /api/kanban/dispatch?dry_run=&max=. Returns the result map (e.g.
+  /// `{spawned, claimed, reclaimed, ...}`); `dryRun` previews without spawning.
+  Future<Map<String, dynamic>> dispatch(
+      {String? slug, bool dryRun = false, int max = 8}) async {
+    final q = <String, String>{'dry_run': '$dryRun', 'max': '$max'};
+    if (slug != null && slug.isNotEmpty) q['board'] = slug;
+    final qs = q.entries.map((e) => '${e.key}=${e.value}').join('&');
+    final resp = await api.postJson('/api/kanban/dispatch?$qs', const {});
+    final data = resp.data;
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
   /// GET /api/kanban/tasks/:id/log → the worker log text. The bridge returns
   /// `{content, ...}`; older shapes used `log`. Tolerate both, return ''.
   Future<String> taskLog(String id, {String? board}) async {

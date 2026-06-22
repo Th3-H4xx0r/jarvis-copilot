@@ -206,6 +206,47 @@ bool cronIsPaused(Map<String, dynamic> job) =>
     cronStatusKey(job) == 'paused' ||
     (job['state'] ?? '').toString().trim().toLowerCase() == 'paused';
 
+const _kMonths = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+];
+
+/// Format a run timestamp (ISO-8601, or epoch seconds/ms) into a clean local
+/// string like "Jun 22, 6:30 AM" — or a relative "in 4m" / "2h ago" when it's
+/// close to now. Returns '' for empty/unparseable input.
+String formatCronTime(dynamic v, {bool relativeNear = true}) {
+  final s = (v ?? '').toString().trim();
+  if (s.isEmpty) return '';
+  DateTime? dt = DateTime.tryParse(s);
+  if (dt == null) {
+    final n = num.tryParse(s);
+    if (n != null) {
+      final ms = n > 100000000000 ? n.toInt() : (n * 1000).toInt();
+      dt = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+    }
+  }
+  if (dt == null) return s;
+  final local = dt.toLocal();
+  if (relativeNear) {
+    final now = DateTime.now();
+    final diff = local.difference(now);
+    final mins = diff.inMinutes;
+    if (mins.abs() < 60) {
+      if (mins == 0) return 'now';
+      return mins > 0 ? 'in ${mins}m' : '${-mins}m ago';
+    }
+    final hrs = diff.inHours;
+    if (hrs.abs() < 24) {
+      return hrs > 0 ? 'in ${hrs}h' : '${-hrs}h ago';
+    }
+  }
+  final h24 = local.hour;
+  final h12 = h24 % 12 == 0 ? 12 : h24 % 12;
+  final ampm = h24 < 12 ? 'AM' : 'PM';
+  final mm = local.minute.toString().padLeft(2, '0');
+  return '${_kMonths[local.month - 1]} ${local.day}, $h12:$mm $ampm';
+}
+
 /// Resolve the human schedule string. The server stores `schedule` as a dict
 /// and exposes `schedule_display`; the spec allows a flat `schedule` string.
 String cronSchedule(Map<String, dynamic> job) {
