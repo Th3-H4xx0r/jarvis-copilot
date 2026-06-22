@@ -3,9 +3,18 @@ import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../widgets/glass.dart';
 import 'logs_page.dart';
+import 'more/code_memory_page.dart';
+import 'more/insights_page.dart';
+import 'more/kanban_page.dart';
+import 'more/long_term_memory_page.dart';
+import 'more/memory_page.dart';
+import 'more/profiles_page.dart';
+import 'more/server_logs_page.dart';
+import 'more/tasks_page.dart';
+import 'more/todos_page.dart';
+import 'more/workspaces_page.dart';
 import 'self_improvement_page.dart';
 import 'settings_page.dart';
-import 'webview_page.dart';
 
 /// Grid of launchers. The 5 native tabs cover the hot paths; the rest
 /// of the webui's tabs are reachable here via the embedded webview.
@@ -15,15 +24,17 @@ class MorePage extends StatelessWidget {
   const MorePage({super.key});
 
   static const List<_MoreItem> _tiles = [
-    _MoreItem('Tasks (cron)', Icons.schedule, _WebRoute('Tasks', '/?panel=tasks')),
-    _MoreItem('Kanban', Icons.view_kanban, _WebRoute('Kanban', '/?panel=kanban')),
-    _MoreItem('Memory', Icons.memory, _WebRoute('Memory', '/?panel=memory')),
-    _MoreItem('Workspaces', Icons.folder_outlined, _WebRoute('Workspaces', '/?panel=workspaces')),
-    _MoreItem('Profiles', Icons.person_outline, _WebRoute('Profiles', '/?panel=profiles')),
-    _MoreItem('Todos', Icons.checklist, _WebRoute('Todos', '/?panel=todos')),
-    _MoreItem('Insights', Icons.insights, _WebRoute('Insights', '/?panel=insights')),
+    _MoreItem('Tasks (cron)', Icons.schedule, _NativeRoute(TasksPage())),
+    _MoreItem('Kanban', Icons.view_kanban, _NativeRoute(KanbanPage())),
+    _MoreItem('Memory', Icons.memory, _NativeRoute(MemoryPage())),
+    _MoreItem('Code memory', Icons.account_tree_outlined, _NativeRoute(CodeMemoryPage())),
+    _MoreItem('Long-term memory', Icons.hub_outlined, _NativeRoute(LongTermMemoryPage())),
+    _MoreItem('Workspaces', Icons.folder_outlined, _NativeRoute(WorkspacesPage())),
+    _MoreItem('Profiles', Icons.person_outline, _NativeRoute(ProfilesPage())),
+    _MoreItem('Todos', Icons.checklist, _NativeRoute(TodosPage())),
+    _MoreItem('Insights', Icons.insights, _NativeRoute(InsightsPage())),
     _MoreItem('Learning', Icons.auto_awesome, _NativeRoute(SelfImprovementPage())),
-    _MoreItem('Server logs', Icons.article_outlined, _WebRoute('Server logs', '/?panel=logs')),
+    _MoreItem('Server logs', Icons.article_outlined, _NativeRoute(ServerLogsPage())),
     _MoreItem('This device logs', Icons.history, _NativeRoute(LogsPage())),
     _MoreItem('Settings', Icons.settings, _NativeRoute(SettingsPage())),
   ];
@@ -52,11 +63,7 @@ class MorePage extends StatelessWidget {
                 padding: const EdgeInsets.all(10),
                 onTap: () {
                   final r = t.target;
-                  if (r is _WebRoute) {
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => WebViewPage(title: r.title, path: r.path),
-                    ));
-                  } else if (r is _NativeRoute) {
+                  if (r is _NativeRoute) {
                     Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => r.page,
                     ));
@@ -101,12 +108,6 @@ class _MoreItem {
   final String label;
   final IconData icon;
   final Object target;
-}
-
-class _WebRoute {
-  const _WebRoute(this.title, this.path);
-  final String title;
-  final String path;
 }
 
 class _NativeRoute {

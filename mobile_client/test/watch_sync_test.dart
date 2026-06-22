@@ -33,7 +33,8 @@ void main() {
     // Lock the exact arg-key contract the native handler depends on — a key
     // rename typo (e.g. certSha256 → cert_sha256) would silently break the
     // relay, so guard the key SET, not just the values.
-    expect(a.keys.toSet(), {'serverUrl', 'cookie', 'certSha256', 'loggedIn'});
+    expect(a.keys.toSet(),
+        {'serverUrl', 'cookie', 'certSha256', 'cfClientId', 'cfClientSecret', 'loggedIn'});
     expect(a['serverUrl'], 'https://hermes:8787');
     expect(a['cookie'], 'hermes_session=abc');
     expect(a['certSha256'], 'deadbeef'); // lowercased
