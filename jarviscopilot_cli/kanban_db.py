@@ -1104,12 +1104,74 @@ def _attempt_reindex_repair(path: Path) -> bool:
     try:
         repair = sqlite3.connect(str(path), timeout=10, isolation_level=None)
         try:
+            # Fold any pending WAL frames into the main DB first so REINDEX and
+            # the follow-up integrity_check see one consistent file.
+            try:
+                repair.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.Error:
+                pass
             repair.execute("REINDEX")
             row = repair.execute("PRAGMA integrity_check").fetchone()
         finally:
             repair.close()
         return bool(row) and (row[0] or "").lower() == "ok"
     except sqlite3.Error:
+        return False
+
+
+def _attempt_db_rebuild(path: Path) -> bool:
+    """Last-resort repair: rebuild the DB by replaying its rows into a fresh
+    file. Handles corruption ``REINDEX`` can't — ``iterdump`` reads the table
+    data (not the broken indexes), and the rebuilt copy gets clean indexes.
+
+    Builds a sibling ``.rebuild.tmp``, integrity-checks it, and only then
+    atomically swaps it in (removing stale WAL/SHM sidecars). Any failure
+    leaves the original untouched. Caller must have backed the file up first.
+    """
+    tmp = Path(str(path) + ".rebuild.tmp")
+    try:
+        if tmp.exists():
+            tmp.unlink()
+    except OSError:
+        return False
+    ok = False
+    try:
+        src = sqlite3.connect(str(path), timeout=10, isolation_level=None)
+        dst = sqlite3.connect(str(tmp), isolation_level=None)
+        try:
+            for stmt in src.iterdump():
+                try:
+                    dst.execute(stmt)
+                except sqlite3.Error:
+                    # Skip an unreplayable row/statement rather than abort the
+                    # whole salvage — we keep everything still readable.
+                    continue
+            dst.commit()
+            row = dst.execute("PRAGMA integrity_check").fetchone()
+            ok = bool(row) and (row[0] or "").lower() == "ok"
+        finally:
+            src.close()
+            dst.close()
+    except Exception:
+        ok = False
+    if not ok:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return False
+    try:
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(str(path) + suffix)
+            if sidecar.exists():
+                sidecar.unlink()
+        os.replace(str(tmp), str(path))
+        return True
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
         return False
 
 
@@ -1172,7 +1234,11 @@ def _guard_existing_db_is_healthy(path: Path) -> None:
     # (e.g. "wrong # of entries in index idx_runs_task"), which REINDEX fixes
     # losslessly. Only refuse if the DB is still unhealthy afterward.
     backup = _backup_corrupt_db(resolved)
+    # Escalating self-heal: cheap index rebuild first, then a full row-replay
+    # rebuild for corruption REINDEX can't touch. Only refuse if both fail.
     if _attempt_reindex_repair(resolved):
+        return
+    if _attempt_db_rebuild(resolved):
         return
     raise KanbanDbCorruptError(resolved, backup, reason)
 
