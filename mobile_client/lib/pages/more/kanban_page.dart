@@ -12,6 +12,7 @@ import '../../widgets/detail_sheet.dart';
 import '../../widgets/form_sheet.dart';
 import '../../widgets/glass.dart';
 import '../../widgets/picker.dart';
+import '../../widgets/status_pill.dart';
 
 /// Native Kanban screen at parity with the web kanban panel, rendered as a
 /// status-grouped LIST (one section per column) rather than a horizontal
@@ -531,17 +532,16 @@ class _KanbanPageState extends State<KanbanPage> {
     await showDetailSheet<void>(
       context: context,
       title: '${task['title'] ?? id}',
-      child: _TaskDetailBody(api: _api, task: task, board: _boardSlug),
+      child: _TaskDetailBody(
+        api: _api,
+        task: task,
+        board: _boardSlug,
+        // Run/Stop live inside the body (it reflects the running state); Run
+        // triggers the dispatcher for this task.
+        onRun: () => _runTask(task),
+        onChanged: () => _ctrl.refresh(),
+      ),
       actions: [
-        _SheetAction(
-          icon: Icons.bolt_rounded,
-          label: 'Run',
-          primary: true,
-          onTap: () {
-            Navigator.of(context).pop();
-            _runTask(task);
-          },
-        ),
         _SheetAction(
           icon: Icons.swap_horiz,
           label: 'Move',
@@ -905,11 +905,19 @@ class _TaskDetailBody extends StatefulWidget {
     required this.api,
     required this.task,
     required this.board,
+    required this.onRun,
+    required this.onChanged,
   });
 
   final KanbanApi api;
   final Map<String, dynamic> task;
   final String? board;
+
+  /// Trigger the dispatcher for this task (run it).
+  final Future<void> Function() onRun;
+
+  /// Notify the parent board to refresh (after stop / status change).
+  final VoidCallback onChanged;
 
   @override
   State<_TaskDetailBody> createState() => _TaskDetailBodyState();
@@ -926,8 +934,24 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
   bool _detailLoading = true;
   Map<String, dynamic>? _detail;
 
+  /// Live poll while the task is running OR the log is open, so the status
+  /// (Run↔Stop) + worker log update without leaving the sheet.
+  Timer? _poll;
+  bool _busy = false; // a run/stop request is in flight
+
   final TextEditingController _commentC = TextEditingController();
   bool _posting = false;
+
+  /// The freshest task map — the polled detail's `task`, else the board task.
+  Map<String, dynamic> get _liveTask {
+    final d = _detail;
+    if (d != null && d['task'] is Map) {
+      return Map<String, dynamic>.from(d['task'] as Map);
+    }
+    return widget.task;
+  }
+
+  bool get _running => kanbanTaskColumn(_liveTask) == 'running';
 
   @override
   void initState() {
@@ -937,13 +961,29 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
 
   @override
   void dispose() {
+    _poll?.cancel();
     _commentC.dispose();
     super.dispose();
   }
 
-  Future<void> _loadDetail() async {
+  /// Run a 2.5s live poll while the task is running or the log is shown.
+  void _syncPoll() {
+    final shouldPoll = _running || _log != null;
+    if (shouldPoll) {
+      _poll ??= Timer.periodic(const Duration(milliseconds: 2500), (_) {
+        if (!mounted) return;
+        _loadDetail(silent: true);
+        if (_log != null || _running) _loadLog(silent: true);
+      });
+    } else {
+      _poll?.cancel();
+      _poll = null;
+    }
+  }
+
+  Future<void> _loadDetail({bool silent = false}) async {
     if (!mounted) return;
-    setState(() => _detailLoading = true);
+    if (!silent) setState(() => _detailLoading = true);
     try {
       final d = await widget.api
           .taskDetail(kanbanTaskId(widget.task), board: widget.board);
@@ -951,8 +991,112 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
     } catch (_) {
       // Best-effort: fall back to whatever the board task already carried.
     } finally {
-      if (mounted) setState(() => _detailLoading = false);
+      if (mounted) {
+        if (!silent) setState(() => _detailLoading = false);
+        // Auto-open the log while running so it streams without a tap.
+        if (_running && _log == null && !_logLoading) _loadLog(silent: true);
+        _syncPoll();
+      }
     }
+  }
+
+  Future<void> _run() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onRun();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+      // The dispatcher claims it within a couple seconds — poll to pick up the
+      // running state and start streaming the log.
+      await _loadDetail(silent: true);
+    }
+  }
+
+  Future<void> _stop() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      // Move out of 'running' → the bridge nulls the claim and reclaims the run.
+      await widget.api.patchTask(
+          kanbanTaskId(widget.task), {'status': 'todo'},
+          board: widget.board);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Task stopped (moved to Todo)')),
+        );
+      }
+      widget.onChanged();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(apiErrorMessage(e)),
+              backgroundColor: JcTheme.danger),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+      await _loadDetail(silent: true);
+    }
+  }
+
+  Widget _runControl() {
+    final running = _running;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: _busy ? null : (running ? _stop : _run),
+        child: Container(
+          height: 48,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            gradient: running ? null : blueGradient(),
+            color: running ? JcTheme.danger.withValues(alpha: 0.15) : null,
+            border: running
+                ? Border.all(color: JcTheme.danger.withValues(alpha: 0.5))
+                : null,
+          ),
+          child: Center(
+            child: _busy
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: running
+                        ? const [
+                            PulsingDot(color: JcTheme.danger, size: 8),
+                            SizedBox(width: 9),
+                            Icon(Icons.stop_rounded,
+                                color: JcTheme.danger, size: 20),
+                            SizedBox(width: 6),
+                            Text('Stop',
+                                style: TextStyle(
+                                    color: JcTheme.danger,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700)),
+                          ]
+                        : const [
+                            Icon(Icons.play_arrow_rounded,
+                                color: Colors.white, size: 22),
+                            SizedBox(width: 6),
+                            Text('Run',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700)),
+                          ],
+                  ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _postComment() async {
@@ -977,19 +1121,29 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
     }
   }
 
-  Future<void> _loadLog() async {
-    setState(() {
-      _logLoading = true;
-      _logError = null;
-    });
+  Future<void> _loadLog({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _logLoading = true;
+        _logError = null;
+      });
+    }
     try {
       final log = await widget.api
           .taskLog(kanbanTaskId(widget.task), board: widget.board);
-      if (mounted) setState(() => _log = log);
+      if (mounted) {
+        setState(() {
+          _log = log;
+          _logError = null;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() => _logError = apiErrorMessage(e));
+      if (mounted && !silent) setState(() => _logError = apiErrorMessage(e));
     } finally {
-      if (mounted) setState(() => _logLoading = false);
+      if (mounted) {
+        if (!silent) setState(() => _logLoading = false);
+        _syncPoll(); // once the log is open, keep it live-updating
+      }
     }
   }
 
@@ -1013,7 +1167,9 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        DetailRow('Column', kanbanTaskColumn(task)),
+        _runControl(),
+        const SizedBox(height: 16),
+        DetailRow('Column', kanbanTaskColumn(_liveTask)),
         if (assignee.isNotEmpty) DetailRow('Assignee', assignee),
         if (priority != null) DetailRow('Priority', '$priority'),
         if (due != null && '$due'.trim().isNotEmpty)
@@ -1145,11 +1301,32 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
           style: const TextStyle(color: JcTheme.danger, fontSize: 12));
     }
     final log = _log ?? '';
+    final live = _poll != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Worker log',
-            style: TextStyle(color: JcTheme.muted, fontSize: 12)),
+        Row(
+          children: [
+            const Text('Worker log',
+                style: TextStyle(color: JcTheme.muted, fontSize: 12)),
+            const Spacer(),
+            if (live) ...[
+              const PulsingDot(color: JcTheme.success, size: 6),
+              const SizedBox(width: 5),
+              const Text('LIVE',
+                  style: TextStyle(
+                      color: JcTheme.success,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6)),
+            ] else
+              GestureDetector(
+                onTap: () => _loadLog(),
+                child: const Icon(Icons.refresh_rounded,
+                    size: 16, color: JcTheme.muted),
+              ),
+          ],
+        ),
         const SizedBox(height: 4),
         Container(
           width: double.infinity,
@@ -1171,35 +1348,22 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
 }
 
 /// A small action control for the detail sheet's action row. [primary] renders
-/// a filled CTA (used for Run); otherwise a frosted text button.
+/// a frosted text button for the detail sheet's action row.
 class _SheetAction extends StatelessWidget {
   const _SheetAction({
     required this.icon,
     required this.label,
     required this.onTap,
     this.danger = false,
-    this.primary = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
   final bool danger;
-  final bool primary;
 
   @override
   Widget build(BuildContext context) {
-    if (primary) {
-      return ElevatedButton.icon(
-        onPressed: onTap,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: JcTheme.primaryBlue,
-          foregroundColor: Colors.white,
-        ),
-        icon: Icon(icon, size: 18),
-        label: Text(label),
-      );
-    }
     final color = danger ? JcTheme.danger : JcTheme.text;
     return TextButton.icon(
       onPressed: onTap,
