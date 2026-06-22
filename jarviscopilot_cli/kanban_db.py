@@ -5695,22 +5695,63 @@ def _bare_model_id(model_str: str) -> str:
     return m.strip() or "claude-sonnet-4-6"
 
 
-def _profile_model_string(profile_home: Optional[str]) -> str:
-    """Read the assignee profile's configured top-level ``model`` string.
+# Providers that are explicitly NOT the anthropic/claude-code family — a kanban
+# worker assigned to such a profile must keep running on its own provider.
+_NON_CLAUDE_PROVIDERS = frozenset({
+    "glm", "zhipu", "codex", "openai", "openrouter", "nous", "gemini", "google",
+    "mistral", "groq", "ollama", "deepseek", "xai", "grok", "cohere", "together",
+})
 
-    Read straight from ``<profile_home>/config.yaml`` so we can tell what
-    provider the worker WOULD use without spawning it. Returns '' on any error.
+
+def _profile_model_config(profile_home: Optional[str]) -> tuple:
+    """Return ``(provider, model)`` the assignee profile is configured for.
+
+    Read straight from ``<profile_home>/config.yaml`` so we know what the worker
+    WOULD resolve to without spawning it. The ``model:`` key may be a flat string
+    (``"claude-opus-4-8"`` / ``"@anthropic:…"``) OR a structured dict
+    (``{provider, default, base_url, api_mode}``) — handle both. Returns
+    ``("", "")`` on any error.
     """
     if not profile_home:
-        return ""
+        return ("", "")
     try:
         import yaml
         cfg_path = os.path.join(str(profile_home), "config.yaml")
         with open(cfg_path) as fh:
             cfg = yaml.safe_load(fh) or {}
-        return str(cfg.get("model") or "")
     except Exception:
-        return ""
+        return ("", "")
+    m = cfg.get("model")
+    provider = str(cfg.get("model_provider") or cfg.get("provider") or "").strip()
+    model = ""
+    if isinstance(m, dict):
+        provider = str(m.get("provider") or provider).strip()
+        model = str(m.get("default") or m.get("model") or "").strip()
+    elif isinstance(m, str):
+        model = m.strip()
+    # An ``@prov:model`` string carries its own provider.
+    if model.startswith("@") and ":" in model:
+        provider = provider or model.split(":", 1)[0][1:].strip()
+        model = model.split(":", 1)[1].strip()
+    return (provider.lower(), model)
+
+
+def _profile_targets_claude(provider: str, model: str) -> bool:
+    """True when the profile resolves to the anthropic/claude-code family — i.e.
+    a kanban worker for it should run on the claude-code subscription. A
+    claude-code profile counts too: the spawned worker isn't honouring the
+    dict-form config (it falls back to the dead anthropic API), so we force the
+    flag. Genuinely non-claude profiles (glm-5-1 → GLM, codex, …) return False.
+    """
+    p = (provider or "").strip().lower()
+    if p in _NON_CLAUDE_PROVIDERS:
+        return False
+    if p in ("anthropic", "claude-code"):
+        return True
+    # Unknown/empty provider: decide by the model. Empty ⇒ this box's claude
+    # default; otherwise only a claude-* id counts as claude.
+    m = (model or "").strip().lower()
+    return (not m) or m.startswith("claude")
 
 
 def _worker_chat_flags(task: Task, profile_home: Optional[str] = None) -> list:
@@ -5741,14 +5782,14 @@ def _worker_chat_flags(task: Task, profile_home: Optional[str] = None) -> list:
             return ["-m", _bare_model_id(override), "--provider", "claude-code"]
         return ["-m", override]
 
-    # No override: inspect the assignee profile's configured model. Redirect
-    # when it would land on anthropic-claude — including an EMPTY model, which
-    # falls through to this box's claude default (the anthropic OAuth API).
-    # A profile that explicitly targets another provider (e.g. glm-5-1 → an
-    # @glm:/GLM model) is left untouched.
-    model_str = _profile_model_string(profile_home)
-    if not model_str.strip() or _model_is_anthropic_claude(model_str):
-        return ["-m", _bare_model_id(model_str), "--provider", "claude-code"]
+    # No override: inspect the assignee profile's configured provider/model and
+    # force the claude-code subscription whenever it targets the claude family
+    # (anthropic, or a claude-code profile the worker isn't honouring, or an
+    # empty/claude config). Non-claude profiles (glm-5-1 → GLM, …) are left as-is.
+    provider, model = _profile_model_config(profile_home)
+    if _profile_targets_claude(provider, model):
+        bare = _bare_model_id(model) if model else "claude-sonnet-4-6"
+        return ["-m", bare, "--provider", "claude-code"]
     return []
 
 
