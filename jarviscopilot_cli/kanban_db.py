@@ -5557,67 +5557,87 @@ def _worker_terminal_timeout_env(
     return str(desired)
 
 
-def _claude_code_worker_available() -> bool:
-    """True when the claude-code subscription is usable for a worker subprocess.
+def _model_is_anthropic_claude(model_str: str) -> bool:
+    """True when a model string resolves to the (dead) anthropic OAuth provider.
 
-    Checks the credential pool first (fast), then falls back to the live
-    `claude auth status` login probe so a `~/.claude` login (no managed token)
-    still counts. Mirrors how the webui decides claude-code is configured.
+    An explicit ``@anthropic:…`` qualifies; so does a bare ``claude-…`` id,
+    which the CLI infers as the anthropic provider when no ``@prov:`` prefix is
+    given. An explicit non-anthropic prefix (``@codex:…``, ``@glm:…``) or a
+    non-claude model (a GLM id, etc.) does NOT — those run on their own
+    provider and must be left alone.
     """
-    try:
-        from jarviscopilot_cli.auth import has_claude_code_setup_token
-        if has_claude_code_setup_token():
-            return True
-    except Exception:
-        pass
-    try:
-        from jarviscopilot_cli.auth import get_external_process_provider_status
-        st = get_external_process_provider_status("claude-code")
-        return bool(st.get("logged_in"))
-    except Exception:
+    m = (model_str or "").strip()
+    if not m:
         return False
+    if m.startswith("@anthropic:"):
+        return True
+    if m.startswith("@"):
+        return False
+    return m.lower().startswith("claude")
 
 
-def _apply_worker_model(cmd: list, task: Task) -> None:
+def _bare_model_id(model_str: str) -> str:
+    """Strip any ``@prov:`` prefix to the bare model id."""
+    m = (model_str or "").strip()
+    if m.startswith("@") and ":" in m:
+        m = m.split(":", 1)[1]
+    return m.strip() or "claude-sonnet-4-6"
+
+
+def _profile_model_string(profile_home: Optional[str]) -> str:
+    """Read the assignee profile's configured top-level ``model`` string.
+
+    Read straight from ``<profile_home>/config.yaml`` so we can tell what
+    provider the worker WOULD use without spawning it. Returns '' on any error.
+    """
+    if not profile_home:
+        return ""
+    try:
+        import yaml
+        cfg_path = os.path.join(str(profile_home), "config.yaml")
+        with open(cfg_path) as fh:
+            cfg = yaml.safe_load(fh) or {}
+        return str(cfg.get("model") or "")
+    except Exception:
+        return ""
+
+
+def _apply_worker_model(cmd: list, task: Task, profile_home: Optional[str] = None) -> None:
     """Append the model/provider flags for a dispatched kanban worker.
 
-    The worker would otherwise inherit the global config default, which on a
-    claude-code setup resolves to the dead `anthropic` OAuth API (HTTP 400
-    "You're out of extra usage"). So, mirroring the voice redirect in
-    webui/api/voice.py, route the worker to the claude-code subscription when
-    it's configured. Opt out with HERMES_KANBAN_ALLOW_ANTHROPIC=1.
+    A worker inherits its assignee profile's config. On a claude-code setup the
+    ``default`` profile's bare ``claude-…`` model infers the dead ``anthropic``
+    OAuth API (HTTP 400 "You're out of extra usage"), so every such task aborts.
+    Mirror the voice redirect: when the profile (or a per-task override) resolves
+    to anthropic-claude, reroute it to the claude-code subscription with the same
+    Claude model. Profiles on other providers (e.g. ``glm-5-1`` → GLM) are left
+    untouched. Opt out entirely with HERMES_KANBAN_ALLOW_ANTHROPIC=1.
     """
-    override = (task.model_override or "").strip()
-    is_anthropic = override.startswith("@anthropic:") or "anthropic" in override.lower()
-
-    # A non-anthropic explicit override is honoured as-is.
-    if override and not is_anthropic:
-        cmd.extend(["-m", override])
-        return
-
     if os.environ.get("HERMES_KANBAN_ALLOW_ANTHROPIC"):
-        if override:
+        if task.model_override:
+            cmd.extend(["-m", str(task.model_override)])
+        return
+
+    override = (task.model_override or "").strip()
+    if override:
+        # A per-task override wins; only reroute it if it's anthropic-claude.
+        if _model_is_anthropic_claude(override):
+            cmd.extend(["-m", _bare_model_id(override), "--provider", "claude-code"])
+        else:
             cmd.extend(["-m", override])
         return
 
-    if not _claude_code_worker_available():
-        if override:
-            cmd.extend(["-m", override])
-        return
-
-    # Redirect to claude-code: strip any @prov: prefix to the bare Claude id,
-    # defaulting to the claude-code provider default.
-    bare = override
-    if bare.startswith("@") and ":" in bare:
-        bare = bare.split(":", 1)[1]
-    bare = bare.strip()
-    if not bare:
-        try:
-            from jarviscopilot_cli.models import get_default_model_for_provider
-            bare = get_default_model_for_provider("claude-code")
-        except Exception:
-            bare = "claude-sonnet-4-6"
-    cmd.extend(["-m", bare, "--provider", "claude-code"])
+    # No override: inspect the assignee profile's configured model. Redirect
+    # when it would land on anthropic-claude — including an EMPTY model, which
+    # falls through to this box's claude default (the anthropic OAuth API).
+    # A profile that explicitly targets another provider (e.g. glm-5-1 → an
+    # @glm:/GLM model) is left untouched.
+    model_str = _profile_model_string(profile_home)
+    if not model_str.strip() or _model_is_anthropic_claude(model_str):
+        cmd.extend([
+            "-m", _bare_model_id(model_str),
+            "--provider", "claude-code",
+        ])
 
 
 def _default_spawn(
@@ -5744,7 +5764,7 @@ def _default_spawn(
         for sk in task.skills:
             if sk and sk != "kanban-worker":
                 cmd.extend(["--skills", sk])
-    _apply_worker_model(cmd, task)
+    _apply_worker_model(cmd, task, env.get("HERMES_HOME"))
     cmd.extend([
         "chat",
         "-q", prompt,
