@@ -1042,6 +1042,21 @@ def _backup_corrupt_db(path: Path) -> Optional[Path]:
     resolved = path.resolve()
     parent = resolved.parent
     base_name = resolved.name  # basename only
+    # Spam guard: while a DB stays corrupt, this is called on EVERY connect
+    # (and once per worker process), which previously piled up thousands of
+    # identical ``.corrupt.*.bak`` copies. If we already made one within the
+    # last 10 minutes, reuse it instead of writing another.
+    try:
+        import time as _time
+        now = _time.time()
+        for existing in parent.glob(f"{base_name}.corrupt.*.bak"):
+            try:
+                if 0 <= now - existing.stat().st_mtime < 600:
+                    return existing
+            except OSError:
+                continue
+    except Exception:
+        pass
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     candidate = parent / f"{base_name}.corrupt.{stamp}.bak"
     # Defensive: candidate must still be inside parent after construction.
@@ -1072,6 +1087,30 @@ def _backup_corrupt_db(path: Path) -> Optional[Path]:
         except OSError:
             pass
     return candidate
+
+
+def _attempt_reindex_repair(path: Path) -> bool:
+    """Try to repair INDEX-level corruption in place with ``REINDEX``.
+
+    Index inconsistencies — ``integrity_check`` reporting "wrong # of entries
+    in index X" or "row N missing from index X" — are rebuildable purely from
+    the table rows, with no data loss: ``REINDEX`` drops and recreates every
+    index b-tree from the live table data. Page/row corruption, by contrast,
+    is NOT fixable this way, so we re-run ``integrity_check`` afterward and
+    return True ONLY when the DB is genuinely clean again.
+
+    Caller must back the file up FIRST — REINDEX writes in place.
+    """
+    try:
+        repair = sqlite3.connect(str(path), timeout=10, isolation_level=None)
+        try:
+            repair.execute("REINDEX")
+            row = repair.execute("PRAGMA integrity_check").fetchone()
+        finally:
+            repair.close()
+        return bool(row) and (row[0] or "").lower() == "ok"
+    except sqlite3.Error:
+        return False
 
 
 def _guard_existing_db_is_healthy(path: Path) -> None:
@@ -1128,7 +1167,13 @@ def _guard_existing_db_is_healthy(path: Path) -> None:
         reason = f"sqlite refused to open file: {exc}"
     if reason is None:
         return
+    # Back up FIRST so an in-place repair attempt can never lose data, then try
+    # to rebuild indexes — most kanban corruption is a stale/inconsistent index
+    # (e.g. "wrong # of entries in index idx_runs_task"), which REINDEX fixes
+    # losslessly. Only refuse if the DB is still unhealthy afterward.
     backup = _backup_corrupt_db(resolved)
+    if _attempt_reindex_repair(resolved):
+        return
     raise KanbanDbCorruptError(resolved, backup, reason)
 
 
