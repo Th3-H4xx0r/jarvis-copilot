@@ -1473,7 +1473,7 @@ def cmd_chat(args):
         "provider": getattr(args, "provider", None),
         "toolsets": args.toolsets,
         "skills": getattr(args, "skills", None),
-        "verbose": args.verbose,
+        "verbose": getattr(args, "verbose", False),
         "quiet": getattr(args, "quiet", False),
         "query": args.query,
         "image": getattr(args, "image", None),
