@@ -74,6 +74,20 @@ class CronsApi {
     return '';
   }
 
+  /// Fetch the captured output of one specific run (by its history filename).
+  Future<String> runOutput(String jobId, String filename) async {
+    final resp = await api.get('/api/crons/run',
+        query: {'job_id': jobId, 'filename': filename});
+    final data = resp.data;
+    if (data is Map) {
+      final c = data['content'] ?? data['output'];
+      if (c != null) return c.toString();
+      final lines = data['lines'];
+      if (lines is List) return lines.join('\n');
+    }
+    return '';
+  }
+
   /// POST /api/crons/create.
   Future<void> create(Map<String, dynamic> body) async {
     await api.postJson('/api/crons/create', body);

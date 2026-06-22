@@ -81,8 +81,15 @@ class _MemoryPageState extends State<MemoryPage> {
             controller: _ctrl,
             loader: _api.read,
             builder: (context, data, refresh) {
-              // Cache so the appBar edit button + editor read fresh content.
-              _data = data;
+              // Lift the loaded content into parent state so the appBar (built
+              // by the parent Scaffold, outside this AsyncView subtree) rebuilds
+              // and enables the Edit button once content is available. Done in a
+              // post-frame callback to avoid setState during build.
+              if (!identical(_data, data)) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) setState(() => _data = data);
+                });
+              }
               return _MemoryBody(
                 section: _section,
                 onSectionChanged: (s) => setState(() => _section = s),

@@ -29,7 +29,8 @@ class TodosApi {
   Future<String?> _activeSessionId() async {
     final resp = await api.get('/api/sessions');
     final data = resp.data;
-    final raw = (data is Map ? data['sessions'] as List? : data as List?) ?? const [];
+    final s = data is Map ? data['sessions'] : data;
+    final raw = s is List ? s : const [];
     final rows = raw.whereType<Map>().toList();
     if (rows.isEmpty) return null;
     int updatedOf(Map m) => _asInt(m['updated_at'] ?? m['last_message_at']) ?? 0;

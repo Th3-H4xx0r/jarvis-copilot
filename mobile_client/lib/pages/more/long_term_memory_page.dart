@@ -70,6 +70,10 @@ class _LongTermMemoryPageState extends State<LongTermMemoryPage> {
   void initState() {
     super.initState();
     _reload();
+    // Populate the recent-entries list on open: the backend returns recent
+    // entries for an empty query (mirrors the webui panel, which searches on
+    // open). Safe when the store is unavailable — search just returns empty.
+    _runSearch('');
   }
 
   @override

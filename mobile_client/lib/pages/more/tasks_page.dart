@@ -73,9 +73,12 @@ class _TasksPageState extends State<TasksPage> {
     final profile =
         TextEditingController(text: (existing?['profile'] ?? '').toString());
 
-    var deliver = (existing?['deliver'] ?? 'toast').toString();
-    const deliverOptions = ['toast', 'chat', 'none'];
-    if (!deliverOptions.contains(deliver)) deliverOptions.add(deliver);
+    var deliver = (existing?['deliver'] ?? 'local').toString();
+    if (deliver.isEmpty) deliver = 'local';
+    final deliverOptions = <String>['local', 'origin', 'telegram', 'discord', 'slack'];
+    if (deliver.isNotEmpty && !deliverOptions.contains(deliver)) {
+      deliverOptions.add(deliver);
+    }
 
     var toast = existing == null
         ? true
@@ -441,8 +444,8 @@ class _RunHistory extends StatefulWidget {
 
 class _RunHistoryState extends State<_RunHistory> {
   late Future<List<Map<String, dynamic>>> _future;
-  String? _output;
-  bool _loadingOutput = false;
+  final Map<String, String> _outputs = {};
+  final Set<String> _loadingRuns = {};
 
   @override
   void initState() {
@@ -450,18 +453,22 @@ class _RunHistoryState extends State<_RunHistory> {
     _future = widget.api.history(widget.jobId);
   }
 
-  Future<void> _loadOutput() async {
-    if (_output != null || _loadingOutput) return;
-    setState(() => _loadingOutput = true);
+  Future<void> _loadRun(String filename) async {
+    if (_outputs.containsKey(filename) || _loadingRuns.contains(filename)) {
+      return;
+    }
+    setState(() => _loadingRuns.add(filename));
     try {
-      final out = await widget.api.output(widget.jobId);
+      final out = await widget.api.runOutput(widget.jobId, filename);
       if (mounted) {
-        setState(() => _output = out.isEmpty ? '(no output)' : out);
+        setState(() => _outputs[filename] = out);
       }
     } catch (e) {
-      if (mounted) setState(() => _output = 'Failed to load output: $e');
+      if (mounted) {
+        setState(() => _outputs[filename] = 'Failed to load output: $e');
+      }
     } finally {
-      if (mounted) setState(() => _loadingOutput = false);
+      if (mounted) setState(() => _loadingRuns.remove(filename));
     }
   }
 
@@ -491,60 +498,68 @@ class _RunHistoryState extends State<_RunHistory> {
         }
         return Column(
           children: [
-            for (final run in runs)
-              Theme(
-                data: Theme.of(context)
-                    .copyWith(dividerColor: Colors.transparent),
-                child: ExpansionTile(
-                  tilePadding:
-                      const EdgeInsets.symmetric(horizontal: 4),
-                  childrenPadding:
-                      const EdgeInsets.fromLTRB(8, 0, 8, 12),
-                  collapsedIconColor: JcTheme.muted,
-                  iconColor: JcTheme.accent,
-                  title: Text(
-                    _runLabel(run),
-                    style: const TextStyle(
-                        color: JcTheme.text, fontSize: 13),
+            for (final (i, run) in runs.indexed)
+              Builder(builder: (_) {
+                final fn = (run['filename'] ?? '').toString();
+                final key = fn.isNotEmpty ? fn : 'run_$i';
+                final loading = _loadingRuns.contains(key);
+                final output = _outputs[key];
+                return Theme(
+                  data: Theme.of(context)
+                      .copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    tilePadding:
+                        const EdgeInsets.symmetric(horizontal: 4),
+                    childrenPadding:
+                        const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                    collapsedIconColor: JcTheme.muted,
+                    iconColor: JcTheme.accent,
+                    title: Text(
+                      _runLabel(run),
+                      style: const TextStyle(
+                          color: JcTheme.text, fontSize: 13),
+                    ),
+                    subtitle: _runSubtitle(run) == null
+                        ? null
+                        : Text(_runSubtitle(run)!,
+                            style: const TextStyle(
+                                color: JcTheme.muted, fontSize: 11)),
+                    onExpansionChanged: (open) {
+                      if (open) _loadRun(key);
+                    },
+                    children: [
+                      if (loading && output == null)
+                        const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: SizedBox(
+                            height: 16,
+                            width: 16,
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      else
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: JcTheme.surfaceAlt,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: SelectableText(
+                            (output == null || output.isEmpty)
+                                ? '(no output)'
+                                : output,
+                            style: const TextStyle(
+                                color: JcTheme.text,
+                                fontSize: 12,
+                                height: 1.4),
+                          ),
+                        ),
+                    ],
                   ),
-                  subtitle: _runSubtitle(run) == null
-                      ? null
-                      : Text(_runSubtitle(run)!,
-                          style: const TextStyle(
-                              color: JcTheme.muted, fontSize: 11)),
-                  onExpansionChanged: (open) {
-                    if (open) _loadOutput();
-                  },
-                  children: [
-                    if (_loadingOutput && _output == null)
-                      const Padding(
-                        padding: EdgeInsets.all(8),
-                        child: SizedBox(
-                          height: 16,
-                          width: 16,
-                          child:
-                              CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      )
-                    else
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: JcTheme.surfaceAlt,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: SelectableText(
-                          _output ?? '',
-                          style: const TextStyle(
-                              color: JcTheme.text,
-                              fontSize: 12,
-                              height: 1.4),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+                );
+              }),
           ],
         );
       },

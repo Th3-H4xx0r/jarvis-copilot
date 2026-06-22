@@ -85,6 +85,15 @@ class KanbanApi {
     return '';
   }
 
+  /// Full task detail (comments, links, events, runs) — the board payload only
+  /// carries counts, so the detail sheet must fetch this.
+  Future<Map<String, dynamic>> taskDetail(String id, {String? board}) async {
+    final resp = await api.get('/api/kanban/tasks/$id',
+        query: board != null ? {'board': board} : null);
+    final d = resp.data;
+    return d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{};
+  }
+
   /// POST /api/kanban/tasks → `{task: {...}}`.
   Future<Map<String, dynamic>> createTask(Map<String, dynamic> body,
       {String? board}) async {
@@ -164,6 +173,7 @@ class KanbanApi {
       'slug': kanbanSlugify(title),
       'name': title,
       'description': desc,
+      'switch': true,
     });
     return _asMap(resp.data);
   }

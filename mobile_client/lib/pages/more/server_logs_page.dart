@@ -81,7 +81,9 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
     _timer?.cancel();
     if (_autoRefresh) {
       _timer = Timer.periodic(const Duration(seconds: 5), (_) {
-        if (!mounted) return;
+        // Skip this tick if a load is still in flight so calls can't stack up
+        // when a load takes longer than the 5s interval.
+        if (!mounted || _loading) return;
         _load();
       });
     }

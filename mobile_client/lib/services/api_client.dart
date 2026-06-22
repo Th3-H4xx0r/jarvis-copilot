@@ -157,7 +157,12 @@ class ApiClient {
     return _dio.delete(
       '$base$path',
       data: body,
-      options: Options(headers: headers),
+      options: Options(
+        headers: {
+          if (body != null) 'Content-Type': 'application/json',
+          ...?headers,
+        },
+      ),
     );
   }
 

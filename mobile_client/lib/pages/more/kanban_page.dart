@@ -68,6 +68,7 @@ class _KanbanPageState extends State<KanbanPage> {
   }
 
   void _startPolling() {
+    if (!mounted) return; // a stream error during dispose must not start a timer
     if (_poll != null) return; // already polling
     _poll = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) _ctrl.refresh();
@@ -141,7 +142,13 @@ class _KanbanPageState extends State<KanbanPage> {
         }
       },
     );
-    if (ok == true) await _ctrl.refresh();
+    if (ok == true) {
+      // The bridge created the board with `switch: true`, so it's now the
+      // server's current board. Drop any local slug override so the UI follows
+      // the server's now-current board.
+      if (mounted) setState(() => _boardSlug = null);
+      await _ctrl.refresh();
+    }
   }
 
   Future<void> _renameBoard(Map<String, dynamic> board) async {
@@ -228,8 +235,10 @@ class _KanbanPageState extends State<KanbanPage> {
           builder: (ctx, setLocal) => FormDropdown<String>(
             label: 'Column',
             value: column,
+            // 'running' is excluded as a create target — the bridge rejects a
+            // direct status write to 'running' with HTTP 400.
             items: [
-              for (final c in kanbanColumns)
+              for (final c in kanbanColumns.where((c) => c != 'running'))
                 DropdownMenuItem(value: c, child: Text(_columnLabel(c))),
             ],
             onChanged: (v) => setLocal(() => column = v ?? 'todo'),
@@ -327,7 +336,10 @@ class _KanbanPageState extends State<KanbanPage> {
                     fontSize: 16,
                     fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
-            for (final c in kanbanColumns)
+            // 'running' is excluded as a manual move target — the bridge
+            // rejects a direct PATCH status='running' with HTTP 400 (entering
+            // 'running' is the dispatcher/claim path's job).
+            for (final c in kanbanColumns.where((c) => c != 'running'))
               ListTile(
                 title: Text(_columnLabel(c),
                     style: const TextStyle(color: JcTheme.text)),
@@ -802,6 +814,63 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
   String? _log;
   String? _logError;
 
+  /// Full detail fetched from `GET /tasks/:id` — the board task only carries
+  /// `comment_count` / `link_counts`, not the `comments[]` array or `links{}`
+  /// object, so the Comments + Parents/Children sections need this fetch.
+  bool _detailLoading = true;
+  Map<String, dynamic>? _detail;
+
+  final TextEditingController _commentC = TextEditingController();
+  bool _posting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDetail();
+  }
+
+  @override
+  void dispose() {
+    _commentC.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadDetail() async {
+    if (!mounted) return;
+    setState(() => _detailLoading = true);
+    try {
+      final d = await widget.api
+          .taskDetail(kanbanTaskId(widget.task), board: widget.board);
+      if (mounted) setState(() => _detail = d);
+    } catch (_) {
+      // Best-effort: fall back to whatever the board task already carried.
+    } finally {
+      if (mounted) setState(() => _detailLoading = false);
+    }
+  }
+
+  Future<void> _postComment() async {
+    final text = _commentC.text.trim();
+    if (text.isEmpty || _posting) return;
+    setState(() => _posting = true);
+    try {
+      await widget.api
+          .comment(kanbanTaskId(widget.task), text, board: widget.board);
+      if (!mounted) return;
+      _commentC.clear();
+      // Reload the detail (not just the board) so the new comment appears.
+      await _loadDetail();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e'), backgroundColor: JcTheme.danger),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _posting = false);
+    }
+  }
+
   Future<void> _loadLog() async {
     setState(() {
       _logLoading = true;
@@ -826,9 +895,13 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
     final priority = task['priority'];
     final due = task['due'] ?? task['due_date'];
 
-    final links = task['links'];
-    final comments = (task['comments'] is List)
-        ? (task['comments'] as List).whereType<Map>().toList()
+    // Comments + links come from the full detail fetch (the board task only
+    // has counts); fall back to the board task if the fetch failed.
+    final detail = _detail;
+    final links = detail != null ? detail['links'] : task['links'];
+    final rawComments = detail != null ? detail['comments'] : task['comments'];
+    final comments = (rawComments is List)
+        ? rawComments.whereType<Map>().toList()
         : const <Map>[];
 
     return Column(
@@ -842,6 +915,19 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
         if (desc.isNotEmpty) DetailRow('Description', desc),
         if (links is Map) _linksSection(links),
         if (comments.isNotEmpty) _commentsSection(comments),
+        if (_detailLoading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          )
+        else
+          _commentComposer(),
         const SizedBox(height: 8),
         _logSection(),
       ],
@@ -891,6 +977,43 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
             ),
           ),
       ],
+    );
+  }
+
+  /// Inline composer: post a comment without leaving the sheet, then reload the
+  /// detail so the new comment appears immediately.
+  Widget _commentComposer() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _commentC,
+              minLines: 1,
+              maxLines: 3,
+              enabled: !_posting,
+              style: const TextStyle(color: JcTheme.text, fontSize: 14),
+              decoration: const InputDecoration(
+                hintText: 'Add a comment…',
+                isDense: true,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _posting
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.send, size: 20, color: JcTheme.accent),
+                  onPressed: _postComment,
+                ),
+        ],
+      ),
     );
   }
 
