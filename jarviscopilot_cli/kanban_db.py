@@ -5754,43 +5754,41 @@ def _profile_targets_claude(provider: str, model: str) -> bool:
     return (not m) or m.startswith("claude")
 
 
-def _worker_chat_flags(task: Task, profile_home: Optional[str] = None) -> list:
-    """Model/provider flags to append AFTER the ``chat`` subcommand for a worker.
+def _apply_worker_routing_env(env: dict, task: Task, profile_home: Optional[str] = None) -> None:
+    """Route a kanban worker's model/provider via ENV VARS (not CLI flags).
 
     A worker inherits its assignee profile's config. On a claude-code setup the
-    ``default`` profile's bare ``claude-…`` model infers the dead ``anthropic``
-    OAuth API (HTTP 400 "You're out of extra usage"), so every such task aborts.
-    Mirror the voice redirect: when the profile (or a per-task override) resolves
-    to anthropic-claude, reroute it to the claude-code subscription with the same
-    Claude model. Profiles on other providers (e.g. ``glm-5-1`` → GLM) are left
-    untouched (empty list ⇒ use the profile's own config). Opt out entirely with
-    HERMES_KANBAN_ALLOW_ANTHROPIC=1.
+    ``default`` profile's bare ``claude-…`` model resolves to the dead
+    ``anthropic`` OAuth API (HTTP 400 "out of extra usage"), so every such task
+    aborts. We force the claude-code subscription by setting
+    HERMES_INFERENCE_PROVIDER / HERMES_INFERENCE_MODEL on the worker env, which:
 
-    IMPORTANT: these flags MUST go after ``chat`` — the ``-m``/``--provider``
-    options belong to the chat subparser; placed BEFORE the subcommand they're
-    clobbered by the subparser defaults (and a stray top-level ``--provider``
-    corrupts the chat namespace → ``args.verbose`` AttributeError).
+      * the provider resolver reads (runtime_provider.py / main.py) as a
+        fallback WITHOUT clobbering the profile's structured ``model:`` dict — a
+        ``-m`` CLI flag replaces that dict with a bare string and DROPS its
+        ``provider: claude-code``, which is exactly why flags didn't work; and
+      * survive the ``--accept-hooks`` relaunch (CLI flags don't reliably).
+
+    Profiles that target another provider (glm-5-1 → GLM, …) are left untouched.
+    Opt out entirely with HERMES_KANBAN_ALLOW_ANTHROPIC=1.
     """
-    if os.environ.get("HERMES_KANBAN_ALLOW_ANTHROPIC"):
-        ov = (task.model_override or "").strip()
-        return ["-m", ov] if ov else []
+    if env.get("HERMES_KANBAN_ALLOW_ANTHROPIC"):
+        return
 
     override = (task.model_override or "").strip()
     if override:
-        # A per-task override wins; only reroute it if it's anthropic-claude.
         if _model_is_anthropic_claude(override):
-            return ["-m", _bare_model_id(override), "--provider", "claude-code"]
-        return ["-m", override]
+            env["HERMES_INFERENCE_MODEL"] = _bare_model_id(override)
+            env["HERMES_INFERENCE_PROVIDER"] = "claude-code"
+        else:
+            # Honour a non-anthropic per-task override (keeps its own provider).
+            env["HERMES_INFERENCE_MODEL"] = override
+        return
 
-    # No override: inspect the assignee profile's configured provider/model and
-    # force the claude-code subscription whenever it targets the claude family
-    # (anthropic, or a claude-code profile the worker isn't honouring, or an
-    # empty/claude config). Non-claude profiles (glm-5-1 → GLM, …) are left as-is.
     provider, model = _profile_model_config(profile_home)
     if _profile_targets_claude(provider, model):
-        bare = _bare_model_id(model) if model else "claude-sonnet-4-6"
-        return ["-m", bare, "--provider", "claude-code"]
-    return []
+        env["HERMES_INFERENCE_MODEL"] = _bare_model_id(model) if model else "claude-sonnet-4-6"
+        env["HERMES_INFERENCE_PROVIDER"] = "claude-code"
 
 
 def _default_spawn(
@@ -5917,11 +5915,13 @@ def _default_spawn(
         for sk in task.skills:
             if sk and sk != "kanban-worker":
                 cmd.extend(["--skills", sk])
-    # Model/provider flags belong to the `chat` subparser, so they go AFTER
-    # the subcommand (before-chat placement is clobbered by subparser defaults).
-    cmd.append("chat")
-    cmd.extend(_worker_chat_flags(task, env.get("HERMES_HOME")))
-    cmd.extend(["-q", prompt])
+    # Route the worker's model/provider via ENV (HERMES_INFERENCE_*), set on the
+    # worker env above — NOT via -m/--provider flags: a -m flag replaces the
+    # profile's structured `model:` dict with a bare string and drops its
+    # `provider: claude-code`, and flags don't survive the --accept-hooks
+    # relaunch. See _apply_worker_routing_env.
+    _apply_worker_routing_env(env, task, env.get("HERMES_HOME"))
+    cmd.extend(["chat", "-q", prompt])
     # Redirect output to a per-task log under <board-root>/logs/.
     # Anchored at the board root (not the shared kanban root), so
     # `hermes kanban log` on a specific board reads its own file and
