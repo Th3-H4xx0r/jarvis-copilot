@@ -942,6 +942,10 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
   final TextEditingController _commentC = TextEditingController();
   bool _posting = false;
 
+  /// Scroll controller for the worker-log box, so streaming output auto-scrolls
+  /// to the bottom (unless the user has scrolled up to read history).
+  final ScrollController _logScroll = ScrollController();
+
   /// The freshest task map — the polled detail's `task`, else the board task.
   Map<String, dynamic> get _liveTask {
     final d = _detail;
@@ -963,6 +967,7 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
   void dispose() {
     _poll?.cancel();
     _commentC.dispose();
+    _logScroll.dispose();
     super.dispose();
   }
 
@@ -1132,10 +1137,22 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
       final log = await widget.api
           .taskLog(kanbanTaskId(widget.task), board: widget.board);
       if (mounted) {
+        // Stick to the bottom only if the user is already near it (so manual
+        // scroll-up to read history isn't yanked back on every poll).
+        final stick = !_logScroll.hasClients ||
+            _logScroll.position.pixels >=
+                _logScroll.position.maxScrollExtent - 48;
         setState(() {
           _log = log;
           _logError = null;
         });
+        if (stick) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (_logScroll.hasClients) {
+              _logScroll.jumpTo(_logScroll.position.maxScrollExtent);
+            }
+          });
+        }
       }
     } catch (e) {
       if (mounted && !silent) setState(() => _logError = apiErrorMessage(e));
@@ -1336,10 +1353,16 @@ class _TaskDetailBodyState extends State<_TaskDetailBody> {
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: JcTheme.glassBorder),
           ),
-          child: SelectableText(
-            log.isEmpty ? '(empty)' : log,
-            style: const TextStyle(
-                color: JcTheme.text, fontSize: 12, fontFamily: 'monospace'),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 260),
+            child: SingleChildScrollView(
+              controller: _logScroll,
+              child: SelectableText(
+                log.isEmpty ? '(empty)' : log,
+                style: const TextStyle(
+                    color: JcTheme.text, fontSize: 12, fontFamily: 'monospace'),
+              ),
+            ),
           ),
         ),
       ],
