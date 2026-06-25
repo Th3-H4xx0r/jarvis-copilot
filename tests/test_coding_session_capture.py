@@ -98,6 +98,31 @@ def test_find_session_id_returns_newest(tmp_path):
     assert got == "22222222-2222-2222-2222-222222222222"
 
 
+def test_find_session_id_require_unique_none_when_multiple(tmp_path):
+    # Two sessions share the cwd -> require_unique refuses to guess (would
+    # otherwise serve a sibling's transcript in the /messages recovery path).
+    cwd = "/Users/jane/my-project"
+    proj = _make_project(tmp_path, cwd)
+    since = 1_000.0
+    _write_jsonl(proj, "11111111-1111-1111-1111-111111111111", since + 1.0)
+    _write_jsonl(proj, "22222222-2222-2222-2222-222222222222", since + 5.0)
+    assert csc.find_session_id(
+        cwd, since, projects_dir=str(tmp_path), require_unique=True) is None
+    # Non-unique mode is unchanged: still returns the newest.
+    assert csc.find_session_id(cwd, since, projects_dir=str(tmp_path)) == \
+        "22222222-2222-2222-2222-222222222222"
+
+
+def test_find_session_id_require_unique_returns_single(tmp_path):
+    cwd = "/Users/jane/my-project"
+    proj = _make_project(tmp_path, cwd)
+    since = 1_000.0
+    _write_jsonl(proj, "33333333-3333-3333-3333-333333333333", since + 1.0)
+    assert csc.find_session_id(
+        cwd, since, projects_dir=str(tmp_path), require_unique=True) == \
+        "33333333-3333-3333-3333-333333333333"
+
+
 def test_find_session_id_ignores_older_than_since(tmp_path):
     cwd = "/Users/jane/my-project"
     proj = _make_project(tmp_path, cwd)

@@ -85,6 +85,7 @@ def find_session_id(
     since_ts: float,
     *,
     projects_dir: str | None = None,
+    require_unique: bool = False,
 ) -> str | None:
     """Return the UUID stem of the newest qualifying transcript, or ``None``.
 
@@ -92,6 +93,13 @@ def find_session_id(
     for ``*.jsonl`` files whose mtime is ``>= since_ts - 1.0`` (1s grace), and
     returns the stem (UUID) of the most-recently-modified one. Returns ``None``
     if the directory is missing or no file qualifies.
+
+    ``require_unique``: when True, return a stem ONLY if EXACTLY ONE transcript
+    qualifies; if several do (multiple sessions share this cwd), return ``None``
+    rather than guessing. Used by the lazy ``/messages`` recovery, where picking
+    the "newest" could adopt a SIBLING session's transcript and then serve the
+    wrong conversation forever. The launch-time capture keeps newest-wins (it's
+    bounded to the 8s post-launch window, where the new transcript is the newest).
     """
     proj = _project_transcript_dir(cwd, projects_dir)
     try:
@@ -102,8 +110,7 @@ def find_session_id(
         return None
 
     cutoff = since_ts - _MTIME_GRACE
-    newest_stem: str | None = None
-    newest_mtime = -1.0
+    qualifying: list[tuple[float, str]] = []
     for path in entries:
         try:
             mtime = path.stat().st_mtime
@@ -111,10 +118,12 @@ def find_session_id(
             continue
         if mtime < cutoff:
             continue
-        if mtime > newest_mtime:
-            newest_mtime = mtime
-            newest_stem = path.stem
-    return newest_stem
+        qualifying.append((mtime, path.stem))
+    if not qualifying:
+        return None
+    if require_unique and len(qualifying) != 1:
+        return None  # ambiguous — don't risk serving a sibling's transcript
+    return max(qualifying)[1]
 
 
 def wait_for_session_id(

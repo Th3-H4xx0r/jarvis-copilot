@@ -1335,9 +1335,6 @@ def _server_sync_target(row) -> tuple[str, str, str] | None:
     import json as _json
     if not row or (row.get("host") or "server") != "server":
         return None
-    csid = (row.get("claude_session_id") or "").strip()
-    if not csid:
-        return None
     raw = (row.get("sync_config") or "").strip()
     if not raw:
         return None
@@ -1347,6 +1344,16 @@ def _server_sync_target(row) -> tuple[str, str, str] | None:
         return None
     device_cwd = (cfg.get("remote_path") or "").strip()
     if not device_cwd:
+        return None
+    # Prefer the live column; fall back to sync_config.transcript.csid (the
+    # resume-to-server path persists it there, and a fresh launch whose 8s csid
+    # capture missed still has it once backfilled) so the announce/push aren't
+    # gated off just because the column write lost the race.
+    csid = (row.get("claude_session_id") or "").strip()
+    if not csid:
+        tx = cfg.get("transcript") if isinstance(cfg.get("transcript"), dict) else {}
+        csid = (tx.get("csid") or "").strip()
+    if not csid:
         return None
     preferred = (row.get("device_id") or "").strip() or (cfg.get("device") or "").strip()
     device_id = resolve_desktop_device_id(preferred=preferred) or ""

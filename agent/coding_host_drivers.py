@@ -61,6 +61,26 @@ class LocalDriver(HostDriver):
             prefix += ["-u", k]
         return prefix
 
+    def _config_dir_prefix(self) -> list[str]:
+        """``[CLAUDE_CONFIG_DIR=<dir>]`` to pin onto the pane's exec-time env so
+        the launched claude writes its transcript to the SAME dir the webui
+        reader resolves.
+
+        tmux attaches the pane to an already-running tmux server whose env we
+        don't control, and `env=` on the new-session client never reaches the
+        pane — but a `VAR=val` in this `env` prefix DOES. Without this the writer
+        used the tmux server's HOME and the reader used the webui process's HOME,
+        so the transcript was written where the reader never looked (empty mobile
+        chat for server sessions).
+
+        SERVER-LOCAL ONLY: ``DesktopDriver`` overrides this to ``[]`` — a desktop
+        session runs on the MAC, where pinning the SERVER's config dir would
+        force the Mac's claude to read creds + write transcripts under a
+        server-side path the Mac doesn't have (breaking auth + the Mac's own
+        `claude --resume` + device discovery)."""
+        from agent.coding_session_capture import claude_config_dir
+        return [f"CLAUDE_CONFIG_DIR={claude_config_dir()}"]
+
     def claude_argv(self, *, plugin_dir: str, context_file: str,
                     model: str | None, initial_prompt: str | None,
                     skip_permissions: bool = False,
@@ -98,17 +118,7 @@ class LocalDriver(HostDriver):
         (the plugin's old static ``jc-client mcp-serve`` only exists on the
         desktop, so server-host sessions hit ENOENT and showed "MCP failed").
         """
-        prefix = self._scrub_prefix()
-        # Pin CLAUDE_CONFIG_DIR onto the pane's env so the launched claude writes
-        # its transcript to the SAME dir the webui reader resolves. tmux attaches
-        # the pane to an already-running tmux server whose env we don't control,
-        # and `env=` on the new-session client never reaches the pane — but a
-        # `VAR=val` in this exec-time `env` prefix DOES. Without this the writer
-        # used the tmux server's HOME and the reader used the webui process's
-        # HOME, so the transcript was written where the reader never looked
-        # (empty mobile chat for server sessions).
-        from agent.coding_session_capture import claude_config_dir
-        prefix = prefix + [f"CLAUDE_CONFIG_DIR={claude_config_dir()}"]
+        prefix = self._scrub_prefix() + self._config_dir_prefix()
         if skip_permissions:
             prefix = prefix + ["IS_SANDBOX=1"]
         argv = prefix + [
@@ -254,6 +264,14 @@ class DesktopDriver(LocalDriver):
         # on_launched_fn(session_id, cwd, tmux_name, sync) — called by the
         # manager after a successful start to kick off the file sync.
         self._on_launched_fn = on_launched_fn
+
+    def _config_dir_prefix(self) -> list[str]:
+        """Desktop sessions run on the MAC — let the Mac's claude use the Mac's
+        OWN default config dir (~/.claude there). Pinning the SERVER's
+        CLAUDE_CONFIG_DIR (as LocalDriver does) would force the Mac to read creds
+        and write its transcript under a server-side path that doesn't exist on
+        the Mac, breaking desktop-host auth + transcript visibility."""
+        return []
 
     def mcp_servers(self, *, cwd: str, repo_root: str) -> dict | None:
         """No server-written ``--mcp-config`` for a desktop-host session: the

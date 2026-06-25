@@ -435,15 +435,30 @@ def key_press(keys, hold: float = 0) -> dict:
     },
 )
 def notify(title: str = "JarvisCopilot", message: str = "") -> dict:
-    title = (title or "JarvisCopilot").replace('"', "'")
-    message = (message or "").replace('"', "'")
+    title = title or "JarvisCopilot"
+    message = message or ""
     sysname = sys.platform
 
     if sysname == "darwin":
-        # osascript display notification.
-        script = f'display notification "{message}" with title "{title}"'
-        subprocess.run(["osascript", "-e", script], check=False)
+        # SECURITY: pass title/message as osascript ARGUMENTS bound to `on run
+        # {t, m}` so they are AppleScript STRING VALUES, never parsed as source.
+        # This is immune to quote / backslash / `¬` / `do shell script`
+        # injection — untrusted text (e.g. a server-supplied coding-session
+        # title that reaches this via coding_session_announce) can NEVER be
+        # interpreted as code or break out of the string. Do NOT go back to
+        # f-string interpolation: a `"`->`'` replace is fragile (a trailing `\`
+        # alone breaks the script) and not a real sandbox.
+        script = ("on run {t, m}\n"
+                  "    display notification m with title t\n"
+                  "end run")
+        subprocess.run(["osascript", "-e", script, title, message], check=False)
         return {"ok": True}
+
+    # Non-darwin branches still interpolate into a script/command string, so
+    # defensively strip the AppleScript/quote delimiter. (Linux notify-send below
+    # takes argv, so it's already safe.)
+    title = title.replace('"', "'")
+    message = message.replace('"', "'")
 
     if sysname == "win32":
         # Inline PowerShell toast — no third-party module needed.

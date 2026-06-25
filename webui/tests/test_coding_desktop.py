@@ -80,15 +80,23 @@ def _permissive_sync_roots(monkeypatch):
 # ── DesktopDriver: command construction identical, execution sends frames ─────
 
 
-def test_desktop_argv_construction_matches_local_driver():
-    """The desktop driver MUST build the exact same tmux+claude argv as the
-    local driver — only execution differs."""
+def test_desktop_argv_matches_local_except_config_dir_pin():
+    """The desktop driver builds the same tmux+claude argv as the local driver,
+    EXCEPT it must NOT carry the server's CLAUDE_CONFIG_DIR pin — a desktop
+    session runs on the Mac and must use the Mac's own ~/.claude (pinning the
+    server's dir would break the Mac's auth + transcript visibility)."""
+    from agent.coding_session_capture import claude_config_dir
+
     local = LocalDriver()
     desk = DesktopDriver(bridge_run=lambda argv: None)
     kw = dict(plugin_dir="/plug", context_file="/ctx.md", model="opus",
               initial_prompt="do it")
-    assert desk.claude_argv(**kw) == local.claude_argv(**kw)
     la = local.claude_argv(**kw)
+    da = desk.claude_argv(**kw)
+    pin = f"CLAUDE_CONFIG_DIR={claude_config_dir()}"
+    assert pin in la and pin not in da
+    # Removing the pin from the local argv yields exactly the desktop argv.
+    assert [a for a in la if a != pin] == da
     assert desk.tmux_new_argv(tmux_name="jc-abc", cwd="/work", launch_argv=la) \
         == local.tmux_new_argv(tmux_name="jc-abc", cwd="/work", launch_argv=la)
 

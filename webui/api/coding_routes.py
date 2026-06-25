@@ -1114,15 +1114,6 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     csid or (row or {}).get("claude_session_id"))
             except Exception:  # noqa: BLE001
                 pass
-            # Live-mirror a SERVER session's transcript to its sync device on each
-            # turn boundary so the Mac's `claude /resume` copy stays current
-            # (one-way push; self-gates to server sessions syncing to a device).
-            try:
-                if matched and (row.get("host") or "server") == "server":
-                    from api.coding_desktop import push_server_transcript_async
-                    push_server_transcript_async(row["id"])
-            except Exception:  # noqa: BLE001
-                pass
             changed = False
             if matched:
                 # Backfill the claude_session_id for a server session whose
@@ -1135,6 +1126,23 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                         manager.store.update_session(
                             row["id"], claude_session_id=csid)
                         row["claude_session_id"] = csid
+                        # csid is now known — fire the launch announce that
+                        # no-op'd earlier (the Mac "started" notification +
+                        # transcript mirror). announce_cb self-gates to synced
+                        # server sessions and runs async, so this is cheap/safe
+                        # and fires only on the one-time empty->set transition.
+                        if getattr(manager, "announce_cb", None):
+                            manager.announce_cb(session_id=row["id"])
+                    except Exception:  # noqa: BLE001
+                        pass
+                # Live-mirror a SERVER session's transcript to its sync device on
+                # each turn boundary so the Mac's `claude /resume` copy stays
+                # current (one-way push). Gated on sync_config so a non-synced
+                # server session doesn't spawn a thread + DB read every hook.
+                if (row.get("host") or "server") == "server" and row.get("sync_config"):
+                    try:
+                        from api.coding_desktop import push_server_transcript_async
+                        push_server_transcript_async(row["id"])
                     except Exception:  # noqa: BLE001
                         pass
                 changed = row.get("activity_state") != state
@@ -1287,8 +1295,12 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     # into a self-healing read.
                     try:
                         from agent.coding_session_capture import find_session_id
+                        # require_unique: only adopt a csid when this cwd has a
+                        # SINGLE transcript — never guess "newest" here or we
+                        # could permanently serve a sibling session's chat.
                         recovered = find_session_id(
-                            cwd, float(row.get("created_at") or 0))
+                            cwd, float(row.get("created_at") or 0),
+                            require_unique=True)
                     except Exception:  # noqa: BLE001
                         recovered = None
                     if recovered:
