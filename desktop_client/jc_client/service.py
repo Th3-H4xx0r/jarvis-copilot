@@ -390,7 +390,8 @@ class Service:
                          or msg_type in ("coding_transcript_get",
                                          "coding_transcript_put",
                                          "coding_file_put",
-                                         "coding_session_announce")):
+                                         "coding_session_announce",
+                                         "coding_dir_list_get")):
             if self._coding_discover:
                 self._coding_discover.handle_frame(frame)
             return

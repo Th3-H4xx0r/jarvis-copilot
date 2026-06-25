@@ -1223,3 +1223,52 @@ def test_malformed_sync_config_does_not_crash_or_emit_sync():
         "GET", "/session/srv-bad", None, manager=m)
     assert status == 200
     assert "sync" not in body["session"]
+
+
+# ── GET /dir-suggest — host-aware Working Directory / sync-folder typeahead ────
+
+def test_dir_suggest_server_lists_local_fs(monkeypatch):
+    import agent.coding_dir_suggest as ds
+    monkeypatch.setattr(ds, "suggest_dirs",
+                        lambda path, **kw: ["/root/a", "/root/b"])
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "GET", "/dir-suggest?host=server&path=/root/", None, manager=m)
+    assert status == 200
+    assert body["dirs"] == ["/root/a", "/root/b"] and body["host"] == "server"
+
+
+def test_dir_suggest_device_uses_bridge(monkeypatch):
+    import api.coding_desktop as cd2
+    monkeypatch.setattr(cd2, "resolve_desktop_device_id",
+                        lambda preferred=None: "dev-1", raising=False)
+
+    class _Bridge:
+        def request_dir_list(self, did, *, path, timeout=8.0):
+            assert did == "dev-1" and path == "/Users/me/"
+            return ["/Users/me/proj"]
+
+    monkeypatch.setattr(cd2, "get_desktop_bridge", lambda: _Bridge(),
+                        raising=False)
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "GET", "/dir-suggest?host=desktop&device_id=dev-1&path=/Users/me/",
+        None, manager=m)
+    assert status == 200
+    assert body["dirs"] == ["/Users/me/proj"] and body["device_id"] == "dev-1"
+
+
+def test_dir_suggest_device_offline_returns_empty(monkeypatch):
+    import api.coding_desktop as cd2
+
+    class _Bridge:
+        def request_dir_list(self, did, *, path, timeout=8.0):
+            return None  # offline / timed out
+
+    monkeypatch.setattr(cd2, "get_desktop_bridge", lambda: _Bridge(),
+                        raising=False)
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "GET", "/dir-suggest?host=desktop&device_id=dev-9&path=/", None,
+        manager=m)
+    assert status == 200 and body["dirs"] == [] and "error" in body

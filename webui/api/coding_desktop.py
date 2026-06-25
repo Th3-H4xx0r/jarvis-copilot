@@ -264,6 +264,9 @@ class DesktopBridge:
         # req_id -> {"event":Event, "ok":bool, "error":str|None} — in-flight
         # server->device session announces (announce_session).
         self._announce_waiters: dict[str, dict] = {}
+        # req_id -> {"event":Event, "dirs":list|None, "error":str|None} —
+        # in-flight device directory-listing requests (request_dir_list).
+        self._dir_waiters: dict[str, dict] = {}
 
     # --- registration with the device bridge --------------------------------
 
@@ -469,6 +472,41 @@ class DesktopBridge:
             with self._lock:
                 self._announce_waiters.pop(req_id, None)
 
+    # --- directory listing request/response (working-dir autocomplete) ------
+
+    def request_dir_list(self, device_id: str, *, path: str,
+                         timeout: float = 8.0) -> list[str] | None:
+        """Ask a connected device to list immediate sub-directories of ``path``
+        (typeahead for the coding form's Working Directory / sync-folder fields
+        when the host is a paired device). Sends ``coding_dir_list_get`` and
+        blocks up to ``timeout`` for a ``coding_dir_list_data`` reply.
+
+        Returns the list of absolute dir paths, or ``None`` on offline / timeout
+        / device error. Always cleans up the waiter; never blocks past
+        ``timeout``; never raises."""
+        req_id = uuid.uuid4().hex
+        waiter = {"event": threading.Event(), "dirs": None, "error": None}
+        with self._lock:
+            self._dir_waiters[req_id] = waiter
+        try:
+            ok = self._transport.send(device_id, {
+                "type": "coding_dir_list_get", "req_id": req_id,
+                "path": path or "",
+            })
+            if not ok:
+                return None  # device not connected
+            if not waiter["event"].wait(timeout):
+                return None
+            with self._lock:
+                err = waiter["error"]
+                dirs = waiter["dirs"]
+            if err:
+                return None
+            return list(dirs or [])
+        finally:
+            with self._lock:
+                self._dir_waiters.pop(req_id, None)
+
     # --- transcript request/response (resume-to-server) ---------------------
 
     def request_transcript(self, device_id: str, *, claude_session_id: str,
@@ -642,6 +680,26 @@ class DesktopBridge:
             self._route_file_done(frame)
         elif t == "coding_session_ack":
             self._route_session_ack(frame)
+        elif t == "coding_dir_list_data":
+            self._route_dir_list(frame)
+
+    def _route_dir_list(self, frame: dict) -> None:
+        """Resolve an in-flight request_dir_list with the device's reply (a list
+        of dir paths, or an error). Runs on the bridge pump thread."""
+        req_id = frame.get("req_id")
+        if not req_id:
+            return
+        with self._lock:
+            waiter = self._dir_waiters.get(req_id)
+            if waiter is None:
+                return  # unknown or already timed-out request
+            if frame.get("ok") is False or frame.get("error"):
+                waiter["error"] = str(frame.get("error") or "dir list failed")
+            else:
+                dirs = frame.get("dirs")
+                waiter["dirs"] = [str(d) for d in dirs] if isinstance(
+                    dirs, list) else []
+            waiter["event"].set()
 
     def _route_session_ack(self, frame: dict) -> None:
         """Resolve an in-flight announce_session with the device's ack. Runs on

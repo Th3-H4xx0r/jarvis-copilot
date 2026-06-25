@@ -2474,6 +2474,61 @@ def test_announce_server_session_pushes_announces_and_persists_meta(
     assert cfg["transcript"] == {"csid": "csid-1", "device_cwd": "/mac/proj"}
 
 
+class DirListResponder:
+    """FakeTransport that synchronously replies to a coding_dir_list_get."""
+
+    def __init__(self, *, dirs=None, error=None, connected=True):
+        self.bridge = None
+        self.dirs = dirs if dirs is not None else []
+        self.error = error
+        self.connected = connected
+        self.sent = []
+
+    def send(self, device_id, frame):
+        if not self.connected:
+            return False
+        self.sent.append((device_id, dict(frame)))
+        if frame.get("type") == "coding_dir_list_get":
+            reply = {"type": "coding_dir_list_data", "req_id": frame["req_id"]}
+            if self.error is not None:
+                reply.update(ok=False, error=self.error)
+            else:
+                reply.update(ok=True, dirs=self.dirs)
+            self.bridge.on_frame(device_id, reply)
+        return True
+
+
+def _dir_bridge(**kw):
+    resp = DirListResponder(**kw)
+    bridge = cd.DesktopBridge(transport=resp)
+    resp.bridge = bridge
+    return bridge, resp
+
+
+def test_request_dir_list_returns_dirs():
+    bridge, resp = _dir_bridge(dirs=["/Users/me/a", "/Users/me/b"])
+    out = bridge.request_dir_list("dev-1", path="/Users/me/", timeout=2.0)
+    assert out == ["/Users/me/a", "/Users/me/b"]
+    gets = resp.sent
+    assert gets and gets[0][1]["path"] == "/Users/me/"
+
+
+def test_request_dir_list_device_error_returns_none():
+    bridge, _resp = _dir_bridge(error="permission denied")
+    assert bridge.request_dir_list("dev-1", path="/", timeout=2.0) is None
+
+
+def test_request_dir_list_offline_returns_none():
+    bridge, _t = make_bridge(connected=False)
+    assert bridge.request_dir_list("dev-off", path="/", timeout=0.05) is None
+
+
+def test_request_dir_list_timeout_returns_none():
+    # FakeTransport records the send but never echoes a reply -> times out.
+    bridge, _t = make_bridge(connected=True)
+    assert bridge.request_dir_list("dev-1", path="/", timeout=0.05) is None
+
+
 def test_ingest_skips_server_origin_transcript_ghost(tmp_path, monkeypatch):
     store = _temp_store(tmp_path)
     # A host='server' session already owns this csid (mirrored to the Mac).

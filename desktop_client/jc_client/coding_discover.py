@@ -847,6 +847,54 @@ def _default_runner(argv: list) -> tuple:
         return 1, "", str(exc)
 
 
+# ── directory suggestions (Working Directory / sync-folder autocomplete) ──────
+
+_DIR_SUGGEST_MAX = 50
+
+
+def _suggest_dirs(prefix: str, *, home: str, limit: int = _DIR_SUGGEST_MAX) -> list:
+    """List immediate sub-directories of ``prefix`` on THIS device (typeahead for
+    the server's coding form). Mirrors agent.coding_dir_suggest.suggest_dirs:
+
+      * ``""`` / ``"~"``            -> subdirs of ``home``
+      * a dir / a path ending "/"   -> that dir's subdirs (drill in)
+      * any other partial path      -> sibling dirs starting with the basename
+
+    Hidden dirs only when the fragment starts with ".". Dirs only; never raises.
+    """
+    raw = (prefix or "").strip()
+    if raw == "~":
+        raw = home + os.sep
+    elif raw.startswith("~/") or raw.startswith("~" + os.sep):
+        raw = home + raw[1:]
+    elif raw == "":
+        raw = home + os.sep
+    if raw.endswith(os.sep) or os.path.isdir(raw):
+        base, frag = raw, ""
+    else:
+        base = os.path.dirname(raw) or os.sep
+        frag = os.path.basename(raw)
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return []
+    show_hidden = frag.startswith(".")
+    out = []
+    for name in names:
+        if not show_hidden and name.startswith("."):
+            continue
+        if frag and not name.startswith(frag):
+            continue
+        full = os.path.join(base, name)
+        try:
+            if os.path.isdir(full):
+                out.append(full)
+        except OSError:
+            continue
+    out.sort()
+    return out[:limit]
+
+
 # ── agent ─────────────────────────────────────────────────────────────────────
 
 
@@ -931,8 +979,27 @@ class CodingDiscoverAgent:
                 self._on_file_put(frame)
             elif t == "coding_session_announce":
                 self._on_session_announce(frame)
+            elif t == "coding_dir_list_get":
+                self._on_dir_list_get(frame)
         except Exception as exc:  # noqa: BLE001 — never bubble into the pump
             log.warning("coding_discover handle_frame failed: %s", exc)
+
+    def _on_dir_list_get(self, frame: dict) -> None:
+        """List immediate sub-directories of ``path`` on THIS device for the
+        server's coding-form Working Directory / sync-folder autocomplete. Reply
+        with ``coding_dir_list_data`` carrying the dir paths (or an error). Never
+        raises into the pump."""
+        req_id = str(frame.get("req_id") or "")
+        if not req_id:
+            return
+        try:
+            dirs = _suggest_dirs(str(frame.get("path") or ""),
+                                 home=self._home_dir)
+            self._send_safe({"type": "coding_dir_list_data",
+                             "req_id": req_id, "ok": True, "dirs": dirs})
+        except Exception as exc:  # noqa: BLE001
+            self._send_safe({"type": "coding_dir_list_data",
+                             "req_id": req_id, "ok": False, "error": str(exc)})
 
     def _on_session_announce(self, frame: dict) -> None:
         """A SERVER-origin coding session was created/finished on the server.

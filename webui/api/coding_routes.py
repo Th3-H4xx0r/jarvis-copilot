@@ -880,6 +880,35 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
             return _run(lambda: _ok({"usage": _coding_usage()}))
         return _err(404, "not found")
 
+    # ── /dir-suggest ── typeahead for the New-session WORKING DIRECTORY and
+    # "folder path on that device" fields. ``host=server`` (default) lists the
+    # SERVER's filesystem; a ``device_id`` (or ``host=desktop``) lists that
+    # paired device's filesystem over the bridge. Always returns {dirs:[...]}.
+    if p == "/dir-suggest":
+        if method != "GET":
+            return _err(404, "not found")
+        path = query.get("path") or ""
+        host = (query.get("host") or "server").strip()
+        device_id = (query.get("device_id") or "").strip()
+
+        def _dir_suggest():
+            if device_id or host == "desktop":
+                from api.coding_desktop import (get_desktop_bridge,
+                                                resolve_desktop_device_id)
+                did = device_id or (resolve_desktop_device_id() or "")
+                if not did:
+                    return _ok({"dirs": [], "host": "desktop",
+                                "error": "no connected device"})
+                dirs = get_desktop_bridge().request_dir_list(did, path=path)
+                if dirs is None:
+                    return _ok({"dirs": [], "host": "desktop", "device_id": did,
+                                "error": "device offline or timed out"})
+                return _ok({"dirs": dirs, "host": "desktop", "device_id": did})
+            from agent.coding_dir_suggest import suggest_dirs
+            return _ok({"dirs": suggest_dirs(path), "host": "server"})
+
+        return _run(_dir_suggest)
+
     # ── /settings ── Code Master notification matrix + usage-display toggle.
     # GET returns the effective settings (defaults overlaid with stored); POST
     # validates against the known events/channels and persists.

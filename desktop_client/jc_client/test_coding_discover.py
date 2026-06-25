@@ -1403,6 +1403,29 @@ def test_session_announce_without_req_id_does_not_ack(monkeypatch):
     assert [f for f in sent if f.get("type") == "coding_session_ack"] == []
 
 
+def test_dir_list_get_returns_subdirs(tmp_path):
+    (tmp_path / "alpha").mkdir()
+    (tmp_path / "beta").mkdir()
+    (tmp_path / "f.txt").write_text("x")
+    sent = []
+    agent = CodingDiscoverAgent(send=sent.append, home_dir=str(tmp_path))
+    agent.handle_frame({"type": "coding_dir_list_get", "req_id": "d1",
+                        "path": str(tmp_path) + os.sep})
+    data = [f for f in sent if f.get("type") == "coding_dir_list_data"]
+    assert data and data[0]["req_id"] == "d1" and data[0]["ok"] is True
+    assert data[0]["dirs"] == [str(tmp_path / "alpha"), str(tmp_path / "beta")]
+
+
+def test_dir_list_get_empty_path_uses_home(tmp_path):
+    (tmp_path / "proj").mkdir()
+    sent = []
+    agent = CodingDiscoverAgent(send=sent.append, home_dir=str(tmp_path))
+    agent.handle_frame({"type": "coding_dir_list_get", "req_id": "d2",
+                        "path": ""})
+    data = [f for f in sent if f.get("type") == "coding_dir_list_data"][0]
+    assert str(tmp_path / "proj") in data["dirs"]
+
+
 def test_notify_darwin_passes_untrusted_text_as_argv_not_script(monkeypatch):
     """SECURITY: title/message (server-controlled via coding_session_announce)
     must reach osascript as ARGUMENTS bound to `on run {t, m}`, never

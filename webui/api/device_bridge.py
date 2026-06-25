@@ -353,6 +353,9 @@ _CODING_INBOUND_TYPES = frozenset({
     # Server->device session announce ack: the desktop confirms it received a
     # coding_session_announce (so the server knows the Mac was notified).
     "coding_session_ack",
+    # Directory-listing reply: the desktop returns sub-dirs of a path for the
+    # coding form's Working Directory / sync-folder autocomplete.
+    "coding_dir_list_data",
 })
 
 # process-wide handler(device_id: str, frame: dict) -> None, set by DesktopBridge.
