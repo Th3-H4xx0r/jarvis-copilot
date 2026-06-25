@@ -389,7 +389,8 @@ class Service:
         if msg_type and (msg_type.startswith("coding_discover")
                          or msg_type in ("coding_transcript_get",
                                          "coding_transcript_put",
-                                         "coding_file_put")):
+                                         "coding_file_put",
+                                         "coding_session_announce")):
             if self._coding_discover:
                 self._coding_discover.handle_frame(frame)
             return

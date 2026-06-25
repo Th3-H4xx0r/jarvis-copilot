@@ -603,10 +603,20 @@ def default_manager(host: str = "server"):
 
             stop_sync_for_session(session_id)
 
+        def _announce_cb(*, session_id, finished=False):
+            # Announce a SERVER-origin session to its sync device: a native Mac
+            # notification + a transcript mirror so `claude /resume` lists it.
+            # Async + self-gating (no-op unless it's a server session syncing to
+            # a connected device), so it never blocks or breaks launch/stop.
+            from api.coding_desktop import announce_server_session_async
+
+            announce_server_session_async(session_id, finished=finished)
+
         # Server-host sessions can sync too (claude on the server, files mirrored
         # to the chosen desktop) — wire the start/stop hooks onto the server manager.
         base.sync_starter = _sync_starter
         base.sync_stopper = _sync_stopper
+        base.announce_cb = _announce_cb
 
         if host == "server":
             _MANAGERS["server"] = base
@@ -1102,6 +1112,15 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 from api.coding_desktop import mark_transcript_dirty
                 mark_transcript_dirty(
                     csid or (row or {}).get("claude_session_id"))
+            except Exception:  # noqa: BLE001
+                pass
+            # Live-mirror a SERVER session's transcript to its sync device on each
+            # turn boundary so the Mac's `claude /resume` copy stays current
+            # (one-way push; self-gates to server sessions syncing to a device).
+            try:
+                if matched and (row.get("host") or "server") == "server":
+                    from api.coding_desktop import push_server_transcript_async
+                    push_server_transcript_async(row["id"])
             except Exception:  # noqa: BLE001
                 pass
             changed = False

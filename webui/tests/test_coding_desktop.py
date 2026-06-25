@@ -2329,3 +2329,156 @@ def test_deliver_file_round_trip():
         "path": "/Users/me/.jarviscopilot/coding_uploads/cs1/a.png"})
     th.join(2)
     assert out["path"] == "/Users/me/.jarviscopilot/coding_uploads/cs1/a.png"
+
+
+# ── Phase 3: server->device session announce + live transcript mirror ─────────
+
+
+class AnnounceResponder:
+    """FakeTransport that synchronously acks a coding_session_announce (so
+    announce_session finds the event already set) and accepts everything else
+    (e.g. the coding_transcript_put frames from the transcript mirror)."""
+
+    def __init__(self, *, ack=True, error=None, connected=True):
+        self.bridge = None
+        self.ack = ack
+        self.error = error
+        self.connected = connected
+        self.sent = []
+
+    def send(self, device_id, frame):
+        if not self.connected:
+            return False
+        self.sent.append((device_id, dict(frame)))
+        if frame.get("type") == "coding_session_announce" and self.ack:
+            ack = {"type": "coding_session_ack", "req_id": frame["req_id"]}
+            if self.error is not None:
+                ack.update(ok=False, error=self.error)
+            self.bridge.on_frame(device_id, ack)
+        return True
+
+    def frames(self, ftype):
+        return [f for (_d, f) in self.sent if f.get("type") == ftype]
+
+
+def _announce_bridge(**kw):
+    resp = AnnounceResponder(**kw)
+    bridge = cd.DesktopBridge(transport=resp)
+    resp.bridge = bridge
+    return bridge, resp
+
+
+def test_announce_session_acks_ok():
+    bridge, resp = _announce_bridge()
+    ok = bridge.announce_session(
+        "dev-1", session_id="cs1", claude_session_id="csid",
+        cwd="/srv/p", device_cwd="/mac/p", title="proj", timeout=2.0)
+    assert ok is True
+    f = resp.frames("coding_session_announce")[0]
+    assert f["session_id"] == "cs1" and f["device_cwd"] == "/mac/p"
+    assert f["claude_session_id"] == "csid"
+
+
+def test_announce_session_device_error_returns_false():
+    bridge, _resp = _announce_bridge(error="busy")
+    assert bridge.announce_session(
+        "dev-1", session_id="cs1", claude_session_id="c", cwd="/s",
+        device_cwd="/m", timeout=2.0) is False
+
+
+def test_announce_session_offline_returns_false():
+    bridge, _t = make_bridge(connected=False)
+    assert bridge.announce_session(
+        "dev-off", session_id="cs1", claude_session_id="c", cwd="/s",
+        device_cwd="/m", timeout=2.0) is False
+
+
+def test_announce_session_timeout_returns_false():
+    bridge, _resp = _announce_bridge(ack=False)  # device never acks
+    assert bridge.announce_session(
+        "dev-1", session_id="cs1", claude_session_id="c", cwd="/s",
+        device_cwd="/m", timeout=0.05) is False
+
+
+def test_route_session_ack_unknown_req_is_noop():
+    bridge, _t = make_bridge()
+    bridge.on_frame("dev-1", {"type": "coding_session_ack", "req_id": "nope"})
+
+
+def _server_synced_session(store, tmp_path, monkeypatch, *, csid="csid-1",
+                           device_cwd="/mac/proj"):
+    """Create a host='server' session in a temp store with a real on-disk
+    transcript, configured to sync to dev-1. Returns (sid, server_cwd)."""
+    import json
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+    from agent.coding_session_capture import claude_projects_dir, encode_project_dir
+    server_cwd = str(tmp_path / "srv-proj")
+    sid = store.create_session(
+        project_id=None, host="server", cwd=server_cwd, branch=None,
+        tmux_name="jc-aa", source="chat", title="My Task",
+        sync_config=json.dumps({"enabled": True, "device": "dev-1",
+                                "remote_path": device_cwd}),
+        claude_session_id=csid)
+    # Write the server-side transcript where the (pinned) reader resolves it.
+    proj = claude_projects_dir() / encode_project_dir(server_cwd)
+    proj.mkdir(parents=True, exist_ok=True)
+    (proj / f"{csid}.jsonl").write_bytes(b'{"type":"user"}\n{"type":"assistant"}\n')
+    return sid, server_cwd
+
+
+def test_push_server_transcript_one_way(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    sid, _cwd = _server_synced_session(store, tmp_path, monkeypatch)
+    monkeypatch.setattr(cd, "resolve_desktop_device_id",
+                        lambda preferred=None: "dev-1")
+    bridge, t = make_bridge()
+    status = cd.push_server_transcript(sid, store=store, bridge=bridge)
+    assert status.startswith("pushed")
+    puts = t.frames("coding_transcript_put")
+    assert puts and puts[0]["claude_session_id"] == "csid-1"
+    assert puts[0]["cwd"] == "/mac/proj"  # encoded for the Mac-side remote path
+
+
+def test_push_server_transcript_no_target_for_plain_session(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    sid = store.create_session(
+        project_id=None, host="server", cwd=str(tmp_path), branch=None,
+        tmux_name="jc-bb", source="chat", title="x", claude_session_id="c2")
+    bridge, t = make_bridge()
+    assert cd.push_server_transcript(sid, store=store, bridge=bridge) == "no-target"
+    assert t.sent == []
+
+
+def test_announce_server_session_pushes_announces_and_persists_meta(
+        tmp_path, monkeypatch):
+    import json
+    store = _temp_store(tmp_path)
+    sid, _cwd = _server_synced_session(store, tmp_path, monkeypatch)
+    monkeypatch.setattr(cd, "resolve_desktop_device_id",
+                        lambda preferred=None: "dev-1")
+    bridge, resp = _announce_bridge()
+    status = cd.announce_server_session(sid, store=store, bridge=bridge)
+    assert "announced ok=True" in status
+    assert resp.frames("coding_session_announce")
+    assert resp.frames("coding_transcript_put")  # transcript mirrored too
+    # transcript-reconcile meta persisted into sync_config
+    cfg = json.loads(store.get_session(sid)["sync_config"])
+    assert cfg["transcript"] == {"csid": "csid-1", "device_cwd": "/mac/proj"}
+
+
+def test_ingest_skips_server_origin_transcript_ghost(tmp_path, monkeypatch):
+    store = _temp_store(tmp_path)
+    # A host='server' session already owns this csid (mirrored to the Mac).
+    store.create_session(
+        project_id=None, host="server", cwd="/srv/p", branch=None,
+        tmux_name="jc-cc", source="chat", title="srv",
+        claude_session_id="dup-csid")
+    # The Mac re-discovers that transcript and pushes it back.
+    _discovered("dev-1", [
+        {"kind": "transcript", "claude_session_id": "dup-csid",
+         "cwd": "/mac/p", "summary": "ghost", "live": False},
+    ], store, monkeypatch)
+    # No host='desktop' ghost row was created for the server-origin csid.
+    desktop_rows = [s for s in store.list_sessions(device_id="dev-1")
+                    if s.get("source") == "discovered-transcript"]
+    assert desktop_rows == []

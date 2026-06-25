@@ -81,7 +81,7 @@ def _scan_memory(text: str) -> str:
 class CodingSessionManager:
     def __init__(self, *, store, driver, plugin_dir, memory_loader,
                  long_term_recall=None, context_root=None, session_capturer=None,
-                 sync_starter=None, sync_stopper=None):
+                 sync_starter=None, sync_stopper=None, announce_cb=None):
         self.store = store
         self.driver = driver
         self.plugin_dir = plugin_dir
@@ -99,6 +99,12 @@ class CodingSessionManager:
         # (the folder-pair sync survives if a sibling still runs). Without this a
         # stopped session's Mutagen sync ran forever (orphan that filled the disk).
         self.sync_stopper = sync_stopper
+        # announce_cb(session_id, finished=bool) — best-effort: announce a
+        # SERVER-origin session to its sync device (native Mac notification) and
+        # mirror its transcript so `claude /resume` lists it. Self-gates (no-op
+        # unless the session is a server session configured to sync to a device).
+        # Injected by the webui; None in unit tests / non-sync contexts.
+        self.announce_cb = announce_cb
 
     def _context_path(self, sid: str) -> Path:
         return self.context_root / sid / "JARVIS-CONTEXT.md"
@@ -258,6 +264,15 @@ class CodingSessionManager:
                     self.store.update_session(sid, claude_session_id=cid)
             except Exception:
                 pass
+        # 5. best-effort: announce this server session to its sync device (Mac
+        #    notification + transcript mirror for `claude /resume`). Self-gates
+        #    to server sessions configured to sync to a connected device; runs
+        #    async so it never blocks the launch on the device round-trip.
+        if self.announce_cb:
+            try:
+                self.announce_cb(session_id=sid)
+            except Exception:
+                pass
         return self.store.get_session(sid)
 
     def subagents(self, sid):
@@ -305,6 +320,13 @@ class CodingSessionManager:
         if self.sync_stopper:
             try:
                 self.sync_stopper(session_id=sid)
+            except Exception:
+                pass
+        # Announce the finish to the sync device (final transcript push + "ended"
+        # notification) so the Mac's `claude /resume` copy is complete. Best-effort.
+        if self.announce_cb:
+            try:
+                self.announce_cb(session_id=sid, finished=True)
             except Exception:
                 pass
         # best-effort cleanup of the PII-bearing context file

@@ -261,6 +261,9 @@ class DesktopBridge:
         # req_id -> {"event":Event, "path":str|None, "error":str|None} —
         # in-flight attachment deliveries (deliver_file).
         self._file_waiters: dict[str, dict] = {}
+        # req_id -> {"event":Event, "ok":bool, "error":str|None} — in-flight
+        # server->device session announces (announce_session).
+        self._announce_waiters: dict[str, dict] = {}
 
     # --- registration with the device bridge --------------------------------
 
@@ -430,6 +433,41 @@ class DesktopBridge:
         return self._transport.send(device_id, {
             "type": "coding_discover_request",
         })
+
+    # --- server->device session announce (reverse of discovery) -------------
+
+    def announce_session(self, device_id: str, *, session_id: str,
+                         claude_session_id: str, cwd: str, device_cwd: str,
+                         title: str = "", status: str = "running",
+                         finished: bool = False, timeout: float = 15.0) -> bool:
+        """Tell a device a SERVER-origin session exists (or finished), so the Mac
+        can surface a native notification. The transcript itself is mirrored
+        separately via ``push_transcript`` (landing where ``claude --resume``
+        looks). Modeled on ``request_transcript``: send + await a
+        ``coding_session_ack``. Returns True only on an explicit ack; False on
+        offline / timeout / device error. Never raises."""
+        req_id = uuid.uuid4().hex
+        waiter = {"event": threading.Event(), "ok": False, "error": None}
+        with self._lock:
+            self._announce_waiters[req_id] = waiter
+        try:
+            ok = self._transport.send(device_id, {
+                "type": "coding_session_announce", "req_id": req_id,
+                "session_id": session_id, "claude_session_id": claude_session_id,
+                "cwd": cwd, "device_cwd": device_cwd, "title": title,
+                "status": status, "finished": bool(finished),
+            })
+            if not ok:
+                return False  # device not connected
+            if not waiter["event"].wait(timeout):
+                log.warning("coding_session_announce[%s]: timed out after %.0fs",
+                            req_id, timeout)
+                return False
+            with self._lock:
+                return bool(waiter["ok"]) and not waiter["error"]
+        finally:
+            with self._lock:
+                self._announce_waiters.pop(req_id, None)
 
     # --- transcript request/response (resume-to-server) ---------------------
 
@@ -602,6 +640,24 @@ class DesktopBridge:
             self._route_transcript_data(frame)
         elif t == "coding_file_done":
             self._route_file_done(frame)
+        elif t == "coding_session_ack":
+            self._route_session_ack(frame)
+
+    def _route_session_ack(self, frame: dict) -> None:
+        """Resolve an in-flight announce_session with the device's ack. Runs on
+        the bridge pump thread."""
+        req_id = frame.get("req_id")
+        if not req_id:
+            return
+        with self._lock:
+            waiter = self._announce_waiters.get(req_id)
+            if waiter is None:
+                return  # unknown or already timed-out request
+            if frame.get("ok") is False or frame.get("error"):
+                waiter["error"] = str(frame.get("error") or "announce rejected")
+            else:
+                waiter["ok"] = True
+            waiter["event"].set()
 
     def _route_transcript_data(self, frame: dict) -> None:
         """Accumulate a transcript chunk for the matching in-flight request.
@@ -1267,6 +1323,148 @@ def _transcript_meta(row) -> dict | None:
             "device": (cfg.get("device") or "").strip()}
 
 
+def _server_sync_target(row) -> tuple[str, str, str] | None:
+    """For a host='server' session configured to mirror to a device, resolve
+    ``(device_id, device_cwd, csid)``; else None.
+
+    ``device_cwd`` is the Mac-side remote path the user set when enabling sync —
+    the folder they ``cd`` into and run ``claude --resume`` from, so the
+    transcript must be encoded for THAT path on the Mac. The device is taken from
+    the row's sync_config (id or name) and resolved to a connected jc-client;
+    returns None when no such device is connected (can't reach the Mac)."""
+    import json as _json
+    if not row or (row.get("host") or "server") != "server":
+        return None
+    csid = (row.get("claude_session_id") or "").strip()
+    if not csid:
+        return None
+    raw = (row.get("sync_config") or "").strip()
+    if not raw:
+        return None
+    try:
+        cfg = _json.loads(raw) or {}
+    except Exception:
+        return None
+    device_cwd = (cfg.get("remote_path") or "").strip()
+    if not device_cwd:
+        return None
+    preferred = (row.get("device_id") or "").strip() or (cfg.get("device") or "").strip()
+    device_id = resolve_desktop_device_id(preferred=preferred) or ""
+    if not device_id:
+        return None
+    return device_id, device_cwd, csid
+
+
+def _ensure_transcript_meta(store, row, csid: str, device_cwd: str) -> None:
+    """Persist ``sync_config.transcript={csid, device_cwd}`` so ``_transcript_meta``
+    (and the open/close ``reconcile_session_transcript``) can pull/push the
+    ``<csid>.jsonl`` for this server session. Best-effort; never raises."""
+    import json as _json
+    try:
+        cfg = _json.loads(row.get("sync_config") or "{}") or {}
+    except Exception:
+        cfg = {}
+    tx = cfg.get("transcript") if isinstance(cfg.get("transcript"), dict) else None
+    if tx and tx.get("csid") == csid and tx.get("device_cwd") == device_cwd:
+        return  # already current
+    cfg["transcript"] = {"csid": csid, "device_cwd": device_cwd}
+    try:
+        store.update_session(row["id"], sync_config=_json.dumps(cfg))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def push_server_transcript(session_id: str, *, store=None,
+                           bridge: DesktopBridge | None = None) -> str:
+    """One-way mirror of a host='server' session's transcript to its device so it
+    shows up in the Mac's native ``claude /resume``.
+
+    Unlike ``reconcile_session_transcript`` (open/close, bidirectional newest-
+    wins) this is a LIVE one-way push — safe because the Mac is a PASSIVE store
+    (no claude running on that csid until the user resumes). Returns a short
+    status string; never raises."""
+    try:
+        store = store or _resolve_store()
+        if store is None:
+            return "no-store"
+        bridge = bridge or get_desktop_bridge()
+        row = store.get_session(session_id)
+        target = _server_sync_target(row)
+        if target is None:
+            return "no-target"
+        device_id, device_cwd, csid = target
+        from agent.coding_session_capture import (claude_projects_dir,
+                                                  encode_project_dir)
+        server_path = (claude_projects_dir() / encode_project_dir(row.get("cwd") or "")
+                       / f"{csid}.jsonl")
+        try:
+            raw = server_path.read_bytes()
+        except OSError:
+            return "no-server-transcript"
+        ok = bridge.push_transcript(device_id, claude_session_id=csid,
+                                    cwd=device_cwd, raw=raw)
+        return f"pushed ok={ok}"
+    except Exception as exc:  # noqa: BLE001
+        log.debug("push_server_transcript[%s] failed: %s", session_id, exc)
+        return f"error: {exc}"
+
+
+def push_server_transcript_async(session_id: str) -> None:
+    """Fire-and-forget ``push_server_transcript`` on a daemon thread — used on
+    each turn boundary to keep the Mac's resumable copy live without blocking the
+    activity-event request thread. Self-gates (no-op for non-sync sessions)."""
+    threading.Thread(
+        target=push_server_transcript, args=(session_id,), daemon=True).start()
+
+
+def announce_server_session(session_id: str, *, finished: bool = False,
+                            store=None,
+                            bridge: DesktopBridge | None = None) -> str:
+    """Announce a host='server' session to its sync device (native notification on
+    the Mac) AND mirror its transcript so ``claude /resume`` lists it.
+
+    Persists the transcript-reconcile meta, pushes the transcript, then sends a
+    ``coding_session_announce`` (awaiting the device's ack). No-op (returns a
+    reason) when the session isn't a server session configured to mirror to a
+    connected device. Never raises — run via ``announce_server_session_async`` so
+    launch/stop never block on the device round-trip."""
+    try:
+        store = store or _resolve_store()
+        if store is None:
+            return "no-store"
+        bridge = bridge or get_desktop_bridge()
+        row = store.get_session(session_id)
+        target = _server_sync_target(row)
+        if target is None:
+            return "no-target"
+        device_id, device_cwd, csid = target
+        _ensure_transcript_meta(store, row, csid, device_cwd)
+        # Mirror the transcript FIRST so /resume has content the moment the
+        # notification lands.
+        push_server_transcript(session_id, store=store, bridge=bridge)
+        from pathlib import Path as _P
+        title = (row.get("title") or "").strip() \
+            or (_P(row.get("cwd") or "").name) or session_id
+        ok = bridge.announce_session(
+            device_id, session_id=session_id, claude_session_id=csid,
+            cwd=row.get("cwd") or "", device_cwd=device_cwd, title=title,
+            status=("ended" if finished else (row.get("status") or "running")),
+            finished=finished)
+        return f"announced ok={ok}"
+    except Exception as exc:  # noqa: BLE001
+        log.debug("announce_server_session[%s] failed: %s", session_id, exc)
+        return f"error: {exc}"
+
+
+def announce_server_session_async(session_id: str, *,
+                                  finished: bool = False) -> None:
+    """Fire-and-forget ``announce_server_session`` on a daemon thread, so the
+    launch/stop request thread never blocks on the device announce + push."""
+    threading.Thread(
+        target=announce_server_session, args=(session_id,),
+        kwargs={"finished": finished}, daemon=True).start()
+
+
 def reconcile_session_transcript_async(session_id: str) -> None:
     """Fire-and-forget ``reconcile_session_transcript`` on a daemon thread.
 
@@ -1654,6 +1852,20 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
     note_device_reconnect(device_id)
     sessions = sessions or []
 
+    # SERVER-ORIGIN dedup: a server session whose transcript we mirrored to this
+    # Mac (so `claude /resume` lists it) gets re-discovered by the Mac's scan and
+    # pushed back here. It already exists as a host='server' row, so we must NOT
+    # create a host='desktop' ghost duplicate of it. Collect their csids to skip.
+    server_origin_csids: set = set()
+    try:
+        for _r in store.list_sessions():
+            if (_r.get("host") or "server") == "server":
+                _c = (_r.get("claude_session_id") or "").strip()
+                if _c:
+                    server_origin_csids.add(_c)
+    except Exception:  # noqa: BLE001
+        server_origin_csids = set()
+
     # SAFEGUARD: never DISCOVER a claude session running in a home/system directory
     # (e.g. a `claude` launched from $HOME). Such a session isn't a project — it
     # auto-created a bogus "pranavkrishna" project that resurrected on every 5s push
@@ -1856,6 +2068,10 @@ def ingest_discovered(device_id: str, sessions: list, *, store=None) -> int:
                 continue
             if _is_dismissed(device_id, csid):
                 # User deleted this one — don't resurrect it.
+                continue
+            if csid in server_origin_csids:
+                # SERVER-origin session we mirrored here for `claude /resume`;
+                # it already exists as a host='server' row — skip the ghost.
                 continue
             cwd = sess.get("cwd") or ""
             if _dangerous_cwd(cwd):

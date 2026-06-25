@@ -1370,3 +1370,34 @@ def test_on_file_put_sanitizes_traversal_name(tmp_path):
     root = tmp_path / ".jarviscopilot" / "coding_uploads" / "cs1"
     written = list(root.glob("*"))
     assert written and all(p.parent == root for p in written)
+
+
+# ── coding_session_announce: notify the user + ack the server ────────────────
+
+def test_session_announce_notifies_and_acks(monkeypatch):
+    import jc_client.skills.common as common
+    calls = []
+    monkeypatch.setattr(
+        common, "notify",
+        lambda title="", message="": calls.append((title, message)) or {"ok": True})
+    sent = []
+    agent = CodingDiscoverAgent(send=sent.append, home_dir=_EMPTY_HOME)
+    agent.handle_frame({
+        "type": "coding_session_announce", "req_id": "r1", "title": "My Task",
+        "device_cwd": "/Users/me/proj", "claude_session_id": "csid", "finished": False})
+    # Native notification fired, mentioning the session + resume folder.
+    assert calls and "My Task" in calls[0][1] and "proj" in calls[0][1]
+    # Acked so the server knows the Mac surfaced it.
+    acks = [f for f in sent if f.get("type") == "coding_session_ack"]
+    assert acks and acks[0]["req_id"] == "r1" and acks[0]["ok"] is True
+
+
+def test_session_announce_without_req_id_does_not_ack(monkeypatch):
+    import jc_client.skills.common as common
+    monkeypatch.setattr(common, "notify",
+                        lambda title="", message="": {"ok": True})
+    sent = []
+    agent = CodingDiscoverAgent(send=sent.append, home_dir=_EMPTY_HOME)
+    agent.handle_frame({"type": "coding_session_announce", "title": "x",
+                        "device_cwd": "/p"})
+    assert [f for f in sent if f.get("type") == "coding_session_ack"] == []

@@ -929,8 +929,45 @@ class CodingDiscoverAgent:
                 self._on_transcript_put(frame)
             elif t == "coding_file_put":
                 self._on_file_put(frame)
+            elif t == "coding_session_announce":
+                self._on_session_announce(frame)
         except Exception as exc:  # noqa: BLE001 — never bubble into the pump
             log.warning("coding_discover handle_frame failed: %s", exc)
+
+    def _on_session_announce(self, frame: dict) -> None:
+        """A SERVER-origin coding session was created/finished on the server.
+
+        Fire a native notification so the user knows it exists and is resumable
+        here — its transcript is mirrored separately via ``coding_transcript_put``
+        to ``<projects>/<encode(device_cwd)>/<csid>.jsonl``, so a local
+        ``claude`` in the synced folder lists it under ``/resume``. Then ack so
+        the server knows the Mac surfaced it. Never raises into the pump."""
+        req_id = str(frame.get("req_id") or "")
+        title = str(frame.get("title") or "coding session").strip()
+        device_cwd = str(frame.get("device_cwd") or "").strip()
+        finished = bool(frame.get("finished"))
+        ok, err = True, ""
+        try:
+            from jc_client.skills.common import notify
+
+            verb = "finished" if finished else "started"
+            folder = os.path.basename(device_cwd.rstrip("/")) if device_cwd else ""
+            msg = f"“{title}” {verb} on the server."
+            if folder:
+                msg += f" Resume in {folder} with: claude --resume"
+            notify(title="JarvisCopilot — coding", message=msg)
+        except Exception as exc:  # noqa: BLE001
+            ok, err = False, str(exc)
+        self._send_session_ack(req_id, ok=ok, error=err)
+
+    def _send_session_ack(self, req_id: str, *, ok: bool = True,
+                          error: str = "") -> None:
+        if not req_id:
+            return
+        frame = {"type": "coding_session_ack", "req_id": req_id, "ok": bool(ok)}
+        if error:
+            frame["error"] = error
+        self._send_safe(frame)
 
     def _on_transcript_get(self, frame: dict) -> None:
         """Ship a past session's on-disk transcript back to the server (resume
