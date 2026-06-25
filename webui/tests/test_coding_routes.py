@@ -1120,3 +1120,106 @@ def test_post_la_token_requires_token():
     status, body = handle_coding_request("POST", "/la-token", {}, manager=m)
     assert status == 400
     assert m.store.la_tokens == []
+
+
+# ── /activity-event backfills claude_session_id for server sessions ───────────
+
+def _srv_row(**over):
+    row = {"id": "srv-1", "status": "running", "host": "server",
+           "tmux_name": "jc-aa11", "cwd": "/work", "claude_session_id": "",
+           "source": "chat", "activity_state": "working"}
+    row.update(over)
+    return row
+
+
+def test_activity_event_backfills_missing_csid():
+    m = FakeManager()
+    m.store.sessions.append(_srv_row())
+    status, body = handle_coding_request(
+        "POST", "/activity-event",
+        {"event": "user_prompt_submit", "tmux_name": "jc-aa11",
+         "claude_session_id": "cid-1"}, manager=m)
+    assert status == 200 and body["matched"] is True
+    assert m.store.sessions[0]["claude_session_id"] == "cid-1"
+
+
+def test_activity_event_does_not_clobber_existing_csid():
+    m = FakeManager()
+    m.store.sessions.append(_srv_row(claude_session_id="cid-orig"))
+    handle_coding_request(
+        "POST", "/activity-event",
+        {"event": "user_prompt_submit", "tmux_name": "jc-aa11",
+         "claude_session_id": "cid-DIFFERENT"}, manager=m)
+    assert m.store.sessions[0]["claude_session_id"] == "cid-orig"
+
+
+# ── GET /session/<id>/messages lazily recovers csid for server sessions ───────
+
+def test_messages_recovers_csid_then_serves(monkeypatch):
+    import agent.coding_session_capture as csc
+    import agent.coding_transcript_read as ctr
+    monkeypatch.setattr(csc, "find_session_id",
+                        lambda cwd, since, **kw: "cid-recovered")
+    monkeypatch.setattr(ctr, "read_local_messages",
+                        lambda cwd, csid, **kw: ([{"role": "assistant",
+                                                   "content": "hi"}], None))
+    m = FakeManager()
+    m._sessions.append(_srv_row(id="srv-msg", claude_session_id="",
+                                created_at=1000.0))
+    status, body = handle_coding_request(
+        "GET", "/session/srv-msg/messages", None, manager=m)
+    assert status == 200
+    assert body["messages"] == [{"role": "assistant", "content": "hi"}]
+
+
+def test_messages_still_409_when_no_transcript_found(monkeypatch):
+    import agent.coding_session_capture as csc
+    monkeypatch.setattr(csc, "find_session_id", lambda cwd, since, **kw: None)
+    m = FakeManager()
+    m._sessions.append(_srv_row(id="srv-empty", claude_session_id=""))
+    status, body = handle_coding_request(
+        "GET", "/session/srv-empty/messages", None, manager=m)
+    assert status == 409
+
+
+# ── session responses carry a parsed `sync` object (mobile toggle fix) ────────
+
+def test_session_detail_emits_parsed_sync():
+    m = FakeManager()
+    m._sessions.append({
+        "id": "srv-sync", "status": "running", "host": "server",
+        "sync_config": '{"enabled": true, "device": "d1", "remote_path": "/p"}'})
+    status, body = handle_coding_request(
+        "GET", "/session/srv-sync", None, manager=m)
+    assert status == 200
+    assert body["session"]["sync"] == {
+        "enabled": True, "device": "d1", "remote_path": "/p"}
+
+
+def test_sessions_list_emits_parsed_sync():
+    m = FakeManager()
+    m._sessions.append({
+        "id": "srv-sync2", "status": "running",
+        "sync_config": '{"enabled": true}'})
+    status, body = handle_coding_request("GET", "/sessions", None, manager=m)
+    assert status == 200
+    synced = [s for s in body["sessions"] if s["id"] == "srv-sync2"]
+    assert synced and synced[0]["sync"] == {"enabled": True}
+
+
+def test_session_without_sync_config_has_no_sync_key():
+    m = FakeManager()
+    status, body = handle_coding_request(
+        "GET", "/session/" + FakeManager.KNOWN, None, manager=m)
+    assert status == 200
+    assert "sync" not in body["session"]
+
+
+def test_malformed_sync_config_does_not_crash_or_emit_sync():
+    m = FakeManager()
+    m._sessions.append({
+        "id": "srv-bad", "status": "running", "sync_config": "{not json"})
+    status, body = handle_coding_request(
+        "GET", "/session/srv-bad", None, manager=m)
+    assert status == 200
+    assert "sync" not in body["session"]

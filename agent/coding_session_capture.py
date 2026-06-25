@@ -28,6 +28,7 @@ from pathlib import Path
 
 __all__ = [
     "encode_project_dir",
+    "claude_config_dir",
     "claude_projects_dir",
     "find_session_id",
     "wait_for_session_id",
@@ -53,15 +54,25 @@ def encode_project_dir(cwd: str) -> str:
     return resolved.replace("/", "-").replace(".", "-")
 
 
+def claude_config_dir() -> Path:
+    """Return the base config dir Claude Code reads/writes.
+
+    Honors ``CLAUDE_CONFIG_DIR`` if set; otherwise defaults to ``~/.claude``.
+    This is the single source of truth for WHERE the transcript lives, so the
+    process that *launches* claude (which pins this onto the pane's env) and the
+    process that *reads* the transcript back agree on one directory — see
+    ``agent.coding_host_drivers.LocalDriver.claude_argv``.
+    """
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(config_dir) if config_dir else Path.home() / ".claude"
+
+
 def claude_projects_dir() -> Path:
     """Return the directory that holds per-project transcript folders.
 
-    Honors ``CLAUDE_CONFIG_DIR`` if set (``<that>/projects``); otherwise
-    defaults to ``~/.claude/projects``.
+    Always ``<claude_config_dir()>/projects``.
     """
-    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
-    base = Path(config_dir) if config_dir else Path.home() / ".claude"
-    return base / "projects"
+    return claude_config_dir() / "projects"
 
 
 def _project_transcript_dir(cwd: str, projects_dir: str | None) -> Path:

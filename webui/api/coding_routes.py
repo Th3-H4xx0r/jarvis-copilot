@@ -668,6 +668,28 @@ def _err(status: int, msg: str) -> tuple[int, dict]:
     return status, {"error": msg}
 
 
+def _with_sync(row):
+    """Attach a parsed ``sync`` object (from the stored ``sync_config`` JSON) to a
+    session row returned to clients.
+
+    The DB column is ``sync_config`` (a JSON string), but the mobile model reads
+    ``session.sync`` (``CodingSession.fromJson`` -> ``j['sync']``). Without this
+    the toggle always parsed null and reverted to unchecked. The WebUI reads
+    ``sync_config`` directly, so we keep that key intact and just ADD ``sync``.
+    Best-effort: malformed/absent config leaves the row unchanged.
+    """
+    if not isinstance(row, dict):
+        return row
+    raw = row.get("sync_config")
+    if raw:
+        try:
+            import json as _json
+            return {**row, "sync": _json.loads(raw)}
+        except (ValueError, TypeError):
+            pass
+    return row
+
+
 def _run(fn) -> tuple[int, dict]:
     """Invoke a manager call, mapping exceptions to status codes.
 
@@ -710,7 +732,8 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 if expand:
                     by_pid = {}
                     for s in manager.list():
-                        by_pid.setdefault(s.get("project_id"), []).append(s)
+                        by_pid.setdefault(
+                            s.get("project_id"), []).append(_with_sync(s))
                     for proj in all_projects:
                         proj["sessions"] = by_pid.get(proj["id"], [])
                     # Sessions with no project (legacy rows) surface in a synthetic
@@ -836,8 +859,9 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
     if p == "/sessions":
         if method == "GET":
             status = query.get("status") or None
-            return _run(lambda: _ok({"sessions": manager.list(status=status),
-                                     "usage": _coding_usage()}))
+            return _run(lambda: _ok(
+                {"sessions": [_with_sync(s) for s in manager.list(status=status)],
+                 "usage": _coding_usage()}))
         return _err(404, "not found")
 
     # ── /usage ── (just the account usage block, for the Live Activity rings)
@@ -1082,6 +1106,18 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 pass
             changed = False
             if matched:
+                # Backfill the claude_session_id for a server session whose
+                # launch-time capture missed (the 8s window). The hook carries
+                # the real csid every turn, so this self-heals: without it the
+                # row's csid stays NULL forever and /messages 409s (empty mobile
+                # chat). Never clobber a csid that's already set.
+                if csid and not (row.get("claude_session_id") or "").strip():
+                    try:
+                        manager.store.update_session(
+                            row["id"], claude_session_id=csid)
+                        row["claude_session_id"] = csid
+                    except Exception:  # noqa: BLE001
+                        pass
                 changed = row.get("activity_state") != state
                 if changed:
                     manager.store.update_session(row["id"], activity_state=state)
@@ -1180,7 +1216,7 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                 session = manager.status(sid)
                 if session is None:
                     return _err(404, "session not found: " + sid)
-                return _ok({"ok": True, "session": session,
+                return _ok({"ok": True, "session": _with_sync(session),
                             "subagents": manager.subagents(sid)})
 
             return _run(_get)
@@ -1222,9 +1258,29 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     return _err(404, "session not found: " + sid)
                 csid = (row.get("claude_session_id") or "").strip()
                 cwd = row.get("cwd") or ""
+                host = (row.get("host") or "server")
+                if not csid and host != "desktop":
+                    # Server-origin session whose launch-time csid capture missed
+                    # the 8s window. Recover it now from the on-disk transcript
+                    # (the projects dir is pinned via CLAUDE_CONFIG_DIR so this
+                    # matches where claude actually wrote) and persist it so
+                    # future polls are cheap. Turns a permanent 409/empty chat
+                    # into a self-healing read.
+                    try:
+                        from agent.coding_session_capture import find_session_id
+                        recovered = find_session_id(
+                            cwd, float(row.get("created_at") or 0))
+                    except Exception:  # noqa: BLE001
+                        recovered = None
+                    if recovered:
+                        csid = recovered
+                        try:
+                            manager.store.update_session(
+                                sid, claude_session_id=recovered)
+                        except Exception:  # noqa: BLE001
+                            pass
                 if not csid:
                     return _err(409, "no transcript yet for this session")
-                host = (row.get("host") or "server")
                 msgs, source = None, "live"
                 if host == "desktop" and (row.get("device_id") or ""):
                     from api.coding_desktop import (mark_transcript_dirty,
@@ -1461,7 +1517,7 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     sync=body.get("sync"),
                     cwd=body.get("cwd"),
                     title=body.get("title"))
-                return _ok({"ok": True, "session": session})
+                return _ok({"ok": True, "session": _with_sync(session)})
 
             return _run(_settings)
 

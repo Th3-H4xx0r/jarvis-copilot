@@ -346,6 +346,13 @@ _CODING_INBOUND_TYPES = frozenset({
     # Resume-to-server: the desktop streams a discovered session's transcript
     # back (gzipped, base64, chunked) in response to a coding_transcript_get.
     "coding_transcript_data",
+    # File delivery ack (response to coding_file_put) — WITHOUT this the inbound
+    # frame was dropped here before reaching DesktopBridge.on_frame, so
+    # deliver_file always timed out (latent bug).
+    "coding_file_done",
+    # Server->device session announce ack: the desktop confirms it received a
+    # coding_session_announce (so the server knows the Mac was notified).
+    "coding_session_ack",
 })
 
 # process-wide handler(device_id: str, frame: dict) -> None, set by DesktopBridge.

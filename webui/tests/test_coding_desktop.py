@@ -93,6 +93,33 @@ def test_desktop_argv_construction_matches_local_driver():
         == local.tmux_new_argv(tmux_name="jc-abc", cwd="/work", launch_argv=la)
 
 
+def test_inbound_allowlist_accepts_file_done_and_session_ack():
+    """Both must be in the inbound allowlist or they're dropped before reaching
+    DesktopBridge.on_frame (coding_file_done was a latent drop; coding_session_ack
+    is the new server->device announce ack)."""
+    from api import device_bridge
+    assert "coding_file_done" in device_bridge._CODING_INBOUND_TYPES
+    assert "coding_session_ack" in device_bridge._CODING_INBOUND_TYPES
+
+
+def test_claude_argv_pins_config_dir_for_reader_agreement():
+    """The launched claude MUST carry CLAUDE_CONFIG_DIR in its exec-time env
+    prefix, pinned to the same dir the webui reader resolves — otherwise the
+    transcript is written where the reader never looks (empty mobile chat)."""
+    from agent.claude_code_client import _resolve_command
+    from agent.coding_session_capture import claude_config_dir
+
+    argv = LocalDriver().claude_argv(
+        plugin_dir="/plug", context_file="/ctx.md", model="opus",
+        initial_prompt="do it")
+    assert argv[0] == "env"
+    pin = f"CLAUDE_CONFIG_DIR={claude_config_dir()}"
+    assert pin in argv
+    # It sits in the `env` prefix, BEFORE the resolved claude command (so `env`
+    # applies it to the exec'd process).
+    assert argv.index(pin) < argv.index(_resolve_command())
+
+
 def test_bridge_run_new_session_sends_coding_term_open():
     bridge, t = make_bridge()
     run = cd.make_bridge_run("dev-1", bridge)

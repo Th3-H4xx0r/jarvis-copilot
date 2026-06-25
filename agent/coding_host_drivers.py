@@ -99,6 +99,16 @@ class LocalDriver(HostDriver):
         desktop, so server-host sessions hit ENOENT and showed "MCP failed").
         """
         prefix = self._scrub_prefix()
+        # Pin CLAUDE_CONFIG_DIR onto the pane's env so the launched claude writes
+        # its transcript to the SAME dir the webui reader resolves. tmux attaches
+        # the pane to an already-running tmux server whose env we don't control,
+        # and `env=` on the new-session client never reaches the pane — but a
+        # `VAR=val` in this exec-time `env` prefix DOES. Without this the writer
+        # used the tmux server's HOME and the reader used the webui process's
+        # HOME, so the transcript was written where the reader never looked
+        # (empty mobile chat for server sessions).
+        from agent.coding_session_capture import claude_config_dir
+        prefix = prefix + [f"CLAUDE_CONFIG_DIR={claude_config_dir()}"]
         if skip_permissions:
             prefix = prefix + ["IS_SANDBOX=1"]
         argv = prefix + [

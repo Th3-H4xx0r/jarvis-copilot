@@ -51,6 +51,26 @@ def test_claude_projects_dir_honors_env(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# claude_config_dir (single source of truth for the transcript location)
+# --------------------------------------------------------------------------- #
+def test_claude_config_dir_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.setattr(csc.Path, "home", classmethod(lambda cls: tmp_path))
+    assert csc.claude_config_dir() == tmp_path / ".claude"
+
+
+def test_claude_config_dir_honors_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+    assert csc.claude_config_dir() == tmp_path / "cfg"
+
+
+def test_projects_dir_is_config_dir_plus_projects(monkeypatch, tmp_path):
+    # The reader (projects) and the launcher (config) must agree on one root.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+    assert csc.claude_projects_dir() == csc.claude_config_dir() / "projects"
+
+
+# --------------------------------------------------------------------------- #
 # find_session_id
 # --------------------------------------------------------------------------- #
 def _make_project(tmp_path, cwd):
