@@ -2387,12 +2387,15 @@ class _LaunchSheetState extends State<_LaunchSheet> {
               _FieldLabel(_inProject
                   ? 'Working directory (blank = project repo)'
                   : 'Working directory'),
-              TextField(
+              // Host-aware directory typeahead: lists the SERVER's dirs when
+              // RUN ON = server, or the paired device's dirs when = desktop
+              // (re-queries when _host changes via scopeKey).
+              _DirSuggestField(
                 controller: _cwd,
-                style: const TextStyle(color: JcTheme.text, fontSize: 14),
-                decoration: const InputDecoration(
-                  hintText: '~/code/your-project  (~ expands, created if new)',
-                ),
+                hintText: '~/code/your-project  (~ expands, created if new)',
+                scopeKey: _host,
+                fetch: (p) =>
+                    widget.controller.api.dirSuggest(path: p, host: _host),
               ),
               const SizedBox(height: 14),
               const _FieldLabel('Title (optional)'),
@@ -2457,13 +2460,13 @@ class _LaunchSheetState extends State<_LaunchSheet> {
                       ),
                       const SizedBox(height: 12),
                       const _FieldLabel('Folder path on that device'),
-                      TextField(
+                      // Lists the chosen sync DEVICE's dirs over the bridge.
+                      _DirSuggestField(
                         controller: _syncPath,
-                        style:
-                            const TextStyle(color: JcTheme.text, fontSize: 14),
-                        decoration: const InputDecoration(
-                          hintText: '~/code/your-project',
-                        ),
+                        hintText: '~/code/your-project',
+                        scopeKey: _syncDevice ?? '',
+                        fetch: (p) => widget.controller.api.dirSuggest(
+                            path: p, host: 'desktop', deviceId: _syncDevice),
                       ),
                       const SizedBox(height: 8),
                       const Text(
@@ -2501,6 +2504,151 @@ class _LaunchSheetState extends State<_LaunchSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── Directory typeahead field (Working Directory / sync folder) ──────────────
+// A TextField that, as you type (and on focus), fetches directory suggestions
+// for the current host/device and shows a tappable drill-down list. [fetch] does
+// the host-aware lookup; [scopeKey] (the host or device id) re-queries when it
+// changes. Keeps the caller's [controller] as the source of truth, so the
+// existing launch payload code is unchanged.
+class _DirSuggestField extends StatefulWidget {
+  const _DirSuggestField({
+    required this.controller,
+    required this.fetch,
+    this.hintText = '',
+    this.scopeKey = '',
+  });
+  final TextEditingController controller;
+  final Future<List<String>> Function(String prefix) fetch;
+  final String hintText;
+  final String scopeKey;
+
+  @override
+  State<_DirSuggestField> createState() => _DirSuggestFieldState();
+}
+
+class _DirSuggestFieldState extends State<_DirSuggestField> {
+  final _focus = FocusNode();
+  List<String> _suggestions = const [];
+  Timer? _debounce;
+  bool _focused = false;
+  int _reqSeq = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(() {
+      setState(() => _focused = _focus.hasFocus);
+      if (_focus.hasFocus) _query(widget.controller.text);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _DirSuggestField old) {
+    super.didUpdateWidget(old);
+    if (old.scopeKey != widget.scopeKey) {
+      setState(() => _suggestions = const []);
+      if (_focus.hasFocus) _query(widget.controller.text);
+    }
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _onChanged(String v) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 160), () => _query(v));
+  }
+
+  Future<void> _query(String prefix) async {
+    _debounce?.cancel(); // a fresh query supersedes any queued keystroke query
+    final seq = ++_reqSeq;
+    final dirs = await widget.fetch(prefix);
+    if (!mounted || seq != _reqSeq) return; // drop stale responses
+    setState(() => _suggestions = dirs);
+  }
+
+  void _pick(String dir) {
+    // Set the field + drill in (trailing sep makes the next query list children).
+    final withSep = dir.endsWith('/') ? dir : '$dir/';
+    widget.controller.text = withSep;
+    widget.controller.selection =
+        TextSelection.collapsed(offset: withSep.length);
+    // Query once: if already focused the listener won't re-fire, so query here;
+    // otherwise requestFocus and let the focus listener do the single query.
+    if (_focus.hasFocus) {
+      _query(withSep);
+    } else {
+      _focus.requestFocus();
+    }
+  }
+
+  String _basename(String p) {
+    final parts = p.split('/').where((s) => s.isNotEmpty).toList();
+    return parts.isEmpty ? p : parts.last;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: widget.controller,
+          focusNode: _focus,
+          onChanged: _onChanged,
+          style: const TextStyle(color: JcTheme.text, fontSize: 14),
+          decoration: InputDecoration(hintText: widget.hintText),
+        ),
+        if (_focused && _suggestions.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            constraints: const BoxConstraints(maxHeight: 180),
+            decoration: BoxDecoration(
+              color: JcTheme.surfaceAlt,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: JcTheme.border),
+            ),
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              itemCount: _suggestions.length,
+              itemBuilder: (_, i) {
+                final d = _suggestions[i];
+                return InkWell(
+                  onTap: () => _pick(d),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.folder_outlined,
+                            size: 16, color: JcTheme.muted),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _basename(d),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: JcTheme.text, fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
     );
   }
 }

@@ -61,6 +61,29 @@ class CodingSessionsApi {
     return u is Map ? Map<String, dynamic>.from(u) : null;
   }
 
+  /// GET /api/coding/dir-suggest -> `{dirs: [...]}`. Host-aware directory
+  /// typeahead for the New-session Working Directory / sync-folder fields:
+  /// host='server' lists the SERVER filesystem; a [deviceId] (or host='desktop')
+  /// lists that paired device's filesystem over the bridge. Returns [] on
+  /// offline / error so the UI degrades gracefully.
+  Future<List<String>> dirSuggest({
+    required String path,
+    String host = 'server',
+    String? deviceId,
+  }) async {
+    try {
+      final resp = await api.get('/api/coding/dir-suggest', query: {
+        'path': path,
+        'host': host,
+        if (deviceId != null && deviceId.isNotEmpty) 'device_id': deviceId,
+      });
+      final raw = ((resp.data as Map?)?['dirs'] as List?) ?? const [];
+      return raw.map((e) => '$e').toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// GET /api/coding/projects -> `{ projects: [...] }`
   Future<List<CodingProject>> listProjects() async {
     final resp = await api.get('/api/coding/projects');

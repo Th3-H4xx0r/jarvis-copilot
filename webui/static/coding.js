@@ -946,7 +946,8 @@ function codingShowLaunch(preselectProjectId) {
           <label class="cdg-label" for="codingSyncDevice">Device</label>
           <select class="cdg-input" id="codingSyncDevice">${_codingDeviceOptionsHtml('')}</select>
           <label class="cdg-label" for="codingSyncPath">Folder path on that device</label>
-          <input class="cdg-input" id="codingSyncPath" placeholder="~/code/your-project" autocomplete="off">
+          <input class="cdg-input" id="codingSyncPath" list="codingSyncPathList" placeholder="~/code/your-project" autocomplete="off">
+          <datalist id="codingSyncPathList"></datalist>
           <div class="cdg-hint">On launch: if that folder already has files they're pulled to the server; if it's empty, the server's folder is pushed to it. Two-way sync then keeps them in step. (Activates once that device's sync agent is connected.)</div>
         </div>
 
@@ -963,8 +964,71 @@ function codingShowLaunch(preselectProjectId) {
   // Apply the initial project-selection state (e.g. hide worktree row / relabel
   // the cwd hint when a real project is preselected).
   codingLaunchProjectChanged();
+  // Wire the host-aware directory autocomplete (Working Directory + sync path).
+  _codingWireDirSuggest();
 }
 window.codingShowLaunch = codingShowLaunch;
+
+// Live, host-aware directory autocomplete for the New-session form.
+//   • Working Directory lists dirs on the host the session RUNS on — the SERVER
+//     filesystem when RUN ON = "This server", or the paired DEVICE's filesystem
+//     (over the bridge) when RUN ON = "My computer". Re-queries when RUN ON
+//     changes, so it never shows Mac paths for a server session (the old bug).
+//   • "Folder path on that device" lists the chosen sync DEVICE's dirs.
+// Both hit GET /api/coding/dir-suggest and refresh a native <datalist> as you
+// type (drill-down). Failures (offline / no device) leave existing options.
+function _codingWireDirSuggest() {
+  const cwd = document.getElementById('codingCwd');
+  const cwdList = document.getElementById('codingProjList');
+  const hostSel = document.getElementById('codingHost');
+  const syncPath = document.getElementById('codingSyncPath');
+  const syncList = document.getElementById('codingSyncPathList');
+  const syncDev = document.getElementById('codingSyncDevice');
+
+  const fillList = (listEl, dirs) => {
+    if (!listEl) return;
+    listEl.innerHTML = (dirs || []).map(
+      d => `<option value="${_cdgEsc(d)}"></option>`).join('');
+  };
+  const debounce = (fn, ms) => {
+    let t = 0;
+    return (...a) => { if (t) clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+  };
+  // seqRef drops out-of-order responses (the bridge/device path is slow enough
+  // that a stale reply could otherwise clobber a newer one).
+  const suggest = async (path, host, deviceId, listEl, seqRef) => {
+    const my = ++seqRef.n;
+    try {
+      const qs = new URLSearchParams({ path: path || '', host: host || 'server' });
+      if (deviceId) qs.set('device_id', deviceId);
+      const res = await api('/api/coding/dir-suggest?' + qs.toString());
+      if (my !== seqRef.n) return;  // superseded by a newer request
+      fillList(listEl, res && res.dirs);
+    } catch (_) { /* offline / no device → keep whatever options are there */ }
+  };
+
+  if (cwd && cwdList) {
+    const seq = { n: 0 };
+    const run = debounce(
+      () => suggest(cwd.value, (hostSel || {}).value || 'server', '', cwdList, seq), 140);
+    cwd.addEventListener('input', run);
+    cwd.addEventListener('focus', run);
+    if (hostSel) hostSel.addEventListener('change', () => { fillList(cwdList, []); run(); });
+    // No seed-on-open: keep the static known-project options until the user
+    // focuses the field, then switch to live host-appropriate dirs (so a server
+    // session never shows the discovered Mac project paths the user complained
+    // about).
+  }
+  if (syncPath && syncList) {
+    const seq = { n: 0 };
+    const run = debounce(
+      () => suggest(syncPath.value, 'desktop', (syncDev || {}).value || '', syncList, seq), 140);
+    syncPath.addEventListener('input', run);
+    syncPath.addEventListener('focus', run);
+    if (syncDev) syncDev.addEventListener('change', () => { fillList(syncList, []); run(); });
+  }
+}
+window._codingWireDirSuggest = _codingWireDirSuggest;
 
 // React to the Project dropdown changing:
 //   existing project id → prefill cwd with that project's repo_path, hide the
@@ -1503,6 +1567,41 @@ function _codingMountTerminal(id) {
       _codingTerm = term; _codingTermFit = fit; _codingTermMountedId = id;
       term.onData(d => api('/api/terminal/input',
         { method: 'POST', body: JSON.stringify({ session_id: id, data: d }) }).catch(() => {}));
+      // Copy/paste in the streamed terminal: ⌘C / Ctrl+Shift+C copies the
+      // selection to the clipboard (instead of xterm swallowing it / sending
+      // ^C), and ⌘V / Ctrl+Shift+V pastes the clipboard into the PTY. Plain
+      // Ctrl+C is left alone so it still sends SIGINT.
+      term.attachCustomKeyEventHandler((e) => {
+        if (e.type !== 'keydown') return true;
+        const k = (e.key || '').toLowerCase();
+        const copyCombo = (e.metaKey && !e.ctrlKey && k === 'c')
+                       || (e.ctrlKey && e.shiftKey && k === 'c');
+        const pasteCombo = (e.metaKey && !e.ctrlKey && k === 'v')
+                        || (e.ctrlKey && e.shiftKey && k === 'v');
+        if (copyCombo) {
+          try {
+            const sel = term.getSelection();
+            // Prefer the shared _copyText helper (ui.js) — it falls back to
+            // document.execCommand('copy') when navigator.clipboard is absent
+            // (plain-http / non-secure context, e.g. over the tunnel).
+            if (sel) {
+              if (typeof _copyText === 'function') _copyText(sel).catch(() => {});
+              else if (navigator.clipboard) navigator.clipboard.writeText(sel);
+            }
+          } catch (_) {}
+          return false;  // never forward ⌘C to the PTY
+        }
+        if (pasteCombo) {
+          try {
+            if (navigator.clipboard) navigator.clipboard.readText().then(txt => {
+              if (txt) api('/api/terminal/input',
+                { method: 'POST', body: JSON.stringify({ session_id: id, data: txt }) }).catch(() => {});
+            }).catch(() => {});
+          } catch (_) {}
+          return false;  // we deliver the paste ourselves
+        }
+        return true;
+      });
       const sendResize = () => {
         try { if (fit) fit.fit(); } catch (_) {}
         api('/api/terminal/resize',

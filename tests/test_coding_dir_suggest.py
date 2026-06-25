@@ -44,9 +44,17 @@ def test_empty_lists_home_subdirs(base):
     assert str(base / "h1") in suggest_dirs("", home=str(base))
 
 
-def test_tilde_expands_home(base):
+def test_tilde_expands_home_and_folds_results_back(base):
     (base / "proj").mkdir()
-    assert suggest_dirs("~/pr", home=str(base)) == [str(base / "proj")]
+    # ~ expands for the lookup, but the result keeps ~-form to match the typed
+    # prefix (so a native <datalist> substring-match still shows the option).
+    assert suggest_dirs("~/pr", home=str(base)) == ["~/proj"]
+
+
+def test_absolute_prefix_returns_absolute_paths(base):
+    (base / "proj").mkdir()
+    # No ~ typed -> absolute results (unchanged).
+    assert suggest_dirs(str(base) + os.sep) == [str(base / "proj")]
 
 
 def test_hidden_excluded_unless_fragment_starts_with_dot(base):

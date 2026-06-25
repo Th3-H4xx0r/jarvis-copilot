@@ -21,6 +21,17 @@ import os
 _MAX = 50
 
 
+def _to_tilde(path: str, home: str) -> str:
+    """Re-fold ``home`` back to ``~`` so a returned path keeps the style the user
+    typed (a native <datalist> only shows options whose value contains the typed
+    value — a ``~``-relative prefix won't match an absolute path)."""
+    if path == home:
+        return "~"
+    if path.startswith(home + os.sep):
+        return "~" + path[len(home):]
+    return path
+
+
 def suggest_dirs(prefix: str, *, home: str | None = None,
                  limit: int = _MAX) -> list[str]:
     """Return up to ``limit`` absolute directory paths suggested for ``prefix``.
@@ -64,4 +75,7 @@ def suggest_dirs(prefix: str, *, home: str | None = None,
         except OSError:
             continue
     out.sort()
-    return out[:limit]
+    out = out[:limit]
+    if (prefix or "").strip().startswith("~"):
+        out = [_to_tilde(p, home) for p in out]
+    return out

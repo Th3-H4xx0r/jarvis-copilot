@@ -892,7 +892,20 @@ def _suggest_dirs(prefix: str, *, home: str, limit: int = _DIR_SUGGEST_MAX) -> l
         except OSError:
             continue
     out.sort()
-    return out[:limit]
+    out = out[:limit]
+    # Re-fold home -> "~" when the user typed a ~-relative prefix, so the
+    # server's native <datalist> (substring match) still shows the options.
+    if (prefix or "").strip().startswith("~"):
+        folded = []
+        for p in out:
+            if p == home:
+                folded.append("~")
+            elif p.startswith(home + os.sep):
+                folded.append("~" + p[len(home):])
+            else:
+                folded.append(p)
+        out = folded
+    return out
 
 
 # ── agent ─────────────────────────────────────────────────────────────────────
