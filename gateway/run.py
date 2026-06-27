@@ -795,6 +795,13 @@ _INTERRUPT_REASON_TIMEOUT = "Execution timed out (inactivity)"
 _INTERRUPT_REASON_SSE_DISCONNECT = "SSE client disconnected"
 _INTERRUPT_REASON_GATEWAY_SHUTDOWN = "Gateway shutting down"
 _INTERRUPT_REASON_GATEWAY_RESTART = "Gateway restarting"
+# Preemptive supersession: a newer inbound message arrived for the same
+# session while a turn was still in flight.  The interrupt aborts the
+# stale turn so the new message can be processed immediately.  The actual
+# new message is delivered via the adapter's _pending_messages slot (which
+# takes priority over interrupt_message in _run_agent), so this reason is a
+# pure control signal and must NEVER be auto-continued as agent input.
+_INTERRUPT_REASON_SUPERSEDED = "Superseded by newer message"
 
 _CONTROL_INTERRUPT_MESSAGES = frozenset(
     {
@@ -804,6 +811,7 @@ _CONTROL_INTERRUPT_MESSAGES = frozenset(
         _INTERRUPT_REASON_SSE_DISCONNECT.lower(),
         _INTERRUPT_REASON_GATEWAY_SHUTDOWN.lower(),
         _INTERRUPT_REASON_GATEWAY_RESTART.lower(),
+        _INTERRUPT_REASON_SUPERSEDED.lower(),
     }
 )
 
@@ -2651,12 +2659,46 @@ class GatewayRunner:
 
         # If not in queue/steer mode, interrupt the running agent immediately.
         # This aborts in-flight tool calls and causes the agent loop to exit
-        # at the next check point.
+        # at the next check point — i.e. preemptive supersession: the newer
+        # message does not wait for the in-flight turn to finish naturally.
+        #
+        # We interrupt with the SUPERSEDED control reason rather than the raw
+        # message text.  The new message itself is already stored in
+        # ``adapter._pending_messages`` above (``merge_pending_message_event``),
+        # and ``_run_agent`` consumes that ``pending_event`` with strict
+        # priority over ``interrupt_message`` — so the new turn still carries
+        # the full event (media metadata, reply anchor, source).  Passing a
+        # control reason here means that in the edge case where the pending
+        # event is consumed elsewhere, the stale interrupt text is treated as
+        # control flow (``_is_control_interrupt_message``) and is NOT replayed
+        # to the agent, avoiding a duplicate / stale-text turn.
         if effective_mode == "interrupt" and running_agent and running_agent is not _AGENT_PENDING_SENTINEL:
             try:
-                running_agent.interrupt(event.text)
+                running_agent.interrupt(_INTERRUPT_REASON_SUPERSEDED)
             except Exception:
                 pass  # don't let interrupt failure block the ack
+        elif effective_mode == "interrupt" and running_agent is _AGENT_PENDING_SENTINEL:
+            # Sentinel window: the turn is mid-setup (hooks / vision / STT /
+            # compression) and the real AIAgent doesn't exist yet, so there is
+            # nothing to call .interrupt() on.  Without preemption the new
+            # message would have to wait for the old turn's FIRST run to finish
+            # naturally before the post-run dequeue picks it up.
+            #
+            # Arm the adapter's session interrupt Event so that the instant the
+            # real agent registers, ``_run_agent``'s ``monitor_for_interrupt``
+            # poll sees ``has_pending_interrupt`` and aborts the stale first
+            # turn.  This reuses the same control-interrupt path as a live
+            # interrupt; the new message (already in ``_pending_messages``) is
+            # then consumed as the next turn.  Mirrors the existing
+            # ``adapter._active_sessions[...].clear()`` poke in ``_run_agent``.
+            try:
+                _active = getattr(adapter, "_active_sessions", None)
+                if isinstance(_active, dict):
+                    _evt = _active.get(session_key)
+                    if _evt is not None:
+                        _evt.set()
+            except Exception:
+                pass  # best-effort preemption; never block the ack
 
         # Check if busy ack is disabled — skip sending but still process the input.
         # Placed before debounce so we don't stamp a "last ack" timestamp that was
@@ -6621,10 +6663,15 @@ class GatewayRunner:
                 self._queue_or_replace_pending_event(_quick_key, event)
                 return None
             logger.debug("PRIORITY interrupt for session %s", _quick_key)
+            # Level-2 fallback path (rarely reached — base.py's Level-1 busy
+            # handler normally interrupts text before _handle_message runs and
+            # is the path that uses the _INTERRUPT_REASON_SUPERSEDED control
+            # reason).  Here the event is NOT staged in adapter._pending_messages
+            # by this branch, so the interrupt argument is the ONLY carrier of
+            # the new message: it must remain event.text (delivered via the
+            # interrupt_message → pending fallback in _run_agent).  Substituting
+            # a control reason here would silently drop the message.
             running_agent.interrupt(event.text)
-            # NOTE: self._pending_messages was write-only (never consumed).
-            # The actual interrupt message is delivered via adapter._pending_messages
-            # which is read by _run_agent. Removed to prevent unbounded growth.
             return None
 
         # Check for commands

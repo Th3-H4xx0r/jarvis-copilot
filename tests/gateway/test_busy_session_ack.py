@@ -158,8 +158,16 @@ class TestBusySessionAck:
         assert "Interrupting" in content or "respond" in content
         assert "/stop" not in content  # no need — we ARE interrupting
 
-        # Verify agent interrupt was called
-        agent.interrupt.assert_called_once_with("Are you working?")
+        # Verify agent interrupt was called with the SUPERSEDED control
+        # reason (not the raw message text). The new message is delivered as
+        # the next turn via adapter._pending_messages, which takes priority
+        # over interrupt_message in _run_agent — so the control reason is a
+        # pure preemption signal that must never be auto-continued.
+        from gateway.run import _INTERRUPT_REASON_SUPERSEDED
+        agent.interrupt.assert_called_once_with(_INTERRUPT_REASON_SUPERSEDED)
+        # And the new message is queued for the next turn (full event, not
+        # just text) so nothing is lost when the stale turn unwinds.
+        assert adapter._pending_messages.get(sk) is event
 
     @pytest.mark.asyncio
     async def test_queue_mode_suppresses_interrupt_and_updates_ack(self):
