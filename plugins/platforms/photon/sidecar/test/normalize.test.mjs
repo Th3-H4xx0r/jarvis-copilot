@@ -89,6 +89,27 @@ test("_buildContents builds an attachment from a local file (real attachment())"
   await rm(f, { force: true });
 });
 
+test("_resolveSpace: cache hit returns thread; miss extracts handle from GUID", async () => {
+  const eng = new RealEngine({});
+  let called = null;
+  eng._im = { space: async (users) => ((called = users), { _users: users }) };
+
+  // Cache MISS on a DM space GUID → extract the phone, not the GUID.
+  await eng._resolveSpace("any;-;+15103780762");
+  assert.deepEqual(called, ["+15103780762"]);
+
+  // Cache HIT → return the cached space, no im.space() call.
+  called = null;
+  const cached = { id: "sp9" };
+  eng._spaces.set("sp9", cached);
+  assert.equal(await eng._resolveSpace("sp9"), cached);
+  assert.equal(called, null);
+
+  // Bare handle → used as-is.
+  await eng._resolveSpace("+15551234567");
+  assert.deepEqual(called, ["+15551234567"]);
+});
+
 test("_buildContents returns [] for empty, [text] for text-only", async () => {
   const eng = new RealEngine({});
   assert.deepEqual(

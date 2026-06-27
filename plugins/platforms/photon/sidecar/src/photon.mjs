@@ -98,6 +98,20 @@ async function _maybeConvertHeic(buf, mimeType, name) {
 
 const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Pull a sendable handle out of a Spectrum DM space GUID. iMessage DM spaces are
+// "any;-;+1555…" / "iMessage;-;+1555…"; the part after the last ";-;" is the
+// phone/email. A bare handle (no ";-;") is returned unchanged.
+function _handleFromTarget(target) {
+  if (typeof target === "string") {
+    const i = target.lastIndexOf(";-;");
+    if (i >= 0) {
+      const h = target.slice(i + 3).trim();
+      if (h) return h;
+    }
+  }
+  return target;
+}
+
 // space.send returns a Message (single content) or Message[] (variadic). Pull a
 // stable id from whichever shape, falling back to a generated one.
 function _msgId(res) {
@@ -421,12 +435,14 @@ export class RealEngine {
   }
 
   // Resolve a Space for a `target` that is EITHER a cached inbound space id
-  // (reply in-thread — preferred, no recipient-provisioning needed) OR a handle
-  // string (proactive: open a DM, which requires the recipient be a project user).
+  // (reply in-thread — preferred) OR a handle. On a cache MISS (e.g. after a
+  // sidecar restart the cache is empty but the gateway still replies to the old
+  // space GUID "any;-;+1555…"), extract the handle from the GUID so im.space()
+  // gets a real user ref instead of a GUID — otherwise Spectrum 500s.
   async _resolveSpace(target) {
     const cached = target && this._spaces.get(target);
     if (cached) return cached;
-    return this._im.space([target]);
+    return this._im.space([_handleFromTarget(target)]);
   }
 
   async send(target, payload) {

@@ -371,13 +371,18 @@ class PhotonAdapter(BasePlatformAdapter):
     # -- Outbound ----------------------------------------------------------
 
     async def _post_send(self, body: Dict[str, Any], *, timeout: float = 20.0) -> SendResult:
-        """POST a (text and/or attachment) message to the sidecar /send."""
-        if not self._http_client:
-            return SendResult(success=False, error="HTTP client not initialized")
+        """POST a (text and/or attachment) message to the sidecar /send.
+
+        Uses a FRESH httpx client bound to the current event loop. The gateway
+        dispatches sends from loops/threads other than the one ``connect()`` ran
+        in, and reusing ``self._http_client`` (created in connect's loop) raises
+        "<asyncio Event> is bound to a different event loop". The persistent
+        client is reserved for the long-lived inbound stream."""
         try:
-            resp = await self._http_client.post(
-                f"{self._sidecar}/send", headers=self._headers, json=body, timeout=timeout
-            )
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(
+                    f"{self._sidecar}/send", headers=self._headers, json=body
+                )
             if resp.status_code < 300:
                 return SendResult(success=True, message_id=_resp_message_id(resp))
             logger.warning("[%s] send failed HTTP %d: %s", self.name, resp.status_code, resp.text[:200])
@@ -450,15 +455,15 @@ class PhotonAdapter(BasePlatformAdapter):
 
     async def send_typing(self, chat_id: str, metadata=None) -> None:
         address = (chat_id or self._notify_target or "").strip()
-        if not address or not self._http_client:
+        if not address:
             return
         try:
-            await self._http_client.post(
-                f"{self._sidecar}/typing",
-                headers=self._headers,
-                json={"address": address},
-                timeout=5.0,
-            )
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{self._sidecar}/typing",
+                    headers=self._headers,
+                    json={"address": address},
+                )
         except Exception:
             pass  # typing is best-effort
 

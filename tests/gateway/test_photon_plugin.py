@@ -113,79 +113,84 @@ class TestEnvEnablement:
 # ---------------------------------------------------------------------------
 
 
+class _CapturingClient:
+    """Fake httpx.AsyncClient — captures the POST and returns a set response.
+    Used to assert the adapter's fresh-per-call client behavior."""
+    response = None
+    last: dict = {}
+
+    def __init__(self, *a, **k):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, headers=None, json=None):
+        _CapturingClient.last = {"url": url, "headers": headers or {}, "json": json or {}}
+        return _CapturingClient.response
+
+
+def _patch_client(monkeypatch, *, status=200, payload=None, text="", json_error=False):
+    resp = MagicMock(status_code=status)
+    resp.text = text
+    resp.content = b"{}"
+    if json_error:
+        resp.json.side_effect = ValueError("not json")
+    else:
+        resp.json.return_value = payload if payload is not None else {}
+    _CapturingClient.response = resp
+    _CapturingClient.last = {}
+    monkeypatch.setattr(_photon.httpx, "AsyncClient", _CapturingClient)
+
+
 class TestAdapterSend:
     def _make_adapter(self, **extra):
-        base = {"sidecar_url": "http://127.0.0.1:8787", "sidecar_token": "tok"}
+        base = {"sidecar_url": "http://127.0.0.1:8799", "sidecar_token": "tok"}
         base.update(extra)
         return PhotonAdapter(PlatformConfig(enabled=True, extra=base))
 
-    def test_send_fails_without_http_client(self):
+    def test_send_posts_to_sidecar(self, monkeypatch):
         adapter = self._make_adapter()
-        result = _run(adapter.send("+15555550123", "hi"))
-        assert result.success is False
-
-    def test_send_posts_to_sidecar(self):
-        adapter = self._make_adapter()
-        mock_resp = MagicMock(status_code=200)
-        mock_resp.json.return_value = {"id": "m1"}
-        adapter._http_client = AsyncMock()
-        adapter._http_client.post = AsyncMock(return_value=mock_resp)
-
+        _patch_client(monkeypatch, payload={"id": "m1"})
         result = _run(adapter.send("+15555550123", "Hello iMessage!"))
         assert result.success is True
         assert result.message_id == "m1"
-        url = adapter._http_client.post.call_args[0][0]
-        body = adapter._http_client.post.call_args.kwargs["json"]
-        assert url.endswith("/send")
-        assert body["address"] == "+15555550123"
-        assert body["text"] == "Hello iMessage!"
-        # Auth token rides as a header.
-        assert adapter._http_client.post.call_args.kwargs["headers"]["X-Photon-Token"] == "tok"
+        last = _CapturingClient.last
+        assert last["url"].endswith("/send")
+        assert last["json"]["address"] == "+15555550123"
+        assert last["json"]["text"] == "Hello iMessage!"
+        assert last["headers"]["X-Photon-Token"] == "tok"
 
-    def test_send_uses_notify_target_when_chat_id_blank(self):
+    def test_send_uses_notify_target_when_chat_id_blank(self, monkeypatch):
         adapter = self._make_adapter(notify_target="+15555550999")
-        mock_resp = MagicMock(status_code=200)
-        mock_resp.json.return_value = {}
-        adapter._http_client = AsyncMock()
-        adapter._http_client.post = AsyncMock(return_value=mock_resp)
-
+        _patch_client(monkeypatch)
         result = _run(adapter.send("", "ping"))
         assert result.success is True
-        body = adapter._http_client.post.call_args.kwargs["json"]
-        assert body["address"] == "+15555550999"
+        assert _CapturingClient.last["json"]["address"] == "+15555550999"
 
-    def test_send_image_posts_attachment(self):
+    def test_send_image_posts_attachment(self, monkeypatch):
         adapter = self._make_adapter()
-        mock_resp = MagicMock(status_code=200)
-        mock_resp.json.return_value = {"id": "img1"}
-        adapter._http_client = AsyncMock()
-        adapter._http_client.post = AsyncMock(return_value=mock_resp)
-
+        _patch_client(monkeypatch, payload={"id": "img1"})
         result = _run(adapter.send_image("+15555550123", "https://x/y.png", "caption"))
         assert result.success is True
-        body = adapter._http_client.post.call_args.kwargs["json"]
+        body = _CapturingClient.last["json"]
         assert body["attachments"][0]["url"] == "https://x/y.png"
         assert body["text"] == "caption"
 
-    def test_send_handles_http_error(self):
+    def test_send_handles_http_error(self, monkeypatch):
         adapter = self._make_adapter()
-        mock_resp = MagicMock(status_code=500)
-        mock_resp.text = "boom"
-        adapter._http_client = AsyncMock()
-        adapter._http_client.post = AsyncMock(return_value=mock_resp)
-
+        _patch_client(monkeypatch, status=500, text="boom")
         result = _run(adapter.send("+15555550123", "hi"))
         assert result.success is False
         assert "500" in result.error
 
-    def test_send_image_accepts_base_kwargs(self):
+    def test_send_image_accepts_base_kwargs(self, monkeypatch):
         # Core callers pass reply_to + metadata — the override must not TypeError.
         adapter = self._make_adapter()
-        mock_resp = MagicMock(status_code=200)
-        mock_resp.json.return_value = {"id": "i"}
-        adapter._http_client = AsyncMock()
-        adapter._http_client.post = AsyncMock(return_value=mock_resp)
-
+        _patch_client(monkeypatch, payload={"id": "i"})
         result = _run(adapter.send_image(
             "+1", "https://x/y.png", caption="c", reply_to="r", metadata={"thread": 1}))
         assert result.success is True
@@ -193,15 +198,10 @@ class TestAdapterSend:
     def test_send_image_file_validates_and_attaches(self, monkeypatch):
         adapter = self._make_adapter()
         monkeypatch.setattr(adapter, "validate_media_delivery_path", lambda p: p)
-        mock_resp = MagicMock(status_code=200)
-        mock_resp.json.return_value = {}
-        adapter._http_client = AsyncMock()
-        adapter._http_client.post = AsyncMock(return_value=mock_resp)
-
+        _patch_client(monkeypatch)
         result = _run(adapter.send_image_file("+1", "/tmp/a.png", caption="hi", metadata={}))
         assert result.success is True
-        body = adapter._http_client.post.call_args.kwargs["json"]
-        assert body["attachments"][0]["path"] == "/tmp/a.png"
+        assert _CapturingClient.last["json"]["attachments"][0]["path"] == "/tmp/a.png"
 
     def test_send_image_file_rejects_unsafe_path(self, monkeypatch):
         adapter = self._make_adapter()
@@ -209,14 +209,10 @@ class TestAdapterSend:
         result = _run(adapter.send_image_file("+1", "/etc/passwd"))
         assert result.success is False
 
-    def test_send_non_json_2xx_is_success(self):
+    def test_send_non_json_2xx_is_success(self, monkeypatch):
         # A 2xx with an unparseable body must NOT be reported as a failure.
         adapter = self._make_adapter()
-        mock_resp = MagicMock(status_code=200)
-        mock_resp.json.side_effect = ValueError("not json")
-        adapter._http_client = AsyncMock()
-        adapter._http_client.post = AsyncMock(return_value=mock_resp)
-
+        _patch_client(monkeypatch, json_error=True)
         result = _run(adapter.send("+1", "hi"))
         assert result.success is True
         assert result.message_id
