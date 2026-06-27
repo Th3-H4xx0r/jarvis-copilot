@@ -115,8 +115,15 @@ function _handleFromTarget(target) {
 // space.send returns a Message (single content) or Message[] (variadic). Pull a
 // stable id from whichever shape, falling back to a generated one.
 function _msgId(res) {
-  const m = Array.isArray(res) ? res[res.length - 1] : res;
+  const m = _lastMessage(res);
   return (m && (m.id || m.guid)) || randomUUID();
+}
+
+// The last Message object out of a space.send result (single Message,
+// Message[], or undefined). This is the object an EDIT must target —
+// Spectrum's `message.edit(newContent)` requires the original outbound Message.
+function _lastMessage(res) {
+  return Array.isArray(res) ? res[res.length - 1] : res;
 }
 
 // Normalize a /send payload (string or object) into a stable rich shape.
@@ -167,6 +174,10 @@ export class MockEngine {
     this._hub = new InboundHub();
     this._connected = false;
     this.sent = []; // inspectable by tests
+    this.edits = []; // [{ id, text }] — edits applied via edit(), for tests
+    // Cache sent message records by id so edit() can target them, mirroring the
+    // RealEngine's bounded Message cache.
+    this._messages = new Map();
   }
   async start() {
     this._connected = true;
@@ -186,7 +197,21 @@ export class MockEngine {
   async send(address, payload) {
     const opts = _normalizeSend(payload);
     const id = randomUUID();
-    this.sent.push({ address, id, ...opts });
+    const record = { address, id, ...opts };
+    this.sent.push(record);
+    this._messages.set(id, record);
+    return { id };
+  }
+  // Edit a previously sent message by id. Mutates the cached record's text and
+  // records the edit so tests can assert. Throws if the id isn't cached.
+  async edit(id, text) {
+    const record = this._messages.get(id);
+    if (!record) {
+      throw new Error(`Photon edit: unknown message id ${id}`);
+    }
+    record.text = text;
+    record.markdown = false;
+    this.edits.push({ id, text });
     return { id };
   }
   async typing(_address) {
@@ -223,6 +248,13 @@ export class RealEngine {
     // allowed for this project" restriction on un-provisioned recipients.
     this._spaces = new Map();
     this._spacesMax = 500;
+    // Cache the Message objects returned by space.send by id so a later /edit
+    // can re-target the original outbound message. Spectrum's edit API mutates
+    // a Message in place (message.edit(newContent)) and REQUIRES the original
+    // outbound Message object — an id alone is not enough. Bounded like the
+    // space cache so a long-running session can't leak.
+    this._messages = new Map();
+    this._messagesMax = 500;
     // Where inbound attachment bytes are spooled for the Python adapter to read.
     this._inboundDir = path.join(os.tmpdir(), "photon-inbound");
   }
@@ -243,6 +275,17 @@ export class RealEngine {
     this._spaces.set(id, space);
     if (this._spaces.size > this._spacesMax) {
       this._spaces.delete(this._spaces.keys().next().value);
+    }
+  }
+
+  // Cache a sent outbound Message by its id so /edit can re-target it. Bounded
+  // (oldest-out) like the space cache.
+  _cacheMessage(message) {
+    const id = message && (message.id || message.guid);
+    if (!id) return;
+    this._messages.set(id, message);
+    if (this._messages.size > this._messagesMax) {
+      this._messages.delete(this._messages.keys().next().value);
     }
   }
 
@@ -468,7 +511,34 @@ export class RealEngine {
         throw err;
       }
     }
-    return { id: _msgId(res) };
+    const message = _lastMessage(res);
+    const id = (message && (message.id || message.guid)) || randomUUID();
+    // Cache the Message so a streaming /edit can re-target it. Only real
+    // Message objects (with an .edit method) are editable; a generated-id
+    // fallback (e.g. send returned undefined) simply won't be cached, and
+    // /edit will report "unknown id" — the gateway then falls back to a
+    // fresh send.
+    if (message) this._cacheMessage(message);
+    return { id };
+  }
+
+  // Edit a previously sent message by id (streaming replies). Looks up the
+  // cached outbound Message and rewrites its content in place via Spectrum's
+  // `message.edit(newContent)` (sugar for `space.send(edit(newContent, msg))`;
+  // see spectrum-ts Message.edit / Space.edit in the .d.ts). A plain string is
+  // a valid text ContentInput, so the new text needs no builder. Throws on a
+  // cache miss so the caller can fall back to a fresh send.
+  async edit(id, text) {
+    if (!this._im) throw new Error("Spectrum not connected");
+    const message = id && this._messages.get(id);
+    if (!message) {
+      throw new Error(`Photon edit: unknown message id ${id}`);
+    }
+    if (typeof message.edit !== "function") {
+      throw new Error(`Photon edit: cached message ${id} is not editable`);
+    }
+    await message.edit(text);
+    return { id };
   }
 
   // Compose the Spectrum content list. A plain string IS a valid text

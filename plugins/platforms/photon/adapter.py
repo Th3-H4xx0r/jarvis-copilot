@@ -132,6 +132,17 @@ class PhotonAdapter(BasePlatformAdapter):
 
     MAX_MESSAGE_LENGTH = MAX_MESSAGE_LENGTH
 
+    # Streaming replies (Telegram-style send-then-edit). Spectrum's iMessage
+    # bridge edits a message in place, so we opt into the gateway's edit-based
+    # streaming path. Two capability hooks gate that path in the stream
+    # consumer / run loop (gateway):
+    #   1. ``SUPPORTS_MESSAGE_EDITING`` (read via getattr, default True) — keeps
+    #      streaming + the typing cursor enabled for this platform.
+    #   2. ``edit_message`` being OVERRIDDEN (the consumer checks
+    #      ``type(adapter).edit_message is BasePlatformAdapter.edit_message``);
+    #      overriding it below is what actually enables send+edit streaming.
+    SUPPORTS_MESSAGE_EDITING = True
+
     def __init__(self, config: PlatformConfig):
         super().__init__(config=config, platform=Platform("photon"))
 
@@ -410,6 +421,59 @@ class PhotonAdapter(BasePlatformAdapter):
             )
             content = content[: self.MAX_MESSAGE_LENGTH]
         return await self._post_send({"address": address, "text": content})
+
+    async def edit_message(
+        self,
+        chat_id: str,
+        message_id: str,
+        content: str,
+        *,
+        finalize: bool = False,
+    ) -> SendResult:
+        """Edit a previously sent message (streaming replies).
+
+        The gateway's stream consumer sends an initial message via ``send``
+        then calls this repeatedly with growing text to animate the reply,
+        exactly like Telegram. The sidecar cached the Spectrum ``Message``
+        object under ``message_id`` on /send; ``POST /edit`` re-targets it.
+
+        ``finalize`` is accepted for the stream-consumer contract (it always
+        passes the kwarg). iMessage edits have no lifecycle state, so it is a
+        no-op here — an edit is an edit.
+
+        Uses a FRESH httpx client (not ``self._http_client``) for the same
+        reason ``_post_send`` does: the gateway dispatches edits from a
+        different event loop than ``connect()`` ran in, and reusing the
+        persistent client raises "bound to a different event loop".
+
+        On any failure (unknown id after a sidecar restart, HTTP error,
+        timeout) this returns ``success=False`` so the stream consumer falls
+        back to sending a fresh message rather than freezing the partial.
+        """
+        if not message_id:
+            return SendResult(success=False, error="No message id to edit")
+        if len(content) > self.MAX_MESSAGE_LENGTH:
+            content = content[: self.MAX_MESSAGE_LENGTH]
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.post(
+                    f"{self._sidecar}/edit",
+                    headers=self._headers,
+                    json={"id": message_id, "text": content},
+                )
+            if resp.status_code < 300:
+                return SendResult(success=True, message_id=message_id)
+            # 422 = unknown/non-editable id (e.g. sidecar restarted and dropped
+            # its cache); other non-2xx = transport/provider failure. Either way
+            # the consumer falls back to a fresh send.
+            return SendResult(
+                success=False, error=f"HTTP {resp.status_code}: {resp.text[:200]}"
+            )
+        except httpx.TimeoutException:
+            return SendResult(success=False, error="Timeout talking to Photon sidecar")
+        except Exception as e:
+            logger.error("[%s] edit error: %s", self.name, e)
+            return SendResult(success=False, error=str(e))
 
     async def send_image(
         self,

@@ -5,6 +5,7 @@
 //   GET  /health   -> { ok, connected, mock }
 //   GET  /inbound  -> NDJSON stream of inbound iMessages (one JSON object/line)
 //   POST /send     -> { address, text } => { success, id }
+//   POST /edit     -> { id, text }       => { success, id }   (streaming replies)
 //   POST /typing   -> { address }       => { success }
 //
 // Every request must carry `X-Photon-Token: <PHOTON_SIDECAR_TOKEN>` (unless the
@@ -184,6 +185,26 @@ export function createServer(arg, config) {
           attachments,
         });
         return sendJson(res, 200, { success: true, id: out.id });
+      }
+
+      if (req.method === "POST" && path === "/edit") {
+        const body = await readJsonBody(req);
+        const id = String(body.id || "").trim();
+        const text = body.text == null ? "" : String(body.text);
+        if (!id) return sendJson(res, 422, { error: "id required" });
+        if (!text) return sendJson(res, 422, { error: "text required" });
+        if (typeof state.engine.edit !== "function") {
+          return sendJson(res, 501, { error: "edit not supported by engine" });
+        }
+        try {
+          await state.engine.edit(id, text);
+        } catch (err) {
+          // Unknown id / not-editable / provider rejection. 422 (not 500) so the
+          // adapter can cleanly fall back to a fresh send without alarming logs.
+          const msg = err && err.message ? err.message : String(err);
+          return sendJson(res, 422, { error: msg });
+        }
+        return sendJson(res, 200, { success: true, id });
       }
 
       if (req.method === "POST" && path === "/typing") {

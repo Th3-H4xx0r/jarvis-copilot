@@ -219,6 +219,72 @@ class TestAdapterSend:
 
 
 # ---------------------------------------------------------------------------
+# Adapter edit (streaming replies)
+# ---------------------------------------------------------------------------
+
+
+class TestAdapterEdit:
+    def _make_adapter(self, **extra):
+        base = {"sidecar_url": "http://127.0.0.1:8799", "sidecar_token": "tok"}
+        base.update(extra)
+        return PhotonAdapter(PlatformConfig(enabled=True, extra=base))
+
+    def test_streaming_capability_hooks_enabled(self):
+        # The gateway's stream consumer enables the send+edit streaming path
+        # only when edit_message is OVERRIDDEN and SUPPORTS_MESSAGE_EDITING is
+        # truthy. Guard both so a refactor can't silently disable streaming.
+        from gateway.platforms.base import BasePlatformAdapter
+
+        assert PhotonAdapter.edit_message is not BasePlatformAdapter.edit_message
+        assert getattr(PhotonAdapter, "SUPPORTS_MESSAGE_EDITING", True) is True
+
+    def test_edit_message_posts_to_sidecar(self, monkeypatch):
+        adapter = self._make_adapter()
+        _patch_client(monkeypatch, payload={"success": True, "id": "m1"})
+        result = _run(adapter.edit_message("+15555550123", "m1", "growing text"))
+        assert result.success is True
+        assert result.message_id == "m1"
+        last = _CapturingClient.last
+        assert last["url"].endswith("/edit")
+        assert last["json"]["id"] == "m1"
+        assert last["json"]["text"] == "growing text"
+        assert last["headers"]["X-Photon-Token"] == "tok"
+
+    def test_edit_message_accepts_finalize_kwarg(self, monkeypatch):
+        # The stream consumer always passes finalize=; the override must accept it.
+        adapter = self._make_adapter()
+        _patch_client(monkeypatch, payload={"success": True, "id": "m1"})
+        result = _run(adapter.edit_message("+1", "m1", "done", finalize=True))
+        assert result.success is True
+
+    def test_edit_message_empty_id_fails_fast(self, monkeypatch):
+        adapter = self._make_adapter()
+        _patch_client(monkeypatch)
+        result = _run(adapter.edit_message("+1", "", "text"))
+        assert result.success is False
+        # No HTTP call should have been made for an empty id.
+        assert _CapturingClient.last == {}
+
+    def test_edit_message_unknown_id_falls_back(self, monkeypatch):
+        # Sidecar returns 422 for an uncached id; the adapter reports failure so
+        # the stream consumer falls back to a fresh send.
+        adapter = self._make_adapter()
+        _patch_client(monkeypatch, status=422, text="Photon edit: unknown message id x")
+        result = _run(adapter.edit_message("+1", "x", "text"))
+        assert result.success is False
+        assert "422" in result.error
+
+    def test_edit_message_uses_fresh_client(self, monkeypatch):
+        # Must NOT reuse self._http_client (bound to connect()'s loop). The
+        # patched httpx.AsyncClient is the fresh-per-call client.
+        adapter = self._make_adapter()
+        adapter._http_client = object()  # would explode if reused
+        _patch_client(monkeypatch, payload={"success": True, "id": "m1"})
+        result = _run(adapter.edit_message("+1", "m1", "text"))
+        assert result.success is True
+
+
+# ---------------------------------------------------------------------------
 # Adapter inbound
 # ---------------------------------------------------------------------------
 
