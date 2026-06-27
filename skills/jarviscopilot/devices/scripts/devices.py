@@ -45,6 +45,36 @@ def _state_dir() -> Path:
     return (Path.home() / ".jarviscopilot" / "webui").resolve()
 
 
+def _media_cache_dir() -> Path:
+    """Return an allowlisted image-cache dir for delivered media.
+
+    Device screenshots / inline images get emitted as MEDIA directives, so
+    they MUST land under one of gateway.platforms.base.MEDIA_DELIVERY_SAFE_ROOTS
+    or they're dropped ("Skipping unsafe MEDIA directive path outside allowed
+    roots"). The image cache (``{HERMES_HOME}/cache/images`` or legacy
+    ``image_cache/``) is on that allowlist, so we resolve it the same way the
+    gateway does (jarviscopilot_constants.get_hermes_dir — import-safe, stdlib
+    only). Falls back to replicating that resolution by hand if the import
+    isn't reachable. NEVER returns a /tmp path.
+    """
+    home: Path | None = None
+    try:
+        # repo root = parents[4] (scripts/devices/jarviscopilot/skills/<repo>)
+        repo_root = Path(__file__).resolve().parents[4]
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
+        from jarviscopilot_constants import get_hermes_dir  # type: ignore
+        cache_dir = get_hermes_dir("cache/images", "image_cache")
+    except Exception:
+        # Stdlib-only fallback mirroring get_hermes_home()+get_hermes_dir().
+        env_home = os.environ.get("HERMES_HOME", "").strip()
+        home = Path(env_home) if env_home else (Path.home() / ".jarviscopilot")
+        legacy = home / "image_cache"
+        cache_dir = legacy if legacy.exists() else (home / "cache" / "images")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
 def _webui_origin() -> str:
     """Best-effort guess of the webui's local URL. Honors env overrides."""
     scheme = "https" if os.environ.get("HERMES_WEBUI_TLS_CERT") else "http"
@@ -304,7 +334,7 @@ def cmd_screenshot(args) -> int:
     metadata in stdout — the bot reads the file via its vision tool
     instead of swallowing a megabyte of base64."""
     import base64
-    import tempfile
+    import uuid
 
     dev_id = _resolve_device_id(args.device)
     if not dev_id:
@@ -344,8 +374,10 @@ def cmd_screenshot(args) -> int:
     ext = "jpg" if fmt == "jpeg" else fmt
     out_path = args.out
     if not out_path:
-        fd, out_path = tempfile.mkstemp(prefix="jc-screenshot-", suffix=f".{ext}")
-        os.close(fd)
+        # Default to an ALLOWLISTED media cache dir (not /tmp) so the saved
+        # screenshot survives gateway media-delivery validation when emitted
+        # as a MEDIA directive over a messaging platform.
+        out_path = str(_media_cache_dir() / f"jc-screenshot-{uuid.uuid4().hex[:12]}.{ext}")
     try:
         with open(out_path, "wb") as f:
             f.write(base64.b64decode(b64))
@@ -366,11 +398,15 @@ def cmd_screenshot(args) -> int:
 
 def _strip_image_payloads(data: dict, save_dir: Path | None = None) -> None:
     """If a skill result contains an inline image (img_b64 / png_b64),
-    write it to a temp file and replace the field with `image_path`.
+    write it to a file and replace the field with `image_path`.
     Keeps the printed JSON small so the bot's tool layer doesn't choke
-    on a megabyte of base64."""
+    on a megabyte of base64.
+
+    The file lands in an ALLOWLISTED media cache dir (not /tmp) so the image
+    survives gateway media-delivery validation when emitted as a MEDIA
+    directive over a messaging platform."""
     import base64
-    import tempfile
+    import uuid
 
     res = data.get("result") if isinstance(data, dict) else None
     if not isinstance(res, dict):
@@ -380,8 +416,7 @@ def _strip_image_payloads(data: dict, save_dir: Path | None = None) -> None:
         return  # too small to bother with a file
     fmt = (res.get("format") or "png").lower()
     ext = "jpg" if fmt == "jpeg" else fmt
-    fd, path = tempfile.mkstemp(prefix="jc-image-", suffix=f".{ext}")
-    os.close(fd)
+    path = str(_media_cache_dir() / f"jc-image-{uuid.uuid4().hex[:12]}.{ext}")
     try:
         with open(path, "wb") as f:
             f.write(base64.b64decode(b64))
