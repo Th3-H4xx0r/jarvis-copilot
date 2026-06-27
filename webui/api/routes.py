@@ -4540,6 +4540,12 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/notify/targets":
         return _handle_notify_list(handler)
 
+    # ── Photon (iMessage) provider setup (GET) ──
+    if parsed.path == "/api/integrations/photon":
+        from api.photon_config import get_photon_config
+
+        return j(handler, get_photon_config())
+
     # ── Profile API (GET) ──
     if parsed.path == "/api/profiles":
         from api.profiles import list_profiles_api, get_active_profile_name
@@ -5601,6 +5607,15 @@ def handle_post(handler, parsed) -> bool:
         return _handle_jarvis_memory_reflection_run(handler)
     if parsed.path == "/api/notify":
         return _handle_notify(handler, body)
+
+    # ── Photon (iMessage) provider setup (POST) ──
+    if parsed.path == "/api/integrations/photon":
+        from api.photon_config import set_photon_config
+
+        result = set_photon_config(body)
+        if not result.get("ok"):
+            return bad(handler, result.get("error", "Failed to save Photon config"))
+        return j(handler, result)
 
     # ── Profile API (POST) ──
     if parsed.path == "/api/profile/switch":

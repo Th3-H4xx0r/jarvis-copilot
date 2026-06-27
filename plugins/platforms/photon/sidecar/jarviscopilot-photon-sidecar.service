@@ -1,0 +1,32 @@
+# systemd unit for the Photon sidecar.
+#
+# Install (as root on hermes):
+#   cp plugins/platforms/photon/sidecar/jarviscopilot-photon-sidecar.service \
+#      /etc/systemd/system/
+#   # edit WorkingDirectory + EnvironmentFile to match your checkout, then:
+#   systemctl daemon-reload && systemctl enable --now jarviscopilot-photon-sidecar
+#
+# The EnvironmentFile holds PHOTON_PROJECT_ID / PHOTON_PROJECT_SECRET /
+# PHOTON_SIDECAR_TOKEN (chmod 600). Both the gateway and the webui talk to the
+# sidecar over 127.0.0.1:8787, so it must be up before they need to send.
+
+[Unit]
+Description=JarvisCopilot Photon (Spectrum) sidecar
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/jarvis-copilot/plugins/platforms/photon/sidecar
+EnvironmentFile=/etc/jarviscopilot/photon.env
+ExecStart=/usr/bin/node src/server.mjs
+Restart=on-failure
+RestartSec=3
+# Localhost-only service; lock it down.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

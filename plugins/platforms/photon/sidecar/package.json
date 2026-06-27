@@ -1,0 +1,20 @@
+{
+  "name": "jarviscopilot-photon-sidecar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Localhost sidecar that bridges the JarvisCopilot Python gateway to photon.codes (Spectrum) for hosted iMessage. Holds the live Spectrum connection: POST /send for outbound, GET /inbound (NDJSON) for the app.messages stream.",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "jarviscopilot-photon-sidecar": "src/server.mjs"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "spectrum-ts": "^1"
+  }
+}

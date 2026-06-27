@@ -15,6 +15,7 @@ import '../widgets/quota_card.dart';
 import 'island_designs_page.dart';
 import 'ondevice_ai_settings_page.dart';
 import 'pair_page.dart';
+import 'photon_setup_page.dart';
 import 'watch_companion_page.dart';
 import 'webview_page.dart';
 
@@ -246,6 +247,21 @@ class _SettingsPageState extends State<SettingsPage> {
                     ));
                     _loadWatchStatus();
                   },
+                  last: true,
+                ),
+              ]),
+              const SizedBox(height: 26),
+
+              // ── Integrations ──
+              glassSectionLabel('Integrations'),
+              GlassGroup(children: [
+                GlassRow(
+                  icon: Icons.chat_bubble_rounded,
+                  title: 'Photon (iMessage)',
+                  subtitle: 'Set up hosted iMessage',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const PhotonSetupPage(),
+                  )),
                   last: true,
                 ),
               ]),

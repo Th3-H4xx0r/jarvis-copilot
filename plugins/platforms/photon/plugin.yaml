@@ -1,0 +1,50 @@
+name: photon-platform
+label: Photon (iMessage)
+kind: platform
+version: 1.0.0
+description: >
+  photon.codes (Spectrum) gateway adapter for JarvisCopilot — hosted iMessage
+  with no Mac required. The live Spectrum connection runs in a Node sidecar
+  (plugins/platforms/photon/sidecar); this adapter is a thin localhost client of
+  it (POST /send outbound, GET /inbound stream for inbound). Bidirectional: send
+  notifications/messages AND chat with Jarvis over iMessage.
+
+  Requires the sidecar to be running (Node 18+) and a Photon project
+  (app.photon.codes). Bundled platform plugins auto-load — no `plugins.enabled`
+  entry needed; it activates once PHOTON_PROJECT_ID/SECRET are set. Restart the
+  gateway after first-time setup so it picks up the new credentials.
+author: Pranav Krishna
+requires_env:
+  - name: PHOTON_PROJECT_ID
+    description: "Photon project id (app.photon.codes → project settings)"
+    prompt: "Photon project id"
+    password: false
+  - name: PHOTON_PROJECT_SECRET
+    description: "Photon project secret"
+    prompt: "Photon project secret"
+    password: true
+optional_env:
+  - name: PHOTON_NOTIFY_TARGET
+    description: "Your iMessage handle (phone/email) — default recipient for cron + Claude Code notifications"
+    prompt: "Your iMessage handle (e.g. +15555550123)"
+    password: false
+  - name: PHOTON_SIDECAR_URL
+    description: "Photon sidecar base URL (default http://127.0.0.1:8787)"
+    prompt: "Sidecar URL (or empty for default)"
+    password: false
+  - name: PHOTON_SIDECAR_TOKEN
+    description: "Shared token the adapter sends to the sidecar (X-Photon-Token)"
+    prompt: "Sidecar token"
+    password: true
+  - name: PHOTON_HOME_CHANNEL
+    description: "Default recipient for cron delivery (alias of PHOTON_NOTIFY_TARGET)"
+    prompt: "Home channel iMessage handle (or empty)"
+    password: false
+  - name: PHOTON_ALLOWED_USERS
+    description: "Comma-separated iMessage handles allowed to talk to Jarvis (allowlist)"
+    prompt: "Allowed inbound handles (comma-separated)"
+    password: false
+  - name: PHOTON_ALLOW_ALL_USERS
+    description: "Allow any inbound handle (dev only — disables the allowlist)"
+    prompt: "Allow all inbound? (true/false)"
+    password: false

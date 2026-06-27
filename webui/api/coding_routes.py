@@ -396,12 +396,14 @@ def _push_permission_alert(*, title: str, body: str, data: dict) -> int:
 # and stored in the coding DB (coding_settings["notifications"]).
 _EVENT_NOTIFY_KEY = {"stop": "finished", "notification": "needs_input",
                      "error": "error"}
-_NOTIFY_CHANNELS = ("telegram", "mobile", "toast")
+_NOTIFY_CHANNELS = ("telegram", "mobile", "toast", "photon")
 _DEFAULT_NOTIFY_SETTINGS = {
+    # `photon` (iMessage via the Photon plugin) is opt-in / off by default — it
+    # only does anything once the Photon platform + sidecar are configured.
     "events": {
-        "finished":    {"telegram": True, "mobile": True, "toast": True},
-        "needs_input": {"telegram": True, "mobile": True, "toast": True},
-        "error":       {"telegram": True, "mobile": True, "toast": True},
+        "finished":    {"telegram": True, "mobile": True, "toast": True, "photon": False},
+        "needs_input": {"telegram": True, "mobile": True, "toast": True, "photon": False},
+        "error":       {"telegram": True, "mobile": True, "toast": True, "photon": False},
     },
     "usage_display": True,
     # Remote permission approval: when on, a session's PreToolUse hook relays
@@ -498,6 +500,24 @@ def _send_coding_telegram(text: str) -> bool:
         return False
 
 
+def _send_coding_photon(text: str) -> bool:
+    """Send a coding notification over iMessage via the Photon plugin, server-side.
+
+    Routes through ``send_message_tool`` with the bare ``photon`` target, which
+    resolves to the Photon home channel (PHOTON_NOTIFY_TARGET) and falls through
+    to the plugin's standalone sender → the localhost sidecar. No-ops to False
+    when Photon isn't configured. Never raises."""
+    try:
+        import json as _json
+
+        from tools.send_message_tool import send_message_tool
+        res = _json.loads(send_message_tool(
+            {"action": "send", "target": "photon", "message": text}))
+        return bool(res.get("success"))
+    except Exception:
+        return False
+
+
 def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> dict:
     """Fan a coding lifecycle event out to the channels enabled in settings:
     Telegram, mobile push banner, and a WebUI toast. Fires regardless of whether
@@ -548,6 +568,14 @@ def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> 
             sent["toast"] = True
         except Exception:
             sent["toast"] = False
+    if chans.get("photon"):
+        # iMessage via the Photon plugin — server-side (the webui can reach the
+        # localhost sidecar), like mobile/toast. Send the same title+label text
+        # the messaging channels use.
+        try:
+            sent["photon"] = _send_coding_photon(f"{title} — {label}" if label else title)
+        except Exception:
+            sent["photon"] = False
     return sent
 
 
