@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 
+import '../api/photon.dart';
 import '../main.dart' as app;
 import '../services/android_accessibility.dart';
 import '../services/credentials.dart';
@@ -32,6 +33,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _trackLocation = false;
   bool _liveActivities = true;
   Map<String, dynamic> _watchStatus = const {};
+  PhotonConfig? _photonCfg;
 
   @override
   void initState() {
@@ -41,11 +43,34 @@ class _SettingsPageState extends State<SettingsPage> {
     _trackLocation = Credentials.instance.trackLocation;
     _liveActivities = Credentials.instance.liveActivitiesEnabled;
     _loadWatchStatus();
+    _loadPhotonStatus();
   }
 
   Future<void> _loadWatchStatus() async {
     final s = await WatchSync.getStatus();
     if (mounted) setState(() => _watchStatus = s);
+  }
+
+  /// Light status fetch so the Photon tile subtitle reflects connected state.
+  /// Best-effort — failures leave the default "Set up hosted iMessage" hint.
+  Future<void> _loadPhotonStatus() async {
+    try {
+      final cfg = await PhotonApi(app.api).getConfig();
+      if (mounted) setState(() => _photonCfg = cfg);
+    } catch (_) {
+      // ignore — keep the default subtitle
+    }
+  }
+
+  String _photonLabel() {
+    final cfg = _photonCfg;
+    if (cfg == null) return 'Set up hosted iMessage';
+    if (!cfg.configured) return 'Not configured';
+    final s = cfg.sidecar;
+    if (!s.reachable) return 'Configured — sidecar not reachable';
+    if (s.ok && s.mock) return 'Configured — sidecar in mock mode';
+    if (s.ok) return 'Connected — iMessage live';
+    return 'Configured — sidecar error';
   }
 
   String _watchLabel() {
@@ -258,10 +283,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 GlassRow(
                   icon: Icons.chat_bubble_rounded,
                   title: 'Photon (iMessage)',
-                  subtitle: 'Set up hosted iMessage',
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const PhotonSetupPage(),
-                  )),
+                  subtitle: _photonLabel(),
+                  onTap: () async {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const PhotonSetupPage(),
+                    ));
+                    _loadPhotonStatus();
+                  },
                   last: true,
                 ),
               ]),

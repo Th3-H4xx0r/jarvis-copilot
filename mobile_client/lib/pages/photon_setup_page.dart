@@ -6,6 +6,18 @@ import '../services/api_client.dart' show apiErrorMessage;
 import '../theme.dart';
 import '../widgets/glass.dart';
 
+/// Resolved status-pill content: a colour, a label and a leading icon.
+class _PhotonStatus {
+  const _PhotonStatus({
+    required this.color,
+    required this.label,
+    required this.icon,
+  });
+  final Color color;
+  final String label;
+  final IconData icon;
+}
+
 /// Photon (hosted iMessage) provider setup. Loads the current config from
 /// `/api/integrations/photon`, lets the user paste their credentials, and POSTs
 /// them back.
@@ -41,6 +53,14 @@ class _PhotonSetupPageState extends State<PhotonSetupPage> {
   // required rule.
   bool _projectSecretSet = false;
   bool _sidecarTokenSet = false;
+
+  // "Allow all inbound senders" toggle — non-secret bool, always round-trips.
+  bool _allowAll = false;
+
+  // Connection/health status — drives the status pill. Refreshed from both the
+  // initial load and the save response (so MOCK→live shows without leaving).
+  bool _configured = false;
+  PhotonSidecar _sidecar = const PhotonSidecar();
 
   static const String _dots = '••••••••';
 
@@ -78,6 +98,9 @@ class _PhotonSetupPageState extends State<PhotonSetupPage> {
       setState(() {
         _projectSecretSet = cfg.projectSecretSet;
         _sidecarTokenSet = cfg.sidecarTokenSet;
+        _allowAll = cfg.allowAll;
+        _configured = cfg.configured;
+        _sidecar = cfg.sidecar;
         _loading = false;
       });
     } catch (e) {
@@ -109,7 +132,7 @@ class _PhotonSetupPageState extends State<PhotonSetupPage> {
       _error = null;
     });
     try {
-      final configured = await _photon.saveConfig(
+      final cfg = await _photon.saveConfig(
         projectId: projectId,
         // Only send secrets the user actually typed — blank keeps the stored
         // value (the GET never round-trips a secret, so sending '' would wipe).
@@ -118,18 +141,23 @@ class _PhotonSetupPageState extends State<PhotonSetupPage> {
         sidecarUrl: _sidecarUrlCtrl.text.trim(),
         sidecarToken: sidecarToken.isEmpty ? null : sidecarToken,
         allowedUsers: _allowedUsersCtrl.text.trim(),
+        allowAll: _allowAll,
       );
       if (!mounted) return;
       // A typed secret is now stored — flip the flags + clear the inputs so the
-      // "saved — leave blank to keep" hint shows on the next edit.
+      // "saved — leave blank to keep" hint shows on the next edit. The POST
+      // reloads the gateway, so refresh the status pill from its post-reload
+      // sidecar (MOCK→live appears here without leaving the page).
       setState(() {
         if (projectSecret.isNotEmpty) _projectSecretSet = true;
         if (sidecarToken.isNotEmpty) _sidecarTokenSet = true;
         _projectSecretCtrl.clear();
         _sidecarTokenCtrl.clear();
+        _configured = cfg.configured;
+        _sidecar = cfg.sidecar;
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(configured
+        content: Text(cfg.configured
             ? 'Photon connected — iMessage is set up.'
             : 'Saved.'),
       ));
@@ -180,6 +208,47 @@ class _PhotonSetupPageState extends State<PhotonSetupPage> {
                 fontSize: 11, color: JcTheme.muted, height: 1.4)),
       );
 
+  /// Compute the connection/health status shown in the pill from `_configured`
+  /// + the sidecar health booleans. Ordering matters: an unconfigured install
+  /// reads "Not configured" even if the sidecar happens to be up.
+  _PhotonStatus _status() {
+    final s = _sidecar;
+    if (!_configured) {
+      return const _PhotonStatus(
+        color: JcTheme.muted,
+        label: 'Not configured',
+        icon: Icons.remove_circle_outline_rounded,
+      );
+    }
+    if (!s.reachable) {
+      return const _PhotonStatus(
+        color: JcTheme.amber,
+        label: 'Sidecar not reachable — is it running?',
+        icon: Icons.error_outline_rounded,
+      );
+    }
+    if (s.ok && s.mock) {
+      return const _PhotonStatus(
+        color: JcTheme.amber,
+        label: 'Sidecar in mock mode — tap Save to reload',
+        icon: Icons.science_outlined,
+      );
+    }
+    if (s.ok) {
+      return const _PhotonStatus(
+        color: JcTheme.success,
+        label: 'Connected — iMessage live',
+        icon: Icons.check_circle_outline_rounded,
+      );
+    }
+    // Reachable but not ok — surface the sidecar error when we have one.
+    return _PhotonStatus(
+      color: JcTheme.danger,
+      label: s.error.isNotEmpty ? 'Sidecar error: ${s.error}' : 'Sidecar error',
+      icon: Icons.error_outline_rounded,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -213,6 +282,11 @@ class _PhotonSetupPageState extends State<PhotonSetupPage> {
                         'sidecar must be running on your Mac for messages to send.',
                         style: TextStyle(color: JcTheme.muted, height: 1.5),
                       ),
+                      const SizedBox(height: 16),
+
+                      // Connection/health status pill — computed from
+                      // `_configured` + the sidecar health booleans.
+                      _StatusPill(status: _status()),
                       const SizedBox(height: 24),
 
                       // Project ID (required, plain).
@@ -304,6 +378,25 @@ class _PhotonSetupPageState extends State<PhotonSetupPage> {
                         style: const TextStyle(color: JcTheme.text),
                       ),
                       _hint('Who may message Jarvis. Leave blank to allow any.'),
+                      const SizedBox(height: 18),
+
+                      // Allow all inbound senders (plain bool).
+                      SwitchListTile(
+                        value: _allowAll,
+                        onChanged: (v) => setState(() => _allowAll = v),
+                        activeThumbColor: Colors.white,
+                        activeTrackColor: JcTheme.primaryBlue,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          'Allow all inbound senders',
+                          style: TextStyle(
+                              color: JcTheme.text,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      _hint("Recommended when it's just you texting Jarvis. "
+                          'Restart the gateway to apply.'),
 
                       // Error banner.
                       if (_error != null)
@@ -395,6 +488,43 @@ class _BlueButton extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A small tinted status pill — a coloured dot/icon + label, tinted by
+/// [_PhotonStatus.color] so green/amber/danger/muted read at a glance.
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.status});
+  final _PhotonStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = status.color;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: c.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          Icon(status.icon, size: 18, color: c),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              status.label,
+              style: TextStyle(
+                color: c,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
