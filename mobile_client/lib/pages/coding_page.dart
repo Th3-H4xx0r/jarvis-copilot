@@ -13,6 +13,7 @@ import '../coding/coding_models.dart';
 import '../main.dart' as app;
 import '../theme.dart';
 import '../widgets/glass.dart';
+import 'code_master_settings_page.dart';
 
 /// Native Coding tab — a control plane for tmux-backed Claude Code coding
 /// sessions (the server's `coding_sessions` toolset). Lists sessions, drills
@@ -231,6 +232,12 @@ class _CodingPageState extends State<CodingPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     GlassIconButton(
+                      icon: Icons.settings_rounded,
+                      iconSize: 20,
+                      onTap: _openCodeMasterSettings,
+                    ),
+                    const SizedBox(width: 8),
+                    GlassIconButton(
                       icon: Icons.radar_rounded,
                       iconSize: 20,
                       onTap: _c.busyProjects ? null : _rescanDiscovered,
@@ -380,6 +387,16 @@ class _CodingPageState extends State<CodingPage> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(_c.error!)));
     }
+  }
+
+  /// Open the global Code Master settings (notification matrix + usage rings +
+  /// remote approvals). Reachable from the projects/sessions list header — the
+  /// WebUI's ⚙ in the "Projects" sidebar. Distinct from the per-session `tune`
+  /// settings sheet (_openSettingsSheet).
+  void _openCodeMasterSettings() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => const CodeMasterSettingsPage(),
+    ));
   }
 
   Future<void> _resumeSession(String id) async {

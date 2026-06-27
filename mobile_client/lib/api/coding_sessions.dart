@@ -84,6 +84,26 @@ class CodingSessionsApi {
     }
   }
 
+  /// GET /api/coding/settings -> the global Code Master settings map
+  /// `{events:{finished/needs_input/error:{telegram,mobile,toast,photon}},
+  /// usage_display, remote_approvals}`. Returns `{}` when the body is malformed
+  /// so callers can merge over sensible defaults.
+  Future<Map<String, dynamic>> getCodeMasterSettings() async {
+    final resp = await api.get('/api/coding/settings');
+    final s = (resp.data as Map?)?['settings'];
+    return s is Map ? Map<String, dynamic>.from(s) : <String, dynamic>{};
+  }
+
+  /// POST /api/coding/settings with the full `{events, usage_display,
+  /// remote_approvals}` payload -> `{ok, settings}`. Returns the server's
+  /// canonical settings (falls back to the sent payload if absent).
+  Future<Map<String, dynamic>> saveCodeMasterSettings(
+      Map<String, dynamic> payload) async {
+    final resp = await api.postJson('/api/coding/settings', payload);
+    final s = (resp.data as Map?)?['settings'];
+    return s is Map ? Map<String, dynamic>.from(s) : payload;
+  }
+
   /// GET /api/coding/projects -> `{ projects: [...] }`
   Future<List<CodingProject>> listProjects() async {
     final resp = await api.get('/api/coding/projects');
