@@ -235,19 +235,22 @@ class TestAdapterInbound:
     def test_on_message_builds_event_and_dedupes(self):
         adapter = self._make_adapter()
         with patch.object(adapter, "handle_message", new_callable=AsyncMock) as hm:
-            msg = {"id": "evt1", "address": "+15555550123", "text": "yo jarvis",
-                   "platform": "imessage", "timestamp": "2026-06-27T00:00:00Z"}
+            msg = {"id": "evt1", "spaceId": "sp1", "handle": "+15555550123",
+                   "text": "yo jarvis", "platform": "imessage",
+                   "timestamp": "2026-06-27T00:00:00Z"}
             _run(adapter._on_message(dict(msg)))
             _run(adapter._on_message(dict(msg)))  # duplicate id → ignored
             assert hm.await_count == 1
             event = hm.await_args[0][0]
             assert event.text == "yo jarvis"
-            assert event.source.chat_id == "+15555550123"
+            # Reply routes back to the space; auth/display use the handle.
+            assert event.source.chat_id == "sp1"
+            assert event.source.user_id == "+15555550123"
 
     def test_on_message_skips_empty_text(self):
         adapter = self._make_adapter()
         with patch.object(adapter, "handle_message", new_callable=AsyncMock) as hm:
-            _run(adapter._on_message({"id": "e", "address": "+1", "text": "  "}))
+            _run(adapter._on_message({"id": "e", "handle": "+1", "text": "  "}))
             assert hm.await_count == 0
 
 

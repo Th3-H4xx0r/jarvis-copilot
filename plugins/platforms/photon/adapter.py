@@ -264,17 +264,22 @@ class PhotonAdapter(BasePlatformAdapter):
         text = (msg.get("text") or "").strip()
         if not text:
             return
-        address = (msg.get("address") or "").strip()
-        if not address:
-            logger.debug("[%s] inbound with no address, skipping", self.name)
+        # Reply routing keys on the originating SPACE (space_id) so the sidecar
+        # replies in-thread (no recipient-provisioning needed). Auth/display use
+        # the sender handle. Fall back to each other if one is missing.
+        space_id = (msg.get("spaceId") or "").strip()
+        handle = (msg.get("handle") or msg.get("address") or "").strip()
+        chat_id = space_id or handle
+        if not chat_id:
+            logger.debug("[%s] inbound with no space/handle, skipping", self.name)
             return
 
         source = self.build_source(
-            chat_id=address,
-            chat_name=address,
+            chat_id=chat_id,
+            chat_name=handle or chat_id,
             chat_type="dm",
-            user_id=address,
-            user_name=address,
+            user_id=handle or chat_id,
+            user_name=handle or "iMessage",
         )
         timestamp = _parse_ts(msg.get("timestamp"))
         event = MessageEvent(

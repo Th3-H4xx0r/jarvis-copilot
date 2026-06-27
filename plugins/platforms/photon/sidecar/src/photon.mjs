@@ -106,10 +106,11 @@ export class MockEngine {
     /* no-op */
   }
   // Test/dev hook: simulate an inbound iMessage.
-  _injectInbound({ address = "+15555550123", text = "hi", id } = {}) {
+  _injectInbound({ handle = "+15555550123", spaceId = "imsg;dm;+15555550123", text = "hi", id } = {}) {
     const msg = {
       id: id || randomUUID(),
-      address,
+      spaceId,
+      handle,
       text,
       platform: "imessage",
       timestamp: nowIso(),
@@ -129,6 +130,12 @@ export class RealEngine {
     this._im = null;
     this._streamTask = null;
     this._stopping = false;
+    // Cache live inbound Space objects by id so a REPLY targets the original
+    // conversation (space.send) instead of reconstructing one from a handle.
+    // That's the correct Spectrum reply path and sidesteps the "Target not
+    // allowed for this project" restriction on un-provisioned recipients.
+    this._spaces = new Map();
+    this._spacesMax = 500;
   }
 
   get connected() {
@@ -139,6 +146,15 @@ export class RealEngine {
   }
   onInbound(fn) {
     return this._hub.onInbound(fn);
+  }
+
+  _cacheSpace(space) {
+    const id = space && space.id;
+    if (!id) return;
+    this._spaces.set(id, space);
+    if (this._spaces.size > this._spacesMax) {
+      this._spaces.delete(this._spaces.keys().next().value);
+    }
   }
 
   async _connectOnce() {
@@ -200,6 +216,7 @@ export class RealEngine {
       try {
         for await (const [space, message] of this._app.messages) {
           if (this._stopping) break;
+          this._cacheSpace(space);
           const norm = this._normalize(space, message);
           if (norm) this._hub.emit(norm);
         }
@@ -228,19 +245,20 @@ export class RealEngine {
       let text = "";
       if (content.type === "text") text = content.text || "";
       else if (typeof content.text === "string") text = content.text;
-      const address =
-        space?.phone ||
-        message?.sender?.id ||
-        space?.id ||
-        "";
       if (!text) return null;
+      // spaceId routes a reply back to the cached conversation; handle is the
+      // sender identity (for auth/display). Don't ship the raw space/message —
+      // they carry methods and risk a circular JSON.stringify on the wire.
+      const handle =
+        space?.phone || message?.sender?.phone || message?.sender?.id || "";
       return {
         id: message?.id || randomUUID(),
-        address,
+        spaceId: space?.id || "",
+        handle,
         text,
         platform: message?.platform || "imessage",
         timestamp: message?.timestamp || nowIso(),
-        raw: { space, message },
+        raw: { contentType: content.type },
       };
     } catch (err) {
       console.error("[photon] failed to normalize inbound message:", err);
@@ -248,13 +266,19 @@ export class RealEngine {
     }
   }
 
-  async send(address, payload) {
+  // Resolve a Space for a `target` that is EITHER a cached inbound space id
+  // (reply in-thread — preferred, no recipient-provisioning needed) OR a handle
+  // string (proactive: open a DM, which requires the recipient be a project user).
+  async _resolveSpace(target) {
+    const cached = target && this._spaces.get(target);
+    if (cached) return cached;
+    return this._im.space([target]);
+  }
+
+  async send(target, payload) {
     if (!this._im) throw new Error("Spectrum not connected");
     const opts = _normalizeSend(payload);
-    // Resolve (or open) the DM space for this handle. The PlatformInstance
-    // `space()` takes a list of users — a phone/email STRING is a valid user
-    // ref. (This is the real spectrum-ts API; the old im.space.create was wrong.)
-    const space = await this._im.space([address]);
+    const space = await this._resolveSpace(target);
     const contents = await this._buildContents(opts);
     let res;
     try {
@@ -301,10 +325,10 @@ export class RealEngine {
     return contents.length ? contents : [opts.text || ""];
   }
 
-  async typing(address) {
+  async typing(target) {
     if (!this._im) return;
     try {
-      const space = await this._im.space([address]);
+      const space = await this._resolveSpace(target);
       if (typeof space.startTyping === "function") await space.startTyping();
     } catch {
       /* typing is best-effort */

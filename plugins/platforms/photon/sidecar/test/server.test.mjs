@@ -173,11 +173,12 @@ test("GET /inbound streams a ready line then injected messages", async () => {
     assert.equal(lines[0].type, "ready");
 
     // Inject an inbound message and confirm it streams through.
-    engine._injectInbound({ address: "+15555550123", text: "yo jarvis" });
+    engine._injectInbound({ handle: "+15555550123", spaceId: "sp1", text: "yo jarvis" });
     await pump(2);
     assert.equal(lines[1].type, "message");
     assert.equal(lines[1].message.text, "yo jarvis");
-    assert.equal(lines[1].message.address, "+15555550123");
+    assert.equal(lines[1].message.handle, "+15555550123");
+    assert.equal(lines[1].message.spaceId, "sp1");
     assert.equal(lines[1].message.platform, "imessage");
 
     controller.abort();
