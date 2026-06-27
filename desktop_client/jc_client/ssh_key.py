@@ -62,6 +62,18 @@ def render_ssh_config_block(*, identity: str, proxy_command: str,
         "    StrictHostKeyChecking no",
         "    UserKnownHostsFile /dev/null",
         "    BatchMode yes",
+        # Multiplex all ssh to this alias over ONE persistent connection so
+        # Mutagen + the conflict healer reuse a single relay instead of dialing a
+        # fresh SSH (= a new relay open/close) per reconnect — which spammed the
+        # server's tcp-relay log several times a second. ControlPath uses %C (a
+        # short hash) to stay under macOS's 104-byte unix-socket path limit.
+        "    ControlMaster auto",
+        "    ControlPath ~/.ssh/jc-cm-%C",
+        "    ControlPersist 60s",
+        # Real SSH-level keepalive so a momentarily proxy-held frame isn't
+        # mistaken for a dead peer (which triggered the rapid redial loop).
+        "    ServerAliveInterval 10",
+        "    ServerAliveCountMax 3",
         f"    ProxyCommand {proxy_command}",
         _END,
     ])
