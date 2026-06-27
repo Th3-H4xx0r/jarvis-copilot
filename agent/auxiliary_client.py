@@ -2671,7 +2671,7 @@ async def _retry_same_provider_async(
     if _is_anthropic_compat_endpoint(resolved_provider, retry_base):
         retry_kwargs["messages"] = _convert_openai_images_to_anthropic(retry_kwargs["messages"])
     return _validate_llm_response(
-        await retry_client.chat.completions.create(**retry_kwargs), task,
+        await _await_completion(retry_client, **retry_kwargs), task,
     )
 
 
@@ -5068,6 +5068,53 @@ def extract_content_or_reasoning(response) -> str:
     return ""
 
 
+def _is_sync_only_client(client: Any) -> bool:
+    """True for clients reused unwrapped on the async path (sync ``create``).
+
+    ``_to_async_client`` wraps most providers in an async adapter, but returns
+    a few clients as-is because they have no async variant: the claude-code CLI
+    shim (``ClaudeCodeClient``) and the CopilotACP client. Their
+    ``chat.completions.create`` is synchronous and returns a plain
+    ``SimpleNamespace`` — not a coroutine — so the async path must not
+    ``await`` it directly (that raises
+    ``TypeError: object types.SimpleNamespace can't be used in 'await'``).
+    """
+    try:
+        from agent.claude_code_client import ClaudeCodeClient
+        if _safe_isinstance(client, ClaudeCodeClient):
+            return True
+    except ImportError:
+        pass
+    try:
+        from agent.copilot_acp_client import CopilotACPClient
+        if _safe_isinstance(client, CopilotACPClient):
+            return True
+    except ImportError:
+        pass
+    return False
+
+
+async def _await_completion(client: Any, **kwargs: Any) -> Any:
+    """Call ``client.chat.completions.create`` from an async context.
+
+    Most providers expose an *async* ``create`` (AsyncOpenAI and the async
+    adapters built by ``_to_async_client``) whose result is awaitable; await it
+    as normal. Sync-only clients (claude-code / CopilotACP) return a plain
+    result — run their blocking ``create`` in a worker thread via
+    ``asyncio.to_thread`` so the subprocess call never blocks the event loop,
+    matching ``gemini_native_adapter``'s sync-client handling. A defensive
+    ``inspect.isawaitable`` check covers any other unwrapped sync client.
+    """
+    if _is_sync_only_client(client):
+        import asyncio
+        return await asyncio.to_thread(client.chat.completions.create, **kwargs)
+    result = client.chat.completions.create(**kwargs)
+    import inspect
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
 async def async_call_llm(
     task: str = None,
     *,
@@ -5159,7 +5206,7 @@ async def async_call_llm(
 
     try:
         return _validate_llm_response(
-            await client.chat.completions.create(**kwargs), task)
+            await _await_completion(client, **kwargs), task)
     except Exception as first_err:
         if "temperature" in kwargs and _is_unsupported_temperature_error(first_err):
             retry_kwargs = dict(kwargs)
@@ -5170,7 +5217,7 @@ async def async_call_llm(
             )
             try:
                 return _validate_llm_response(
-                    await client.chat.completions.create(**retry_kwargs), task)
+                    await _await_completion(client, **retry_kwargs), task)
             except Exception as retry_err:
                 retry_err_str = str(retry_err)
                 if not (
@@ -5204,7 +5251,7 @@ async def async_call_llm(
             kwargs.pop("max_completion_tokens", None)
             try:
                 return _validate_llm_response(
-                    await client.chat.completions.create(**kwargs), task)
+                    await _await_completion(client, **kwargs), task)
             except Exception as retry_err:
                 # If the max_tokens retry also hits a payment or connection
                 # error, fall through to the fallback chain below.
@@ -5233,7 +5280,7 @@ async def async_call_llm(
                 if refreshed_model and refreshed_model != kwargs.get("model"):
                     kwargs["model"] = refreshed_model
                 return _validate_llm_response(
-                    await refreshed_client.chat.completions.create(**kwargs), task)
+                    await _await_completion(refreshed_client, **kwargs), task)
 
         # ── Auth refresh retry (mirrors sync call_llm) ───────────────
         if (_is_auth_error(first_err)
@@ -5267,7 +5314,7 @@ async def async_call_llm(
             if _is_rate_limit_error(first_err):
                 try:
                     return _validate_llm_response(
-                        await client.chat.completions.create(**kwargs), task)
+                        await _await_completion(client, **kwargs), task)
                 except Exception as retry_err:
                     if not (_is_auth_error(retry_err) or _is_payment_error(retry_err) or _is_rate_limit_error(retry_err)):
                         raise
@@ -5347,7 +5394,7 @@ async def async_call_llm(
                 if async_fb_model and async_fb_model != fb_kwargs.get("model"):
                     fb_kwargs["model"] = async_fb_model
                 return _validate_llm_response(
-                    await async_fb.chat.completions.create(**fb_kwargs), task)
+                    await _await_completion(async_fb, **fb_kwargs), task)
             # All fallback layers exhausted — warn before re-raising. (#26882)
             logger.warning(
                 "Auxiliary %s (async): %s on %s and all fallbacks exhausted "
