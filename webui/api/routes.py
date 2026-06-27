@@ -5610,11 +5610,15 @@ def handle_post(handler, parsed) -> bool:
 
     # ── Photon (iMessage) provider setup (POST) ──
     if parsed.path == "/api/integrations/photon":
-        from api.photon_config import set_photon_config
+        from api.photon_config import probe_sidecar, reload_sidecar, set_photon_config
 
         result = set_photon_config(body)
         if not result.get("ok"):
             return bad(handler, result.get("error", "Failed to save Photon config"))
+        # Hot-reload the sidecar so the just-saved creds take effect immediately
+        # (no manual restart), then report its post-reload state.
+        result["reloaded"] = reload_sidecar()
+        result["sidecar"] = probe_sidecar()
         return j(handler, result)
 
     # ── Profile API (POST) ──

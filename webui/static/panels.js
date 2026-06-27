@@ -5506,9 +5506,9 @@ function _photonCardHtml(p){
       <div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px">💬 Photon (iMessage)</div>
       <p style="opacity:.7;font-size:12px;margin:.4em 0 .8em;max-width:560px">
         Hosted iMessage with no Mac required. Paste your Photon project credentials
-        (app.photon.codes → project settings). The Photon sidecar must be running
-        (<code>plugins/platforms/photon/sidecar</code>); restart it + the gateway
-        after first-time setup. Status: ${status} &nbsp; ${_photonSidecarStatusHtml(p.sidecar)}</p>
+        (app.photon.codes → project settings). Saving reloads the sidecar
+        automatically; restart the gateway for inbound iMessage chat.
+        Status: ${status} &nbsp; <span id="phSidecarStatus">${_photonSidecarStatusHtml(p.sidecar)}</span></p>
       ${row('Project ID','project_id','text','paste PROJECT_ID')}
       ${row('Project secret','project_secret','password',p.project_secret_set?'••••••••':'paste PROJECT_SECRET',secretHint(p.project_secret_set))}
       ${row('Your iMessage handle','notify_target','text','+15555550123 (notification recipient)')}
@@ -5537,14 +5537,17 @@ async function savePhotonProvider(){
   const keys=['project_id','project_secret','notify_target','sidecar_url','sidecar_token','allowed_users'];
   const payload={};
   keys.forEach(k=>{ const el=$('ph_'+k); if(el) payload[k]=el.value.trim(); });
-  if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
+  if(btn){ btn.disabled=true; btn.textContent='Saving + reloading sidecar…'; }
   if(msg) msg.textContent='';
   try{
     const res=await api('/api/integrations/photon',{method:'POST',body:JSON.stringify(payload)});
+    const sc=res&&res.sidecar;
+    // Refresh the inline sidecar-status badge so MOCK → live shows without a reload.
+    const scEl=$('phSidecarStatus'); if(scEl) scEl.innerHTML=_photonSidecarStatusHtml(sc);
     if(msg){
-      const sc=res&&res.sidecar;
-      if(sc&&sc.reachable&&sc.ok&&sc.mock){ msg.style.color='#d29922'; msg.textContent='Saved — restart the sidecar (still in mock mode)'; }
-      else if(sc&&!sc.reachable){ msg.style.color='#d29922'; msg.textContent='Saved — start the Photon sidecar to deliver'; }
+      if(sc&&sc.reachable&&sc.ok&&!sc.mock){ msg.style.color='#3fb950'; msg.textContent='Saved ✓ — iMessage live'; }
+      else if(sc&&sc.reachable&&sc.ok&&sc.mock){ msg.style.color='#d29922'; msg.textContent='Saved — sidecar still in mock mode (check PROJECT_ID/SECRET)'; }
+      else if(sc&&!sc.reachable){ msg.style.color='#d29922'; msg.textContent='Saved — couldn\'t reach the sidecar; is it installed/running?'; }
       else { msg.style.color='#3fb950'; msg.textContent='Saved ✓'; }
     }
     ['project_secret','sidecar_token'].forEach(k=>{ const el=$('ph_'+k); if(el) el.value=''; });

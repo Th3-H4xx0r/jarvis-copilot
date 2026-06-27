@@ -62,7 +62,7 @@ function authed(req, config) {
 // GET /inbound — newline-delimited JSON. Holds the connection open and writes one
 // line per inbound message; periodic heartbeat comments keep proxies/clients from
 // timing the idle connection out.
-function handleInbound(req, res, engine, config) {
+function handleInbound(req, res, state) {
   res.writeHead(200, {
     "Content-Type": "application/x-ndjson; charset=utf-8",
     "Cache-Control": "no-cache, no-store",
@@ -70,9 +70,12 @@ function handleInbound(req, res, engine, config) {
   });
   // Announce readiness so the client knows the stream is live even before any
   // message arrives.
-  res.write(JSON.stringify({ type: "ready", connected: engine.connected }) + "\n");
+  res.write(JSON.stringify({ type: "ready", connected: state.engine.connected }) + "\n");
 
-  const unsubscribe = engine.onInbound((msg) => {
+  // Bind to whatever engine is current. On /reload the engine is swapped and
+  // this connection is end()ed (see reloadEngine) so the client reconnects and
+  // re-subscribes to the new engine.
+  const unsubscribe = state.engine.onInbound((msg) => {
     try {
       res.write(JSON.stringify({ type: "message", message: msg }) + "\n");
     } catch {
@@ -86,18 +89,55 @@ function handleInbound(req, res, engine, config) {
     } catch {
       /* ignore */
     }
-  }, Math.max(1000, config.heartbeatMs));
+  }, Math.max(1000, state.config.heartbeatMs));
 
+  state.inbound.add(res);
   const cleanup = () => {
     clearInterval(heartbeat);
     unsubscribe();
+    state.inbound.delete(res);
   };
   req.on("close", cleanup);
   req.on("error", cleanup);
   res.on("error", cleanup);
 }
 
-export function createServer(engine, config) {
+// Rebuild the engine from the latest config (re-reading the shared .env) so
+// credentials entered in the UI are picked up WITHOUT a process restart. Swaps
+// the live engine, drops open /inbound streams (clients reconnect to the new
+// engine), and returns the new health.
+async function reloadEngine(state) {
+  const newConfig = loadConfig();
+  const newEngine = createEngine(newConfig);
+  await newEngine.start(); // throws on a bad real connection → surfaced as 500
+  const old = state.engine;
+  state.engine = newEngine;
+  state.config = { ...state.config, ...newConfig };
+  for (const r of state.inbound) {
+    try {
+      r.end();
+    } catch {
+      /* ignore */
+    }
+  }
+  state.inbound.clear();
+  try {
+    await old.stop();
+  } catch {
+    /* ignore */
+  }
+  return { mock: newEngine.mock, connected: newEngine.connected };
+}
+
+// Accepts either a state object ({engine, config}) or, for back-compat with
+// tests, (engine, config). Holders are mutable so /reload can swap the engine.
+export function createServer(arg, config) {
+  const state =
+    arg && arg.engine
+      ? arg
+      : { engine: arg, config: config || {}, inbound: new Set() };
+  if (!state.inbound) state.inbound = new Set();
+
   return http.createServer(async (req, res) => {
     // Parse the path defensively. An unguarded `new URL(req.url, ...)` here would
     // throw on a malformed request line (e.g. "GET // HTTP/1.1") BEFORE the
@@ -105,7 +145,7 @@ export function createServer(engine, config) {
     // We never use the query/host, so a plain split is sufficient and safe.
     const path = (req.url || "/").split("?")[0];
 
-    if (!authed(req, config)) {
+    if (!authed(req, state.config)) {
       return sendJson(res, 401, { error: "unauthorized" });
     }
 
@@ -113,13 +153,18 @@ export function createServer(engine, config) {
       if (req.method === "GET" && path === "/health") {
         return sendJson(res, 200, {
           ok: true,
-          connected: engine.connected,
-          mock: engine.mock,
+          connected: state.engine.connected,
+          mock: state.engine.mock,
         });
       }
 
       if (req.method === "GET" && path === "/inbound") {
-        return handleInbound(req, res, engine, config);
+        return handleInbound(req, res, state);
+      }
+
+      if (req.method === "POST" && path === "/reload") {
+        const health = await reloadEngine(state);
+        return sendJson(res, 200, { ok: true, ...health });
       }
 
       if (req.method === "POST" && path === "/send") {
@@ -132,7 +177,7 @@ export function createServer(engine, config) {
         if (!text && attachments.length === 0) {
           return sendJson(res, 422, { error: "text or attachments required" });
         }
-        const out = await engine.send(address, {
+        const out = await state.engine.send(address, {
           text,
           markdown: Boolean(body.markdown),
           effect: typeof body.effect === "string" ? body.effect : "",
@@ -145,7 +190,7 @@ export function createServer(engine, config) {
         const body = await readJsonBody(req);
         const address = String(body.address || "").trim();
         if (!address) return sendJson(res, 422, { error: "address required" });
-        await engine.typing(address);
+        await state.engine.typing(address);
         return sendJson(res, 200, { success: true });
       }
 
@@ -192,7 +237,10 @@ async function main() {
     return;
   }
 
-  const server = createServer(engine, config);
+  // Mutable holder so POST /reload can hot-swap the engine after the UI writes
+  // new credentials — no process restart needed.
+  const state = { engine, config, inbound: new Set() };
+  const server = createServer(state);
   server.listen(config.port, config.host, () => {
     console.log(
       `[photon] sidecar listening on http://${config.host}:${config.port} ` +
@@ -204,7 +252,7 @@ async function main() {
     console.log(`[photon] ${sig} — shutting down`);
     server.close();
     try {
-      await engine.stop();
+      await state.engine.stop();
     } finally {
       process.exit(0);
     }

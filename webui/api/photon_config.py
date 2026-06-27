@@ -134,11 +134,7 @@ def set_photon_config(body: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": "Project secret is required"}
 
     if not updates:
-        return {
-            "ok": True,
-            "configured": bool(os.getenv("PHOTON_PROJECT_ID", "").strip()),
-            "sidecar": probe_sidecar(),
-        }
+        return {"ok": True, "configured": bool(os.getenv("PHOTON_PROJECT_ID", "").strip())}
 
     try:
         from api.providers import _get_hermes_home, _write_env_file
@@ -148,10 +144,34 @@ def set_photon_config(body: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as exc:  # pragma: no cover - filesystem/permission errors
         return {"ok": False, "error": f"Failed to save Photon config: {exc}"}
 
-    # Probe AFTER the write so os.environ reflects the new creds — surfaces the
-    # "sidecar still in mock mode, restart it" footgun right at save time.
-    return {
-        "ok": True,
-        "configured": bool(os.getenv("PHOTON_PROJECT_ID", "").strip()),
-        "sidecar": probe_sidecar(),
-    }
+    return {"ok": True, "configured": bool(os.getenv("PHOTON_PROJECT_ID", "").strip())}
+
+
+def reload_sidecar() -> bool:
+    """Make the running sidecar pick up freshly-saved creds WITHOUT a manual
+    restart. Tries the sidecar's in-process POST /reload first (works however it
+    was started); falls back to a systemd restart. Best-effort; never raises."""
+    url = (os.getenv("PHOTON_SIDECAR_URL", "").strip() or _DEFAULT_SIDECAR_URL).rstrip("/")
+    token = os.getenv("PHOTON_SIDECAR_TOKEN", "").strip()
+    headers = {"X-Photon-Token": token} if token else {}
+    try:
+        import httpx
+
+        r = httpx.post(f"{url}/reload", headers=headers, timeout=20.0)
+        if r.status_code < 300:
+            return True
+    except Exception:
+        pass
+    # Sidecar unreachable (not running yet, or token changed) → try systemd.
+    try:
+        import subprocess
+        import time
+
+        subprocess.run(
+            ["systemctl", "restart", "jarviscopilot-photon-sidecar"],
+            timeout=20, capture_output=True,
+        )
+        time.sleep(1.5)  # let it boot before the caller probes
+        return True
+    except Exception:
+        return False

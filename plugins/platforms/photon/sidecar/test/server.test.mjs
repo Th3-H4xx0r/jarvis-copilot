@@ -114,6 +114,31 @@ test("POST /send carries rich fields (markdown + attachments)", async () => {
   }
 });
 
+test("POST /reload swaps the engine and stays healthy", async () => {
+  const { server, base } = await startServer();
+  // Force mock + an empty env file so reload's loadConfig is deterministic and
+  // never tries a real Spectrum connection on the test host.
+  const prevMock = process.env.PHOTON_SIDECAR_MOCK;
+  const prevEnvFile = process.env.PHOTON_ENV_FILE;
+  process.env.PHOTON_SIDECAR_MOCK = "1";
+  process.env.PHOTON_ENV_FILE = "/nonexistent/photon/.env";
+  try {
+    const res = await fetch(`${base}/reload`, { method: "POST", headers: auth });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.mock, true);
+    const h = await (await fetch(`${base}/health`, { headers: auth })).json();
+    assert.equal(h.ok, true);
+  } finally {
+    if (prevMock === undefined) delete process.env.PHOTON_SIDECAR_MOCK;
+    else process.env.PHOTON_SIDECAR_MOCK = prevMock;
+    if (prevEnvFile === undefined) delete process.env.PHOTON_ENV_FILE;
+    else process.env.PHOTON_ENV_FILE = prevEnvFile;
+    server.close();
+  }
+});
+
 test("GET /inbound streams a ready line then injected messages", async () => {
   const { engine, server, base } = await startServer();
   try {
