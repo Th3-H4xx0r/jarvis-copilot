@@ -253,6 +253,32 @@ class TestAdapterInbound:
             _run(adapter._on_message({"id": "e", "handle": "+1", "text": "  "}))
             assert hm.await_count == 0
 
+    def test_on_message_ingests_image_attachment(self, monkeypatch, tmp_path):
+        adapter = self._make_adapter()
+        f = tmp_path / "img.png"
+        f.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+        monkeypatch.setattr(_photon, "cache_image_from_bytes", lambda data, ext: "/cache/img.png")
+        with patch.object(adapter, "handle_message", new_callable=AsyncMock) as hm:
+            msg = {"id": "m1", "spaceId": "sp1", "handle": "+1", "text": "",
+                   "attachments": [{"path": str(f), "mimeType": "image/png",
+                                    "kind": "image", "name": "img.png"}]}
+            _run(adapter._on_message(msg))
+            assert hm.await_count == 1
+            event = hm.await_args[0][0]
+            assert event.media_urls == ["/cache/img.png"]
+            assert event.media_types == ["image/png"]
+            assert event.message_type == _photon.MessageType.PHOTO
+            assert event.text == "(attachment)"
+        # temp spool file is cleaned up after read
+        assert not f.exists()
+
+    def test_ingest_attachments_skips_missing_file(self):
+        adapter = self._make_adapter()
+        urls, types, mtype = adapter._ingest_attachments(
+            [{"path": "/nonexistent/x.png", "mimeType": "image/png", "kind": "image"}])
+        assert urls == []
+        assert mtype == _photon.MessageType.TEXT
+
 
 # ---------------------------------------------------------------------------
 # Standalone send (cron / Code Master iMessage notify path)

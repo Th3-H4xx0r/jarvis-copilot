@@ -838,6 +838,15 @@ MEDIA_DELIVERY_SAFE_ROOTS = (
     _HERMES_HOME / "video_cache",
     _HERMES_HOME / "document_cache",
     _HERMES_HOME / "browser_screenshots",
+    # Consolidated cache/* layout — image_gen writes generated images to
+    # cache/images unconditionally, which the legacy-aware IMAGE_CACHE_DIR may
+    # NOT resolve to when a legacy image_cache/ dir exists. Allowlist both so a
+    # model-generated image is never dropped as "outside allowed roots".
+    _HERMES_HOME / "cache" / "images",
+    _HERMES_HOME / "cache" / "audio",
+    _HERMES_HOME / "cache" / "videos",
+    _HERMES_HOME / "cache" / "documents",
+    _HERMES_HOME / "cache" / "screenshots",
 )
 
 

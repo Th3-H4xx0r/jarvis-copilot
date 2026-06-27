@@ -18,9 +18,48 @@
 //   { id, address, text, platform, timestamp, raw }
 
 import { randomUUID } from "node:crypto";
+import { writeFile, mkdir } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+const _MIME_EXT = {
+  "image/jpeg": ".jpg",
+  "image/jpg": ".jpg",
+  "image/png": ".png",
+  "image/gif": ".gif",
+  "image/heic": ".heic",
+  "image/heif": ".heic",
+  "image/webp": ".webp",
+  "image/tiff": ".tiff",
+  "audio/mpeg": ".mp3",
+  "audio/mp4": ".m4a",
+  "audio/aac": ".m4a",
+  "audio/ogg": ".ogg",
+  "audio/amr": ".amr",
+  "audio/wav": ".wav",
+  "video/mp4": ".mp4",
+  "video/quicktime": ".mov",
+  "application/pdf": ".pdf",
+};
+
+function _extFor(mime, name) {
+  if (name && name.includes(".")) {
+    const e = name.slice(name.lastIndexOf(".")).toLowerCase();
+    if (e.length <= 6) return e;
+  }
+  return _MIME_EXT[(mime || "").toLowerCase()] || ".bin";
+}
+
+function _kindFor(mime) {
+  mime = (mime || "").toLowerCase();
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("audio/")) return "audio";
+  if (mime.startsWith("video/")) return "video";
+  return "file";
 }
 
 const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -136,6 +175,8 @@ export class RealEngine {
     // allowed for this project" restriction on un-provisioned recipients.
     this._spaces = new Map();
     this._spacesMax = 500;
+    // Where inbound attachment bytes are spooled for the Python adapter to read.
+    this._inboundDir = path.join(os.tmpdir(), "photon-inbound");
   }
 
   get connected() {
@@ -217,7 +258,7 @@ export class RealEngine {
         for await (const [space, message] of this._app.messages) {
           if (this._stopping) break;
           this._cacheSpace(space);
-          const norm = this._normalize(space, message);
+          const norm = await this._normalize(space, message);
           if (norm) this._hub.emit(norm);
         }
       } catch (err) {
@@ -238,28 +279,102 @@ export class RealEngine {
     }
   }
 
-  _normalize(space, message) {
+  // Download an inbound attachment/voice arm's bytes to a temp file the Python
+  // adapter reads + caches for the agent (vision/audio). The `attachment` &
+  // `voice` content arms expose read(): Promise<Buffer>.
+  async _dumpAttachment(content) {
+    try {
+      if (!content || typeof content.read !== "function") return null;
+      const buf = await content.read();
+      if (!buf || !buf.length) return null;
+      const mimeType = content.mimeType || "application/octet-stream";
+      const name = content.name || `attachment${_extFor(mimeType, "")}`;
+      await mkdir(this._inboundDir, { recursive: true });
+      const file = path.join(this._inboundDir, `${randomUUID()}${_extFor(mimeType, name)}`);
+      await writeFile(file, buf);
+      return { path: file, name, mimeType, kind: _kindFor(mimeType) };
+    } catch (err) {
+      console.error(
+        "[photon] inbound attachment download failed:",
+        err && err.message ? err.message : err
+      );
+      return null;
+    }
+  }
+
+  // Map a Spectrum inbound message to the wire shape the adapter consumes:
+  // { id, spaceId, handle, text, attachments[], platform, timestamp }. Handles
+  // text, photos/files/stickers (attachment), voice memos, multi-attachment
+  // groups, reactions, contacts, rich links and polls — instead of dropping
+  // everything that isn't text. spaceId routes the reply back to this thread.
+  async _normalize(space, message) {
     try {
       const content = message?.content || {};
-      // Only surface text for now; attachments/reactions arrive as other arms.
-      let text = "";
-      if (content.type === "text") text = content.text || "";
-      else if (typeof content.text === "string") text = content.text;
-      if (!text) return null;
-      // spaceId routes a reply back to the cached conversation; handle is the
-      // sender identity (for auth/display). Don't ship the raw space/message —
-      // they carry methods and risk a circular JSON.stringify on the wire.
+      const t = content.type;
       const handle =
         space?.phone || message?.sender?.phone || message?.sender?.id || "";
-      return {
+      const base = {
         id: message?.id || randomUUID(),
         spaceId: space?.id || "",
         handle,
-        text,
         platform: message?.platform || "imessage",
         timestamp: message?.timestamp || nowIso(),
-        raw: { contentType: content.type },
+        raw: { contentType: t },
       };
+      const make = (text, attachments = []) => {
+        if (!text && !attachments.length) return null;
+        return { ...base, text: text || "", attachments };
+      };
+
+      if (t === "text") return make(content.text || "");
+      if (t === "attachment" || t === "voice") {
+        const att = await this._dumpAttachment(content);
+        return att ? make("", [att]) : null;
+      }
+      if (t === "group") {
+        const atts = [];
+        let text = "";
+        for (const item of content.items || []) {
+          const ic = item && item.content;
+          if (!ic) continue;
+          if (ic.type === "attachment" || ic.type === "voice") {
+            const a = await this._dumpAttachment(ic);
+            if (a) atts.push(a);
+          } else if (ic.type === "text" && ic.text) {
+            text = text ? `${text}\n${ic.text}` : ic.text;
+          }
+        }
+        return make(text, atts);
+      }
+      if (t === "effect" && content.content) {
+        return this._normalize(space, { ...message, content: content.content });
+      }
+      if (t === "reaction") {
+        const tgt = content?.target?.content?.text;
+        const snip = tgt ? ` to: "${String(tgt).slice(0, 80)}"` : "";
+        return make(`(reacted ${content.emoji || ""}${snip})`.trim());
+      }
+      if (t === "richlink") {
+        return make(content.url ? String(content.url) : "");
+      }
+      if (t === "contact") {
+        const nm =
+          content?.name?.formatted ||
+          [content?.name?.first, content?.name?.last].filter(Boolean).join(" ") ||
+          "contact";
+        const phones = (content.phones || []).map((p) => p.value).filter(Boolean).join(", ");
+        const emails = (content.emails || []).map((e) => e.value).filter(Boolean).join(", ");
+        const bits = [`(shared a contact) ${nm}`];
+        if (phones) bits.push(`phones: ${phones}`);
+        if (emails) bits.push(`emails: ${emails}`);
+        return make(bits.join(" — "));
+      }
+      if (t === "poll") {
+        const opts = (content?.poll?.options || []).map((o) => o.title).filter(Boolean).join(", ");
+        return make(`(poll) ${content?.poll?.title || ""}${opts ? `: ${opts}` : ""}`.trim());
+      }
+      // typing / rename / avatar / custom / unknown → nothing actionable.
+      return null;
     } catch (err) {
       console.error("[photon] failed to normalize inbound message:", err);
       return null;

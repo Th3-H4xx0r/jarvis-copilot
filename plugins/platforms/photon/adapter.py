@@ -50,6 +50,10 @@ from gateway.platforms.base import (
     MessageEvent,
     MessageType,
     SendResult,
+    cache_audio_from_bytes,
+    cache_document_from_bytes,
+    cache_image_from_bytes,
+    cache_video_from_bytes,
 )
 
 logger = logging.getLogger(__name__)
@@ -262,8 +266,15 @@ class PhotonAdapter(BasePlatformAdapter):
         if self._is_duplicate(msg_id):
             return
         text = (msg.get("text") or "").strip()
-        if not text:
+        # Photos/stickers/files/voice arrive as attachments the sidecar spooled to
+        # temp files; cache them locally so the agent's vision/audio tools can read
+        # them (media_urls = local paths). A message may be attachment-only.
+        media_urls, media_types, msg_type = self._ingest_attachments(msg.get("attachments") or [])
+        if not text and media_urls:
+            text = "(attachment)"
+        if not text and not media_urls:
             return
+
         # Reply routing keys on the originating SPACE (space_id) so the sidecar
         # replies in-thread (no recipient-provisioning needed). Auth/display use
         # the sender handle. Fall back to each other if one is missing.
@@ -284,13 +295,68 @@ class PhotonAdapter(BasePlatformAdapter):
         timestamp = _parse_ts(msg.get("timestamp"))
         event = MessageEvent(
             text=text,
-            message_type=MessageType.TEXT,
+            message_type=msg_type,
             source=source,
             message_id=msg_id,
             raw_message=msg,
             timestamp=timestamp,
+            media_urls=media_urls,
+            media_types=media_types,
         )
         await self.handle_message(event)
+
+    def _ingest_attachments(self, attachments: List[dict]):
+        """Read each spooled inbound attachment, cache it locally, and return
+        (media_urls, media_types, message_type). Temp files are removed after
+        read. Never raises — a bad attachment is skipped."""
+        media_urls: List[str] = []
+        media_types: List[str] = []
+        msg_type = MessageType.TEXT
+        for att in attachments:
+            p = (att.get("path") or "").strip()
+            if not p:
+                continue
+            mime = (att.get("mimeType") or "").lower()
+            kind = att.get("kind") or ""
+            name = att.get("name") or "file"
+            try:
+                with open(p, "rb") as fh:
+                    data = fh.read()
+            except Exception as e:
+                logger.warning("[%s] could not read inbound attachment: %s", self.name, e)
+                continue
+            finally:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+            if not data:
+                continue
+            try:
+                if kind == "image" or mime.startswith("image/"):
+                    cached = cache_image_from_bytes(data, _ext_for(mime, name))
+                    msg_type = MessageType.PHOTO
+                elif kind == "audio" or mime.startswith("audio/"):
+                    cached = cache_audio_from_bytes(data, _ext_for(mime, name))
+                    if msg_type == MessageType.TEXT:
+                        msg_type = MessageType.VOICE
+                elif kind == "video" or mime.startswith("video/"):
+                    cached = cache_video_from_bytes(data, _ext_for(mime, name))
+                    if msg_type == MessageType.TEXT:
+                        msg_type = MessageType.VIDEO
+                else:
+                    cached = cache_document_from_bytes(data, name)
+                    if msg_type == MessageType.TEXT:
+                        msg_type = MessageType.DOCUMENT
+            except Exception as e:
+                logger.warning("[%s] failed to cache inbound attachment: %s", self.name, e)
+                continue
+            media_urls.append(cached)
+            media_types.append(mime)
+        # A mixed/multi set that contains any image reads best as a PHOTO event.
+        if len(media_urls) > 1 and any((m or "").startswith("image/") for m in media_types):
+            msg_type = MessageType.PHOTO
+        return media_urls, media_types, msg_type
 
     def _is_duplicate(self, msg_id: str) -> bool:
         now = time.time()
@@ -415,6 +481,23 @@ def _resp_message_id(resp) -> str:
     except Exception:
         data = {}
     return (data.get("id") if isinstance(data, dict) else None) or uuid.uuid4().hex[:12]
+
+
+_MIME_EXT = {
+    "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/gif": ".gif",
+    "image/heic": ".heic", "image/heif": ".heic", "image/webp": ".webp", "image/tiff": ".tiff",
+    "audio/mpeg": ".mp3", "audio/mp4": ".m4a", "audio/aac": ".m4a", "audio/ogg": ".ogg",
+    "audio/amr": ".amr", "audio/wav": ".wav", "video/mp4": ".mp4", "video/quicktime": ".mov",
+    "application/pdf": ".pdf",
+}
+
+
+def _ext_for(mime: str, name: str = "") -> str:
+    if name and "." in name:
+        e = name[name.rfind("."):].lower()
+        if len(e) <= 6:
+            return e
+    return _MIME_EXT.get((mime or "").lower(), ".bin")
 
 
 def _parse_ts(value) -> datetime:
