@@ -36,7 +36,7 @@ _FIELDS = [
      "Allowed inbound handles (comma-separated)"),
 ]
 
-_DEFAULT_SIDECAR_URL = "http://127.0.0.1:8787"
+_DEFAULT_SIDECAR_URL = "http://127.0.0.1:8799"
 
 
 def _field_meta() -> list:
@@ -47,7 +47,36 @@ def _field_meta() -> list:
     ]
 
 
-def get_photon_config() -> Dict[str, Any]:
+def probe_sidecar() -> Dict[str, Any]:
+    """Best-effort health probe of the running sidecar. Never raises / hangs.
+
+    Lets the setup screen warn when the sidecar is unreachable or — the silent
+    footgun — running in MOCK mode (no creds picked up yet), where sends look
+    successful but nothing is delivered. Resolves URL+token from the process env
+    (which the just-written .env populated)."""
+    url = (os.getenv("PHOTON_SIDECAR_URL", "").strip() or _DEFAULT_SIDECAR_URL).rstrip("/")
+    token = os.getenv("PHOTON_SIDECAR_TOKEN", "").strip()
+    try:
+        import httpx
+
+        headers = {"X-Photon-Token": token} if token else {}
+        r = httpx.get(f"{url}/health", headers=headers, timeout=2.0)
+        if r.status_code == 401:
+            return {"reachable": True, "ok": False, "error": "token mismatch (401)"}
+        if r.status_code >= 300:
+            return {"reachable": True, "ok": False, "error": f"HTTP {r.status_code}"}
+        data = r.json()
+        return {
+            "reachable": True,
+            "ok": True,
+            "mock": bool(data.get("mock")),
+            "connected": bool(data.get("connected")),
+        }
+    except Exception as e:
+        return {"reachable": False, "ok": False, "error": str(e)[:120]}
+
+
+def get_photon_config(probe: bool = True) -> Dict[str, Any]:
     """Current Photon config for the setup screen. Secrets are masked."""
     out: Dict[str, Any] = {"fields": _field_meta()}
     for env, key, secret, _required, _label in _FIELDS:
@@ -61,6 +90,8 @@ def get_photon_config() -> Dict[str, Any]:
                 val = _DEFAULT_SIDECAR_URL
             out[key] = val
     out["configured"] = bool(os.getenv("PHOTON_PROJECT_ID", "").strip())
+    if probe:
+        out["sidecar"] = probe_sidecar()
     return out
 
 
@@ -103,7 +134,11 @@ def set_photon_config(body: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": "Project secret is required"}
 
     if not updates:
-        return {"ok": True, "configured": bool(os.getenv("PHOTON_PROJECT_ID", "").strip())}
+        return {
+            "ok": True,
+            "configured": bool(os.getenv("PHOTON_PROJECT_ID", "").strip()),
+            "sidecar": probe_sidecar(),
+        }
 
     try:
         from api.providers import _get_hermes_home, _write_env_file
@@ -113,4 +148,10 @@ def set_photon_config(body: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as exc:  # pragma: no cover - filesystem/permission errors
         return {"ok": False, "error": f"Failed to save Photon config: {exc}"}
 
-    return {"ok": True, "configured": bool(os.getenv("PHOTON_PROJECT_ID", "").strip())}
+    # Probe AFTER the write so os.environ reflects the new creds — surfaces the
+    # "sidecar still in mock mode, restart it" footgun right at save time.
+    return {
+        "ok": True,
+        "configured": bool(os.getenv("PHOTON_PROJECT_ID", "").strip()),
+        "sidecar": probe_sidecar(),
+    }

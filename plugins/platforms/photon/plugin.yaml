@@ -29,7 +29,7 @@ optional_env:
     prompt: "Your iMessage handle (e.g. +15555550123)"
     password: false
   - name: PHOTON_SIDECAR_URL
-    description: "Photon sidecar base URL (default http://127.0.0.1:8787)"
+    description: "Photon sidecar base URL (default http://127.0.0.1:8799)"
     prompt: "Sidecar URL (or empty for default)"
     password: false
   - name: PHOTON_SIDECAR_TOKEN

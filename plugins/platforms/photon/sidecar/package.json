@@ -11,6 +11,7 @@
     "jarviscopilot-photon-sidecar": "src/server.mjs"
   },
   "scripts": {
+    "setup": "bash install.sh",
     "start": "node src/server.mjs",
     "test": "node --test"
   },

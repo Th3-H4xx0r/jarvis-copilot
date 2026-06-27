@@ -35,7 +35,7 @@ the Python side. Force mock with `PHOTON_SIDECAR_MOCK=1`.
 |-----|---------|---------|
 | `PHOTON_PROJECT_ID` / `PHOTON_PROJECT_SECRET` | — | Photon project credentials (app.photon.codes). Absent ⇒ mock mode. |
 | `PHOTON_SIDECAR_HOST` | `127.0.0.1` | Bind host (keep localhost). |
-| `PHOTON_SIDECAR_PORT` | `8787` | Bind port. |
+| `PHOTON_SIDECAR_PORT` | `8799` | Bind port. |
 | `PHOTON_SIDECAR_TOKEN` | — | Shared secret the Python adapter sends. Set it in production. |
 | `PHOTON_SIDECAR_MOCK` | `0` | Force mock mode. |
 | `PHOTON_IMESSAGE_MODE` | `cloud` | Photon-hosted iMessage. |

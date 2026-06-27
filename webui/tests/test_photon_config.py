@@ -25,7 +25,7 @@ def _clear_env(monkeypatch):
 
 
 def test_get_masks_secrets_and_reports_unconfigured(monkeypatch):
-    cfg = photon_config.get_photon_config()
+    cfg = photon_config.get_photon_config(probe=False)
     assert cfg["configured"] is False
     assert cfg["project_secret"] == ""          # never leaked
     assert cfg["project_secret_set"] is False
@@ -37,7 +37,7 @@ def test_get_masks_secrets_and_reports_unconfigured(monkeypatch):
 def test_get_reports_secret_set_without_value(monkeypatch):
     monkeypatch.setenv("PHOTON_PROJECT_ID", "pid")
     monkeypatch.setenv("PHOTON_PROJECT_SECRET", "supersecret")
-    cfg = photon_config.get_photon_config()
+    cfg = photon_config.get_photon_config(probe=False)
     assert cfg["configured"] is True
     assert cfg["project_id"] == "pid"
     assert cfg["project_secret"] == ""

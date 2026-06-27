@@ -1,14 +1,20 @@
-# systemd unit for the Photon sidecar.
+# systemd unit for the Photon sidecar (reference template).
 #
-# Install (as root on hermes):
+# PREFERRED: run `./install.sh --service` (as root) — it generates this unit with
+# the correct WorkingDirectory / node path / EnvironmentFile and starts it.
+#
+# Manual install:
 #   cp plugins/platforms/photon/sidecar/jarviscopilot-photon-sidecar.service \
 #      /etc/systemd/system/
-#   # edit WorkingDirectory + EnvironmentFile to match your checkout, then:
+#   # edit WorkingDirectory to your checkout, then:
 #   systemctl daemon-reload && systemctl enable --now jarviscopilot-photon-sidecar
 #
-# The EnvironmentFile holds PHOTON_PROJECT_ID / PHOTON_PROJECT_SECRET /
-# PHOTON_SIDECAR_TOKEN (chmod 600). Both the gateway and the webui talk to the
-# sidecar over 127.0.0.1:8787, so it must be up before they need to send.
+# EnvironmentFile is the SHARED JarvisCopilot .env (the same file the WebUI/mobile
+# Photon setup screen writes), so PHOTON_PROJECT_ID/SECRET/SIDECAR_TOKEN/
+# NOTIFY_TARGET configured in the app are picked up here. `%h` = the service
+# user's home (/root for a root system unit); the leading `-` makes it optional.
+# Both the gateway and the webui talk to the sidecar over 127.0.0.1:8799, so it
+# must be up before they need to send.
 
 [Unit]
 Description=JarvisCopilot Photon (Spectrum) sidecar
@@ -18,7 +24,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/root/jarvis-copilot/plugins/platforms/photon/sidecar
-EnvironmentFile=/etc/jarviscopilot/photon.env
+EnvironmentFile=-%h/.jarviscopilot/.env
 ExecStart=/usr/bin/node src/server.mjs
 Restart=on-failure
 RestartSec=3

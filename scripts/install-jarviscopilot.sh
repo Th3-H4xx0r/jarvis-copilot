@@ -209,6 +209,34 @@ fi
 mkdir -p "$VENV_DIR"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$VENV_DIR/.webui-installed"
 
+# --- Photon (iMessage) sidecar (optional) ----------------------------------
+# Photon ships as a bundled platform plugin with a small Node sidecar that holds
+# the live spectrum-ts connection. Install its npm deps + generate a shared auth
+# token here so the WebUI/mobile "Photon provider" setup screen works out of the
+# box. Entirely optional and non-fatal: cleanly skipped if Node isn't installed.
+# (Its own install.sh runs `npm install`, writes PHOTON_SIDECAR_TOKEN into the
+# shared ~/.jarviscopilot/.env, and — as root with systemd — installs the unit.)
+PHOTON_SIDECAR_DIR="$INSTALL_DIR/plugins/platforms/photon/sidecar"
+if [[ -f "$PHOTON_SIDECAR_DIR/install.sh" ]]; then
+    if command -v node >/dev/null 2>&1; then
+        info "Setting up the optional Photon (iMessage) sidecar ..."
+        PHOTON_SVC_FLAG=""
+        if [[ "$EUID" -eq 0 ]] && command -v systemctl >/dev/null 2>&1 && [[ -d /etc/systemd/system ]]; then
+            PHOTON_SVC_FLAG="--service"
+        fi
+        if bash "$PHOTON_SIDECAR_DIR/install.sh" $PHOTON_SVC_FLAG; then
+            ok "Photon sidecar ready. Add PROJECT_ID/SECRET + your iMessage handle in"
+            echo "    the app (WebUI Code Master → Photon provider, or mobile Settings → Photon),"
+            echo "    then restart the sidecar to deliver real messages."
+        else
+            warn "Photon sidecar setup failed (non-fatal). Run later: bash $PHOTON_SIDECAR_DIR/install.sh"
+        fi
+    else
+        warn "Node.js not found -- skipping the optional Photon (iMessage) sidecar."
+        warn "  Install Node >=18, then run: bash $PHOTON_SIDECAR_DIR/install.sh"
+    fi
+fi
+
 # --- Merge shipped personalities into ~/.jarviscopilot/config.yaml ----------------
 # Idempotent — adds entries (e.g. jarvis-mcu) only when missing, never
 # overwrites the user's existing personalities or other config keys.

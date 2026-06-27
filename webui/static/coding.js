@@ -327,12 +327,6 @@ async function codingCodeMasterSettings() {
     return;
   }
   _codingSettingsCache = settings;
-  // Photon (iMessage) provider credentials — best-effort; a failure here must
-  // not break the rest of the panel.
-  let photon = {};
-  try {
-    photon = (await api('/api/integrations/photon')) || {};
-  } catch (e) { photon = {}; }
   const events = [
     ['finished', 'Finished'],
     ['needs_input', 'Needs input'],
@@ -376,81 +370,12 @@ async function codingCodeMasterSettings() {
         </label>
         <p style="opacity:.6;font-size:12px;margin:.3em 0 0">Turn on when you're away from the terminal. While off, sessions prompt locally as usual.</p>
       </div>
-      ${_codingPhotonSectionHtml(photon)}
       <div class="cdg-form-actions">
         <button type="button" class="cdg-btn-primary" id="cmSaveBtn" onclick="codingSaveCodeMaster()">Save settings</button>
       </div>
     </div>`;
 }
 window.codingCodeMasterSettings = codingCodeMasterSettings;
-
-// The Photon (iMessage) provider setup card, rendered inside Code Master settings.
-// Self-contained: its own fields + Save button that POST /api/integrations/photon,
-// independent of the notification-matrix save above. Secrets are write-only — the
-// API never returns them, so we show a "saved" hint instead of the value.
-function _codingPhotonSectionHtml(p) {
-  p = p || {};
-  const v = (k) => (p[k] == null ? '' : String(p[k]));
-  const secretHint = (setFlag) => setFlag
-    ? '<span style="opacity:.6;font-size:11px">saved — leave blank to keep</span>' : '';
-  const status = p.configured
-    ? '<span style="color:#3fb950">● configured</span>'
-    : '<span style="opacity:.6">not configured</span>';
-  const row = (label, key, type, ph, hint) => `
-    <label style="display:block;margin:.5em 0">
-      <span style="display:block;font-size:12px;opacity:.75;margin-bottom:3px">${label} ${hint || ''}</span>
-      <input type="${type}" id="ph_${key}" value="${esc(v(key))}" placeholder="${ph || ''}"
-        autocomplete="off" spellcheck="false"
-        style="width:100%;max-width:420px;padding:7px 9px;border-radius:8px;
-        border:1px solid var(--cdg-border,#33363d);background:var(--cdg-input-bg,#1116);
-        color:inherit;font-size:13px"></label>`;
-  return `
-    <div class="cm-section">
-      <div class="cm-section-head"><span class="cm-section-title">Photon (iMessage) provider</span></div>
-      <p style="opacity:.6;font-size:12px;margin:.2em 0 .6em">
-        Paste your Photon project credentials (app.photon.codes). Enables hosted
-        iMessage — used by the iMessage notification channel above and as a full
-        messaging channel. The Photon sidecar must be running; restart the gateway
-        after first-time setup for inbound iMessage. Status: ${status}</p>
-      ${row('Project ID', 'project_id', 'text', 'paste PROJECT_ID')}
-      ${row('Project secret', 'project_secret', 'password', p.project_secret_set ? '••••••••' : 'paste PROJECT_SECRET', secretHint(p.project_secret_set))}
-      ${row('Your iMessage handle', 'notify_target', 'text', '+15555550123 (notification recipient)')}
-      ${row('Sidecar URL', 'sidecar_url', 'text', 'http://127.0.0.1:8787')}
-      ${row('Sidecar token', 'sidecar_token', 'password', p.sidecar_token_set ? '••••••••' : 'shared sidecar token', secretHint(p.sidecar_token_set))}
-      ${row('Allowed inbound handles', 'allowed_users', 'text', 'comma-separated (optional)')}
-      <div style="margin-top:.6em">
-        <button type="button" class="cdg-btn-primary" id="phSaveBtn" onclick="codingSavePhoton()">Save Photon credentials</button>
-        <span id="phSaveMsg" style="margin-left:10px;font-size:12px;opacity:.8"></span>
-      </div>
-    </div>`;
-}
-
-async function codingSavePhoton() {
-  const btn = document.getElementById('phSaveBtn');
-  const msg = document.getElementById('phSaveMsg');
-  const keys = ['project_id', 'project_secret', 'notify_target', 'sidecar_url',
-                'sidecar_token', 'allowed_users'];
-  const payload = {};
-  keys.forEach(k => {
-    const el = document.getElementById('ph_' + k);
-    if (el) payload[k] = el.value.trim();
-  });
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-  if (msg) msg.textContent = '';
-  try {
-    const res = await api('/api/integrations/photon', { method: 'POST', body: JSON.stringify(payload) });
-    if (msg) { msg.style.color = '#3fb950'; msg.textContent = res && res.configured ? 'Saved ✓' : 'Saved'; }
-    // Clear the secret inputs (write-only) so they show the saved-state next render.
-    ['project_secret', 'sidecar_token'].forEach(k => {
-      const el = document.getElementById('ph_' + k); if (el) el.value = '';
-    });
-  } catch (e) {
-    if (msg) { msg.style.color = '#f85149'; msg.textContent = (e && e.message) ? e.message : 'Save failed'; }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Save Photon credentials'; }
-  }
-}
-window.codingSavePhoton = codingSavePhoton;
 
 async function codingSaveCodeMaster() {
   const btn = document.getElementById('cmSaveBtn');

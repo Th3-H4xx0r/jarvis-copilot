@@ -18,7 +18,7 @@ Configuration (env wins over ``config.yaml`` ``platforms.photon.extra``)::
 
     PHOTON_PROJECT_ID          Photon project id  (sidecar uses it; presence = enabled)
     PHOTON_PROJECT_SECRET      Photon project secret (sidecar only)
-    PHOTON_SIDECAR_URL         Sidecar base URL (default http://127.0.0.1:8787)
+    PHOTON_SIDECAR_URL         Sidecar base URL (default http://127.0.0.1:8799)
     PHOTON_SIDECAR_TOKEN       Shared token sent as X-Photon-Token
     PHOTON_NOTIFY_TARGET       Your iMessage handle — the home channel / default
                                recipient for cron + Claude Code notifications
@@ -54,7 +54,7 @@ from gateway.platforms.base import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SIDECAR_URL = "http://127.0.0.1:8787"
+DEFAULT_SIDECAR_URL = "http://127.0.0.1:8799"
 # iMessage has no hard per-message length in Spectrum; keep a generous cap so a
 # runaway reply still gets chunked rather than rejected.
 MAX_MESSAGE_LENGTH = 8000
