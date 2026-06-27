@@ -25,6 +25,13 @@ function nowIso() {
 
 const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// space.send returns a Message (single content) or Message[] (variadic). Pull a
+// stable id from whichever shape, falling back to a generated one.
+function _msgId(res) {
+  const m = Array.isArray(res) ? res[res.length - 1] : res;
+  return (m && (m.id || m.guid)) || randomUUID();
+}
+
 // Normalize a /send payload (string or object) into a stable rich shape.
 // Photon iMessage supports far more than plain text (markdown, bubble/screen
 // effects, attachments / stacked images); this is the shared schema both engines
@@ -244,55 +251,61 @@ export class RealEngine {
   async send(address, payload) {
     if (!this._im) throw new Error("Spectrum not connected");
     const opts = _normalizeSend(payload);
-    // Resolve recipient → reuse the existing DM space if there is one, else
-    // create one (proactive new conversation). This is the documented
-    // im.user → im.space.create / im.space.get flow.
-    const user = await this._im.user(address);
-    let space = null;
-    try {
-      space = await this._im.space.get(`any;-;${address}`);
-    } catch {
-      space = null;
-    }
-    if (!space) {
-      space = await this._im.space.create(user);
-    }
+    // Resolve (or open) the DM space for this handle. The PlatformInstance
+    // `space()` takes a list of users — a phone/email STRING is a valid user
+    // ref. (This is the real spectrum-ts API; the old im.space.create was wrong.)
+    const space = await this._im.space([address]);
     const contents = await this._buildContents(opts);
-    const res = await space.send(...contents);
-    return { id: (res && (res.id || res.guid)) || randomUUID() };
+    let res;
+    try {
+      res = await space.send(...contents);
+    } catch (err) {
+      // Rich content (attachments) may not match this SDK build — never lose the
+      // text. Retry text-only if we sent anything richer than a bare string.
+      const textOnly = contents.length === 1 && contents[0] === opts.text;
+      if (opts.text && !textOnly) {
+        res = await space.send(opts.text);
+      } else {
+        throw err;
+      }
+    }
+    return { id: _msgId(res) };
   }
 
-  // Compose the Spectrum content list from a normalized send payload. Rich
-  // builders (markdown/effect/attachment) are loaded defensively — if a package
-  // version doesn't expose one, we degrade to plain text rather than throw.
+  // Compose the Spectrum content list. A plain string IS a valid text
+  // ContentInput (iMessage renders markdown), so text needs no builder.
+  // Attachments use the `asAttachment` authoring helper, loaded defensively —
+  // if it's incompatible we skip it and the text still sends.
   async _buildContents(opts) {
-    let builders = {};
-    try {
-      builders = await import("spectrum-ts");
-    } catch {
-      builders = {};
-    }
-    const { markdown, effect, attachment } = builders;
     const contents = [];
-    for (const att of opts.attachments) {
-      const ref = att.path || att.url || att.id;
-      if (!ref) continue;
-      contents.push(typeof attachment === "function" ? attachment(ref, att.name) : ref);
+    if (opts.attachments.length) {
+      let asAttachment;
+      try {
+        ({ asAttachment } = await import("spectrum-ts/authoring"));
+      } catch {
+        asAttachment = null;
+      }
+      if (typeof asAttachment === "function") {
+        for (const att of opts.attachments) {
+          const ref = att.path || att.url || att.id;
+          if (!ref) continue;
+          try {
+            contents.push(asAttachment(ref));
+          } catch {
+            /* skip an attachment the helper can't build */
+          }
+        }
+      }
     }
-    if (opts.text) {
-      let body =
-        opts.markdown && typeof markdown === "function" ? markdown(opts.text) : opts.text;
-      if (opts.effect && typeof effect === "function") body = effect(body, opts.effect);
-      contents.push(body);
-    }
+    if (opts.text) contents.push(opts.text);
     return contents.length ? contents : [opts.text || ""];
   }
 
   async typing(address) {
     if (!this._im) return;
     try {
-      const space = await this._im.space.get(`any;-;${address}`);
-      if (space && typeof space.typing === "function") await space.typing();
+      const space = await this._im.space([address]);
+      if (typeof space.startTyping === "function") await space.startTyping();
     } catch {
       /* typing is best-effort */
     }

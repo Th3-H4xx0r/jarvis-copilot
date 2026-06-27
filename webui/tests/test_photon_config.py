@@ -101,3 +101,23 @@ def test_set_preserves_secret_when_blank(monkeypatch, tmp_path):
 def test_set_rejects_newlines():
     res = photon_config.set_photon_config({"project_id": "a\nb"})
     assert res["ok"] is False
+
+
+def test_allow_all_bool_roundtrip(monkeypatch, tmp_path):
+    written = {}
+    monkeypatch.setattr("api.providers._write_env_file", lambda p, u: written.update(u))
+    monkeypatch.setattr("api.providers._get_hermes_home", lambda: tmp_path)
+    monkeypatch.setenv("PHOTON_PROJECT_ID", "pid")
+    monkeypatch.setenv("PHOTON_PROJECT_SECRET", "sec")
+
+    res = photon_config.set_photon_config({"allow_all": True})
+    assert res["ok"] is True
+    assert written["PHOTON_ALLOW_ALL_USERS"] == "true"
+
+    written.clear()
+    photon_config.set_photon_config({"allow_all": False})
+    assert written["PHOTON_ALLOW_ALL_USERS"] is None
+
+    monkeypatch.setenv("PHOTON_ALLOW_ALL_USERS", "true")
+    cfg = photon_config.get_photon_config(probe=False)
+    assert cfg["allow_all"] is True

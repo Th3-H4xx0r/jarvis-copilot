@@ -20,30 +20,35 @@ from __future__ import annotations
 import os
 from typing import Any, Dict
 
-# (env var, json key, is_secret, required, label) — the form's field order.
+# (env var, json key, is_secret, required, label, kind) — the form's field order.
+# kind is "text" | "password" | "bool".
 _FIELDS = [
     ("PHOTON_PROJECT_ID", "project_id", False, True,
-     "Project ID"),
+     "Project ID", "text"),
     ("PHOTON_PROJECT_SECRET", "project_secret", True, True,
-     "Project secret"),
+     "Project secret", "password"),
     ("PHOTON_NOTIFY_TARGET", "notify_target", False, False,
-     "Your iMessage handle (default notification recipient)"),
+     "Your iMessage handle (default notification recipient)", "text"),
     ("PHOTON_SIDECAR_URL", "sidecar_url", False, False,
-     "Sidecar URL"),
+     "Sidecar URL", "text"),
     ("PHOTON_SIDECAR_TOKEN", "sidecar_token", True, False,
-     "Sidecar token"),
+     "Sidecar token", "password"),
     ("PHOTON_ALLOWED_USERS", "allowed_users", False, False,
-     "Allowed inbound handles (comma-separated)"),
+     "Allowed inbound handles (comma-separated)", "text"),
+    ("PHOTON_ALLOW_ALL_USERS", "allow_all", False, False,
+     "Allow all inbound senders (recommended when it's just you)", "bool"),
 ]
 
 _DEFAULT_SIDECAR_URL = "http://127.0.0.1:8799"
+
+_TRUTHY = ("1", "true", "yes", "on")
 
 
 def _field_meta() -> list:
     """Describe the form so the UIs can render labels/secret flags generically."""
     return [
-        {"key": key, "label": label, "secret": secret, "required": required}
-        for (_env, key, secret, required, label) in _FIELDS
+        {"key": key, "label": label, "secret": secret, "required": required, "kind": kind}
+        for (_env, key, secret, required, label, kind) in _FIELDS
     ]
 
 
@@ -79,9 +84,11 @@ def probe_sidecar() -> Dict[str, Any]:
 def get_photon_config(probe: bool = True) -> Dict[str, Any]:
     """Current Photon config for the setup screen. Secrets are masked."""
     out: Dict[str, Any] = {"fields": _field_meta()}
-    for env, key, secret, _required, _label in _FIELDS:
+    for env, key, secret, _required, _label, kind in _FIELDS:
         val = os.getenv(env, "").strip()
-        if secret:
+        if kind == "bool":
+            out[key] = val.lower() in _TRUTHY
+        elif secret:
             out[key] = ""              # never leak the secret
             out[f"{key}_set"] = bool(val)
         else:
@@ -108,10 +115,14 @@ def set_photon_config(body: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": "invalid body"}
 
     updates: Dict[str, str | None] = {}
-    for env, key, secret, _required, _label in _FIELDS:
+    for env, key, secret, _required, _label, kind in _FIELDS:
         if key not in body:
             continue
         raw = body.get(key)
+        if kind == "bool":
+            truthy = raw is True or (str(raw).strip().lower() in _TRUTHY)
+            updates[env] = "true" if truthy else None  # clear when off
+            continue
         val = "" if raw is None else str(raw).strip()
         if "\n" in val or "\r" in val:
             return {"ok": False, "error": f"{key} must not contain newlines"}
