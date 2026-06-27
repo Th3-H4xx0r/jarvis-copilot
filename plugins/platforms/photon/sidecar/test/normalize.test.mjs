@@ -73,3 +73,30 @@ test("typing/unknown arms are dropped (null)", async () => {
   const n = await eng._normalize(space, { id: "t", content: { type: "typing", state: "start" } });
   assert.equal(n, null);
 });
+
+test("_buildContents builds an attachment from a local file (real attachment())", async () => {
+  const eng = new RealEngine({});
+  const { writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const f = join(tmpdir(), `photon-out-${process.pid}-${Math.floor(performance.now())}.png`);
+  await writeFile(f, Buffer.from([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 1, 2, 3]));
+  const c = await eng._buildContents({
+    text: "", markdown: false, effect: "", attachments: [{ path: f, name: "x.png", mimeType: "image/png" }],
+  });
+  assert.equal(c.length, 1); // one real attachment content — NOT an empty text
+  assert.notEqual(c[0], ""); // must never fall back to an empty string
+  await rm(f, { force: true });
+});
+
+test("_buildContents returns [] for empty, [text] for text-only", async () => {
+  const eng = new RealEngine({});
+  assert.deepEqual(
+    await eng._buildContents({ text: "", markdown: false, effect: "", attachments: [] }),
+    []
+  );
+  assert.deepEqual(
+    await eng._buildContents({ text: "hi", markdown: false, effect: "", attachments: [] }),
+    ["hi"]
+  );
+});

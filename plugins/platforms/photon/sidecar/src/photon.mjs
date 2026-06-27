@@ -18,7 +18,8 @@
 //   { id, address, text, platform, timestamp, raw }
 
 import { randomUUID } from "node:crypto";
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir, readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
 
@@ -60,6 +61,39 @@ function _kindFor(mime) {
   if (mime.startsWith("audio/")) return "audio";
   if (mime.startsWith("video/")) return "video";
   return "file";
+}
+
+const _HEIC_BRANDS = new Set([
+  "heic", "heix", "hevc", "hevx", "mif1", "msf1", "heim", "heis",
+]);
+
+function _isHeic(buf, mimeType) {
+  if ((mimeType || "").toLowerCase().includes("hei")) return true; // image/heic, image/heif
+  // ISOBMFF: a `ftyp` box at offset 4 with a HEIF/HEIC brand.
+  return (
+    buf.length >= 12 &&
+    buf.slice(4, 8).toString("latin1") === "ftyp" &&
+    _HEIC_BRANDS.has(buf.slice(8, 12).toString("latin1"))
+  );
+}
+
+// HEIC isn't decodable by Pillow-without-plugins or Claude vision, so transcode
+// to JPEG here (pure-JS, no system libs). Falls back to the original bytes if
+// heic-convert isn't installed or the decode fails.
+async function _maybeConvertHeic(buf, mimeType, name) {
+  if (!_isHeic(buf, mimeType)) return { buf, mimeType, name };
+  try {
+    const { default: heicConvert } = await import("heic-convert");
+    const out = await heicConvert({ buffer: buf, format: "JPEG", quality: 0.92 });
+    const base = name && name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name || "photo";
+    return { buf: Buffer.from(out), mimeType: "image/jpeg", name: `${base}.jpg` };
+  } catch (err) {
+    console.error(
+      "[photon] HEIC→JPEG conversion failed (is heic-convert installed?):",
+      err && err.message ? err.message : err
+    );
+    return { buf, mimeType, name };
+  }
 }
 
 const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -285,10 +319,15 @@ export class RealEngine {
   async _dumpAttachment(content) {
     try {
       if (!content || typeof content.read !== "function") return null;
-      const buf = await content.read();
-      if (!buf || !buf.length) return null;
-      const mimeType = content.mimeType || "application/octet-stream";
-      const name = content.name || `attachment${_extFor(mimeType, "")}`;
+      const raw = await content.read();
+      if (!raw || !raw.length) return null;
+      // iPhone photos are HEIC by default, which neither the gateway's image
+      // validator nor Claude vision accepts — transcode to JPEG up front.
+      const { buf, mimeType, name } = await _maybeConvertHeic(
+        raw,
+        content.mimeType || "application/octet-stream",
+        content.name || "attachment"
+      );
       await mkdir(this._inboundDir, { recursive: true });
       const file = path.join(this._inboundDir, `${randomUUID()}${_extFor(mimeType, name)}`);
       await writeFile(file, buf);
@@ -395,6 +434,11 @@ export class RealEngine {
     const opts = _normalizeSend(payload);
     const space = await this._resolveSpace(target);
     const contents = await this._buildContents(opts);
+    // Never send an empty content list (Spectrum rejects empty text with a
+    // "too_small" validation error) — surface a clear error instead.
+    if (!contents.length) {
+      throw new Error("Photon send: nothing to send (no text and no valid attachment)");
+    }
     let res;
     try {
       res = await space.send(...contents);
@@ -413,31 +457,50 @@ export class RealEngine {
 
   // Compose the Spectrum content list. A plain string IS a valid text
   // ContentInput (iMessage renders markdown), so text needs no builder.
-  // Attachments use the `asAttachment` authoring helper, loaded defensively —
-  // if it's incompatible we skip it and the text still sends.
+  // Attachments use the main-module `attachment(input, opts)` builder
+  // (input = string | Buffer | URL). Local files (path or file:// URL) are read
+  // into a Buffer so the SDK doesn't have to guess path-vs-URL; remote URLs pass
+  // as a URL. Returns [] when nothing valid built (caller guards against empty).
   async _buildContents(opts) {
     const contents = [];
     if (opts.attachments.length) {
-      let asAttachment;
+      let attachment;
       try {
-        ({ asAttachment } = await import("spectrum-ts/authoring"));
+        ({ attachment } = await import("spectrum-ts"));
       } catch {
-        asAttachment = null;
+        attachment = null;
       }
-      if (typeof asAttachment === "function") {
+      if (typeof attachment === "function") {
         for (const att of opts.attachments) {
-          const ref = att.path || att.url || att.id;
-          if (!ref) continue;
-          try {
-            contents.push(asAttachment(ref));
-          } catch {
-            /* skip an attachment the helper can't build */
-          }
+          const c = await this._attachmentContent(attachment, att);
+          if (c != null) contents.push(c);
         }
       }
     }
     if (opts.text) contents.push(opts.text);
-    return contents.length ? contents : [opts.text || ""];
+    return contents;
+  }
+
+  async _attachmentContent(attachment, att) {
+    const o = {};
+    if (att.name) o.name = att.name;
+    if (att.mimeType) o.mimeType = att.mimeType;
+    try {
+      // Local file (explicit path, or a file:// URL) → read bytes (unambiguous).
+      if (att.path || (att.url && String(att.url).startsWith("file://"))) {
+        const p = att.path || fileURLToPath(att.url);
+        const buf = await readFile(p);
+        return attachment(buf, o);
+      }
+      if (att.url) return attachment(new URL(att.url), o);
+      return null;
+    } catch (err) {
+      console.error(
+        "[photon] outbound attachment build failed:",
+        err && err.message ? err.message : err
+      );
+      return null;
+    }
   }
 
   async typing(target) {
