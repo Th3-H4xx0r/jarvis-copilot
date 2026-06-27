@@ -110,6 +110,22 @@ test("_resolveSpace: cache hit returns thread; miss extracts handle from GUID", 
   assert.deepEqual(called, ["+15551234567"]);
 });
 
+test("_buildContents derives name+mime for a bare path (no mimeType given)", async () => {
+  // Regression: send_image posts {url/path} with no mimeType; Spectrum's
+  // attachment() REQUIRES options.mimeType, so the sidecar must derive it.
+  const eng = new RealEngine({});
+  const { writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const f = join(tmpdir(), `photon-nomime-${process.pid}-${Math.floor(performance.now())}.png`);
+  await writeFile(f, Buffer.from([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 1, 2, 3]));
+  const c = await eng._buildContents({
+    text: "", markdown: false, effect: "", attachments: [{ path: f }], // no name, no mimeType
+  });
+  assert.equal(c.length, 1); // builds — mimeType derived from .png, no throw
+  await rm(f, { force: true });
+});
+
 test("_buildContents returns [] for empty, [text] for text-only", async () => {
   const eng = new RealEngine({});
   assert.deepEqual(

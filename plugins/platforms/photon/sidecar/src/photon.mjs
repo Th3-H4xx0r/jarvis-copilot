@@ -63,6 +63,40 @@ function _kindFor(mime) {
   return "file";
 }
 
+const _EXT_MIME = {
+  ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif",
+  ".webp": "image/webp", ".heic": "image/heic", ".heif": "image/heic", ".tiff": "image/tiff",
+  ".bmp": "image/bmp", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
+  ".ogg": "audio/ogg", ".amr": "audio/amr", ".wav": "audio/wav", ".mp4": "video/mp4",
+  ".mov": "video/quicktime", ".pdf": "application/pdf",
+};
+
+function _baseName(p) {
+  if (!p) return "";
+  const noQuery = String(p).split("?")[0];
+  const i = Math.max(noQuery.lastIndexOf("/"), noQuery.lastIndexOf("\\"));
+  return i >= 0 ? noQuery.slice(i + 1) : noQuery;
+}
+
+function _mimeForName(name) {
+  const i = (name || "").lastIndexOf(".");
+  return i >= 0 ? _EXT_MIME[name.slice(i).toLowerCase()] || "" : "";
+}
+
+// Magic-byte sniff for the common image types (last-resort MIME inference).
+function _sniffMime(buf) {
+  if (buf.length >= 8 && buf.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+    return "image/png";
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+  if (buf.length >= 6) {
+    const head = buf.slice(0, 6).toString("latin1");
+    if (head === "GIF87a" || head === "GIF89a") return "image/gif";
+  }
+  if (buf.length >= 12 && buf.slice(0, 4).toString("latin1") === "RIFF" && buf.slice(8, 12).toString("latin1") === "WEBP")
+    return "image/webp";
+  return "";
+}
+
 const _HEIC_BRANDS = new Set([
   "heic", "heix", "hevc", "hevx", "mif1", "msf1", "heim", "heis",
 ]);
@@ -568,18 +602,29 @@ export class RealEngine {
   }
 
   async _attachmentContent(attachment, att) {
-    const o = {};
-    if (att.name) o.name = att.name;
-    if (att.mimeType) o.mimeType = att.mimeType;
     try {
+      let input;
+      let src; // path or url string, for deriving name/mime
       // Local file (explicit path, or a file:// URL) → read bytes (unambiguous).
       if (att.path || (att.url && String(att.url).startsWith("file://"))) {
-        const p = att.path || fileURLToPath(att.url);
-        const buf = await readFile(p);
-        return attachment(buf, o);
+        src = att.path || fileURLToPath(att.url);
+        input = await readFile(src);
+      } else if (att.url) {
+        src = String(att.url);
+        input = new URL(att.url);
+      } else {
+        return null;
       }
-      if (att.url) return attachment(new URL(att.url), o);
-      return null;
+      // Spectrum can't sniff a Buffer/URL — it REQUIRES options.mimeType (and a
+      // name), else "Unable to resolve MIME type for attachment". Derive both
+      // from the supplied metadata, then the filename, then the bytes.
+      const name = att.name || _baseName(src) || "file";
+      const mimeType =
+        att.mimeType ||
+        _mimeForName(name) ||
+        (Buffer.isBuffer(input) ? _sniffMime(input) : "") ||
+        "application/octet-stream";
+      return attachment(input, { name, mimeType });
     } catch (err) {
       console.error(
         "[photon] outbound attachment build failed:",
