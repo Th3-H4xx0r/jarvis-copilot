@@ -127,8 +127,10 @@ if [[ "$EUID" -ne 0 ]] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev
 fi
 
 if command -v systemctl >/dev/null 2>&1; then
+    # Also stop the Photon sidecar so it restarts fresh (new code) at the end.
     for unit in jarviscopilot-webui.service jarviscopilot-webui.service \
-                jarviscopilot-gateway.service jarviscopilot-gateway.service; do
+                jarviscopilot-gateway.service jarviscopilot-gateway.service \
+                jarviscopilot-photon-sidecar.service; do
         if [[ -n "$SUDO_STOP" ]]; then
             $SUDO_STOP systemctl stop "$unit" >/dev/null 2>&1 || true
         else
@@ -137,16 +139,21 @@ if command -v systemctl >/dev/null 2>&1; then
     done
 fi
 
-# Collect PIDs of anything still alive: port 8787 listener + gateway loop.
+# Collect PIDs of anything still alive: port 8787 (webui) + 8799 (Photon sidecar)
+# listeners, the gateway loop, and any stray manually-run sidecar.
 STOP_PIDS=""
 if command -v ss >/dev/null 2>&1; then
     STOP_PIDS+=" $(ss -tlnpH 'sport = :8787' 2>/dev/null \
         | grep -oE 'pid=[0-9]+' | grep -oE '[0-9]+' || true)"
+    STOP_PIDS+=" $(ss -tlnpH 'sport = :8799' 2>/dev/null \
+        | grep -oE 'pid=[0-9]+' | grep -oE '[0-9]+' || true)"
 elif command -v lsof >/dev/null 2>&1; then
     STOP_PIDS+=" $(lsof -iTCP:8787 -sTCP:LISTEN -Pn -t 2>/dev/null || true)"
+    STOP_PIDS+=" $(lsof -iTCP:8799 -sTCP:LISTEN -Pn -t 2>/dev/null || true)"
 fi
 if command -v pgrep >/dev/null 2>&1; then
     STOP_PIDS+=" $(pgrep -f 'jarviscopilot_cli\.main +gateway +run' 2>/dev/null || true)"
+    STOP_PIDS+=" $(pgrep -f 'photon/sidecar/src/server\.mjs' 2>/dev/null || true)"
 fi
 STOP_PIDS="$(printf '%s\n' $STOP_PIDS | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ' || true)"
 

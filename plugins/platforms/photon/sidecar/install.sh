@@ -91,8 +91,10 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 UNIT
   systemctl daemon-reload
-  systemctl enable --now jarviscopilot-photon-sidecar
-  log "Installed + started jarviscopilot-photon-sidecar."
+  systemctl enable jarviscopilot-photon-sidecar >/dev/null 2>&1 || true
+  # restart (not just enable --now) so an already-running sidecar reloads new code.
+  systemctl restart jarviscopilot-photon-sidecar
+  log "Installed + (re)started jarviscopilot-photon-sidecar."
 }
 
 if [ "${1:-}" = "--service" ]; then
