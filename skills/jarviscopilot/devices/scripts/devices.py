@@ -75,11 +75,29 @@ def _media_cache_dir() -> Path:
     return cache_dir
 
 
+def _webui_tls_enabled() -> bool:
+    """Whether the local webui is serving HTTPS.
+
+    HERMES_WEBUI_TLS_CERT is only present in the WEBUI process — a device command
+    spawned from the GATEWAY (Photon/Telegram) never inherits it, so it used to
+    guess http and send plaintext to the webui's HTTPS socket, which TLS resets
+    (Errno 104 / connection reset). Detect TLS from the stable on-disk cert so
+    the scheme is correct regardless of which process is calling.
+    """
+    if os.environ.get("HERMES_WEBUI_TLS_CERT"):
+        return True
+    env_home = os.environ.get("HERMES_HOME", "").strip()
+    home = Path(env_home) if env_home else (Path.home() / ".jarviscopilot")
+    return (home / "webui-tls" / "cert.pem").exists()
+
+
 def _webui_origin() -> str:
     """Best-effort guess of the webui's local URL. Honors env overrides."""
-    scheme = "https" if os.environ.get("HERMES_WEBUI_TLS_CERT") else "http"
+    scheme = "https" if _webui_tls_enabled() else "http"
     port = os.environ.get("HERMES_WEBUI_PORT", "8787")
     host = os.environ.get("HERMES_WEBUI_HOST", "127.0.0.1")
+    if host in ("0.0.0.0", "::"):  # bind-all addr isn't connectable
+        host = "127.0.0.1"
     return f"{scheme}://{host}:{port}"
 
 

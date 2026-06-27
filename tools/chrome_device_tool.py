@@ -46,10 +46,27 @@ def _state_dir() -> Path:
     return (Path.home() / ".jarviscopilot" / "webui").resolve()
 
 
+def _webui_tls_enabled() -> bool:
+    """Whether the local webui is serving HTTPS.
+
+    HERMES_WEBUI_TLS_CERT lives only in the webui process; the gateway
+    (Photon/Telegram) never inherits it, so guessing http there sends plaintext
+    to the webui's HTTPS socket → Errno 104 reset. Detect TLS from the on-disk
+    cert so the scheme is correct from any calling process.
+    """
+    if os.environ.get("HERMES_WEBUI_TLS_CERT"):
+        return True
+    env_home = os.environ.get("HERMES_HOME", "").strip()
+    home = Path(env_home) if env_home else (Path.home() / ".jarviscopilot")
+    return (home / "webui-tls" / "cert.pem").exists()
+
+
 def _webui_origin() -> str:
-    scheme = "https" if os.environ.get("HERMES_WEBUI_TLS_CERT") else "http"
+    scheme = "https" if _webui_tls_enabled() else "http"
     port = os.environ.get("HERMES_WEBUI_PORT", "8787")
     host = os.environ.get("HERMES_WEBUI_HOST", "127.0.0.1")
+    if host in ("0.0.0.0", "::"):  # bind-all addr isn't connectable
+        host = "127.0.0.1"
     return f"{scheme}://{host}:{port}"
 
 
