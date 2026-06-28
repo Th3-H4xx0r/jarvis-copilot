@@ -1044,7 +1044,7 @@
   .msg-media-link:hover{background:var(--accent-bg-strong);}
 
   /* ── Inline SVG rendering ── */
-  .msg-media-svg{display:block;max-width:100%;height:auto;border-radius:6px;margin:6px 0;border:1px solid var(--border);background:var(--surface);}
+  .msg-media-svg{display:block;max-width:100%;height:auto;border-radius:6px;margin:6px 0;border:1px solid var(--border);background:var(--surface);cursor:zoom-in;}
   .msg-media-label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:4px;user-select:none;}
 
   /* ── Inline audio/video media editor with speed controls ── */

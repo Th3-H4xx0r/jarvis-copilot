@@ -518,8 +518,9 @@ function _closeImgLightbox(lb) {
 
 document.addEventListener('click', e => {
   if(!e.target || !e.target.closest) return;
-  // Message-attached images (already wired since v0.50.x).
-  let img = e.target.closest('.msg-media-img');
+  // Chat/message images (assistant-rendered): raster (.msg-media-img) and
+  // inline SVG (.msg-media-svg) — tap to open the fullscreen lightbox.
+  let img = e.target.closest('.msg-media-img, .msg-media-svg');
   if(img){ _openImgLightbox(img.src, img.alt); return; }
   // Composer attach-tray image thumbnails — click any pasted/dropped image
   // chip to lightbox-zoom it before sending. Excludes audio/video chips,

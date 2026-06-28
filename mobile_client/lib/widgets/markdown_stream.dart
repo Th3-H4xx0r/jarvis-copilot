@@ -6,6 +6,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../main.dart' as app;
 import '../theme.dart';
+import 'image_viewer.dart';
 
 /// A markdown widget that updates as text grows. We could re-create
 /// MarkdownBody on every frame and let Flutter diff, but for long
@@ -134,16 +135,32 @@ class MarkdownStream extends StatelessWidget {
 
     Widget broken() => _BrokenImageChip();
 
+    // Wrap an inline image so tapping it opens the fullscreen viewer. The
+    // imageBuilder gives us no BuildContext, so grab one via Builder; reuse the
+    // SAME bytes (as a MemoryImage) for the viewer so it never re-fetches.
+    Widget tappable(Widget child, Uint8List bytes) => Builder(
+          builder: (ctx) => GestureDetector(
+            onTap: () => Navigator.of(ctx).push(MaterialPageRoute(
+              fullscreenDialog: true,
+              builder: (_) => ImageViewerPage(image: MemoryImage(bytes)),
+            )),
+            child: child,
+          ),
+        );
+
     // data:image/…;base64,… — decode (cached) and render from memory.
     if (uri.scheme == 'data') {
       final raw = uri.toString();
       try {
         final bytes = _dataCache[raw] ??= _decodeDataUri(uri);
         if (bytes.isEmpty) return broken();
-        return clamp(Image.memory(
+        return clamp(tappable(
+          Image.memory(
+            bytes,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => broken(),
+          ),
           bytes,
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) => broken(),
         ));
       } catch (_) {
         return broken();
@@ -171,10 +188,13 @@ class MarkdownStream extends StatelessWidget {
           }
           final data = snap.data;
           if (snap.hasError || data == null || data.isEmpty) return broken();
-          return Image.memory(
+          return tappable(
+            Image.memory(
+              data,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => broken(),
+            ),
             data,
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => broken(),
           );
         },
       ));
