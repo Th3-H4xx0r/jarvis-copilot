@@ -56,6 +56,13 @@ class ChatController extends ChangeNotifier implements ComposerAttachHost {
   bool streaming = false;
   String? _streamId;
   StreamSubscription<Map<String, dynamic>>? _sub;
+  // The on-device generation subscription, kept so [_teardownStream] can cancel
+  // it (which triggers OnDeviceAi's onCancel → native cancel(requestId)). Held
+  // separately from [_sub] because the local path doesn't use the SSE stream.
+  StreamSubscription<String>? _localSub;
+  // Completes the in-flight [_streamLocalReply] future when the stream is torn
+  // down (Stop), so the awaiting send() returns instead of hanging.
+  Completer<void>? _localDone;
   ChatMessage? _live; // the assistant message currently being filled
   DateTime? _turnStartedAt; // for the per-message "Done in Xs" status
   String? error;
@@ -449,6 +456,9 @@ class ChatController extends ChangeNotifier implements ComposerAttachHost {
           // Stream the FULL reply from the model (the guided-gen inline answer
           // is a short field that truncates long content like poems).
           await _streamLocalReply(text, assistant);
+          // If Stop tore the stream down mid-generation, [_finishLive] already
+          // ran (with cancelled:true) — don't re-finalize or persist a partial.
+          if (!streaming) return true;
           // Apple FM doesn't report token usage — estimate (~4 chars/token) so
           // the status line is complete for on-device too.
           final persona = OnDeviceAi.instance.persona;
@@ -508,12 +518,26 @@ class ChatController extends ChangeNotifier implements ComposerAttachHost {
 
   /// Persist a completed on-device turn into the server session so it shows on
   /// the web + other devices. Best-effort.
+  ///
+  /// On-device image generation embeds the result as a multi-MB base64 data-URL
+  /// markdown image. We strip those to a short placeholder before persisting so
+  /// the session JSON stays small — the in-memory message the user sees this
+  /// session keeps the full image (only the SERVER copy is trimmed).
   Future<void> _persistLocal(String userText, String assistantText) async {
     try {
       final sid = await _ensureSession();
-      await _sessions.appendLocalTurn(sid, user: userText, assistant: assistantText);
+      await _sessions.appendLocalTurn(sid,
+          user: userText, assistant: _stripPersistedImages(assistantText));
     } catch (_) {}
   }
+
+  /// Replace inline base64 data-URL images (`![alt](data:image/…;base64,…)`)
+  /// with a short `[generated image]` placeholder so megabytes of base64 never
+  /// get written to the server session.
+  static final RegExp _dataImageRe =
+      RegExp(r'!\[[^\]]*\]\(data:image/[^)]+\)');
+  static String _stripPersistedImages(String text) =>
+      text.replaceAll(_dataImageRe, '[generated image]');
 
   /// Stream a full reply from the on-device model (persona assistant prompt)
   /// into [assistant]. Used when the router decided to answer locally.
@@ -525,16 +549,33 @@ class ChatController extends ChangeNotifier implements ComposerAttachHost {
       tier: LocalAiTier.fullLocalFirst,
     );
     final completer = Completer<void>();
-    OnDeviceAi.instance.generate(req).listen(
+    void done() {
+      if (!completer.isCompleted) completer.complete();
+    }
+
+    // Cancel any prior local generation before starting a new one.
+    unawaited(_localSub?.cancel());
+    _localDone = completer;
+    late final StreamSubscription<String> sub;
+    sub = OnDeviceAi.instance.generate(req).listen(
       (t) {
+        // Ignore late tokens delivered after a Stop tore the stream down (or
+        // after this subscription was superseded) — nothing should append to
+        // the message once cancelled.
+        if (_localSub != sub) return;
         assistant.appendToken(t);
         notifyListeners();
       },
-      onError: (_) => completer.complete(),
-      onDone: () => completer.complete(),
+      onError: (_) => done(),
+      onDone: done,
       cancelOnError: true,
     );
+    _localSub = sub;
     await completer.future;
+    // If we were cancelled (the subscription is no longer current), bail
+    // without backfilling — the cancelled turn keeps whatever it had.
+    if (_localSub != sub) return;
+    _localSub = null;
     if (assistant.plainText.trim().isEmpty) {
       assistant.appendToken('At your service.');
     }
@@ -728,6 +769,15 @@ class ChatController extends ChangeNotifier implements ComposerAttachHost {
   void _teardownStream() {
     _sub?.cancel();
     _sub = null;
+    // Cancel the on-device generation too. Cancelling triggers OnDeviceAi's
+    // controller.onCancel → native cancel(requestId), actually stopping the
+    // model. Null it FIRST so the listen-guard drops any late tokens, then
+    // complete the awaiting [_streamLocalReply] so its send() returns.
+    final localSub = _localSub;
+    _localSub = null;
+    localSub?.cancel();
+    if (_localDone != null && !_localDone!.isCompleted) _localDone!.complete();
+    _localDone = null;
     _live = null;
     _streamId = null;
     streaming = false;

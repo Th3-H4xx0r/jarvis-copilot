@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
@@ -101,6 +102,22 @@ class ApiClient {
       queryParameters: query,
       options: Options(headers: headers),
     );
+  }
+
+  /// GET a binary resource (e.g. an image from /api/media). Goes through the
+  /// auth-cookie interceptor + cert pinning, so cookie-gated endpoints load.
+  /// [absoluteUrl] true → [pathOrUrl] is a full URL (don't prefix [base]).
+  Future<Uint8List> getBytes(String pathOrUrl,
+      {bool absoluteUrl = false, Map<String, String>? headers}) async {
+    final url = absoluteUrl ? pathOrUrl : '$base$pathOrUrl';
+    final resp = await _dio.get<List<int>>(
+      url,
+      options: Options(
+        headers: headers,
+        responseType: ResponseType.bytes,
+      ),
+    );
+    return Uint8List.fromList(resp.data ?? const []);
   }
 
   Future<Response<dynamic>> postJson(String path, Object body,
