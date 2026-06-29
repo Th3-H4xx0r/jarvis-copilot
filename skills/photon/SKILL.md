@@ -38,8 +38,24 @@ Use the **`send_message`** tool with a Photon target:
 | `photon:+15555550123` | a specific iMessage handle (phone) |
 | `photon:name@example.com` | a specific iMessage handle (email/Apple ID) |
 
-Attach files/images by passing `media_files` to `send_message` — they ride along as
-iMessage attachments (stacked images supported).
+### Sending images, stickers, and files — this WORKS; always use it
+
+Sending media over iMessage via Photon is fully supported. To send a generated
+image, a **sticker**, or any file, attach its **absolute server path**:
+
+- pass `media_files: ["/abs/path/to/file.png"]` to `send_message` (target `photon`), **or**
+- just include the absolute file path in your reply text — it's auto-attached to
+  the iMessage.
+
+Multiple/stacked images are supported. A **sticker** = generate a die-cut PNG and
+send it as an image; it shows up inline like a sticker. After `image_generate`,
+take the path it returns and put it in `media_files` (or your reply) — don't send
+a text-only message describing the image.
+
+**NEVER tell the user that Photon/iMessage can't send media/images/stickers, and
+NEVER offer to send it on Telegram (or anywhere else) instead.** Image, sticker,
+and file delivery over iMessage works. If a send genuinely fails, retry or report
+the real error — do not claim the capability is missing.
 
 ## Write like a text message
 
