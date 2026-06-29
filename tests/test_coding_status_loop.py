@@ -216,17 +216,19 @@ def test_server_transition_dispatches_notifications(monkeypatch):
     assert calls == []                                   # first-seen idle: no ping
 
 
-def test_server_transition_sends_telegram_when_enabled(monkeypatch):
-    # When the telegram channel is on, the server poll sends it directly (no
-    # notify.sh on the server to do it).
+def test_server_transition_delegates_telegram_to_dispatch(monkeypatch):
+    # Telegram is now the shared dispatch's job (matrix-gated, single source of
+    # truth). The server transition must DELEGATE every channel to the dispatch
+    # and must NOT send Telegram itself (that would double-send for server hosts).
     import sys
     import types
 
     from agent import coding_status_loop as csl
 
+    dispatched = []
     tg = []
     fake = types.ModuleType("api.coding_routes")
-    fake._dispatch_coding_notifications = lambda store, **kw: None
+    fake._dispatch_coding_notifications = lambda store, **kw: dispatched.append(kw)
     fake._EVENT_NOTIFY_KEY = {"stop": "finished", "notification": "needs_input"}
     fake._coding_settings = lambda store: {
         "events": {"needs_input": {"telegram": True}}}
@@ -238,7 +240,8 @@ def test_server_transition_sends_telegram_when_enabled(monkeypatch):
     monkeypatch.setitem(sys.modules, "api.coding_routes", fake)
 
     csl._notify_server_transition({}, {"id": "x", "cwd": "/p"}, "idle", "waiting")
-    assert tg == ["🔔 needs you — proj"]
+    assert [d.get("event") for d in dispatched] == ["notification"]
+    assert tg == []  # not sent directly — the dispatch owns Telegram
 
 
 def test_no_run_method_skips_reap():

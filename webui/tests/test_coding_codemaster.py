@@ -79,6 +79,7 @@ def test_settings_post_merges_persists_and_ignores_junk():
 # ── notification dispatch (settings-gated) ───────────────────────────────────
 
 def _spy_channels(monkeypatch):
+    cr._last_alert.clear()  # isolate the per-(session,event) phone-ping debounce
     calls = {"tg": 0, "mob": 0, "toast": 0}
     monkeypatch.setattr(cr, "_send_coding_telegram",
                         lambda text: (calls.__setitem__("tg", calls["tg"] + 1) or True))
@@ -89,17 +90,18 @@ def _spy_channels(monkeypatch):
     return calls
 
 
-def test_dispatch_sends_mobile_and_toast_not_telegram(monkeypatch):
-    # _dispatch owns MOBILE push + WebUI toast. Telegram is sent by the plugin's
-    # notify.sh hook (the proven `jc-client notify` path), so _dispatch must NOT
-    # send it here (avoids a double Telegram ping per event).
+def test_dispatch_sends_all_enabled_channels(monkeypatch):
+    # _dispatch is the SINGLE source of truth for coding notifications: it owns
+    # Telegram, mobile push, and the WebUI toast, each gated by the Code Master
+    # matrix. (Telegram used to be sent client-side by notify.sh, ignoring the
+    # matrix — that path is retired.)
     m = FakeManager()  # defaults: all channels on
     calls = _spy_channels(monkeypatch)
     sent = cr._dispatch_coding_notifications(m.store, event="notification",
                                             row=None, cwd="/x/proj")
-    assert calls == {"tg": 0, "mob": 1, "toast": 1}
+    assert calls == {"tg": 1, "mob": 1, "toast": 1}
+    assert sent.get("telegram") is True
     assert sent.get("mobile") is True and sent.get("toast") is True
-    assert "telegram" not in sent
 
 
 def test_dispatch_respects_channel_matrix(monkeypatch):
@@ -108,8 +110,22 @@ def test_dispatch_respects_channel_matrix(monkeypatch):
         "finished": {"telegram": True, "mobile": True, "toast": False}}})
     calls = _spy_channels(monkeypatch)
     cr._dispatch_coding_notifications(m.store, event="stop", row=None, cwd="/x/proj")
-    # mobile on -> sent; toast off -> not; telegram never sent here (notify.sh owns it)
-    assert calls == {"tg": 0, "mob": 1, "toast": 0}
+    # telegram + mobile on -> sent; toast off -> not.
+    assert calls == {"tg": 1, "mob": 1, "toast": 0}
+
+
+def test_dispatch_telegram_unchecked_is_not_sent(monkeypatch):
+    # Regression: unchecking Telegram in the Code Master matrix must actually
+    # stop the Telegram ping (the Mac-session bug where notify.sh fired Telegram
+    # regardless of the matrix). Other enabled channels still fire.
+    m = FakeManager()
+    m.store.set_setting("notifications", {"events": {
+        "finished": {"telegram": False, "mobile": True, "toast": True}}})
+    calls = _spy_channels(monkeypatch)
+    sent = cr._dispatch_coding_notifications(m.store, event="stop",
+                                             row=None, cwd="/x/proj")
+    assert calls == {"tg": 0, "mob": 1, "toast": 1}
+    assert "telegram" not in sent  # disabled channel: absent, never sent
 
 
 def test_dispatch_unknown_event_is_noop(monkeypatch):

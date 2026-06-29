@@ -43,6 +43,7 @@ def test_dispatch_fires_photon_when_enabled(monkeypatch):
     # Avoid the other channels' side effects.
     monkeypatch.setattr(cr, "_push_device_alert", lambda *a, **k: 0)
     monkeypatch.setattr(cr, "_notify_webui_event", lambda **k: None)
+    monkeypatch.setattr(cr, "_send_coding_telegram", lambda text: False)
 
     store = _FakeStore({"events": {"needs_input": {
         "telegram": False, "mobile": False, "toast": False, "photon": True}}})
@@ -56,6 +57,7 @@ def test_dispatch_skips_photon_when_disabled(monkeypatch):
     monkeypatch.setattr(cr, "_send_coding_photon", lambda text: (calls.append(text) or True))
     monkeypatch.setattr(cr, "_push_device_alert", lambda *a, **k: 0)
     monkeypatch.setattr(cr, "_notify_webui_event", lambda **k: None)
+    monkeypatch.setattr(cr, "_send_coding_telegram", lambda text: False)
 
     store = _FakeStore({"events": {"needs_input": {"photon": False}}})
     sent = cr._dispatch_coding_notifications(store, event="notification", row=None, cwd="/x/proj")

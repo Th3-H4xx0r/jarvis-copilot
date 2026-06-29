@@ -518,12 +518,37 @@ def _send_coding_photon(text: str) -> bool:
         return False
 
 
+def _alert_debounce_ok(sid: str, event: str) -> bool:
+    """Whether a phone-style ping (mobile push / Telegram) for ``(sid, event)`` is
+    allowed right now — and record it if so. Debounces a session that rapidly
+    re-asserts the same edge (don't wake the phone every few seconds). No session
+    identity → always allowed (can't safely key, and unrelated sessions must not
+    collide). Shared by the mobile + Telegram channels so one edge pings once."""
+    import time as _t
+    now = _t.monotonic()
+    # Bound the map on a long-running server (one entry per session×event).
+    if len(_last_alert) > 256:
+        cutoff = now - 10 * _ALERT_DEBOUNCE
+        for k in [k for k, ts in _last_alert.items() if ts < cutoff]:
+            _last_alert.pop(k, None)
+    if not sid:
+        return True
+    key = f"{sid}\x1f{event}"
+    if now - _last_alert.get(key, 0.0) < _ALERT_DEBOUNCE:
+        return False
+    _last_alert[key] = now
+    return True
+
+
 def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> dict:
-    """Fan a coding lifecycle event out to the channels enabled in settings:
-    Telegram, mobile push banner, and a WebUI toast. Fires regardless of whether
-    the session row was matched (so notifications stay reliable even if the LA
-    state-update couldn't bind a row); the label falls back to the cwd folder.
-    Returns {channel: bool} for observability. Never raises."""
+    """Fan a coding lifecycle event out to the channels enabled in the Code Master
+    matrix: Telegram, mobile push banner, WebUI toast, and iMessage (Photon). This
+    is the SINGLE source of truth for coding notifications — every channel is gated
+    here by the per-event matrix, for BOTH the server host and the Mac (the Mac's
+    old client-side notify.sh path, which fired Telegram regardless of the matrix,
+    is retired). Fires regardless of whether the session row was matched (so
+    notifications stay reliable even if the LA state-update couldn't bind a row);
+    the label falls back to the cwd folder. Returns {channel: bool}. Never raises."""
     ekey = _EVENT_NOTIFY_KEY.get(event)
     if not ekey:
         return {}
@@ -535,33 +560,39 @@ def _dispatch_coding_notifications(store, *, event: str, row, cwd: str = "") -> 
         (("✅ Claude finished" if event == "stop" else "🔔 Claude needs you"),
          _folder_label(cwd))
     sent = {}
-    # Telegram is sent by the plugin's notify.sh hook (`jc-client notify`, the
-    # user's proven messaging path), NOT here — otherwise the user would get TWO
-    # Telegram pings per event. This server-side dispatch owns the MOBILE push +
-    # WebUI toast (the channels notify.sh can't reach). The telegram channel in the
-    # Code Master matrix still governs notify.sh's behavior client-side.
+    # Mobile push + Telegram are "phone pings": debounce per (session, event) so a
+    # session that rapidly re-asserts the same edge can't spam them. Computed once
+    # and shared, so one edge fires both channels together (or suppresses both).
+    sid = (row or {}).get("id") or cwd
+    _phone_allowed = None
+
+    def _phone_ok() -> bool:
+        nonlocal _phone_allowed
+        if _phone_allowed is None:
+            _phone_allowed = _alert_debounce_ok(sid, event)
+        return _phone_allowed
+
     if chans.get("mobile"):
-        # Debounce per (session, event): a session that rapidly re-asserts the
-        # same edge must not wake every phone with a banner every few seconds.
-        import time as _t
-        sid = (row or {}).get("id") or cwd
-        now = _t.monotonic()
-        # Bound the map on a long-running server (one entry per session×event).
-        if len(_last_alert) > 256:
-            cutoff = now - 10 * _ALERT_DEBOUNCE
-            for k in [k for k, ts in _last_alert.items() if ts < cutoff]:
-                _last_alert.pop(k, None)
-        key = f"{sid}\x1f{event}"
-        # No session identity → can't safely debounce (would collide unrelated
-        # sessions); always send.
-        if sid and now - _last_alert.get(key, 0.0) < _ALERT_DEBOUNCE:
+        if not _phone_ok():
             sent["mobile"] = False
         else:
-            _last_alert[key] = now
             try:
                 sent["mobile"] = _push_device_alert(title, label) > 0
             except Exception:
                 sent["mobile"] = False
+    if chans.get("telegram"):
+        # Telegram lives here now (matrix-gated), for BOTH hosts. A Mac session
+        # reaches this via the /activity/event hook; a server session via the
+        # status-loop transition. Unchecking Telegram in the matrix actually
+        # stops the ping — that's the whole point of consolidating it here.
+        if not _phone_ok():
+            sent["telegram"] = False
+        else:
+            try:
+                sent["telegram"] = _send_coding_telegram(
+                    f"{title} — {label}" if label else title)
+            except Exception:
+                sent["telegram"] = False
     if chans.get("toast"):
         try:
             _notify_webui_event(event=event, label=label, title=title)

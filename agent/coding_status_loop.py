@@ -140,9 +140,8 @@ def _notify_server_transition(store, row, prev, state) -> None:
       • ``* -> waiting`` = Claude NEEDS INPUT (a prompt appeared)  -> ``notification``
       • ``working -> idle`` = the turn FINISHED                    -> ``stop``
     Other transitions (e.g. ``-> working``, first-seen ``-> idle``) don't ping.
-    Sends mobile push + WebUI toast via the shared dispatch, AND Telegram directly
-    (the shared dispatch leaves Telegram to the Mac's notify.sh hook, which never
-    runs on the server). Never raises."""
+    Delegates ALL channels (Telegram + mobile push + WebUI toast + iMessage) to the
+    shared dispatch, which gates each on the Code Master matrix. Never raises."""
     if state == "waiting" and prev != "waiting":
         event = "notification"
     elif state == "idle" and prev == "working":
@@ -156,17 +155,6 @@ def _notify_server_transition(store, row, prev, state) -> None:
     cwd = row.get("cwd") or ""
     try:
         cr._dispatch_coding_notifications(store, event=event, row=row, cwd=cwd)
-    except Exception:
-        pass
-    # Telegram: the shared dispatch deliberately skips it (the Mac notify.sh hook
-    # owns Telegram for Mac sessions). A server session has no such hook, so send
-    # it here — gated by the same Code Master telegram channel toggle.
-    try:
-        ekey = cr._EVENT_NOTIFY_KEY.get(event)
-        chans = cr._coding_settings(store)["events"].get(ekey, {})
-        if chans.get("telegram"):
-            title, label = cr._coding_alert_text(store, row, event)
-            cr._send_coding_telegram(f"{title} — {label}")
     except Exception:
         pass
 
