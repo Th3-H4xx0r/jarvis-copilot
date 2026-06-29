@@ -216,17 +216,46 @@ fi
 mkdir -p "$VENV_DIR"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$VENV_DIR/.webui-installed"
 
-# --- Photon (iMessage) sidecar (optional) ----------------------------------
+# --- Photon (iMessage) sidecar ---------------------------------------------
 # Photon ships as a bundled platform plugin with a small Node sidecar that holds
-# the live spectrum-ts connection. Install its npm deps + generate a shared auth
-# token here so the WebUI/mobile "Photon provider" setup screen works out of the
-# box. Entirely optional and non-fatal: cleanly skipped if Node isn't installed.
+# the live spectrum-ts connection. Install Node (if missing) + its npm deps +
+# generate a shared auth token here so the WebUI/mobile "Photon provider" setup
+# screen works out of the box. Non-fatal: a failure never aborts the installer.
 # (Its own install.sh runs `npm install`, writes PHOTON_SIDECAR_TOKEN into the
 # shared ~/.jarviscopilot/.env, and — as root with systemd — installs the unit.)
+
+# Ensure Node.js >= 18 is available (the sidecar needs it). Best-effort install
+# via NodeSource on Debian/Ubuntu (distro packages are often too old), dnf on
+# RHEL/Fedora, or Homebrew on macOS. Returns success if node>=18 ends up on PATH.
+_ensure_node() {
+    if command -v node >/dev/null 2>&1; then
+        local maj; maj="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+        [[ "$maj" =~ ^[0-9]+$ && "$maj" -ge 18 ]] && return 0
+    fi
+    # `-E` is a sudo flag, so it must NOT be emitted when running as root (empty
+    # SUDO) — otherwise `| -E bash -` tries to run "-E" as a command.
+    local SUDO="" SUDO_E=""
+    if [[ "$EUID" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then SUDO="sudo"; SUDO_E="sudo -E"; fi
+    info "Installing Node.js 20 (for the Photon iMessage sidecar) ..."
+    if command -v apt-get >/dev/null 2>&1; then
+        curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO_E bash - >/dev/null 2>&1
+        $SUDO apt-get install -y nodejs >/dev/null 2>&1
+    elif command -v dnf >/dev/null 2>&1; then
+        curl -fsSL https://rpm.nodesource.com/setup_20.x | $SUDO_E bash - >/dev/null 2>&1
+        $SUDO dnf install -y nodejs >/dev/null 2>&1
+    elif command -v yum >/dev/null 2>&1; then
+        curl -fsSL https://rpm.nodesource.com/setup_20.x | $SUDO_E bash - >/dev/null 2>&1
+        $SUDO yum install -y nodejs >/dev/null 2>&1
+    elif command -v brew >/dev/null 2>&1; then
+        brew install node >/dev/null 2>&1
+    fi
+    command -v node >/dev/null 2>&1
+}
+
 PHOTON_SIDECAR_DIR="$INSTALL_DIR/plugins/platforms/photon/sidecar"
 if [[ -f "$PHOTON_SIDECAR_DIR/install.sh" ]]; then
-    if command -v node >/dev/null 2>&1; then
-        info "Setting up the optional Photon (iMessage) sidecar ..."
+    if _ensure_node; then
+        info "Setting up the Photon (iMessage) sidecar (node $(node -v)) ..."
         PHOTON_SVC_FLAG=""
         if [[ "$EUID" -eq 0 ]] && command -v systemctl >/dev/null 2>&1 && [[ -d /etc/systemd/system ]]; then
             PHOTON_SVC_FLAG="--service"
@@ -239,8 +268,8 @@ if [[ -f "$PHOTON_SIDECAR_DIR/install.sh" ]]; then
             warn "Photon sidecar setup failed (non-fatal). Run later: bash $PHOTON_SIDECAR_DIR/install.sh"
         fi
     else
-        warn "Node.js not found -- skipping the optional Photon (iMessage) sidecar."
-        warn "  Install Node >=18, then run: bash $PHOTON_SIDECAR_DIR/install.sh"
+        warn "Could not install Node.js >=18 -- skipping the Photon (iMessage) sidecar."
+        warn "  Install Node >=18 manually, then run: bash $PHOTON_SIDECAR_DIR/install.sh"
     fi
 fi
 
