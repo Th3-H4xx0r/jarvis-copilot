@@ -216,6 +216,20 @@ class TestPlatformDefaults:
         for plat in ("email", "sms", "webhook", "homeassistant"):
             assert resolve_display_setting({}, plat, "tool_progress") == "off", plat
 
+    def test_photon_suppresses_tool_progress_but_keeps_streaming(self):
+        """Photon: tool_progress off (no Spectrum unsend → can't collapse a
+        trace) but tier_high otherwise, so the streamed REPLY still edits in
+        ONE bubble. cleanup_progress stays off; streaming follows global."""
+        from gateway.display_config import resolve_display_setting
+
+        # Trace suppressed — only the single streamed reply, no per-tool bubbles.
+        assert resolve_display_setting({}, "photon", "tool_progress") == "off"
+        # No fake "delete" cleanup — Spectrum has no unsend.
+        assert resolve_display_setting({}, "photon", "cleanup_progress") is False
+        # tier_high: streaming follows global (None), preview length 40 (not 0).
+        assert resolve_display_setting({}, "photon", "streaming") is None
+        assert resolve_display_setting({}, "photon", "tool_preview_length") == 40
+
     def test_low_tier_streaming_defaults_to_false(self):
         """Low-tier platforms default streaming to False."""
         from gateway.display_config import resolve_display_setting

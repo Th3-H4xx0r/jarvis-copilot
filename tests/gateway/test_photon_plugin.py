@@ -376,6 +376,17 @@ class TestAdapterEdit:
         assert PhotonAdapter.edit_message is not BasePlatformAdapter.edit_message
         assert getattr(PhotonAdapter, "SUPPORTS_MESSAGE_EDITING", True) is True
 
+    def test_delete_message_intentionally_not_overridden(self):
+        # Spectrum's iMessage bridge has no delete/unsend API, so the adapter
+        # deliberately does NOT override delete_message. The gateway's
+        # progress-cleanup path keys off this (run.py disables cleanup when
+        # delete_message is the base method), and the platform default sets
+        # tool_progress="off" instead of relying on a collapse. Guard the
+        # decision so nobody adds a fake delete that can't actually unsend.
+        from gateway.platforms.base import BasePlatformAdapter
+
+        assert PhotonAdapter.delete_message is BasePlatformAdapter.delete_message
+
     def test_edit_message_posts_to_sidecar(self, monkeypatch):
         adapter = self._make_adapter()
         _patch_client(monkeypatch, payload={"success": True, "id": "m1"})

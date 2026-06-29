@@ -83,6 +83,13 @@ _PLATFORM_DEFAULTS: dict[str, dict[str, Any]] = {
     # Tier 1 — full edit support, personal/team use
     "telegram":    {**_TIER_HIGH, "tool_progress": "new"},
     "discord":     _TIER_HIGH,
+    # Photon (hosted iMessage): edits a sent message in place (so the streamed
+    # REPLY animates in ONE bubble — hence tier_high, not tier_low), BUT
+    # Spectrum has no delete/unsend API, so a separate tool-progress trace
+    # could never be collapsed after the answer. Suppress the trace entirely
+    # (tool_progress="off") so the user sees just the single streamed reply
+    # ending as the clean final answer — Telegram-style, minus the collapse.
+    "photon":      {**_TIER_HIGH, "tool_progress": "off"},
 
     # Tier 2 — edit support, often customer/workspace channels
     # Slack: tool_progress off by default — Bolt posts cannot be edited like CLI;

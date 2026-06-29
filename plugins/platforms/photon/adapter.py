@@ -155,6 +155,19 @@ class PhotonAdapter(BasePlatformAdapter):
     #      overriding it below is what actually enables send+edit streaming.
     SUPPORTS_MESSAGE_EDITING = True
 
+    # NOTE: ``delete_message`` is intentionally NOT overridden. Spectrum's
+    # iMessage bridge exposes no delete/unsend/retract API (the universal
+    # ``Message`` interface is content/edit/react/reply only; the iMessage
+    # provider adds just ``read`` — no removal anywhere). A sent iMessage
+    # cannot be unsent, so the gateway's tool-progress cleanup (which needs
+    # ``delete_message``) can never collapse a progress bubble here. Instead
+    # the platform default in gateway/display_config.py sets
+    # ``tool_progress: "off"`` for "photon", suppressing the separate trace so
+    # the user sees ONLY the single streamed reply (send-then-edit) ending as
+    # the clean final answer — Telegram-style minus the collapse. If Spectrum
+    # ever gains unsend, override delete_message + flip display_config to
+    # ``tool_progress: "new"`` + ``cleanup_progress: True``.
+
     def __init__(self, config: PlatformConfig):
         super().__init__(config=config, platform=Platform("photon"))
 

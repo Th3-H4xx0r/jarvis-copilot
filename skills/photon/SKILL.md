@@ -64,6 +64,18 @@ iMessage is a **conversational, blue-bubble** medium. Keep replies short and nat
 links) and rendered richly, but use it lightly. Don't dump long multi-paragraph
 answers; send a tight reply and offer to go deeper.
 
+## Streaming behavior (one bubble, no tool-call clutter)
+
+An agent turn streams into a **single iMessage bubble** that updates as the reply
+is written and ends as just the clean final answer — like Telegram. This works
+because Spectrum edits a sent message in place (`SUPPORTS_MESSAGE_EDITING`). It
+does **not** expose any delete/unsend API, though, so a separate tool-progress
+trace (one bubble per `skill_view` / `image_generate` / `reasoning` step) could
+never be collapsed afterward. Rather than spam the thread with breadcrumbs that
+can't be removed, the per-tool trace is **suppressed** for Photon
+(`tool_progress: "off"` in `gateway/display_config.py`) — so only the single
+streamed reply appears.
+
 ## The rich iMessage surface (Apple-level)
 
 Photon exposes far more than plain text. Know these so you can use — or offer — the
