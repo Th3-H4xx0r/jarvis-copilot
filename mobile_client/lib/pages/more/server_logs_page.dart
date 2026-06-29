@@ -42,16 +42,33 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
   String? _error;
   Timer? _timer;
 
+  // Lines render newest-first (latest at the TOP). We auto-scroll to the top on
+  // open and keep it pinned there as new lines arrive — but only while the user
+  // is parked at the top; once they scroll down to read older lines we stop
+  // yanking them back.
+  final ScrollController _scroll = ScrollController();
+  bool _followLatest = true;
+
   @override
   void initState() {
     super.initState();
+    _scroll.addListener(() {
+      if (_scroll.hasClients) _followLatest = _scroll.offset <= 24;
+    });
     _load();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _scroll.dispose();
     super.dispose();
+  }
+
+  void _stickToTop() {
+    if (_followLatest && _scroll.hasClients) {
+      _scroll.jumpTo(0);
+    }
   }
 
   Future<void> _load() async {
@@ -71,6 +88,8 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
         _mtime = data['mtime'] as num?;
         _hint = (data['hint'] ?? '').toString();
       });
+      // After the new lines render, keep the latest (top) in view if following.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _stickToTop());
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     } finally {
@@ -401,7 +420,8 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
         ),
       );
     }
-    final lines = _filtered;
+    // Newest-first so the latest line sits at the top of the view.
+    final lines = _filtered.reversed.toList(growable: false);
     if (lines.isEmpty) {
       return Center(
         child: Padding(
@@ -424,6 +444,7 @@ class _ServerLogsPageState extends State<ServerLogsPage> {
     }
 
     final list = ListView.builder(
+      controller: _scroll,
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       itemCount: lines.length,
       itemBuilder: (_, i) {
