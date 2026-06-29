@@ -98,6 +98,13 @@ export function loadConfig(env = process.env) {
     imessageMode: get("PHOTON_IMESSAGE_MODE", "cloud"),
     // How long an idle /inbound stream waits between heartbeat comments (ms).
     heartbeatMs: getInt("PHOTON_SIDECAR_HEARTBEAT_MS", 25000),
+    // Proactively rotate (tear down + rebuild) the Spectrum inbound stream after
+    // this many ms. spectrum-ts's app.messages can SILENTLY STALL (TCP alive, no
+    // messages, no error) — which produces multi-minute "no reply" hangs because
+    // the reconnect loop only fires on an error/clean-end that never comes. A
+    // periodic rotation bounds any stall to this interval; the InboundHub replay
+    // buffer covers the sub-second gap so no message is lost. 0 disables it.
+    streamMaxAgeMs: getInt("PHOTON_STREAM_MAX_AGE_MS", 150000),
     // Where we read the shared .env from (for diagnostics).
     envFile: _envFilePath(env),
   };

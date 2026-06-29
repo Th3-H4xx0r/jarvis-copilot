@@ -46,6 +46,19 @@ test("ignores comments and blank lines, strips quotes", () => {
   assert.equal(cfg.token, "quoted-tok");
 });
 
+test("streamMaxAgeMs defaults on and is env-tunable (0 disables)", () => {
+  const file = envFileWith("");
+  assert.equal(loadConfig({ PHOTON_ENV_FILE: file }).streamMaxAgeMs, 150000);
+  assert.equal(
+    loadConfig({ PHOTON_ENV_FILE: file, PHOTON_STREAM_MAX_AGE_MS: "60000" }).streamMaxAgeMs,
+    60000
+  );
+  assert.equal(
+    loadConfig({ PHOTON_ENV_FILE: file, PHOTON_STREAM_MAX_AGE_MS: "0" }).streamMaxAgeMs,
+    0
+  );
+});
+
 test("missing .env file is harmless (mock mode)", () => {
   const cfg = loadConfig({ PHOTON_ENV_FILE: "/nonexistent/path/.env" });
   assert.equal(cfg.mock, true);

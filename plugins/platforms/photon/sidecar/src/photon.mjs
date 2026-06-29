@@ -455,6 +455,28 @@ export class RealEngine {
         }
       }
       const startedMs = Date.now();
+      // Stall watchdog: a silently-stalled app.messages stream never errors, so
+      // proactively rotate the connection after streamMaxAgeMs. Capture the app
+      // we're iterating so stopping it ends THIS for-await (the loop then
+      // reconnects fresh). The replay buffer covers the brief gap.
+      const maxAge = this.config && this.config.streamMaxAgeMs;
+      let rotateTimer = null;
+      let rotated = false;
+      if (maxAge && maxAge > 0) {
+        const app = this._app;
+        rotateTimer = setTimeout(() => {
+          rotated = true;
+          console.warn(
+            `[photon] rotating inbound stream after ${Math.round(maxAge / 1000)}s ` +
+              `(stall safety-net)`
+          );
+          try {
+            if (app && typeof app.stop === "function") Promise.resolve(app.stop()).catch(() => {});
+          } catch {
+            /* ignore */
+          }
+        }, maxAge);
+      }
       try {
         for await (const [space, message] of this._app.messages) {
           if (this._stopping) break;
@@ -464,12 +486,22 @@ export class RealEngine {
         }
       } catch (err) {
         if (this._stopping) break;
-        console.error(
-          "[photon] inbound stream error:",
-          err && err.message ? err.message : err
-        );
+        if (!rotated) {
+          console.error(
+            "[photon] inbound stream error:",
+            err && err.message ? err.message : err
+          );
+        }
+      } finally {
+        if (rotateTimer) clearTimeout(rotateTimer);
       }
       if (this._stopping) break;
+      // A rotation is a healthy reconnect, not a failure — don't back off.
+      if (rotated) {
+        this._connected = false;
+        this._im = null;
+        continue;
+      }
       // Stream ended/failed → mark down, drop the stale handle, then back off.
       this._connected = false;
       this._im = null;
