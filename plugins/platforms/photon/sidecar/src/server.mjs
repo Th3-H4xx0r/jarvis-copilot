@@ -199,9 +199,14 @@ export function createServer(arg, config) {
         try {
           await state.engine.edit(id, text);
         } catch (err) {
+          const msg = err && err.message ? err.message : String(err);
+          // Spectrum mid-reconnect → 503 (retryable) so the adapter retries the
+          // edit rather than abandoning the partial stream.
+          if (err && err.retryable) {
+            return sendJson(res, 503, { error: msg, retryable: true });
+          }
           // Unknown id / not-editable / provider rejection. 422 (not 500) so the
           // adapter can cleanly fall back to a fresh send without alarming logs.
-          const msg = err && err.message ? err.message : String(err);
           return sendJson(res, 422, { error: msg });
         }
         return sendJson(res, 200, { success: true, id });
@@ -218,6 +223,15 @@ export function createServer(arg, config) {
       return sendJson(res, 404, { error: "not found" });
     } catch (err) {
       const msg = err && err.message ? err.message : String(err);
+      // A RETRYABLE engine error (Spectrum mid-reconnect / mid-/reload, rate
+      // limit, or a transient 5xx from the cloud) must surface as 503 — NOT 500.
+      // The Python adapter retries 503/connection failures with backoff, so a
+      // brief sidecar hiccup recovers instead of silently dropping the reply. A
+      // 500 (or any other non-2xx) is treated as permanent by the adapter.
+      if (err && err.retryable) {
+        console.warn("[photon] request retryable (503):", msg);
+        return sendJson(res, 503, { error: msg, retryable: true });
+      }
       console.error("[photon] request error:", msg);
       return sendJson(res, 500, { error: msg });
     }

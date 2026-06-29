@@ -67,6 +67,18 @@ DEDUP_MAX_SIZE = 1000
 RECONNECT_BACKOFF = [2, 5, 10, 30, 60]
 STREAM_READ_TIMEOUT = 90  # sidecar heartbeats every ~25s; give margin
 
+# Outbound send retry policy. A single POST to the localhost sidecar can fail
+# transiently — the sidecar momentarily busy, mid-/reload, or the Spectrum link
+# reconnecting (sidecar returns 503), a connection blip, or a Spectrum 429/5xx.
+# Without a retry the user simply gets NO reply, which is the most visible
+# "sometimes Photon doesn't answer" symptom. We retry those with short backoff.
+# We do NOT retry a 422 (validation: empty/missing address or text) or any other
+# permanent rejection — retrying those just wastes time and never succeeds.
+SEND_MAX_RETRIES = 3
+SEND_RETRY_BACKOFF = [0.5, 1.5, 3.0]
+# HTTP statuses that are safe + worth retrying on /send (transient server-side).
+_RETRYABLE_SEND_STATUS = {429, 500, 502, 503, 504}
+
 
 class _FatalStreamError(Exception):
     """Raised when the inbound stream fails unrecoverably (e.g. 401)."""
@@ -198,13 +210,23 @@ class PhotonAdapter(BasePlatformAdapter):
             return False
 
     async def _run_stream(self) -> None:
-        """Consume the sidecar inbound NDJSON stream, with reconnection."""
+        """Consume the sidecar inbound NDJSON stream, with reconnection.
+
+        Bulletproof by design: the ONLY ways out of this loop are real shutdown
+        (``self._running`` cleared, ``CancelledError``) or a fatal auth error
+        (401). EVERY other outcome — a transient exception, a read timeout, OR a
+        clean stream end (the sidecar ended the stream on /reload or restart) —
+        leads back to a reconnect so a single blip can never permanently stop
+        inbound delivery. spectrum-ts has no replay/history backstop, so a stuck
+        consumer = silently no replies; we never let that happen."""
         backoff_idx = 0
         url = f"{self._sidecar}/inbound"
         while self._running:
             stream_start = time.monotonic()
+            clean_end = False
             try:
                 await self._consume_stream(url)
+                clean_end = True  # returned without raising → sidecar ended it
             except asyncio.CancelledError:
                 return
             except _FatalStreamError:
@@ -217,6 +239,15 @@ class PhotonAdapter(BasePlatformAdapter):
 
             if not self._running:
                 return
+            # A CLEAN end (sidecar /reload swapped the engine and end()ed open
+            # streams, or a brief server restart) should reconnect PROMPTLY — not
+            # sit out a multi-second backoff during which inbound is dead. Only an
+            # erroring/short-lived stream escalates the backoff.
+            if clean_end:
+                logger.info("[%s] inbound stream ended (reload/restart); reconnecting now", self.name)
+                await asyncio.sleep(0.25)
+                backoff_idx = 0
+                continue
             if time.monotonic() - stream_start >= 60.0:
                 backoff_idx = 0
             delay = RECONNECT_BACKOFF[min(backoff_idx, len(RECONNECT_BACKOFF) - 1)]
@@ -251,8 +282,23 @@ class PhotonAdapter(BasePlatformAdapter):
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if event.get("type") == "message":
+                etype = event.get("type")
+                if etype == "message":
                     await self._on_message(event.get("message") or {})
+                elif etype == "ready":
+                    # The sidecar reports whether its Spectrum link is up. If it
+                    # is NOT, inbound iMessages will silently never arrive even
+                    # though THIS stream is healthy — make that loud so a down /
+                    # mock sidecar is diagnosable instead of "Jarvis went quiet".
+                    if event.get("connected") is False:
+                        logger.warning(
+                            "[%s] inbound stream is up but the sidecar's Spectrum "
+                            "link is DOWN (mock mode or reconnecting) — no inbound "
+                            "iMessages will arrive until it reconnects.",
+                            self.name,
+                        )
+                    else:
+                        logger.info("[%s] inbound stream ready (sidecar connected)", self.name)
 
     async def disconnect(self) -> None:
         self._running = False
@@ -280,11 +326,26 @@ class PhotonAdapter(BasePlatformAdapter):
         # Photos/stickers/files/voice arrive as attachments the sidecar spooled to
         # temp files; cache them locally so the agent's vision/audio tools can read
         # them (media_urls = local paths). A message may be attachment-only.
-        media_urls, media_types, msg_type = self._ingest_attachments(msg.get("attachments") or [])
+        claimed_attachments = list(msg.get("attachments") or [])
+        media_urls, media_types, msg_type = self._ingest_attachments(claimed_attachments)
         if not text and media_urls:
             text = "(attachment)"
         if not text and not media_urls:
-            return
+            # The wire message CLAIMED attachments but none could be read — the
+            # sidecar-spooled temp file was already gone (a concurrent reader won
+            # the read+delete race, or the OS/cleanup removed it). Dropping the
+            # whole message here is a SILENT no-reply for an attachment-only text
+            # ("sometimes Photon doesn't answer"). Surface a placeholder instead so
+            # the agent still sees an inbound and replies, rather than going quiet.
+            if claimed_attachments:
+                logger.warning(
+                    "[%s] inbound %s had attachment(s) but none were readable "
+                    "(temp file lost); delivering as a placeholder so we still reply",
+                    self.name, msg_id,
+                )
+                text = "(sent an attachment I couldn't open)"
+            else:
+                return
 
         # Reply routing keys on the originating SPACE (space_id) so the sidecar
         # replies in-thread (no recipient-provisioning needed). Auth/display use
@@ -382,27 +443,52 @@ class PhotonAdapter(BasePlatformAdapter):
     # -- Outbound ----------------------------------------------------------
 
     async def _post_send(self, body: Dict[str, Any], *, timeout: float = 20.0) -> SendResult:
-        """POST a (text and/or attachment) message to the sidecar /send.
+        """POST a (text and/or attachment) message to the sidecar /send, with a
+        bounded retry-with-backoff for TRANSIENT failures.
 
         Uses a FRESH httpx client bound to the current event loop. The gateway
         dispatches sends from loops/threads other than the one ``connect()`` ran
         in, and reusing ``self._http_client`` (created in connect's loop) raises
         "<asyncio Event> is bound to a different event loop". The persistent
-        client is reserved for the long-lived inbound stream."""
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.post(
-                    f"{self._sidecar}/send", headers=self._headers, json=body
+        client is reserved for the long-lived inbound stream.
+
+        Retries (short backoff, ``SEND_MAX_RETRIES`` attempts total):
+          * connection errors (sidecar momentarily down / restarting),
+          * timeouts (sidecar busy / mid-/reload — localhost, so a stuck POST
+            is far more likely "not delivered" than "delivered but slow"),
+          * HTTP 429 / 5xx incl. the sidecar's 503 reconnect window.
+        Does NOT retry a 422 (validation) or any other 4xx — those are
+        permanent and re-POSTing them never succeeds."""
+        last_error = "send failed"
+        attempts = SEND_MAX_RETRIES
+        for attempt in range(attempts):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(
+                        f"{self._sidecar}/send", headers=self._headers, json=body
+                    )
+                if resp.status_code < 300:
+                    return SendResult(success=True, message_id=_resp_message_id(resp))
+                last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                if resp.status_code not in _RETRYABLE_SEND_STATUS:
+                    # 422 (validation) and other 4xx are permanent — fail now.
+                    logger.warning("[%s] send failed %s", self.name, last_error)
+                    return SendResult(success=False, error=last_error)
+                logger.warning(
+                    "[%s] send transient %s (attempt %d/%d)",
+                    self.name, last_error, attempt + 1, attempts,
                 )
-            if resp.status_code < 300:
-                return SendResult(success=True, message_id=_resp_message_id(resp))
-            logger.warning("[%s] send failed HTTP %d: %s", self.name, resp.status_code, resp.text[:200])
-            return SendResult(success=False, error=f"HTTP {resp.status_code}: {resp.text[:200]}")
-        except httpx.TimeoutException:
-            return SendResult(success=False, error="Timeout talking to Photon sidecar")
-        except Exception as e:
-            logger.error("[%s] send error: %s", self.name, e)
-            return SendResult(success=False, error=str(e))
+            except httpx.TimeoutException:
+                last_error = "Timeout talking to Photon sidecar"
+                logger.warning("[%s] send timeout (attempt %d/%d)", self.name, attempt + 1, attempts)
+            except Exception as e:
+                last_error = str(e)
+                logger.warning("[%s] send error (attempt %d/%d): %s", self.name, attempt + 1, attempts, e)
+            if attempt < attempts - 1:
+                await asyncio.sleep(SEND_RETRY_BACKOFF[min(attempt, len(SEND_RETRY_BACKOFF) - 1)])
+        logger.error("[%s] send failed after %d attempts: %s", self.name, attempts, last_error)
+        # retryable=True lets any outer gateway _send_with_retry try once more too.
+        return SendResult(success=False, error=last_error, retryable=True)
 
     async def send(
         self,
@@ -633,11 +719,23 @@ async def _standalone_send(
         # iMessage supports attachments / stacked images — forward local paths
         # (the sidecar runs on the same host) so send_message media reaches Photon.
         payload["attachments"] = [{"path": f} for f in media_files if f]
+    last_error = "Photon standalone send failed"
+    for attempt in range(SEND_MAX_RETRIES):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(f"{sidecar}/send", headers=headers, json=payload)
+            if resp.status_code < 300:
+                break
+            last_error = f"Photon HTTP {resp.status_code}: {resp.text[:200]}"
+            if resp.status_code not in _RETRYABLE_SEND_STATUS:
+                return {"error": last_error}  # 422 / permanent — no retry
+        except Exception as e:
+            last_error = f"Photon standalone send failed: {e}"
+        if attempt < SEND_MAX_RETRIES - 1:
+            await asyncio.sleep(SEND_RETRY_BACKOFF[min(attempt, len(SEND_RETRY_BACKOFF) - 1)])
+    else:
+        return {"error": last_error}
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(f"{sidecar}/send", headers=headers, json=payload)
-        if resp.status_code >= 300:
-            return {"error": f"Photon HTTP {resp.status_code}: {resp.text[:200]}"}
         return {
             "success": True,
             "platform": "photon",

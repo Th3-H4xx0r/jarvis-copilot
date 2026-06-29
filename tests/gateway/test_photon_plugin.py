@@ -219,6 +219,144 @@ class TestAdapterSend:
 
 
 # ---------------------------------------------------------------------------
+# Adapter outbound RETRY policy — the "sometimes no reply" hardening.
+# A transient sidecar hiccup (503 reconnect window, 5xx, connection blip) must
+# be retried so the reply still goes out; a 422 validation error must NOT be
+# retried (re-POSTing it never succeeds and just delays the failure).
+# ---------------------------------------------------------------------------
+
+
+class _SequencingClient:
+    """Fake httpx.AsyncClient that returns/raises a different result per POST,
+    walking a shared script. Lets us assert retry-then-succeed and
+    no-retry-on-422 without sleeping for real (backoff is patched to 0)."""
+
+    script: list = []
+    calls: int = 0
+
+    def __init__(self, *a, **k):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, headers=None, json=None):
+        i = _SequencingClient.calls
+        _SequencingClient.calls += 1
+        item = _SequencingClient.script[min(i, len(_SequencingClient.script) - 1)]
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+def _resp(status=200, payload=None, text=""):
+    resp = MagicMock(status_code=status)
+    resp.text = text
+    resp.content = b"{}"
+    resp.json.return_value = payload if payload is not None else {}
+    return resp
+
+
+def _patch_sequence(monkeypatch, script):
+    _SequencingClient.script = list(script)
+    _SequencingClient.calls = 0
+    monkeypatch.setattr(_photon.httpx, "AsyncClient", _SequencingClient)
+    # No real backoff sleeps in tests.
+    monkeypatch.setattr(_photon.asyncio, "sleep", AsyncMock())
+
+
+class TestAdapterSendRetry:
+    def _make_adapter(self, **extra):
+        base = {"sidecar_url": "http://127.0.0.1:8799", "sidecar_token": "tok"}
+        base.update(extra)
+        return PhotonAdapter(PlatformConfig(enabled=True, extra=base))
+
+    def test_send_retries_transient_503_then_succeeds(self, monkeypatch):
+        # 503 (sidecar mid-reconnect / mid-reload) is retryable; the next attempt
+        # succeeds and the user gets their reply.
+        adapter = self._make_adapter()
+        _patch_sequence(monkeypatch, [
+            _resp(status=503, text="reconnecting"),
+            _resp(status=200, payload={"id": "m2"}),
+        ])
+        result = _run(adapter.send("+1", "hi"))
+        assert result.success is True
+        assert result.message_id == "m2"
+        assert _SequencingClient.calls == 2  # retried exactly once
+
+    def test_send_retries_5xx_then_succeeds(self, monkeypatch):
+        adapter = self._make_adapter()
+        _patch_sequence(monkeypatch, [
+            _resp(status=500, text="boom"),
+            _resp(status=502, text="bad gateway"),
+            _resp(status=200, payload={"id": "ok"}),
+        ])
+        result = _run(adapter.send("+1", "hi"))
+        assert result.success is True
+        assert _SequencingClient.calls == 3
+
+    def test_send_retries_connection_error_then_succeeds(self, monkeypatch):
+        adapter = self._make_adapter()
+        _patch_sequence(monkeypatch, [
+            _photon.httpx.ConnectError("connection refused"),
+            _resp(status=200, payload={"id": "ok"}),
+        ])
+        result = _run(adapter.send("+1", "hi"))
+        assert result.success is True
+        assert _SequencingClient.calls == 2
+
+    def test_send_does_NOT_retry_422_validation(self, monkeypatch):
+        # 422 is permanent (bad address / empty text) — fail immediately, no retry.
+        adapter = self._make_adapter()
+        _patch_sequence(monkeypatch, [
+            _resp(status=422, text="address required"),
+            _resp(status=200, payload={"id": "should-not-reach"}),
+        ])
+        result = _run(adapter.send("+1", "hi"))
+        assert result.success is False
+        assert "422" in result.error
+        assert _SequencingClient.calls == 1  # exactly one attempt — no retry
+
+    def test_send_exhausts_retries_returns_retryable(self, monkeypatch):
+        # All attempts transiently fail → failure, but retryable=True so the
+        # gateway's outer _send_with_retry gets one more shot.
+        adapter = self._make_adapter()
+        _patch_sequence(monkeypatch, [_resp(status=503, text="down")])
+        result = _run(adapter.send("+1", "hi"))
+        assert result.success is False
+        assert result.retryable is True
+        assert _SequencingClient.calls == _photon.SEND_MAX_RETRIES
+
+    def test_standalone_send_retries_then_succeeds(self, monkeypatch):
+        # The cron / CC-notify out-of-process path retries too.
+        _patch_sequence(monkeypatch, [
+            _resp(status=503, text="reconnecting"),
+            _resp(status=200, payload={"id": "s9"}),
+        ])
+        pconfig = PlatformConfig(
+            enabled=True, extra={"sidecar_url": "http://127.0.0.1:8799"})
+        res = _run(_standalone_send(pconfig, "+15555550123", "build done"))
+        assert res["success"] is True
+        assert res["message_id"] == "s9"
+        assert _SequencingClient.calls == 2
+
+    def test_standalone_send_does_NOT_retry_422(self, monkeypatch):
+        _patch_sequence(monkeypatch, [
+            _resp(status=422, text="address required"),
+            _resp(status=200, payload={"id": "nope"}),
+        ])
+        pconfig = PlatformConfig(
+            enabled=True, extra={"sidecar_url": "http://127.0.0.1:8799"})
+        res = _run(_standalone_send(pconfig, "+15555550123", "hi"))
+        assert "error" in res
+        assert "422" in res["error"]
+        assert _SequencingClient.calls == 1
+
+
+# ---------------------------------------------------------------------------
 # Adapter edit (streaming replies)
 # ---------------------------------------------------------------------------
 
@@ -340,6 +478,93 @@ class TestAdapterInbound:
             [{"path": "/nonexistent/x.png", "mimeType": "image/png", "kind": "image"}])
         assert urls == []
         assert mtype == _photon.MessageType.TEXT
+
+    def test_attachment_only_unreadable_file_is_not_dropped(self):
+        # An attachment-only inbound whose temp file vanished (a concurrent
+        # reader won the read+delete race, or cleanup removed it) must NOT be
+        # silently dropped — we still deliver a placeholder so the agent replies
+        # instead of going quiet. This is a real "sometimes no reply" path.
+        adapter = self._make_adapter()
+        with patch.object(adapter, "handle_message", new_callable=AsyncMock) as hm:
+            msg = {"id": "att-gone", "spaceId": "sp1", "handle": "+1", "text": "",
+                   "attachments": [{"path": "/nonexistent/gone.png",
+                                    "mimeType": "image/png", "kind": "image"}]}
+            _run(adapter._on_message(msg))
+            assert hm.await_count == 1
+            event = hm.await_args[0][0]
+            assert event.text  # a non-empty placeholder, not dropped
+            assert event.media_urls == []
+
+    def test_no_attachments_and_no_text_is_still_dropped(self):
+        # Guard the other side: a genuinely empty inbound (no text, no claimed
+        # attachments) is correctly skipped — the placeholder only kicks in when
+        # attachments WERE claimed but unreadable.
+        adapter = self._make_adapter()
+        with patch.object(adapter, "handle_message", new_callable=AsyncMock) as hm:
+            _run(adapter._on_message({"id": "empty", "handle": "+1", "text": ""}))
+            assert hm.await_count == 0
+
+
+class TestInboundStreamResilience:
+    """The inbound consumer must NEVER permanently stop on anything but real
+    shutdown — a clean stream end (sidecar /reload or restart) or a transient
+    error always loops back to reconnect, or inbound goes silently dead."""
+
+    def _make_adapter(self):
+        return PhotonAdapter(PlatformConfig(
+            enabled=True, extra={"sidecar_url": "http://127.0.0.1:8787"}))
+
+    def test_clean_stream_end_reconnects_promptly(self, monkeypatch):
+        # _consume_stream returning (sidecar end()ed the stream on /reload) must
+        # reconnect — NOT exit the loop. We let it reconnect twice then stop.
+        adapter = self._make_adapter()
+        adapter._running = True
+        monkeypatch.setattr(_photon.asyncio, "sleep", AsyncMock())
+        calls = {"n": 0}
+
+        async def fake_consume(url):
+            calls["n"] += 1
+            if calls["n"] >= 3:
+                adapter._running = False  # let the loop exit after 3 reconnects
+            return  # clean end every time → must reconnect
+
+        monkeypatch.setattr(adapter, "_consume_stream", fake_consume)
+        _run(adapter._run_stream())
+        assert calls["n"] == 3  # reconnected after each clean end, never gave up
+
+    def test_transient_error_reconnects(self, monkeypatch):
+        # A transient exception (network blip / read timeout) must reconnect too.
+        adapter = self._make_adapter()
+        adapter._running = True
+        monkeypatch.setattr(_photon.asyncio, "sleep", AsyncMock())
+        calls = {"n": 0}
+
+        async def flaky_consume(url):
+            calls["n"] += 1
+            if calls["n"] >= 3:
+                adapter._running = False
+                return
+            raise RuntimeError("read timeout / network blip")
+
+        monkeypatch.setattr(adapter, "_consume_stream", flaky_consume)
+        _run(adapter._run_stream())
+        assert calls["n"] == 3  # an exception never breaks the loop
+
+    def test_fatal_error_stops_the_loop(self, monkeypatch):
+        # A 401 (bad token) is fatal — the loop SHOULD stop (no point retrying).
+        adapter = self._make_adapter()
+        adapter._running = True
+        monkeypatch.setattr(_photon.asyncio, "sleep", AsyncMock())
+        calls = {"n": 0}
+
+        async def auth_fail(url):
+            calls["n"] += 1
+            raise _photon._FatalStreamError("401 Unauthorized")
+
+        monkeypatch.setattr(adapter, "_consume_stream", auth_fail)
+        _run(adapter._run_stream())
+        assert calls["n"] == 1  # fatal → one attempt, then stop
+        assert adapter._running is False
 
 
 # ---------------------------------------------------------------------------

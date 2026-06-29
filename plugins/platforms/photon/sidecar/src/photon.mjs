@@ -132,6 +132,35 @@ async function _maybeConvertHeic(buf, mimeType, name) {
 
 const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// A send/typing that failed because the Spectrum connection is momentarily down
+// (mid-reconnect or mid-/reload) — NOT a permanent rejection. The HTTP layer maps
+// this to a 503 so the Python adapter retries instead of dropping the reply.
+export class RetryableEngineError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "RetryableEngineError";
+    this.retryable = true;
+  }
+}
+
+// Decide whether a thrown Spectrum error is TRANSIENT (worth a retry) vs a
+// permanent rejection. Spectrum surfaces HTTP-ish failures as SpectrumCloudError
+// with a numeric `.status`; 429 (rate-limit) and 5xx (server) are transient.
+// Connection/network errors (no status) are also transient. A 4xx other than 429
+// (e.g. 422 validation, 403 not-allowed) is permanent — never retry those.
+function _isTransientSendError(err) {
+  if (!err) return false;
+  const status = Number(err.status);
+  if (Number.isFinite(status) && status > 0) {
+    return status === 429 || status >= 500;
+  }
+  const code = String(err.code || "").toLowerCase();
+  const msg = String((err && err.message) || "").toLowerCase();
+  return /econn|etimedout|enetwork|enotfound|socket|network|reset|disconnect|unavailable|timeout/.test(
+    code + " " + msg
+  );
+}
+
 // Pull a sendable handle out of a Spectrum DM space GUID. iMessage DM spaces are
 // "any;-;+1555…" / "iMessage;-;+1555…"; the part after the last ";-;" is the
 // phone/email. A bare handle (no ";-;") is returned unchanged.
@@ -182,15 +211,52 @@ function _normalizeSend(payload) {
 }
 
 // Shared subscriber bookkeeping for both engines.
+//
+// REPLAY BUFFER (why it exists): the inbound path is "live only" — a message is
+// fanned to whatever /inbound subscribers exist at emit time. There are brief
+// windows with ZERO subscribers even when everything is healthy: the ~0.25s the
+// Python adapter takes to reconnect after a /reload or sidecar restart, and the
+// gap while it re-opens /inbound after a network blip. spectrum-ts has NO replay
+// API (see _supervise), so a message that lands in that window with no listener
+// would be GONE — a silent no-reply. To close that, when a message is emitted
+// while no subscriber is attached we buffer it (bounded + TTL'd) and flush it to
+// the next subscriber that connects. This makes the reconnect/reload window
+// loss-free instead of best-effort.
+const _REPLAY_MAX = 50; // cap so a long-dead consumer can't grow this unbounded
+const _REPLAY_TTL_MS = 120000; // 2 min — older buffered inbound is stale, drop it
+
 class InboundHub {
   constructor() {
     this._subs = new Set();
+    this._pending = []; // [{ at, msg }] emitted while no subscriber was attached
   }
   onInbound(fn) {
     this._subs.add(fn);
+    // Flush anything that arrived while nobody was listening (reconnect/reload
+    // gap) to this fresh subscriber, oldest-first, so no inbound is lost.
+    if (this._pending.length) {
+      const now = Date.now();
+      const drained = this._pending;
+      this._pending = [];
+      for (const { at, msg } of drained) {
+        if (now - at > _REPLAY_TTL_MS) continue; // too stale to be worth a reply
+        try {
+          fn(msg);
+        } catch (err) {
+          console.error("[photon] inbound replay subscriber threw:", err);
+        }
+      }
+    }
     return () => this._subs.delete(fn);
   }
   emit(msg) {
+    if (this._subs.size === 0) {
+      // No live /inbound connection right now (adapter mid-reconnect / mid-reload)
+      // — buffer instead of dropping; the next subscriber drains it.
+      this._pending.push({ at: Date.now(), msg });
+      if (this._pending.length > _REPLAY_MAX) this._pending.shift();
+      return;
+    }
     for (const fn of this._subs) {
       try {
         fn(msg);
@@ -359,8 +425,18 @@ export class RealEngine {
   // stream must not leave the engine silently "up" with a stale `_im` (which
   // would make send() fail in confusing ways) — on drop we clear `_im`,
   // reflect it in `connected`, and rebuild the Spectrum app.
+  //
+  // WHY THE BACKOFF IS AGGRESSIVE (and not the old [2,5,10,30,60]s): spectrum-ts
+  // has NO message-history / fetch-missed / replay API. The only inbound paths
+  // in the SDK are `app.messages` (this gRPC stream, delivers ONLY while
+  // connected) and the fusor `webhook()` push (a different architecture needing
+  // a public HTTP endpoint). `space.getMessage(id)` needs an id you don't have
+  // for a missed message. So ANY gap in this stream = iMessages that arrive
+  // during the gap are GONE — they are never redelivered on reconnect. The only
+  // mitigation is to make the reconnect window as small as possible. We cap the
+  // backoff at 5s and start at 1s; the loop NEVER exits except on real shutdown.
   async _supervise() {
-    const backoff = [2, 5, 10, 30, 60];
+    const backoff = [1, 2, 3, 5];
     let i = 0;
     while (!this._stopping) {
       if (!this._connected) {
@@ -402,6 +478,19 @@ export class RealEngine {
       console.warn(`[photon] inbound disconnected; reconnecting in ${delay / 1000}s`);
       await _sleep(delay);
     }
+  }
+
+  // Wait briefly for `_supervise()` to re-establish the connection. Outbound
+  // (/send, /typing) calls that land mid-reconnect would otherwise throw a hard
+  // "Spectrum not connected" — but the reconnect is usually sub-second, so we
+  // poll up to ~3s before giving up. Returns true if connected.
+  async _waitForConnection(timeoutMs = 3000) {
+    if (this._im) return true;
+    const deadline = Date.now() + timeoutMs;
+    while (!this._im && Date.now() < deadline && !this._stopping) {
+      await _sleep(100);
+    }
+    return Boolean(this._im);
   }
 
   // Download an inbound attachment/voice arm's bytes to a temp file the Python
@@ -523,7 +612,12 @@ export class RealEngine {
   }
 
   async send(target, payload) {
-    if (!this._im) throw new Error("Spectrum not connected");
+    // Mid-reconnect / mid-reload: wait briefly for the link to come back, then
+    // raise a RETRYABLE error (→ HTTP 503) so the adapter retries instead of the
+    // reply being dropped. Reconnect is usually sub-second.
+    if (!this._im && !(await this._waitForConnection())) {
+      throw new RetryableEngineError("Spectrum not connected (reconnecting)");
+    }
     const opts = _normalizeSend(payload);
     const space = await this._resolveSpace(target);
     const contents = await this._buildContents(opts);
@@ -540,7 +634,15 @@ export class RealEngine {
       // text. Retry text-only if we sent anything richer than a bare string.
       const textOnly = contents.length === 1 && contents[0] === opts.text;
       if (opts.text && !textOnly) {
-        res = await space.send(opts.text);
+        try {
+          res = await space.send(opts.text);
+        } catch (err2) {
+          throw _isTransientSendError(err2) ? new RetryableEngineError(err2.message) : err2;
+        }
+      } else if (_isTransientSendError(err)) {
+        // Rate-limit / Spectrum 5xx / network blip on the only send attempt —
+        // mark retryable so the adapter retries rather than dropping the reply.
+        throw new RetryableEngineError(err.message);
       } else {
         throw err;
       }
@@ -563,7 +665,9 @@ export class RealEngine {
   // a valid text ContentInput, so the new text needs no builder. Throws on a
   // cache miss so the caller can fall back to a fresh send.
   async edit(id, text) {
-    if (!this._im) throw new Error("Spectrum not connected");
+    if (!this._im && !(await this._waitForConnection())) {
+      throw new RetryableEngineError("Spectrum not connected (reconnecting)");
+    }
     const message = id && this._messages.get(id);
     if (!message) {
       throw new Error(`Photon edit: unknown message id ${id}`);
