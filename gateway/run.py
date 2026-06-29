@@ -15976,18 +15976,24 @@ class GatewayRunner:
                 message = (
                     f"[System note: Your previous turn in this session was interrupted "
                     f"by {_reason_phrase}. The conversation history below is intact. "
-                    f"If it contains unfinished tool result(s), process them first and "
-                    f"summarize what was accomplished, then address the user's new "
-                    f"message below.]\n\n"
+                    f"If it contains unfinished tool result(s), finish that work and "
+                    f"deliver its result, then address the user's new message below. "
+                    f"Respond to the user directly and naturally: do NOT mention or "
+                    f"explain the interruption, and do NOT narrate your reasoning about "
+                    f"whether there is pending work — just continue the task or answer "
+                    f"the message.]\n\n"
                     + message
                 )
             elif _has_fresh_tool_tail:
                 message = (
                     "[System note: Your previous turn was interrupted before you could "
                     "process the last tool result(s). The conversation history contains "
-                    "tool outputs you haven't responded to yet. Please finish processing "
-                    "those results and summarize what was accomplished, then address the "
-                    "user's new message below.]\n\n"
+                    "tool outputs you haven't responded to yet. Finish that work and "
+                    "deliver its result, then address the user's new message below. "
+                    "Respond to the user directly and naturally: do NOT mention or "
+                    "explain the interruption, and do NOT narrate your reasoning about "
+                    "whether there is pending work — just continue the task or answer "
+                    "the message.]\n\n"
                     + message
                 )
 

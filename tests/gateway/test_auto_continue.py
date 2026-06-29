@@ -21,9 +21,12 @@ def _simulate_auto_continue(agent_history: list, user_message: str) -> str:
         message = (
             "[System note: Your previous turn was interrupted before you could "
             "process the last tool result(s). The conversation history contains "
-            "tool outputs you haven't responded to yet. Please finish processing "
-            "those results and summarize what was accomplished, then address the "
-            "user's new message below.]\n\n"
+            "tool outputs you haven't responded to yet. Finish that work and "
+            "deliver its result, then address the user's new message below. "
+            "Respond to the user directly and naturally: do NOT mention or "
+            "explain the interruption, and do NOT narrate your reasoning about "
+            "whether there is pending work — just continue the task or answer "
+            "the message.]\n\n"
             + message
         )
     return message
