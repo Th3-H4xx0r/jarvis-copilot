@@ -17,6 +17,7 @@ Covers three layers of the fix:
 """
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -300,6 +301,90 @@ class TestStaleSessionLockSelfHeal:
         assert sk in adapter._session_tasks
 
 
+class TestHungAgentSelfHeal:
+    """A HUNG agent keeps its adapter task alive (task.done() is False), so the
+    task-ownership heal never fires and every new message is trapped behind a
+    'Interrupting current task (iteration 1/300)' ack.  The adapter now also
+    consults a runner-provided liveness check; when the runner reports the
+    session's agent is stale/idle, the lock heals and the message processes."""
+
+    def test_liveness_check_heals_alive_task_lock(self):
+        adapter = _make_adapter()
+        sk = _session_key()
+
+        # Hung agent: owner task is still "alive" (awaiting a blocked executor).
+        fake_task = MagicMock()
+        fake_task.done.return_value = False
+        adapter._active_sessions[sk] = asyncio.Event()
+        adapter._session_tasks[sk] = fake_task
+
+        # Runner says: this session's agent is stale (idle far beyond timeout).
+        adapter.set_session_liveness_check(lambda key: key == sk)
+
+        # Task-ownership alone says "not stale", but the liveness check heals it.
+        assert adapter._session_task_is_stale(sk) is False
+        assert adapter._heal_stale_session_lock(sk) is True
+        assert sk not in adapter._active_sessions
+        assert sk not in adapter._session_tasks
+
+    def test_liveness_check_false_keeps_busy_lock(self):
+        """A genuinely busy agent (liveness check False) must NOT be healed."""
+        adapter = _make_adapter()
+        sk = _session_key()
+
+        fake_task = MagicMock()
+        fake_task.done.return_value = False
+        adapter._active_sessions[sk] = asyncio.Event()
+        adapter._session_tasks[sk] = fake_task
+        adapter.set_session_liveness_check(lambda key: False)
+
+        assert adapter._heal_stale_session_lock(sk) is False
+        assert sk in adapter._active_sessions
+
+    def test_liveness_check_exception_is_swallowed(self):
+        """A throwing liveness check must never break message handling."""
+        adapter = _make_adapter()
+        sk = _session_key()
+
+        fake_task = MagicMock()
+        fake_task.done.return_value = False
+        adapter._active_sessions[sk] = asyncio.Event()
+        adapter._session_tasks[sk] = fake_task
+
+        def _boom(key):
+            raise RuntimeError("liveness check blew up")
+
+        adapter.set_session_liveness_check(_boom)
+        assert adapter._heal_stale_session_lock(sk) is False
+        assert sk in adapter._active_sessions
+
+    @pytest.mark.asyncio
+    async def test_hung_session_message_is_processed_not_busy_acked(self):
+        """End-to-end: an inbound message to a hung session heals + processes,
+        instead of being trapped behind an 'Interrupting current task' ack."""
+        adapter = _make_adapter()
+        sk = _session_key()
+
+        fake_task = MagicMock()
+        fake_task.done.return_value = False
+        adapter._active_sessions[sk] = asyncio.Event()
+        adapter._session_tasks[sk] = fake_task
+        adapter.set_session_liveness_check(lambda key: True)
+
+        async def _handler(event):
+            return f"handled:{event.get_command() or 'text'}"
+
+        adapter._message_handler = _handler
+
+        await adapter.handle_message(_make_event("hi"))
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+        assert any("handled:text" in r for r in adapter.sent_responses), (
+            "hung session trapped a normal message — not healed via liveness check"
+        )
+
+
 # ===========================================================================
 # Layer 3: Runner-side generation guard on slot promotion + release
 # ===========================================================================
@@ -341,6 +426,47 @@ class TestRunnerSessionGenerationGuard:
         assert released is False
         assert runner._running_agents[sk] == "fresh_agent"
         assert runner._running_agents_ts[sk] == 2.0
+
+    def test_running_agent_is_stale_for_idle_agent(self, monkeypatch):
+        monkeypatch.setenv("HERMES_AGENT_TIMEOUT", "1800")
+        runner = _make_runner()
+        sk = "agent:main:telegram:dm:12345"
+        agent = MagicMock()
+        agent.get_activity_summary.return_value = {
+            "seconds_since_activity": 99999,
+            "api_call_count": 1,
+            "max_iterations": 300,
+        }
+        runner._running_agents[sk] = agent
+        runner._running_agents_ts[sk] = 1.0  # ancient start
+        assert runner._running_agent_is_stale(sk) is True
+
+    def test_running_agent_is_stale_false_for_active_agent(self, monkeypatch):
+        monkeypatch.setenv("HERMES_AGENT_TIMEOUT", "1800")
+        runner = _make_runner()
+        sk = "agent:main:telegram:dm:12345"
+        agent = MagicMock()
+        agent.get_activity_summary.return_value = {
+            "seconds_since_activity": 5,
+            "api_call_count": 7,
+            "max_iterations": 300,
+        }
+        runner._running_agents[sk] = agent
+        runner._running_agents_ts[sk] = time.time()
+        assert runner._running_agent_is_stale(sk) is False
+
+    def test_running_agent_is_stale_false_for_sentinel(self):
+        runner = _make_runner()
+        sk = "agent:main:telegram:dm:12345"
+        runner._running_agents[sk] = _AGENT_PENDING_SENTINEL
+        runner._running_agents_ts[sk] = time.time()
+        assert runner._running_agent_is_stale(sk) is False
+
+    def test_running_agent_is_stale_false_when_absent(self):
+        runner = _make_runner()
+        sk = "agent:main:telegram:dm:12345"
+        # No running agent at all → not "stale" (nothing to heal here).
+        assert runner._running_agent_is_stale(sk) is False
 
     def test_is_session_run_current_tracks_bumps(self):
         runner = _make_runner()

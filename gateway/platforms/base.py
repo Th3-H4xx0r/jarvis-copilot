@@ -1449,6 +1449,12 @@ class BasePlatformAdapter(ABC):
         self._post_delivery_callbacks: Dict[str, Any] = {}
         self._expected_cancelled_tasks: set[asyncio.Task] = set()
         self._busy_session_handler: Optional[Callable[[MessageEvent, str], Awaitable[bool]]] = None
+        # Optional runner-provided staleness predicate: given a session_key,
+        # returns True when the session's running agent is actually stale/hung
+        # (idle far beyond the inactivity timeout) even though its owner task is
+        # still technically alive.  Lets the on-entry self-heal recover a hung
+        # session that task.done() can't detect — issue #11016 tail.
+        self._session_liveness_check: Optional[Callable[[str], bool]] = None
         # Auto-TTS on voice input: ``_auto_tts_default`` is the global default
         # (``voice.auto_tts`` in config.yaml, pushed by GatewayRunner on connect).
         # Per-chat overrides live in two sets populated from ``_voice_mode``:
@@ -1668,7 +1674,14 @@ class BasePlatformAdapter(ABC):
     def set_busy_session_handler(self, handler: Optional[Callable[[MessageEvent, str], Awaitable[bool]]]) -> None:
         """Set an optional handler for messages arriving during active sessions."""
         self._busy_session_handler = handler
-    
+
+    def set_session_liveness_check(self, check: Optional[Callable[[str], bool]]) -> None:
+        """Set an optional predicate the on-entry self-heal consults to decide
+        whether an active session is actually stale/hung (True = stale).  Lets
+        the adapter recover a session whose owner task is alive but whose agent
+        has gone idle/hung — which task.done() alone can't see."""
+        self._session_liveness_check = check
+
     def set_session_store(self, session_store: Any) -> None:
         """
         Set the session store for checking active sessions.
@@ -2975,10 +2988,24 @@ class BasePlatformAdapter(ABC):
         active, but nothing is actually processing — traps the chat in
         infinite "Interrupting current task..." until the gateway is
         restarted.
+
+        Two stale signals are checked:
+          1. the owner task is already done/cancelled (``_session_task_is_stale``)
+          2. the runner-provided liveness check reports the agent is hung/idle —
+             this catches the case task.done() can't see: the owner task is still
+             alive (awaiting a blocked executor thread) while the agent has gone
+             idle far beyond the inactivity timeout.
         """
         if session_key not in self._active_sessions:
             return False
-        if not self._session_task_is_stale(session_key):
+        stale = self._session_task_is_stale(session_key)
+        if not stale and self._session_liveness_check is not None:
+            try:
+                stale = bool(self._session_liveness_check(session_key))
+            except Exception:
+                # A faulty liveness check must never break message handling.
+                stale = False
+        if not stale:
             return False
         logger.warning(
             "[%s] Healing stale session lock for %s (owner task is done/absent)",

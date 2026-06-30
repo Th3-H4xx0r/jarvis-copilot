@@ -3618,7 +3618,8 @@ class GatewayRunner:
             adapter.set_fatal_error_handler(self._handle_adapter_fatal_error)
             adapter.set_session_store(self.session_store)
             adapter.set_busy_session_handler(self._handle_active_session_busy_message)
-            
+            adapter.set_session_liveness_check(self._running_agent_is_stale)
+
             # Try to connect
             logger.info("Connecting to %s...", platform.value)
             self._update_platform_runtime_status(
@@ -5137,6 +5138,7 @@ class GatewayRunner:
                     adapter.set_fatal_error_handler(self._handle_adapter_fatal_error)
                     adapter.set_session_store(self.session_store)
                     adapter.set_busy_session_handler(self._handle_active_session_busy_message)
+                    adapter.set_session_liveness_check(self._running_agent_is_stale)
 
                     success = await self._connect_adapter_with_timeout(adapter, platform)
                     if success:
@@ -6329,17 +6331,11 @@ class GatewayRunner:
                     )
                 except Exception:
                     pass
-            # Evict if: agent is idle beyond timeout, OR wall-clock age is
-            # extreme (10x timeout or 2h, whichever is larger — catches
-            # cases where the agent object was garbage-collected).
-            _wall_ttl = max(_raw_stale_timeout * 10, 7200) if _raw_stale_timeout > 0 else float("inf")
-            _should_evict = (
-                _stale_agent is not _AGENT_PENDING_SENTINEL
-                and (
-                    (_raw_stale_timeout > 0 and _stale_idle >= _raw_stale_timeout)
-                    or _stale_age > _wall_ttl
-                )
-            )
+            # Evict if the agent is idle beyond the timeout or its wall-clock
+            # age is extreme.  Uses the SHARED staleness definition (also
+            # consulted by the adapter on-entry self-heal) so the two paths can
+            # never disagree about whether a session is hung (issue #11016).
+            _should_evict = self._running_agent_is_stale(_quick_key)
             if _should_evict:
                 logger.warning(
                     "Evicting stale _running_agents entry for %s "
@@ -14193,6 +14189,38 @@ class GatewayRunner:
         """Return True if *agent_model* matches an active /model session override."""
         override = self._session_model_overrides.get(session_key)
         return override is not None and override.get("model") == agent_model
+
+    def _running_agent_is_stale(self, session_key: str) -> bool:
+        """True when ``session_key`` has a REAL running agent that has gone idle
+        beyond ``HERMES_AGENT_TIMEOUT`` (or whose wall-clock age is extreme — a
+        safety net for a garbage-collected agent object).  The pending sentinel
+        and a recently-active agent are never stale.
+
+        This is the SHARED definition of "stale" used by BOTH the cold-path
+        eviction in ``_handle_message`` and the adapter's on-entry self-heal
+        (registered via ``set_session_liveness_check``).  Keeping them on one
+        definition means they can never disagree and leak a hung session back
+        into the infinite 'Interrupting current task...' trap (issue #11016):
+        the adapter heals the lock only when the runner would also evict it.
+        """
+        ts = self._running_agents_ts.get(session_key, 0)
+        if session_key not in self._running_agents or not ts:
+            return False
+        agent = self._running_agents.get(session_key)
+        if agent is _AGENT_PENDING_SENTINEL:
+            return False  # mid-setup — the real agent doesn't exist yet
+        raw_timeout = _float_env("HERMES_AGENT_TIMEOUT", 1800)
+        age = time.time() - ts
+        idle = float("inf")  # assume idle if we can't read activity
+        if agent is not None and hasattr(agent, "get_activity_summary"):
+            try:
+                idle = agent.get_activity_summary().get(
+                    "seconds_since_activity", float("inf")
+                )
+            except Exception:
+                idle = float("inf")
+        wall_ttl = max(raw_timeout * 10, 7200) if raw_timeout > 0 else float("inf")
+        return (raw_timeout > 0 and idle >= raw_timeout) or age > wall_ttl
 
     def _release_running_agent_state(
         self,
