@@ -47,6 +47,10 @@ log = logging.getLogger(__name__)
 _RECV_CHUNK = 8192
 _DEFAULT_HTTP_TIMEOUT = 30.0
 _DEFAULT_CONNECT_TIMEOUT = 15.0
+# Overall budget for the WS upgrade handshake. MUST be enforced via a socket
+# timeout (not just a wall-clock deadline) — otherwise a half-open connection
+# blocks recv() forever and the reconnect loop hangs in "reconnecting".
+_HANDSHAKE_TIMEOUT = 10.0
 
 
 def _split_url(url: str) -> tuple[str, int, str, str]:
@@ -405,9 +409,6 @@ class WsConnection:
             ctx = _make_ssl_context()
             sock = ctx.wrap_socket(sock, server_hostname=self._host)
             _verify_fingerprint(sock, self.expected_fingerprint)
-        # Long-lived: no read timeout (the server-side ping every 30s
-        # keeps the connection live; we send our own pings too).
-        sock.settimeout(None)
 
         ws = WSConnection(ConnectionType.CLIENT)
         target = self._prefix + "/api/devices/bridge/ws"
@@ -422,6 +423,15 @@ class WsConnection:
         if self.cf_client_id and self.cf_client_secret:
             extra.append(("CF-Access-Client-Id", self.cf_client_id))
             extra.append(("CF-Access-Client-Secret", self.cf_client_secret))
+
+        # Bound the handshake with a SOCKET timeout, not just the wall-clock
+        # deadline below. The deadline is only re-checked BETWEEN recv() calls,
+        # so without a socket timeout a half-open connection — the server/tunnel
+        # accepts our TCP socket but never sends the upgrade response — blocks
+        # recv() forever and the whole reconnect loop hangs in "reconnecting"
+        # even though the server is up. We only drop to the long-lived
+        # no-timeout mode AFTER the handshake completes.
+        sock.settimeout(_HANDSHAKE_TIMEOUT)
         sock.sendall(
             ws.send(
                 Request(
@@ -434,9 +444,15 @@ class WsConnection:
 
         # Drain until we see AcceptConnection or RejectConnection.
         accepted = False
-        deadline = time.time() + 10
+        deadline = time.time() + _HANDSHAKE_TIMEOUT
         while time.time() < deadline:
-            chunk = sock.recv(_RECV_CHUNK)
+            # Cap each recv by the time left so a stalled peer can never exceed
+            # the overall handshake budget.
+            sock.settimeout(max(0.5, deadline - time.time()))
+            try:
+                chunk = sock.recv(_RECV_CHUNK)
+            except socket.timeout:
+                break
             if not chunk:
                 raise WsConnectionClosed("server closed during handshake")
             ws.receive_data(chunk)
@@ -453,6 +469,10 @@ class WsConnection:
         if not accepted:
             raise WsConnectionClosed("WS handshake timed out")
 
+        # Handshake done — go long-lived: no read timeout. The server pings every
+        # ~30s and we send our own pings, so a dead idle link is caught by the
+        # ping/pong path, not by a recv timeout here.
+        sock.settimeout(None)
         self._sock = sock
         self._conn = ws
 

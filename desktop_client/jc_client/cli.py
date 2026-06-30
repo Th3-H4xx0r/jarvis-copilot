@@ -146,6 +146,21 @@ def _supervisor_unload() -> None:
         )
 
 
+def _wait_supervisor(*, loaded: bool, timeout: float = 8.0) -> bool:
+    """Poll until ``_supervisor_is_loaded()`` matches ``loaded`` (or timeout).
+
+    launchctl load/unload are NOT synchronous — the job keeps settling after the
+    command returns — so callers that need to act on the new state (e.g. reload
+    after an unload) must wait for it rather than guessing with a fixed sleep.
+    Returns the final match result."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _supervisor_is_loaded() == loaded:
+            return True
+        time.sleep(0.2)
+    return _supervisor_is_loaded() == loaded
+
+
 # ── Subcommands ────────────────────────────────────────────────────────────
 
 
@@ -332,11 +347,23 @@ def cmd_restart(args) -> int:
     if sup:
         if _supervisor_is_loaded():
             _supervisor_unload()
-            # Give launchctl a beat to release the slot before re-loading.
-            time.sleep(0.5)
+            # launchctl unload is NOT synchronous: the job keeps tearing down
+            # after the command returns. Re-loading before the slot is actually
+            # free silently no-ops ("service already loaded"), which leaves the
+            # service DOWN with nothing to respawn it — the reported "Restart
+            # just stops it" bug. Wait for the old job to clear before loading.
+            _wait_supervisor(loaded=False)
         _supervisor_load()
-        print(f"restarted ({sup})")
-        return 0
+        # Verify the (re)load took. One retry covers the case where the unload
+        # was still settling when we first tried to load.
+        if not _wait_supervisor(loaded=True):
+            _supervisor_load()
+            _wait_supervisor(loaded=True)
+        if _supervisor_is_loaded():
+            print(f"restarted ({sup})")
+            return 0
+        print(f"restart failed: {sup} did not come back up", file=sys.stderr)
+        return 1
 
     rc = cmd_stop(args)
     # Re-spawn ourselves detached.
