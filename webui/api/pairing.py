@@ -398,6 +398,9 @@ _DEVICE_MUTABLE_FIELDS = frozenset({
     # "development" | "production" — the app's aps-environment. Empty means "use
     # the configured use_sandbox flag".
     "push_env",
+    # Last catalogue the device registered over the bridge, so a push-reachable
+    # client stays usable while its WebSocket is down.
+    "skills",
 })
 
 

@@ -137,30 +137,76 @@ def connected_device_ids() -> list[str]:
         return [d for d, c in _REG.items() if not c.closed]
 
 
+def _push_reachable(device: dict) -> bool:
+    """A device with a push token can be woken even with no live WS."""
+    return bool((device.get("push_token") or "").strip()
+                and (device.get("push_kind") or "").strip().lower() in ("fcm", "apns"))
+
+
+def _remembered_skills(device_id: str) -> list[dict]:
+    """Last catalogue this device registered.
+
+    A mobile client can't hold a WebSocket while suspended, so its skills would
+    disappear from the agent's view the moment it backgrounded — even though the
+    push path can still reach it. We persist the catalogue at register time and
+    serve it whenever the device is push-reachable.
+    """
+    try:
+        from api.pairing import list_devices
+        for d in list_devices():
+            if d.get("id") == device_id:
+                if not _push_reachable(d):
+                    return []
+                return [dict(s) for s in (d.get("skills") or [])]
+    except Exception as exc:
+        logger.debug("could not read remembered skills: %s", exc)
+    return []
+
+
+def _remember_skills(device_id: str, skills: list[dict]) -> None:
+    try:
+        from api.pairing import update_device_fields
+        update_device_fields(device_id, skills=[dict(s) for s in skills])
+    except Exception as exc:
+        logger.debug("could not persist skills for %s: %s", device_id, exc)
+
+
 def skills_for_device(device_id: str) -> list[dict]:
     with _REG_LOCK:
         c = _REG.get(device_id)
-        if not c or c.closed:
-            return []
-        # Return a copy so callers can't mutate registry state.
-        return [dict(s) for s in c.skills]
+        if c and not c.closed:
+            # Return a copy so callers can't mutate registry state.
+            return [dict(s) for s in c.skills]
+    return _remembered_skills(device_id)
 
 
 def all_device_skills() -> list[dict]:
-    """Flat list of every skill registered by every connected device.
-    Each entry includes ``device_id`` and ``device_name`` so the caller
-    can disambiguate when two devices register the same skill name."""
+    """Flat list of every skill every reachable device offers.
+
+    Includes devices with no live WS but a working push token: the invoke path
+    already falls back to a silent push for those, so hiding their skills would
+    make a reachable device look offline to the agent.
+    """
     out = []
+    live: set[str] = set()
     with _REG_LOCK:
         for did, c in _REG.items():
             if c.closed:
                 continue
+            live.add(did)
             for s in c.skills:
-                out.append({
-                    "device_id": did,
-                    "device_name": c.name,
-                    **s,
-                })
+                out.append({"device_id": did, "device_name": c.name, **s})
+
+    try:
+        from api.pairing import list_devices
+        for d in list_devices():
+            did = d.get("id")
+            if not did or did in live or not _push_reachable(d):
+                continue
+            for s in (d.get("skills") or []):
+                out.append({"device_id": did, "device_name": d.get("name", "device"), **s})
+    except Exception as exc:
+        logger.debug("could not list push-reachable skills: %s", exc)
     return out
 
 
@@ -1058,6 +1104,7 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
             conn.skills = list(merged.values())[:128]
         else:
             conn.skills = clean[:128]  # cap so a misbehaving device can't bloat the registry
+        _remember_skills(conn.device_id, conn.skills)
         try:
             _ws_send_text(conn, json.dumps({
                 "type": "registered",
