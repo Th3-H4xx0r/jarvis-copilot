@@ -194,6 +194,25 @@ def _get_jwt(cfg: dict) -> str:
         return tok
 
 
+def _build_apns_body(payload: dict, alert: Optional[dict]) -> dict:
+    """APS body. With an alert -> visible (banner) push; without -> silent."""
+    aps: dict = {}
+    if alert:
+        aps["alert"] = {"title": alert.get("title", ""), "body": alert.get("body", "")}
+        aps["sound"] = "default"
+        # An actionable notification: iOS shows the category's buttons
+        # (Approve/Deny/Reply) on the banner/lock screen.
+        cat = alert.get("category")
+        if cat:
+            aps["category"] = str(cat)
+    else:
+        # content-available:1 + no alert = silent / background push.
+        aps["content-available"] = 1
+    # Custom envelope: read in didReceiveRemoteNotification for a SILENT push;
+    # for a visible (alert) push it rides along and is available on tap.
+    return {"aps": aps, "jarviscopilot": payload or {}}
+
+
 def _apns_headers(cfg: dict, jwt: str, *, alert: bool,
                   topic: Optional[str] = None) -> dict:
     return {
