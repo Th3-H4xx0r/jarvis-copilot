@@ -553,6 +553,16 @@ def format_action_banner(skill_name: str, args: dict) -> tuple[str, str]:
     return (title[:100], body)
 
 
+def _sandbox_for(device: dict) -> Optional[bool]:
+    """True/False from the device's reported aps-environment, None to use the config."""
+    env = (device.get("push_env") or "").strip().lower()
+    if env == "development":
+        return True
+    if env == "production":
+        return False
+    return None
+
+
 def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
                             timeout: float) -> dict:
     try:
@@ -617,7 +627,12 @@ def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
             "type": "invoke_pending",
             "device_id": device_id,
             "count": str(len(q)),
-        }, alert=alert)
+        }, alert=alert,
+           # Blank for clients that share the configured default bundle ID.
+           topic=(device.get("push_topic") or "").strip() or None,
+           # None keeps the config's use_sandbox flag for clients that don't report
+           # their signing environment.
+           sandbox=_sandbox_for(device))
         push_ok = bool(result.get("ok"))
         if not push_ok:
             push_err = result.get("error")

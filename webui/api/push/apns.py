@@ -35,7 +35,9 @@ _CONFIG_FILE = STATE_DIR / ".apns-config.json"
 
 _JWT_TTL = 50 * 60  # APNs JWTs are valid up to 1 hour; refresh at 50 min.
 _JWT_LOCK = threading.Lock()
-_jwt_cache: dict = {"token": "", "expires_at": 0.0}
+# Keyed by key_id: with more than one auth key a single cached token would be handed
+# to the wrong key's pushes and APNs would reject them as InvalidProviderToken.
+_jwt_cache: dict = {}
 
 # A POOLED, long-lived HTTP/2 client. APNs is designed for a persistent HTTP/2
 # connection: opening a fresh ``httpx.Client`` per push (the old behavior) did a
@@ -100,6 +102,34 @@ def _load_config() -> Optional[dict]:
         return None
 
 
+def _config_for(topic: Optional[str]) -> Optional[dict]:
+    """Pick the credentials for a given bundle ID.
+
+    Apple caps APNs auth keys per team, and a key can be restricted to one
+    environment — so a development-signed second app may need its own key rather
+    than sharing the first. ``additional`` entries in the config are matched by
+    ``topic``; anything unmatched falls back to the root config, which keeps
+    existing single-key setups working untouched.
+    """
+    root = _load_config()
+    if not root:
+        return None
+    if topic:
+        for entry in (root.get("additional") or []):
+            if not isinstance(entry, dict) or entry.get("topic") != topic:
+                continue
+            merged = {**root, **entry}
+            merged.pop("additional", None)
+            key_file = entry.get("key_file")
+            merged["_key_path"] = str(STATE_DIR / key_file) if key_file else str(_KEY_FILE)
+            if not Path(merged["_key_path"]).exists():
+                logger.warning("APNs key file missing for topic %s: %s",
+                               topic, merged["_key_path"])
+                return None
+            return merged
+    return {**root, "_key_path": str(_KEY_FILE)}
+
+
 def _have_httpx() -> bool:
     """True only if httpx AND HTTP/2 support are available. APNs is HTTP/2-only,
     so httpx installed without the ``[http2]`` extra (the ``h2`` package) can't
@@ -132,7 +162,7 @@ def _sign_jwt(cfg: dict) -> str:
             "install it with `pip install cryptography`"
         ) from exc
 
-    pem = _KEY_FILE.read_bytes()
+    pem = Path(cfg.get("_key_path") or _KEY_FILE).read_bytes()
     key = serialization.load_pem_private_key(pem, password=None)
     if not isinstance(key, ec.EllipticCurvePrivateKey):
         raise RuntimeError("APNs auth key must be an EC private key (ES256)")
@@ -153,39 +183,26 @@ def _sign_jwt(cfg: dict) -> str:
 
 
 def _get_jwt(cfg: dict) -> str:
+    key_id = cfg.get("key_id", "")
     with _JWT_LOCK:
         now = time.time()
-        if _jwt_cache["token"] and _jwt_cache["expires_at"] > now:
-            return _jwt_cache["token"]
+        entry = _jwt_cache.get(key_id)
+        if entry and entry["token"] and entry["expires_at"] > now:
+            return entry["token"]
         tok = _sign_jwt(cfg)
-        _jwt_cache["token"] = tok
-        _jwt_cache["expires_at"] = now + _JWT_TTL
+        _jwt_cache[key_id] = {"token": tok, "expires_at": now + _JWT_TTL}
         return tok
 
 
-def _build_apns_body(payload: dict, alert: Optional[dict]) -> dict:
-    """APS body. With an alert -> visible (banner) push; without -> silent."""
-    aps: dict = {}
-    if alert:
-        aps["alert"] = {"title": alert.get("title", ""), "body": alert.get("body", "")}
-        aps["sound"] = "default"
-        # An actionable notification: iOS shows the category's buttons
-        # (Approve/Deny/Reply) on the banner/lock screen.
-        cat = alert.get("category")
-        if cat:
-            aps["category"] = str(cat)
-    else:
-        # content-available:1 + no alert = silent / background push.
-        aps["content-available"] = 1
-    # Custom envelope: read in didReceiveRemoteNotification for a SILENT push;
-    # for a visible (alert) push it rides along and is available on tap.
-    return {"aps": aps, "jarviscopilot": payload or {}}
-
-
-def _apns_headers(cfg: dict, jwt: str, *, alert: bool) -> dict:
+def _apns_headers(cfg: dict, jwt: str, *, alert: bool,
+                  topic: Optional[str] = None) -> dict:
     return {
         "authorization": f"bearer {jwt}",
-        "apns-topic": cfg["topic"],
+        # The JWT is signed with team-wide credentials, so one auth key covers every
+        # bundle ID under the team — only this header is per-app. That lets a second
+        # native client (JarvisWearables) register its own topic instead of the
+        # config's single default.
+        "apns-topic": topic or cfg["topic"],
         # 'alert' push shows a banner + can launch the app on tap; 'background'
         # is silent. Visible pushes use priority 10; silent ones MUST use 5.
         "apns-push-type": "alert" if alert else "background",
@@ -197,18 +214,23 @@ def _apns_headers(cfg: dict, jwt: str, *, alert: bool) -> dict:
 
 
 def send_apns(push_token: str, payload: dict, *, timeout: float = 10.0,
-              alert: Optional[dict] = None) -> dict:
+              alert: Optional[dict] = None, topic: Optional[str] = None,
+              sandbox: Optional[bool] = None) -> dict:
     """POST a push to APNs HTTP/2.
 
     ``payload`` is merged into the data envelope. With ``alert`` (title/body)
     it's a VISIBLE, tappable banner; without, a silent "background notification"
     that wakes the app for ~30s with no banner.
+
+    ``topic`` overrides the configured bundle ID for this send, so devices running a
+    different app of ours can be reached with the same auth key. ``sandbox`` overrides
+    the APNs host for that device's signing environment.
     """
-    if not _KEY_FILE.exists():
-        return {"ok": False, "error": "APNs auth key not configured"}
-    cfg = _load_config()
+    cfg = _config_for(topic)
     if not cfg:
         return {"ok": False, "error": "APNs config missing or invalid"}
+    if not Path(cfg["_key_path"]).exists():
+        return {"ok": False, "error": "APNs auth key not configured"}
     if not _have_httpx():
         return {"ok": False, "error": "APNs requires httpx[http2]"}
 
@@ -219,10 +241,14 @@ def send_apns(push_token: str, payload: dict, *, timeout: float = 10.0,
         return {"ok": False, "error": f"APNs JWT: {exc}"}
 
     body = _build_apns_body(payload, alert)
-    use_sandbox = bool(cfg.get("use_sandbox"))
+    # A token's environment is fixed by the signing entitlement of the app that
+    # produced it: development-signed apps get sandbox-only tokens. With two clients
+    # on one team — one distribution-signed, one development — a single global flag
+    # can't serve both, so the device's own environment wins when it reports one.
+    use_sandbox = bool(cfg.get("use_sandbox")) if sandbox is None else bool(sandbox)
     host = "api.sandbox.push.apple.com" if use_sandbox else "api.push.apple.com"
     url = f"https://{host}/3/device/{push_token}"
-    headers = _apns_headers(cfg, jwt, alert=bool(alert))
+    headers = _apns_headers(cfg, jwt, alert=bool(alert), topic=topic)
     try:
         r = _apns_post(url, headers, json.dumps(body), timeout)
         if r.status_code == 200:

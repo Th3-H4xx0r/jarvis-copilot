@@ -34,16 +34,22 @@ logger = logging.getLogger(__name__)
 
 
 def send(push_kind: str, push_token: str, payload: dict,
-         *, timeout: float = 10.0, alert: Optional[dict] = None) -> dict:
+         *, timeout: float = 10.0, alert: Optional[dict] = None,
+         topic: Optional[str] = None, sandbox: Optional[bool] = None) -> dict:
     """Dispatch to the right backend. ``alert`` (title/body) makes it a visible,
-    tappable push; omit for a silent background wake. Returns ``{"ok": bool, ...}``."""
+    tappable push; omit for a silent background wake. ``topic`` overrides the APNs
+    bundle ID for devices running a different app of ours (ignored by FCM, which
+    scopes by credential rather than topic). ``sandbox`` likewise overrides the APNs
+    host for a device signed for a different environment. Returns
+    ``{"ok": bool, ...}``."""
     if not push_token:
         return {"ok": False, "error": "no push token"}
     kind = (push_kind or "").lower().strip()
     if kind in ("fcm", "android"):
         return send_fcm(push_token, payload, timeout=timeout, alert=alert)
     if kind in ("apns", "ios"):
-        return send_apns(push_token, payload, timeout=timeout, alert=alert)
+        return send_apns(push_token, payload, timeout=timeout, alert=alert,
+                         topic=topic, sandbox=sandbox)
     return {"ok": False, "error": f"unknown push kind: {push_kind!r}"}
 
 

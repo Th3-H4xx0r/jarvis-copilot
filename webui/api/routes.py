@@ -6266,6 +6266,13 @@ def handle_post(handler, parsed) -> bool:
         push_kind = (body.get("push_kind") or "").strip().lower()[:8]
         push_token = (body.get("push_token") or "").strip()[:512]
         platform = (body.get("platform") or "").strip().lower()[:16]
+        # A second native client (e.g. JarvisWearables) has its own bundle ID, which
+        # is the APNs topic. Omitted -> the configured default is used, so existing
+        # paired clients are unaffected.
+        push_topic = (body.get("bundle_id") or "").strip()[:128]
+        push_env = (body.get("push_env") or "").strip().lower()[:16]
+        if push_env not in ("", "development", "production"):
+            return bad(handler, "push_env must be 'development' or 'production'")
         app_version = (body.get("app_version") or "").strip()[:32]
         if push_kind not in ("", "fcm", "apns"):
             return bad(handler, "push_kind must be 'fcm' or 'apns'")
@@ -6281,6 +6288,8 @@ def handle_post(handler, parsed) -> bool:
             kind=kind,
             push_kind=push_kind,
             push_token=push_token,
+            push_topic=push_topic,
+            push_env=push_env,
             app_version=app_version,
         )
         from api import push as push_mod

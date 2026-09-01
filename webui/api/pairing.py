@@ -392,6 +392,12 @@ def update_device_fields(device_id: str, **fields) -> bool:
 
 _DEVICE_MUTABLE_FIELDS = frozenset({
     "name", "kind", "push_kind", "push_token", "app_version",
+    # APNs bundle ID for this device's app. Empty means "use the configured
+    # default", which keeps existing paired clients working untouched.
+    "push_topic",
+    # "development" | "production" — the app's aps-environment. Empty means "use
+    # the configured use_sandbox flag".
+    "push_env",
 })
 
 
