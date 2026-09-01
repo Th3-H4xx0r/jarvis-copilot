@@ -3585,6 +3585,15 @@ def handle_get(handler, parsed) -> bool:
             # clients hold one too (notifications / phone-control), so this alone
             # does NOT mean "desktop sync agent".
             dd["bridge_connected"] = d.get("id") in connected
+            # invokable = a skill call will actually be delivered. invoke_skill()
+            # falls back to a silent push for mobile clients, which cannot hold a WS
+            # while suspended — so gating on bridge_connected alone makes a perfectly
+            # reachable phone look unusable.
+            try:
+                from api.device_bridge import _push_reachable
+                dd["invokable"] = dd["bridge_connected"] or _push_reachable(d)
+            except Exception:
+                dd["invokable"] = dd["bridge_connected"]
             # sync_capable = can actually run Mutagen file sync (a desktop
             # jc-client). The Coding sync device picker filters on this so mobile
             # devices never appear as sync targets even though they're connected.

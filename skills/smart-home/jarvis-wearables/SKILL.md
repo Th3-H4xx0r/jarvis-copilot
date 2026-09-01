@@ -84,6 +84,16 @@ python3 ~/.jarviscopilot/skills/jarviscopilot/devices/scripts/devices.py \
 returns its complement. `raw_status_frame` is the undecoded 18-byte `07` response, useful
 when a field looks wrong.
 
+## Do not gate on `bridge_connected`
+
+`/api/devices` reports `bridge_connected: false` for a phone whose app is
+backgrounded — iOS suspends it and the WebSocket closes. **That does not mean the
+device is unreachable.** `invoke_skill` falls back to a silent push, so the command is
+queued and delivered when the app wakes.
+
+Check **`invokable`** instead, or simply that the device lists `bottle_*` skills. If it
+does, call the skill; a slow response means "the phone is waking", not "it failed".
+
 ## Behaviour worth knowing
 
 - **Starting a UV cycle is a real-world action.** It runs a lamp inside the bottle and
