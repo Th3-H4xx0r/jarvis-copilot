@@ -70,11 +70,38 @@ def _webui_origin() -> str:
     return f"{scheme}://{host}:{port}"
 
 
+# plan 3.2 — cache the host signing key in memory instead of re-reading
+# ``.signing_key`` off disk on every device-tool call. Invalidated on
+# FileNotFound (key file missing/moved) or a 403 response (key rotated on
+# disk since we cached it) so a stale key never wedges the tool permanently.
+_signing_key_cache: dict = {"key": None}
+
+
+def _invalidate_signing_key_cache() -> None:
+    _signing_key_cache["key"] = None
+
+
+def _get_signing_key() -> Optional[bytes]:
+    key = _signing_key_cache.get("key")
+    if key is not None:
+        return key
+    try:
+        key = (_state_dir() / ".signing_key").read_bytes()
+    except FileNotFoundError:
+        return None
+    except Exception:
+        return None
+    _signing_key_cache["key"] = key
+    return key
+
+
 def _host_signature(method: str, path: str) -> Optional[str]:
     """``<ts>.<hmac>`` host signature (matches webui auth._check_host_signature).
     None if the signing key isn't readable."""
     try:
-        sk = (_state_dir() / ".signing_key").read_bytes()
+        sk = _get_signing_key()
+        if sk is None:
+            return None
         ts = int(time.time())
         msg = f"{method.upper()}\n{path}\n{ts}".encode("utf-8")
         sig = hmac.new(sk, msg, hashlib.sha256).hexdigest()
@@ -108,6 +135,10 @@ def _api_request(method: str, path: str, body: Optional[dict] = None,
             except Exception:
                 return {"_error": "bad json from webui"}
     except urllib.error.HTTPError as e:
+        if e.code == 403:
+            # plan 3.2 — cached key is stale (rotated on disk); drop it so the
+            # next call re-reads .signing_key instead of retrying forever.
+            _invalidate_signing_key_cache()
         try:
             return json.loads(e.read().decode("utf-8", errors="replace") or "{}")
         except Exception:

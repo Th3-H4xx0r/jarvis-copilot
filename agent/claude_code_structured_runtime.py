@@ -31,13 +31,92 @@ so the rest of the agent loop is unchanged.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 import threading
 import uuid
 from types import SimpleNamespace
 from typing import Any
 
+from agent import claude_code_structured as _ccs
 from agent.claude_code_structured import run_structured_turn, structured_enabled
+
+logger = logging.getLogger(__name__)
+
+# ── warm CLI sessions (plan 2.7) ─────────────────────────────────────────────
+# One `claude` process + MCP bridge per AGENT session, kept alive across turns
+# instead of paying a cold boot + MCP handshake on every single turn. Off by
+# default: claude-code is for coding sessions, where the 300–1500 ms boot tax
+# does not matter. Turn it on with `claude_code.warm: true` when the provider
+# must also serve chat.
+_warm_sessions: dict[str, Any] = {}
+_warm_lock = threading.Lock()
+
+
+def _load_config() -> dict:
+    """Load the CLI config. Split out so tests can monkeypatch it."""
+    try:
+        from jarviscopilot_cli.config import load_config
+        return load_config() or {}
+    except Exception:
+        return {}
+
+
+def warm_enabled() -> bool:
+    """True when warm claude-code sessions are on (``claude_code.warm``, default
+    False). ``HERMES_CLAUDE_CODE_WARM=1`` forces it on for a single process."""
+    raw = (os.environ.get("HERMES_CLAUDE_CODE_WARM", "") or "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    try:
+        cfg = (_load_config().get("claude_code") or {})
+        return bool(cfg.get("warm", False)) if isinstance(cfg, dict) else False
+    except Exception:
+        return False
+
+
+def get_warm_session(session_id: str, **kwargs: Any):
+    """Return (creating if needed) the warm CLI session for an agent session.
+
+    A session whose process has died is kept: :meth:`run_turn` restarts it with
+    ``--resume``. A session that was explicitly closed is replaced.
+    """
+    with _warm_lock:
+        existing = _warm_sessions.get(session_id)
+        if existing is not None and not getattr(existing, "_closed", False):
+            return existing
+        session = _ccs.WarmStructuredSession(**kwargs)
+        _warm_sessions[session_id] = session
+        return session
+
+
+def close_warm_session(session_id: str) -> None:
+    with _warm_lock:
+        session = _warm_sessions.pop(session_id, None)
+    if session is not None:
+        try:
+            session.close()
+        except Exception:
+            logger.debug("warm claude session close failed", exc_info=True)
+
+
+def close_all_warm_sessions() -> None:
+    with _warm_lock:
+        sessions = list(_warm_sessions.values())
+        _warm_sessions.clear()
+    for session in sessions:
+        try:
+            session.close()
+        except Exception:
+            logger.debug("warm claude session close failed", exc_info=True)
+
+
+def warm_session_count() -> int:
+    with _warm_lock:
+        return len(_warm_sessions)
 
 
 # Matches the CLI's "API Error: 529 ..." / "Error 529 ..." shapes so the HTTP
@@ -171,6 +250,17 @@ def _build_user_text(messages: list[dict[str, Any]], model: str | None) -> str:
         sys_text = "\n\n".join(system_parts)
         return f"<system>\n{sys_text}\n</system>\n\n{body}"
     return body
+
+
+def _latest_user_text(messages: list[dict[str, Any]]) -> str:
+    """The newest user message, rendered. Used by warm mode (plan 2.7): the CLI
+    already holds the transcript, so replaying it every turn would double it."""
+    for m in reversed(messages or []):
+        if isinstance(m, dict) and m.get("role") == "user":
+            rendered = _render_content(m.get("content"))
+            if rendered.strip():
+                return rendered
+    return ""
 
 
 def _args_preview(args: dict[str, Any]) -> str:
@@ -333,16 +423,69 @@ def run_claude_structured_response(agent: Any, api_kwargs: dict, *, on_first_del
     except Exception:
         has_consumers = False
 
-    res = run_structured_turn(
-        user_text=user_text,
-        tools=tools,
-        execute_tool=_execute_tool,
-        command=_resolve_command(),
-        model_cli=_map_model_to_cli(model),
-        system_prompt=_STRUCTURED_SYSTEM,
-        on_text=_on_text if has_consumers else None,
-        should_abort=lambda: bool(getattr(agent, "_interrupt_requested", False)),
-    )
+    _model_cli = _map_model_to_cli(model)
+    _should_abort = lambda: bool(getattr(agent, "_interrupt_requested", False))  # noqa: E731
+
+    def _run_cold() -> Any:
+        return run_structured_turn(
+            user_text=user_text,
+            tools=tools,
+            execute_tool=_execute_tool,
+            command=_resolve_command(),
+            model_cli=_model_cli,
+            system_prompt=_STRUCTURED_SYSTEM,
+            on_text=_on_text if has_consumers else None,
+            should_abort=_should_abort,
+        )
+
+    # plan 2.7 — warm mode: reuse this agent session's live CLI process instead
+    # of booting one per turn. Opt-in (`claude_code.warm`), and any failure falls
+    # straight back to the per-turn path so the default behaviour can't regress.
+    res = None
+    _warm_session_id = getattr(agent, "session_id", None) if warm_enabled() else None
+    if _warm_session_id:
+        try:
+            warm = get_warm_session(
+                _warm_session_id,
+                command=_resolve_command(),
+                model_cli=_model_cli,
+                system_prompt=_STRUCTURED_SYSTEM,
+            )
+            if getattr(warm, "model_cli", _model_cli) != _model_cli:
+                # The session switched models mid-conversation; a warm process is
+                # pinned to one --model, so start a fresh one.
+                close_warm_session(_warm_session_id)
+                warm = get_warm_session(
+                    _warm_session_id,
+                    command=_resolve_command(),
+                    model_cli=_model_cli,
+                    system_prompt=_STRUCTURED_SYSTEM,
+                )
+            # First turn seeds the CLI with the system prompt + full history;
+            # afterwards the CLI owns the transcript, so send only what is new.
+            _warm_text = user_text
+            if getattr(warm, "turns", 0) > 0:
+                _warm_text = _latest_user_text(messages) or user_text
+            res = warm.run_turn(
+                user_text=_warm_text,
+                tools=tools,
+                execute_tool=_execute_tool,
+                on_text=_on_text if has_consumers else None,
+                should_abort=_should_abort,
+            )
+            if res.is_error and not (res.text or "").strip() and not streamed["any"]:
+                logger.warning(
+                    "warm claude-code turn failed (%s); retrying cold", res.error,
+                )
+                close_warm_session(_warm_session_id)
+                res = None
+        except Exception as exc:
+            logger.warning("warm claude-code session unusable (%s); running cold", exc)
+            close_warm_session(_warm_session_id)
+            res = None
+
+    if res is None:
+        res = _run_cold()
 
     if getattr(agent, "_interrupt_requested", False):
         raise InterruptedError("Agent interrupted during claude-code structured turn")

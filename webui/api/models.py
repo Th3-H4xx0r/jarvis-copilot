@@ -204,6 +204,55 @@ def _write_session_index(updates=None):
         _write_session_index(updates=None)
 
 
+# ---------------------------------------------------------------------------
+# Debounced background index refresh (plan 1.2)
+# ---------------------------------------------------------------------------
+# chat/start now calls Session.save(skip_index=True) to keep the SESSION_DIR
+# glob (see _write_session_index above) off the request-handling hot path.
+# schedule_session_index_refresh() coalesces bursts of such skip_index saves
+# (rapid-fire turns/new sessions) into a single background _write_session_index
+# call at most every _INDEX_REFRESH_DEBOUNCE_SECONDS, instead of one glob per
+# turn.
+# ---------------------------------------------------------------------------
+
+_INDEX_REFRESH_DEBOUNCE_SECONDS = 2.0  # plan 1.2 — coalescing window
+
+_index_refresh_lock = threading.Lock()
+_index_refresh_timer: threading.Timer | None = None
+_index_refresh_pending: dict = {}  # session_id -> Session
+
+
+def schedule_session_index_refresh(session) -> None:
+    """Debounce a background ``_write_session_index([session])`` call.
+
+    Safe to call from any thread. Multiple calls within the debounce window
+    for the same or different sessions are coalesced into one background
+    rebuild that covers all of them.
+    """
+    global _index_refresh_timer
+    with _index_refresh_lock:
+        _index_refresh_pending[session.session_id] = session
+        if _index_refresh_timer is not None and _index_refresh_timer.is_alive():
+            return
+        _index_refresh_timer = threading.Timer(
+            _INDEX_REFRESH_DEBOUNCE_SECONDS, _flush_session_index_refresh
+        )
+        _index_refresh_timer.daemon = True
+        _index_refresh_timer.start()
+
+
+def _flush_session_index_refresh() -> None:
+    with _index_refresh_lock:
+        pending = list(_index_refresh_pending.values())
+        _index_refresh_pending.clear()
+    if not pending:
+        return
+    try:
+        _write_session_index(updates=pending)
+    except Exception:
+        logger.warning("Debounced session-index refresh failed", exc_info=True)
+
+
 def _active_stream_ids():
     with STREAMS_LOCK:
         return set(STREAMS.keys())

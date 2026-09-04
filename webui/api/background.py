@@ -85,3 +85,41 @@ def cleanup_btw(parent_sid: str) -> dict[str, Any] | None:
     """Remove and return btw tracking for a parent session."""
     with _lock:
         return _BTW_TRACKING.pop(parent_sid, None)
+
+
+# ── fast-lane escalation (latency rehaul plan 2.5) ───────────────────────────
+# Escalation jobs use the same shape as background tasks but live in
+# ``agent.escalation`` (the agent loop starts them, not an HTTP route). These are
+# thin read-only views so an HTTP poll can surface a result for a client that
+# missed the ``escalation_result`` SSE event — e.g. one that reconnected between
+# turns. Purely additive: nothing existing changes behavior.
+
+def get_escalation_tasks(parent_sid: str) -> list[dict[str, Any]]:
+    """All escalation jobs (running and done) for a session."""
+    try:
+        from agent.escalation import get_jobs
+        return [
+            {
+                "task_id": j["job_id"],
+                "prompt": j.get("summary") or j.get("reason") or "",
+                "answer": j.get("text"),
+                "status": j.get("status"),
+                "model": j.get("model"),
+                "started_at": j.get("started_at"),
+                "completed_at": j.get("completed_at"),
+            }
+            for j in get_jobs(parent_sid)
+        ]
+    except Exception:
+        logger.debug("escalation job listing failed", exc_info=True)
+        return []
+
+
+def drain_escalation_results(parent_sid: str) -> list[dict[str, Any]]:
+    """Pop escalation results that no live stream picked up (one-shot)."""
+    try:
+        from agent.escalation import drain_pending
+        return [data for _event, data in drain_pending(parent_sid)]
+    except Exception:
+        logger.debug("escalation result drain failed", exc_info=True)
+        return []

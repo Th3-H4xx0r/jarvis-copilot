@@ -3538,7 +3538,34 @@ def run_conversation(
                     except Exception:
                         pass
 
-                agent._execute_tool_calls(assistant_message, messages, effective_task_id, api_call_count)
+                # plan 2.5 — the `escalate` tool is dispatched through the tool
+                # registry, which hands handlers only (args, task_id). Bind the
+                # session this turn belongs to against that task id so the
+                # handler knows where to deliver the big model's answer.
+                _escalation_bound = False
+                try:
+                    from agent import escalation as _escalation
+                    if any(tc.function.name == _escalation.ESCALATION_TOOL_NAME
+                           for tc in assistant_message.tool_calls):
+                        _escalation.bind_turn_context(
+                            effective_task_id,
+                            session_id=getattr(agent, "session_id", None),
+                            model=agent.model,
+                            provider=getattr(agent, "provider", None),
+                        )
+                        _escalation_bound = True
+                except Exception:
+                    logger.debug("escalation context binding failed", exc_info=True)
+
+                try:
+                    agent._execute_tool_calls(assistant_message, messages, effective_task_id, api_call_count)
+                finally:
+                    if _escalation_bound:
+                        try:
+                            from agent import escalation as _escalation
+                            _escalation.clear_turn_context(effective_task_id)
+                        except Exception:
+                            pass
 
                 if agent._tool_guardrail_halt_decision is not None:
                     decision = agent._tool_guardrail_halt_decision
@@ -3569,6 +3596,26 @@ def run_conversation(
                 _tc_names = {tc.function.name for tc in assistant_message.tool_calls}
                 if _tc_names == {"execute_code"}:
                     agent.iteration_budget.refund()
+
+                # plan 2.5 — `escalate` ENDS the fast turn. The work now belongs
+                # to the background job, so a follow-up API call would only make
+                # the small model narrate a hand-off it already acknowledged —
+                # pure added latency on the one path built to be sub-second.
+                # The user's reply is the ack text this same turn produced.
+                if _escalation_bound and "escalate" in _tc_names:
+                    _ack = (
+                        (turn_content or "").strip()
+                        or (getattr(agent, "_last_content_with_tools", "") or "").strip()
+                    )
+                    if not _ack:
+                        # The model called escalate without saying anything —
+                        # give the user something rather than dead air.
+                        _ack = "On it — I'll follow up in a moment."
+                        messages.append({"role": "assistant", "content": _ack})
+                    final_response = _ack
+                    _turn_exit_reason = "escalated"
+                    agent._session_messages = messages
+                    break
                 
                 # Use real token counts from the API response to decide
                 # compression.  prompt_tokens + completion_tokens is the

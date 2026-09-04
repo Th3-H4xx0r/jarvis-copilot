@@ -738,6 +738,134 @@ def _coerce_boolean(value: str):
     return value
 
 
+# =============================================================================
+# Eager tool dispatch  (plan 2.4)
+# =============================================================================
+# A device tool whose arguments finished streaming can start running while the
+# model is still generating the rest of its message. The result is memoized by
+# ``tool_call_id`` so the agent loop's later ``handle_function_call`` picks it up
+# instead of executing the tool a second time.
+
+# How long the loop will block on an in-flight eager execution before giving up
+# and running the tool itself. Generous: an eager tool is by definition already
+# running, so this only bites if the device went away mid-call. plan 2.4
+_EAGER_RESULT_WAIT_SECONDS = 60.0
+# Hard cap on outstanding eager executions, so a pathological stream can't grow
+# the map without bound. plan 2.4
+_EAGER_MAX_PENDING = 16
+
+_eager_futures: Dict[str, Any] = {}
+_eager_lock = threading.Lock()
+_eager_pool = None
+# Set on the worker thread so its own handle_function_call() call doesn't try to
+# consume the very future it is fulfilling.
+_eager_worker_state = threading.local()
+
+
+def _get_eager_pool():
+    global _eager_pool
+    with _eager_lock:
+        if _eager_pool is None:
+            import concurrent.futures
+            _eager_pool = concurrent.futures.ThreadPoolExecutor(
+                max_workers=4, thread_name_prefix="jc-eager-tool",
+            )
+        return _eager_pool
+
+
+def _eager_dispatch_is_safe() -> bool:
+    """False when something must gate this tool call before it runs.
+
+    Eager execution happens on a pool thread, ahead of the agent loop's own
+    ``pre_tool_call`` pass — so a plugin policy hook or a thread-scoped tool
+    whitelist (delegate_task's child scoping) would be bypassed. Rather than
+    reimplement those gates on a different thread, we simply decline to run
+    early whenever either exists: correctness first, latency second.
+    """
+    try:
+        from jarviscopilot_cli import plugins as _plugins
+        if getattr(getattr(_plugins, "_thread_tool_whitelist", None), "allowed", None) is not None:
+            return False
+        manager = getattr(_plugins, "_plugin_manager", None)
+        hooks = getattr(manager, "_hooks", None) if manager is not None else None
+        if hooks and hooks.get("pre_tool_call"):
+            return False
+    except Exception:
+        # Unknown plugin state — do not take the shortcut.
+        return False
+    return True
+
+
+def eager_dispatch(
+    function_name: str,
+    function_args: Dict[str, Any],
+    *,
+    tool_call_id: str,
+    task_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    enabled_tools: Optional[List[str]] = None,
+) -> bool:
+    """Start executing a tool NOW, keyed by ``tool_call_id``.
+
+    Returns True when an execution was started. The caller does not wait — the
+    result is collected by the next ``handle_function_call`` carrying the same
+    ``tool_call_id``. Safe to call twice for the same id (the second is a no-op).
+    """
+    if not tool_call_id or not _eager_dispatch_is_safe():
+        return False
+    with _eager_lock:
+        if tool_call_id in _eager_futures:
+            return False
+        if len(_eager_futures) >= _EAGER_MAX_PENDING:
+            logger.debug("eager dispatch skipped: %d already pending", len(_eager_futures))
+            return False
+        _eager_futures[tool_call_id] = None  # reserve the slot before submitting
+
+    def _run() -> str:
+        _eager_worker_state.active = True
+        try:
+            return handle_function_call(
+                function_name, function_args, task_id,
+                tool_call_id=tool_call_id,
+                session_id=session_id,
+                enabled_tools=enabled_tools,
+                skip_pre_tool_call_hook=True,
+            )
+        finally:
+            _eager_worker_state.active = False
+
+    try:
+        future = _get_eager_pool().submit(_run)
+    except Exception:
+        with _eager_lock:
+            _eager_futures.pop(tool_call_id, None)
+        logger.debug("eager dispatch submit failed for %s", function_name, exc_info=True)
+        return False
+    with _eager_lock:
+        _eager_futures[tool_call_id] = future
+    return True
+
+
+def _take_eager_future(tool_call_id: str):
+    """Pop the pending eager execution for ``tool_call_id`` (None if there is none)."""
+    if not tool_call_id or getattr(_eager_worker_state, "active", False):
+        return None
+    with _eager_lock:
+        return _eager_futures.pop(tool_call_id, None)
+
+
+def reset_eager_dispatch() -> None:
+    """Forget every pending eager execution.
+
+    Called at the start of each streaming attempt: a retried or aborted stream
+    produces fresh tool_call_ids, so leftovers could never be matched and must
+    not be handed to a later turn. Already-running work is left to finish (its
+    side effect has happened either way) — only the bookkeeping is dropped.
+    """
+    with _eager_lock:
+        _eager_futures.clear()
+
+
 def handle_function_call(
     function_name: str,
     function_args: Dict[str, Any],
@@ -764,6 +892,19 @@ def handle_function_call(
     Returns:
         Function result as a JSON string.
     """
+    # plan 2.4 — this tool may already be running: it was dispatched the moment
+    # its argument stream closed. Collect that result instead of re-running the
+    # side effect.
+    _eager = _take_eager_future(tool_call_id)
+    if _eager is not None:
+        try:
+            return _eager.result(timeout=_EAGER_RESULT_WAIT_SECONDS)
+        except Exception as _eager_err:
+            logger.warning(
+                "eager dispatch of %s did not complete (%s); running it normally",
+                function_name, _eager_err,
+            )
+
     # Coerce string arguments to their schema-declared types (e.g. "42"→42)
     function_args = coerce_tool_args(function_name, function_args)
 

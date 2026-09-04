@@ -109,7 +109,7 @@ def test_bridge_pipeline_uses_pretranscript_and_skips_stt(monkeypatch):
 
     captured = {}
 
-    def _fake_stream_segments(conn, sock, state, gen):
+    def _fake_stream_segments(conn, sock, state, gen, timing=None):
         # Drain the generator's first arg path: record the transcript the
         # pipeline resolved by inspecting what was sent + the gen is opaque, so
         # capture via the transcript frame instead.
@@ -152,7 +152,7 @@ def test_bridge_answer_clarify_uses_pretranscript_and_skips_stt(monkeypatch):
 
     captured = {}
     monkeypatch.setattr(voice, "_stream_segments",
-                        lambda c, s, st, g: captured.setdefault("reached", True) or True)
+                        lambda c, s, st, g, timing=None: captured.setdefault("reached", True) or True)
     monkeypatch.setattr(
         voice, "_run_agent_continuation_after_clarify",
         lambda sid, transcript: captured.setdefault("transcript", transcript) or iter(()),
@@ -176,7 +176,7 @@ def test_bridge_pipeline_passes_per_turn_model_override(monkeypatch):
     from api import voice
 
     monkeypatch.setattr(voice, "_ws_send_text", lambda conn, sock, text: None)
-    monkeypatch.setattr(voice, "_stream_segments", lambda c, s, st, g: True)
+    monkeypatch.setattr(voice, "_stream_segments", lambda c, s, st, g, timing=None: True)
 
     seen = {}
 

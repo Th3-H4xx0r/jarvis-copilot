@@ -22,6 +22,15 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
     private var calibrating = false   // true only while the silent volume loop owns `player`
     private var clipQueue: [Data] = []  // pending reply-clip chunks, played in order
     private var volumeDrawerOpen = false // Volume drawer visible → keep the media route for the Crown
+    /// plan 1.6/2 — clips can arrive over TWO different channels
+    /// (`sendMessageData`, delivered immediately, vs. queued `transferFile`
+    /// for bigger clips), so arrival order is not reading order: a later,
+    /// small clip can reach the watch before an earlier, large one that's
+    /// still being transferred. `enqueueClip(_:seq:)` buffers out-of-order
+    /// clips here and only hands them to the play queue once every earlier
+    /// `seq` has been seen.
+    private var nextSeqToPlay = 0
+    private var pendingBySeq: [Int: Data] = [:]
 
     func play(base64 string: String) {
         guard let data = Data(base64Encoded: string), !data.isEmpty else {
@@ -37,16 +46,27 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
         start(data: data, loop: false)
     }
 
-    /// Enqueue one reply-clip chunk. Chunks play sequentially (the next starts
-    /// when the current finishes), so a long reply streamed as several clips
-    /// speaks continuously — and the first chunk starts immediately.
-    func enqueueClip(_ data: Data) {
+    /// Enqueue one reply-clip chunk, identified by its `seq` in the turn
+    /// (plan 1.6/2). Held back if an earlier-numbered clip hasn't arrived
+    /// yet — sent to the play queue strictly in `seq` order, regardless of
+    /// which transport channel it actually arrived over.
+    func enqueueClip(_ data: Data, seq: Int) {
         isSpeaking = true
-        if let p = player, p.isPlaying, !calibrating {
-            clipQueue.append(data)            // a chunk is already playing → queue after it
-        } else {
-            calibrating = false               // preempt the silent volume loop / idle
-            start(data: data, loop: false)
+        pendingBySeq[seq] = data
+        drainReadyClips()
+    }
+
+    /// Hand every contiguous, already-arrived clip starting at
+    /// `nextSeqToPlay` to the play queue, in order.
+    private func drainReadyClips() {
+        while let data = pendingBySeq.removeValue(forKey: nextSeqToPlay) {
+            nextSeqToPlay += 1
+            if let p = player, p.isPlaying, !calibrating {
+                clipQueue.append(data)            // a chunk is already playing → queue after it
+            } else {
+                calibrating = false               // preempt the silent volume loop / idle
+                start(data: data, loop: false)
+            }
         }
     }
 
@@ -55,6 +75,8 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
     /// volume-calibration loop alone.
     func resetClips() {
         clipQueue.removeAll()
+        pendingBySeq.removeAll()
+        nextSeqToPlay = 0
         isSpeaking = false
         stopProgressPolling(completed: false)
         playbackProgress = 0

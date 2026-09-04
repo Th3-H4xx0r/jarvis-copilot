@@ -473,7 +473,7 @@ def test_chat_start_retags_empty_session_to_request_profile(monkeypatch, tmp_pat
             self.pending_started_at = None
             self.saved = False
 
-        def save(self):
+        def save(self, touch_updated_at=True, skip_index=False):
             self.saved = True
 
     fake = FakeSession()
@@ -545,7 +545,7 @@ def test_chat_start_does_not_retag_non_empty_session(monkeypatch, tmp_path):
             self.pending_started_at = None
             self.saved = False
 
-        def save(self):
+        def save(self, touch_updated_at=True, skip_index=False):
             self.saved = True
 
     fake = FakeSession()

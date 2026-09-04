@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../api/photon.dart';
 import '../main.dart' as app;
 import '../services/android_accessibility.dart';
+import '../services/background_keepalive.dart';
 import '../services/credentials.dart';
 import '../services/local_ai_settings.dart';
 import '../services/on_device_ai_types.dart';
@@ -32,6 +33,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _paused = false;
   bool _trackLocation = false;
   bool _liveActivities = true;
+  bool _keepaliveEnabled = true;
   Map<String, dynamic> _watchStatus = const {};
   PhotonConfig? _photonCfg;
 
@@ -44,6 +46,19 @@ class _SettingsPageState extends State<SettingsPage> {
     _liveActivities = Credentials.instance.liveActivitiesEnabled;
     _loadWatchStatus();
     _loadPhotonStatus();
+    _loadKeepaliveSetting();
+  }
+
+  /// iOS-only (Android's BridgeService already keeps invokes reachable in
+  /// the background); the switch itself is hidden on other platforms.
+  Future<void> _loadKeepaliveSetting() async {
+    final v = await BackgroundKeepalive.instance.isEnabled();
+    if (mounted) setState(() => _keepaliveEnabled = v);
+  }
+
+  Future<void> _toggleKeepalive(bool v) async {
+    setState(() => _keepaliveEnabled = v);
+    await BackgroundKeepalive.instance.setEnabled(v);
   }
 
   Future<void> _loadWatchStatus() async {
@@ -215,8 +230,19 @@ class _SettingsPageState extends State<SettingsPage> {
                     Credentials.instance.saveLiveActivities(v);
                     app.liveActivityCoordinator.setEnabled(v);
                   },
-                  last: true,
+                  last: !Platform.isIOS,
                 ),
+                if (Platform.isIOS)
+                  _SwitchRow(
+                    icon: Icons.podcasts_rounded,
+                    title: 'Stay connected in background',
+                    subtitle: 'Uses a silent audio session so invokes (e.g. '
+                        '"what\'s my battery?") don\'t time out while the app '
+                        'is backgrounded.',
+                    value: _keepaliveEnabled,
+                    onChanged: _toggleKeepalive,
+                    last: true,
+                  ),
               ]),
               const SizedBox(height: 26),
 

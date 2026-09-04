@@ -30,9 +30,20 @@ def _act_then_snapshot(action: str, args: dict) -> dict:
     large post-action snapshot to a Mac-local file and return only the path — the
     agent then reads that file raw, dumping the full (uncapped) tree into context
     (one real run hit ~350k tokens). An explicit ``browser_snapshot`` with no
-    ``filename`` is always returned INLINE, so browser_mcp's size cap applies."""
+    ``filename`` is always returned INLINE, so browser_mcp's size cap applies.
+
+    ``call_tool`` no longer raises on a cold/dead child — it returns an error
+    dict (``{"ok": False, "error": ...}``, e.g. "browser warming up, retry")
+    instead. If the action itself didn't succeed, surface that error
+    immediately rather than following it with a snapshot call: the snapshot
+    would just repeat the same cold-start error (or block on its own 8s
+    ``_COLD_START_BUDGET`` wait right after the action's), and it would be
+    reporting on a page the action never actually touched — a silent wrong
+    "success" plus a needless second wait."""
     mgr = browser_mcp()
-    mgr.call_tool(action, args)
+    act_result = mgr.call_tool(action, args)
+    if not act_result.get("ok", False):
+        return act_result
     return mgr.call_tool("browser_snapshot", _snapshot_args())
 
 

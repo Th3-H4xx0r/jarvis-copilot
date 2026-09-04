@@ -5467,7 +5467,15 @@ def handle_post(handler, parsed) -> bool:
         return _handle_goal_command(handler, body)
 
     if parsed.path == "/api/chat/start":
-        return _handle_chat_start(handler, body, diag=diag)
+        # plan 5.1 — POST /api/chat/start?stream=1 (or an SSE Accept header)
+        # streams the turn's SSE events on this same chunked response instead
+        # of requiring a separate GET /api/stream round trip. Backward
+        # compatible: omit both and you get the original plain-JSON response.
+        want_stream = (
+            parse_qs(parsed.query or "").get("stream", [""])[0] in ("1", "true", "yes")
+            or "text/event-stream" in (handler.headers.get("Accept") or "")
+        )
+        return _handle_chat_start(handler, body, diag=diag, stream=want_stream)
 
     if parsed.path == "/api/chat":
         return _handle_chat_sync(handler, body)
@@ -6847,13 +6855,32 @@ def _handle_sse_stream(handler, parsed):
         except _CLIENT_DISCONNECT_ERRORS:
             pass
         return True
-    subscriber = stream.subscribe() if hasattr(stream, "subscribe") else stream
+    _send_sse_headers(handler)
+    try:
+        _pump_sse_stream(handler, stream_id, stream)
+    except _CLIENT_DISCONNECT_ERRORS:
+        pass
+    return True
+
+
+def _send_sse_headers(handler) -> None:
     handler.send_response(200)
     handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
     handler.send_header("Cache-Control", "no-cache")
     handler.send_header("X-Accel-Buffering", "no")
     handler.send_header("Connection", "keep-alive")
     handler.end_headers()
+
+
+def _pump_sse_stream(handler, stream_id: str, stream) -> None:
+    """Write live subscriber events for `stream_id` as SSE frames until a
+    terminal event (stream_end/error/cancel). Shared by the GET
+    ``/api/stream`` endpoint and the plan-5.1 same-response
+    ``POST /api/chat/start?stream=1`` path — both attach to the SAME
+    ``STREAMS[stream_id]`` channel the worker thread publishes to, so either
+    can pick up mid-stream if the other's connection drops.
+    """
+    subscriber = stream.subscribe() if hasattr(stream, "subscribe") else stream
     try:
         while True:
             try:
@@ -6873,14 +6900,35 @@ def _handle_sse_stream(handler, parsed):
                 _sse(handler, event, data)
             if event in ("stream_end", "error", "cancel"):
                 break
-    except _CLIENT_DISCONNECT_ERRORS:
-        pass
     finally:
         if subscriber is not stream and hasattr(stream, "unsubscribe"):
             try:
                 stream.unsubscribe(subscriber)
             except Exception:
                 pass
+
+
+def _stream_chat_start_response(handler, response: dict) -> bool:
+    """plan 5.1 — collapse chat/start + the SSE GET into one chunked response.
+
+    Writes the normal chat/start JSON payload as the first SSE event (event
+    name ``chat_start``, carrying the same fields the plain POST would have
+    returned: stream_id, session_id, title, ...) so a client that adopted
+    this path never needs the separate GET round trip, then pumps the rest
+    of the turn's events on the SAME connection. The stream stays registered
+    in STREAMS regardless (the worker thread doesn't know or care how many
+    listeners it has), so a client whose POST connection drops can still
+    fall back to ``GET /api/stream?stream_id=...`` exactly as before.
+    """
+    stream_id = response.get("stream_id")
+    stream = STREAMS.get(stream_id) if stream_id else None
+    _send_sse_headers(handler)
+    try:
+        _sse(handler, "chat_start", response)
+        if stream is not None:
+            _pump_sse_stream(handler, stream_id, stream)
+    except _CLIENT_DISCONNECT_ERRORS:
+        pass
     return True
 
 
@@ -8458,6 +8506,7 @@ def _prepare_chat_start_session_for_stream(
     model_provider,
     stream_id: str,
     started_at: float | None = None,
+    persist: bool = True,
 ):
     """Persist chat-start state according to webui.session_save_mode.
 
@@ -8467,6 +8516,12 @@ def _prepare_chat_start_session_for_stream(
     a process restart immediately after /api/chat/start preserves the prompt as
     a normal session message. Empty sessions are never saved here because this
     helper only runs after a non-empty message is validated.
+
+    ``persist=False`` (plan 1.2) sets all the in-memory pending-state fields
+    on ``s`` but skips the disk write — the caller starts the agent worker
+    thread first and writes the session afterward with
+    ``s.save(skip_index=True)`` so the SESSION_DIR glob in
+    ``_write_session_index`` never sits on the chat/start request path.
     """
     s.workspace = workspace
     s.model = model
@@ -8487,7 +8542,8 @@ def _prepare_chat_start_session_for_stream(
             attachments,
             s.pending_started_at,
         )
-    s.save()
+    if persist:
+        s.save()
 
 
 def _start_chat_stream_for_session(
@@ -8536,6 +8592,11 @@ def _start_chat_stream_for_session(
     diag.stage("session_lock_wait") if diag else None
     with session_lock:
         diag.stage("save_pending_state") if diag else None
+        # plan 1.2 — set the pending-state fields on `s` now (cheap, in-memory)
+        # but defer the disk write (persist=False) until after the worker
+        # thread has been started below, and skip the SESSION_DIR-globbing
+        # index rewrite on that write entirely (skip_index=True) in favor of
+        # a debounced background refresh.
         _prepare_chat_start_session_for_stream(
             s,
             msg=msg,
@@ -8544,6 +8605,7 @@ def _start_chat_stream_for_session(
             model=model,
             model_provider=model_provider,
             stream_id=stream_id,
+            persist=False,
         )
     diag.stage("turn_journal_submitted") if diag else None
     journal_event = {}
@@ -8582,6 +8644,19 @@ def _start_chat_stream_for_session(
         daemon=True,
     )
     thr.start()
+    # plan 1.2 — persist the pending state to disk only after the worker
+    # thread has been kicked off, with skip_index=True so this write never
+    # does the SESSION_DIR glob (see models._write_session_index). The
+    # session index is refreshed shortly after via a debounced background
+    # call so /api/sessions listings still pick up the new/updated session.
+    diag.stage("save_pending_state_disk") if diag else None
+    with session_lock:
+        s.save(skip_index=True)
+    try:
+        from api.models import schedule_session_index_refresh
+        schedule_session_index_refresh(s)
+    except Exception:
+        logger.warning("Failed to schedule session index refresh", exc_info=True)
     response = {
         "stream_id": stream_id,
         "session_id": s.session_id,
@@ -8716,7 +8791,14 @@ def _handle_goal_command(handler, body):
     return j(handler, payload)
 
 
-def _handle_chat_start(handler, body, diag=None):
+def _handle_chat_start(handler, body, diag=None, stream=False):
+    """Handle POST /api/chat/start.
+
+    ``stream=True`` (plan 5.1 — ``?stream=1`` or an SSE Accept header) keeps
+    the same connection open and streams the turn's SSE events on it instead
+    of returning a plain JSON body; the older two-step flow (JSON response,
+    then a separate ``GET /api/stream``) is unchanged when ``stream=False``.
+    """
     try:
         diag.stage("validate_session_id") if diag else None
         try:
@@ -8832,6 +8914,8 @@ def _handle_chat_start(handler, body, diag=None):
             )
         status = int(response.pop("_status", 200) or 200)
         diag.stage("response_write") if diag else None
+        if stream and status < 400 and response.get("stream_id"):
+            return _stream_chat_start_response(handler, response)
         return j(handler, response, status=status)
     finally:
         if diag:

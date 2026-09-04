@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -185,6 +186,29 @@ def _sanitize_env_file_if_needed(path: Path) -> None:
         pass  # best-effort — don't block gateway startup
 
 
+# plan 1.3 — load_hermes_dotenv() re-read + re-applied both .env files (plus
+# the Bitwarden secrets round trip) on every call; mcp_tool._load_mcp_config()
+# calls it once per agent turn just to keep ${VAR} interpolation fresh. Cache
+# on (user_env mtime+size, project_env mtime+size): when neither file changed
+# since the last call for this (hermes_home, project_env) pair, skip the
+# re-parse/re-apply work entirely and return the previously loaded path list.
+# Env vars are still re-applied to os.environ whenever either file's
+# (mtime_ns, size) differs — matches jarviscopilot_cli.config.load_config().
+_DOTENV_CACHE_LOCK = threading.Lock()
+# (str(home_path), str(project_env_path) or "") -> (user_key, project_key, loaded_paths)
+_DOTENV_CACHE: dict[tuple[str, str], tuple] = {}
+
+
+def _dotenv_file_key(path: Path | None):
+    if path is None:
+        return None
+    try:
+        st = path.stat()
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
 def load_hermes_dotenv(
     *,
     hermes_home: str | os.PathLike | None = None,
@@ -197,12 +221,25 @@ def load_hermes_dotenv(
     - project `.env` acts as a dev fallback and only fills missing values when
       the user env exists.
     - if no user env exists, the project `.env` also overrides stale shell vars.
-    """
-    loaded: list[Path] = []
 
+    Cached per (hermes_home, project_env) on each file's (mtime, size) — plan
+    1.3. A cache hit skips re-parsing/re-applying the files (and the Bitwarden
+    secrets round trip); env vars are re-applied whenever either file changes.
+    """
     home_path = Path(hermes_home or os.getenv("HERMES_HOME", Path.home() / ".hermes"))
     user_env = home_path / ".env"
     project_env_path = Path(project_env) if project_env else None
+
+    cache_key = (str(home_path), str(project_env_path) if project_env_path else "")
+    user_key = _dotenv_file_key(user_env)
+    project_key = _dotenv_file_key(project_env_path) if project_env_path else None
+
+    with _DOTENV_CACHE_LOCK:
+        cached = _DOTENV_CACHE.get(cache_key)
+        if cached is not None and cached[0] == user_key and cached[1] == project_key:
+            return list(cached[2])
+
+    loaded: list[Path] = []
 
     # Fix corrupted .env files before python-dotenv parses them (#8908).
     if user_env.exists():
@@ -219,6 +256,9 @@ def load_hermes_dotenv(
         loaded.append(project_env_path)
 
     _apply_external_secret_sources(home_path)
+
+    with _DOTENV_CACHE_LOCK:
+        _DOTENV_CACHE[cache_key] = (user_key, project_key, list(loaded))
 
     return loaded
 

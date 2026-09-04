@@ -9,6 +9,7 @@ import android.net.Uri
 import android.media.AudioManager
 import android.os.Build
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.telephony.SmsManager
 import com.jarviscopilot.mobile.A11yService
 import com.jarviscopilot.mobile.NotifListenerService
@@ -26,6 +27,67 @@ object SkillChannels {
         TaskerChannel.register(ctx, engine)
         AppChannel.register(ctx, engine)
         AudioChannel.register(ctx, engine)
+        // Latency rehaul: streaming on-device STT (plan 4.2) + the phone's own
+        // synthesizer for local acks (plan 4.4).
+        SpeechStreamChannel.register(ctx, engine)
+        LocalTtsChannel.register(ctx, engine)
+    }
+}
+
+// ── local TTS (plan 4.4) ────────────────────────────────────────────────
+//
+// The Android half of `jarviscopilot/local_tts`. A device action handled
+// entirely on-device ("flashlight on") must be confirmed out loud without a
+// round-trip to /api/voice/synthesize — that round-trip is longer than the
+// action itself. Real replies still use the JARVIS voice from the server.
+//
+// Deliberately its own TextToSpeech instance (not flutter_tts, which backs the
+// `text_to_speech` skill): acks must be able to interrupt whatever the skill is
+// saying without the two fighting over one engine's queue.
+
+object LocalTtsChannel {
+    private var tts: TextToSpeech? = null
+    @Volatile private var ready = false
+
+    fun register(ctx: Context, engine: FlutterEngine) {
+        // Warm the engine at startup, not on the first ack: a cold
+        // TextToSpeech init costs a few hundred ms, which is the entire budget
+        // the local lane is trying to protect.
+        if (tts == null) {
+            tts = TextToSpeech(ctx.applicationContext) { status ->
+                ready = status == TextToSpeech.SUCCESS
+            }
+        }
+        val ch = MethodChannel(engine.dartExecutor.binaryMessenger, "jarviscopilot/local_tts")
+        ch.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "speak" -> {
+                    val text = call.argument<String>("text")?.trim().orEmpty()
+                    val e = tts
+                    if (text.isEmpty() || e == null || !ready) {
+                        // Not ready yet → Dart falls back to the JARVIS voice.
+                        result.success(false)
+                    } else {
+                        // rate: Dart's 0.52 sits just above Apple's default; on
+                        // Android 1.0 IS the default, so scale around that.
+                        val rate = ((call.argument<Double>("rate") ?: 0.52) * 2.0).toFloat()
+                        result.success(utter(e, text, rate))
+                    }
+                }
+                "stop" -> {
+                    tts?.stop()
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun utter(engine: TextToSpeech, text: String, rate: Float): Boolean {
+        engine.setSpeechRate(rate.coerceIn(0.5f, 2.0f))
+        val id = "jc-ack-" + System.currentTimeMillis()
+        // QUEUE_FLUSH: an ack is only ever about the turn happening right now.
+        return engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, id) == TextToSpeech.SUCCESS
     }
 }
 

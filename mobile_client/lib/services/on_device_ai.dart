@@ -158,6 +158,73 @@ class OnDeviceAi implements OnDeviceAiClient {
     }
   }
 
+  // ── Streaming on-device STT (plan 4.1 / 4.2) ──────────────────────────────
+  //
+  // [transcribe] above is the BATCH path: it can only run once the user has
+  // stopped talking, so its 300–800 ms lands entirely inside the user's wait.
+  // A streaming session instead consumes the SAME mic frames the controller is
+  // already sending to the server, so the final transcript is ready ~0 ms after
+  // the endpointer fires and `end_turn` can carry `text` (the server then skips
+  // its own STT).
+  //
+  // Native contract — MethodChannel `jarviscopilot/speech_stream`:
+  //   start({sample_rate, id}) -> bool   (false/absent = not supported here)
+  //   feed({id, pcm})          -> void   (PCM16 mono LE, the mic's own frames)
+  //   stop({id})               -> String (final transcript, '' if none)
+  //   cancel({id})             -> void
+  // EventChannel `jarviscopilot/speech_stream/partials` carries
+  //   {id, type: 'partial'|'final'|'error', text}.
+
+  static const MethodChannel _speech =
+      MethodChannel('jarviscopilot/speech_stream');
+  static const EventChannel _speechEvents =
+      EventChannel('jarviscopilot/speech_stream/partials');
+
+  Stream<Map<String, dynamic>>? _speechStream;
+
+  /// Latched once the platform has told us it can't stream, so we stop paying a
+  /// channel round-trip per turn on devices without it (Android without the
+  /// on-device recognizer, iOS before 13, or a build with no bridge).
+  bool _speechStreamUnsupported = false;
+
+  Stream<Map<String, dynamic>> get _speechEventStream =>
+      _speechStream ??= _speechEvents
+          .receiveBroadcastStream()
+          .map(_asMap)
+          .asBroadcastStream();
+
+  /// Begin a live on-device transcription over the mic frames the caller will
+  /// [SpeechStreamSession.feed] in. Returns null when the device can't do it —
+  /// the caller then falls back to the server's STT.
+  /// [prompt] true lets the platform ASK for the speech permission; false
+  /// means "only if it was already granted", so a user who never opted into
+  /// on-device AI never sees a new permission sheet.
+  Future<SpeechStreamSession?> transcribeStream({
+    int sampleRate = 16000,
+    bool prompt = false,
+  }) async {
+    if (_speechStreamUnsupported) return null;
+    final id = _nextRequestId();
+    try {
+      final ok = await _speech.invokeMethod('start', {
+        'id': id,
+        'sample_rate': sampleRate,
+        'prompt': prompt,
+      });
+      if (ok != true) {
+        _speechStreamUnsupported = true;
+        return null;
+      }
+      return SpeechStreamSession._(id, _speech, _speechEventStream);
+    } on MissingPluginException {
+      _speechStreamUnsupported = true;
+      return null;
+    } catch (e) {
+      debugPrint('[ondevice] speech stream start failed: $e');
+      return null;
+    }
+  }
+
   // ── Model management (used by the Settings UI, not the router) ─────────────
 
   Future<List<LocalModelInfo>> listModels() async {
@@ -291,5 +358,108 @@ ${req.toolCatalogJson}
       debugPrint('[ondevice] unexpected channel payload: ${v.runtimeType}');
     }
     return <String, dynamic>{};
+  }
+}
+
+/// A live on-device speech recognition session (plan 4.1 / 4.2). Created by
+/// [OnDeviceAi.transcribeStream]; one at a time per app.
+///
+/// The session is deliberately forgiving: every method swallows platform
+/// errors, because losing on-device STT only means the turn falls back to the
+/// server — it must never break the voice loop.
+class SpeechStreamSession {
+  SpeechStreamSession._(this.id, this._channel, Stream<Map<String, dynamic>> events) {
+    _sub = events.where((e) => e['id'] == id).listen((e) {
+      final type = (e['type'] ?? '').toString();
+      final text = (e['text'] ?? '').toString();
+      switch (type) {
+        case 'partial':
+        case 'final':
+          if (text.isNotEmpty) {
+            _lastPartial = text;
+            if (!_partials.isClosed) _partials.add(text);
+          }
+          if (type == 'final') _finalize(text);
+          break;
+        case 'error':
+          // Never log `text` here — it can carry recognized speech.
+          debugPrint('[ondevice] speech stream error');
+          _finalize(_lastPartial);
+          break;
+      }
+    });
+  }
+
+  final String id;
+  final MethodChannel _channel;
+  StreamSubscription<Map<String, dynamic>>? _sub;
+  final StreamController<String> _partials = StreamController<String>.broadcast();
+  final Completer<String> _done = Completer<String>();
+  String _lastPartial = '';
+  bool _closed = false;
+
+  /// Growing hypothesis text as the user speaks. Useful for a live caption; the
+  /// authoritative answer is [stop].
+  Stream<String> get partials => _partials.stream;
+
+  /// The most recent hypothesis — already available when the endpointer fires.
+  String get lastPartial => _lastPartial;
+
+  /// True once the recognizer has produced its final result (or failed).
+  bool get isDone => _done.isCompleted;
+
+  /// Push one mic frame. Fire-and-forget: the mic stream must never block on
+  /// the recognizer.
+  void feed(Uint8List pcm) {
+    if (_closed || pcm.isEmpty) return;
+    _channel.invokeMethod('feed', {'id': id, 'pcm': pcm}).catchError((Object e) {
+      debugPrint('[ondevice] speech feed failed: $e');
+      return null;
+    });
+  }
+
+  /// How long to wait for the recognizer's FINAL result after end-of-speech.
+  /// This sits directly in the user's wait, so it is deliberately short: the
+  /// last partial is nearly always the same string, and we fall back to it.
+  static const Duration kFinalizeTimeout = Duration(milliseconds: 350);
+
+  /// End the utterance and return the final transcript ('' when there is none).
+  /// Bounded by [timeout] so a wedged recognizer can't hold the turn.
+  Future<String> stop({Duration timeout = kFinalizeTimeout}) async {
+    if (_closed) return _lastPartial;
+    _closed = true;
+    try {
+      final res = await _channel
+          .invokeMethod('stop', {'id': id}).timeout(timeout, onTimeout: () => null);
+      final text = (res ?? '').toString().trim();
+      if (text.isNotEmpty) {
+        _finalize(text);
+        return text;
+      }
+    } catch (e) {
+      debugPrint('[ondevice] speech stop failed: $e');
+    }
+    // No final from the platform — fall back to the last hypothesis, which for
+    // a completed utterance is almost always the same string.
+    final fallback = _lastPartial.trim();
+    _finalize(fallback);
+    return fallback;
+  }
+
+  /// Abandon the session (barge-in, teardown). Never returns a transcript.
+  Future<void> cancel() async {
+    if (_closed) return;
+    _closed = true;
+    try {
+      await _channel.invokeMethod('cancel', {'id': id});
+    } catch (_) {}
+    _finalize('');
+  }
+
+  void _finalize(String text) {
+    _sub?.cancel();
+    _sub = null;
+    if (!_done.isCompleted) _done.complete(text);
+    if (!_partials.isClosed) _partials.close();
   }
 }

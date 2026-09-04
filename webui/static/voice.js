@@ -32,6 +32,36 @@
     bargeInThreshold: 0.40,   // mic amplitude above this while speaking → interrupt
   };
 
+  // ---- Adaptive endpointer module loader (plan 1.1) ----
+  // voice_endpoint.js is a pure, dependency-free module (see that file) meant
+  // to be unit-testable with plain `node --test`. It's loaded here as a plain
+  // <script> (not a module import) so it drops in next to voice.js without
+  // any build step or index.html edit; it attaches itself to
+  // window.JCVoiceEndpoint. If it fails to load for any reason (offline cache
+  // miss, blocked request), startRealtime() falls back to a fixed-threshold
+  // VAD so voice still works, just without the adaptive silence window.
+  let _endpointModulePromise = null;
+  function _loadEndpointModule() {
+    if (_endpointModulePromise) return _endpointModulePromise;
+    _endpointModulePromise = new Promise((resolve) => {
+      if (window.JCVoiceEndpoint) { resolve(window.JCVoiceEndpoint); return; }
+      try {
+        const selfSrc = (document.currentScript && document.currentScript.src) || '';
+        const base = selfSrc ? selfSrc.replace(/voice\.js(\?.*)?$/, '') : 'static/';
+        const s = document.createElement('script');
+        s.src = base + 'voice_endpoint.js';
+        s.onload = () => resolve(window.JCVoiceEndpoint || null);
+        s.onerror = () => resolve(null);
+        document.head.appendChild(s);
+      } catch (e) {
+        resolve(null);
+      }
+    });
+    return _endpointModulePromise;
+  }
+  // Kick the load off immediately so it's warm by the time startRealtime() runs.
+  _loadEndpointModule();
+
   // ---- DOM helpers ----
   function $(id) { return document.getElementById(id); }
 
@@ -778,13 +808,80 @@
   }
 
   // ---- PcmPlayer — queue + play 24 kHz int16 PCM frames via WebAudio ----
+  //
+  // Playback (plan 1.7): PCM chunks are pushed into a ring buffer that an
+  // AudioWorkletNode (preferred) or a ScriptProcessorNode (fallback, for
+  // browsers without audioWorklet, e.g. older Safari) drains continuously —
+  // audio starts on the very first chunk rather than waiting for audio_end,
+  // and flush() (barge-in/interrupt) clears the ring directly instead of
+  // relying on the timing of an async ctx.close(). The AudioWorklet's
+  // processor source is a plain string built into a Blob (PCM_RING_WORKLET_SRC
+  // below) and loaded via addModule(URL.createObjectURL(...)) — this keeps
+  // the ring-buffer code self-contained in this one file with no extra
+  // static asset to serve or index.html edit to make (same reasoning as the
+  // dynamically-injected voice_endpoint.js/sse_parse.js script tags
+  // elsewhere in this codebase).
+  const PCM_RING_CAPACITY_SEC = 20; // plan 1.7: generous headroom, tiny memory cost (Float32 @ 24kHz)
+  const PCM_RING_WORKLET_NAME = 'jc-pcm-ring-player';
+  const PCM_RING_WORKLET_SRC = `
+    class JCPcmRingProcessor extends AudioWorkletProcessor {
+      constructor(options) {
+        super();
+        this._capacity = (options && options.processorOptions && options.processorOptions.capacity) || (24000 * 20);
+        this._ring = new Float32Array(this._capacity);
+        this._readIdx = 0;
+        this._writeIdx = 0;
+        this._count = 0;
+        this.port.onmessage = (ev) => {
+          const msg = ev.data;
+          if (!msg) return;
+          if (msg.type === 'push') {
+            const samples = msg.samples;
+            const n = samples.length;
+            for (let i = 0; i < n; i++) {
+              if (this._count >= this._capacity) break; // ring full — drop tail rather than corrupt older data
+              this._ring[this._writeIdx] = samples[i];
+              this._writeIdx = (this._writeIdx + 1) % this._capacity;
+              this._count++;
+            }
+          } else if (msg.type === 'flush') {
+            // Synchronous relative to audio rendering: onmessage always runs
+            // to completion between two process() calls, so the very next
+            // render quantum after this message is delivered already sees
+            // an empty ring — no dependency on ctx.close()'s async timing.
+            this._readIdx = 0;
+            this._writeIdx = 0;
+            this._count = 0;
+          }
+        };
+      }
+      process(inputs, outputs) {
+        const out = outputs[0] && outputs[0][0];
+        if (!out) return true;
+        for (let i = 0; i < out.length; i++) {
+          if (this._count > 0) {
+            out[i] = this._ring[this._readIdx];
+            this._readIdx = (this._readIdx + 1) % this._capacity;
+            this._count--;
+          } else {
+            out[i] = 0; // underrun — silence until more PCM arrives
+          }
+        }
+        return true;
+      }
+    }
+    registerProcessor('${PCM_RING_WORKLET_NAME}', JCPcmRingProcessor);
+  `;
+
   class PcmPlayer {
     constructor() {
       this.ctx = null;
       this.sampleRate = 24000;
-      this.queueEnd = 0;
+      this.queueEnd = 0;              // ctx.currentTime-timeline position used ONLY for karaoke timing math (see _noteClip) — actual playback is continuous through the ring, not scheduled per-chunk.
       this.playing = false;
-      this.onAmplitude = null;       // (float 0..1) for orb feedback
+      this.mode = null;               // 'worklet' | 'processor' (fallback) | null (not set up yet)
+      this.node = null;               // AudioWorkletNode or ScriptProcessorNode
+      this.onAmplitude = null;        // (float 0..1) for orb feedback
       // Karaoke timing hooks. setClipTag() tags the segment whose audio is
       // about to stream in; onClipStart(tag, startAtSec) fires once when that
       // segment's first audio is scheduled; onClipDur(tag, ms) accrues as PCM
@@ -793,6 +890,18 @@
       this.onClipDur = null;
       this._clipTag = null;
       this._clipStarted = false;
+      // ScriptProcessor fallback's own main-thread ring (only allocated if
+      // the worklet path isn't available).
+      this._ring = null;
+      this._ringCapacity = 0;
+      this._readIdx = 0;
+      this._writeIdx = 0;
+      this._count = 0;
+      // AudioBufferSourceNodes from playMp3Bytes(), tracked so flush() can
+      // stop them too (the ring only carries the realtime PCM path).
+      this._mp3Sources = [];
+      this._nodeReadyPromise = null;
+      this._workletUrl = null;
     }
     setClipTag(tag) { this._clipTag = tag; this._clipStarted = false; }
     nowSec() { return this.ctx ? this.ctx.currentTime : 0; }
@@ -809,27 +918,108 @@
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC({ sampleRate: this.sampleRate });
     }
-    pushPcm16le(arrayBuffer) {
+    // Lazily sets up the ring-consuming node (worklet, else ScriptProcessor).
+    // Cached as a promise so concurrent pushPcm16le() calls made before setup
+    // finishes all await the same one-time setup, in call order.
+    _ensurePlaybackNode() {
       this._ensureCtx();
+      if (this._nodeReadyPromise) return this._nodeReadyPromise;
+      this._nodeReadyPromise = (async () => {
+        if (window.AudioWorkletNode && this.ctx.audioWorklet) {
+          try {
+            await this._setupWorklet();
+            return;
+          } catch (e) {
+            console.warn('[voice] AudioWorklet setup failed, falling back to ScriptProcessor:', e);
+          }
+        }
+        this._setupScriptProcessorFallback();
+      })();
+      return this._nodeReadyPromise;
+    }
+    async _setupWorklet() {
+      const capacity = this.sampleRate * PCM_RING_CAPACITY_SEC;
+      const blob = new Blob([PCM_RING_WORKLET_SRC], { type: 'application/javascript' });
+      const url = URL.createObjectURL(blob);
+      this._workletUrl = url;
+      try {
+        await this.ctx.audioWorklet.addModule(url);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+      const node = new AudioWorkletNode(this.ctx, PCM_RING_WORKLET_NAME, {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+        processorOptions: { capacity: capacity },
+      });
+      node.onprocessorerror = (e) => console.error('[voice] pcm ring worklet error:', e);
+      node.connect(this.ctx.destination);
+      this.node = node;
+      this.mode = 'worklet';
+    }
+    _setupScriptProcessorFallback() {
+      this._ringCapacity = this.sampleRate * PCM_RING_CAPACITY_SEC;
+      this._ring = new Float32Array(this._ringCapacity);
+      this._readIdx = 0; this._writeIdx = 0; this._count = 0;
+      // 0 input channels — this node only generates output from the ring.
+      const node = this.ctx.createScriptProcessor(4096, 0, 1);
+      node.onaudioprocess = (ev) => {
+        const out = ev.outputBuffer.getChannelData(0);
+        for (let i = 0; i < out.length; i++) {
+          if (this._count > 0) {
+            out[i] = this._ring[this._readIdx];
+            this._readIdx = (this._readIdx + 1) % this._ringCapacity;
+            this._count--;
+          } else {
+            out[i] = 0;
+          }
+        }
+      };
+      node.connect(this.ctx.destination);
+      this.node = node;
+      this.mode = 'processor';
+    }
+    _ringPushFallback(samples) {
+      const n = samples.length;
+      for (let i = 0; i < n; i++) {
+        if (this._count >= this._ringCapacity) break;
+        this._ring[this._writeIdx] = samples[i];
+        this._writeIdx = (this._writeIdx + 1) % this._ringCapacity;
+        this._count++;
+      }
+    }
+    // Pushes one PCM16LE chunk into the ring. Playback of the FIRST chunk
+    // starts as soon as the node is set up (no waiting for audio_end, task
+    // 1.7) since the worklet/processor node has been continuously pulling
+    // (and outputting silence) from the moment it's connected.
+    async pushPcm16le(arrayBuffer) {
       const view = new Int16Array(arrayBuffer);
-      const buf = this.ctx.createBuffer(1, view.length, this.sampleRate);
-      const ch = buf.getChannelData(0);
+      const samples = new Float32Array(view.length);
       let peak = 0;
       for (let i = 0; i < view.length; i++) {
         const s = view[i] / 0x8000;
-        ch[i] = s;
+        samples[i] = s;
         const a = Math.abs(s);
         if (a > peak) peak = a;
       }
       if (this.onAmplitude) this.onAmplitude(peak);
-      const src = this.ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(this.ctx.destination);
+      // queueEnd bookkeeping is purely for the karaoke word-highlight timing
+      // hooks — it approximates the ctx-timeline position of this chunk the
+      // same way the old per-chunk BufferSource scheduling did, decoupled
+      // from how the ring actually pulls the samples through.
+      this._ensureCtx();
+      const durSec = view.length / this.sampleRate;
       const startAt = Math.max(this.ctx.currentTime, this.queueEnd);
-      src.start(startAt);
-      this.queueEnd = startAt + buf.duration;
+      this.queueEnd = startAt + durSec;
       this.playing = true;
-      this._noteClip(startAt, buf.duration);
+      this._noteClip(startAt, durSec);
+      await this._ensurePlaybackNode();
+      if (this.mode === 'worklet') {
+        this.node.port.postMessage({ type: 'push', samples: samples }, [samples.buffer]);
+      } else if (this.mode === 'processor') {
+        this._ringPushFallback(samples);
+      }
     }
     async playMp3Bytes(uint8) {
       this._ensureCtx();
@@ -844,20 +1034,59 @@
       src.start(startAt);
       this.queueEnd = startAt + buf.duration;
       this.playing = true;
+      this._mp3Sources.push(src);
+      const removeFromTracked = () => {
+        const idx = this._mp3Sources.indexOf(src);
+        if (idx >= 0) this._mp3Sources.splice(idx, 1);
+      };
       // MP3 arrives as one complete clip per call, so report start + full
       // duration directly against the snapshotted tag.
       if (clipTag != null) {
         if (this.onClipStart) this.onClipStart(clipTag, startAt);
         if (this.onClipDur) this.onClipDur(clipTag, buf.duration * 1000);
       }
-      return new Promise(res => { src.onended = res; });
+      return new Promise(res => { src.onended = () => { removeFromTracked(); res(); }; });
     }
     stop() {
+      if (this.node) {
+        try { this.node.disconnect(); } catch (e) {}
+      }
       if (this.ctx) {
         try { this.ctx.close(); } catch (e) {}
       }
       this.ctx = null;
+      this.node = null;
+      this.mode = null;
+      this._nodeReadyPromise = null;
       this.queueEnd = 0;
+      this.playing = false;
+      this._clipTag = null;
+      this._clipStarted = false;
+      this._ring = null;
+      this._readIdx = 0; this._writeIdx = 0; this._count = 0;
+      this._mp3Sources.length = 0;
+    }
+    // Flush whatever's still queued (barge-in / interrupt, task 1.7).
+    // Clears the ring buffer directly (worklet: a 'flush' message the
+    // processor applies synchronously between render quantums; fallback:
+    // reset the main-thread ring pointers immediately) rather than tearing
+    // down and recreating the AudioContext — ctx.close()/new AudioContext()
+    // is asynchronous and its exact timing isn't guaranteed, which would
+    // leave a window where already-queued audio keeps playing after the
+    // caller believes flush() has taken effect.
+    flush() {
+      if (this.mode === 'worklet' && this.node) {
+        this.node.port.postMessage({ type: 'flush' });
+      } else if (this.mode === 'processor') {
+        this._readIdx = 0; this._writeIdx = 0; this._count = 0;
+      }
+      // The ring only carries the realtime PCM path — the TTS-test preview's
+      // MP3 clips are separate BufferSourceNodes and need their own stop().
+      if (this._mp3Sources.length) {
+        for (const src of this._mp3Sources) { try { src.stop(); } catch (e) {} }
+        this._mp3Sources.length = 0;
+      }
+      this.queueEnd = this.ctx ? this.ctx.currentTime : 0;
       this.playing = false;
       this._clipTag = null;
       this._clipStarted = false;
@@ -1024,22 +1253,42 @@
     ws.sendJson({ type: 'begin_turn', sample_rate: 16000, session_id: _sid });
     setStatus('listening');
     _startLiveSpeech();
-    // VAD heuristic — two phases per turn so a quiet room doesn't fire
-    // end_turn the moment you tap-to-start:
-    //   PHASE 1: wait for actual speech (amp > SPEECH_THRESHOLD). Until we
-    //            see it, we don't accumulate silence. The orb stays in
-    //            listening state with no clock ticking.
-    //   PHASE 2: once you've started speaking, count silence (amp <
-    //            SILENCE_THRESHOLD) toward end_turn. ~1.5s of quiet ends
-    //            the utterance.
-    // Thresholds are tuned for a normal indoor mic on a laptop/phone: speech
-    // routinely peaks above 0.08; ambient room noise + fan stays under 0.04.
-    STATE._silenceMs = 0;
+    // Adaptive endpointer (plan 1.1) — replaces the old fixed 1.5s silence
+    // wait with an energy-VAD state machine (base ~400ms, extended ~700ms
+    // for a mid-sentence pause; see voice_endpoint.js for the full state
+    // machine and constants). `window.JC_VOICE_ENDPOINT_MS` is a debug
+    // override: set it to a number to force both the base and extended
+    // windows to that value (disables the adaptive extension).
     STATE._lastFrameAt = performance.now();
+    STATE._endpointer = null;
+    _loadEndpointModule().then((mod) => {
+      if (!mod || STATE.ws !== ws) return;  // torn down, or module unavailable
+      const override = window.JC_VOICE_ENDPOINT_MS;
+      const opts = (typeof override === 'number' && override > 0)
+        ? { baseSilenceMs: override, extendedSilenceMs: override }
+        : undefined;
+      STATE._endpointer = mod.createEndpointer(opts);
+    });
+    // Legacy fallback VAD (used only if voice_endpoint.js failed to load) —
+    // same two-phase shape as the adaptive endpointer but with the old fixed
+    // window, so voice keeps working even without the module.
+    STATE._silenceMs = 0;
     STATE._hasSpoken = false;
-    const SPEECH_THRESHOLD = 0.08;   // amp above this = user is talking
-    const SILENCE_THRESHOLD = 0.04;  // amp below this = silence within an utterance
-    const END_TURN_SILENCE_MS = 1500;
+    const FALLBACK_SPEECH_THRESHOLD = 0.08;
+    const FALLBACK_SILENCE_THRESHOLD = 0.04;
+    const FALLBACK_END_TURN_SILENCE_MS = 1500;
+    function _sendEndTurn(speechEndTs) {
+      STATE.ws.sendJson({ type: 'end_turn', client_ts: Date.now(), speech_end_ts: speechEndTs });
+      STATE._speechEndTs = speechEndTs;
+      STATE._loggedFirstAudio = false;
+      setStatus('thinking');
+    }
+    // Exposed on STATE so the manual "End Turn"/"Done speaking" mute-button
+    // handler (bound once, outside startRealtime — see the click listener
+    // below) can route through the same client_ts/speech_end_ts + endpointer
+    // reset as the automatic VAD path (review finding #2), instead of
+    // sending a bare {type:'end_turn'} the server can't compute latency from.
+    STATE._sendEndTurn = _sendEndTurn;
     STATE.mic.onFrame = (int16) => {
       if (!STATE.ws || !STATE.ws.isOpen()) return;
       if (STATE.muted) return;
@@ -1052,26 +1301,35 @@
       const dt = now - STATE._lastFrameAt;
       STATE._lastFrameAt = now;
       if (STATE.fsm === 'listening') {
-        if (!STATE._hasSpoken) {
-          // PHASE 1: ignore everything until we hear real speech. This is
-          // what stops a quiet room from triggering end_turn the instant
-          // you click Tap to start.
-          if (a >= SPEECH_THRESHOLD) STATE._hasSpoken = true;
+        if (STATE._endpointer) {
+          const r = STATE._endpointer.feed(a, dt);
+          if (r.fired) _sendEndTurn(Date.now());
           return;
         }
-        // PHASE 2: end-of-utterance silence detection.
-        if (a < SILENCE_THRESHOLD) STATE._silenceMs += dt;
+        // Fallback: fixed-threshold VAD (see comment above).
+        if (!STATE._hasSpoken) {
+          if (a >= FALLBACK_SPEECH_THRESHOLD) STATE._hasSpoken = true;
+          return;
+        }
+        if (a < FALLBACK_SILENCE_THRESHOLD) STATE._silenceMs += dt;
         else STATE._silenceMs = 0;
-        if (STATE._silenceMs > END_TURN_SILENCE_MS) {
+        if (STATE._silenceMs > FALLBACK_END_TURN_SILENCE_MS) {
           STATE._silenceMs = 0;
-          STATE._hasSpoken = false;  // reset for the next turn
-          STATE.ws.sendJson({ type: 'end_turn' });
-          setStatus('thinking');
+          STATE._hasSpoken = false;
+          _sendEndTurn(Date.now());
         }
       } else if (STATE.fsm === 'speaking') {
         // Barge-in detection — user spoke loudly during assistant playback
         if (a > STATE.bargeInThreshold) {
           STATE.ws.sendJson({ type: 'interrupt' });
+          // Flush immediately client-side rather than waiting on a round
+          // trip — the server's own 'interrupt' ack (handled below) is a
+          // no-op if the ring is already empty.
+          if (STATE.player) STATE.player.flush();
+          // Abandoning this turn — clear the stale speech_end→first_audio
+          // tracking (review finding #2).
+          STATE._speechEndTs = null;
+          STATE._loggedFirstAudio = false;
         }
       }
     };
@@ -1128,10 +1386,39 @@
       // speech before counting silence again.
       STATE._silenceMs = 0;
       STATE._hasSpoken = false;
+      // This turn is fully over — clear the speech_end→first_audio tracking
+      // (review finding #2) so a debug read after this point can't report a
+      // stale number left over from this turn instead of "no data yet".
+      STATE._speechEndTs = null;
+      STATE._loggedFirstAudio = false;
+    } else if (t === 'interrupt') {
+      // Server-side confirmation of a barge-in (or a server-initiated
+      // interrupt) — flush whatever's left queued. The client already
+      // flushed on its own barge-in detection (see onAmplitude above); this
+      // is the no-op-if-already-empty path for interrupts the client didn't
+      // initiate itself. The in-flight turn is being abandoned, so its
+      // speech_end→first_audio measurement is moot too (review finding #2).
+      STATE._speechEndTs = null;
+      STATE._loggedFirstAudio = false;
+      if (STATE.player) STATE.player.flush();
+    } else if (t === 'latency') {
+      // Optional server-side span breakdown (WS-A owns the schema). No
+      // dedicated latency UI hook exists in ui.js/panels.js today (that
+      // panel is session-level aggregate stats, not per-turn) — surface it
+      // to the console for now; see the workstream report for the wiring
+      // note.
+      console.debug('[voice] latency spans', obj.spans || obj);
     }
   }
 
   function onRealtimeBinary(ab) {
+    // First audio of this reply — measure round trip from when the
+    // endpointer fired end_turn (plan 0.2).
+    if (STATE._speechEndTs && !STATE._loggedFirstAudio) {
+      STATE._loggedFirstAudio = true;
+      const ms = Date.now() - STATE._speechEndTs;
+      console.debug('[voice] speech_end→first_audio', ms, 'ms');
+    }
     if (STATE.ws && STATE.ws.format === 'mp3') {
       if (!STATE._mp3Buf) STATE._mp3Buf = [];
       STATE._mp3Buf.push(new Uint8Array(ab));
@@ -1151,6 +1438,11 @@
     _stopLiveSpeech();
     if (STATE.player) { STATE.player.stop(); STATE.player = null; }
     STATE._asstActive = false;
+    // Session is over — clear the speech_end→first_audio tracking (review
+    // finding #2) so a stray late binary frame (or a stale debug read) can't
+    // report a number left over from before the session ended.
+    STATE._speechEndTs = null;
+    STATE._loggedFirstAudio = false;
     // Keep the last reply on screen (fully lit) rather than wiping it — it's
     // replaced when the next conversation's reply starts (beginReply).
     Karaoke.finishReply();
@@ -1620,12 +1912,33 @@
       if (action === 'end-turn' && STATE.ws && STATE.ws.isOpen()) {
         STATE._silenceMs = 0;
         STATE._hasSpoken = false;
-        STATE.ws.sendJson({ type: 'end_turn' });
-        setStatus('thinking');
+        // Route through the same helper the adaptive-endpointer/fallback-VAD
+        // path uses (review finding #2) so this manual trigger also sends
+        // client_ts/speech_end_ts (rather than a bare {type:'end_turn'} the
+        // server can't compute speech_end→first_audio latency from) and
+        // resets the endpointer's internal state — without this, a stale
+        // in-progress utterance in the endpointer could make the *next*
+        // turn's silence-window decision (short/rising-energy) wrong.
+        if (STATE._endpointer) STATE._endpointer.reset();
+        if (STATE._sendEndTurn) {
+          STATE._sendEndTurn(Date.now());
+        } else {
+          // Endpointer/session not initialized (shouldn't happen while
+          // STATE.ws is open, but fail safe rather than throwing).
+          STATE.ws.sendJson({ type: 'end_turn', client_ts: Date.now(), speech_end_ts: Date.now() });
+          STATE._speechEndTs = Date.now();
+          STATE._loggedFirstAudio = false;
+          setStatus('thinking');
+        }
         return;
       }
       if (action === 'interrupt' && STATE.ws && STATE.ws.isOpen()) {
         STATE.ws.sendJson({ type: 'interrupt' });
+        if (STATE.player) STATE.player.flush();
+        // Abandoning this turn — clear the stale speech_end→first_audio
+        // tracking (review finding #2).
+        STATE._speechEndTs = null;
+        STATE._loggedFirstAudio = false;
         // Server will short-circuit any in-flight pipeline; FSM will move
         // back to listening on the next end_turn message from the server.
         return;

@@ -17,4 +17,10 @@ final class Speaker {
         synth.speak(u)
         VoiceStatus.shared.set("🗣️ built-in voice")
     }
+
+    /// Stop an in-progress instant ack (plan 1.6c) the moment the hi-fi clip
+    /// arrives, so the two voices don't overlap.
+    func stop() {
+        if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
+    }
 }

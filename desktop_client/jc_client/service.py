@@ -30,13 +30,16 @@ from typing import Optional
 
 from jc_client import credentials
 from jc_client.logger import setup as setup_logging
-from jc_client.protocol import WsConnection, WsConnectionClosed
+from jc_client.protocol import WsConnection, WsConnectionClosed, _LAN_PROBE_TIMEOUT
 from jc_client import skills
 
 log = logging.getLogger(__name__)
 
 # Reconnection backoff schedule (seconds).
 _BACKOFF_SECONDS = [1, 2, 4, 8, 16, 32, 60]
+# plan 5.3: LAN-direct preference — single definition lives in protocol.py
+# (protocol.probe_lan's default timeout); imported here so this module and
+# tests share the one constant instead of two copies drifting apart.
 _PING_INTERVAL = 20.0  # keepalive cadence; a text ping every 20s stays well
                        # under the ~50-60s edge idle timeout that was dropping us
 _MAX_CONCURRENT_INVOKES = 8
@@ -200,8 +203,9 @@ class Service:
     # ── inner ─────────────────────────────────────────────────────────
 
     def _connect_and_pump(self, creds: credentials.Credentials) -> None:
+        server_url = _pick_server_url(creds)
         ws = WsConnection(
-            server_url=creds.server_url,
+            server_url=server_url,
             cookie=creds.cookie,
             expected_fingerprint=creds.cert_fingerprint,
             cf_client_id=creds.cf_client_id,
@@ -211,7 +215,7 @@ class Service:
         self._ws = ws
         self._connected = True
         self._last_error = ""
-        log.info("connected to %s", creds.server_url)
+        log.info("connected to %s", server_url)
         self._write_connection_state("connected")
 
         # Spin up the MCP relay for this connection (Phase 2). Lazily imported
@@ -513,6 +517,26 @@ class Service:
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
+
+
+def _pick_server_url(creds: credentials.Credentials) -> str:
+    """Plan 5.3: LAN-direct preference. If ``creds.lan_url`` is set, race a
+    fast pinned health probe against it and use it when it answers (free +
+    lower-latency when Pranav is home on the LAN); otherwise use the tunnel
+    ``creds.server_url``. Called fresh from ``_connect_and_pump`` every
+    reconnect, so a LAN that comes and goes is re-evaluated each time —
+    never cached across connections."""
+    if not creds.lan_url:
+        return creds.server_url
+    from jc_client.protocol import probe_lan
+    if probe_lan(
+        creds.lan_url, creds.cert_fingerprint,
+        cf_client_id=creds.cf_client_id, cf_client_secret=creds.cf_client_secret,
+        timeout=_LAN_PROBE_TIMEOUT,
+    ):
+        log.info("LAN-direct reachable at %s — using it instead of the tunnel", creds.lan_url)
+        return creds.lan_url
+    return creds.server_url
 
 
 def _playwright_extension_enabled() -> bool:

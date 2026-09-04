@@ -108,6 +108,15 @@ import AppIntents
         // ~once/24h) so battery fixes are verifiable in the field. Zero runtime cost.
         MetricKitReporter.shared.register()
 
+        // Workstream H: a background launch triggered by a silent push is
+        // exactly the case a live invoke needs the WS bridge up for. Arm the
+        // keepalive immediately, natively — Dart's own (better-informed) sync
+        // runs moments later once the engine spins up and will correct this
+        // if the user has the setting off or isn't paired.
+        if launchOptions?[.remoteNotification] != nil {
+            Task { @MainActor in BackgroundKeepaliveBridge.armForBackgroundPushLaunch() }
+        }
+
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 
@@ -120,6 +129,14 @@ import AppIntents
     func attachFlutterController(_ controller: FlutterViewController) {
         // On-device AI engines (Apple Foundation Models + MLX) + on-device STT.
         OnDeviceAIPlugin.register(messenger: controller.binaryMessenger)
+        // Streaming on-device STT during speech (plan 4.1) and the phone's own
+        // synthesizer for local acks (plan 4.4).
+        SpeechStreamBridge.register(messenger: controller.binaryMessenger)
+        LocalTtsBridge.register(messenger: controller.binaryMessenger)
+        // Silent-audio-session keepalive so the bridge WS survives
+        // backgrounding (Workstream H); arm/disarm decisions are made in
+        // Dart (lib/services/background_keepalive.dart) and delivered here.
+        BackgroundKeepaliveBridge.register(messenger: controller.binaryMessenger)
 
         let ch = FlutterMethodChannel(
             name: "jarviscopilot/pair",

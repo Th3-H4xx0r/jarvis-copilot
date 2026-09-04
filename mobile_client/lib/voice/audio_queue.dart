@@ -6,6 +6,8 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'pcm_chunker.dart';
+
 /// Sequential playback of assistant audio clips. The voice backend hands
 /// us either MP3 segments (quality mode, and the realtime MP3 fallback)
 /// or raw 24 kHz PCM-S16LE frames (realtime). PCM is wrapped in a WAV
@@ -14,6 +16,11 @@ import 'package:path_provider/path_provider.dart';
 /// We write each clip to a temp file and play it via [DeviceFileSource]
 /// rather than [BytesSource] — on iOS, BytesSource silently fails to
 /// decode (play() "completes" instantly and you hear nothing).
+///
+/// Realtime PCM does NOT wait for a whole segment: [appendPcm] streams it
+/// through a [PcmChunker], so the first ~160 ms plays while the rest of the
+/// sentence is still arriving (plan 1.7). The whole-buffer [enqueuePcm] and the
+/// temp-file MP3 path are unchanged and remain the fallback.
 ///
 /// [onIdle] fires when the queue drains (so the controller can return to
 /// listening/idle); [onAmplitude] drives the orb during playback.
@@ -51,7 +58,13 @@ class AudioQueue {
     // current clip's tag is reported so the controller can map position →
     // word within the right segment.
     _player.onPositionChanged.listen((p) {
-      if (_currentTag != null) onPosition?.call(_currentTag, p);
+      // Positions are reported SEGMENT-relative: a segment split into several
+      // streamed chunks must still advance one continuous word schedule, so we
+      // add the audio of this segment already played by earlier chunks.
+      if (_currentTag != null) {
+        onPosition?.call(
+            _currentTag, p + Duration(milliseconds: _currentClipBaseMs));
+      }
     });
   }
 
@@ -72,6 +85,8 @@ class AudioQueue {
   bool _stopped = false;
   int _seq = 0;
   int? _currentTag; // tag of the clip currently playing (for position events)
+  int _currentClipBaseMs = 0; // ms of this tag's audio played by earlier chunks
+  PcmChunker? _chunker; // streaming cutter for the realtime PCM path
 
   /// Enqueue an MP3 clip (raw bytes). [tag] (a segment id) lets the caller
   /// sync a word highlight to this clip's playback.
@@ -88,6 +103,49 @@ class AudioQueue {
     debugPrint('[audio] enqueue PCM ${pcm.length} bytes @ ${sampleRate}Hz');
     final durMs = pcm.lengthInBytes ~/ 2 * 1000 ~/ sampleRate;
     _enqueue(_Clip(_wrapWav(pcm, sampleRate), 'wav', tag: tag, durationMs: durMs));
+  }
+
+  /// Stream realtime PCM for segment [tag] as it arrives. Plays the leading
+  /// slice as soon as there's enough of it instead of waiting for the segment
+  /// to finish (plan 1.7). Call [endPcmSegment] when `audio_end` lands.
+  void appendPcm(Uint8List pcm, {int sampleRate = 24000, int? tag}) {
+    if (_stopped) return;
+    final chunker = _chunkerFor(sampleRate);
+    for (final chunk in chunker.add(pcm, tag: tag)) {
+      _enqueueChunk(chunk);
+    }
+  }
+
+  /// The segment is complete — play whatever is left of it.
+  void endPcmSegment({int? tag}) {
+    final chunker = _chunker;
+    if (chunker == null || _stopped) return;
+    for (final chunk in chunker.flush(tag: tag)) {
+      _enqueueChunk(chunk);
+    }
+  }
+
+  /// True while a segment is mid-stream (some audio buffered but not emitted).
+  bool get hasPendingPcm => (_chunker?.bufferedBytes ?? 0) > 0;
+
+  PcmChunker _chunkerFor(int sampleRate) {
+    final existing = _chunker;
+    if (existing != null && existing.sampleRate == sampleRate) return existing;
+    return _chunker = PcmChunker(sampleRate: sampleRate);
+  }
+
+  void _enqueueChunk(PcmChunk chunk) {
+    if (chunk.bytes.isEmpty) return;
+    _enqueue(_Clip(
+      _wrapWav(chunk.bytes, chunk.sampleRate),
+      'wav',
+      tag: chunk.tag,
+      durationMs: chunk.durationMs,
+      // Announce the segment's running total, not this slice's length, so the
+      // karaoke schedule stretches as more of the sentence arrives.
+      segmentMs: chunk.segmentMsSoFar,
+      baseMs: chunk.segmentMsSoFar - chunk.durationMs,
+    ));
   }
 
   void _enqueue(_Clip clip) {
@@ -119,6 +177,7 @@ class AudioQueue {
       await _player.stop();
       await _player.play(DeviceFileSource(path));
       _currentTag = clip.tag;
+      _currentClipBaseMs = clip.baseMs;
       onPlaybackStart?.call();
       onAmplitude?.call(0.6); // coarse "speaking" pulse for the orb
       debugPrint('[audio] playing $path (${clip.bytes.length}b)');
@@ -127,8 +186,12 @@ class AudioQueue {
       // it loads — the controller falls back to a words×rate estimate).
       if (clip.tag != null) {
         if (clip.durationMs != null) {
-          // PCM: exact duration, schedule the karaoke immediately.
-          onClipStart?.call(clip.tag, Duration(milliseconds: clip.durationMs!));
+          // PCM: exact duration, schedule the karaoke immediately. For a
+          // streamed segment we report the running TOTAL so far — the
+          // controller treats a repeat tag as a schedule correction, not a
+          // restart, so the highlight keeps advancing across chunk seams.
+          onClipStart?.call(clip.tag,
+              Duration(milliseconds: clip.segmentMs ?? clip.durationMs!));
         } else {
           // MP3: getDuration() right after play() is unreliable on iOS (it returns
           // null or a stale/wrong value), which gives the karaoke a wrong word
@@ -180,6 +243,10 @@ class AudioQueue {
     _queue.clear();
     _playing = false;
     _currentTag = null;
+    _currentClipBaseMs = 0;
+    // Barge-in/new turn: drop half-assembled audio too, or the tail of the
+    // interrupted sentence would play after the user has already moved on.
+    _chunker?.reset();
     try {
       await _player.stop();
     } catch (_) {}
@@ -191,6 +258,7 @@ class AudioQueue {
   Future<void> dispose() async {
     _stopped = true;
     _queue.clear();
+    _chunker?.reset();
     await _player.dispose();
   }
 
@@ -230,9 +298,17 @@ class AudioQueue {
 }
 
 class _Clip {
-  _Clip(this.bytes, this.ext, {this.tag, this.durationMs});
+  _Clip(this.bytes, this.ext, {this.tag, this.durationMs, this.segmentMs, this.baseMs = 0});
   final Uint8List bytes;
   final String ext;
   final int? tag; // caller's segment id, for karaoke highlight sync
   final int? durationMs; // exact for PCM; null for MP3 (queried at play)
+
+  /// Total audio of [tag] emitted so far, including this clip. Only set on the
+  /// streaming PCM path; null means "this clip IS the whole segment".
+  final int? segmentMs;
+
+  /// Audio of [tag] played by EARLIER clips — added to every position report
+  /// so the word highlight is continuous across a split segment.
+  final int baseMs;
 }

@@ -419,7 +419,7 @@ final class OnDeviceAIPlugin: NSObject {
         // guaranteed to be 2-byte aligned, so binding raw bytes to Int16 in
         // place would be undefined behavior.
         var samples = [Int16](repeating: 0, count: frameCount)
-        samples.withUnsafeMutableBytes { dst in
+        _ = samples.withUnsafeMutableBytes { dst in
             pcm.copyBytes(to: dst, count: frameCount * MemoryLayout<Int16>.size)
         }
         // Convert each Int16 LE sample to a normalized Float32 in [-1, 1].

@@ -87,7 +87,9 @@ class VoiceApi {
   Future<IOWebSocketChannel> openRealtime({
     Map<String, String>? params,
   }) async {
-    final base = _httpBase(Credentials.instance.serverUrl!);
+    // api.base, not Credentials.serverUrl — so the voice socket follows the
+    // LAN-direct preference too (plan 5.3) instead of always taking the tunnel.
+    final base = _httpBase(api.base);
     final uri = Uri.parse('$base/api/voice/s2s/ws').replace(
       queryParameters: params,
     );

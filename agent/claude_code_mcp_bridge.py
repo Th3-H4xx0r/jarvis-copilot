@@ -108,6 +108,24 @@ class McpToolBridge:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
 
+    # ── warm-session re-pointing (plan 2.7) ──────────────────────────────────
+    # A warm session keeps ONE bridge alive across turns, but each turn brings a
+    # fresh executor closure (its own tool_events list, task id, callbacks) and
+    # possibly a changed tool catalogue. These setters swap both without tearing
+    # down the socket, the proxy child, or the CLI's MCP handshake.
+    def set_tool_callback(self, on_tool_call: Callable[[str, dict[str, Any]], str]) -> None:
+        """Point ``tools/call`` at a new executor. Takes effect on the next call."""
+        self._on_tool_call = on_tool_call
+
+    def set_tools(self, tools: list[dict[str, Any]]) -> None:
+        """Replace the catalogue served by ``tools/list``.
+
+        The CLI lists tools once per process, so a mid-session change is only
+        picked up on a re-list (i.e. after a restart). Keeping the catalogue
+        current still matters: it is what a restarted process sees.
+        """
+        self._tools = list(tools or [])
+
     # ── lifecycle ────────────────────────────────────────────────────────────
     def start(self) -> "McpToolBridge":
         srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

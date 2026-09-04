@@ -58,4 +58,19 @@ void main() {
       ..chatEnabled = true;
     expect(s.enabledFor(VoiceSurface.chat), isFalse);
   });
+
+  test('androidStreamingStt defaults to true (review MINOR kill-switch)', () {
+    final s = LocalAiSettings(store: _MemKv());
+    expect(s.androidStreamingStt, isTrue);
+  });
+
+  test('androidStreamingStt persists across save/load', () async {
+    final kv = _MemKv();
+    final a = LocalAiSettings(store: kv)..androidStreamingStt = false;
+    await a.save();
+
+    final b = LocalAiSettings(store: kv);
+    await b.load();
+    expect(b.androidStreamingStt, isFalse);
+  });
 }

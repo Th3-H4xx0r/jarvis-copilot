@@ -11,9 +11,53 @@
 class AppLifecycle {
   AppLifecycle._();
 
+  static bool _isForeground = true;
+
   /// True while the app is in the foreground (resumed). Defaults to true (cold
   /// launch runs in the foreground); the observer keeps it current.
-  static bool isForeground = true;
+  ///
+  /// Kept as a plain-looking static field (get/set, same call syntax
+  /// `AppLifecycle.isForeground = x`) so main.dart's existing
+  /// `didChangeAppLifecycleState` assignment needs no changes, while the
+  /// setter also fans out to [addListener]s — see BackgroundKeepalive
+  /// (Workstream H), which listens here to arm/disarm on background/foreground.
+  static bool get isForeground => _isForeground;
+  static set isForeground(bool v) {
+    if (_isForeground == v) return;
+    _isForeground = v;
+    _notify();
+  }
+
+  static bool _voiceActive = false;
+
+  /// True while the voice controller (lib/voice/voice_controller.dart) has an
+  /// active recording session. The voice controller does NOT import this
+  /// service today; it should set this at the start/end of a session:
+  ///
+  ///   AppLifecycle.voiceActive = true;  // when the mic session starts
+  ///   AppLifecycle.voiceActive = false; // when it stops/disposes
+  ///
+  /// BackgroundKeepalive listens for this to avoid fighting the voice
+  /// controller's own AVAudioSession configuration.
+  static bool get voiceActive => _voiceActive;
+  static set voiceActive(bool v) {
+    if (_voiceActive == v) return;
+    _voiceActive = v;
+    _notify();
+  }
+
+  static final List<void Function()> _listeners = [];
+
+  /// Registered by BackgroundKeepalive to re-sync whenever foreground state
+  /// or voice-active state changes.
+  static void addListener(void Function() cb) => _listeners.add(cb);
+  static void removeListener(void Function() cb) => _listeners.remove(cb);
+
+  static void _notify() {
+    for (final cb in List<void Function()>.from(_listeners)) {
+      cb();
+    }
+  }
 }
 
 /// A foreground-required skill must be deferred (notify + run on tap) when the

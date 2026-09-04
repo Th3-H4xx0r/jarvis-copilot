@@ -44,7 +44,8 @@ def run_voice_popup() -> None:
         return
 
     proxy = PinnedProxy(creds.server_url, creds.cert_fingerprint, creds.cookie,
-                        cf_client_id=creds.cf_client_id, cf_client_secret=creds.cf_client_secret)
+                        cf_client_id=creds.cf_client_id, cf_client_secret=creds.cf_client_secret,
+                        lan_url=creds.lan_url)
     port = proxy.start()
     url = f"http://127.0.0.1:{port}{_MINI_PATH}"
     webview = _import_webview()

@@ -307,16 +307,55 @@ async function send(){
     renderSessionListFromCache();  // ensure it's visible even if already titled
   }
 
-  // Start the agent via POST, get a stream_id back
+  // Start the agent via POST, get a stream_id back. When the server supports
+  // it (plan 5.1), this single POST also carries the SSE token stream in its
+  // response body - no separate GET /api/chat/stream round trip - saving one
+  // tunnel RTT per text turn. Falls back to the classic two-step flow when
+  // unsupported (feature-detected once per page load, see _tryStreamingChatStart).
   let streamId;
+  let _sseSource=null;
   try{
-    const startData=await api('/api/chat/start',{method:'POST',body:JSON.stringify({
+    const _startPayload={
       session_id:activeSid,message:msgText,
       model:S.session.model||$('modelSelect').value,workspace:S.session.workspace,
       model_provider:S.session.model_provider||null,
       profile:S.activeProfile||S.session.profile||'default',
       attachments:uploaded.length?uploaded:undefined
-    })});
+    };
+    let startData;
+    if(_streamStartSupported===false){
+      startData=await api('/api/chat/start',{method:'POST',body:JSON.stringify(_startPayload)});
+    }else{
+      const attempt=await _tryStreamingChatStart(_startPayload);
+      if(attempt.mode==='stream'){
+        _streamStartSupported=true;
+        _streamStartNetworkFails=0; // the network is clearly fine now
+        startData=attempt.data;
+        _sseSource=attempt.source;
+      }else if(attempt.mode==='json'){
+        // Old server: the streaming attempt WAS the real (only) call and it
+        // already ran, replying with the normal JSON shape.
+        _streamStartSupported=false;
+        startData=attempt.data;
+      }else{
+        // unsupported - that probe request had no side effect, so make the
+        // real call now. Whether we ever try streaming again depends on
+        // *why* it was unsupported (review finding #4):
+        if(attempt.reason==='network'){
+          // Transient - leave _streamStartSupported (null) undecided so the
+          // next turn probes again, up to a small retry cap.
+          _streamStartNetworkFails++;
+          if(_streamStartNetworkFails>=STREAM_START_NETWORK_RETRY_CAP){
+            _streamStartSupported=false;
+          }
+        }else{
+          // A real 404/406 or a contract mismatch is the server
+          // authoritatively answering "no" - fall back permanently.
+          _streamStartSupported=false;
+        }
+        startData=await api('/api/chat/start',{method:'POST',body:JSON.stringify(_startPayload)});
+      }
+    }
 
     if(startData.title) applySessionTitleUpdate(activeSid, startData.title, {provisionalText:displayText.slice(0,64), rememberProvisional:true});
 
@@ -394,10 +433,277 @@ async function send(){
     return;
   }
 
-  // Open SSE stream and render tokens live
-  attachLiveStream(activeSid, streamId, uploadedNames);
+  // Open SSE stream and render tokens live (reusing the streaming POST's own
+  // body as the transport when we got one - see _sseSource above).
+  attachLiveStream(activeSid, streamId, uploadedNames, _sseSource?{sseSource:_sseSource}:undefined);
 
   }finally{ _sendInProgress=false; }
+}
+
+// ── Streaming /api/chat/start (plan 5.1) ──────────────────────────────────
+// Collapses the old two-step "POST /api/chat/start (JSON) then GET
+// /api/chat/stream?stream_id=... (EventSource)" into one request when the
+// server supports it: POST /api/chat/start?stream=1 with
+// Accept: text/event-stream, and the SSE body starts flowing on that same
+// response instead of a separate GET - saving one tunnel round trip per text
+// turn. Feature-detected on the first send per page load and cached in
+// _streamStartSupported; a server that doesn't understand streaming falls
+// back to the classic two-step flow for the rest of the page's lifetime
+// (never re-probed - avoids repeatedly eating a failed request per turn).
+//
+// Contract assumed for the streaming response (server side is WS-A's, built
+// concurrently - see the workstream report for this assumption spelled out
+// as an open concern): the SSE body's first frame is a `start` event whose
+// `data` is the same JSON object the old two-step POST used to return
+// (stream_id, title, effective_model, ...); every frame after that is the
+// same event stream /api/chat/stream already emits (token, tool, done, ...).
+// ---- SSE line/record parser module loader (plan 5.1 / review finding #3) ----
+// The actual parser lives in webui/static/sse_parse.js, a pure DOM-free
+// module extracted out of this file so it can be unit-tested with plain
+// `node --test` (see sse_parse.test.js). Loaded the same way voice.js loads
+// voice_endpoint.js: a dynamically-injected <script> tag next to this file's
+// own <script src>, so no index.html edit or build step is needed. Kicked
+// off eagerly at file-load; by the time a real SSE response streams back
+// (after at least one network round trip) it's essentially always ready. If
+// it somehow fails to load, _makeFetchSSESource() below falls back to an
+// inlined copy of the same logic so streaming chat never breaks over this.
+let _sseParseModulePromise = null;
+function _loadSSEParseModule(){
+  if(_sseParseModulePromise) return _sseParseModulePromise;
+  _sseParseModulePromise=new Promise((resolve)=>{
+    if(window.JCSSEParse){ resolve(window.JCSSEParse); return; }
+    try{
+      const selfSrc=(document.currentScript && document.currentScript.src)||'';
+      const base=selfSrc?selfSrc.replace(/messages\.js(\?.*)?$/,''):'static/';
+      const s=document.createElement('script');
+      s.src=base+'sse_parse.js';
+      s.onload=()=>resolve(window.JCSSEParse||null);
+      s.onerror=()=>resolve(null);
+      document.head.appendChild(s);
+    }catch(e){ resolve(null); }
+  });
+  return _sseParseModulePromise;
+}
+_loadSSEParseModule();
+
+let _streamStartSupported = null; // null=unknown, true=use streaming, false=permanent fallback
+// plan 5.1 / review finding #4: a network-level exception on the streaming
+// probe (offline, DNS, tunnel drop) is NOT the server telling us it lacks
+// the capability, so it must not permanently flip _streamStartSupported to
+// false the way a real 404/406 does. Instead retry the probe on later turns,
+// capped so a persistently broken connection doesn't eat an extra failed
+// request every single send.
+const STREAM_START_NETWORK_RETRY_CAP = 3; // plan 5.1
+let _streamStartNetworkFails = 0;
+
+// Minimal EventSource-alike over a fetch() Response body, so the rest of the
+// SSE handling code (_wireSSE, attachLiveStream's reuse check) doesn't need
+// to know whether the transport is a real EventSource or this shim. Events
+// dispatched before _start() is called (i.e. before _wireSSE has attached
+// its listeners) are queued and replayed in order once _start() runs, so no
+// frame is lost even if the server packs several SSE records into the same
+// TCP read as the initial `start` event.
+function _makeFetchSSESource(response){
+  const reader=response.body.getReader();
+  const decoder=new TextDecoder('utf-8');
+  let buf='';
+  const listeners={};
+  let listenersReady=false;
+  let pending=[];
+  const shim={
+    readyState:1, // EventSource.OPEN
+    addEventListener(type,cb){ (listeners[type]=listeners[type]||[]).push(cb); },
+    removeEventListener(type,cb){ if(listeners[type]) listeners[type]=listeners[type].filter(f=>f!==cb); },
+    close(){
+      if(shim.readyState===2) return;
+      shim.readyState=2;
+      try{ reader.cancel(); }catch(_){ }
+    },
+  };
+  function dispatchToListeners(type,data,lastEventId){
+    const fns=listeners[type];
+    if(!fns||!fns.length) return;
+    const ev={type,data,lastEventId:lastEventId||''};
+    fns.slice().forEach(fn=>{ try{ fn(ev); }catch(e){ console.error('[sse-shim]',type,e); } });
+  }
+  function dispatch(type,data,lastEventId){
+    if(!listenersReady){ pending.push({type,data,lastEventId}); return; }
+    dispatchToListeners(type,data,lastEventId);
+  }
+  // The line/record parser itself is extracted into sse_parse.js (review
+  // finding #3) so it's covered by plain `node --test` unit tests. Prefer
+  // the loaded module's stateful stream parser; fall back to an inlined copy
+  // of the exact same logic on the off chance the module hasn't loaded yet
+  // (defensive only — see the loader comment above _streamStartSupported).
+  const _mod=window.JCSSEParse;
+  const _streamParser=_mod ? _mod.createSSEStreamParser() : (function(){
+    function parseBlock(block){
+      let type='message', dataLines=[], id='';
+      block.split(/\r\n|\n/).forEach(line=>{
+        if(line===''||line.charAt(0)===':') return;
+        const ci=line.indexOf(':');
+        const field=ci===-1?line:line.slice(0,ci);
+        let value=ci===-1?'':line.slice(ci+1);
+        if(value.charAt(0)===' ') value=value.slice(1);
+        if(field==='event') type=value;
+        else if(field==='data') dataLines.push(value);
+        else if(field==='id') id=value;
+      });
+      return {type,data:dataLines.join('\n'),id,hasData:dataLines.length>0};
+    }
+    return {push(chunkText){
+      buf+=chunkText;
+      const events=[];
+      for(;;){
+        const nl=buf.indexOf('\n\n');
+        const crnl=buf.indexOf('\r\n\r\n');
+        let idx=-1, sep=2;
+        if(nl!==-1&&(crnl===-1||nl<crnl)){ idx=nl; sep=2; }
+        else if(crnl!==-1){ idx=crnl; sep=4; }
+        if(idx===-1) break;
+        const block=buf.slice(0,idx);
+        buf=buf.slice(idx+sep);
+        const parsed=parseBlock(block);
+        if(!parsed.hasData) continue;
+        events.push({type:parsed.type,data:parsed.data,id:parsed.id});
+      }
+      return events;
+    }};
+  })();
+  async function pump(onEvent){
+    try{
+      for(;;){
+        const {value,done}=await reader.read();
+        if(done) break;
+        const chunkText=decoder.decode(value,{stream:true});
+        const events=_streamParser.push(chunkText);
+        for(let i=0;i<events.length;i++){
+          onEvent(events[i].type,events[i].data,events[i].id);
+        }
+      }
+    }catch(e){
+      dispatch('error',JSON.stringify({message:String((e&&e.message)||e)}));
+    }finally{
+      shim.readyState=2;
+    }
+  }
+  // Reads frames until the first one, resolving with its parsed JSON `data`
+  // (or null if the stream ended/errored/parsed-badly before one arrived).
+  // Every subsequent frame - including any read in the same underlying
+  // chunk as the first one - is queued via dispatch() until _start() runs.
+  shim._readFirstEvent=function(){
+    return new Promise((resolve)=>{
+      let settled=false;
+      pump((type,data,id)=>{
+        if(!settled){
+          settled=true;
+          let parsed=null;
+          try{ parsed=JSON.parse(data); }catch(_){ /* leave null */ }
+          resolve(parsed?{type,parsed}:null);
+          return;
+        }
+        dispatch(type,data,id);
+      }).then(()=>{ if(!settled){ settled=true; resolve(null); } });
+    });
+  };
+  // Attach listeners (via _wireSSE) BEFORE calling this - it flushes
+  // anything that arrived (or was force-fed) ahead of time, then switches
+  // dispatch() to call listeners directly from here on.
+  shim._start=function(){
+    if(listenersReady) return;
+    listenersReady=true;
+    const q=pending; pending=[];
+    q.forEach(e=>dispatchToListeners(e.type,e.data,e.lastEventId));
+  };
+  return shim;
+}
+
+// Tries the streaming start; returns one of:
+//   {mode:'stream', source, data}  - use `source` as the SSE transport (call
+//                                    _wireSSE(source) then source._start()).
+//   {mode:'json', data}            - server already ran the turn and replied
+//                                    with plain JSON (old server ignoring
+//                                    ?stream=1, or a 200 that isn't SSE) -
+//                                    treat exactly like the old POST result.
+//   {mode:'unsupported', reason}   - the streaming attempt had no side
+//                                    effect; caller must still perform the
+//                                    real POST. `reason` tells the caller
+//                                    whether this is a permanent server
+//                                    capability answer or a transient blip
+//                                    (review finding #4 — these must NOT be
+//                                    treated the same):
+//                                      'network'   - fetch() itself threw
+//                                                    (offline/timeout/DNS/
+//                                                    tunnel hiccup) - this is
+//                                                    NOT a capability
+//                                                    answer, so the caller
+//                                                    should retry the probe
+//                                                    on a later turn (capped)
+//                                                    rather than permanently
+//                                                    disabling streaming.
+//                                      'not_found' - a real HTTP 404/406 (or
+//                                                    a contract mismatch on
+//                                                    an SSE response) is the
+//                                                    server authoritatively
+//                                                    saying it doesn't speak
+//                                                    this protocol - permanent
+//                                                    fallback is correct.
+//                                      'auth'      - 401; page is navigating
+//                                                    away, doesn't matter.
+// Throws only when the streaming attempt itself was the real, only call AND
+// it failed server-side (mirrors the old flow's error handling).
+async function _tryStreamingChatStart(payload){
+  let resp;
+  try{
+    resp=await fetch(new URL('api/chat/start?stream=1',document.baseURI||location.href).href,{
+      method:'POST',
+      credentials:'include', // match api()'s auth cookie handling
+      headers:{'Content-Type':'application/json','Accept':'text/event-stream'},
+      body:JSON.stringify(payload),
+    });
+  }catch(e){
+    // Network-level failure (offline, DNS, timeout, tunnel drop) - this says
+    // nothing about whether the *server* supports streaming start, so the
+    // caller must leave _streamStartSupported undecided and retry a later
+    // turn (up to STREAM_START_NETWORK_RETRY_CAP) instead of permanently
+    // falling back on one bad connection (review finding #4).
+    return {mode:'unsupported', reason:'network'};
+  }
+  if(resp.status===401){
+    // Same auth-expiry handling as api() - this request had no visible-to-user
+    // side effect worth preserving, just redirect to re-authenticate.
+    window.location.href='login?next='+encodeURIComponent(window.location.pathname+window.location.search);
+    return {mode:'unsupported', reason:'auth'};
+  }
+  if(resp.status===404||resp.status===406){
+    // Authoritative "this server doesn't do streaming start" - permanent.
+    return {mode:'unsupported', reason:'not_found'};
+  }
+  const ctype=(resp.headers.get('content-type')||'');
+  if(!ctype.includes('text/event-stream')){
+    // Not SSE. If this 2xx'd, the server already ran the turn on this exact
+    // request (an old server simply ignoring the unknown ?stream=1 query
+    // param) - its JSON body IS the real /api/chat/start response.
+    let data=null;
+    try{ data=await resp.json(); }catch(_){ }
+    if(!resp.ok){
+      const msg=(data&&(data.error||data.detail))||`HTTP ${resp.status}`;
+      const err=new Error(msg);
+      throw err;
+    }
+    return {mode:'json', data:data||{}};
+  }
+  const source=_makeFetchSSESource(resp);
+  const first=await source._readFirstEvent();
+  if(!first||first.type!=='start'){
+    // Contract mismatch — the server answered with a 2xx SSE stream but not
+    // the shape this client expects. That's a real (if unexpected) protocol
+    // answer from this server, not a transient network blip, so fall back
+    // permanently rather than re-probing every turn.
+    try{ source.close(); }catch(_){ }
+    return {mode:'unsupported', reason:'not_found'};
+  }
+  return {mode:'stream', source, data:first.parsed||{}};
 }
 
 const LIVE_STREAMS={};
@@ -1974,6 +2280,14 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
           return;
         }
       }catch(_){}
+    }
+    // A pre-opened streaming-start source (plan 5.1) only ever applies to the
+    // fresh, non-reconnect connection for the turn that just started it -
+    // any reconnect/replay always goes back to the classic GET.
+    if(!reconnecting&&options.sseSource){
+      _wireSSE(options.sseSource);
+      if(typeof options.sseSource._start==='function') options.sseSource._start();
+      return;
     }
     const replayParams=replayOnly?_runJournalReplayParams():'';
     _wireSSE(new EventSource(new URL(`api/chat/stream?stream_id=${encodeURIComponent(streamId)}${replayParams}`,document.baseURI||location.href).href,{withCredentials:true}));

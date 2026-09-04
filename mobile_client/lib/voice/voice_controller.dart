@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
@@ -14,14 +15,18 @@ import '../api/voice.dart';
 import '../live_activity/live_activity_coordinator.dart';
 import '../main.dart' as app; // for ws.connected (Live Activity footer)
 import '../services/api_client.dart';
+import '../services/app_lifecycle.dart';
 import '../services/chat_sync_bus.dart';
 import '../services/invoke_runner.dart' show localToolMissed;
 import '../services/local_ai_settings.dart';
+import '../services/local_executor.dart';
 import '../services/model_selection.dart';
 import '../services/on_device_ai.dart';
 import '../services/on_device_ai_types.dart';
 import 'audio_queue.dart';
 import 'device_icon.dart';
+import 'endpointer.dart';
+import 'local_tts.dart';
 import 'voice_state.dart';
 
 /// Drives the native voice screen. Owns the mic, the FSM, the audio
@@ -106,9 +111,9 @@ class VoiceController extends ChangeNotifier {
   // Realtime WS + VAD + inbound audio assembly.
   WebSocketChannel? _ws;
   StreamSubscription? _wsSub;
-  bool _spoke = false;
-  int _silenceMs = 0;
-  int _lastFrameMs = 0;
+  /// Adaptive end-of-speech detection (plan 1.1) — replaces the old fixed
+  /// 1500 ms amplitude timer. All of its tuning lives in [Endpointer].
+  final Endpointer _endpointer = Endpointer();
   // After playback drains we wait this long for a trailing segment before
   // resuming listening — replies arrive as several segments with gaps, so
   // resuming instantly made the orb flip listening↔speaking mid-reply.
@@ -122,8 +127,9 @@ class VoiceController extends ChangeNotifier {
   static const int _thinkingWatchdogMs = 18000;
   String _inFormat = 'pcm_s16le';
   int _inRate = 24000;
-  final List<int> _segPcm = [];
   final List<int> _segMp3 = [];
+  /// Karaoke segment the CURRENT streamed PCM reply belongs to (plan 1.7).
+  int? _pcmTag;
 
   // On-device voice: this turn's captured mic PCM (for on-device STT), and an
   // epoch that invalidates an in-flight local attempt if the user interrupts /
@@ -133,11 +139,33 @@ class VoiceController extends ChangeNotifier {
   String? _escalateText; // on-device transcript to hand the server on escalation
   static const int _maxTurnPcmBytes = 16000 * 2 * 30; // ~30s @ 16kHz mono
 
-  // VAD thresholds (normalized 0..1), mirroring voice.js.
-  static const double _speechThreshold = 0.08;
-  static const double _silenceThreshold = 0.04;
+  // Barge-in threshold (normalized 0..1), mirroring voice.js. The speech /
+  // silence thresholds now live in [Endpointer] (plan 1.1).
   static const double _bargeInThreshold = 0.40;
-  static const int _endSilenceMs = 1500;
+
+  // ── Latency instrumentation (plan 0.2) ────────────────────────────────────
+  // One id per spoken turn so a client span can be lined up with the server's
+  // `{"type":"latency"}` frames for the same turn.
+  String? _turnId;
+  int? _speechEndMs; // wall clock at end-of-speech, for speech_end→first_audio
+  bool _firstAudioLogged = false;
+
+  /// Set as soon as the server produces ANYTHING for this turn (text, tool, or
+  /// audio). The fallback local-action race (plan 4.1) gives up once this is
+  /// true — we never interrupt a reply that has already started.
+  bool _serverProducedOutput = false;
+
+  // ── On-device STT (plan 4.1 / 4.2) ────────────────────────────────────────
+  /// Live recognition running DURING speech, fed the same mic frames we stream
+  /// to the server. When present, the final transcript is ready ~0 ms after the
+  /// endpointer fires and `end_turn` can carry `text`.
+  SpeechStreamSession? _speech;
+
+  /// How long after end-of-speech the BATCH on-device STT fallback may still
+  /// claim a turn as a local device action. Past this the server's own STT +
+  /// reply is already in flight and interrupting it would be worse than
+  /// letting it answer (plan 4.1).
+  static const int _kLocalActionRaceMs = 1500;
 
   void _set(VoiceState s) {
     state = s;
@@ -363,6 +391,7 @@ class VoiceController extends ChangeNotifier {
     try {
       await _recorder.stop();
     } catch (_) {}
+    AppLifecycle.voiceActive = false;
 
     final audio = Uint8List.fromList(_pcm);
     _pcm.clear();
@@ -439,8 +468,7 @@ class VoiceController extends ChangeNotifier {
     _resetSpeech();
     _lastLocalTranscript = null;
     toolStatus = null;
-    _spoke = false;
-    _silenceMs = 0;
+    _endpointer.reset();
     _turnPcm.clear();
     _turnEpoch++;
     _set(VoiceState.connecting);
@@ -473,6 +501,7 @@ class VoiceController extends ChangeNotifier {
 
       final stream = await _startMicStream();
       _micSub = stream.listen(_onRealtimeFrame);
+      unawaited(_startSpeechStream());
       _set(VoiceState.listening);
     } catch (e) {
       _fail('Could not start voice: $e');
@@ -493,7 +522,10 @@ class VoiceController extends ChangeNotifier {
       if (_foreground && amp > _bargeInThreshold) {
         _sendJson({'type': 'interrupt'});
         unawaited(_audio.stop());
+        unawaited(LocalTts.stop());
         _resetVad();
+        _abortSpeechStream();
+        unawaited(_startSpeechStream()); // fresh recognizer for what they say now
         _lastLocalTranscript = null; // user barged out → no stale "Try on server"
         _set(VoiceState.listening);
       }
@@ -502,28 +534,32 @@ class VoiceController extends ChangeNotifier {
 
     if (state != VoiceState.listening) return;
     _sendBinary(chunk);
-    // Also buffer the turn locally so we can run on-device STT at end-of-turn
-    // (the server only transcribes at end_turn). Capped to bound memory.
-    if (LocalAiSettings.instance.enabledForVoice &&
+    // The platform recognizer ends its own session after a stretch of silence
+    // (a user who opens the voice screen and pauses). Re-arm it BETWEEN
+    // utterances so the next one is still transcribed on-device — never
+    // mid-utterance, which would throw away what it has already heard.
+    final speech = _speech;
+    if (speech != null && speech.isDone && !_endpointer.speaking) {
+      _speech = null;
+      unawaited(_startSpeechStream());
+    }
+    // Feed the SAME frames to the on-device recognizer, so its transcript is
+    // final the moment the user stops (plan 4.1) instead of starting then.
+    _speech?.feed(chunk);
+    // Buffer the turn locally for the BATCH on-device STT fallback (used only
+    // when streaming STT isn't available). Capped to bound memory.
+    if (_speech == null &&
+        LocalAiSettings.instance.enabledForVoice &&
         _turnPcm.length < _maxTurnPcmBytes) {
       _turnPcm.addAll(chunk);
     }
 
-    // Client-side VAD: wait for speech, then end on sustained silence.
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final dt = _lastFrameMs == 0 ? 0 : (now - _lastFrameMs);
-    _lastFrameMs = now;
-    if (!_spoke) {
-      if (amp > _speechThreshold) _spoke = true;
-    } else {
-      if (amp < _silenceThreshold) {
-        _silenceMs += dt;
-        if (_silenceMs >= _endSilenceMs) {
-          _endRealtimeTurn();
-        }
-      } else {
-        _silenceMs = 0;
-      }
+    // Adaptive endpointing (plan 1.1). Frame duration comes from the audio
+    // itself, not a wall clock, so scheduler jitter can't skew the silence
+    // budget.
+    final dtMs = Endpointer.frameMsForPcm16(chunk.lengthInBytes, _micRate);
+    if (_endpointer.update(amp, dtMs) == EndpointEvent.endOfTurn) {
+      _endRealtimeTurn();
     }
   }
 
@@ -541,47 +577,180 @@ class VoiceController extends ChangeNotifier {
     _resetSpeech();
     _set(VoiceState.thinking);
 
+    // Latency bookkeeping for this turn (plan 0.2).
+    _turnId = 'm-${DateTime.now().microsecondsSinceEpoch}';
+    _speechEndMs = DateTime.now().millisecondsSinceEpoch;
+    _firstAudioLogged = false;
+    _serverProducedOutput = false;
+
     final pcm = Uint8List.fromList(_turnPcm);
     _turnPcm.clear();
     _escalateText = null;
     final epoch = ++_turnEpoch;
 
-    // On-device first: transcribe THIS turn's audio on-device (the server only
-    // STTs at end_turn, so we can't trust any streamed transcript), route it,
-    // and if the local layer handles it we speak the reply in the JARVIS voice
-    // WITHOUT running the server agent. Anything else escalates — handing the
-    // server our transcript (skip its STT) when we have one. Degrades safely:
-    // no on-device STT → empty transcript → normal server turn.
-    if (LocalAiSettings.instance.enabledForVoice && pcm.length > 2000) {
-      _tryLocalVoice(pcm, epoch).then((handled) {
-        if (epoch != _turnEpoch || !active) return; // superseded / torn down
-        if (handled) {
-          _lastLocalTranscript = _escalateText; // enable "Try on server"
-          notifyListeners();
-          _resetServerTurn(); // flush the server's buffered audio for this turn
-        } else {
-          _sendServerTurn(text: _escalateText);
-        }
-      });
+    // ── Path A: streaming on-device STT was running (plan 4.1) ─────────────
+    // Its transcript is already final, so we lose nothing by asking for it
+    // before touching the network: either the local lane handles the turn
+    // outright, or `end_turn` carries `text` and the server skips its STT.
+    final speech = _speech;
+    _speech = null;
+    if (speech != null) {
+      unawaited(_finishStreamedTurn(speech, epoch));
       return;
     }
-    // Diagnostic: voice bypassed the on-device layer entirely. The common cause
-    // is the per-surface Voice toggle being off (chat can be on independently).
-    debugPrint('[voice] on-device SKIPPED → server. '
-        'enabledForVoice=${LocalAiSettings.instance.enabledForVoice} '
-        '(tier=${LocalAiSettings.instance.tier.name}, '
-        'voiceToggle=${LocalAiSettings.instance.voiceEnabled}) pcmBytes=${pcm.length}');
+
+    // ── Path B: no streaming STT — server first, local action races ────────
+    // The PCM has been streaming to the server all along, so `end_turn` goes
+    // out NOW (zero added latency). The batch on-device STT then runs
+    // CONCURRENTLY and may still claim the turn as a device-local action if it
+    // finishes before the server has produced anything.
     _sendServerTurn();
+    if (LocalAiSettings.instance.enabledForVoice && pcm.length > 2000) {
+      unawaited(_raceLocalAction(pcm, epoch));
+    } else {
+      // Diagnostic: voice bypassed the on-device layer entirely. The common
+      // cause is the per-surface Voice toggle being off (chat is independent).
+      debugPrint('[voice] on-device SKIPPED → server. '
+          'enabledForVoice=${LocalAiSettings.instance.enabledForVoice} '
+          '(tier=${LocalAiSettings.instance.tier.name}, '
+          'voiceToggle=${LocalAiSettings.instance.voiceEnabled}) pcmBytes=${pcm.length}');
+    }
+  }
+
+  /// Path A: the on-device recognizer already has this turn's text. Route it
+  /// locally if we can, otherwise escalate WITH the transcript.
+  Future<void> _finishStreamedTurn(SpeechStreamSession speech, int epoch) async {
+    final transcript = (await speech.stop()).trim();
+    if (epoch != _turnEpoch || !active) return;
+    _logSpan('stt_ready');
+    if (transcript.isEmpty) {
+      debugPrint('[voice] streaming STT produced nothing → server STT');
+      _sendServerTurn();
+      return;
+    }
+    userTranscript = transcript;
+    _escalateText = transcript;
+    _pushLiveActivity();
+    notifyListeners();
+
+    final handled = await _tryLocalTurn(transcript, epoch);
+    if (epoch != _turnEpoch || !active) return;
+    if (handled) {
+      _lastLocalTranscript = _escalateText; // enable "Try on server"
+      notifyListeners();
+      _resetServerTurn(); // flush the server's buffered audio for this turn
+    } else {
+      _sendServerTurn(text: transcript);
+    }
+  }
+
+  /// Path B: batch on-device STT running alongside an already-sent `end_turn`.
+  /// It may ONLY claim a turn that is a device-local action, and only while the
+  /// server hasn't said anything yet — otherwise the server's reply wins.
+  Future<void> _raceLocalAction(Uint8List pcm, int epoch) async {
+    final transcript =
+        (await OnDeviceAi.instance.transcribe(pcm, sampleRate: _micRate)).trim();
+    if (epoch != _turnEpoch || !active || transcript.isEmpty) return;
+    if (_serverProducedOutput) return; // too late — the server is answering
+    final since = DateTime.now().millisecondsSinceEpoch - (_speechEndMs ?? 0);
+    if (since > _kLocalActionRaceMs) return;
+
+    final decision = LocalExecutor.classify(transcript);
+    debugLogLocalDecision(decision);
+    if (decision is! LocalRun) return; // not a local action → let the server run
+    userTranscript = transcript;
+    _escalateText = transcript;
+    notifyListeners();
+    // Beat the server to it: cancel its turn, then do the action here.
+    _sendJson({'type': 'interrupt'});
+    unawaited(_audio.stop());
+    final ok = await _runLocalAction(decision, transcript, epoch);
+    if (epoch != _turnEpoch || !active) return;
+    if (!ok) {
+      // We already interrupted the server, so re-ask it with the transcript we
+      // have rather than leaving the user with nothing.
+      _sendServerTurn(text: transcript);
+    }
   }
 
   /// Ask the server to run the agent on this turn. When [text] is provided it's
   /// our on-device transcript — the server skips its own STT and uses it.
   void _sendServerTurn({String? text}) {
+    // client_ts / speech_end_ts let the server line its own spans up with the
+    // moment the user actually stopped talking (plan 0.2). Extra keys are
+    // ignored by older servers, so this stays backward compatible.
     _sendJson({
       'type': 'end_turn',
       if (text != null && text.isNotEmpty) 'text': text,
+      'client_ts': DateTime.now().millisecondsSinceEpoch,
+      if (_speechEndMs != null) 'speech_end_ts': _speechEndMs,
+      if (_turnId != null) 'turn_id': _turnId,
     });
     _armThinkingWatchdog(); // reassure if the server is slow / nothing arrives
+  }
+
+  // ── On-device STT session (plan 4.1 / 4.2) ────────────────────────────────
+
+  /// Open a live recognizer for the next utterance. Best-effort and silent: a
+  /// device without streaming STT simply runs the old path.
+  ///
+  /// We only let it PROMPT for the Speech permission when the user has opted
+  /// into on-device AI for voice; otherwise we take the session only if
+  /// permission was already granted, so enabling nothing still changes nothing.
+  Future<void> _startSpeechStream() async {
+    if (_speech != null) return;
+    // Runtime kill-switch (review MINOR): forces every Android turn onto
+    // server STT (the existing Path B race) without a client release, in
+    // case a given OEM's on-device recognizer ignores the shared-mic pipe.
+    // No effect on iOS.
+    if (Platform.isAndroid && !LocalAiSettings.instance.androidStreamingStt) {
+      return;
+    }
+    try {
+      final session = await OnDeviceAi.instance.transcribeStream(
+        sampleRate: _micRate,
+        prompt: LocalAiSettings.instance.enabledForVoice,
+      );
+      if (session == null) return;
+      if (!active || state == VoiceState.idle) {
+        unawaited(session.cancel());
+        return;
+      }
+      _speech = session;
+    } catch (e) {
+      debugPrint('[voice] streaming STT unavailable: $e');
+    }
+  }
+
+  /// Drop any in-flight recognizer (barge-in, stop, teardown).
+  void _abortSpeechStream() {
+    final s = _speech;
+    _speech = null;
+    if (s != null) unawaited(s.cancel());
+  }
+
+  // ── Latency spans (plan 0.2) ──────────────────────────────────────────────
+
+  /// Emit one structured client span. Shape matches the server's
+  /// `{"turn_id":..,"span":..,"ms":..}` so both sides can be correlated.
+  /// Never carries audio, transcripts or tokens.
+  void _logSpan(String span, {int? sinceMs}) {
+    final from = sinceMs ?? _speechEndMs;
+    if (from == null) return;
+    final ms = (DateTime.now().millisecondsSinceEpoch - from).toDouble();
+    debugPrint(json.encode({
+      'turn_id': _turnId ?? '',
+      'span': span,
+      'ms': ms,
+    }));
+  }
+
+  /// First audible sample of the reply — the number the whole rehaul is judged
+  /// on. Recorded once per turn, at the moment audio is handed to the player.
+  void _noteFirstAudio() {
+    if (_firstAudioLogged || _speechEndMs == null) return;
+    _firstAudioLogged = true;
+    _logSpan('speech_end_to_first_audio');
   }
 
   /// Reset the server's per-turn audio buffer (used after we answered a turn
@@ -613,7 +782,14 @@ class VoiceController extends ChangeNotifier {
     userTranscript = t; // keep showing what was asked
     _set(VoiceState.thinking);
     ++_turnEpoch; // supersede any in-flight local attempt
+    _abortSpeechStream(); // this turn's text is already decided
     _escalateText = null;
+    // New turn for telemetry: the "speech end" is the moment the user asked
+    // for the server retry (plan 0.2).
+    _turnId = 'm-${DateTime.now().microsecondsSinceEpoch}';
+    _speechEndMs = DateTime.now().millisecondsSinceEpoch;
+    _firstAudioLogged = false;
+    _serverProducedOutput = false;
     _sendServerTurn(text: t); // the begin_turn from _resetServerTurn is still open
   }
 
@@ -626,32 +802,28 @@ class VoiceController extends ChangeNotifier {
     };
   }
 
-  /// Transcribe [pcm] on-device, route it, and fully handle the turn locally if
-  /// possible. Returns true if handled (spoke a local answer or ran a local
-  /// command); false to escalate (with [_escalateText] set when we have a
-  /// transcript). Never throws; bails early if the turn was superseded.
-  Future<bool> _tryLocalVoice(Uint8List pcm, int epoch) async {
+  /// Handle [transcript] entirely on the device if we can. Returns true when
+  /// the turn is DONE locally (a device action ran, or a local answer was
+  /// spoken); false to escalate — [_escalateText] is already set by the caller.
+  /// Never throws; bails early if the turn was superseded.
+  ///
+  /// Two layers, cheapest first:
+  ///   1. [LocalExecutor] — a literal grammar over this phone's own skills. No
+  ///      model, no network: "flashlight on" is done in tens of milliseconds
+  ///      (plan 4.3).
+  ///   2. [LocalRouter] — the on-device model answers conversation/knowledge.
+  Future<bool> _tryLocalTurn(String transcript, int epoch) async {
+    if (!LocalAiSettings.instance.enabledForVoice) return false;
     try {
-      final transcript =
-          (await OnDeviceAi.instance.transcribe(pcm, sampleRate: _micRate)).trim();
-      if (epoch != _turnEpoch) return false; // superseded mid-STT
-      if (transcript.isEmpty) {
-        // On-device STT produced nothing (no Speech permission, on-device
-        // recognition unsupported, or decode failure) → the turn escalates and
-        // the server transcribes. This is the other common "voice never goes
-        // local" cause besides the Voice toggle.
-        debugPrint('[voice] on-device STT empty → escalate (server STT)');
-        return false;
+      final decision = LocalExecutor.classify(transcript);
+      debugLogLocalDecision(decision);
+      if (decision is LocalRun) {
+        return await _runLocalAction(decision, transcript, epoch);
       }
-      debugPrint('[voice] on-device STT: "$transcript"');
-      userTranscript = transcript;
-      _escalateText = transcript; // hand to server if we end up escalating
-      _pushLiveActivity();
-      notifyListeners();
 
       final result = await app.localRouter.handle(transcript, VoiceSurface.voice);
       if (epoch != _turnEpoch) return false;
-      debugPrint('[voice] route("$transcript") → ${result.runtimeType}'
+      debugPrint('[voice] route → ${result.runtimeType}'
           '${result is Escalate ? ' (${result.reason})' : ''}');
       switch (result) {
         case DirectAnswer():
@@ -690,6 +862,37 @@ class VoiceController extends ChangeNotifier {
       debugPrint('[voice] local route failed, escalating: $e');
       return false;
     }
+  }
+
+  /// Run one allow-listed device action here and acknowledge it out loud with
+  /// the PHONE's synthesizer (plan 4.3 + 4.4) — no server, no TTS round-trip.
+  /// Returns false when the action didn't take, so the caller can escalate
+  /// instead of claiming something happened.
+  Future<bool> _runLocalAction(LocalRun plan, String transcript, int epoch) async {
+    final outcome = await LocalExecutor(app.runner).execute(plan);
+    if (epoch != _turnEpoch || !active) return outcome.ok;
+    if (!outcome.ok) {
+      debugPrint('[voice] local action ${plan.skill} failed → escalate');
+      return false;
+    }
+    _logSpan('local_action_done');
+    // The ack IS the reply for this turn — show it and speak it.
+    if (await LocalTts.speak(outcome.spoken)) {
+      _appendSpeech(outcome.spoken);
+      _noteFirstAudio();
+      _finalizeSpoken();
+      _scheduleResumeListening();
+    } else {
+      // No native synthesizer on this build — fall back to the JARVIS voice.
+      await _speakLocal(outcome.spoken);
+    }
+    // Async report so memory + the web transcript still see the action. The
+    // server API has no "silent turn" flag, so we use the same
+    // /api/session/append path on-device replies already use — it records the
+    // turn WITHOUT running the agent (see SessionsApi.appendLocalTurn).
+    unawaited(_persistVoiceLocal(
+        transcript, LocalExecutor.reportLine(plan, outcome)));
+    return true;
   }
 
   /// Speak [text] in the JARVIS voice. Split into sentence-sized chunks and
@@ -840,16 +1043,15 @@ class VoiceController extends ChangeNotifier {
       _lastLocalTranscript = null; // user interrupted → no stale "Try on server"
       _sendJson({'type': 'interrupt'});
       unawaited(_audio.stop());
+      unawaited(LocalTts.stop());
       _resetVad();
+      _abortSpeechStream();
+      unawaited(_startSpeechStream());
       _set(VoiceState.listening);
     }
   }
 
-  void _resetVad() {
-    _spoke = false;
-    _silenceMs = 0;
-    _lastFrameMs = 0;
-  }
+  void _resetVad() => _endpointer.reset();
 
   void _onWsMessage(dynamic data) {
     if (data is String) {
@@ -871,6 +1073,20 @@ class VoiceController extends ChangeNotifier {
           _pushLiveActivity(); // show your line on the island while listening
           notifyListeners();
           break;
+        case 'latency':
+          // Server-side span for this turn (plan 0.2). Mirror it into the
+          // client log so one trace shows both sides.
+          debugPrint(json.encode({
+            'turn_id': (msg['turn_id'] ?? _turnId ?? '').toString(),
+            'span': 'server:${(msg['span'] ?? 'turn').toString()}',
+            'ms': (msg['ms'] is num) ? (msg['ms'] as num).toDouble() : 0.0,
+          }));
+          break;
+        case 'escalation_result':
+          // The slow lane finished after we already answered locally. Read it
+          // out if the user is still on the voice screen (plan 4.4).
+          _onEscalationResult((msg['text'] ?? '').toString());
+          break;
         case 'assistant_text':
           // Reply is still in progress — cancel any pending resume and
           // show "thinking" until audio actually starts (playback flips
@@ -878,12 +1094,14 @@ class VoiceController extends ChangeNotifier {
           // while the reply is mid-flight.
           _resumeTimer?.cancel();
           _cancelThinkingWatchdog(); // real reply text is now arriving
+          _serverProducedOutput = true;
           _appendSpeech((msg['text'] ?? '').toString());
           toolStatus = null;
           if (state != VoiceState.speaking) _set(VoiceState.thinking);
           break;
         case 'tool':
           _resumeTimer?.cancel();
+          _serverProducedOutput = true;
           final name = (msg['name'] ?? 'tool').toString();
           final status = (msg['status'] ?? 'started').toString();
           toolStatus = status == 'completed' ? null : 'Running $name';
@@ -891,9 +1109,12 @@ class VoiceController extends ChangeNotifier {
           break;
         case 'audio_meta':
           _resumeTimer?.cancel();
+          _serverProducedOutput = true;
           _inFormat = (msg['format'] ?? 'pcm_s16le').toString();
           _inRate = _asInt(msg['sample_rate']) ?? 24000;
-          _segPcm.clear();
+          // Claim the karaoke segment NOW: PCM is played as it arrives (plan
+          // 1.7), so there is no flush point left at which to pair them.
+          _pcmTag = _claimSegTag();
           _segMp3.clear();
           break;
         case 'audio_end':
@@ -908,38 +1129,54 @@ class VoiceController extends ChangeNotifier {
       if (_inFormat == 'mp3') {
         _segMp3.addAll(data);
       } else {
-        _segPcm.addAll(data);
+        // Stream it straight into the player instead of buffering the whole
+        // segment (plan 1.7) — the first ~160 ms starts playing immediately.
+        _pcmTag ??= _claimSegTag(); // text may have landed after audio_meta
+        _noteFirstAudio();
+        _audio.appendPcm(Uint8List.fromList(data),
+            sampleRate: _inRate, tag: _pcmTag);
       }
     } else {
       debugPrint('[voice] ws unexpected frame type: ${data.runtimeType}');
     }
   }
 
-  void _flushSegment() {
-    debugPrint(
-        '[voice] flushSegment format=$_inFormat pcm=${_segPcm.length} mp3=${_segMp3.length}');
-    // Pair this clip with the most recent text segment that doesn't yet have
-    // audio, so the karaoke highlight can time its words against the clip.
-    int? tag;
+  /// Pair the incoming clip with the most recent text segment that doesn't yet
+  /// have audio, so the karaoke highlight can time its words against it.
+  int? _claimSegTag() {
     for (var i = _segs.length - 1; i >= 0; i--) {
       if (!_segs[i].audioAssigned) {
         _segs[i].audioAssigned = true;
-        tag = i;
-        break;
+        return i;
       }
     }
+    return null;
+  }
+
+  /// End of one reply segment. MP3 is still whole-buffer (the decoder needs a
+  /// complete file); PCM only has to close out the stream.
+  void _flushSegment() {
     if (_inFormat == 'mp3') {
       if (_segMp3.isNotEmpty) {
-        _audio.enqueueMp3(Uint8List.fromList(_segMp3), tag: tag);
+        _noteFirstAudio();
+        _audio.enqueueMp3(Uint8List.fromList(_segMp3), tag: _claimSegTag());
         _segMp3.clear();
       }
     } else {
-      if (_segPcm.isNotEmpty) {
-        _audio.enqueuePcm(Uint8List.fromList(_segPcm),
-            sampleRate: _inRate, tag: tag);
-        _segPcm.clear();
-      }
+      _audio.endPcmSegment(tag: _pcmTag);
+      _pcmTag = null;
     }
+  }
+
+  /// Speak a late escalation result (plan 4.4): the fast lane already answered
+  /// this turn locally and the slow lane came back with the real answer.
+  void _onEscalationResult(String text) {
+    final t = text.trim();
+    if (t.isEmpty || !active) return;
+    _resumeTimer?.cancel();
+    _cancelThinkingWatchdog();
+    _serverProducedOutput = true;
+    unawaited(_speakLocal(t));
   }
 
   void _onRealtimeTurnEnd(String reason) {
@@ -1033,6 +1270,7 @@ class VoiceController extends ChangeNotifier {
       _finalizeSpoken(); // reply's done — light up any unspoken tail
       _resetVad();
       amplitude.value = 0;
+      unawaited(_startSpeechStream()); // recognizer ready for the next utterance
       _set(VoiceState.listening);
     });
   }
@@ -1045,6 +1283,7 @@ class VoiceController extends ChangeNotifier {
     _segs.clear();
     _totalWords = 0;
     _curSeg = -1;
+    _pcmTag = null; // segment indices just went away
   }
 
   /// Append a chunk of assistant reply text as a new segment. The raw text is
@@ -1162,7 +1401,11 @@ class VoiceController extends ChangeNotifier {
   Future<Stream<Uint8List>> _startMicStream() async {
     for (var attempt = 0;; attempt++) {
       try {
-        return await _recorder.startStream(_micConfig());
+        final stream = await _recorder.startStream(_micConfig());
+        // The voice session owns the audio session now — the background
+        // keepalive (silent-audio) steps aside until the mic stops.
+        AppLifecycle.voiceActive = true;
+        return stream;
       } on PlatformException catch (e) {
         final msg = '${e.message} ${e.details}';
         final transient = msg.contains('Session activation') ||
@@ -1250,6 +1493,7 @@ class VoiceController extends ChangeNotifier {
     _resumeTimer?.cancel();
     _cancelBgIdleTimeout();
     _cancelThinkingWatchdog();
+    _abortSpeechStream();
     _teardownMic();
     unawaited(_closeWs());
     unawaited(_audio.stop());
@@ -1265,6 +1509,7 @@ class VoiceController extends ChangeNotifier {
     try {
       if (await _recorder.isRecording()) await _recorder.stop();
     } catch (_) {}
+    AppLifecycle.voiceActive = false;
   }
 
   Future<void> _closeWs() async {
@@ -1301,9 +1546,10 @@ class VoiceController extends ChangeNotifier {
     if (_foreground || !active) return; // resumed / torn down → nothing to do
     // Only end a genuinely IDLE backgrounded session: waiting for the user to
     // speak, nobody mid-utterance, no reply in flight. `muted` counts as idle —
-    // while muted the VAD is bypassed so `_spoke` never clears, which would
-    // otherwise re-arm forever and never reap a muted backgrounded session.
-    if (state == VoiceState.listening && (!_spoke || muted)) {
+    // while muted the VAD is bypassed so the endpointer never clears, which
+    // would otherwise re-arm forever and never reap a muted backgrounded
+    // session.
+    if (state == VoiceState.listening && (!_endpointer.speaking || muted)) {
       unawaited(stopAll());
     } else {
       _armBgIdleTimeout(); // busy now — re-check after another window
@@ -1342,6 +1588,8 @@ class VoiceController extends ChangeNotifier {
     _lastLocalTranscript = null;
     _turnEpoch++; // invalidate any in-flight on-device local attempt
     _turnPcm.clear();
+    _abortSpeechStream();
+    unawaited(LocalTts.stop());
     await _teardownMic();
     await _closeWs();
     await _audio.stop();
@@ -1359,6 +1607,7 @@ class VoiceController extends ChangeNotifier {
 
   @override
   void dispose() {
+    AppLifecycle.voiceActive = false;
     _resumeTimer?.cancel();
     _thinkingWatchdog?.cancel();
     _laTimer?.cancel();
@@ -1368,6 +1617,7 @@ class VoiceController extends ChangeNotifier {
     try {
       app.ws.connected.removeListener(_onConnChanged);
     } catch (_) {}
+    _abortSpeechStream();
     _teardownMic();
     _closeWs();
     _audio.dispose();

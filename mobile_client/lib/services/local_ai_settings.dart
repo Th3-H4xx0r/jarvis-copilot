@@ -51,6 +51,16 @@ class LocalAiSettings {
   /// Show the "on-device" badge on locally-handled replies.
   bool showBadge = true;
 
+  /// Runtime kill-switch (review MINOR): when false, Android never opens an
+  /// on-device streaming-STT session — every turn uses server STT instead,
+  /// same as a device where `EXTRA_AUDIO_SOURCE`/on-device recognition is
+  /// unavailable. Default true (streaming STT stays on). Added because the
+  /// Android implementation shares the mic buffer with a recognizer pipe
+  /// (`SpeechStreamChannel.kt`) — an OEM whose recognizer ignores the pipe
+  /// and opens its own mic would silence capture, so this needs to be
+  /// disableable without a client release. No effect on iOS.
+  bool androidStreamingStt = true;
+
   bool get enabledForChat => tier != LocalAiTier.off && chatEnabled;
   bool get enabledForVoice => tier != LocalAiTier.off && voiceEnabled;
 
@@ -65,6 +75,7 @@ class LocalAiSettings {
   static const _kConfirm = 'lai_confirm';
   static const _kShort = 'lai_short';
   static const _kBadge = 'lai_badge';
+  static const _kAndroidStreamStt = 'lai_android_stream_stt';
 
   Future<void> load() async {
     tier = LocalAiTierCodec.parse(await _store.read(_kTier));
@@ -77,6 +88,7 @@ class LocalAiSettings {
     confirmLocalActions = (await _store.read(_kConfirm)) != '0';
     commandShortCircuit = (await _store.read(_kShort)) != '0';
     showBadge = (await _store.read(_kBadge)) != '0';
+    androidStreamingStt = (await _store.read(_kAndroidStreamStt)) != '0';
   }
 
   Future<void> save() async {
@@ -88,5 +100,6 @@ class LocalAiSettings {
     await _store.write(_kConfirm, confirmLocalActions ? '1' : '0');
     await _store.write(_kShort, commandShortCircuit ? '1' : '0');
     await _store.write(_kBadge, showBadge ? '1' : '0');
+    await _store.write(_kAndroidStreamStt, androidStreamingStt ? '1' : '0');
   }
 }

@@ -2977,6 +2977,18 @@ def _run_agent_streaming(
         except Exception:
             logger.debug("Failed to put event to queue")
 
+    # Latency rehaul plan 2.5 — let a background escalation job push its
+    # `escalation_result` event onto this session's live stream. Registering here
+    # also flushes anything a PREVIOUS turn's escalation finished after its
+    # stream had already closed. Unregistered in the outer finally.
+    _escalation_sink_session = None
+    try:
+        from agent.escalation import register_stream_sink as _register_escalation_sink
+        _register_escalation_sink(session_id, put)
+        _escalation_sink_session = session_id
+    except Exception:
+        logger.debug("escalation sink registration skipped", exc_info=True)
+
     def _agent_status_callback(kind, message):
         """Bridge Agent lifecycle compression status into WebUI SSE."""
         _message = str(message or '').strip()
@@ -4989,6 +5001,15 @@ def _run_agent_streaming(
                         logger.debug("Failed to append interrupted turn journal event", exc_info=True)
         put('apperror', _error_payload)
     finally:
+        # plan 2.5 — detach this stream's fan-out from the escalation delivery
+        # registry; results that land after this point are buffered for the next
+        # stream instead of writing into a dead queue.
+        if _escalation_sink_session is not None:
+            try:
+                from agent.escalation import unregister_stream_sink as _unreg_escalation_sink
+                _unreg_escalation_sink(_escalation_sink_session, put)
+            except Exception:
+                logger.debug("escalation sink teardown failed", exc_info=True)
         # Stop the periodic checkpoint thread before the final recovery path.
         # The checkpoint thread also uses the per-session lock; joining it first
         # avoids contending with checkpoint writes during stale-pending repair.

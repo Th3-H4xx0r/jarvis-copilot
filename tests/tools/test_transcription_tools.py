@@ -609,6 +609,243 @@ class TestTranscribeLocalExtended:
 
 
 # ============================================================================
+# realtime=True/False — plan 1.5 (fast STT path, separate model cache)
+# ============================================================================
+
+@pytest.mark.skipif(
+    not __import__("importlib").util.find_spec("faster_whisper"),
+    reason="faster_whisper not installed",
+)
+class TestTranscribeLocalRealtime:
+    """`_transcribe_local(..., realtime=True/False)` — separate cache slots,
+    separate transcribe kwargs, and fallback-on-load-failure for the tiny.en
+    default."""
+
+    def _mock_model(self, text="hi"):
+        seg = MagicMock()
+        seg.text = text
+        info = MagicMock()
+        info.language = "en"
+        info.duration = 1.0
+        model = MagicMock()
+        model.transcribe.return_value = ([seg], info)
+        return model
+
+    def test_realtime_true_resolves_tiny_en_by_default(self, tmp_path):
+        """transcribe_audio(realtime=True) with no config override resolves
+        the tiny.en realtime default via _transcribe_local."""
+        audio = tmp_path / "test.ogg"
+        audio.write_bytes(b"fake")
+        model = self._mock_model()
+        whisper_cls = MagicMock(return_value=model)
+
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", True), \
+             patch("faster_whisper.WhisperModel", whisper_cls), \
+             patch("tools.transcription_tools._get_provider", return_value="local"), \
+             patch("tools.transcription_tools._load_stt_config", return_value={}), \
+             patch("tools.transcription_tools._local_realtime_model", None), \
+             patch("tools.transcription_tools._local_realtime_model_name", None), \
+             patch("tools.transcription_tools._local_model", None), \
+             patch("tools.transcription_tools._local_model_name", None):
+            from tools.transcription_tools import transcribe_audio
+            result = transcribe_audio(str(audio), realtime=True)
+
+        assert result["success"] is True
+        whisper_cls.assert_called_once_with("tiny.en", device="auto", compute_type="auto")
+
+    def test_realtime_true_honors_config_override(self, tmp_path):
+        audio = tmp_path / "test.ogg"
+        audio.write_bytes(b"fake")
+        model = self._mock_model()
+        whisper_cls = MagicMock(return_value=model)
+
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", True), \
+             patch("faster_whisper.WhisperModel", whisper_cls), \
+             patch("tools.transcription_tools._get_provider", return_value="local"), \
+             patch("tools.transcription_tools._load_stt_config",
+                   return_value={"local": {"realtime_model": "small"}}), \
+             patch("tools.transcription_tools._local_realtime_model", None), \
+             patch("tools.transcription_tools._local_realtime_model_name", None), \
+             patch("tools.transcription_tools._local_model", None), \
+             patch("tools.transcription_tools._local_model_name", None):
+            from tools.transcription_tools import transcribe_audio
+            transcribe_audio(str(audio), realtime=True)
+
+        whisper_cls.assert_called_once_with("small", device="auto", compute_type="auto")
+
+    def test_realtime_true_passes_beam1_and_vad_filter(self, tmp_path):
+        audio = tmp_path / "test.ogg"
+        audio.write_bytes(b"fake")
+        model = self._mock_model()
+
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", True), \
+             patch("faster_whisper.WhisperModel", return_value=model), \
+             patch("tools.transcription_tools._local_realtime_model", None), \
+             patch("tools.transcription_tools._local_realtime_model_name", None), \
+             patch("tools.transcription_tools._local_model", None), \
+             patch("tools.transcription_tools._local_model_name", None):
+            from tools.transcription_tools import _transcribe_local
+            result = _transcribe_local(str(audio), "tiny.en", realtime=True)
+
+        assert result["success"] is True
+        model.transcribe.assert_called_once_with(str(audio), beam_size=1, vad_filter=True)
+
+    def test_realtime_false_passes_beam5_no_vad(self, tmp_path):
+        audio = tmp_path / "test.ogg"
+        audio.write_bytes(b"fake")
+        model = self._mock_model()
+
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", True), \
+             patch("faster_whisper.WhisperModel", return_value=model), \
+             patch("tools.transcription_tools._local_realtime_model", None), \
+             patch("tools.transcription_tools._local_realtime_model_name", None), \
+             patch("tools.transcription_tools._local_model", None), \
+             patch("tools.transcription_tools._local_model_name", None):
+            from tools.transcription_tools import _transcribe_local
+            result = _transcribe_local(str(audio), "base", realtime=False)
+
+        assert result["success"] is True
+        model.transcribe.assert_called_once_with(str(audio), beam_size=5)
+
+    def test_realtime_true_populates_realtime_slot_leaves_quality_slot_untouched(self, tmp_path):
+        audio = tmp_path / "test.ogg"
+        audio.write_bytes(b"fake")
+        model = self._mock_model()
+
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", True), \
+             patch("faster_whisper.WhisperModel", return_value=model), \
+             patch("tools.transcription_tools._local_realtime_model", None), \
+             patch("tools.transcription_tools._local_realtime_model_name", None), \
+             patch("tools.transcription_tools._local_model", "sentinel-quality-model"), \
+             patch("tools.transcription_tools._local_model_name", "base"):
+            import tools.transcription_tools as tt
+            tt._transcribe_local(str(audio), "tiny.en", realtime=True)
+
+            assert tt._local_realtime_model is model
+            assert tt._local_realtime_model_name == "tiny.en"
+            # quality-path slot must be untouched by a realtime call
+            assert tt._local_model == "sentinel-quality-model"
+            assert tt._local_model_name == "base"
+
+    def test_realtime_false_populates_quality_slot_leaves_realtime_slot_untouched(self, tmp_path):
+        audio = tmp_path / "test.ogg"
+        audio.write_bytes(b"fake")
+        model = self._mock_model()
+
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", True), \
+             patch("faster_whisper.WhisperModel", return_value=model), \
+             patch("tools.transcription_tools._local_model", None), \
+             patch("tools.transcription_tools._local_model_name", None), \
+             patch("tools.transcription_tools._local_realtime_model", "sentinel-realtime-model"), \
+             patch("tools.transcription_tools._local_realtime_model_name", "tiny.en"):
+            import tools.transcription_tools as tt
+            tt._transcribe_local(str(audio), "base", realtime=False)
+
+            assert tt._local_model is model
+            assert tt._local_model_name == "base"
+            # realtime-path slot must be untouched by a quality call
+            assert tt._local_realtime_model == "sentinel-realtime-model"
+            assert tt._local_realtime_model_name == "tiny.en"
+
+    def test_realtime_falls_back_to_base_when_tiny_en_fails_to_load(self, tmp_path):
+        """tiny.en failing to load (e.g. not downloaded, offline) falls back
+        to DEFAULT_LOCAL_MODEL ('base') rather than failing the turn."""
+        audio = tmp_path / "test.ogg"
+        audio.write_bytes(b"fake")
+        base_model = self._mock_model(text="fallback worked")
+
+        def fake_whisper(model_name, device, compute_type):
+            if model_name == "tiny.en":
+                raise RuntimeError("model download failed: offline")
+            return base_model
+
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", True), \
+             patch("faster_whisper.WhisperModel", side_effect=fake_whisper), \
+             patch("tools.transcription_tools._local_realtime_model", None), \
+             patch("tools.transcription_tools._local_realtime_model_name", None), \
+             patch("tools.transcription_tools._local_model", None), \
+             patch("tools.transcription_tools._local_model_name", None):
+            import tools.transcription_tools as tt
+            result = tt._transcribe_local(str(audio), "tiny.en", realtime=True)
+
+            assert result["success"] is True
+            assert result["transcript"] == "fallback worked"
+            assert tt._local_realtime_model is base_model
+            assert tt._local_realtime_model_name == "base"
+
+    def test_realtime_no_fallback_loop_when_base_itself_fails(self, tmp_path):
+        """If the fallback target ('base') also fails to load, surface the
+        failure rather than looping."""
+        audio = tmp_path / "test.ogg"
+        audio.write_bytes(b"fake")
+
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", True), \
+             patch("faster_whisper.WhisperModel",
+                   side_effect=RuntimeError("no disk space")), \
+             patch("tools.transcription_tools._local_realtime_model", None), \
+             patch("tools.transcription_tools._local_realtime_model_name", None), \
+             patch("tools.transcription_tools._local_model", None), \
+             patch("tools.transcription_tools._local_model_name", None):
+            from tools.transcription_tools import _transcribe_local
+            result = _transcribe_local(str(audio), "base", realtime=True)
+
+        assert result["success"] is False
+        assert "no disk space" in result["error"]
+
+
+# ============================================================================
+# warm_stt() — plan 1.5 background preload
+# ============================================================================
+
+@pytest.mark.skipif(
+    not __import__("importlib").util.find_spec("faster_whisper"),
+    reason="faster_whisper not installed",
+)
+class TestWarmStt:
+    def test_warm_stt_preloads_realtime_model_only(self):
+        model = MagicMock()
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", True), \
+             patch("faster_whisper.WhisperModel", return_value=model), \
+             patch("tools.transcription_tools.is_stt_enabled", return_value=True), \
+             patch("tools.transcription_tools._get_provider", return_value="local"), \
+             patch("tools.transcription_tools._load_stt_config", return_value={}), \
+             patch("tools.transcription_tools._local_realtime_model", None), \
+             patch("tools.transcription_tools._local_realtime_model_name", None), \
+             patch("tools.transcription_tools._local_model", None), \
+             patch("tools.transcription_tools._local_model_name", None):
+            import tools.transcription_tools as tt
+            tt.warm_stt()
+
+            assert tt._local_realtime_model is model
+            assert tt._local_realtime_model_name == "tiny.en"
+            assert tt._local_model is None
+            assert tt._local_model_name is None
+
+    def test_warm_stt_noop_when_faster_whisper_missing(self):
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", False), \
+             patch("tools.transcription_tools._local_realtime_model", None), \
+             patch("tools.transcription_tools._local_realtime_model_name", None):
+            import tools.transcription_tools as tt
+            tt.warm_stt()  # must not raise
+            assert tt._local_realtime_model is None
+
+    def test_warm_stt_noop_on_load_exception(self):
+        """warm_stt degrades silently even if the fallback-to-base load also
+        fails — it's a best-effort optimization, never a hard dependency."""
+        with patch("tools.transcription_tools._HAS_FASTER_WHISPER", True), \
+             patch("faster_whisper.WhisperModel",
+                   side_effect=RuntimeError("boom")), \
+             patch("tools.transcription_tools.is_stt_enabled", return_value=True), \
+             patch("tools.transcription_tools._get_provider", return_value="local"), \
+             patch("tools.transcription_tools._load_stt_config", return_value={}), \
+             patch("tools.transcription_tools._local_realtime_model", None), \
+             patch("tools.transcription_tools._local_realtime_model_name", None):
+            import tools.transcription_tools as tt
+            tt.warm_stt()  # must not raise
+            assert tt._local_realtime_model is None
+
+
+# ============================================================================
 # Model auto-correction
 # ============================================================================
 

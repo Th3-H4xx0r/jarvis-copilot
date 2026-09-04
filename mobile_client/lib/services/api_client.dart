@@ -70,9 +70,85 @@ class ApiClient {
   /// user confirms the captured fingerprint.
   void notifyCredentialsChanged() {
     _applyAdapter();
+    // A new pairing (or a new lan_url) invalidates the LAN verdict.
+    _activeLan = null;
+    _lanCheckedAt = DateTime.fromMillisecondsSinceEpoch(0);
   }
 
+  // ── LAN-direct preference (plan 5.3) ──────────────────────────────────────
+  // When the phone is on the same network as the server, going straight to its
+  // LAN address skips the Cloudflare tunnel — 80–150 ms off EVERY request. We
+  // never assume: [preferLanIfReachable] races a short probe and only switches
+  // when the LAN address actually answers. Cert pinning is unchanged (same
+  // server, same leaf cert), and any failure just leaves us on the tunnel.
+
+  /// How long the LAN probe may take. Deliberately tiny: on a foreign network
+  /// the LAN IP is either refused instantly or black-holed, and we must not
+  /// make connecting slower in the very case the optimization doesn't apply.
+  static const Duration _kLanProbeTimeout = Duration(milliseconds: 200);
+
+  /// Re-probe at most this often, so a network change is picked up without
+  /// probing on every request.
+  static const Duration _kLanRecheckAfter = Duration(minutes: 2);
+
+  String? _activeLan; // the LAN base currently in use, or null for the tunnel
+  DateTime _lanCheckedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Future<void>? _lanProbe;
+
+  /// True while requests are going straight to the LAN address.
+  bool get usingLan => _activeLan != null;
+
+  /// Probe the configured LAN address and start using it if it answers. Safe
+  /// to call on every connect: it self-throttles and never throws.
+  Future<void> preferLanIfReachable({bool force = false}) {
+    final existing = _lanProbe;
+    if (existing != null) return existing;
+    if (!force &&
+        DateTime.now().difference(_lanCheckedAt) < _kLanRecheckAfter) {
+      return Future<void>.value();
+    }
+    return _lanProbe = _probeLan().whenComplete(() => _lanProbe = null);
+  }
+
+  Future<void> _probeLan() async {
+    _lanCheckedAt = DateTime.now();
+    final lan = Credentials.instance.lanUrl?.replaceFirst(RegExp(r'/+$'), '');
+    if (lan == null || lan.isEmpty) {
+      _activeLan = null;
+      return;
+    }
+    final ok = await _lanAnswers(lan);
+    if (ok != (_activeLan != null)) {
+      _activeLan = ok ? lan : null;
+      _applyAdapter(); // drop pooled connections to the old base
+    }
+  }
+
+  /// A HEAD (any status counts — 401/403 still proves the server is there)
+  /// inside [_kLanProbeTimeout].
+  Future<bool> _lanAnswers(String lan) async {
+    final client = HttpClient()
+      ..connectionTimeout = _kLanProbeTimeout
+      ..badCertificateCallback = _pinnedCertificateCallback;
+    try {
+      final req = await client
+          .headUrl(Uri.parse('$lan/api/auth/status'))
+          .timeout(_kLanProbeTimeout);
+      final resp = await req.close().timeout(_kLanProbeTimeout);
+      await resp.drain<void>();
+      return true;
+    } catch (_) {
+      return false; // refused, timed out, or cert mismatch → stay on the tunnel
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// Base URL for every request: the LAN address when it's live, else the
+  /// paired server URL.
   String get base {
+    final lan = _activeLan;
+    if (lan != null && lan.isNotEmpty) return lan;
     final u = _serverUrl;
     if (u == null || u.isEmpty) {
       throw StateError('ApiClient: no server URL configured');
@@ -85,6 +161,10 @@ class ApiClient {
   /// connection refusal, timeout, or TLS/cert failure counts as down.
   Future<bool> reachable() async {
     if (_serverUrl == null || _serverUrl!.isEmpty) return false;
+    // "On connect": pick the LAN address if it answers within 200 ms (plan
+    // 5.3). Self-throttled, so calling it from the launch gate is enough to
+    // keep the choice fresh as the phone moves between networks.
+    await preferLanIfReachable();
     try {
       await get('/api/auth/status').timeout(const Duration(seconds: 8));
       return true;
@@ -276,6 +356,61 @@ class ApiClient {
     }
   }
 
+  /// POST a JSON body asking for SSE, and yield whichever the server gives us
+  /// (plan 5.1). When the response is `text/event-stream` each parsed event is
+  /// yielded as usual; when it is ordinary JSON (an older server that ignores
+  /// `?stream=1`) a SINGLE `{r'$sse': false, 'body': {...}}` envelope is
+  /// yielded so the caller can fall back without a second request.
+  Stream<Map<String, dynamic>> postSseOrJson(
+    String path,
+    Object body, {
+    Map<String, dynamic>? query,
+    Map<String, String>? headers,
+  }) async* {
+    final uri = Uri.parse('$base$path').replace(
+      queryParameters: query?.map((k, v) => MapEntry(k, v.toString())),
+    );
+    final client = HttpClient();
+    client.badCertificateCallback = _pinnedCertificateCallback;
+    try {
+      final req = await client.postUrl(uri);
+      final cookie = Credentials.instance.cookie;
+      if (cookie != null && cookie.isNotEmpty) {
+        req.headers.set('Cookie', cookie);
+      }
+      Credentials.instance.cfAccessHeaders
+          .forEach((k, v) => req.headers.set(k, v));
+      req.headers
+        ..set('Content-Type', 'application/json')
+        ..set('Accept', 'text/event-stream, application/json');
+      headers?.forEach((k, v) => req.headers.set(k, v));
+      req.add(utf8.encode(json.encode(body)));
+      final resp = await req.close();
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        final text = await resp.transform(utf8.decoder).join();
+        throw StateError(text.trim().isEmpty
+            ? 'HTTP ${resp.statusCode} from $path'
+            : text.trim());
+      }
+      final ctype =
+          (resp.headers.contentType?.mimeType ?? '').toLowerCase();
+      if (!ctype.contains('event-stream')) {
+        final text = await resp.transform(utf8.decoder).join();
+        Map<String, dynamic> parsed;
+        try {
+          parsed = Map<String, dynamic>.from(json.decode(text) as Map);
+        } catch (_) {
+          parsed = <String, dynamic>{};
+        }
+        yield {r'$sse': false, 'body': parsed};
+        return;
+      }
+      yield* _parseSse(resp);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   Stream<Map<String, dynamic>> streamSse(
     String path, {
     Map<String, dynamic>? query,
@@ -306,31 +441,36 @@ class ApiClient {
         );
       }
 
-      var event = 'message';
-      final dataLines = <String>[];
-      await for (final line
-          in resp.transform(utf8.decoder).transform(const LineSplitter())) {
-        if (line.isEmpty) {
-          final data = dataLines.join('\n');
-          if (data.isNotEmpty) {
-            yield _decodeSseEvent(event, data);
-          }
-          event = 'message';
-          dataLines.clear();
-          continue;
-        }
-        if (line.startsWith(':')) continue;
-        if (line.startsWith('event:')) {
-          event = line.substring('event:'.length).trim();
-        } else if (line.startsWith('data:')) {
-          dataLines.add(line.substring('data:'.length).trimLeft());
-        }
-      }
-      if (dataLines.isNotEmpty) {
-        yield _decodeSseEvent(event, dataLines.join('\n'));
-      }
+      yield* _parseSse(resp);
     } finally {
       client.close(force: true);
+    }
+  }
+
+  /// Shared SSE frame parser for [streamSse] and [postSseOrJson].
+  Stream<Map<String, dynamic>> _parseSse(HttpClientResponse resp) async* {
+    var event = 'message';
+    final dataLines = <String>[];
+    await for (final line
+        in resp.transform(utf8.decoder).transform(const LineSplitter())) {
+      if (line.isEmpty) {
+        final data = dataLines.join('\n');
+        if (data.isNotEmpty) {
+          yield _decodeSseEvent(event, data);
+        }
+        event = 'message';
+        dataLines.clear();
+        continue;
+      }
+      if (line.startsWith(':')) continue;
+      if (line.startsWith('event:')) {
+        event = line.substring('event:'.length).trim();
+      } else if (line.startsWith('data:')) {
+        dataLines.add(line.substring('data:'.length).trimLeft());
+      }
+    }
+    if (dataLines.isNotEmpty) {
+      yield _decodeSseEvent(event, dataLines.join('\n'));
     }
   }
 

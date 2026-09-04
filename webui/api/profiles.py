@@ -629,6 +629,26 @@ def _stringify_env_value(value) -> str:
     return str(value)
 
 
+# plan 1.3 — get_profile_runtime_env() re-parsed config.yaml + .env on every
+# agent turn (streaming.py calls it once per profile_home per turn). Cache the
+# result per profile_home, keyed on (config.yaml mtime_ns, size) + (.env
+# mtime_ns, size) — mirrors jarviscopilot_cli.config.load_config()'s
+# mtime+size cache pattern. A changed file (either mtime or size differs, or
+# the file appears/disappears) invalidates just that entry.
+_RUNTIME_ENV_CACHE_LOCK = threading.Lock()
+# str(home) -> (cfg_key, env_key, env_dict)
+_RUNTIME_ENV_CACHE: dict[str, tuple] = {}
+
+
+def _file_cache_key(path: Path):
+    """``(mtime_ns, size)`` for *path*, or ``None`` if it doesn't exist."""
+    try:
+        st = path.stat()
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
 def get_profile_runtime_env(home: Path) -> dict[str, str]:
     """Return env vars needed to run an agent turn for a profile home.
 
@@ -638,14 +658,26 @@ def get_profile_runtime_env(home: Path) -> dict[str, str]:
     environment variables (matching ``jarviscopilot -p <profile>``), so streaming must
     apply the selected profile's terminal config and ``.env`` for the duration
     of that run.
+
+    Cached per *home* on (config.yaml mtime+size, .env mtime+size) — plan 1.3.
     """
     home = Path(home).expanduser()
+    home_key = str(home)
+    cfg_path = home / 'config.yaml'
+    env_path = home / '.env'
+    cfg_key = _file_cache_key(cfg_path)
+    env_key = _file_cache_key(env_path)
+
+    with _RUNTIME_ENV_CACHE_LOCK:
+        cached = _RUNTIME_ENV_CACHE.get(home_key)
+        if cached is not None and cached[0] == cfg_key and cached[1] == env_key:
+            return dict(cached[2])
+
     env: dict[str, str] = {}
 
     try:
         import yaml as _yaml
 
-        cfg_path = home / 'config.yaml'
         cfg = _yaml.safe_load(cfg_path.read_text(encoding='utf-8')) if cfg_path.exists() else {}
         if not isinstance(cfg, dict):
             cfg = {}
@@ -654,11 +686,10 @@ def get_profile_runtime_env(home: Path) -> dict[str, str]:
 
     terminal_cfg = cfg.get('terminal', {}) if isinstance(cfg, dict) else {}
     if isinstance(terminal_cfg, dict):
-        for key, env_key in _TERMINAL_ENV_MAPPINGS.items():
+        for key, env_key_name in _TERMINAL_ENV_MAPPINGS.items():
             if key in terminal_cfg and terminal_cfg[key] is not None:
-                env[env_key] = _stringify_env_value(terminal_cfg[key])
+                env[env_key_name] = _stringify_env_value(terminal_cfg[key])
 
-    env_path = home / '.env'
     if env_path.exists():
         try:
             for line in env_path.read_text(encoding='utf-8').splitlines():
@@ -671,6 +702,9 @@ def get_profile_runtime_env(home: Path) -> dict[str, str]:
                         env[k] = v
         except Exception:
             logger.debug("Failed to read runtime env from %s", env_path)
+
+    with _RUNTIME_ENV_CACHE_LOCK:
+        _RUNTIME_ENV_CACHE[home_key] = (cfg_key, env_key, dict(env))
 
     return env
 

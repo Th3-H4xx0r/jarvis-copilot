@@ -37,6 +37,11 @@ _KEYRING_CF_USER = "cf_service_secret"
 @dataclass
 class Credentials:
     server_url: str = ""              # e.g. "https://1.2.3.4:8787"
+    # plan 5.3: optional LAN-direct candidate (e.g. "https://192.168.1.20:8787").
+    # When set, connect() races a fast pinned health probe against it before
+    # falling back to server_url (the tunnel) — free + lower-latency when
+    # Pranav is home. Empty = tunnel-only (today's behavior, unchanged).
+    lan_url: str = ""
     cert_fingerprint: str = ""        # SHA-256 hex, no colons
     device_id: str = ""
     device_name: str = ""
@@ -162,6 +167,7 @@ def load() -> Credentials:
     cf_secret = _try_keyring_get_user(_KEYRING_CF_USER) or data.get("cf_client_secret", "")
     return Credentials(
         server_url=data.get("server_url", ""),
+        lan_url=data.get("lan_url", ""),
         cert_fingerprint=data.get("cert_fingerprint", ""),
         device_id=data.get("device_id", ""),
         device_name=data.get("device_name", ""),

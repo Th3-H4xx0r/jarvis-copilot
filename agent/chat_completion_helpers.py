@@ -64,6 +64,147 @@ from utils import base_url_host_matches, base_url_hostname
 logger = logging.getLogger(__name__)
 
 
+# ── eager device-tool dispatch (plan 2.4) ────────────────────────────────────
+# Tools whose side effect is safe to start before the model finishes its turn:
+# idempotent, user-visible, and cheap to repeat if the turn is later abandoned.
+# Anything that writes files, spends money, sends a message, or spawns an agent
+# stays on the normal path (dispatched only after message_stop).
+EAGER_DISPATCH_TOOLS = frozenset({
+    "open_app", "open_url", "set_volume", "notify", "vibrate",
+    "play_audio", "chrome_navigate", "chrome_new_tab", "chrome_activate_tab",
+    "chrome_snapshot", "chrome_screenshot",
+})
+# Whole families that qualify (flashlight_on / flashlight_off / …). plan 2.4
+EAGER_DISPATCH_PREFIXES = ("flashlight_",)
+
+
+def is_eager_dispatchable(tool_name: str) -> bool:
+    """True when ``tool_name`` may be executed the moment its args finish streaming."""
+    if not tool_name:
+        return False
+    if tool_name in EAGER_DISPATCH_TOOLS:
+        return True
+    return any(tool_name.startswith(p) for p in EAGER_DISPATCH_PREFIXES)
+
+
+class EagerToolStreamTracker:
+    """Accumulates ``input_json_delta`` per content block and fires ``dispatch``
+    at ``content_block_stop`` — i.e. as soon as ONE tool's arguments are complete,
+    without waiting for the rest of the message.
+
+    ``dispatch(tool_use_id, tool_name, args_dict)`` is called at most once per
+    block and never allowed to raise into the stream loop: a broken dispatcher
+    must degrade to "the tool runs later, as it always did", never to a dead
+    turn. Blocks whose tool is not in the allow-list, and blocks whose partial
+    JSON does not parse, are skipped silently for the same reason.
+    """
+
+    __slots__ = ("_dispatch", "_blocks")
+
+    def __init__(self, dispatch) -> None:
+        self._dispatch = dispatch
+        self._blocks: Dict[Any, Dict[str, Any]] = {}
+
+    def on_event(self, event) -> None:
+        try:
+            etype = getattr(event, "type", None)
+            if etype == "content_block_start":
+                block = getattr(event, "content_block", None)
+                if block is None or getattr(block, "type", None) != "tool_use":
+                    return
+                name = getattr(block, "name", None)
+                if not is_eager_dispatchable(name):
+                    return
+                self._blocks[getattr(event, "index", None)] = {
+                    "id": getattr(block, "id", None), "name": name, "json": "",
+                }
+            elif etype == "content_block_delta":
+                state = self._blocks.get(getattr(event, "index", None))
+                if state is None:
+                    return
+                delta = getattr(event, "delta", None)
+                if delta is not None and getattr(delta, "type", None) == "input_json_delta":
+                    state["json"] += getattr(delta, "partial_json", "") or ""
+            elif etype == "content_block_stop":
+                state = self._blocks.pop(getattr(event, "index", None), None)
+                if state is None or not state.get("id"):
+                    return
+                # The SDK's ContentBlockStopEvent carries the fully accumulated
+                # block — trust its parse over our own reassembly, which can
+                # differ under eager_input_streaming (types are inferred on the
+                # fly, so the partial_json fragments are not a plain concat of a
+                # single JSON document).
+                args = None
+                block = getattr(event, "content_block", None)
+                if block is not None and getattr(block, "type", None) == "tool_use":
+                    candidate = getattr(block, "input", None)
+                    if isinstance(candidate, dict):
+                        args = candidate
+                if args is None:
+                    try:
+                        args = json.loads(state["json"].strip() or "{}")
+                    except Exception:
+                        logger.debug("eager dispatch skipped: unparsable args for %s",
+                                     state["name"])
+                        return
+                if not isinstance(args, dict):
+                    return
+                self._dispatch(state["id"], state["name"], args)
+        except Exception:
+            logger.debug("eager tool tracker error", exc_info=True)
+
+
+def eager_dispatch_enabled(agent) -> bool:
+    """True when this turn may pre-dispatch device tools (plan 2.4).
+
+    Gated to the native Anthropic fast lane: it is the only path that sets
+    ``eager_input_streaming`` on the tool definitions, and the only one where the
+    args are guaranteed complete at ``content_block_stop``.  Config kill switch:
+    ``tools.eager_dispatch: false``.
+    """
+    try:
+        from tools.lazy_tools import load_config, uses_native_tool_search
+        if not uses_native_tool_search(agent):
+            return False
+        cfg = (load_config() or {}).get("tools", {}) or {} if load_config else {}
+        return bool(cfg.get("eager_dispatch", True))
+    except Exception:
+        return False
+
+
+def _build_eager_tracker(agent):
+    """Return an :class:`EagerToolStreamTracker` for this attempt, or None."""
+    if not eager_dispatch_enabled(agent):
+        return None
+    try:
+        import model_tools as _mt
+        _mt.reset_eager_dispatch()
+    except Exception:
+        logger.debug("eager dispatch reset failed", exc_info=True)
+        return None
+
+    task_id = getattr(agent, "_current_task_id", None) or ""
+    session_id = getattr(agent, "session_id", None) or ""
+    valid = getattr(agent, "valid_tool_names", None)
+
+    def _dispatch(tool_use_id, tool_name, args):
+        if valid and tool_name not in valid:
+            return
+        started = _mt.eager_dispatch(
+            tool_name, args,
+            tool_call_id=tool_use_id,
+            task_id=task_id,
+            session_id=session_id,
+            enabled_tools=list(valid) if valid else None,
+        )
+        if started:
+            logger.info(json.dumps({
+                "turn_id": task_id, "span": "eager_tool_dispatch", "ms": 0.0,
+            }))
+
+    return EagerToolStreamTracker(dispatch=_dispatch)
+
+
 def _ra():
     """Lazy ``run_agent`` reference.
 
@@ -303,7 +444,7 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
         ephemeral_out = getattr(agent, "_ephemeral_max_output_tokens", None)
         if ephemeral_out is not None:
             agent._ephemeral_max_output_tokens = None  # consume immediately
-        return _transport.build_kwargs(
+        _kwargs = _transport.build_kwargs(
             model=agent.model,
             messages=anthropic_messages,
             tools=tools_for_api,
@@ -316,6 +457,19 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
             fast_mode=(agent.request_overrides or {}).get("speed") == "fast",
             drop_context_1m_beta=bool(getattr(agent, "_oauth_1m_beta_disabled", False)),
         )
+        # plan 2.3 / 2.4 — on NATIVE Anthropic, hand the tool search to the API:
+        # non-core tools ship with defer_loading (out of the billed prefix) next
+        # to the BM25 tool_search server tool, and device tools get
+        # eager_input_streaming so their args land before the sentence ends.
+        # Post-processing here (rather than through the transport) keeps
+        # agent/transports/anthropic.py — owned by another workstream — untouched.
+        try:
+            from tools.lazy_tools import apply_native_tool_search, uses_native_tool_search
+            if uses_native_tool_search(agent):
+                apply_native_tool_search(_kwargs, agent)
+        except Exception:
+            logger.debug("native tool-search shaping skipped", exc_info=True)
+        return _kwargs
 
     # AWS Bedrock native Converse API — bypasses the OpenAI client entirely.
     # The adapter handles message/tool conversion and boto3 calls directly.
@@ -1688,6 +1842,10 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
 
         # Reset stale-stream timer for this attempt
         last_chunk_time["t"] = time.time()
+        # plan 2.4 — a retried attempt gets fresh tool_use ids, so any eager
+        # execution left over from the previous attempt can never be matched.
+        # Drop the bookkeeping before this attempt starts producing new ids.
+        _eager_tracker = _build_eager_tracker(agent)
         # Per-attempt diagnostic dict for the retry block to consume.
         _diag = agent._stream_diag_init()
         request_client_holder["diag"] = _diag
@@ -1729,6 +1887,11 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
                     break
 
                 event_type = getattr(event, "type", None)
+
+                # plan 2.4 — start side-effect-safe device tools as soon as
+                # their argument stream closes, not at message_stop.
+                if _eager_tracker is not None:
+                    _eager_tracker.on_event(event)
 
                 if event_type == "content_block_start":
                     block = getattr(event, "content_block", None)

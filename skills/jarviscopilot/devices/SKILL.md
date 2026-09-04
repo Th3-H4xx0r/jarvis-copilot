@@ -21,6 +21,14 @@ Manage paired devices and the skills they expose to the server. Use this skill w
 
 All operations go through a single Python helper script that talks to the running webui's REST API. It reuses the same session cookie the WebUI uses, so the agent can call it without any extra credentials.
 
+## Invoking a device's skills — use the native `device_<skill>` tools
+
+**Device skills are now first-class agent tools, not something you invoke through this script.** As soon as a device registers its skill catalogue with the bridge, each skill shows up as a tool named `device_<skill>` (e.g. `device_send_sms`, `device_open_app`, `device_flashlight`) — call it directly like any other tool, with the skill's own arguments. When the same skill exists on more than one connected device, the tool gains an optional `device` argument (id, or a substring of the device's name) to pick which one; omit it and the first connected match is used.
+
+This replaces the old `terminal → python devices.py invoke` round trip entirely for invocation — no shelling out, no stdout parsing, one tool call. `skills` (below) is still useful to see what's currently advertised, and `devices.py invoke` **still works as a fallback** (e.g. if the native tool path is ever unavailable), but prefer the `device_<skill>` tool whenever it's present.
+
+This is the same pattern the paired Mac's `chrome_*` tools already used (see "Driving the user's real desktop browser" below) — those are just the browser-specific instance of it. Only pairing/listing/revoking devices still goes through this script.
+
 ## Available subcommands
 
 Every command runs through:
@@ -73,8 +81,8 @@ List every skill currently advertised by a connected device. Useful before invok
 python3 "$SCRIPT" skills
 ```
 
-### `invoke <device> <skill-name> [--json-args '{...}'] [--timeout 30]`
-Run one of the device's registered skills and return its result. Synchronous.
+### `invoke <device> <skill-name> [--json-args '{...}'] [--timeout 30]` — fallback only
+**Prefer the native `device_<skill-name>` tool instead** (see above) — it's the same call with no terminal round trip. Use `invoke` only if that tool isn't available for some reason. Runs one of the device's registered skills and returns its result. Synchronous.
 
 ```bash
 python3 "$SCRIPT" invoke "Pranav's iPhone" send_sms --json-args '{"to":"+1...","body":"on my way"}'

@@ -31,6 +31,7 @@ import json
 import logging
 import secrets
 import select
+import sys
 import threading
 import time
 import uuid
@@ -76,6 +77,50 @@ class _DeviceConn:
 
 _REG: dict[str, _DeviceConn] = {}
 _REG_LOCK = threading.Lock()
+
+# ── Registry-change notification (plan 3.1) ─────────────────────────────────
+# tools/device_skill_tools.py rebuilds its native `device_<skill>` tools
+# whenever a device registers its skill catalogue or disconnects. It
+# subscribes via on_registry_change() instead of this module importing that
+# tools module at top level (would create an import cycle: tools/* modules
+# import api.device_bridge, not the other way around).
+_REGISTRY_CHANGE_CALLBACKS: list = []
+_REGISTRY_CHANGE_LOCK = threading.Lock()
+
+
+def on_registry_change(callback) -> None:
+    """Register a zero-arg callback fired after a device's skill catalogue
+    changes (register/append) or a device disconnects. Best-effort: a
+    raising callback is logged and does not affect the bridge."""
+    with _REGISTRY_CHANGE_LOCK:
+        if callback not in _REGISTRY_CHANGE_CALLBACKS:
+            _REGISTRY_CHANGE_CALLBACKS.append(callback)
+
+
+def _notify_registry_change() -> None:
+    with _REGISTRY_CHANGE_LOCK:
+        callbacks = list(_REGISTRY_CHANGE_CALLBACKS)
+    for cb in callbacks:
+        try:
+            cb()
+        except Exception:
+            logger.debug("device-bridge registry-change callback raised", exc_info=True)
+
+
+def in_process_available() -> bool:
+    """True when this process hosts the live device-bridge WS registry.
+
+    The bridge's live sockets are only ever accepted by ``webui/server.py``'s
+    ``handle_websocket()`` — a gateway or other agent-hosting process imports
+    this module (for ``invoke_skill``/``all_device_skills``) but never accepts
+    a device connection into it, so its ``_REG`` would silently stay empty
+    forever rather than reflect "no devices right now". ``webui.server`` being
+    importED in this process is a reliable proxy for "this is the webui
+    process, so ``_REG`` here is authoritative" — used by
+    ``tools/chrome_device_tool.py`` and ``tools/device_skill_tools.py`` to
+    choose the in-process call path over the HTTP loopback fallback (plan 3.2).
+    """
+    return "webui.server" in sys.modules
 
 
 def _register(conn: _DeviceConn) -> None:
@@ -217,6 +262,7 @@ def disconnect_device(device_id: str) -> bool:
         c = _REG.pop(device_id, None)
     if c:
         _safe_close(c)
+        _notify_registry_change()  # plan 3.1 — device gone, drop its native tools
         return True
     return False
 
@@ -898,6 +944,7 @@ def handle_websocket(handler, parsed) -> bool:
     finally:
         _unregister(conn.device_id, conn)
         _safe_close(conn)
+        _notify_registry_change()  # plan 3.1 — device gone, drop its native tools
     return True
 
 
@@ -1112,6 +1159,7 @@ def _handle_message(conn: _DeviceConn, msg: dict) -> None:
             }))
         except Exception:
             pass
+        _notify_registry_change()  # plan 3.1 — rebuild native device_<skill> tools
         return
     if t == "result":
         call_id = msg.get("call_id")

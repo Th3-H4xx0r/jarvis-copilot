@@ -1,5 +1,6 @@
 import 'local_ai_settings.dart';
 import 'local_command_matcher.dart';
+import 'local_executor.dart';
 import 'on_device_ai.dart';
 import 'on_device_ai_types.dart';
 
@@ -38,6 +39,17 @@ class LocalRouter {
     final avail = await _ai.availability();
     if (!avail.available) {
       return Escalate('unavailable:${avail.reason ?? 'unknown'}');
+    }
+
+    // Device-local action with a safety allow-list (plan 4.3 / 4.5). Checked
+    // FIRST: it knows which skills this device actually has, refuses anything
+    // off the allow-list, and covers more verbs (alarms, clipboard, camera,
+    // URLs) than the older matcher. Anything it doesn't recognise falls
+    // through, so previous behaviour is unchanged.
+    final local = LocalExecutor.classify(text);
+    if (local is LocalRun) {
+      return ToolCall(local.skill, local.args, ToolExecClass.deviceLocal,
+          confirmation: local.ack);
     }
 
     // Instant local command (deterministic, no model) for simple, reliable,

@@ -891,10 +891,11 @@ def test_issue1734_chat_start_persists_repaired_codex_provider(monkeypatch):
         messages = [{"role": "user", "content": "old"}]
         context_messages = []
 
-        def save(self, touch_updated_at=True):
+        def save(self, touch_updated_at=True, skip_index=False):
             save_calls.append(
                 {
                     "touch_updated_at": touch_updated_at,
+                    "skip_index": skip_index,
                     "model": self.model,
                     "model_provider": self.model_provider,
                     "pending_user_message": self.pending_user_message,

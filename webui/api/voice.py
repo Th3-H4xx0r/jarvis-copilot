@@ -32,6 +32,7 @@ Bridge mode (the only mode shipped today — no Moshi/Mini-Omni-2 sidecar):
 """
 import base64
 import json
+import logging
 import os
 import re
 import sys
@@ -43,6 +44,11 @@ from pathlib import Path
 from typing import Optional
 
 from api.helpers import j
+
+# plan 0.1 — structured per-turn latency logging. Schema owned by WS-A (see
+# docs/superpowers/plans/2026-09-04-sub-second-latency-rehaul.md Phase 0):
+# every span is logged as {"turn_id":..,"span":"<name>","ms":<float>} at INFO.
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +88,48 @@ def _try_import_tts():
         return text_to_speech_tool, _load_tts_config, _get_provider
     except Exception:
         return None, None, None
+
+
+# Guards _spawn_stt_warm() so it fires at most once per process (first voice
+# WS connection), not on module import (which happens during test collection
+# and would download/load the tiny.en model) and not on every connection.
+_stt_warm_started = False
+_stt_warm_lock = threading.Lock()
+
+
+def _spawn_stt_warm() -> None:
+    """Pre-load the realtime STT model in a background thread (plan 1.5) so
+    the first voice WS turn doesn't pay faster-whisper's load latency inline.
+    Fire-and-forget — must never slow down or fail its caller: every step
+    here is best-effort and swallows its own exceptions
+    (tools.transcription_tools.warm_stt() already degrades silently when
+    faster-whisper isn't installed).
+
+    Called lazily from the first voice WS connection (_run_voice_ws), not at
+    import time, so test collection never triggers a model download/load.
+    Also skipped outright under pytest or when JC_STT_WARM=0 is set, as a
+    second line of defense in case something still imports this at
+    collection time.
+    """
+    global _stt_warm_started
+    if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("JC_STT_WARM") == "0":
+        return
+    with _stt_warm_lock:
+        if _stt_warm_started:
+            return
+        _stt_warm_started = True
+
+    def _run():
+        try:
+            _ensure_hermes_on_path()
+            from tools.transcription_tools import warm_stt  # type: ignore
+            warm_stt()
+        except Exception:
+            pass
+    try:
+        threading.Thread(target=_run, daemon=True, name="jc-stt-warm").start()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -196,43 +244,40 @@ def _preferred_voice_model(all_sessions) -> tuple:
     return "", None
 
 
-def _claude_code_available() -> bool:
-    """True when claude-code is a configured provider for this user (they have at
-    least one claude-code session). Cheap in-memory scan; used to decide whether
-    it's safe to redirect a voice turn off the raw anthropic API."""
-    try:
-        from api.models import all_sessions  # type: ignore
-        for row in all_sessions():
-            g = (lambda k: row.get(k) if isinstance(row, dict) else getattr(row, k, None))
-            prov = str(g("model_provider") or "").strip().lower()
-            mdl = str(g("model") or "").strip().lower()
-            if prov == "claude-code" or mdl.startswith("@claude-code:"):
-                return True
-    except Exception:
-        pass
-    return False
+def get_voice_lane_config() -> dict:
+    """Read ``voice.fast_lane`` / ``voice.escalation`` from config.yaml (plan 2.1).
 
+    Replaces the old ``_maybe_redirect_voice_anthropic`` force-redirect: voice
+    now pins to an explicit, configured fast lane (a small/cheap model tuned
+    for sub-second TTFT) instead of following whatever model the user's most
+    recent chat happened to be pinned to. WS-B (escalation handling) imports
+    this helper too, so the shape is a stable interface:
 
-def _maybe_redirect_voice_anthropic(model, provider) -> tuple:
-    """Voice on the raw ``anthropic`` API is the rate-limited "out of extra usage"
-    path that the claude-code subscription provider exists to replace. When a voice
-    turn resolves to anthropic but claude-code is configured, route the SAME Claude
-    model through claude-code so voice works on the subscription instead of 400ing.
-    No-op for non-anthropic turns or users without claude-code. Opt out with
-    HERMES_VOICE_ALLOW_ANTHROPIC=1."""
-    import os
-    prov = str(provider or "").strip().lower()
-    mdl = str(model or "").strip()
-    is_anthropic = prov == "anthropic" or mdl.lower().startswith("@anthropic:")
-    if not is_anthropic:
-        return model, provider
-    if str(os.environ.get("HERMES_VOICE_ALLOW_ANTHROPIC", "")).strip().lower() in {"1", "true", "yes", "on"}:
-        return model, provider
-    if not _claude_code_available():
-        return model, provider
-    bare = mdl.split(":", 1)[1] if mdl.startswith("@") and ":" in mdl else mdl
-    bare = bare.strip() or "claude-sonnet-4-6"
-    return f"@claude-code:{bare}", "claude-code"
+        {"fast_lane": {"provider": str, "model": str} | None,
+         "escalation": {"provider": str, "model": str} | None}
+
+    A section is None when absent, empty, or malformed (not a dict) — callers
+    should fall back to the session's own model/provider in that case. A
+    per-turn ``begin_turn``/``end_turn`` model override still wins over both.
+    """
+    def _section(cfg: dict, key: str):
+        sec = cfg.get(key) if isinstance(cfg, dict) else None
+        if not isinstance(sec, dict):
+            return None
+        provider = str(sec.get("provider") or "").strip()
+        model = str(sec.get("model") or "").strip()
+        if not provider or not model:
+            return None
+        return {"provider": provider, "model": model}
+
+    cfg = _read_hermes_config()
+    voice_cfg = cfg.get("voice") if isinstance(cfg, dict) else None
+    if not isinstance(voice_cfg, dict):
+        voice_cfg = {}
+    return {
+        "fast_lane": _section(voice_cfg, "fast_lane"),
+        "escalation": _section(voice_cfg, "escalation"),
+    }
 
 
 def get_or_create_voice_session():
@@ -668,26 +713,30 @@ _VOICE_TURN_TIMEOUT_SECONDS = 180.0
 # its plan step by step). This per-turn directive tells the agent the reply
 # will be read aloud so it answers tersely in plain speech. Only voice turns go
 # through _run_agent_turn_via_chat, so this never affects the text chat tab.
+#
+# plan 2.6 — tightened for the fast-lane model (voice.fast_lane, typically
+# claude-haiku-4-5): a small model follows a short numbered checklist far more
+# reliably than long prose, so the cadence is spelled out as discrete rules
+# (≤2 sentences per reply; name the tool in ≤5 words before calling it;
+# confirm the result in ≤1 sentence after) instead of paragraphs of
+# explanation tuned for a bigger model.
 _VOICE_REPLY_DIRECTIVE = (
-    "[Voice mode — your reply is read aloud by text-to-speech. Use plain spoken "
-    "language only: no markdown, asterisks, bullet points, numbered lists, headers, "
-    "code blocks, emoji, or raw URLs — say names, numbers, and values in words and "
-    "organize anything long as flowing spoken paragraphs, not lists. "
-    "Speak ONLY the actual answer content — NEVER narrate your process. Do not say "
-    "what you are about to do, what you are checking, or why; never say things like "
-    "'I'm checking…', 'Let me…', 'first, so the rest is anchored…', 'I'll gather it "
-    "piece by piece', or describe tools, steps, or your plan. No preamble about how "
-    "you'll work — at most a one- or two-word greeting for a briefing (for example "
-    "'Good morning.'). "
-    "For a simple question, just say the one- or two-sentence answer. "
-    "For a multi-part request that needs several tools (for example a morning brief "
-    "— date and location, weather, calendar, news), call ONE tool at a time and, as "
-    "each part's data comes back, speak ONLY that part's finished content in the "
-    "exact words you would use in the final answer, then go on to the next part — so "
-    "the brief is delivered piece by piece as it becomes ready, never saved up for "
-    "the end and never padded with commentary about gathering it. Do NOT call tools "
-    "in parallel. Give a briefing its full natural length across those spoken parts; "
-    "keep ordinary answers to one or two short sentences.]\n\n"
+    "[Voice mode — a small fast model's reply, read aloud by text-to-speech. "
+    "Follow these rules exactly:\n"
+    "1. Plain spoken language only — no markdown, asterisks, bullets, numbered "
+    "lists, headers, code blocks, emoji, or raw URLs. Say names, numbers, and "
+    "values in words.\n"
+    "2. Never narrate your reasoning or plan. Do not say 'I'm checking…', "
+    "'Let me…', 'I'll gather…', or describe tools or steps.\n"
+    "3. Before calling a tool, name what you're doing in 5 words or fewer "
+    "(for example: 'Checking the weather.').\n"
+    "4. After a tool returns, confirm the result in ONE short sentence, then "
+    "continue to the next step if needed.\n"
+    "5. Keep every reply to 2 sentences or fewer — EXCEPT a multi-part "
+    "briefing (for example: date, weather, calendar, news), where you call "
+    "ONE tool at a time (never in parallel) and speak each part's result in "
+    "one short sentence as it arrives.\n"
+    "Answer with only the actual content — nothing else.]\n\n"
 )
 
 
@@ -906,11 +955,22 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     # specific server model/provider for this single turn. It still flows
     # through the SAME _resolve_compatible_session_model_state() the chat path
     # uses, so an empty/stale/cross-provider override is normalized identically.
-    raw_model = (model_override or "").strip() or getattr(s, "model", None)
-    raw_provider = (provider_override or "").strip() or getattr(s, "model_provider", None)
-    # Keep voice off the rate-limited raw anthropic API ("out of extra usage") when
-    # claude-code is available — route the same Claude model through the subscription.
-    raw_model, raw_provider = _maybe_redirect_voice_anthropic(raw_model, raw_provider)
+    override_model = (model_override or "").strip()
+    override_provider = (provider_override or "").strip()
+    if override_model or override_provider:
+        raw_model = override_model or getattr(s, "model", None)
+        raw_provider = override_provider or getattr(s, "model_provider", None)
+    else:
+        # No per-turn override — pin to the configured fast lane (plan 2.1),
+        # falling back to the session's own model when voice.fast_lane isn't
+        # configured. Replaces the old _maybe_redirect_voice_anthropic
+        # force-redirect off the raw anthropic API.
+        fast_lane = (get_voice_lane_config() or {}).get("fast_lane")
+        if fast_lane:
+            raw_model, raw_provider = fast_lane["model"], fast_lane["provider"]
+        else:
+            raw_model = getattr(s, "model", None)
+            raw_provider = getattr(s, "model_provider", None)
     try:
         eff_model, eff_provider, was_normalized = _resolve_compatible_session_model_state(
             raw_model,
@@ -956,7 +1016,11 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
 # Shared pipeline helpers
 # ---------------------------------------------------------------------------
 
-def _pcm_to_transcript(pcm_bytes: bytes, sample_rate: int) -> str:
+def _pcm_to_transcript(pcm_bytes: bytes, sample_rate: int, *, realtime: bool = False) -> str:
+    """realtime=True (plan 1.5) routes through transcribe_audio's fast tiny.en
+    /beam_size=1/vad_filter STT path — used by the voice WS bridge. The
+    quality path (/api/voice/quality-turn) calls this with the default
+    realtime=False and is unaffected."""
     transcribe = _try_import_stt()
     if not transcribe:
         return ""
@@ -965,7 +1029,7 @@ def _pcm_to_transcript(pcm_bytes: bytes, sample_rate: int) -> str:
         tmp_path = tmp.name
         tmp.write(wav_bytes)
     try:
-        result = transcribe(tmp_path)
+        result = transcribe(tmp_path, realtime=realtime)
         if isinstance(result, dict) and result.get("success"):
             transcript = str(result.get("transcript") or "").strip()
             # Drop whisper hallucinations (silence/noise artifacts like
@@ -1159,6 +1223,82 @@ def _split_for_speech(text: str, target: int = 480, hard: int = 900) -> list:
     return out or [text]
 
 
+def _resolve_effective_tts_provider(cfg: dict):
+    """Which TTS provider a voice call actually uses, and its (possibly
+    synthesized) ``tts`` config section — (provider, tts_section).
+
+    Piper JARVIS is the default fast voice (plan 2.6): when ``voice.fast_lane``
+    is configured and the user has NOT explicitly set ``tts.provider``, prefer
+    the already-downloaded Piper JARVIS voice over whatever tools.tts_tool
+    would otherwise default to (Edge) — it's local, needs no network round
+    trip, and matches the fast lane's latency budget. Never triggers a
+    download on this hot path (only ``_voice_personality_tts``'s jarvis-mcu
+    picker does that); falls back to the normally configured/default provider
+    when the voice file isn't present yet or fast_lane isn't set.
+    """
+    tts_section = cfg.get("tts") if isinstance(cfg, dict) else None
+    tts_section = dict(tts_section) if isinstance(tts_section, dict) else {}
+    explicit_provider = str(tts_section.get("provider") or "").strip()
+    if not explicit_provider:
+        voice_section = cfg.get("voice") if isinstance(cfg, dict) else None
+        fast_lane = voice_section.get("fast_lane") if isinstance(voice_section, dict) else None
+        if isinstance(fast_lane, dict) and fast_lane:
+            try:
+                onnx = _piper_voices_dir() / f"jarvis-{_JARVIS_PIPER_QUALITY}.onnx"
+                # piper-tts needs both the model AND its sidecar config to
+                # synthesize; a partial/interrupted download can leave the
+                # .onnx present without its .onnx.json (or vice versa), so
+                # require both before treating the voice as "ready".
+                onnx_json = onnx.with_name(onnx.name + ".json")
+                if (
+                    onnx.exists() and onnx.stat().st_size > 0
+                    and onnx_json.exists() and onnx_json.stat().st_size > 0
+                ):
+                    piper_cfg = dict(tts_section.get("piper") or {})
+                    piper_cfg.setdefault("voice", str(onnx))
+                    piper_cfg.setdefault("length_scale", _JARVIS_PIPER_LENGTH_SCALE)
+                    piper_cfg.setdefault("noise_scale", _JARVIS_PIPER_NOISE_SCALE)
+                    piper_cfg.setdefault("noise_w_scale", _JARVIS_PIPER_NOISE_W_SCALE)
+                    tts_section["provider"] = "piper"
+                    tts_section["piper"] = piper_cfg
+                    return "piper", tts_section
+            except Exception:
+                pass
+    if not explicit_provider:
+        _, _, get_provider = _try_import_tts()
+        if get_provider:
+            try:
+                explicit_provider = get_provider(tts_section)
+            except Exception:
+                explicit_provider = ""
+    return explicit_provider, tts_section
+
+
+def _synth_piper_to_base64(text: str, tts_section: dict, suffix: str = ".mp3") -> str:
+    """Direct Piper synth, bypassing the generic tts_tool dispatcher.
+
+    Needed because ``text_to_speech_tool()`` re-reads ``tts.provider`` from
+    disk on every call, so it can't see the in-memory "prefer piper" fallback
+    from ``_resolve_effective_tts_provider`` when the user hasn't explicitly
+    set ``tts.provider: piper`` in config.yaml.
+    """
+    try:
+        from tools.tts_tool import _generate_piper_tts  # type: ignore
+    except Exception:
+        return ""
+    out_path = _make_tempfile_path("webui-tts-", suffix)
+    try:
+        _generate_piper_tts(text, out_path, {"piper": tts_section.get("piper") or {}})
+        p = Path(out_path)
+        if not p.exists() or p.stat().st_size == 0:
+            return ""
+        return base64.b64encode(p.read_bytes()).decode("ascii")
+    except Exception:
+        return ""
+    finally:
+        _cleanup_tempfile_siblings(out_path)
+
+
 def _tts_to_base64(text: str) -> str:
     if not text:
         return ""
@@ -1166,24 +1306,23 @@ def _tts_to_base64(text: str) -> str:
     text = _speakable(text)
     if not text:
         return ""
+    cfg = _read_hermes_config()
+    provider, tts_section = _resolve_effective_tts_provider(cfg)
     # Fish Audio is a cloud REST API, not a JarvisCopilot built-in. Special-case
     # before the JarvisCopilot path so it doesn't disappear when JarvisCopilot can't
     # resolve "fish-audio" as a provider.
-    cfg = _read_hermes_config()
-    provider = ""
-    try:
-        tts_section = cfg.get("tts") if isinstance(cfg, dict) else None
-        if isinstance(tts_section, dict):
-            provider = str(tts_section.get("provider") or "").strip()
-    except Exception:
-        pass
     if provider == "fish-audio":
         try:
-            audio = _synthesize_fish_audio(text, tts_cfg=cfg.get("tts") or {})
+            audio = _synthesize_fish_audio(text, tts_cfg=tts_section)
             return base64.b64encode(audio).decode("ascii") if audio else ""
         except Exception:
             print("[webui] fish-audio TTS failed: " + traceback.format_exc(), flush=True)
             return ""
+    if provider == "piper":
+        audio_b64 = _synth_piper_to_base64(text, tts_section, suffix=".mp3")
+        if audio_b64:
+            return audio_b64
+        # fall through to the generic dispatcher below on failure
     tts_fn, _, _ = _try_import_tts()
     if not tts_fn:
         return ""
@@ -1338,6 +1477,9 @@ def _run_voice_ws(conn, sock) -> None:
     from wsproto.events import (
         TextMessage, BytesMessage, CloseConnection, Ping, Pong,
     )
+    # plan 1.5 — warm the realtime STT model on first connection rather than
+    # at import time (see _spawn_stt_warm's docstring for why).
+    _spawn_stt_warm()
     state = {
         "pcm_buf": bytearray(),
         "sample_rate": 16000,
@@ -1382,10 +1524,76 @@ def _run_voice_ws(conn, sock) -> None:
     except Exception:
         print("[webui] voice WS error: " + traceback.format_exc(), flush=True)
     finally:
+        _detach_escalation_sink(state)
         try:
             sock.close()
         except Exception:
             pass
+
+
+def _attach_escalation_sink(state: dict, conn, sock) -> None:
+    """plan 2.5 — push Lane-2 (escalation) results onto this live voice socket.
+
+    The fast-lane turn ends with an ack; the big-model job finishes seconds
+    later. ``agent.escalation.deliver`` hands the result to every registered
+    sink for the session (or buffers it until one registers), so the voice
+    WS registers one per session and speaks the result when it lands. If a
+    turn is in flight the result is queued and flushed right after it, so we
+    never interleave two audio streams on one socket.
+    """
+    sid = (state.get("session_id") or "").strip()
+    if not sid or state.get("_esc_sid") == sid:
+        return
+    _detach_escalation_sink(state)
+    try:
+        from agent import escalation as _esc
+    except Exception:
+        return
+
+    def _sink(event, data, _state=state, _conn=conn, _sock=sock):
+        _state.setdefault("escalations", []).append(dict(data or {}))
+        if not _state.get("turn_active") and not _state.get("closed"):
+            _flush_escalations(_state, _conn, _sock)
+
+    try:
+        _esc.register_stream_sink(sid, _sink)
+    except Exception:
+        return
+    state["_esc_sid"] = sid
+    state["_esc_sink"] = _sink
+
+
+def _detach_escalation_sink(state: dict) -> None:
+    sid = state.pop("_esc_sid", None)
+    sink = state.pop("_esc_sink", None)
+    if not (sid and sink):
+        return
+    try:
+        from agent import escalation as _esc
+        _esc.unregister_stream_sink(sid, sink)
+    except Exception:
+        pass
+
+
+def _flush_escalations(state: dict, conn, sock) -> None:
+    """Send queued escalation results as a text frame + spoken audio."""
+    items = state.get("escalations") or []
+    if not items or state.get("closed"):
+        return
+    state["escalations"] = []
+    for data in items:
+        text = (data.get("text") or "").strip()
+        _ws_send_text(conn, sock, json.dumps({
+            "type": "escalation_result",
+            "job_id": data.get("job_id"),
+            "text": text,
+        }))
+        if not text:
+            continue
+        try:
+            _send_audio(conn, sock, state, _synth_audio(text))
+        except Exception:
+            print("[webui] escalation TTS failed: " + traceback.format_exc(), flush=True)
 
 
 def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
@@ -1401,6 +1609,7 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         sid = (msg.get("session_id") or "").strip()
         if sid:
             state["session_id"] = sid
+            _attach_escalation_sink(state, conn, sock)  # plan 2.5
         # Per-turn model override (on-device escalation may pick a specific
         # server model/provider for this turn). Only set when non-empty so an
         # absent field never clobbers the session default.
@@ -1435,6 +1644,16 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         et_text = (msg.get("text") or "").strip()
         if et_text:
             state["pretranscript"] = et_text
+        # plan 0.1 — optional client-supplied timestamps (epoch ms) for the
+        # endpoint_ms span: how long the CLIENT's own endpointing/silence
+        # detection took after real speech ended before it sent this frame.
+        # Older clients omit both — endpoint_ms is simply absent then.
+        if msg.get("client_ts") is not None:
+            state["client_ts"] = msg.get("client_ts")
+        if msg.get("speech_end_ts") is not None:
+            state["speech_end_ts"] = msg.get("speech_end_ts")
+        state["_t_recv"] = time.monotonic()
+        state["turn_active"] = True  # plan 2.5 — escalation results wait for the turn
         try:
             # If the agent is paused on a clarify question, this end_turn is the
             # user's spoken ANSWER — resolve it and resume; otherwise it's a new
@@ -1446,6 +1665,9 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         except Exception:
             print("[webui] bridge pipeline error: " + traceback.format_exc(), flush=True)
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "error"}))
+        finally:
+            state["turn_active"] = False
+            _flush_escalations(state, conn, sock)
 
 
 def _synth_audio(text: str):
@@ -1454,7 +1676,25 @@ def _synth_audio(text: str):
     Pure (no socket I/O) so it can run on a prefetch worker thread. Retries
     transient TTS failures a couple of times (a long reply fires many rapid TTS
     calls and the engine occasionally drops one — silently skipping it stalled
-    playback + froze the karaoke mid-reply)."""
+    playback + froze the karaoke mid-reply).
+
+    plan 1.4 — Piper is synthesized WAV-native and resampled to 24 kHz
+    in-process (no ffmpeg subprocess); other providers decode their MP3
+    in-process via miniaudio when importable, falling back to the ffmpeg
+    subprocess only when neither is available.
+    """
+    text_clean = _speakable(text)
+    if not text_clean:
+        return None
+    cfg = _read_hermes_config()
+    provider, tts_section = _resolve_effective_tts_provider(cfg)
+    if provider == "piper":
+        pcm = _synth_piper_pcm24k(text_clean, tts_section)
+        if pcm is not None:
+            return ("pcm", pcm)
+        # Piper synth failed for some reason — fall through to the generic
+        # (mp3) path below rather than losing the segment entirely.
+
     mp3_b64 = ""
     for _attempt in range(3):
         mp3_b64 = _tts_to_base64(text)
@@ -1464,10 +1704,131 @@ def _synth_audio(text: str):
     if not mp3_b64:
         return None
     audio_bytes = base64.b64decode(mp3_b64)
-    pcm24k = _mp3_to_pcm24k(audio_bytes)
+    pcm24k = _decode_mp3_to_pcm24k(audio_bytes)
     if pcm24k is None:
         return ("mp3", audio_bytes)
     return ("pcm", pcm24k)
+
+
+def _synth_piper_pcm24k(text: str, tts_section: dict):
+    """Piper's native fast path (plan 1.4): synthesize straight to WAV (Piper's
+    own writer is just `wave.open` — no subprocess at all) and resample to
+    24 kHz mono s16le in-process. Returns None on any failure so the caller
+    falls back to the generic mp3 path."""
+    try:
+        from tools.tts_tool import _generate_piper_tts  # type: ignore
+    except Exception:
+        return None
+    out_path = _make_tempfile_path("webui-tts-", ".wav")
+    try:
+        _generate_piper_tts(text, out_path, {"piper": tts_section.get("piper") or {}})
+        p = Path(out_path)
+        if not p.exists() or p.stat().st_size == 0:
+            return None
+        wav_bytes = p.read_bytes()
+    except Exception:
+        return None
+    finally:
+        _cleanup_tempfile_siblings(out_path)
+    return _wav_bytes_to_pcm24k(wav_bytes)
+
+
+def _resample_pcm16_mono(frames: bytes, src_rate: int, dst_rate: int) -> bytes:
+    """Resample signed 16-bit mono PCM without ffmpeg or `audioop` (removed in
+    Python 3.13, and no `numpy`/`audioop-lts` dependency here). Uses numpy's
+    linear interp when importable (fast); otherwise a pure-Python fallback —
+    fine for the short TTS segments this handles."""
+    if src_rate == dst_rate or not frames:
+        return frames
+    import array
+    src = array.array("h")
+    src.frombytes(frames[: len(frames) - (len(frames) % 2)])
+    n_src = len(src)
+    if n_src < 2:
+        return frames
+    n_dst = max(1, round(n_src * dst_rate / src_rate))
+    try:
+        import numpy as _np  # type: ignore
+        x_src = _np.linspace(0.0, 1.0, n_src, dtype="float64")
+        x_dst = _np.linspace(0.0, 1.0, n_dst, dtype="float64")
+        resampled = _np.interp(x_dst, x_src, _np.asarray(src, dtype="float64"))
+        return resampled.astype("<i2").tobytes()
+    except Exception:
+        pass
+    dst = array.array("h", bytes(n_dst * 2))
+    scale = (n_src - 1) / (n_dst - 1) if n_dst > 1 else 0.0
+    for i in range(n_dst):
+        pos = i * scale
+        idx = int(pos)
+        frac = pos - idx
+        if idx + 1 < n_src:
+            s0, s1 = src[idx], src[idx + 1]
+            dst[i] = int(s0 + (s1 - s0) * frac)
+        else:
+            dst[i] = src[idx]
+    return dst.tobytes()
+
+
+def _wav_bytes_to_pcm24k(wav_bytes: bytes):
+    """Decode a WAV byte string to mono 16-bit PCM @ 24 kHz using only the
+    stdlib `wave` module + `_resample_pcm16_mono` — no ffmpeg subprocess
+    (plan 1.4). Returns None on any decode failure."""
+    import io
+    import wave
+    try:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+            n_channels = wf.getnchannels()
+            sampwidth = wf.getsampwidth()
+            framerate = wf.getframerate()
+            frames = wf.readframes(wf.getnframes())
+    except Exception:
+        return None
+    try:
+        if sampwidth != 2:
+            # Piper always writes 16-bit PCM; this only guards a future/custom
+            # voice model that doesn't. Widen/narrow by dropping to mono s16
+            # via a naive byte-width fixup rather than pulling in audioop.
+            if sampwidth == 1:
+                # unsigned 8-bit -> signed 16-bit
+                frames = bytes().join(
+                    int((b - 128) * 256).to_bytes(2, "little", signed=True)
+                    for b in frames
+                )
+            else:
+                return None  # unsupported width — let the caller fall back
+            sampwidth = 2
+        if n_channels > 1:
+            import array
+            samples = array.array("h")
+            samples.frombytes(frames[: len(frames) - (len(frames) % (2 * n_channels))])
+            mono = array.array("h", bytes(0))
+            for i in range(0, len(samples), n_channels):
+                mono.append(sum(samples[i:i + n_channels]) // n_channels)
+            frames = mono.tobytes()
+        return _resample_pcm16_mono(frames, framerate, 24000)
+    except Exception:
+        return None
+
+
+def _decode_mp3_to_pcm24k(mp3_bytes: bytes):
+    """Decode MP3 → 24 kHz mono s16le, in-process via `miniaudio` when
+    importable (plan 1.4 — no ffmpeg subprocess per sentence). Falls back to
+    the ffmpeg subprocess path (`_mp3_to_pcm24k`) when miniaudio isn't
+    installed or decode fails for any reason."""
+    try:
+        import miniaudio  # type: ignore
+        decoded = miniaudio.decode(
+            mp3_bytes,
+            output_format=miniaudio.SampleFormat.SIGNED16,
+            nchannels=1,
+            sample_rate=24000,
+        )
+        pcm = bytes(decoded.samples)
+        if pcm:
+            return pcm
+    except Exception:
+        pass
+    return _mp3_to_pcm24k(mp3_bytes)
 
 
 def _send_audio(conn, sock, state, audio) -> bool:
@@ -1528,7 +1889,90 @@ def _format_clarify_speech(question: str, choices) -> str:
     return q
 
 
-def _stream_segments(conn, sock, state, gen) -> bool:
+def _start_turn_timing(state: dict) -> dict:
+    """Begin per-turn latency instrumentation (plan 0.1).
+
+    Pops the client-supplied client_ts/speech_end_ts (if the end_turn frame
+    carried them) so they never leak into the next turn, and — when both are
+    present — computes endpoint_ms: the time the CLIENT's own
+    endpointing/silence-detection took after real speech ended before it sent
+    this end_turn frame. Older clients that never send these fields simply
+    never get an endpoint_ms span.
+    """
+    import uuid as _uuid
+    turn_id = _uuid.uuid4().hex[:12]
+    t_recv = state.pop("_t_recv", None) or time.monotonic()
+    timing = {"turn_id": turn_id, "spans": {}, "t_recv": t_recv, "tool_start": {}}
+    client_ts = state.pop("client_ts", None)
+    speech_end_ts = state.pop("speech_end_ts", None)
+    if client_ts is not None and speech_end_ts is not None:
+        try:
+            _mark_span(timing, "endpoint_ms", float(client_ts) - float(speech_end_ts))
+        except (TypeError, ValueError):
+            pass
+    return timing
+
+
+def _elapsed_ms(timing: dict) -> float:
+    return (time.monotonic() - timing["t_recv"]) * 1000.0
+
+
+def _mark_span(timing: dict, name: str, ms: float) -> None:
+    """Record one latency span and emit its structured log line — the schema
+    WS-A owns (COMMON rule 6): ``{"turn_id":..,"span":"<name>","ms":<float>}``
+    at INFO. Every other workstream that adds a span should log this shape."""
+    ms = round(float(ms), 1)
+    timing["spans"][name] = ms
+    try:
+        logger.info(json.dumps({"turn_id": timing["turn_id"], "span": name, "ms": ms}))
+    except Exception:
+        pass
+
+
+def _mark_tool_span(timing: dict, name: str, status: str) -> None:
+    """Track one tool call's round-trip time from its 'started' to
+    'completed' (or any other terminal) status and append it to
+    spans['tool_rtt_ms'] (plan 0.1: tool_rtt_ms is a list — one entry per
+    tool call observed in this turn).
+
+    Assumption: ``tool_start`` is keyed by tool ``name`` alone, so two
+    overlapping in-flight calls to the *same* tool within one turn will
+    collide — the second 'started' overwrites the first's start time, and
+    the first 'completed' pops it, mismeasuring one of the two RTTs. A
+    single voice turn issuing the same tool concurrently more than once is
+    not something the current agent-turn pipeline does (tool calls are
+    sequential per turn), so this is accepted rather than keyed by a
+    call/invocation id.
+    """
+    if status == "started":
+        timing["tool_start"][name] = time.monotonic()
+        return
+    t0 = timing["tool_start"].pop(name, None)
+    if t0 is None:
+        return
+    ms = round((time.monotonic() - t0) * 1000.0, 1)
+    timing["spans"].setdefault("tool_rtt_ms", []).append(ms)
+    try:
+        logger.info(json.dumps({"turn_id": timing["turn_id"], "span": "tool_rtt_ms", "ms": ms, "tool": name}))
+    except Exception:
+        pass
+
+
+def _finish_turn_timing(conn, sock, timing: dict) -> None:
+    """Emit the end-of-turn summary log line + the `latency` WS frame (plan
+    0.1). Older clients ignore unknown WS frame types — verified: voice.js's
+    onRealtimeText() is an if/elif chain with no else/default, so an
+    unrecognized `type` (like this one) is a silent no-op there."""
+    try:
+        logger.info(json.dumps({"turn_id": timing["turn_id"], "spans": timing["spans"]}))
+    except Exception:
+        pass
+    _ws_send_text(conn, sock, json.dumps({
+        "type": "latency", "turn_id": timing["turn_id"], "spans": timing["spans"],
+    }))
+
+
+def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> bool:
     """Stream a segment generator with the prefetch TTS pipeline (synthesis of
     segment N+1 overlaps streaming of N; all socket writes stay on this thread).
 
@@ -1545,6 +1989,8 @@ def _stream_segments(conn, sock, state, gen) -> bool:
     gen_exhausted = False
     any_emitted = False
     handled = False
+    ttft_marked = False
+    first_audio_marked = False
     _PREFETCH = 3
 
     def _refill():
@@ -1562,7 +2008,11 @@ def _stream_segments(conn, sock, state, gen) -> bool:
                 if t:
                     buf.append({"kind": "text", "text": t, "future": executor.submit(_synth_audio, t)})
             elif k == "tool":
-                buf.append({"kind": "tool", "name": seg.get("name", ""), "status": seg.get("status", "started")})
+                name = seg.get("name", "")
+                status = seg.get("status", "started")
+                if timing is not None:
+                    _mark_tool_span(timing, name, status)
+                buf.append({"kind": "tool", "name": name, "status": status})
             elif k == "clarify":
                 q = _format_clarify_speech(seg.get("question", ""), seg.get("choices") or [])
                 buf.append({"kind": "clarify", "text": q, "future": executor.submit(_synth_audio, q)})
@@ -1579,6 +2029,9 @@ def _stream_segments(conn, sock, state, gen) -> bool:
                     "type": "tool", "name": item["name"], "status": item["status"],
                 }))
                 continue
+            if timing is not None and not ttft_marked:
+                _mark_span(timing, "ttft_ms", _elapsed_ms(timing))
+                ttft_marked = True
             _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": item["text"]}))
             if state["interrupt"]:
                 break
@@ -1586,7 +2039,11 @@ def _stream_segments(conn, sock, state, gen) -> bool:
                 audio = item["future"].result()
             except Exception:
                 audio = None
-            if not _send_audio(conn, sock, state, audio):
+            sent = _send_audio(conn, sock, state, audio)
+            if sent and audio is not None and timing is not None and not first_audio_marked:
+                _mark_span(timing, "first_audio_ms", _elapsed_ms(timing))
+                first_audio_marked = True
+            if not sent:
                 break
             if item["kind"] == "clarify":
                 # The agent is now BLOCKED awaiting the answer. End the turn so
@@ -1631,6 +2088,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
     they may repeat N times — one set per segment — instead of just
     once per turn.
     """
+    timing = _start_turn_timing(state)
     with state["lock"]:
         pcm = bytes(state["pcm_buf"])
         sr = state["sample_rate"]
@@ -1642,11 +2100,14 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
     pretranscript = (state.pop("pretranscript", None) or "").strip()
     if pretranscript:
         transcript = pretranscript
+        _mark_span(timing, "stt_ms", 0.0)  # on-device STT — server did none
     else:
         if len(pcm) < 1000:
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "empty"}))
             return
-        transcript = _pcm_to_transcript(pcm, sr)
+        _t0 = time.monotonic()
+        transcript = _pcm_to_transcript(pcm, sr, realtime=True)
+        _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)
         if not transcript:
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))
             return
@@ -1658,9 +2119,12 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
     if sid:
         turn_model = (state.get("model") or "").strip()
         turn_provider = (state.get("model_provider") or "").strip()
-        if _stream_segments(conn, sock, state, _run_agent_turn_via_chat(
+        _mark_span(timing, "prep_ms", _elapsed_ms(timing))
+        handled = _stream_segments(conn, sock, state, _run_agent_turn_via_chat(
             sid, transcript, model_override=turn_model, provider_override=turn_provider,
-        )):
+        ), timing=timing)
+        _finish_turn_timing(conn, sock, timing)
+        if handled:
             return  # fully handled (clarify pending / no_reply) — end_turn sent
     else:
         reply = _generate_reply(transcript)
@@ -1674,6 +2138,7 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
     """The user spoke an answer to a pending clarify. STT it, resolve the
     clarify, and stream the resumed reply (re-subscribing to the still-blocked
     agent turn). Routed here from _handle_control_frame when clarify_pending."""
+    timing = _start_turn_timing(state)
     with state["lock"]:
         pcm = bytes(state["pcm_buf"])
         sr = state["sample_rate"]
@@ -1684,12 +2149,15 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
     pretranscript = (state.pop("pretranscript", None) or "").strip()
     if pretranscript:
         transcript = pretranscript
+        _mark_span(timing, "stt_ms", 0.0)
     elif len(pcm) < 1000:
         # Nothing heard — keep clarify pending so the user can just try again.
         _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "empty"}))
         return
     else:
-        transcript = _pcm_to_transcript(pcm, sr)
+        _t0 = time.monotonic()
+        transcript = _pcm_to_transcript(pcm, sr, realtime=True)
+        _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)
         if not transcript:
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))
             return
@@ -1698,7 +2166,10 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
         _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "interrupt"}))
         return
     state["clarify_pending"] = False
-    if _stream_segments(conn, sock, state, _run_agent_continuation_after_clarify(sid, transcript)):
+    _mark_span(timing, "prep_ms", _elapsed_ms(timing))
+    handled = _stream_segments(conn, sock, state, _run_agent_continuation_after_clarify(sid, transcript), timing=timing)
+    _finish_turn_timing(conn, sock, timing)
+    if handled:
         return  # nested clarify / no_reply — end_turn already sent
     _ws_send_text(conn, sock, json.dumps({"type": "end_turn"}))
 
@@ -1723,7 +2194,12 @@ def _ws_send_bytes(conn, sock, data: bytes) -> bool:
 
 def _mp3_to_pcm24k(mp3_bytes: bytes):
     """Convert MP3 → 24 kHz mono 16-bit PCM via ffmpeg. Returns None if ffmpeg
-    is not on PATH or conversion fails — caller falls back to shipping MP3."""
+    is not on PATH or conversion fails — caller falls back to shipping MP3.
+
+    plan 1.4 — last-resort fallback only. Piper never reaches this (it's
+    synthesized WAV-native, see `_synth_piper_pcm24k`); MP3 providers try
+    `_decode_mp3_to_pcm24k`'s in-process `miniaudio` decode first and only
+    fall back to this subprocess when miniaudio isn't installed or fails."""
     import shutil
     import subprocess
     ffmpeg = shutil.which("ffmpeg")

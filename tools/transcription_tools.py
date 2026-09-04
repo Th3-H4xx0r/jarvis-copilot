@@ -32,6 +32,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 from typing import Optional, Dict, Any
 from urllib.parse import urljoin
@@ -80,6 +81,12 @@ _HAS_MISTRAL = _safe_find_spec("mistralai")
 
 DEFAULT_PROVIDER = "local"
 DEFAULT_LOCAL_MODEL = "base"
+# plan 1.5 — the realtime voice WS path trades accuracy for latency: a tiny
+# English-only model with greedy decoding and VAD gating loads and runs far
+# faster than the quality-path default above. Overridable via
+# stt.local.realtime_model; an invalid/cloud-only override falls back to
+# DEFAULT_LOCAL_MODEL via _normalize_local_model, same as the quality path.
+DEFAULT_REALTIME_LOCAL_MODEL = "tiny.en"
 DEFAULT_LOCAL_STT_LANGUAGE = "en"
 DEFAULT_STT_MODEL = os.getenv("STT_OPENAI_MODEL", "whisper-1")
 DEFAULT_GROQ_STT_MODEL = os.getenv("STT_GROQ_MODEL", "whisper-large-v3-turbo")
@@ -103,6 +110,19 @@ GROQ_MODELS = {"whisper-large-v3", "whisper-large-v3-turbo", "distil-whisper-lar
 # Singleton for the local model — loaded once, reused across calls
 _local_model: Optional[object] = None
 _local_model_name: Optional[str] = None
+
+# Separate singleton for the realtime-path model (plan 1.5) — kept apart from
+# the quality-path cache above so switching one never evicts the other (a
+# realtime turn right after a quality-mode turn shouldn't pay a reload).
+_local_realtime_model: Optional[object] = None
+_local_realtime_model_name: Optional[str] = None
+_local_realtime_requested_name = None  # name asked for; differs from _name after a fallback (plan 1.5)
+
+# Guards the load-check-assign of _local_model/_local_realtime_model (and
+# warm_stt()'s preload of _local_realtime_model) so a background warm thread
+# and a live turn running concurrently can't both observe "not loaded" and
+# each load their own WhisperModel instance.
+_model_load_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Config helpers
@@ -424,20 +444,60 @@ def _load_local_whisper_model(model_name: str):
         return WhisperModel(model_name, device="cpu", compute_type="int8")
 
 
-def _transcribe_local(file_path: str, model_name: str) -> Dict[str, Any]:
-    """Transcribe using faster-whisper (local, free)."""
-    global _local_model, _local_model_name
+def _load_realtime_model_with_fallback(model_name: str):
+    """Load the realtime STT model, falling back to DEFAULT_LOCAL_MODEL
+    ("base") if the configured realtime model (e.g. ``tiny.en``) fails to
+    load — not yet downloaded and offline, a corrupt cache entry, etc.
+
+    Returns (model_obj, model_name_actually_loaded).
+    """
+    try:
+        return _load_local_whisper_model(model_name), model_name
+    except Exception as exc:
+        if model_name == DEFAULT_LOCAL_MODEL:
+            raise
+        logger.warning(
+            "Realtime STT model '%s' failed to load (%s) — falling back to '%s'.",
+            model_name, exc, DEFAULT_LOCAL_MODEL,
+        )
+        return _load_local_whisper_model(DEFAULT_LOCAL_MODEL), DEFAULT_LOCAL_MODEL
+
+
+def _transcribe_local(file_path: str, model_name: str, *, realtime: bool = False) -> Dict[str, Any]:
+    """Transcribe using faster-whisper (local, free).
+
+    realtime=False (default, unchanged): the quality path — beam_size=5, no
+    VAD gate, cached in the module-global `_local_model`/`_local_model_name`.
+
+    realtime=True (plan 1.5): the voice WS realtime path — beam_size=1 +
+    vad_filter=True (greedy decode, skip silence), cached SEPARATELY in
+    `_local_realtime_model`/`_local_realtime_model_name` so it never evicts
+    (or is evicted by) the quality-path model.
+    """
+    global _local_model, _local_model_name, _local_realtime_model, _local_realtime_model_name, _local_realtime_requested_name
 
     if not _HAS_FASTER_WHISPER:
         if not _try_lazy_install_stt():
             return {"success": False, "transcript": "", "error": "faster-whisper not installed"}
 
     try:
-        # Lazy-load the model (downloads on first use, ~150 MB for 'base')
-        if _local_model is None or _local_model_name != model_name:
-            logger.info("Loading faster-whisper model '%s' (first load downloads the model)...", model_name)
-            _local_model = _load_local_whisper_model(model_name)
-            _local_model_name = model_name
+        # Lazy-load the model (downloads on first use, ~150 MB for 'base').
+        # Realtime and quality paths keep independent cache slots. Guarded by
+        # _model_load_lock so a concurrent warm_stt() thread and a live turn
+        # can't both see "not loaded" and each load their own model instance.
+        with _model_load_lock:
+            if realtime:
+                if _local_realtime_model is None or _local_realtime_requested_name != model_name:
+                    logger.info("Loading realtime faster-whisper model '%s' (first load downloads the model)...", model_name)
+                    _local_realtime_model, _local_realtime_model_name = _load_realtime_model_with_fallback(model_name)
+                    _local_realtime_requested_name = model_name
+                model_obj = _local_realtime_model
+            else:
+                if _local_model is None or _local_model_name != model_name:
+                    logger.info("Loading faster-whisper model '%s' (first load downloads the model)...", model_name)
+                    _local_model = _load_local_whisper_model(model_name)
+                    _local_model_name = model_name
+                model_obj = _local_model
 
         # Language: config.yaml (stt.local.language) > env var > auto-detect.
         _forced_lang = (
@@ -445,19 +505,21 @@ def _transcribe_local(file_path: str, model_name: str) -> Dict[str, Any]:
             or os.getenv(LOCAL_STT_LANGUAGE_ENV)
             or None
         )
-        transcribe_kwargs = {"beam_size": 5}
+        transcribe_kwargs = (
+            {"beam_size": 1, "vad_filter": True} if realtime else {"beam_size": 5}
+        )
         if _forced_lang:
             transcribe_kwargs["language"] = _forced_lang
 
         try:
-            segments, info = _local_model.transcribe(file_path, **transcribe_kwargs)
+            segments, info = model_obj.transcribe(file_path, **transcribe_kwargs)
             transcript = " ".join(segment.text.strip() for segment in segments)
         except Exception as exc:
             # CUDA runtime libs sometimes only fail at dlopen-on-first-use,
             # AFTER the model loaded successfully.  Evict the broken cached
-            # model, reload on CPU, retry once.  Without this the module-
-            # global `_local_model` is poisoned and every subsequent voice
-            # message on this process fails identically until restart.
+            # model, reload on CPU, retry once.  Without this the poisoned
+            # module-global cache makes every subsequent voice message on
+            # this process fail identically until restart.
             if not _looks_like_cuda_lib_error(exc):
                 raise
             logger.warning(
@@ -465,17 +527,28 @@ def _transcribe_local(file_path: str, model_name: str) -> Dict[str, Any]:
                 "evicting cached model and retrying on CPU (int8).",
                 exc,
             )
-            _local_model = None
-            _local_model_name = None
             from faster_whisper import WhisperModel
-            _local_model = WhisperModel(model_name, device="cpu", compute_type="int8")
-            _local_model_name = model_name
-            segments, info = _local_model.transcribe(file_path, **transcribe_kwargs)
+            with _model_load_lock:
+                if realtime:
+                    _local_realtime_model = None
+                    _local_realtime_model_name = None
+                    _local_realtime_requested_name = None
+                else:
+                    _local_model = None
+                    _local_model_name = None
+                model_obj = WhisperModel(model_name, device="cpu", compute_type="int8")
+                if realtime:
+                    _local_realtime_model = model_obj
+                    _local_realtime_model_name = model_name
+                else:
+                    _local_model = model_obj
+                    _local_model_name = model_name
+            segments, info = model_obj.transcribe(file_path, **transcribe_kwargs)
             transcript = " ".join(segment.text.strip() for segment in segments)
 
         logger.info(
-            "Transcribed %s via local whisper (%s, lang=%s, %.1fs audio)",
-            Path(file_path).name, model_name, info.language, info.duration,
+            "Transcribed %s via local whisper (%s, realtime=%s, lang=%s, %.1fs audio)",
+            Path(file_path).name, model_name, realtime, info.language, info.duration,
         )
 
         return {"success": True, "transcript": transcript, "provider": "local"}
@@ -838,7 +911,7 @@ def _transcribe_xai(file_path: str, model_name: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def transcribe_audio(file_path: str, model: Optional[str] = None) -> Dict[str, Any]:
+def transcribe_audio(file_path: str, model: Optional[str] = None, *, realtime: bool = False) -> Dict[str, Any]:
     """
     Transcribe an audio file using the configured STT provider.
 
@@ -849,6 +922,12 @@ def transcribe_audio(file_path: str, model: Optional[str] = None) -> Dict[str, A
     Args:
         file_path: Absolute path to the audio file to transcribe.
         model:     Override the model. If None, uses config or provider default.
+        realtime:  plan 1.5 — when True and the resolved provider is "local",
+                   use the fast realtime model (``stt.local.realtime_model``,
+                   default "tiny.en") with beam_size=1 + vad_filter=True,
+                   cached separately from the quality-path model. Default
+                   False preserves the exact prior behavior for every
+                   existing caller. Ignored for non-local providers.
 
     Returns:
         dict with keys:
@@ -875,6 +954,11 @@ def transcribe_audio(file_path: str, model: Optional[str] = None) -> Dict[str, A
 
     if provider == "local":
         local_cfg = stt_config.get("local", {})
+        if realtime:
+            model_name = _normalize_local_model(
+                model or local_cfg.get("realtime_model", DEFAULT_REALTIME_LOCAL_MODEL)
+            )
+            return _transcribe_local(file_path, model_name, realtime=True)
         model_name = _normalize_local_model(
             model or local_cfg.get("model", DEFAULT_LOCAL_MODEL)
         )
@@ -961,3 +1045,39 @@ def _extract_transcript_text(transcription: Any) -> str:
             return value.strip()
 
     return str(transcription).strip()
+
+
+def warm_stt() -> None:
+    """Pre-load the realtime STT model (plan 1.5) so the first voice WS turn
+    doesn't pay faster-whisper's load latency inline.
+
+    Meant to be called once from a background thread at import/first-connection
+    time (webui/api/voice.py does this). Must degrade completely silently —
+    it's a warm-cache optimization, never a hard dependency: no faster-whisper
+    installed, STT disabled, a non-local provider configured, or any load
+    failure all just no-op.
+    """
+    global _local_realtime_model, _local_realtime_model_name
+    if not _HAS_FASTER_WHISPER:
+        return
+    try:
+        stt_config = _load_stt_config()
+        if not is_stt_enabled(stt_config):
+            return
+        if _get_provider(stt_config) != "local":
+            return
+        local_cfg = stt_config.get("local", {}) if isinstance(stt_config, dict) else {}
+        model_name = _normalize_local_model(
+            local_cfg.get("realtime_model") or DEFAULT_REALTIME_LOCAL_MODEL
+        )
+        # Guarded by _model_load_lock (shared with _transcribe_local) so a
+        # warm thread and a live realtime turn racing at startup can't both
+        # load their own WhisperModel instance for the same cache slot.
+        with _model_load_lock:
+            if _local_realtime_model is not None and _local_realtime_model_name == model_name:
+                return  # already warm
+            logger.info("Warming realtime faster-whisper model '%s'...", model_name)
+            _local_realtime_model, _local_realtime_model_name = _load_realtime_model_with_fallback(model_name)
+            logger.info("Realtime faster-whisper model '%s' warm", _local_realtime_model_name)
+    except Exception:
+        logger.debug("warm_stt(): realtime model preload failed (non-fatal)", exc_info=True)

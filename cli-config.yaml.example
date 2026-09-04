@@ -825,10 +825,57 @@ stt:
   local:
     model: "base"              # tiny | base | small | medium | large-v3 | turbo
     # language: ""             # auto-detect; set to "en", "es", "fr", etc. to force
+    # realtime_model: "tiny.en"  # plan 1.5 — model used for the voice WS realtime path
+                                 # ONLY (beam_size=1, vad_filter=True); the quality path
+                                 # above (/api/voice/quality-turn) always uses `model`.
+                                 # Loaded once and cached separately from the quality
+                                 # model — switching one never evicts the other. Defaults
+                                 # to "tiny.en" if unset; an invalid/cloud-only name falls
+                                 # back to "base".
   openai:
     model: "whisper-1"         # whisper-1 | gpt-4o-mini-transcribe | gpt-4o-transcribe
   # mistral:
   #   model: "voxtral-mini-latest"  # voxtral-mini-latest | voxtral-mini-2602
+
+# =============================================================================
+# Voice (Realtime WS pipeline)
+# =============================================================================
+# Voice used to force every turn onto whatever model/provider the session's
+# most recent chat happened to be pinned to (a bare "anthropic" model 400s
+# with "out of extra usage" — see the removed _maybe_redirect_voice_anthropic).
+# It now pins to its OWN fast lane by default: a small, cheap model chosen
+# for sub-second time-to-first-token, with an explicit escalation lane for
+# anything that needs a bigger model. A per-turn `begin_turn`/`end_turn`
+# model override (on-device escalation) still wins over both of these.
+# voice:
+#   fast_lane:
+#     provider: anthropic
+#     model: claude-haiku-4-5
+#   escalation:
+#     provider: anthropic
+#     model: claude-sonnet-5      # claude-opus-5 for coding-shaped escalations
+
+# ── Fast lane / escalation knobs (latency rehaul, plan 2.3 / 2.4 / 2.7) ───────
+# tools:
+#   # Server-side tool search on the native Anthropic lane: non-core tool schemas
+#   # are sent with defer_loading so they never enter the billed prefix, and the
+#   # model pulls what it needs through Anthropic's own BM25 tool_search — no
+#   # extra client round trip, and the tool list stays byte-stable so the prompt
+#   # cache keeps hitting. Ignored by every non-Anthropic provider.
+#   deferred: true            # default: true
+#   # Start a side-effect-safe device tool (open_app, open_url, flashlight_*,
+#   # set_volume, notify, chrome_navigate, …) the moment its arguments finish
+#   # streaming, instead of waiting for the model to finish its sentence.
+#   # Automatically declines when a plugin pre_tool_call hook or a subagent tool
+#   # whitelist is active.
+#   eager_dispatch: true      # default: true
+#
+# claude_code:
+#   # Keep ONE `claude` process + MCP bridge alive per agent session instead of
+#   # booting one per turn (saves the 300–1500 ms CLI cold boot + MCP handshake).
+#   # Leave OFF: claude-code is for coding sessions, where that tax does not
+#   # matter. Turn it on only if the provider must also serve chat.
+#   warm: false               # default: false
 
 # =============================================================================
 # Response Pacing (Messaging Platforms)

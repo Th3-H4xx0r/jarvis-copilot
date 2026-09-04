@@ -154,6 +154,28 @@ def _ensure_pairing_module():
 
 # ── HTTP helpers ───────────────────────────────────────────────────────────
 
+# plan 3.2 — cache the host signing key in memory across the process's calls
+# instead of re-reading ``.signing_key`` off disk every invocation.
+# Invalidated on a 403 (key rotated on disk since cached) by _http() below.
+_signing_key_cache: dict = {"key": None}
+
+
+def _invalidate_signing_key_cache() -> None:
+    _signing_key_cache["key"] = None
+
+
+def _get_signing_key() -> bytes | None:
+    key = _signing_key_cache.get("key")
+    if key is not None:
+        return key
+    try:
+        key = (_state_dir() / ".signing_key").read_bytes()
+    except Exception:
+        return None
+    _signing_key_cache["key"] = key
+    return key
+
+
 def _host_signature(method: str, path: str) -> str | None:
     """Build the X-JC-Host-Sig header value (`<ts>.<hmac>`).
 
@@ -161,10 +183,11 @@ def _host_signature(method: str, path: str) -> str | None:
     the signing key isn't readable (in which case auth'd HTTP calls
     will get a 401 and the script falls back to disk for read-only ops).
     """
-    sk_path = _state_dir() / ".signing_key"
     try:
         import hmac as _hmac, hashlib as _hashlib
-        sk = sk_path.read_bytes()
+        sk = _get_signing_key()
+        if sk is None:
+            return None
         ts = int(time.time())
         msg = f"{method.upper()}\n{path}\n{ts}".encode("utf-8")
         sig = _hmac.new(sk, msg, _hashlib.sha256).hexdigest()
@@ -198,6 +221,8 @@ def _http(method: str, path: str, body: dict | None = None,
             except Exception:
                 return r.status, {"raw": raw}
     except urllib.error.HTTPError as e:
+        if e.code == 403:
+            _invalidate_signing_key_cache()  # plan 3.2 — key rotated; re-read next call
         try:
             raw = e.read().decode("utf-8", errors="replace") or "{}"
             return e.code, json.loads(raw)

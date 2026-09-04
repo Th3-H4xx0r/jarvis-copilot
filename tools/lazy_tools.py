@@ -22,15 +22,47 @@ Key properties
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Dict, List, Tuple
 
 from tools.registry import registry
 
+logger = logging.getLogger(__name__)
+
 # Only switch a session to lazy mode when there are at least this many tools to
 # defer — below it the manifest + tool_search round-trips cost more than the
 # schema savings (e.g. a subagent scoped to one small toolset).
 _LAZY_MIN_DEFERRED = 6
+
+# ── native (server-side) tool search — plan 2.3 ──────────────────────────────
+# Anthropic hosts the tool search itself: every non-core tool is sent with
+# ``defer_loading: true`` (schema present in the request body but NOT in the
+# billed prefix) and the model pulls the ones it needs through the BM25 search
+# tool below, in-request — no extra client round trip, and the tool list stays
+# byte-stable across turns so the prompt cache keeps hitting.
+ANTHROPIC_TOOL_SEARCH_TYPE = "tool_search_tool_bm25_20251119"
+ANTHROPIC_TOOL_SEARCH_NAME = "tool_search_tool_bm25"
+
+# Always loaded (never deferred) on the fast lane: the handful of tools a turn
+# is most likely to need immediately.  The device tools are added on top of this
+# by toolset name — see ``NATIVE_ALWAYS_LOADED_TOOLSETS``.  plan 2.3
+NATIVE_ALWAYS_LOADED_TOOLS = (
+    "terminal", "read_file", "write_file", "web_search", "memory",
+    # plan 2.5 — the fast lane's escape hatch. Deferring it would mean the small
+    # model has to run a tool search just to admit it needs the big one.
+    "escalate",
+)
+# Toolsets whose tools are never deferred.  Looked up in the live registry at
+# REQUEST-BUILD time (not import time) — WS-C registers tools/device_skill_tools
+# dynamically as devices connect, so an import-time snapshot would be empty.
+NATIVE_ALWAYS_LOADED_TOOLSETS = ("devices",)
+
+# Fine-grained tool streaming (plan 2.4): device tool arguments stream token by
+# token so ``open_app{"name":"Safari"}`` is complete — and dispatchable — before
+# the model finishes its sentence.  No beta header; the field lives on the tool
+# definition.
+EAGER_STREAMING_TOOLSETS = ("devices",)
 
 # Imported at module top so tests can monkeypatch ``lazy_tools.load_config``.
 try:  # pragma: no cover - import wiring
@@ -50,6 +82,143 @@ def lazy_tools_enabled() -> bool:
         return True
 
 
+def native_tool_search_enabled() -> bool:
+    """True when ``tools.deferred`` is on (default True) — plan 2.3."""
+    try:
+        cfg = (load_config() or {}).get("tools", {}) or {} if load_config else {}
+        return bool(cfg.get("deferred", True))
+    except Exception:
+        return True
+
+
+def _tool_names_for_toolsets(toolsets) -> set:
+    """Live registry lookup of every tool name in ``toolsets``.
+
+    Deliberately queried on each call: device tools are registered/deregistered
+    as devices pair and disconnect, and the module that defines them may not
+    even be importable when this module is first imported.
+    """
+    names: set = set()
+    for ts in toolsets:
+        try:
+            names.update(registry.get_tool_names_for_toolset(ts))
+        except Exception:
+            logger.debug("toolset lookup failed for %r", ts, exc_info=True)
+    return names
+
+
+def uses_native_tool_search(agent) -> bool:
+    """True when this agent talks to a NATIVE Anthropic endpoint that supports
+    server-side tool search — the only place ``defer_loading`` is understood.
+
+    Third-party Anthropic-compatible gateways (Kimi /coding, MiniMax, DeepSeek,
+    Azure Foundry, …) speak the Messages protocol but reject the field, so they
+    keep the in-repo ``tool_search`` round trip.
+    """
+    try:
+        if getattr(agent, "api_mode", None) != "anthropic_messages":
+            return False
+        if not native_tool_search_enabled():
+            return False
+        base_url = getattr(agent, "_anthropic_base_url", None)
+        from agent.anthropic_adapter import _is_third_party_anthropic_endpoint
+        return not _is_third_party_anthropic_endpoint(base_url)
+    except Exception:
+        return False
+
+
+def build_native_deferred_tools(anthropic_tools: List[Dict[str, Any]],
+                                *, drop_in_repo_search: bool = True,
+                                ) -> List[Dict[str, Any]]:
+    """Shape an Anthropic-format tool list for server-side tool search (plan 2.3)
+    and eager device-arg streaming (plan 2.4).
+
+    * device tools (toolset ``devices``) + ``NATIVE_ALWAYS_LOADED_TOOLS`` stay
+      fully loaded; device tools also get ``eager_input_streaming: true``
+    * every other tool gets ``defer_loading: true``
+    * the BM25 ``tool_search`` server tool is appended (never deferred)
+    * the in-repo ``tool_search`` meta-tool is dropped — the server-side search
+      replaces it, and leaving both in place invites the model to burn a turn on
+      the dead-end one. Pass ``drop_in_repo_search=False`` when a client-side
+      manifest is still live in the system prompt: that manifest TELLS the model
+      to call ``tool_search``, so removing the tool would strand it.
+
+    Pure: returns a new list, never mutates the input. Idempotent.
+    """
+    if not anthropic_tools:
+        return list(anthropic_tools or [])
+
+    always_loaded = set(NATIVE_ALWAYS_LOADED_TOOLS) | _tool_names_for_toolsets(
+        NATIVE_ALWAYS_LOADED_TOOLSETS
+    )
+    eager = _tool_names_for_toolsets(EAGER_STREAMING_TOOLSETS)
+
+    out: List[Dict[str, Any]] = []
+    loaded_count = 0
+    for tool in anthropic_tools:
+        if not isinstance(tool, dict):
+            out.append(tool)
+            continue
+        if tool.get("type") == ANTHROPIC_TOOL_SEARCH_TYPE:
+            continue  # re-appended below, so shaping stays idempotent
+        name = tool.get("name")
+        if name == "tool_search" and drop_in_repo_search:
+            continue
+        shaped = dict(tool)
+        if name in always_loaded:
+            shaped.pop("defer_loading", None)
+            loaded_count += 1
+            if name in eager:
+                shaped["eager_input_streaming"] = True
+        else:
+            shaped["defer_loading"] = True
+        out.append(shaped)
+
+    # The API rejects a request where EVERY tool is deferred ("All tools have
+    # defer_loading set"). Keep the first one loaded when nothing else is.
+    if loaded_count == 0:
+        for shaped in out:
+            if isinstance(shaped, dict) and shaped.get("defer_loading"):
+                shaped.pop("defer_loading", None)
+                break
+
+    out.append({"type": ANTHROPIC_TOOL_SEARCH_TYPE,
+                "name": ANTHROPIC_TOOL_SEARCH_NAME})
+    return out
+
+
+def apply_native_tool_search(api_kwargs: Dict[str, Any], agent=None) -> Dict[str, Any]:
+    """In-place shaping of a built Anthropic request. Returns the same dict.
+
+    Feature-detects rather than crashes: any failure leaves the request exactly
+    as it was (the un-deferred full tool list still works, it is only fatter).
+    """
+    try:
+        tools = api_kwargs.get("tools")
+        if tools:
+            # If a client-side deferred-tools manifest is live in the system
+            # prompt (agent init ran before api_mode was resolvable, a resumed
+            # session, …), keep the in-repo tool_search so the manifest's
+            # instructions still have something to call.
+            keep_client_search = bool(getattr(agent, "_lazy_tools_manifest", ""))
+            api_kwargs["tools"] = build_native_deferred_tools(
+                tools, drop_in_repo_search=not keep_client_search,
+            )
+    except Exception:
+        _warn_once("native tool-search shaping failed; sending the full tool list")
+    return api_kwargs
+
+
+_warned: set = set()
+
+
+def _warn_once(message: str) -> None:
+    if message in _warned:
+        return
+    _warned.add(message)
+    logger.warning("%s", message, exc_info=True)
+
+
 def get_lazy_core_names() -> set:
     """The always-loaded core tool names. ``agent.lazy_tools_core`` overrides the
     built-in lean list; ``tool_search`` is always included. Kanban workers
@@ -64,6 +233,10 @@ def get_lazy_core_names() -> set:
         override = []
     names = set(override) if override else set(_LAZY_CORE_TOOLS)
     names.add("tool_search")
+    # plan 2.5 — `escalate` must never be deferred: it is how the fast model
+    # says "this is beyond me". Its own check_fn keeps it out of the tool list
+    # entirely when no fast lane is configured, so this costs nothing otherwise.
+    names.add("escalate")
     if os.environ.get("HERMES_KANBAN_TASK"):
         try:
             from toolsets import resolve_toolset
@@ -172,6 +345,27 @@ def apply_lazy_partition(agent) -> None:
     if not hasattr(agent, "_lazy_tools_manifest"):
         agent._lazy_tools_manifest = ""
     if not lazy_tools_enabled() or not getattr(agent, "tools", None):
+        return
+    if uses_native_tool_search(agent):
+        # plan 2.3 — Anthropic runs the tool search server-side. Hand the model
+        # the WHOLE tool set (schemas are shaped with defer_loading at
+        # request-build time, so they cost nothing in the billed prefix) and drop
+        # the in-repo tool_search meta-tool + manifest: two competing search
+        # mechanisms would just waste a turn on the client-side one.
+        agent.tools = [
+            t for t in agent.tools
+            if (t.get("function", {}) or {}).get("name") != "tool_search"
+        ]
+        agent.valid_tool_names = {
+            (t.get("function", {}) or {}).get("name") for t in agent.tools
+        }
+        agent.valid_tool_names.discard(None)
+        agent._lazy_all_tool_names = set(agent.valid_tool_names)
+        agent._lazy_tools_manifest = ""
+        import hashlib
+        agent._toolset_fingerprint = hashlib.sha1(
+            ",".join(sorted(agent._lazy_all_tool_names)).encode("utf-8")
+        ).hexdigest()[:16]
         return
     if _routes_through_structured_engine(agent):
         # Full native tool set — claude calls every tool (browser_* included)
@@ -350,3 +544,12 @@ registry.register(
     check_fn=_check_lazy_tools,
     emoji="🔎",
 )
+
+# plan 2.5 — the fast lane's `escalate` tool lives in agent/escalation.py (it
+# needs agent-loop state, not just a handler), but tool discovery only walks
+# tools/*.py. Importing it here is the discovery hook; its own check_fn keeps it
+# out of the tool list unless a fast lane is configured.
+try:  # pragma: no cover - import wiring
+    import agent.escalation  # noqa: F401
+except Exception:  # pragma: no cover
+    logger.debug("escalation tool not registered", exc_info=True)

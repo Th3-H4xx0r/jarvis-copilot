@@ -6,6 +6,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// EncryptedSharedPreferences on Android. We hold:
 ///
 /// - server_url:        the webui base ("https://1.2.3.4:8787")
+/// - lan_url:           OPTIONAL same-server LAN address, preferred when it
+///                      answers (plan 5.3) — see [ApiClient.preferLanIfReachable]
 /// - cookie:            hermes_session=… (issued by /api/auth/pair/claim)
 /// - cert_fingerprint:  SHA-256 of the server's leaf TLS cert at first pair
 /// - device_name:       user-facing label shown in the Devices tab
@@ -24,6 +26,14 @@ class Credentials {
   );
 
   String? serverUrl;
+
+  /// Direct LAN address for the SAME server as [serverUrl] (e.g.
+  /// "https://192.168.1.20:8787"). When we're on the home network this skips
+  /// the Cloudflare tunnel entirely — worth 80–150 ms per request (plan 5.3).
+  /// Optional: the pairing payload may not carry it, and it's settable later.
+  /// The pinned [certFingerprint] applies to BOTH addresses (same server, same
+  /// leaf certificate), so switching bases never weakens pinning.
+  String? lanUrl;
   String? cookie;
   String? certFingerprint;
   String? deviceName;
@@ -45,6 +55,7 @@ class Credentials {
 
   Future<void> load() async {
     serverUrl = await _store.read(key: 'server_url');
+    lanUrl = await _store.read(key: 'lan_url');
     cookie = await _store.read(key: 'cookie');
     certFingerprint = await _store.read(key: 'cert_fingerprint');
     deviceName = await _store.read(key: 'device_name');
@@ -72,7 +83,9 @@ class Credentials {
     required String cookie,
     required String certFingerprint,
     required String deviceName,
+    String? lanUrl,
   }) async {
+    if (lanUrl != null) await saveLanUrl(lanUrl);
     this.serverUrl = serverUrl;
     this.cookie = cookie;
     this.certFingerprint = certFingerprint;
@@ -107,6 +120,17 @@ class Credentials {
       return {'CF-Access-Client-Id': id, 'CF-Access-Client-Secret': secret};
     }
     return const {};
+  }
+
+  /// Persist (or clear, when null/empty) the LAN address (plan 5.3).
+  Future<void> saveLanUrl(String? url) async {
+    final v = url?.trim();
+    lanUrl = (v == null || v.isEmpty) ? null : v.replaceFirst(RegExp(r'/+$'), '');
+    if (lanUrl != null) {
+      await _store.write(key: 'lan_url', value: lanUrl!);
+    } else {
+      await _store.delete(key: 'lan_url');
+    }
   }
 
   Future<void> savePushToken(String token) async {
@@ -144,6 +168,7 @@ class Credentials {
 
   Future<void> clear() async {
     serverUrl = null;
+    lanUrl = null;
     cookie = null;
     certFingerprint = null;
     deviceName = null;

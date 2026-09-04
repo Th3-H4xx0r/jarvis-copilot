@@ -8,6 +8,7 @@ import 'package:web_socket_channel/io.dart';
 import '../skills/common.dart' as common_skills;
 import '../skills/registry.dart';
 import 'api_client.dart' show ApiClient, sha256OfCertPem;
+import 'background_keepalive.dart';
 import 'credentials.dart';
 import 'invoke_runner.dart';
 
@@ -62,6 +63,10 @@ class WsBridge {
     _sub = null;
     _ch = null;
     connected.value = false;
+    // Explicit stop (logout/unpair/skills-disabled toggle): the bridge won't
+    // reconnect, so there's nothing left for a background keepalive to
+    // preserve — disarm it (Workstream H).
+    unawaited(BackgroundKeepalive.instance.syncFromAppState());
   }
 
   Future<void> _loop() async {
@@ -78,6 +83,11 @@ class WsBridge {
         debugPrint('WS connect failed: $e');
       } finally {
         connected.value = false;
+        // Socket dropped (backgrounded/suspended, network blip, server
+        // restart, …). Re-evaluate the keepalive: if we're backgrounded and
+        // still paired, arm it so the retry below reconnects live instead of
+        // falling to the slow silent-push path (Workstream H).
+        unawaited(BackgroundKeepalive.instance.syncFromAppState());
       }
       if (_stopped) break;
       final delay = _backoff[_backoffIdx.clamp(0, _backoff.length - 1)];
@@ -113,6 +123,10 @@ class WsBridge {
     _ch = IOWebSocketChannel(socket);
     connected.value = true;
     lastError.value = '';
+    // A live WS means we're paired and reachable — (re-)evaluate whether the
+    // background keepalive should be armed (Workstream H). No-op unless the
+    // app is currently backgrounded.
+    unawaited(BackgroundKeepalive.instance.syncFromAppState());
 
     final manifest = _currentManifest();
     debugPrint(

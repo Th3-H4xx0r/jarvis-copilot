@@ -17,12 +17,19 @@ from __future__ import annotations
 import logging
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
 _RECV = 65536
+# plan 5.3: LAN-direct preference for the proxy's upstream. Every request
+# through the proxy re-checking the LAN would add a probe's worth of latency
+# to each one, so the result is cached for this long and re-checked in the
+# background instead — long enough to amortize, short enough that arriving
+# home (or losing the LAN) is noticed within a few requests.
+_LAN_PROBE_CACHE_TTL = 5.0
 
 # Headers we must not blindly forward. Host and Cookie are dropped here and
 # re-set by the proxy; Upgrade/Connection are re-emitted for WebSocket upgrades.
@@ -200,8 +207,21 @@ class PinnedProxy:
     """Localhost HTTP/WS reverse proxy → the pinned-TLS gateway."""
 
     def __init__(self, server_url: str, fingerprint: str, cookie: str,
-                 cf_client_id: str = "", cf_client_secret: str = ""):
+                 cf_client_id: str = "", cf_client_secret: str = "",
+                 lan_url: str = ""):
         self.host, self.port, self.scheme, self.prefix = _split_server_url(server_url)
+        # plan 5.3: optional LAN-direct candidate. Parsed once up front so a
+        # bad value fails loudly here rather than on every request.
+        self.lan_url = ""
+        self._lan_host = self._lan_port = self._lan_scheme = None
+        if lan_url:
+            try:
+                self._lan_host, self._lan_port, self._lan_scheme, _ = _split_server_url(lan_url)
+                self.lan_url = lan_url
+            except Exception:
+                logger.warning("ignoring unparseable lan_url %r", lan_url)
+        self._lan_probe_at = 0.0
+        self._lan_ok = False
         self.fingerprint = fingerprint
         self.cookie = cookie
         self.cf_client_id = cf_client_id
@@ -209,19 +229,38 @@ class PinnedProxy:
         self._httpd = None
         self._thread = None
 
+    def _pick_upstream(self):
+        """Return (host, port, scheme) to dial for the next upstream
+        connection — the LAN candidate when it has answered a probe within
+        the cache TTL, else the configured tunnel/server url."""
+        if not self.lan_url:
+            return self.host, self.port, self.scheme
+        now = time.monotonic()
+        if now - self._lan_probe_at >= _LAN_PROBE_CACHE_TTL:
+            from jc_client.protocol import probe_lan
+            self._lan_ok = probe_lan(
+                self.lan_url, self.fingerprint,
+                cf_client_id=self.cf_client_id, cf_client_secret=self.cf_client_secret,
+            )
+            self._lan_probe_at = now
+        if self._lan_ok:
+            return self._lan_host, self._lan_port, self._lan_scheme
+        return self.host, self.port, self.scheme
+
     def connect_upstream(self):
         # Lazy import: protocol pulls wsproto, which we don't want at module load.
         from jc_client.protocol import _make_ssl_context, _verify_fingerprint
-        sock = socket.create_connection((self.host, self.port), timeout=15)
+        host, port, scheme = self._pick_upstream()
+        sock = socket.create_connection((host, port), timeout=15)
         # Disable Nagle: the interactive TUI sends tiny keystroke/render frames,
         # and coalescing them adds visible latency. Harmless for bulk transfers.
         try:
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         except OSError:
             pass
-        if self.scheme == "https":
+        if scheme == "https":
             ctx = _make_ssl_context()
-            sock = ctx.wrap_socket(sock, server_hostname=self.host)
+            sock = ctx.wrap_socket(sock, server_hostname=host)
             _verify_fingerprint(sock, self.fingerprint)
         sock.settimeout(None)  # long-lived (WS); rely on peer close
         return sock

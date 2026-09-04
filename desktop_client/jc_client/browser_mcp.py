@@ -23,6 +23,15 @@ log = logging.getLogger(__name__)
 
 _READY_TIMEOUT = 60.0   # cold `npx @playwright/mcp` + browser attach
 _CALL_TIMEOUT = 90.0    # generous for slow page loads
+# plan 3.5: cap how long a caller blocks on a cold start. The agent's
+# per-skill watchdog is 20s (service.py _SKILL_TIMEOUT_S) — without this, a
+# genuine 60s npx cold start would eat the whole watchdog and the agent would
+# see a bare timeout instead of a clear "still warming, retry" signal. The
+# supervisor keeps warming in the background regardless of this budget.
+_COLD_START_BUDGET = 8.0
+# plan 3.5: backoff schedule (seconds) for restarting a child that keeps
+# dying — same shape as service.py's reconnect backoff.
+_RESTART_BACKOFF = [1, 2, 4, 8, 16, 32, 60]
 
 # A2's biggest cost: an accessibility snapshot of a content-heavy page (a long
 # Wikipedia article has ~4k links) is hundreds of KB. Returned RAW, ONE snapshot
@@ -85,50 +94,99 @@ def _config_extension_token() -> Optional[str]:
 
 class _BrowserMcp:
     """Owns a persistent local Playwright MCP ClientSession on a background
-    asyncio loop. Lazily started; auto-restarts if the child dies."""
+    asyncio loop. Lazily started; a supervisor thread watches the child and
+    restarts + re-warms it in the background if it dies, with backoff if it
+    keeps dying."""
 
     def __init__(self) -> None:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._thread: Optional[threading.Thread] = None
+        self._supervisor_thread: Optional[threading.Thread] = None
         self._session = None
         self._stop: Optional[asyncio.Event] = None
+        # Set when the CURRENT start attempt has reached a terminal state for
+        # this attempt (warm, or failed) — cleared at the start of each
+        # attempt. This is what _ensure_started's cold-start budget waits on.
         self._ready = threading.Event()
         self._start_error: Optional[BaseException] = None
         self._lock = threading.Lock()
+        self._explicit_stop = threading.Event()
+        self._restart_backoff_idx = 0
+        # Did the CURRENT attempt make it to "warm" before _serve() returned?
+        # Used to reset the backoff counter — a child that dies after being
+        # healthy for a while shouldn't inherit a long backoff from a
+        # previous crash loop.
+        self._became_ready = False
 
     # ── lifecycle ───────────────────────────────────────────────────────
 
-    def _ensure_started(self) -> None:
-        with self._lock:
-            alive = (self._thread and self._thread.is_alive()
-                     and self._session is not None)
-            if alive:
-                return
-            self._session = None
-            self._ready.clear()
-            self._start_error = None
-            self._thread = threading.Thread(
-                target=self._run_loop, daemon=True, name="browser-mcp")
-            self._thread.start()
-        if not self._ready.wait(timeout=_READY_TIMEOUT + 10):
-            raise RuntimeError("Playwright MCP did not start in time")
-        if self._start_error is not None:
-            raise RuntimeError(f"Playwright MCP failed to start: {self._start_error}")
+    def is_warm(self) -> bool:
+        """True once the child + extension handshake is done and a call can
+        be dispatched immediately (no cold-start wait)."""
+        return self._session is not None
 
-    def _run_loop(self) -> None:
-        loop = asyncio.new_event_loop()
-        self._loop = loop
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(self._serve())
-        except Exception as exc:  # noqa: BLE001
-            self._start_error = exc
-            self._ready.set()
-        finally:
+    def _ensure_supervisor(self) -> None:
+        """Start the background supervisor thread if it isn't already
+        running. Idempotent — safe to call from every entry point."""
+        with self._lock:
+            if self._supervisor_thread and self._supervisor_thread.is_alive():
+                return
+            self._ready.clear()
+            self._explicit_stop.clear()
+            self._supervisor_thread = threading.Thread(
+                target=self._supervisor_loop, daemon=True, name="browser-mcp")
+            self._supervisor_thread.start()
+
+    def _ensure_started(self) -> Optional[dict]:
+        """Make sure the supervisor is running and, only for a cold start,
+        wait a bounded budget for it to come up. Returns ``None`` once warm
+        (caller may proceed) or an error dict to hand straight back to the
+        agent — the supervisor keeps warming in the background either way,
+        so a retry shortly after usually succeeds."""
+        self._ensure_supervisor()
+        if self.is_warm():
+            return None
+        self._ready.wait(timeout=_COLD_START_BUDGET)
+        if self.is_warm():
+            return None
+        return {"ok": False, "error": "browser warming up, retry"}
+
+    def _supervisor_loop(self) -> None:
+        """Own the child's whole lifetime. Each iteration runs ``_serve()``
+        to completion (it only returns when the child dies, fails to start,
+        or we're told to stop); if that wasn't an explicit stop, restart
+        after a backoff delay — forever, in the background, so nothing has
+        to notice unless it happens to be mid-call when the child dies."""
+        while not self._explicit_stop.is_set():
+            self._start_error = None
+            self._became_ready = False
+            loop = asyncio.new_event_loop()
+            self._loop = loop
+            asyncio.set_event_loop(loop)
             try:
-                loop.close()
-            except Exception:
-                pass
+                loop.run_until_complete(self._serve())
+            except Exception as exc:  # noqa: BLE001
+                self._start_error = exc
+            finally:
+                try:
+                    loop.close()
+                except Exception:
+                    pass
+            self._session = None
+            self._ready.set()
+            if self._became_ready:
+                self._restart_backoff_idx = 0
+            if self._explicit_stop.is_set():
+                return
+            delay = _RESTART_BACKOFF[min(self._restart_backoff_idx, len(_RESTART_BACKOFF) - 1)]
+            self._restart_backoff_idx += 1
+            log.warning(
+                "Playwright MCP child %s — restarting in %ss",
+                f"failed to start ({self._start_error})" if self._start_error else "exited",
+                delay,
+            )
+            self._ready.clear()
+            if self._explicit_stop.wait(delay):
+                return
 
     async def _serve(self) -> None:
         from mcp import ClientSession, StdioServerParameters
@@ -163,6 +221,7 @@ class _BrowserMcp:
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     self._session = session
+                    self._became_ready = True
                     log.info("Playwright MCP (extension) ready for browser skills")
                     self._ready.set()
                     await self._stop.wait()  # keep the session alive
@@ -174,22 +233,27 @@ class _BrowserMcp:
 
     def start(self) -> bool:
         """Pre-warm the Playwright MCP + extension connection so the first
-        browser action isn't cold. Best-effort; returns True if ready."""
-        try:
-            self._ensure_started()
-            return True
-        except Exception as exc:  # noqa: BLE001
-            log.info("browser MCP warm-start skipped: %s", exc)
+        browser action isn't cold. Best-effort; returns True if warm within
+        the cold-start budget — the supervisor keeps trying in the
+        background regardless of what this call returns."""
+        err = self._ensure_started()
+        if err is not None:
+            log.info("browser MCP warm-start still pending: %s", err.get("error"))
             return False
+        return True
 
     # ── public (sync, called from skill threads) ────────────────────────
 
     def call_tool(self, name: str, args: Optional[dict] = None,
                   timeout: float = _CALL_TIMEOUT) -> dict:
-        """Run a Playwright MCP tool and return ``{"ok", "result"}``. Raises on
-        start/dispatch failure (the skill surfaces it to the agent)."""
-        self._ensure_started()
-        fut = asyncio.run_coroutine_threadsafe(self._call(name, args or {}), self._loop)
+        """Run a Playwright MCP tool and return ``{"ok", "result"}``. If the
+        child is cold (or mid-restart) this returns a ``{"ok": false, ...}``
+        warm-up notice instead of blocking — the agent can retry shortly."""
+        warm_err = self._ensure_started()
+        if warm_err is not None:
+            return warm_err
+        loop = self._loop
+        fut = asyncio.run_coroutine_threadsafe(self._call(name, args or {}), loop)
         return fut.result(timeout=timeout)
 
     async def _call(self, name: str, args: dict) -> dict:

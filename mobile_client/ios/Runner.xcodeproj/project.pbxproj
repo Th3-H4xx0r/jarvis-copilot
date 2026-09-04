@@ -31,6 +31,9 @@
 		AABB000100000000DEAD0002 /* ShortcutsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000100000000DEAD0001 /* ShortcutsBridge.swift */; };
 		AABB000200000000DEAD0002 /* HealthKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000200000000DEAD0001 /* HealthKitBridge.swift */; };
 		AABB000300000000DEAD0002 /* TorchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000300000000DEAD0001 /* TorchBridge.swift */; };
+		AABB002000000000DEAD0002 /* SpeechStreamBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB002000000000DEAD0001 /* SpeechStreamBridge.swift */; };
+		AABB002200000000DEAD0002 /* BackgroundKeepaliveBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB002200000000DEAD0001 /* BackgroundKeepaliveBridge.swift */; };
+		AABB002100000000DEAD0002 /* LocalTtsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB002100000000DEAD0001 /* LocalTtsBridge.swift */; };
 		AABB000400000000DEAD0002 /* AppOpenBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000400000000DEAD0001 /* AppOpenBridge.swift */; };
 		AABB000500000000DEAD0002 /* SmsComposeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000500000000DEAD0001 /* SmsComposeBridge.swift */; };
 		AABB000600000000DEAD0002 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB000600000000DEAD0001 /* WatchBridge.swift */; };
@@ -154,6 +157,9 @@
 		AABB000100000000DEAD0001 /* ShortcutsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsBridge.swift; sourceTree = "<group>"; };
 		AABB000200000000DEAD0001 /* HealthKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitBridge.swift; sourceTree = "<group>"; };
 		AABB000300000000DEAD0001 /* TorchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorchBridge.swift; sourceTree = "<group>"; };
+		AABB002000000000DEAD0001 /* SpeechStreamBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechStreamBridge.swift; sourceTree = "<group>"; };
+		AABB002100000000DEAD0001 /* LocalTtsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTtsBridge.swift; sourceTree = "<group>"; };
+		AABB002200000000DEAD0001 /* BackgroundKeepaliveBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundKeepaliveBridge.swift; sourceTree = "<group>"; };
 		AABB000400000000DEAD0001 /* AppOpenBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppOpenBridge.swift; sourceTree = "<group>"; };
 		AABB000500000000DEAD0001 /* SmsComposeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmsComposeBridge.swift; sourceTree = "<group>"; };
 		AABB000600000000DEAD0001 /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
@@ -320,6 +326,9 @@
 				AABB001300000000DEAD0001 /* JarvisActivityAttributes.swift */,
 				AABB000200000000DEAD0001 /* HealthKitBridge.swift */,
 				AABB000300000000DEAD0001 /* TorchBridge.swift */,
+				AABB002000000000DEAD0001 /* SpeechStreamBridge.swift */,
+				AABB002100000000DEAD0001 /* LocalTtsBridge.swift */,
+				AABB002200000000DEAD0001 /* BackgroundKeepaliveBridge.swift */,
 				AABB000400000000DEAD0001 /* AppOpenBridge.swift */,
 				AABB000500000000DEAD0001 /* SmsComposeBridge.swift */,
 				AABB000600000000DEAD0001 /* WatchBridge.swift */,
@@ -746,6 +755,9 @@
 				AABB000100000000DEAD0002 /* ShortcutsBridge.swift in Sources */,
 				AABB000200000000DEAD0002 /* HealthKitBridge.swift in Sources */,
 				AABB000300000000DEAD0002 /* TorchBridge.swift in Sources */,
+				AABB002000000000DEAD0002 /* SpeechStreamBridge.swift in Sources */,
+				AABB002100000000DEAD0002 /* LocalTtsBridge.swift in Sources */,
+				AABB002200000000DEAD0002 /* BackgroundKeepaliveBridge.swift in Sources */,
 				AABB000400000000DEAD0002 /* AppOpenBridge.swift in Sources */,
 				AABB000500000000DEAD0002 /* SmsComposeBridge.swift in Sources */,
 				AABB000600000000DEAD0002 /* WatchBridge.swift in Sources */,

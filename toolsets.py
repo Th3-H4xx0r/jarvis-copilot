@@ -208,6 +208,19 @@ TOOLSETS = {
         "includes": []
     },
 
+    # plan 3.1 — native `device_<skill>` tools generated at runtime from
+    # tools/device_skill_tools.py, one per skill a connected device (phone,
+    # Mac, watch, ...) advertises. "tools" is intentionally empty here: the
+    # actual tool names are dynamic (they change as devices connect/
+    # disconnect) and are merged in from the tools.registry toolset entries
+    # by toolsets.get_toolset() at lookup time — see registry.register(...,
+    # toolset="devices", ...) in device_skill_tools.py.
+    "devices": {
+        "description": "Native tools auto-generated per skill advertised by a connected device (phone/Mac/watch): open apps, control media, browser actions, and any other device-specific skill.",
+        "tools": [],
+        "includes": []
+    },
+
     "coding_sessions": {
         "description": "Launch and drive interactive Claude Code coding sessions (tmux-backed): launch in a project dir, list, status, send a message, stop; plus register/list projects.",
         "tools": [

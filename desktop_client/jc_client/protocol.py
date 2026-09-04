@@ -51,6 +51,10 @@ _DEFAULT_CONNECT_TIMEOUT = 15.0
 # timeout (not just a wall-clock deadline) — otherwise a half-open connection
 # blocks recv() forever and the reconnect loop hangs in "reconnecting".
 _HANDSHAKE_TIMEOUT = 10.0
+# plan 5.3: LAN-direct preference — how long we give a candidate LAN url to
+# answer before falling back to the tunnel. Short on purpose: this races
+# against a URL that usually isn't even reachable (off the home network).
+_LAN_PROBE_TIMEOUT = 0.2
 
 
 def _split_url(url: str) -> tuple[str, int, str, str]:
@@ -372,6 +376,66 @@ def _parse_http_response(raw: bytes) -> HttpResponse:
 
 
 # ── WebSocket ──────────────────────────────────────────────────────────────
+
+
+def probe_lan(lan_url: str, expected_fingerprint: str = "", cf_client_id: str = "",
+              cf_client_secret: str = "", timeout: float = _LAN_PROBE_TIMEOUT) -> bool:
+    """Plan 5.3: quick pinned-TLS reachability check for a candidate
+    LAN-direct url — a bounded ``GET /health`` that returns True only on
+    a 2xx within ``timeout``. False on any error, refusal, fingerprint
+    mismatch, or timeout — callers then fall back to the tunnel url. Safe to
+    call every reconnect; failure is the common case (off the home LAN).
+
+    Probes ``{prefix}/health`` (not ``/api/health`` — the server only
+    registers the bare ``/health`` route, see webui/api/routes.py's
+    ``handle_get`` dispatch). ``/health`` is also listed in
+    ``webui/api/auth.py``'s ``PUBLIC_PATHS``, so it needs no session cookie
+    or host-signature auth and always answers 200 — the cheapest possible
+    reachability probe."""
+    if not lan_url:
+        return False
+    try:
+        host, port, scheme, prefix = _split_url(lan_url)
+    except Exception:
+        return False
+    sock: Optional[socket.socket] = None
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        sock.settimeout(timeout)
+        if scheme == "https":
+            ctx = _make_ssl_context()
+            sock = ctx.wrap_socket(sock, server_hostname=host)
+            if expected_fingerprint:
+                _verify_fingerprint(sock, expected_fingerprint)
+        lines = [
+            f"GET {prefix}/health HTTP/1.1",
+            f"Host: {host}:{port}",
+            "User-Agent: jc-client/0.1",
+            "Connection: close",
+        ]
+        if cf_client_id and cf_client_secret:
+            lines.append(f"CF-Access-Client-Id: {cf_client_id}")
+            lines.append(f"CF-Access-Client-Secret: {cf_client_secret}")
+        req = ("\r\n".join(lines) + "\r\n\r\n").encode("ascii")
+        sock.sendall(req)
+        raw = b""
+        while b"\r\n\r\n" not in raw:
+            chunk = sock.recv(_RECV_CHUNK)
+            if not chunk:
+                break
+            raw += chunk
+        if not raw:
+            return False
+        resp = _parse_http_response(raw)
+        return 200 <= resp.status < 300
+    except Exception:
+        return False
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
 
 
 class WsConnectionClosed(Exception):

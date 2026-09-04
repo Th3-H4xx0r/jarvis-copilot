@@ -296,6 +296,73 @@ def volume_set(level: int) -> dict:
     return {"ok": True, "level": v}
 
 
+# ── Local ack TTS (plan 4.4-mac) ────────────────────────────────────────────
+#
+# So the server can trigger an instant local "On it" / "Done" ack on the Mac
+# instead of round-tripping audio synthesis + a tunnel hop before anything is
+# heard. Fire-and-forget: the skill must return immediately, not block for
+# however long the utterance takes to play.
+
+_SPEAK_LOCAL_MAX_CHARS = 500  # plan 4.4-mac: an ack, not a monologue
+
+
+def _speak_via_nsspeech(text: str, voice: str) -> bool:
+    """Best-effort NSSpeechSynthesizer path (pyobjc) — lower latency than
+    spawning `say` since it skips a process fork. Returns False (no pyobjc,
+    or the call failed) so the caller falls back to `say`, which is always
+    present on macOS."""
+    try:
+        from AppKit import NSSpeechSynthesizer  # type: ignore
+    except Exception:
+        return False
+    try:
+        synth = NSSpeechSynthesizer.alloc().initWithVoice_(voice or None)
+        if synth is None:
+            return False
+        synth.startSpeakingString_(text)
+        return True
+    except Exception:
+        log.debug("NSSpeechSynthesizer path failed; falling back to `say`", exc_info=True)
+        return False
+
+
+@skill(
+    "speak_local",
+    "Speak text instantly through the Mac's own speakers — for a fast local "
+    "ack ('On it', 'Done') while a longer response is still on its way over "
+    "the network. Does not wait for playback to finish.",
+    {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string"},
+            "voice": {
+                "type": "string",
+                "description": "Optional macOS voice name (e.g. 'Samantha'). "
+                                "Defaults to the system voice.",
+            },
+        },
+        "required": ["text"],
+    },
+)
+def speak_local(text: str, voice: str = "") -> dict:
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("text required")
+    if len(text) > _SPEAK_LOCAL_MAX_CHARS:
+        text = text[:_SPEAK_LOCAL_MAX_CHARS]
+    voice = (voice or "").strip()
+
+    if _speak_via_nsspeech(text, voice):
+        return {"ok": True, "engine": "nsspeech"}
+
+    cmd = ["say"]
+    if voice:
+        cmd += ["-v", voice]
+    cmd.append(text)
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return {"ok": True, "engine": "say"}
+
+
 # ── System commands (canned keyboard shortcuts) ────────────────────────────
 
 
