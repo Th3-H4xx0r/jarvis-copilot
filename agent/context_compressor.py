@@ -497,10 +497,10 @@ class ContextCompressor(ContextEngine):
         self.provider = provider
         self.api_mode = api_mode
         self.context_length = context_length
-        self.threshold_tokens = max(
+        self.threshold_tokens = self._apply_threshold_cap(max(
             int(context_length * self.threshold_percent),
             MINIMUM_CONTEXT_LENGTH,
-        )
+        ))
         # Recalculate token budgets for the new context length so the
         # compressor stays calibrated after a model switch (e.g. 200K → 32K).
         target_tokens = int(self.threshold_tokens * self.summary_target_ratio)
@@ -524,7 +524,16 @@ class ContextCompressor(ContextEngine):
         provider: str = "",
         api_mode: str = "",
         abort_on_summary_failure: bool = False,
+        max_threshold_tokens: int | None = None,
     ):
+        # Absolute ceiling on the compression trigger. The percentage alone
+        # lets a 1M-context model grow to ~500K tokens of history before
+        # anything is summarised — every tool round then re-reads all of it
+        # (measured: 823K input tokens for one chat turn). Voice-first use
+        # wants a small, hot prefix, so cap it (config compression.max_context_tokens).
+        self.max_threshold_tokens = (
+            int(max_threshold_tokens) if max_threshold_tokens and int(max_threshold_tokens) > 0 else None
+        )
         self.model = model
         self.base_url = base_url
         self.api_key = api_key
@@ -550,10 +559,10 @@ class ContextCompressor(ContextEngine):
         # the percentage would suggest a lower value.  This prevents premature
         # compression on large-context models at 50% while keeping the % sane
         # for models right at the minimum.
-        self.threshold_tokens = max(
+        self.threshold_tokens = self._apply_threshold_cap(max(
             int(self.context_length * threshold_percent),
             MINIMUM_CONTEXT_LENGTH,
-        )
+        ))
         self.compression_count = 0
 
         # Derive token budgets: ratio is relative to the threshold, not total context
@@ -632,6 +641,13 @@ class ContextCompressor(ContextEngine):
                 )
             return False
         return True
+
+    def _apply_threshold_cap(self, threshold_tokens: int) -> int:
+        """Clamp the trigger to ``max_threshold_tokens`` when configured."""
+        cap = getattr(self, "max_threshold_tokens", None)
+        if cap and threshold_tokens > cap:
+            return int(cap)
+        return int(threshold_tokens)
 
     # ------------------------------------------------------------------
     # Tool output pruning (cheap pre-pass, no LLM call)

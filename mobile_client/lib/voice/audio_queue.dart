@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'pcm_chunker.dart';
+import 'pcm_stream_player.dart';
 
 /// Sequential playback of assistant audio clips. The voice backend hands
 /// us either MP3 segments (quality mode, and the realtime MP3 fallback)
@@ -54,6 +55,7 @@ class AudioQueue {
     AudioPlayer.global.setAudioContext(ctx);
     _player.setAudioContext(ctx);
     _player.onPlayerComplete.listen((_) => _advance());
+    unawaited(_native.probe());
     // Live playback position — drives the karaoke word highlight. Only the
     // current clip's tag is reported so the controller can map position →
     // word within the right segment.
@@ -86,7 +88,23 @@ class AudioQueue {
   int _seq = 0;
   int? _currentTag; // tag of the clip currently playing (for position events)
   int _currentClipBaseMs = 0; // ms of this tag's audio played by earlier chunks
-  PcmChunker? _chunker; // streaming cutter for the realtime PCM path
+  PcmChunker? _chunker; // streaming cutter for the realtime PCM path (fallback)
+
+  // ── Native gapless stream (plan 1.7, preferred) ─────────────────────────
+  // One continuous render stream per reply instead of a temp file + play()
+  // per slice — the per-slice player swap was the audible "cuts out every
+  // second" stutter. Karaoke timing is derived from bytes fed + wall clock.
+  final PcmStreamPlayer _native = PcmStreamPlayer();
+  Future<void> _nativeChain = Future.value(); // keeps feed() order
+  bool _nativeActive = false; // stream open and audio queued/playing
+  bool _nativeEnded = false; // audio_end seen; go idle once playback catches up
+  int? _nativeTag; // segment currently being fed
+  int _nativeFedMs = 0; // total audio handed to the native player this stream
+  int _nativeSegBaseMs = 0; // fed ms when the current segment began
+  DateTime? _nativeStart; // wall clock at first feed
+  Timer? _nativeTick;
+  static const int _kNativeTickMs = 100; // karaoke position cadence
+  static const int _kNativeIdleGraceMs = 120; // wait for the last buffer to drain
 
   /// Enqueue an MP3 clip (raw bytes). [tag] (a segment id) lets the caller
   /// sync a word highlight to this clip's playback.
@@ -109,7 +127,11 @@ class AudioQueue {
   /// slice as soon as there's enough of it instead of waiting for the segment
   /// to finish (plan 1.7). Call [endPcmSegment] when `audio_end` lands.
   void appendPcm(Uint8List pcm, {int sampleRate = 24000, int? tag}) {
-    if (_stopped) return;
+    if (_stopped || pcm.isEmpty) return;
+    if (_native.available && _queue.isEmpty && !(_playing && !_nativeActive)) {
+      _appendNative(pcm, sampleRate, tag);
+      return;
+    }
     final chunker = _chunkerFor(sampleRate);
     for (final chunk in chunker.add(pcm, tag: tag)) {
       _enqueueChunk(chunk);
@@ -118,15 +140,95 @@ class AudioQueue {
 
   /// The segment is complete — play whatever is left of it.
   void endPcmSegment({int? tag}) {
+    if (_stopped) return;
+    if (_nativeActive) {
+      _nativeEnded = true;
+      return;
+    }
     final chunker = _chunker;
-    if (chunker == null || _stopped) return;
+    if (chunker == null) return;
     for (final chunk in chunker.flush(tag: tag)) {
       _enqueueChunk(chunk);
     }
   }
 
   /// True while a segment is mid-stream (some audio buffered but not emitted).
-  bool get hasPendingPcm => (_chunker?.bufferedBytes ?? 0) > 0;
+  bool get hasPendingPcm =>
+      _nativeActive || (_chunker?.bufferedBytes ?? 0) > 0;
+
+  void _appendNative(Uint8List pcm, int sampleRate, int? tag) {
+    final ms = pcm.lengthInBytes ~/ 2 * 1000 ~/ sampleRate;
+    _nativeChain = _nativeChain.then((_) async {
+      if (_stopped) return;
+      if (!_nativeActive) {
+        if (!await _native.start(sampleRate)) {
+          // Native side refused — hand this chunk to the fallback path.
+          for (final chunk in _chunkerFor(sampleRate).add(pcm, tag: tag)) {
+            _enqueueChunk(chunk);
+          }
+          return;
+        }
+        _nativeActive = true;
+        _nativeEnded = false;
+        _playing = true;
+        _nativeFedMs = 0;
+        _nativeSegBaseMs = 0;
+        _nativeStart = null;
+        _nativeTag = tag;
+      }
+      if (tag != _nativeTag) {
+        // Next sentence in the same stream: positions restart at its base.
+        _nativeSegBaseMs = _nativeFedMs;
+        _nativeTag = tag;
+        _currentClipBaseMs = 0;
+      }
+      _nativeEnded = false;
+      await _native.feed(pcm);
+      _nativeFedMs += ms;
+      if (_nativeStart == null) {
+        _nativeStart = DateTime.now();
+        _currentTag = tag;
+        onPlaybackStart?.call();
+        onAmplitude?.call(0.6);
+        _startNativeTick();
+      }
+      _currentTag = tag;
+      // Running total for this segment so the karaoke schedule stretches as
+      // more of the sentence arrives (a repeat tag = schedule correction).
+      onClipStart?.call(tag, Duration(milliseconds: _nativeFedMs - _nativeSegBaseMs));
+    });
+  }
+
+  void _startNativeTick() {
+    _nativeTick?.cancel();
+    _nativeTick = Timer.periodic(const Duration(milliseconds: _kNativeTickMs), (_) {
+      final start = _nativeStart;
+      if (!_nativeActive || start == null) return;
+      final elapsed = DateTime.now().difference(start).inMilliseconds;
+      final played = elapsed.clamp(0, _nativeFedMs);
+      final tag = _nativeTag;
+      if (tag != null) {
+        onPosition?.call(tag, Duration(milliseconds: played - _nativeSegBaseMs));
+      }
+      if (_nativeEnded && elapsed >= _nativeFedMs + _kNativeIdleGraceMs) {
+        _finishNative(fireIdle: true);
+      }
+    });
+  }
+
+  void _finishNative({required bool fireIdle}) {
+    _nativeTick?.cancel();
+    _nativeTick = null;
+    _nativeActive = false;
+    _nativeEnded = false;
+    _nativeStart = null;
+    _nativeTag = null;
+    _currentTag = null;
+    _playing = false;
+    unawaited(_native.stop());
+    onAmplitude?.call(0);
+    if (fireIdle) onIdle?.call();
+  }
 
   PcmChunker _chunkerFor(int sampleRate) {
     final existing = _chunker;
@@ -247,16 +349,22 @@ class AudioQueue {
     // Barge-in/new turn: drop half-assembled audio too, or the tail of the
     // interrupted sentence would play after the user has already moved on.
     _chunker?.reset();
+    if (_nativeActive) {
+      await _native.flush();
+      _finishNative(fireIdle: false);
+    }
     try {
       await _player.stop();
     } catch (_) {}
     onAmplitude?.call(0);
   }
 
-  bool get isBusy => _playing || _queue.isNotEmpty;
+  bool get isBusy => _playing || _queue.isNotEmpty || _nativeActive;
 
   Future<void> dispose() async {
     _stopped = true;
+    _nativeTick?.cancel();
+    unawaited(_native.stop());
     _queue.clear();
     _chunker?.reset();
     await _player.dispose();

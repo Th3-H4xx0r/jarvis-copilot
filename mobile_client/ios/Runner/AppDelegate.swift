@@ -133,6 +133,8 @@ import AppIntents
         // synthesizer for local acks (plan 4.4).
         SpeechStreamBridge.register(messenger: controller.binaryMessenger)
         LocalTtsBridge.register(messenger: controller.binaryMessenger)
+        // Gapless realtime PCM playback (plan 1.7) — see PcmStreamBridge.swift.
+        PcmStreamBridge.register(messenger: controller.binaryMessenger)
         // Silent-audio-session keepalive so the bridge WS survives
         // backgrounding (Workstream H); arm/disarm decisions are made in
         // Dart (lib/services/background_keepalive.dart) and delivered here.

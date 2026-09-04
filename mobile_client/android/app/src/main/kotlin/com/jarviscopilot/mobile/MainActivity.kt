@@ -15,6 +15,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(@NonNull engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
         SkillChannels.registerAll(this, engine)
+        PcmStreamChannel.register(engine) // gapless realtime PCM playback (plan 1.7)
 
         // Start the foreground bridge service so the WS stays alive
         // even when the app is backgrounded. (Skipped on Android 14+
