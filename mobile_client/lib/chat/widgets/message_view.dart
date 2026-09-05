@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme.dart';
-import '../../widgets/glass.dart';
 import '../../widgets/markdown_stream.dart';
 import '../chat_models.dart';
 import 'reasoning_card.dart';
@@ -36,16 +35,12 @@ class _UserBubble extends StatelessWidget {
     return Align(
       alignment: Alignment.centerRight,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(48, 6, 4, 6),
+        padding: const EdgeInsets.only(left: 44),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            // Was a per-bubble BackdropFilter(blur 16) — one live GPU blur per
-            // message in a scrolling list. Opaque fill reads the same without
-            // the per-frame backdrop re-sample. Fixed chrome keeps blur.
-            color: JcTheme.surfaceAlt.withValues(alpha: 0.92),
-            border: Border.all(color: JcTheme.glassBorder),
-            borderRadius: BorderRadius.circular(19),
+            color: JcTheme.slate,
+            borderRadius: BorderRadius.circular(18),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -53,9 +48,9 @@ class _UserBubble extends StatelessWidget {
               SelectableText(
                 message.plainText,
                 style: const TextStyle(
-                  color: JcTheme.text,
-                  fontSize: 14,
-                  height: 1.4,
+                  color: Colors.white,
+                  fontSize: 15,
+                  height: 1.35,
                 ),
               ),
               if (message.attachments.isNotEmpty)
@@ -83,6 +78,8 @@ class _UserBubble extends StatelessWidget {
   }
 }
 
+/// Assistant turn: a small avatar beside one translucent card that holds the
+/// tool rows, the text, or the thinking indicator; a quiet stats line beneath.
 class _AssistantTurn extends StatelessWidget {
   const _AssistantTurn({required this.message, this.onRetryOnServer});
   final ChatMessage message;
@@ -90,136 +87,125 @@ class _AssistantTurn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final children = <Widget>[];
-
-    // Header row: small avatar + role label.
-    children.add(Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Container(
-            width: 18,
-            height: 18,
-            decoration: const BoxDecoration(
-              gradient: JcTheme.brandGradient,
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: const Text(
-              'J',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          const SizedBox(width: 7),
-          const Text(
-            'JarvisCopilot',
-            style: TextStyle(
-              color: JcTheme.muted,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          if (message.onDevice) ...[
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(
-                color: JcTheme.cyan.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.bolt_rounded, size: 10, color: JcTheme.cyan),
-                SizedBox(width: 2),
-                Text('on-device',
-                    style: TextStyle(
-                        color: JcTheme.cyan,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700)),
-              ]),
-            ),
-          ],
-        ],
-      ),
-    ));
+    final tools = message.blocks.whereType<ToolBlock>().toList();
+    final hasText = message.blocks
+        .any((b) => b is TextBlock && b.text.trim().isNotEmpty);
+    final content = <Widget>[];
 
     if (message.reasoning.trim().isNotEmpty) {
-      children.add(GlassCard(
-        padding: EdgeInsets.zero,
-        radius: 14,
-        blur: true,
-        borderColor: JcTheme.primaryBlue.withValues(alpha: 0.20),
+      content.add(Padding(
+        padding: const EdgeInsets.only(bottom: 6),
         child: ReasoningCard(
           text: message.reasoning,
-          active: message.streaming && message.plainText.isEmpty,
+          active: message.streaming && !hasText,
+        ),
+      ));
+    }
+
+    if (tools.isNotEmpty) {
+      content.add(Padding(
+        padding: EdgeInsets.only(bottom: hasText || message.streaming ? 8 : 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final t in tools)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: ToolCard(tool: t.tool),
+              ),
+          ],
         ),
       ));
     }
 
     for (final block in message.blocks) {
-      if (block is TextBlock) {
-        if (block.text.trim().isEmpty) continue;
-        children.add(Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          child: message.isError
-              ? _ErrorText(block.text)
-              : MarkdownStream(text: block.text),
-        ));
-      } else if (block is ToolBlock) {
-        children.add(GlassCard(
-          padding: EdgeInsets.zero,
-          radius: 12,
-          blur: false,
-          child: ToolCard(tool: block.tool),
-        ));
+      if (block is TextBlock && block.text.trim().isNotEmpty) {
+        content.add(message.isError
+            ? _ErrorText(block.text)
+            : MarkdownStream(text: block.text));
       }
     }
 
-    // Streaming placeholder: a thinking dot before any content arrives.
-    if (message.streaming &&
-        message.blocks.every((b) => b is! TextBlock || (b).text.trim().isEmpty) &&
-        message.reasoning.trim().isEmpty) {
-      children.add(const _TypingDots());
-    }
-
-    // Copy action for finished assistant text.
-    if (!message.streaming && message.plainText.trim().isNotEmpty) {
-      children.add(Padding(
-        padding: const EdgeInsets.only(top: 2),
-        child: _CopyButton(text: message.plainText),
+    if (message.streaming && !hasText) {
+      final running = tools.isNotEmpty && !tools.last.tool.done
+          ? 'Running ${tools.last.tool.label}…'
+          : (message.reasoning.trim().isNotEmpty ? 'Thinking…' : null);
+      content.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const _TypingDots(),
+          if (running != null) ...[
+            const SizedBox(width: 8),
+            Text(running,
+                style: const TextStyle(color: JcTheme.muted, fontSize: 12.5)),
+          ],
+        ]),
       ));
     }
 
-    // On-device reply → offer to re-ask the same prompt on the server (which can
-    // give a better answer). Appends a fresh server turn below; this one stays.
-    if (!message.streaming && message.onDevice && onRetryOnServer != null) {
-      children.add(Padding(
-        padding: const EdgeInsets.only(top: 2),
-        child: _TryServerButton(onTap: onRetryOnServer!),
-      ));
-    }
+    final status = message.streaming ? null : _statusLine(message);
 
-    // Per-turn status line ("On-device · 3.2s" / "Done in 3s · 16k in · 12 out").
-    if (!message.streaming) {
-      final status = _statusLine(message);
-      if (status != null) {
-        children.add(Padding(
-          padding: const EdgeInsets.only(top: 1),
-          child: Text(status,
-              style: const TextStyle(color: JcTheme.muted, fontSize: 10.5)),
-        ));
-      }
-    }
-
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(4, 6, 24, 6),
+    return Padding(
+      padding: const EdgeInsets.only(right: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: children,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                margin: const EdgeInsets.only(top: 2),
+                decoration: BoxDecoration(
+                  color: JcTheme.accent.withValues(alpha: 0.18),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: message.onDevice
+                    ? const Icon(Icons.bolt_rounded, size: 13, color: JcTheme.cyan)
+                    : const Icon(Icons.auto_awesome, size: 13, color: JcTheme.accent),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.07),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: content,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (status != null || (!message.streaming && message.plainText.trim().isNotEmpty))
+            Padding(
+              padding: const EdgeInsets.only(left: 36, top: 4),
+              child: Row(children: [
+                if (status != null)
+                  Text(status,
+                      style: const TextStyle(
+                        color: JcTheme.muted,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w500,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      )),
+                if (!message.streaming && message.plainText.trim().isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  _CopyButton(text: message.plainText),
+                ],
+                if (!message.streaming && message.onDevice && onRetryOnServer != null) ...[
+                  const SizedBox(width: 6),
+                  _TryServerButton(onTap: onRetryOnServer!),
+                ],
+              ]),
+            ),
+        ],
       ),
     );
   }
@@ -371,7 +357,7 @@ class _TypingDotsState extends State<_TypingDots>
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: AnimatedBuilder(
         animation: _c,
         builder: (_, __) {
@@ -401,29 +387,20 @@ class _TypingDotsState extends State<_TypingDots>
   }
 }
 
-/// Subtle per-turn status string, e.g. "On-device · 3.2s" or
-/// "Done in 3s · 16.1k in · 12 out". Returns null when there's nothing to show.
+/// "1.2k in  ·  340 out  ·  12.4 s" — nothing more. Null when there's nothing to show.
 String? _statusLine(ChatMessage m) {
   if (!m.isAssistant) return null;
-  String? fmtDur(int? ms) {
-    if (ms == null || ms <= 0) return null;
-    return ms >= 1000 ? '${(ms / 1000).toStringAsFixed(1)}s' : '${ms}ms';
-  }
-
   String fmtTok(int n) =>
       n >= 1000 ? '${(n / 1000).toStringAsFixed(1)}k' : '$n';
-
-  final dur = fmtDur(m.durationMs);
   final parts = <String>[];
-  if (m.onDevice) {
-    parts.add('On-device');
-    if (dur != null) parts.add(dur);
-    if (m.inputTokens != null) parts.add('~${fmtTok(m.inputTokens!)} in');
-    if (m.outputTokens != null) parts.add('~${fmtTok(m.outputTokens!)} out');
-  } else {
-    if (dur != null) parts.add('Done in $dur');
-    if (m.inputTokens != null) parts.add('${fmtTok(m.inputTokens!)} in');
-    if (m.outputTokens != null) parts.add('${fmtTok(m.outputTokens!)} out');
+  final tilde = m.onDevice ? '~' : '';
+  if (m.inputTokens != null || m.outputTokens != null) {
+    parts.add('$tilde${fmtTok(m.inputTokens ?? 0)} in  ·  ${fmtTok(m.outputTokens ?? 0)} out');
   }
-  return parts.isEmpty ? null : parts.join(' · ');
+  final ms = m.durationMs;
+  if (ms != null && ms > 0) {
+    parts.add(ms >= 1000 ? '${(ms / 1000).toStringAsFixed(1)} s' : '$ms ms');
+  }
+  if (m.onDevice) parts.insert(0, 'On-device');
+  return parts.isEmpty ? null : parts.join('  ·  ');
 }

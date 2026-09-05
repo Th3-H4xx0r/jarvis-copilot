@@ -34,94 +34,106 @@ class _ToolCardState extends State<ToolCard> {
         (tool.result?.isNotEmpty ?? false) ||
         (tool.preview?.isNotEmpty ?? false);
 
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      decoration: BoxDecoration(
-        color: JcTheme.surface,
-        border: Border.all(color: JcTheme.border),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(10),
-            onTap: hasDetail ? () => setState(() => _open = !_open) : null,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              child: Row(
-                children: [
-                  if (running)
-                    SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 1.8,
-                        valueColor: AlwaysStoppedAnimation(color),
+    final detail = tool.done
+        ? ((tool.result ?? tool.preview ?? '').trim())
+        : ((tool.preview ?? '').trim().isNotEmpty
+            ? tool.preview!.trim()
+            : _summariseArgs(tool.args));
+    final firstLine = detail.split('\n').first;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: hasDetail ? () => setState(() => _open = !_open) : null,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: running
+                    ? SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.6,
+                          valueColor: AlwaysStoppedAnimation(color),
+                        ),
+                      )
+                    : Icon(
+                        tool.isError ? Icons.error_outline : Icons.check_circle,
+                        size: 14,
+                        color: tool.isError ? color : JcTheme.accent,
                       ),
-                    )
-                  else
-                    Icon(
-                      tool.isError ? Icons.error_outline : Icons.check_circle,
-                      size: 14,
-                      color: color,
-                    ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.build_outlined, size: 13, color: JcTheme.muted),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      tool.label,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tool.label.replaceFirst('device_', ''),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: JcTheme.text,
+                        fontFamily: 'monospace',
                         fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                  ),
-                  if (tool.durationSec != null) ...[
-                    const SizedBox(width: 8),
-                    Text(
-                      '${tool.durationSec!.toStringAsFixed(tool.durationSec! < 10 ? 1 : 0)}s',
-                      style: const TextStyle(color: JcTheme.muted, fontSize: 11),
-                    ),
+                    if (firstLine.isNotEmpty)
+                      Text(
+                        firstLine,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: JcTheme.muted, fontSize: 11),
+                      ),
                   ],
-                  if (hasDetail) ...[
-                    const Spacer(),
-                    AnimatedRotation(
-                      turns: _open ? 0.25 : 0,
-                      duration: const Duration(milliseconds: 150),
-                      child: const Icon(Icons.chevron_right,
-                          size: 16, color: JcTheme.muted),
-                    ),
-                  ],
-                ],
+                ),
               ),
+              if (tool.durationSec != null) ...[
+                const SizedBox(width: 8),
+                Text(
+                  '${tool.durationSec!.toStringAsFixed(tool.durationSec! < 10 ? 1 : 0)}s',
+                  style: const TextStyle(color: JcTheme.muted, fontSize: 10.5),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (_open && hasDetail)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 6, 0, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (tool.args.isNotEmpty)
+                  _CodeBox(label: 'Arguments', text: _pretty(tool.args)),
+                if ((tool.result ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _CodeBox(label: 'Result', text: tool.result!.trim()),
+                ] else if ((tool.preview ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _CodeBox(label: 'Result', text: tool.preview!.trim()),
+                ],
+              ],
             ),
           ),
-          if (_open && hasDetail)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (tool.args.isNotEmpty)
-                    _CodeBox(label: 'Arguments', text: _pretty(tool.args)),
-                  if ((tool.result ?? '').isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    _CodeBox(label: 'Result', text: tool.result!.trim()),
-                  ] else if ((tool.preview ?? '').isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    _CodeBox(label: 'Result', text: tool.preview!.trim()),
-                  ],
-                ],
-              ),
-            ),
-        ],
-      ),
+      ],
     );
+  }
+
+  /// One short line out of the arguments when the server sent no preview.
+  static String _summariseArgs(Map<String, dynamic> args) {
+    if (args.isEmpty) return '';
+    final keys = args.keys.toList()..sort();
+    return keys.take(3).map((k) {
+      var v = '${args[k]}';
+      if (v.length > 40) v = '${v.substring(0, 39)}…';
+      return '$k: $v';
+    }).join(' · ');
   }
 
   static String _pretty(Map<String, dynamic> args) {

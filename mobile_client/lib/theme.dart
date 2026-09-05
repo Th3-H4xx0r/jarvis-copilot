@@ -41,6 +41,8 @@ class JcTheme {
   static const Color primaryBlueHi = Color(0xFF6FB0FF);
   static const Color success = Color(0xFF5BE5A0);
   static const Color amber = Color(0xFFFFC34D);          // warning / mock-mode
+  /// Muted slate blue for the user's own bubbles and the active send button.
+  static const Color slate = Color(0xFF546689);
   static const Color danger = Color(0xFFFF6B7E);
 
   /// Iridescent brand gradient: cyan → violet → pink.

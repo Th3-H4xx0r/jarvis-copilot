@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../chat/chat_controller.dart';
@@ -225,9 +223,16 @@ class _ChatPageState extends State<ChatPage> {
       itemCount: _c.messages.length,
       itemBuilder: (context, i) {
         final m = _c.messages[i];
-        return MessageView(
-          message: m,
-          onRetryOnServer: m.onDevice ? () => _c.retryOnServer(m) : null,
+        // A change of speaker gets clear air; consecutive turns from the
+        // same side stay grouped.
+        final prev = i > 0 ? _c.messages[i - 1] : null;
+        final gap = prev == null ? 0.0 : (prev.isUser == m.isUser ? 6.0 : 26.0);
+        return Padding(
+          padding: EdgeInsets.only(top: gap),
+          child: MessageView(
+            message: m,
+            onRetryOnServer: m.onDevice ? () => _c.retryOnServer(m) : null,
+          ),
         );
       },
     );
@@ -345,48 +350,46 @@ class _Composer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bottomPad = MediaQuery.of(context).viewPadding.bottom;
+    // One rounded field on the same material as the reply cards, a thin border,
+    // and a compact round send button — no separate bar, no blur.
     return Padding(
-      padding: EdgeInsets.fromLTRB(12, 8, 12, 8 + bottomPad),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(26),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
-            decoration: BoxDecoration(
-              color: JcTheme.glassFill,
-              borderRadius: BorderRadius.circular(26),
-              border: Border.all(color: JcTheme.glassBorder),
+      padding: EdgeInsets.fromLTRB(12, 6, 12, 8 + bottomPad),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        padding: const EdgeInsets.fromLTRB(4, 4, 6, 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 10, right: 4),
+              child: AttachmentChips(host: chat),
             ),
-            padding: const EdgeInsets.fromLTRB(6, 8, 8, 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+            ListenableBuilder(
+              listenable: chat,
+              builder: (context, _) => chat.attachError == null
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      padding: const EdgeInsets.only(left: 12, bottom: 4),
+                      child: Text(
+                        chat.attachError!,
+                        style: const TextStyle(
+                            color: Colors.redAccent, fontSize: 12),
+                      ),
+                    ),
+            ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 8, right: 4),
-                  child: AttachmentChips(host: chat),
-                ),
-                ListenableBuilder(
-                  listenable: chat,
-                  builder: (context, _) => chat.attachError == null
-                      ? const SizedBox.shrink()
-                      : Padding(
-                          padding: const EdgeInsets.only(left: 10, bottom: 4),
-                          child: Text(
-                            chat.attachError!,
-                            style: const TextStyle(
-                                color: Colors.redAccent, fontSize: 12),
-                          ),
-                        ),
-                ),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    AttachButton(host: chat),
-                    Expanded(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 140),
-                        child: TextField(
+                AttachButton(host: chat),
+                Expanded(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 140),
+                    child: TextField(
                       controller: controller,
                       minLines: 1,
                       maxLines: 6,
@@ -394,12 +397,13 @@ class _Composer extends StatelessWidget {
                       keyboardType: TextInputType.multiline,
                       style: const TextStyle(color: JcTheme.text, fontSize: 15),
                       decoration: const InputDecoration(
-                        hintText: 'Message JarvisCopilot…',
+                        hintText: 'Message',
                         hintStyle: TextStyle(color: JcTheme.muted),
                         filled: true,
                         fillColor: Colors.transparent,
+                        isDense: true,
                         contentPadding: EdgeInsets.symmetric(
-                          horizontal: 0,
+                          horizontal: 4,
                           vertical: 10,
                         ),
                         border: InputBorder.none,
@@ -409,23 +413,25 @@ class _Composer extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                // Only the send/stop button reacts to streaming state — keep
-                // the TextField out of the rebuild path so streamed tokens
-                // don't churn the keyboard/cursor.
-                ListenableBuilder(
-                  listenable: chat,
-                  builder: (context, _) => _SendButton(
-                    streaming: chat.streaming,
-                    onSend: onSend,
-                    onStop: chat.cancel,
+                const SizedBox(width: 6),
+                // Only the send/stop button reacts to streaming state and text
+                // changes — the TextField stays out of the rebuild path.
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: ListenableBuilder(
+                    listenable: Listenable.merge([chat, controller]),
+                    builder: (context, _) => _SendButton(
+                      streaming: chat.streaming,
+                      enabled: controller.text.trim().isNotEmpty ||
+                          chat.attachments.isNotEmpty,
+                      onSend: onSend,
+                      onStop: chat.cancel,
+                    ),
                   ),
-                ),
-                  ],
                 ),
               ],
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -435,42 +441,35 @@ class _Composer extends StatelessWidget {
 class _SendButton extends StatelessWidget {
   const _SendButton({
     required this.streaming,
+    required this.enabled,
     required this.onSend,
     required this.onStop,
   });
 
   final bool streaming;
+  final bool enabled;
   final VoidCallback onSend;
   final VoidCallback onStop;
 
   @override
   Widget build(BuildContext context) {
+    final active = streaming || enabled;
     return GestureDetector(
-      onTap: streaming ? onStop : onSend,
-      child: Container(
-        width: 44,
-        height: 44,
+      onTap: streaming ? onStop : (enabled ? onSend : null),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: 30,
+        height: 30,
         decoration: BoxDecoration(
-          gradient: streaming ? null : blueGradient(),
-          color: streaming ? JcTheme.glassFill : null,
+          color: streaming
+              ? Colors.white.withValues(alpha: 0.14)
+              : (enabled ? JcTheme.slate : Colors.white.withValues(alpha: 0.14)),
           shape: BoxShape.circle,
-          border: streaming
-              ? Border.all(color: JcTheme.glassBorder)
-              : null,
-          boxShadow: streaming
-              ? null
-              : [
-                  BoxShadow(
-                    color: JcTheme.primaryBlue.withValues(alpha: 0.4),
-                    blurRadius: 24,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
         ),
         child: Icon(
-          streaming ? Icons.stop : Icons.arrow_upward,
-          color: streaming ? JcTheme.muted : Colors.white,
-          size: 22,
+          streaming ? Icons.stop_rounded : Icons.arrow_upward_rounded,
+          color: active ? Colors.white : JcTheme.muted,
+          size: 16,
         ),
       ),
     );
