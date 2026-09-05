@@ -976,17 +976,19 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     # uses, so an empty/stale/cross-provider override is normalized identically.
     override_model = (model_override or "").strip()
     override_provider = (provider_override or "").strip()
-    fast_lane = None if lane == "session" else (get_voice_lane_config() or {}).get("fast_lane")
-    if fast_lane:
-        # plan 2.1 — the configured fast lane is THE voice model. It also beats
-        # the client's per-turn model override: the mobile app sends the chat
-        # composer's model (e.g. a Codex GPT model at medium effort) on every
-        # begin_turn, which silently put voice back on a slow, reasoning-heavy
-        # lane. A client that really wants the session model sends lane=session.
-        raw_model, raw_provider = fast_lane["model"], fast_lane["provider"]
-    elif override_model or override_provider:
+    fast_lane = (get_voice_lane_config() or {}).get("fast_lane")
+    explicit_override = bool(override_model or override_provider) and lane != "fast"
+    if explicit_override:
+        # The phone's own VOICE model pick (Settings → voice model). It must
+        # keep winning: when Claude usage runs out the user switches voice to
+        # a GPT model from the phone. The app only sends these fields when a
+        # voice model was explicitly chosen — "Auto" sends nothing (or
+        # lane=fast) and lands on the fast lane below.
         raw_model = override_model or getattr(s, "model", None)
         raw_provider = override_provider or getattr(s, "model_provider", None)
+    elif fast_lane:
+        # plan 2.1 — default voice model: the configured fast lane.
+        raw_model, raw_provider = fast_lane["model"], fast_lane["provider"]
     else:
         raw_model = getattr(s, "model", None)
         raw_provider = getattr(s, "model_provider", None)

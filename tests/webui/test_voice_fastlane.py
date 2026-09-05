@@ -129,25 +129,25 @@ def test_per_turn_override_wins_over_fast_lane(monkeypatch):
         fast_lane={"provider": "anthropic", "model": "claude-haiku-4-5"},
         model_override="claude-opus-5", provider_override="anthropic",
     )
-    # The fast lane is THE voice model: a client's per-turn override (the mobile
-    # composer's model on every begin_turn) no longer displaces it.
-    assert captured["model"] == "claude-haiku-4-5"
+    # An explicit voice model pick from the phone wins over the fast lane —
+    # when Claude usage runs out the user switches voice to GPT from the app.
+    assert captured["model"] == "claude-opus-5"
     assert captured["provider"] == "anthropic"
 
 
-def test_per_turn_override_wins_when_client_asks_for_session_lane(monkeypatch):
+def test_lane_fast_forces_fast_lane_even_with_override(monkeypatch):
     captured = _drive(
         monkeypatch,
         session_model="whatever", session_provider="whatever-provider",
         fast_lane={"provider": "anthropic", "model": "claude-haiku-4-5"},
         model_override="claude-opus-5", provider_override="anthropic",
-        lane="session",
+        lane="fast",
     )
-    assert captured["model"] == "claude-opus-5"
+    assert captured["model"] == "claude-haiku-4-5"
     assert captured["provider"] == "anthropic"
 
 
-def test_fast_lane_wins_over_partial_per_turn_override(monkeypatch):
+def test_partial_per_turn_override_still_wins(monkeypatch):
     # Only model_override supplied — provider falls back to the session's own
     # provider (mirrors the pre-existing per-field fallback semantics), NOT
     # the fast lane.
@@ -157,6 +157,6 @@ def test_fast_lane_wins_over_partial_per_turn_override(monkeypatch):
         fast_lane={"provider": "anthropic", "model": "claude-haiku-4-5"},
         model_override="override-model", provider_override="",
     )
-    # Fast lane configured → it wins regardless of a partial override.
-    assert captured["model"] == "claude-haiku-4-5"
-    assert captured["provider"] == "anthropic"
+    # A partial explicit pick still wins; provider falls back to the session's.
+    assert captured["model"] == "override-model"
+    assert captured["provider"] == "session-provider"

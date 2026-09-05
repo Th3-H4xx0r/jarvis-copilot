@@ -167,6 +167,48 @@ class _ModelPickerSheetState extends State<_ModelPickerSheet> {
     Navigator.of(context).pop();
   }
 
+  /// "Auto": clear the explicit pick so the server decides — for voice that
+  /// is the configured fast lane (Haiku-class, sub-second); an explicit model
+  /// chosen here always wins over it (e.g. switch voice to GPT when Claude
+  /// usage runs out).
+  Future<void> _pickAuto() async {
+    try {
+      await ModelSelection.instance.setFor(widget.surface, model: null, provider: null);
+    } catch (_) {}
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
+
+  Widget _autoRow({required bool selected}) {
+    final isVoice = widget.surface == VoiceSurface.voice;
+    return GlassGroup(
+      blur: false,
+      children: [
+        ListTile(
+          onTap: _pickAuto,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+          title: Text(
+            'Auto',
+            style: TextStyle(
+              color: JcTheme.text,
+              fontSize: 15,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+          subtitle: Text(
+            isVoice
+                ? 'Server fast lane — fastest replies. Pick a model below to override.'
+                : 'Server default model.',
+            style: const TextStyle(color: JcTheme.muted, fontSize: 12),
+          ),
+          trailing: selected
+              ? const Icon(Icons.check_rounded, color: JcTheme.primaryBlueHi)
+              : null,
+        ),
+      ],
+    );
+  }
+
   String get _title =>
       widget.surface == VoiceSurface.voice ? 'Voice model' : 'Chat model';
 
@@ -280,6 +322,11 @@ class _ModelPickerSheetState extends State<_ModelPickerSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _autoRow(
+            selected:
+                (ModelSelection.instance.modelFor(widget.surface) ?? '').isEmpty,
+          ),
+          const SizedBox(height: 16),
           for (final group in catalog.groups) ...[
             glassSectionLabel(group.provider),
             GlassGroup(
