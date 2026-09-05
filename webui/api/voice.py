@@ -724,15 +724,14 @@ _VOICE_REPLY_DIRECTIVE = (
     "[Voice mode — your reply is read aloud by text-to-speech. Rules:\n"
     "1. Plain spoken language only — no markdown, asterisks, bullets, lists, "
     "headers, code, emoji, or URLs. Say numbers and values in words.\n"
-    "2. Whenever you need a tool, FIRST speak one short acknowledgement of two "
-    "to five words so the user isn't left waiting (vary it: 'On it, sir.', "
-    "'Right away.', 'Checking now.', 'One moment.'). Say it exactly once per "
-    "request, before the first tool call — never before later tool calls.\n"
-    "3. Then use the tools silently. Do not narrate steps, plans, reasoning, "
-    "or tool use — never 'Loading…', 'Verifying…', 'Let me…', and never "
-    "describe what a tool is doing. When the task is done, speak ONE short "
-    "sentence with the outcome (for example: 'GPIO four is off.'). A plain "
-    "question with no tool needs no acknowledgement — just answer.\n"
+    "2. Do NOT acknowledge or say you are starting — the system already spoke "
+    "an acknowledgement for the user. Never say 'On it', 'Sure', 'Certainly', "
+    "'Right away', or restate the request.\n"
+    "3. Use tools silently. Do not narrate steps, plans, reasoning, or tool "
+    "use — never 'Loading…', 'Verifying…', 'Let me…', and never describe what "
+    "a tool is doing. When the task is done, speak ONE short sentence with the "
+    "outcome (for example: 'GPIO four is off.'). A plain question needs no "
+    "tool — just answer it directly.\n"
     "4. If a tool fails, say what failed in one sentence and stop; do not "
     "narrate alternatives.\n"
     "5. Keep every reply to two sentences or fewer — EXCEPT a multi-part "
@@ -1009,6 +1008,14 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         # preflight rejects it with a cryptic error. Fail clearly so the bridge
         # speaks a clean apology instead of crashing on an empty model.
         raise _VoiceAgentError("no model is configured for voice", status=503)
+    # Voice turns run without extended thinking / reasoning effort: the model
+    # only needs to pick a tool and phrase one sentence, and every reasoning
+    # summary is seconds of silence. Consumed (and cleared) by the streaming
+    # thread right before run_conversation.
+    try:
+        s._voice_turn_low_reasoning = True
+    except Exception:
+        pass
     try:
         response = _start_chat_stream_for_session(
             s,
@@ -1508,6 +1515,7 @@ def _run_voice_ws(conn, sock) -> None:
     # plan 1.5 — warm the realtime STT model on first connection rather than
     # at import time (see _spawn_stt_warm's docstring for why).
     _spawn_stt_warm()
+    _warm_ack_clips()
     state = {
         "pcm_buf": bytearray(),
         "sample_rate": 16000,
@@ -1744,7 +1752,52 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         thread.start()
 
 
+# Instant acknowledgement (spoken by the SERVER, not the model). If the model
+# hasn't produced its first sentence within _ACK_DELAY_MS the bridge speaks one
+# of these from a pre-synthesised cache, so the user never waits on the model's
+# thinking/TTFT in silence. The directive tells the model NOT to ack itself.
+_ACK_PHRASES = ("On it, sir.", "Right away, sir.", "One moment, sir.", "Working on it.")
+_ACK_DELAY_MS = 600
+_ACK_CACHE: dict = {}
+_ACK_WARM_STARTED = False
+
+
+def _warm_ack_clips() -> None:
+    """Synthesise the ack phrases once (background) so they play instantly."""
+    global _ACK_WARM_STARTED
+    if _ACK_WARM_STARTED:
+        return
+    _ACK_WARM_STARTED = True
+
+    def _run():
+        for phrase in _ACK_PHRASES:
+            if phrase in _ACK_CACHE:
+                continue
+            try:
+                audio = _synth_audio(phrase)
+                if audio is not None:
+                    _ACK_CACHE[phrase] = audio
+            except Exception:
+                print("[webui] ack clip warm failed: " + traceback.format_exc(), flush=True)
+
+    threading.Thread(target=_run, name="voice-ack-warm", daemon=True).start()
+
+
+def _pick_ack_phrase(state: dict) -> str:
+    """Rotate through the phrases so consecutive turns don't repeat."""
+    idx = int(state.get("_ack_idx", -1)) + 1
+    state["_ack_idx"] = idx
+    return _ACK_PHRASES[idx % len(_ACK_PHRASES)]
+
+
 def _synth_audio(text: str):
+    cached = _ACK_CACHE.get(text)
+    if cached is not None:
+        return cached
+    return _synth_audio_uncached(text)
+
+
+def _synth_audio_uncached(text: str):
     """Synthesize one text segment → ('pcm', pcm24k) | ('mp3', bytes) | None.
 
     Pure (no socket I/O) so it can run on a prefetch worker thread. Retries
@@ -2067,6 +2120,31 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
     first_audio_marked = False
     _PREFETCH = 3
 
+    # Instant ack: fires after _ACK_DELAY_MS unless the model's first TEXT
+    # segment has already been sent. Tool-only progress does not cancel it —
+    # a model that goes straight into tools is exactly the case the user
+    # shouldn't sit through in silence. `seg_lock` keeps the ack's audio
+    # frames from interleaving with a model segment that lands at the same
+    # moment (both are audio_meta → frames → audio_end sequences).
+    seg_lock = state.setdefault("seg_lock", threading.Lock())
+    ack_state = {"first_text_sent": False, "ack_sent": False}
+
+    def _fire_ack():
+        with seg_lock:
+            if ack_state["first_text_sent"] or ack_state["ack_sent"] or state.get("interrupt") or state.get("closed"):
+                return
+            ack_state["ack_sent"] = True
+            phrase = _pick_ack_phrase(state)
+            _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": phrase, "ack": True}))
+            try:
+                _send_audio(conn, sock, state, _synth_audio(phrase))
+            except Exception:
+                print("[webui] ack send failed: " + traceback.format_exc(), flush=True)
+
+    ack_timer = threading.Timer(_ACK_DELAY_MS / 1000.0, _fire_ack)
+    ack_timer.daemon = True
+    ack_timer.start()
+
     def _refill():
         nonlocal gen_exhausted, any_emitted
         while len(buf) < _PREFETCH and not gen_exhausted:
@@ -2113,7 +2191,11 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
                 audio = item["future"].result()
             except Exception:
                 audio = None
-            sent = _send_audio(conn, sock, state, audio)
+            with seg_lock:
+                if item["kind"] == "text" and not ack_state["first_text_sent"]:
+                    ack_state["first_text_sent"] = True
+                    ack_timer.cancel()
+                sent = _send_audio(conn, sock, state, audio)
             if sent and audio is not None and timing is not None and not first_audio_marked:
                 _mark_span(timing, "first_audio_ms", _elapsed_ms(timing))
                 first_audio_marked = True
@@ -2146,6 +2228,7 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
         if not state["interrupt"]:
             _stream_segment(conn, sock, state, {"kind": "text", "text": "Sorry, something went wrong on my end. Please try again."})
     finally:
+        ack_timer.cancel()
         for _it in buf:
             f = _it.get("future")
             if f is not None:

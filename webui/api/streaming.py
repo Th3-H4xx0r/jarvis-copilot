@@ -3921,6 +3921,20 @@ def _run_agent_streaming(
                 _agent_msg_text = "\n\n".join([*_process_notifications, msg_text]).strip()
             user_message = _build_native_multimodal_message(workspace_ctx, _agent_msg_text, attachments, workspace, cfg=_cfg)
             _refresh_device_tools(agent)  # plan 3.1 — warm agents have a static tool list
+            # Voice turn (webui/api/voice.py flags the session): no extended
+            # thinking / reasoning effort for this one call — restored below.
+            _voice_prev_reasoning = None
+            _voice_swap = False
+            try:
+                from api.models import get_session as _voice_gs
+                _voice_sess = _voice_gs(session_id)
+                if getattr(_voice_sess, "_voice_turn_low_reasoning", False):
+                    _voice_sess._voice_turn_low_reasoning = False
+                    _voice_prev_reasoning = getattr(agent, "reasoning_config", None)
+                    agent.reasoning_config = {"enabled": False}
+                    _voice_swap = True
+            except Exception:
+                _voice_swap = False
             result = agent.run_conversation(
                 user_message=user_message,
                 system_message=workspace_system_msg,
@@ -3928,6 +3942,8 @@ def _run_agent_streaming(
                 task_id=session_id,
                 persist_user_message=msg_text,
             )
+            if _voice_swap:
+                agent.reasoning_config = _voice_prev_reasoning
             if cancel_event.is_set():
                 if _checkpoint_stop is not None:
                     _checkpoint_stop.set()
