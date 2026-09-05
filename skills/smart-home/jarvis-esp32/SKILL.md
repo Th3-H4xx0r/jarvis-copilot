@@ -150,6 +150,11 @@ conversation. Only when no such skill exists does the request become a short age
 in the board's single "events" conversation, where you carry it out with your tools and
 reply in one line (that line reaches the script's callback).
 
+Scripts keep running with no phone and no direct link; in that state `jarvis.notify` and
+`jarvis.invoke` return immediately and any callback gets `ok=false, "no link to Jarvis right
+now"`. Unanswered calls time out after 60 s the same way. Write scripts so a failed
+`jarvis.*` call is harmless (e.g. just `print` it) — the sensor logic must not depend on it.
+
 So, in scripts, **prefer exact skill names** — check `devices.py skills` for what the
 user's Mac/phone advertise (e.g. a browser-open skill on the Mac) and use those names
 and argument shapes. Reserve free-form names for things only you can do. Never make a
