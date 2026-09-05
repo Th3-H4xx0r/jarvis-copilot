@@ -42,20 +42,20 @@ class Endpointer {
   /// flapping between "speaking" and "silent" every frame.
   static const double kSilenceThreshold = 0.04;
 
-  /// Normal end-of-speech wait. 400 ms is about the shortest pause a listener
-  /// reads as "your turn"; the old constant was 1500 ms, which by itself put a
-  /// full second of dead air into every turn (plan 1.1, −1.0 s).
-  static const int kBaseSilenceMs = 400;
+  /// Normal end-of-speech wait. 650 ms: 400 ms cut people off mid-sentence
+  /// (an ordinary clause break is 300–600 ms), while the old 1500 ms put a
+  /// full second of dead air into every turn (plan 1.1).
+  static const int kBaseSilenceMs = 650;
 
   /// Used instead of [kBaseSilenceMs] when the speaker looks mid-thought (see
   /// [requiredSilenceMs]). Long enough to ride out a breath, short enough that
   /// a genuinely finished turn still beats the old fixed wait by ~2×.
-  static const int kExtendedSilenceMs = 700;
+  static const int kExtendedSilenceMs = 1100;
 
   /// An utterance with less voiced audio than this gets the extended window —
   /// people who have only said one word ("Jarvis…") are usually still loading
   /// the rest of the sentence.
-  static const int kShortUtteranceMs = 600;
+  static const int kShortUtteranceMs = 1200;
 
   /// Less voiced audio than this is not speech at all. We discard it (reset to
   /// pre-speech) rather than ending a turn on a cough or a mic pop.

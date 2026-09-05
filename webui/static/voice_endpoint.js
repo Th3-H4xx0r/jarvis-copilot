@@ -29,10 +29,10 @@
   // chattering when amplitude hovers right at one fixed threshold.
   const SPEECH_ON_THRESHOLD = 0.08;    // plan 1.1: amp >= this = speech begins
   const SPEECH_OFF_THRESHOLD = 0.04;   // plan 1.1: amp < this = counts as silence
-  const BASE_SILENCE_MS = 400;         // plan 1.1: default end-of-turn silence window (was a fixed 1500ms wait)
-  const EXTENDED_SILENCE_MS = 700;     // plan 1.1: window used when the pause looks mid-sentence, not a real stop
+  const BASE_SILENCE_MS = 650;         // plan 1.1: default end-of-turn silence window (was a fixed 1500ms wait)
+  const EXTENDED_SILENCE_MS = 1100;     // plan 1.1: window used when the pause looks mid-sentence, not a real stop
   const RISING_WINDOW_MS = 800;        // plan 1.1: trailing energy window used to detect a rising (vs falling) utterance
-  const SHORT_UTTERANCE_MS = 600;      // plan 1.1: utterances shorter than this when the pause starts are assumed mid-sentence (still talking)
+  const SHORT_UTTERANCE_MS = 1200;      // plan 1.1: utterances shorter than this when the pause starts are assumed mid-sentence (still talking)
   const MIN_UTTERANCE_MS = 250;        // plan 1.1: below this the "utterance" is actually a blip/cough - drop it, don't end_turn
   const MAX_UTTERANCE_MS = 30000;      // plan 1.1: hard cap - force end_turn even if the user never stops talking
 
