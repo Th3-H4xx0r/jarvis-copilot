@@ -142,6 +142,26 @@ class VoiceController extends ChangeNotifier {
   // Barge-in threshold (normalized 0..1), mirroring voice.js. The speech /
   // silence thresholds now live in [Endpointer] (plan 1.1).
   static const double _bargeInThreshold = 0.40;
+  // Sustained-speech barge-in: a single frame over 0.40 almost never happens
+  // for normal speech once echo cancellation has attenuated the mic, so also
+  // trip on a run of moderately loud frames (~200 ms) — the reply's own echo
+  // leak stays short and quiet, real speech doesn't.
+  static const double _bargeInSustainAmp = 0.18;
+  static const int _bargeInSustainFrames = 4;
+  int _bargeRun = 0;
+
+  bool _bargeInDetected(double amp) {
+    if (amp > _bargeInThreshold) {
+      _bargeRun = 0;
+      return true;
+    }
+    _bargeRun = amp > _bargeInSustainAmp ? _bargeRun + 1 : 0;
+    if (_bargeRun >= _bargeInSustainFrames) {
+      _bargeRun = 0;
+      return true;
+    }
+    return false;
+  }
 
   // ── Latency instrumentation (plan 0.2) ────────────────────────────────────
   // One id per spoken turn so a client span can be lined up with the server's
@@ -518,8 +538,13 @@ class VoiceController extends ChangeNotifier {
     // Barge-in: a loud frame during playback interrupts the assistant. Only
     // while foregrounded — backgrounded, the loud reply can leak past echo
     // cancellation and falsely trip the threshold.
-    if (state == VoiceState.speaking) {
-      if (_foreground && amp > _bargeInThreshold) {
+    // Also while "thinking" mid-reply (the gap between sentences / a tool
+    // call) once the server has started answering — the user shouldn't have
+    // to wait for the next sentence to start before they can cut in.
+    final replying = state == VoiceState.speaking ||
+        (state == VoiceState.thinking && _serverProducedOutput);
+    if (replying) {
+      if (_foreground && _bargeInDetected(amp)) {
         _sendJson({'type': 'interrupt'});
         unawaited(_audio.stop());
         unawaited(LocalTts.stop());
@@ -533,6 +558,7 @@ class VoiceController extends ChangeNotifier {
     }
 
     if (state != VoiceState.listening) return;
+    _bargeRun = 0;
     _sendBinary(chunk);
     // The platform recognizer ends its own session after a stretch of silence
     // (a user who opens the voice screen and pauses). Re-arm it BETWEEN
