@@ -68,7 +68,7 @@ class _FakeChannel:
 
 
 def _drive(monkeypatch, *, session_model=None, session_provider=None,
-           fast_lane=None, model_override="", provider_override=""):
+           fast_lane=None, model_override="", provider_override="", lane=""):
     """Drive _run_agent_turn_via_chat just far enough to observe the
     (model, provider) it hands to _resolve_compatible_session_model_state,
     without a real session store or a real streaming agent."""
@@ -97,6 +97,7 @@ def _drive(monkeypatch, *, session_model=None, session_provider=None,
     list(voice._run_agent_turn_via_chat(
         "sess-1", "hello",
         model_override=model_override, provider_override=provider_override,
+        lane=lane,
     ))
     return captured
 
@@ -128,11 +129,25 @@ def test_per_turn_override_wins_over_fast_lane(monkeypatch):
         fast_lane={"provider": "anthropic", "model": "claude-haiku-4-5"},
         model_override="claude-opus-5", provider_override="anthropic",
     )
+    # The fast lane is THE voice model: a client's per-turn override (the mobile
+    # composer's model on every begin_turn) no longer displaces it.
+    assert captured["model"] == "claude-haiku-4-5"
+    assert captured["provider"] == "anthropic"
+
+
+def test_per_turn_override_wins_when_client_asks_for_session_lane(monkeypatch):
+    captured = _drive(
+        monkeypatch,
+        session_model="whatever", session_provider="whatever-provider",
+        fast_lane={"provider": "anthropic", "model": "claude-haiku-4-5"},
+        model_override="claude-opus-5", provider_override="anthropic",
+        lane="session",
+    )
     assert captured["model"] == "claude-opus-5"
     assert captured["provider"] == "anthropic"
 
 
-def test_fast_lane_ignored_when_per_turn_override_set_even_partially(monkeypatch):
+def test_fast_lane_wins_over_partial_per_turn_override(monkeypatch):
     # Only model_override supplied — provider falls back to the session's own
     # provider (mirrors the pre-existing per-field fallback semantics), NOT
     # the fast lane.
@@ -142,5 +157,6 @@ def test_fast_lane_ignored_when_per_turn_override_set_even_partially(monkeypatch
         fast_lane={"provider": "anthropic", "model": "claude-haiku-4-5"},
         model_override="override-model", provider_override="",
     )
-    assert captured["model"] == "override-model"
-    assert captured["provider"] == "session-provider"
+    # Fast lane configured → it wins regardless of a partial override.
+    assert captured["model"] == "claude-haiku-4-5"
+    assert captured["provider"] == "anthropic"

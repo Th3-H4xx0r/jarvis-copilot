@@ -721,21 +721,22 @@ _VOICE_TURN_TIMEOUT_SECONDS = 180.0
 # confirm the result in ≤1 sentence after) instead of paragraphs of
 # explanation tuned for a bigger model.
 _VOICE_REPLY_DIRECTIVE = (
-    "[Voice mode — a small fast model's reply, read aloud by text-to-speech. "
-    "Follow these rules exactly:\n"
-    "1. Plain spoken language only — no markdown, asterisks, bullets, numbered "
-    "lists, headers, code blocks, emoji, or raw URLs. Say names, numbers, and "
-    "values in words.\n"
-    "2. Never narrate your reasoning or plan. Do not say 'I'm checking…', "
-    "'Let me…', 'I'll gather…', or describe tools or steps.\n"
-    "3. Before calling a tool, name what you're doing in 5 words or fewer "
-    "(for example: 'Checking the weather.').\n"
-    "4. After a tool returns, confirm the result in ONE short sentence, then "
-    "continue to the next step if needed.\n"
-    "5. Keep every reply to 2 sentences or fewer — EXCEPT a multi-part "
-    "briefing (for example: date, weather, calendar, news), where you call "
-    "ONE tool at a time (never in parallel) and speak each part's result in "
-    "one short sentence as it arrives.\n"
+    "[Voice mode — your reply is read aloud by text-to-speech. Rules:\n"
+    "1. Plain spoken language only — no markdown, asterisks, bullets, lists, "
+    "headers, code, emoji, or URLs. Say numbers and values in words.\n"
+    "2. Do not narrate steps, plans, reasoning, or tool use. Never say "
+    "'I'm checking', 'Let me', 'Loading', 'Verifying', or announce what you "
+    "are about to do.\n"
+    "3. For an action or lookup: call the tools silently, then speak ONE short "
+    "sentence with the outcome (for example: 'GPIO four is off.'). Only if the "
+    "task will clearly take several tools or more than a few seconds may you "
+    "say a two-word acknowledgement first ('On it.') — once, never per tool.\n"
+    "4. If a tool fails, say what failed in one sentence and stop; do not "
+    "narrate alternatives.\n"
+    "5. Keep every reply to two sentences or fewer — EXCEPT a multi-part "
+    "briefing (for example: date, weather, calendar, news), where you call ONE "
+    "tool at a time and speak each part's result in one sentence as it "
+    "arrives.\n"
     "Answer with only the actual content — nothing else.]\n\n"
 )
 
@@ -908,7 +909,8 @@ def _cancel_active_voice_stream(state: dict) -> None:
 
 
 def _run_agent_turn_via_chat(session_id: str, user_text: str,
-                             model_override: str = "", provider_override: str = ""):
+                             model_override: str = "", provider_override: str = "",
+                             lane: str = ""):
     """GENERATOR. Push `user_text` into the user's active chat session and
     yield segments as they arrive on the SSE stream so callers can react
     incrementally (TTS+play as each text segment lands; show tool status
@@ -974,20 +976,20 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     # uses, so an empty/stale/cross-provider override is normalized identically.
     override_model = (model_override or "").strip()
     override_provider = (provider_override or "").strip()
-    if override_model or override_provider:
+    fast_lane = None if lane == "session" else (get_voice_lane_config() or {}).get("fast_lane")
+    if fast_lane:
+        # plan 2.1 — the configured fast lane is THE voice model. It also beats
+        # the client's per-turn model override: the mobile app sends the chat
+        # composer's model (e.g. a Codex GPT model at medium effort) on every
+        # begin_turn, which silently put voice back on a slow, reasoning-heavy
+        # lane. A client that really wants the session model sends lane=session.
+        raw_model, raw_provider = fast_lane["model"], fast_lane["provider"]
+    elif override_model or override_provider:
         raw_model = override_model or getattr(s, "model", None)
         raw_provider = override_provider or getattr(s, "model_provider", None)
     else:
-        # No per-turn override — pin to the configured fast lane (plan 2.1),
-        # falling back to the session's own model when voice.fast_lane isn't
-        # configured. Replaces the old _maybe_redirect_voice_anthropic
-        # force-redirect off the raw anthropic API.
-        fast_lane = (get_voice_lane_config() or {}).get("fast_lane")
-        if fast_lane:
-            raw_model, raw_provider = fast_lane["model"], fast_lane["provider"]
-        else:
-            raw_model = getattr(s, "model", None)
-            raw_provider = getattr(s, "model_provider", None)
+        raw_model = getattr(s, "model", None)
+        raw_provider = getattr(s, "model_provider", None)
     try:
         eff_model, eff_provider, was_normalized = _resolve_compatible_session_model_state(
             raw_model,
@@ -1709,6 +1711,8 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         et_model = (msg.get("model") or "").strip()
         if et_model:
             state["model"] = et_model
+        if msg.get("lane"):
+            state["lane"] = str(msg.get("lane")).strip().lower()
         et_provider = (msg.get("model_provider") or "").strip()
         if et_provider:
             state["model_provider"] = et_provider
@@ -2188,6 +2192,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
         _mark_span(timing, "prep_ms", _elapsed_ms(timing))
         handled = _stream_segments(conn, sock, state, _run_agent_turn_via_chat(
             sid, transcript, model_override=turn_model, provider_override=turn_provider,
+            lane=(state.get("lane") or ""),
         ), timing=timing)
         _finish_turn_timing(conn, sock, timing)
         if handled:

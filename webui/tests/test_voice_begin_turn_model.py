@@ -180,7 +180,7 @@ def test_bridge_pipeline_passes_per_turn_model_override(monkeypatch):
 
     seen = {}
 
-    def _fake_run(sid, transcript, model_override="", provider_override=""):
+    def _fake_run(sid, transcript, model_override="", provider_override="", lane=""):
         seen["model_override"] = model_override
         seen["provider_override"] = provider_override
         return iter(())
