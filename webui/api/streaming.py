@@ -2761,6 +2761,33 @@ def _refresh_cached_agent_primary_runtime_snapshot(agent) -> None:
             rt['is_anthropic_oauth'] = getattr(agent, '_is_anthropic_oauth')
 
 
+def _refresh_device_tools(agent) -> None:
+    """plan 3.1 — merge the CURRENT native ``device_<skill>`` tools into a warm agent.
+
+    ``tools/device_skill_tools`` only registers its tools when imported, and the
+    per-session agent cache builds ``agent.tools`` once at construction — so a
+    device that connected later (or the module never being imported, as on the
+    first deploy) left the model with no device tools and 12 rounds of guessing.
+    Cheap: ``get_tool_definitions`` is cached on the registry generation.
+    """
+    try:
+        import tools.device_skill_tools  # noqa: F401  registers + subscribes on first import
+        from model_tools import get_tool_definitions
+        fresh = get_tool_definitions(enabled_toolsets=["devices"], quiet_mode=True) or []
+    except Exception:
+        return
+    try:
+        def _name(t):
+            return ((t.get("function") or {}).get("name") or t.get("name") or "") if isinstance(t, dict) else ""
+        current = list(getattr(agent, "tools", None) or [])
+        base = [t for t in current if not _name(t).startswith("device_")]
+        if len(base) == len(current) and not fresh:
+            return
+        agent.tools = base + list(fresh)
+    except Exception:
+        pass
+
+
 def _run_agent_streaming(
     session_id,
     msg_text,
@@ -3513,6 +3540,15 @@ def _run_agent_streaming(
                         _toolsets = _override
             except Exception as _ts_err:
                 print(f"[webui] WARNING: failed to read per-session toolsets for {session_id}: {_ts_err}", flush=True)
+            # plan 3.1 — the native device_<skill> tools live in the dynamic
+            # "devices" toolset. It's never in a stored toolset list (it didn't
+            # exist when configs were written), so enable it unconditionally;
+            # it's empty when no device is connected.
+            try:
+                if isinstance(_toolsets, (list, tuple)) and "devices" not in _toolsets:
+                    _toolsets = list(_toolsets) + ["devices"]
+            except Exception:
+                pass
 
             # Fallback model from profile config (e.g. for rate-limit recovery)
             _fallback = _cfg.get('fallback_model') or _cfg.get('fallback_providers') or None
@@ -3884,6 +3920,7 @@ def _run_agent_streaming(
             if _process_notifications:
                 _agent_msg_text = "\n\n".join([*_process_notifications, msg_text]).strip()
             user_message = _build_native_multimodal_message(workspace_ctx, _agent_msg_text, attachments, workspace, cfg=_cfg)
+            _refresh_device_tools(agent)  # plan 3.1 — warm agents have a static tool list
             result = agent.run_conversation(
                 user_message=user_message,
                 system_message=workspace_system_msg,

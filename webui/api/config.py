@@ -583,6 +583,7 @@ MIME_MAP = {
 # ── Toolsets (from config.yaml or hardcoded default) ─────────────────────────
 _DEFAULT_TOOLSETS = [
     "browser",
+    "devices",  # plan 3.1 — native device_<skill> tools (dynamic, empty when nothing is paired)
     "clarify",
     "code_execution",
     "cronjob",
