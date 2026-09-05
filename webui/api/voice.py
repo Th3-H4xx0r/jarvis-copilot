@@ -890,6 +890,23 @@ def _run_agent_continuation_after_clarify(session_id: str, answer: str):
     yield from _consume_agent_stream(channel, subscriber, stream_id)
 
 
+# session_id -> chat stream_id of the voice turn currently streaming, so a
+# barge-in can cancel the model stream itself (not just stop sending audio).
+_ACTIVE_VOICE_STREAMS: dict = {}
+
+
+def _cancel_active_voice_stream(state: dict) -> None:
+    sid = (state.get("session_id") or "").strip()
+    stream_id = _ACTIVE_VOICE_STREAMS.get(sid) if sid else None
+    if not stream_id:
+        return
+    try:
+        from api.streaming import cancel_stream  # type: ignore
+        cancel_stream(stream_id)
+    except Exception:
+        print("[webui] voice: cancel_stream failed: " + traceback.format_exc(), flush=True)
+
+
 def _run_agent_turn_via_chat(session_id: str, user_text: str,
                              model_override: str = "", provider_override: str = ""):
     """GENERATOR. Push `user_text` into the user's active chat session and
@@ -1009,7 +1026,12 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     if channel is None:
         raise _VoiceAgentError("stream channel disappeared before subscribe", status=500)
     subscriber = channel.subscribe()
-    yield from _consume_agent_stream(channel, subscriber, stream_id)
+    _ACTIVE_VOICE_STREAMS[session_id] = stream_id
+    try:
+        yield from _consume_agent_stream(channel, subscriber, stream_id)
+    finally:
+        if _ACTIVE_VOICE_STREAMS.get(session_id) == stream_id:
+            _ACTIVE_VOICE_STREAMS.pop(session_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -1524,11 +1546,44 @@ def _run_voice_ws(conn, sock) -> None:
     except Exception:
         print("[webui] voice WS error: " + traceback.format_exc(), flush=True)
     finally:
+        state["closed"] = True
+        state["interrupt"] = True
+        _cancel_active_voice_stream(state)
         _detach_escalation_sink(state)
         try:
             sock.close()
         except Exception:
             pass
+        thread = state.get("turn_thread")
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
+        _drop_send_lock(conn)
+
+
+# How long the recv loop waits for an interrupted turn's thread to stop before
+# starting the next turn. Long enough for cancel_stream + the current TTS
+# segment to drain, short enough that a wedged provider can't block speech.
+_TURN_JOIN_TIMEOUT_SECONDS = 6.0
+
+
+def _run_turn_body(state: dict, conn, sock) -> None:
+    """One voice turn end-to-end, on the turn thread (see end_turn handling)."""
+    state["turn_active"] = True  # plan 2.5 — escalation results wait for the turn
+    try:
+        # If the agent is paused on a clarify question, this end_turn is the
+        # user's spoken ANSWER — resolve it and resume; otherwise it's a new
+        # turn.
+        if state.get("clarify_pending"):
+            _bridge_answer_clarify(state, conn, sock)
+        else:
+            _bridge_pipeline(state, conn, sock)
+    except Exception:
+        print("[webui] bridge pipeline error: " + traceback.format_exc(), flush=True)
+        if not state.get("interrupt"):
+            _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "error"}))
+    finally:
+        state["turn_active"] = False
+        _flush_escalations(state, conn, sock)
 
 
 def _attach_escalation_sink(state: dict, conn, sock) -> None:
@@ -1625,8 +1680,24 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         if pretext:
             state["pretranscript"] = pretext
     elif t == "interrupt":
+        # Barge-in. Stop sending audio (the turn thread polls this flag) AND
+        # cancel the chat stream so the model stops generating and the session
+        # lock is released — otherwise the user's next end_turn fails with
+        # "session already has an active stream" ("something went wrong").
         state["interrupt"] = True
+        _cancel_active_voice_stream(state)
     elif t == "end_turn":
+        # A previous turn still streaming? The user spoke over it (barge-in
+        # without an explicit interrupt frame, or one that raced this frame):
+        # cancel it and wait for its thread to wind down before starting the
+        # next, so two turns never share the socket or the chat session.
+        prev = state.get("turn_thread")
+        if prev is not None and prev.is_alive():
+            state["interrupt"] = True
+            _cancel_active_voice_stream(state)
+            prev.join(timeout=_TURN_JOIN_TIMEOUT_SECONDS)
+            if prev.is_alive():
+                print("[webui] voice: previous turn did not stop in time; starting next anyway", flush=True)
         # Re-arm: a barge-in sets state["interrupt"]=True with no following
         # begin_turn (begin_turn is sent once per session), so without this the
         # flag stays set and every later turn — including a clarify answer —
@@ -1653,21 +1724,16 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         if msg.get("speech_end_ts") is not None:
             state["speech_end_ts"] = msg.get("speech_end_ts")
         state["_t_recv"] = time.monotonic()
-        state["turn_active"] = True  # plan 2.5 — escalation results wait for the turn
-        try:
-            # If the agent is paused on a clarify question, this end_turn is the
-            # user's spoken ANSWER — resolve it and resume; otherwise it's a new
-            # turn.
-            if state.get("clarify_pending"):
-                _bridge_answer_clarify(state, conn, sock)
-            else:
-                _bridge_pipeline(state, conn, sock)
-        except Exception:
-            print("[webui] bridge pipeline error: " + traceback.format_exc(), flush=True)
-            _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "error"}))
-        finally:
-            state["turn_active"] = False
-            _flush_escalations(state, conn, sock)
+        # The turn runs on its own thread so the recv loop keeps reading —
+        # an `interrupt` (or the next end_turn) must be seen WHILE the reply
+        # is streaming, not after it finishes. Before this the pipeline ran
+        # inline and every barge-in was processed a full reply late.
+        thread = threading.Thread(
+            target=_run_turn_body, args=(state, conn, sock),
+            name="voice-turn", daemon=True,
+        )
+        state["turn_thread"] = thread
+        thread.start()
 
 
 def _synth_audio(text: str):
@@ -2174,10 +2240,31 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
     _ws_send_text(conn, sock, json.dumps({"type": "end_turn"}))
 
 
+_WS_SEND_LOCKS: dict = {}
+_WS_SEND_LOCKS_GUARD = threading.Lock()
+
+
+def _send_lock_for(conn) -> threading.Lock:
+    """wsproto connections aren't thread-safe; the turn thread and the recv
+    loop (pongs, end_turn frames) both write, so serialise per connection."""
+    key = id(conn)
+    with _WS_SEND_LOCKS_GUARD:
+        lock = _WS_SEND_LOCKS.get(key)
+        if lock is None:
+            lock = _WS_SEND_LOCKS[key] = threading.Lock()
+        return lock
+
+
+def _drop_send_lock(conn) -> None:
+    with _WS_SEND_LOCKS_GUARD:
+        _WS_SEND_LOCKS.pop(id(conn), None)
+
+
 def _ws_send_text(conn, sock, text: str) -> bool:
     from wsproto.events import TextMessage
     try:
-        sock.sendall(conn.send(TextMessage(data=text)))
+        with _send_lock_for(conn):
+            sock.sendall(conn.send(TextMessage(data=text)))
         return True
     except Exception:
         return False
@@ -2186,7 +2273,8 @@ def _ws_send_text(conn, sock, text: str) -> bool:
 def _ws_send_bytes(conn, sock, data: bytes) -> bool:
     from wsproto.events import BytesMessage
     try:
-        sock.sendall(conn.send(BytesMessage(data=data)))
+        with _send_lock_for(conn):
+            sock.sendall(conn.send(BytesMessage(data=data)))
         return True
     except Exception:
         return False
