@@ -49,6 +49,10 @@ ANTHROPIC_TOOL_SEARCH_NAME = "tool_search_tool_bm25"
 # by toolset name — see ``NATIVE_ALWAYS_LOADED_TOOLSETS``.  plan 2.3
 NATIVE_ALWAYS_LOADED_TOOLS = (
     "terminal", "read_file", "write_file", "web_search", "memory",
+    # The system prompt tells the model to load a skill with skill_view(name)
+    # and to ask with clarify — deferring those strands it (observed: "missing
+    # tool_search for skills" → no morning brief). They're tiny schemas.
+    "skills_list", "skill_view", "clarify", "todo",
     # plan 2.5 — the fast lane's escape hatch. Deferring it would mean the small
     # model has to run a tool search just to admit it needs the big one.
     "escalate",
@@ -200,9 +204,14 @@ def apply_native_tool_search(api_kwargs: Dict[str, Any], agent=None) -> Dict[str
             # prompt (agent init ran before api_mode was resolvable, a resumed
             # session, …), keep the in-repo tool_search so the manifest's
             # instructions still have something to call.
-            keep_client_search = bool(getattr(agent, "_lazy_tools_manifest", ""))
+            # Always keep the in-repo tool_search as well: the system prompt's
+            # guidance ("load it with tool_search") is emitted from several
+            # places, not only the manifest, and a model that can't find the
+            # tool it was told to call silently gives up on the task
+            # (observed: skipped the morning-brief skill). One occasional
+            # redundant round trip beats a stranded turn.
             api_kwargs["tools"] = build_native_deferred_tools(
-                tools, drop_in_repo_search=not keep_client_search,
+                tools, drop_in_repo_search=False,
             )
     except Exception:
         _warn_once("native tool-search shaping failed; sending the full tool list")

@@ -117,9 +117,13 @@ class TestNativeDeferredToolShaping:
         lazy_tools.apply_native_tool_search(kwargs, _Agent())
         assert "tool_search" in {t.get("name") for t in kwargs["tools"]}
 
+        # Even without a manifest the in-repo tool_search stays: the system
+        # prompt's "load it with tool_search" guidance is emitted from more
+        # than the manifest, and a model told to call a missing tool gives up.
         kwargs = {"tools": _anthropic_tools(["tool_search", "terminal", "rare"])}
         lazy_tools.apply_native_tool_search(kwargs, None)
-        assert "tool_search" not in {t.get("name") for t in kwargs["tools"]}
+        names = {t.get("name") for t in kwargs["tools"]}
+        assert "tool_search" in names and "tool_search_tool_bm25" in names
 
     def test_empty_tool_list_is_left_alone(self):
         assert lazy_tools.build_native_deferred_tools([]) == []
