@@ -12,10 +12,17 @@ metadata:
 
 # Jarvis ESP32
 
-The **JarvisWearables** iOS app pairs to this server as a device and exposes every
-ESP32 board it is connected to (over Bluetooth or Wi‑Fi). The board runs the Jarvis
-firmware: a fixed base that owns the radios, security and a validated GPIO table, plus a
-**sandboxed Lua runtime** you program by uploading a script. You never reflash the board.
+A Jarvis ESP32 board reaches this server one of two ways, and the skills are identical:
+
+- **Through the phone.** The **JarvisWearables** iOS app pairs as a device and exposes
+  every board it is connected to (Bluetooth or Wi‑Fi) as `esp32_*` skills.
+- **Directly.** Once the board is on Wi‑Fi and linked from the app, it pairs as its own
+  device (named `Jarvis-ESP32 board`) and holds the bridge WebSocket itself — no phone
+  needed. Prefer this device when both appear.
+
+The board runs the Jarvis firmware: a fixed base that owns the radios, security and a
+validated GPIO table, plus a **sandboxed Lua runtime** you program by uploading a
+script. You never reflash the board.
 
 Board: DOIT ESP32 DEVKIT V1. Onboard blue LED on GPIO 2.
 
@@ -78,10 +85,13 @@ sleep_ms(ms)                -- inside a callback only; keep it short
 millis()
 print(...)                  -- appears in the app console and esp32_script_status
 
-jarvis.notify(title, body)  -- an iPhone notification, delivered by the app immediately
+jarvis.notify(title, body)  -- a visible notification on the user's phone (via the app,
+                            -- or via the `notify_phone` push when the board is linked directly)
 jarvis.invoke(name, args_table [, function(ok, text) ... end])
                             -- ask Jarvis (you) to do `name` with `args`; runs as a
-                            -- background turn with all your tools; callback gets one line
+                            -- background turn with all your tools. Via the phone the
+                            -- callback gets your one-line reply; on a direct link it
+                            -- gets "sent to Jarvis" as soon as the server accepts it.
 wifi.status()               -- { state, ip, rssi, hostname, ssid }
 ```
 
@@ -136,6 +146,11 @@ end)
 `jarvis.invoke` arrives to you as a prompt like *"The Jarvis ESP32 board … requests the
 action `send_message` with arguments {...}. Carry it out with your tools…"* — do it, then
 reply with one line; that line is what the script's callback receives.
+
+Start scripts with `--` comment lines that say what the script does and the wiring it
+assumes — the app shows those lines as the script's summary on the board's screen.
+
+You also have the `notify_phone` tool yourself for alerts that don't come from a script.
 
 ## Workflow
 
