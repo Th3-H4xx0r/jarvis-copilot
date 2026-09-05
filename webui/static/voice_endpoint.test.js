@@ -32,7 +32,7 @@ test('short blip (< minUtteranceMs of speech) is ignored, never fires', () => {
 
 test('pause mid-sentence (short utterance) extends the silence window', () => {
   const ep = createEndpointer();
-  // 300ms of speech - real (>= minUtteranceMs) but short (< shortUtteranceMs=600),
+  // 300ms of speech - real (>= minUtteranceMs) but short (< shortUtteranceMs=1200),
   // so the following pause should be treated as "still talking" and need the
   // extended window, not the base one.
   feedRun(ep, 0.5, 300, 20);
@@ -54,11 +54,11 @@ test('pause mid-sentence (short utterance) extends the silence window', () => {
   assert.equal(r2.reason, 'silence');
 });
 
-test('clean stop (longer, flat utterance) fires at ~ the base ~400ms window', () => {
+test('clean stop (longer, flat utterance) fires at ~ the base silence window', () => {
   const ep = createEndpointer();
-  // 1000ms of steady (non-rising) speech - well over shortUtteranceMs, so the
-  // base window applies once the user stops.
-  feedRun(ep, 0.5, 1000, 20);
+  // 1600ms of steady (non-rising) speech - well over shortUtteranceMs (1200),
+  // so the base window applies once the user stops.
+  feedRun(ep, 0.5, 1600, 20);
 
   let elapsed = 0;
   let fired = false;
