@@ -6453,6 +6453,23 @@ def handle_post(handler, parsed) -> bool:
             logger.debug("CF service token unavailable for pair/start", exc_info=True)
         return j(handler, info)
 
+    # POST /api/devices/notify — a visible banner on every registered phone.
+    # Used by paired devices (the JarvisWearables app, ESP32 boards) and by the
+    # `notify_phone` tool so an automation can reach the user even when the
+    # app is closed. Body: {title, body}.
+    if parsed.path == "/api/devices/notify":
+        title = (body.get("title") or "").strip()[:80]
+        text = (body.get("body") or "").strip()[:400]
+        if not title and not text:
+            return bad(handler, "title or body is required")
+        try:
+            from api.coding_routes import _push_device_alert
+            sent = _push_device_alert(title or "Jarvis", text)
+        except Exception as e:
+            logger.warning("devices/notify push failed: %s", e)
+            sent = 0
+        return j(handler, {"ok": sent > 0, "sent": sent})
+
     if parsed.path == "/api/devices/pair/cancel":
         from api.pairing import cancel_pairing_code
         code = (body.get("code") or "").strip().upper()
