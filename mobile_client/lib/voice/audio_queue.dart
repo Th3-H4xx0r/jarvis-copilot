@@ -103,8 +103,13 @@ class AudioQueue {
   int _nativeSegBaseMs = 0; // fed ms when the current segment began
   DateTime? _nativeStart; // wall clock at first feed
   Timer? _nativeTick;
+  bool _nativePending = false; // a feed is queued on the chain but not yet run
+  DateTime? _nativeLastFeed; // wall clock of the last feed (stall safety)
   static const int _kNativeTickMs = 100; // karaoke position cadence
   static const int _kNativeIdleGraceMs = 120; // wait for the last buffer to drain
+  // Safety net: if audio_end never arrives (dropped frame, server error) go
+  // idle once everything fed has played and nothing new came for this long.
+  static const int _kNativeStallIdleMs = 1500;
 
   /// Enqueue an MP3 clip (raw bytes). [tag] (a segment id) lets the caller
   /// sync a word highlight to this clip's playback.
@@ -141,8 +146,13 @@ class AudioQueue {
   /// The segment is complete — play whatever is left of it.
   void endPcmSegment({int? tag}) {
     if (_stopped) return;
-    if (_nativeActive) {
-      _nativeEnded = true;
+    if (_nativeActive || (_native.available && _nativePending)) {
+      // Ordered behind the feeds already queued on the chain: a short reply's
+      // audio_end can land before the first feed() has even opened the stream,
+      // and marking "ended" ahead of that feed would be overwritten by it.
+      _nativeChain = _nativeChain.then((_) {
+        if (_nativeActive) _nativeEnded = true;
+      });
       return;
     }
     final chunker = _chunker;
@@ -158,7 +168,9 @@ class AudioQueue {
 
   void _appendNative(Uint8List pcm, int sampleRate, int? tag) {
     final ms = pcm.lengthInBytes ~/ 2 * 1000 ~/ sampleRate;
+    _nativePending = true;
     _nativeChain = _nativeChain.then((_) async {
+      _nativePending = false;
       if (_stopped) return;
       if (!_nativeActive) {
         if (!await _native.start(sampleRate)) {
@@ -185,6 +197,7 @@ class AudioQueue {
       _nativeEnded = false;
       await _native.feed(pcm);
       _nativeFedMs += ms;
+      _nativeLastFeed = DateTime.now();
       if (_nativeStart == null) {
         _nativeStart = DateTime.now();
         _currentTag = tag;
@@ -212,6 +225,15 @@ class AudioQueue {
       }
       if (_nativeEnded && elapsed >= _nativeFedMs + _kNativeIdleGraceMs) {
         _finishNative(fireIdle: true);
+        return;
+      }
+      final last = _nativeLastFeed;
+      if (!_nativePending &&
+          last != null &&
+          elapsed >= _nativeFedMs + _kNativeStallIdleMs &&
+          DateTime.now().difference(last).inMilliseconds >= _kNativeStallIdleMs) {
+        debugPrint('[audio] native stream: no audio_end — idling after stall');
+        _finishNative(fireIdle: true);
       }
     });
   }
@@ -222,6 +244,7 @@ class AudioQueue {
     _nativeActive = false;
     _nativeEnded = false;
     _nativeStart = null;
+    _nativeLastFeed = null;
     _nativeTag = null;
     _currentTag = null;
     _playing = false;
