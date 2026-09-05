@@ -143,9 +143,17 @@ on_input(27, function(level)
 end)
 ```
 
-`jarvis.invoke` arrives to you as a prompt like *"The Jarvis ESP32 board … requests the
-action `send_message` with arguments {...}. Carry it out with your tools…"* — do it, then
-reply with one line; that line is what the script's callback receives.
+**How `jarvis.invoke` is routed — write scripts accordingly.** The `name` is first tried
+as a *device skill* on the server (`POST /api/devices/skills/invoke`): if a paired device
+advertises a skill with exactly that name, it runs immediately, with no model and no
+conversation. Only when no such skill exists does the request become a short agent turn
+in the board's single "events" conversation, where you carry it out with your tools and
+reply in one line (that line reaches the script's callback).
+
+So, in scripts, **prefer exact skill names** — check `devices.py skills` for what the
+user's Mac/phone advertise (e.g. a browser-open skill on the Mac) and use those names
+and argument shapes. Reserve free-form names for things only you can do. Never make a
+script call `jarvis.invoke` more than a few times a minute; it is not a logging channel.
 
 Start scripts with `--` comment lines that say what the script does and the wiring it
 assumes — the app shows those lines as the script's summary on the board's screen.
