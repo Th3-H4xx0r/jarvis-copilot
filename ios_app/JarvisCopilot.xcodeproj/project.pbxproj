@@ -447,6 +447,7 @@
 		FE3D36A6864BB28B7D763003 /* WakeWordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 966F91BC978157DBBE411E6F /* WakeWordTests.swift */; };
 		FEC5436CF7CC309FA1DBA6F0 /* JarvisActivityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3634082F63862E42A4DC85D /* JarvisActivityViews.swift */; };
 		FF76E467CCE188136DF929EA /* OnDeviceChatBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76F49FA45D26A5348A0DB282 /* OnDeviceChatBridge.swift */; };
+		AABB00AA00000000ICON0002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AABB00AA00000000ICON0001 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -924,6 +925,7 @@
 		FEA0C0B3D8AECE1A1E1024D8 /* MemoryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MemoryTests.swift; sourceTree = "<group>"; };
 		FEECBD4B5207707D0F7D6AAF /* CodingChatModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingChatModels.swift; sourceTree = "<group>"; };
 		FFCB08C9E189D1906A4D2402 /* IslandOffline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandOffline.swift; sourceTree = "<group>"; };
+		AABB00AA00000000ICON0001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1171,6 +1173,7 @@
 				707A1B8AA6F495C9BF6658C2 /* Info.plist */,
 				9D8646823D2A436F94EB3CE6 /* JarvisCopilot.entitlements */,
 				12285FC2888FDB893E5294F4 /* Copilot */,
+				AABB00AA00000000ICON0001 /* Assets.xcassets */,
 			);
 			path = JarvisCopilot;
 			sourceTree = "<group>";
@@ -2025,6 +2028,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AABB00AA00000000ICON0002 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2619,6 +2623,7 @@
 		7B6113DD6B222A4782D1BA33 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = "JarvisCopilot/JarvisCopilot-iOS.entitlements";
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = JarvisCopilot/JarvisCopilot.entitlements;
@@ -2709,6 +2714,7 @@
 		C55EB4388726D8526E972015 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = "JarvisCopilot/JarvisCopilot-iOS.entitlements";
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = JarvisCopilot/JarvisCopilot.entitlements;
