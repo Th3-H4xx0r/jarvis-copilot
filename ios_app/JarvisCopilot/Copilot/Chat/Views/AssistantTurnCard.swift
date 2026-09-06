@@ -1,64 +1,58 @@
 import SwiftUI
 
-/// One assistant turn: a 26 pt avatar beside a single translucent card holding —
-/// in this order — the reasoning trace, the compact tool rows, and the reply
-/// text; with the stats line tucked underneath in grey.
-///
-/// This is `Esp32ChatView`'s reply layout with the extra structure the Jarvis
-/// chat has (`chat/widgets/message_view.dart`): interleaved blocks, an error
-/// turn, the on-device badge and its "Try on server" retry.
+/// One assistant turn with a quiet speaker label and room for the reply.
+/// Reasoning, tools, errors, on-device retry and stats retain their own hierarchy.
 struct ChatAssistantTurnCard: View {
     let message: ChatMessage
     var onCopy: (() -> Void)?
     var onRetryOnServer: (() -> Void)?
 
+    @State private var copied = false
+    @State private var selecting = false
+
     private var tools: [ToolInvocation] { message.tools }
     private var hasText: Bool { !message.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    /// "Running <tool>…" while a call is in flight, "Thinking…" while the model
-    /// reasons, nothing when we simply have not heard back yet.
-    private var activityLabel: String? {
-        if let last = tools.last, !last.done { return "Running \(last.shortName)…" }
-        if !message.reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Thinking…" }
-        return nil
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 10) {
-                avatar.padding(.top, 2)
-                card
-                Spacer(minLength: 24)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 7) {
+                Image(systemName: message.onDevice ? "bolt.fill" : "sparkles")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(JcTheme.cyan)
+                    .accessibilityHidden(true)
+                Text("Jarvis")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(JcTheme.text.opacity(0.8))
             }
-            .padding(.horizontal, 16)
+            card
+
+            if hasText, !message.streaming, !message.isError {
+                actions
+            }
 
             if !footer.isEmpty {
                 ChatStatsLine(text: footer)
-                    .padding(.leading, 52)
-                    .padding(.top, 4)
             }
         }
-    }
-
-    private var avatar: some View {
-        ZStack {
-            Circle().fill(JcTheme.accent.opacity(0.18)).frame(width: 26, height: 26)
-            Image(systemName: message.onDevice ? "bolt.fill" : "sparkles")
-                .font(.caption)
-                .foregroundStyle(message.onDevice ? JcTheme.cyan : JcTheme.accent)
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24)
     }
 
     private var card: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             if !message.reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 ChatReasoningCard(text: message.reasoning, active: message.streaming && !hasText)
             }
 
             if !tools.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 10) {
                     ForEach(tools) { ChatToolRow(tool: $0) }
                 }
+                .padding(12)
+                .background(.white.opacity(0.035),
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(.white.opacity(0.06), lineWidth: 0.5))
             }
 
             ForEach(message.blocks) { block in
@@ -71,21 +65,53 @@ struct ChatAssistantTurnCard: View {
                 }
             }
 
-            if message.streaming && !hasText {
-                HStack(spacing: 8) {
-                    ChatThinkingDots()
-                    if let activityLabel {
-                        Text(activityLabel).font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 2)
+            if message.streaming && !hasText
+                && message.reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !tools.contains(where: { !$0.done }) {
+                ChatThinkingDots().padding(.vertical, 2)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Color.white.opacity(0.07),
-                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contextMenu { menu }
+    }
+
+    /// Small icon actions under a settled reply: copy the whole message, or open
+    /// it in a selectable text view (SwiftUI's `textSelection` only copies a whole
+    /// block, so partial selection needs a real `UITextView`).
+    private var actions: some View {
+        HStack(spacing: 14) {
+            Button {
+                if let onCopy { onCopy() } else {
+                    #if canImport(UIKit)
+                    UIPasteboard.general.string = message.plainText
+                    #endif
+                }
+                withAnimation(.snappy) { copied = true }
+                Task { try? await Task.sleep(for: .seconds(1.6)); withAnimation { copied = false } }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(copied ? JcTheme.success : JcTheme.muted)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(copied ? "Copied" : "Copy message")
+
+            Button { selecting = true } label: {
+                Image(systemName: "text.cursor")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(JcTheme.muted)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Select text")
+        }
+        .padding(.top, -4)
+        .sheet(isPresented: $selecting) {
+            ChatSelectTextSheet(text: message.plainText)
+        }
     }
 
     @ViewBuilder private var menu: some View {
@@ -122,3 +148,63 @@ struct ChatAssistantTurnCard: View {
         return stats
     }
 }
+
+/// A reply opened for partial selection: a plain `UITextView` (selectable, not
+/// editable) so the usual iOS handles, "Copy" and "Select All" all work.
+struct ChatSelectTextSheet: View {
+    let text: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            SelectableTextView(text: text)
+                .ignoresSafeArea(edges: .bottom)
+                .background(JcTheme.bg)
+                .navigationTitle("Select text")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            #if canImport(UIKit)
+                            UIPasteboard.general.string = text
+                            #endif
+                        } label: { Image(systemName: "doc.on.doc") }
+                        .accessibilityLabel("Copy all")
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+        }
+        .presentationDragIndicator(.visible)
+    }
+}
+
+#if canImport(UIKit)
+struct SelectableTextView: UIViewRepresentable {
+    let text: String
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.isEditable = false
+        view.isSelectable = true
+        view.isScrollEnabled = true
+        view.backgroundColor = .clear
+        view.textColor = UIColor(JcTheme.text)
+        view.font = UIFont.preferredFont(forTextStyle: .body)
+        view.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 32, right: 16)
+        view.dataDetectorTypes = [.link]
+        view.text = text
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        if view.text != text { view.text = text }
+    }
+}
+#else
+struct SelectableTextView: View {
+    let text: String
+    var body: some View { ScrollView { Text(text).textSelection(.enabled).padding() } }
+}
+#endif

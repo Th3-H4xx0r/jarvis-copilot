@@ -256,63 +256,92 @@ func chatInlineMarkdown(_ text: String) -> AttributedString {
     ChatMarkdownCache.inline(for: text)
 }
 
-/// A pipe table as a real grid: bold header, hairline row dividers, columns sized
-/// to content with a cap so a wordy cell wraps instead of pushing the table off
-/// screen, and the whole grid scrolls sideways when it's still wider than the
-/// bubble.
+/// A pipe table. Column widths are measured up front (the widest cell in each
+/// column, capped so a wordy cell wraps), then rows are plain `HStack`s of
+/// fixed-width cells: SwiftUI's `Grid` can't size rows whose cells wrap inside a
+/// horizontal `ScrollView`, which is what made rows overlap. The table scrolls
+/// sideways when the summed widths exceed the bubble.
 struct ChatMarkdownTable: View {
     let table: MarkdownTable
 
-    private let cellMaxWidth: CGFloat = 230
+    private static let cellMaxWidth: CGFloat = 220
+    private static let cellMinWidth: CGFloat = 56
+    private static let cellPadding: CGFloat = 10
+
+    private var widths: [CGFloat] {
+        let columns = table.header.count
+        return (0..<columns).map { column in
+            var widest = Self.measure(table.header[column], bold: true)
+            for row in table.rows where column < row.count {
+                widest = max(widest, Self.measure(row[column], bold: false))
+            }
+            return min(max(widest + Self.cellPadding * 2 + 2, Self.cellMinWidth), Self.cellMaxWidth)
+        }
+    }
+
+    /// Single-line width of a cell's text, markdown markers stripped.
+    private static func measure(_ text: String, bold: Bool) -> CGFloat {
+        #if canImport(UIKit)
+        let plain = text.replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "`", with: "")
+        let base = UIFont.preferredFont(forTextStyle: .subheadline)
+        let font = bold ? UIFont.systemFont(ofSize: base.pointSize, weight: .semibold) : base
+        let size = (plain as NSString).size(withAttributes: [.font: font])
+        return ceil(size.width)
+        #else
+        return CGFloat(text.count) * 8
+        #endif
+    }
 
     var body: some View {
+        let widths = widths
         ScrollView(.horizontal, showsIndicators: false) {
-            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
-                GridRow {
-                    ForEach(Array(table.header.enumerated()), id: \.offset) { column, text in
-                        cell(text, column: column, header: true)
-                    }
-                }
-                .background(JcTheme.surfaceAlt.opacity(0.55))
-                Divider().overlay(JcTheme.border)
-                ForEach(Array(table.rows.enumerated()), id: \.offset) { rowIndex, row in
-                    GridRow {
-                        ForEach(Array(row.enumerated()), id: \.offset) { column, text in
-                            cell(text, column: column, header: false)
-                        }
-                    }
-                    if rowIndex < table.rows.count - 1 {
-                        Divider().overlay(JcTheme.border.opacity(0.6))
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                row(table.header, widths: widths, header: true)
+                    .background(JcTheme.surfaceAlt.opacity(0.55))
+                ForEach(Array(table.rows.enumerated()), id: \.offset) { index, cells in
+                    Rectangle().fill(JcTheme.border.opacity(index == 0 ? 1 : 0.6)).frame(height: 1)
+                    row(cells, widths: widths, header: false)
                 }
             }
+            .fixedSize()
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(JcTheme.border, lineWidth: 1))
         }
     }
 
-    private func alignment(_ column: Int) -> SwiftUI.Alignment {
+    private func row(_ cells: [String], widths: [CGFloat], header: Bool) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(Array(widths.enumerated()), id: \.offset) { column, width in
+                let text = column < cells.count ? cells[column] : ""
+                Text(chatInlineMarkdown(text))
+                    .font(header ? .subheadline.weight(.semibold) : .subheadline)
+                    .foregroundStyle(header ? JcTheme.text : JcTheme.text.opacity(0.92))
+                    .multilineTextAlignment(textAlignment(column))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: width - Self.cellPadding * 2, alignment: frameAlignment(column))
+                    .padding(.horizontal, Self.cellPadding)
+                    .padding(.vertical, 7)
+            }
+        }
+    }
+
+    private func frameAlignment(_ column: Int) -> SwiftUI.Alignment {
+        guard column < table.alignments.count else { return .topLeading }
+        switch table.alignments[column] {
+        case .leading: return .topLeading
+        case .center: return .top
+        case .trailing: return .topTrailing
+        }
+    }
+
+    private func textAlignment(_ column: Int) -> TextAlignment {
         guard column < table.alignments.count else { return .leading }
         switch table.alignments[column] {
         case .leading: return .leading
         case .center: return .center
         case .trailing: return .trailing
         }
-    }
-
-    private func cell(_ text: String, column: Int, header: Bool) -> some View {
-        Text(chatInlineMarkdown(text))
-            .font(header ? .subheadline.weight(.semibold) : .subheadline)
-            .foregroundStyle(header ? JcTheme.text : JcTheme.text.opacity(0.92))
-            .multilineTextAlignment(alignment(column) == .center ? .center
-                                    : alignment(column) == .trailing ? .trailing : .leading)
-            .textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: cellMaxWidth, alignment: alignment(column))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .frame(maxHeight: .infinity, alignment: .topLeading)
-            .gridColumnAlignment(alignment(column).horizontal)
     }
 }
