@@ -136,15 +136,12 @@ struct PairPage: View {
                 Spacer(minLength: 0)
                 orbSlot(.welcome, size: Self.orbWelcomeSize)
                 VStack(spacing: 10) {
-                    Text("Hey, I'm Jarvis.")
-                        .font(.system(size: 34, weight: .bold))
-                        .foregroundStyle(JcTheme.text)
-                        .modifier(Entrance(revealed: revealed, index: 1, reduceMotion: reduceMotion))
-                    Text("Your assistant across every device you own.")
-                        .font(JcText.body)
-                        .foregroundStyle(JcTheme.muted)
-                        .multilineTextAlignment(.center)
-                        .modifier(Entrance(revealed: revealed, index: 2, reduceMotion: reduceMotion))
+                    WordReveal("Hey, I'm Jarvis.", font: .system(size: 34, weight: .bold),
+                               color: JcTheme.text, revealed: revealed, startDelay: 0.25,
+                               step: 0.16, reduceMotion: reduceMotion)
+                    WordReveal("Your assistant across every device you own.", font: JcText.body,
+                               color: JcTheme.muted, revealed: revealed, startDelay: 0.85,
+                               step: 0.07, reduceMotion: reduceMotion)
                 }
                 .padding(.top, 8)
                 Spacer(minLength: 0)
@@ -442,17 +439,18 @@ private struct LivingAurora: View {
             GeometryReader { g in
                 let w = g.size.width, h = g.size.height
                 ZStack {
-                    LinearGradient(colors: [Color(jcHex: 0x0A0C12), Color(jcHex: 0x050608)],
+                    LinearGradient(colors: [Color(jcHex: 0x07090F), Color(jcHex: 0x04050A)],
                                    startPoint: .top, endPoint: .bottom)
-                    // Wide, slow orbits so the colour visibly wanders the whole page.
-                    blob(JcTheme.cyan, 0.30, 520,
-                         x: w * (0.30 + 0.30 * sin(t / 7)), y: h * (0.25 + 0.20 * cos(t / 9)))
-                    blob(JcTheme.primaryBlue, 0.28, 600,
-                         x: w * (0.70 + 0.28 * cos(t / 8)), y: h * (0.45 + 0.25 * sin(t / 6.5)))
-                    blob(JcTheme.accent, 0.26, 520,
-                         x: w * (0.40 + 0.32 * sin(t / 9 + 1)), y: h * (0.75 + 0.18 * cos(t / 7 + 2)))
-                    blob(JcTheme.accentAlt, 0.16, 440,
-                         x: w * (0.65 + 0.30 * cos(t / 10 + 1)), y: h * (0.85 + 0.12 * sin(t / 8 + 1)))
+                    // Distinct colour fields on ~10–16 s orbits that cross the whole
+                    // page; small enough that most of the screen stays dark between them.
+                    blob(JcTheme.cyan, 0.34, 300,
+                         x: w * (0.30 + 0.42 * sin(t / 2.6)), y: h * (0.22 + 0.22 * cos(t / 2.1)))
+                    blob(JcTheme.primaryBlue, 0.34, 340,
+                         x: w * (0.70 + 0.38 * cos(t / 2.3 + 1)), y: h * (0.50 + 0.30 * sin(t / 2.9)))
+                    blob(JcTheme.accent, 0.30, 320,
+                         x: w * (0.40 + 0.44 * sin(t / 3.1 + 2)), y: h * (0.78 + 0.18 * cos(t / 2.4 + 1)))
+                    blob(JcTheme.accentAlt, 0.18, 260,
+                         x: w * (0.62 + 0.40 * cos(t / 2.7 + 3)), y: h * (0.35 + 0.35 * sin(t / 3.3 + 2)))
                 }
             }
         }
@@ -462,7 +460,44 @@ private struct LivingAurora: View {
         Circle()
             .fill(color.opacity(alpha))
             .frame(width: size, height: size)
-            .blur(radius: size * 0.30)
+            .blur(radius: size * 0.22)
             .position(x: x, y: y)
+    }
+}
+
+/// A line of text whose words fade and rise in one after another.
+private struct WordReveal: View {
+    let words: [String]
+    let font: Font
+    let color: Color
+    let revealed: Bool
+    let startDelay: Double
+    let step: Double
+    let reduceMotion: Bool
+
+    init(_ text: String, font: Font, color: Color, revealed: Bool,
+         startDelay: Double, step: Double, reduceMotion: Bool) {
+        words = text.split(separator: " ").map(String.init)
+        self.font = font; self.color = color; self.revealed = revealed
+        self.startDelay = startDelay; self.step = step; self.reduceMotion = reduceMotion
+    }
+
+    var body: some View {
+        let shown = revealed || reduceMotion
+        HStack(spacing: 0) {
+            ForEach(Array(words.enumerated()), id: \.offset) { i, word in
+                Text(word + (i < words.count - 1 ? " " : ""))
+                    .font(font)
+                    .foregroundStyle(color)
+                    .opacity(shown ? 1 : 0)
+                    .offset(y: shown ? 0 : 10)
+                    .blur(radius: shown ? 0 : 3)
+                    .animation(reduceMotion ? nil
+                               : .easeOut(duration: 0.5).delay(startDelay + Double(i) * step),
+                               value: shown)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity)
     }
 }
