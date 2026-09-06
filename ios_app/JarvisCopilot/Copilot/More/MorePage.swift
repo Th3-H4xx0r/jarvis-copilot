@@ -6,9 +6,9 @@ import SwiftUI
 /// `MoreDestination` to a screen. To land a real page, add its file in the area
 /// that owns it and change that case.
 struct MorePage: View {
-    private let columns = [GridItem(.flexible(), spacing: 12),
-                           GridItem(.flexible(), spacing: 12),
-                           GridItem(.flexible(), spacing: 12)]
+    private let columns = [GridItem(.flexible(), spacing: 10),
+                           GridItem(.flexible(), spacing: 10),
+                           GridItem(.flexible(), spacing: 10)]
 
     /// The grid owns its stack. `path:` exists so a test (or a future deep link)
     /// can open a screen without a tap — SwiftUI's tiles are not `UIView`s, so
@@ -25,7 +25,7 @@ struct MorePage: View {
     var body: some View {
         NavigationStack(path: path) {
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 12) {
+                LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(MoreDestination.grid) { item in
                         NavigationLink(value: item) { Tile(item: item) }
                             .buttonStyle(.plain)
@@ -79,28 +79,31 @@ struct MorePage: View {
     /// One launcher: a frosted square with a circular glyph and a two-line label.
     /// `blur: false` — a grid of blurred cards is the one place the material
     /// actually costs frames.
+    /// A launcher in the Voice page's register: flat, quiet, one icon and a
+    /// label — no chip inside a card.
     private struct Tile: View {
         let item: MoreDestination
 
         var body: some View {
-            GlassCard(padding: 10, blur: false) {
-                VStack(spacing: 10) {
-                    Image(systemName: item.symbol)
-                        .font(.system(size: 22, weight: .regular))
-                        .foregroundStyle(JcTheme.primaryBlue)
-                        .frame(width: 48, height: 48)
-                        .background(JcTheme.glassFill, in: Circle())
-                        .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-                    Text(item.title)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(JcTheme.text)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.85)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 106)
+            VStack(spacing: 9) {
+                Image(systemName: item.symbol)
+                    .font(.system(size: 21, weight: .regular))
+                    .foregroundStyle(JcTheme.cyan.opacity(0.9))
+                    .frame(height: 26)
+                Text(item.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(JcTheme.text.opacity(0.85))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
             }
+            .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity)
+            .frame(height: 92)
+            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
     }
 }

@@ -63,15 +63,17 @@ struct AppBackground<Content: View>: View {
 struct GlassCard<Content: View>: View {
     var padding: CGFloat = 16
     var radius: CGFloat = JcTheme.cardRadius
-    /// `false` swaps the material for a flat fill — use it inside grids and lists.
-    var blur: Bool = true
+    /// `true` puts a material blur behind the card. Off by default: the app's
+    /// screens (see the Voice page) sit flat on the aurora, and a blurred card
+    /// inside a scroll of them reads heavier than everything around it.
+    var blur: Bool = false
     var fill: Color? = nil
     var borderColor: Color? = nil
     @ViewBuilder var content: Content
 
     init(padding: CGFloat = 16,
          radius: CGFloat = JcTheme.cardRadius,
-         blur: Bool = true,
+         blur: Bool = false,
          fill: Color? = nil,
          borderColor: Color? = nil,
          @ViewBuilder content: () -> Content) {
@@ -102,10 +104,10 @@ struct GlassCard<Content: View>: View {
 
 /// A rounded frosted container that groups `GlassRow`s (iOS inset-list style).
 struct GlassGroup<Content: View>: View {
-    var blur: Bool = true
+    var blur: Bool = false
     @ViewBuilder var content: Content
 
-    init(blur: Bool = true, @ViewBuilder content: () -> Content) {
+    init(blur: Bool = false, @ViewBuilder content: () -> Content) {
         self.blur = blur
         self.content = content()
     }
@@ -312,14 +314,8 @@ struct GlassSectionLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
 
-    var body: some View {
-        Text(text)
-            .font(.system(size: 18, weight: .bold))
-            .foregroundStyle(JcTheme.text)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 4)
-            .padding(.bottom, 12)
-    }
+    /// Same register as ``GlassQuietLabel`` — every screen now shares it.
+    var body: some View { GlassQuietLabel(text) }
 }
 
 /// Section label in the Voice page's register — small, spaced, muted — for the

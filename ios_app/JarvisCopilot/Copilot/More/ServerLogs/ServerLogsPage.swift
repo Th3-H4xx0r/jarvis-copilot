@@ -257,7 +257,7 @@ struct ServerLogsFooter: View {
                     HStack(spacing: 6) {
                         PulsingDot(color: JcTheme.success, size: 7)
                         Text("LIVE")
-                            .font(.system(size: 10.5, weight: .bold)).kerning(0.6)
+                            .font(.system(size: 10.5, weight: .semibold)).kerning(0.6)
                             .foregroundStyle(JcTheme.success)
                     }
                 }

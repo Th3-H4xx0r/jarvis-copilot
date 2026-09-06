@@ -154,7 +154,7 @@ struct CronJobCard: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 10) {
                         Text(job.name.isEmpty ? "(unnamed)" : job.name)
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(JcTheme.text)
                             .lineLimit(1)
                         Spacer(minLength: 0)

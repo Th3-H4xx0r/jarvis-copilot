@@ -203,17 +203,17 @@ struct IslandManageRow: View {
     private var priority: some View {
         HStack(spacing: 2) {
             Button { onPriority(max(0, entry.priority - 1)) } label: {
-                Image(systemName: "minus").font(.system(size: 11, weight: .bold))
+                Image(systemName: "minus").font(.system(size: 11, weight: .semibold))
                     .frame(width: 24, height: 24).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(busy || entry.priority <= 0)
             Text("\(entry.priority)")
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(JcTheme.text)
                 .frame(minWidth: 18)
             Button { onPriority(min(99, entry.priority + 1)) } label: {
-                Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                Image(systemName: "plus").font(.system(size: 11, weight: .semibold))
                     .frame(width: 24, height: 24).contentShape(Rectangle())
             }
             .buttonStyle(.plain)

@@ -147,14 +147,14 @@ struct KanbanTaskDetailView: View {
                         PulsingDot(color: JcTheme.danger, size: 8)
                         Image(systemName: "stop.fill")
                             .font(.system(size: 17)).foregroundStyle(JcTheme.danger)
-                        Text("Stop").font(.system(size: 15, weight: .bold))
+                        Text("Stop").font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(JcTheme.danger)
                     }
                 } else {
                     HStack(spacing: 6) {
                         Image(systemName: "play.fill")
                             .font(.system(size: 17)).foregroundStyle(.white)
-                        Text("Run").font(.system(size: 15, weight: .bold))
+                        Text("Run").font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.white)
                     }
                 }
@@ -191,7 +191,7 @@ struct KanbanTaskDetailView: View {
                     if store.isRunning {
                         PulsingDot(color: JcTheme.success, size: 6)
                         Text("LIVE")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.system(size: 10, weight: .semibold))
                             .kerning(0.6)
                             .foregroundStyle(JcTheme.success)
                     } else {

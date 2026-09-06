@@ -61,7 +61,7 @@ struct InsightsMetricBar: View {
                     Spacer(minLength: 0)
                 }
                 Text(InsightsUI.metricPercentText(percent))
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(tint)
             }
             GeometryReader { geo in
@@ -125,7 +125,7 @@ struct InsightsKeyValueTile: View {
                 .kerning(0.5)
                 .foregroundStyle(JcTheme.muted)
             Text(value)
-                .font(.system(size: 13.5, weight: .bold))
+                .font(.system(size: 13.5, weight: .semibold))
                 .foregroundStyle(JcTheme.text)
                 .lineLimit(1)
         }
@@ -184,7 +184,7 @@ struct InsightsStatTile: View {
                                 in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(value)
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: 22, weight: .semibold))
                         .kerning(-0.4)
                         .foregroundStyle(JcTheme.text)
                         .lineLimit(1)

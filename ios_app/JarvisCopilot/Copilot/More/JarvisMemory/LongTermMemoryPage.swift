@@ -208,7 +208,7 @@ struct LongTermMemoryPage: View {
                     .padding(.top, 8)
                     .padding(.bottom, 18)
                 Text("Memory store unavailable")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(JcTheme.text)
                     .padding(.bottom, 10)
                 Text(store.unavailableMessage
@@ -241,7 +241,7 @@ struct MemoryNamespaceChip: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(JcTheme.text)
             Text("\(count)")
-                .font(.system(size: 11, weight: .bold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(JcTheme.accent)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1)
@@ -326,7 +326,7 @@ struct MemoryReflectionCard: View {
                     Image(systemName: "sparkles")
                         .font(.system(size: 14)).foregroundStyle(JcTheme.accent)
                     Text(title)
-                        .font(.system(size: 14.5, weight: .bold))
+                        .font(.system(size: 14.5, weight: .semibold))
                         .foregroundStyle(JcTheme.text)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if !reflection.kind.isEmpty {

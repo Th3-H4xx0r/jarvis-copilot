@@ -29,7 +29,7 @@ struct QuotaCard: View {
     private var header: some View {
         HStack {
             Text("Quota & Usage")
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(JcTheme.text)
             Spacer()
             if store.isRefreshing {
@@ -135,7 +135,7 @@ struct QuotaWindowRow: View {
                     .foregroundStyle(JcTheme.muted)
                 Spacer(minLength: 8)
                 Text(window.percentText)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(JcTheme.text)
             }
             QuotaBar(fraction: window.barFraction, tone: window.barTone)

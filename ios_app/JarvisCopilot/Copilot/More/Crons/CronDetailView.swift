@@ -87,7 +87,7 @@ struct CronPromptCard: View {
                 Image(systemName: "bolt.fill")
                     .font(.system(size: 12)).foregroundStyle(JcTheme.accent)
                 Text("PROMPT")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 11, weight: .semibold))
                     .kerning(0.6)
                     .foregroundStyle(JcTheme.accent)
             }
@@ -117,7 +117,7 @@ struct CronInfoTile: View {
                 Image(systemName: symbol)
                     .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
                 Text(label.uppercased())
-                    .font(.system(size: 10.5, weight: .bold))
+                    .font(.system(size: 10.5, weight: .semibold))
                     .kerning(0.5)
                     .foregroundStyle(JcTheme.muted)
                     .lineLimit(1)

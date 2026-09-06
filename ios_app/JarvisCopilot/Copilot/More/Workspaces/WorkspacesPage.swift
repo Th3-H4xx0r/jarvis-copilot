@@ -115,7 +115,7 @@ struct WorkspaceRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         Text(workspace.name)
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(JcTheme.text)
                             .lineLimit(1)
                         if isLastUsed {

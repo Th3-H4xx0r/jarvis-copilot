@@ -111,7 +111,7 @@ struct CodeMemoryStatsHeader: View {
             Image(systemName: symbol).font(.system(size: 16)).foregroundStyle(color)
                 .padding(.bottom, 6)
             Text("\(value)")
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(JcTheme.text)
                 .padding(.bottom, 2)
             Text(label).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
@@ -137,7 +137,7 @@ struct CodeMemoryProjectRow: View {
                     .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(project.title)
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(JcTheme.text)
                         .lineLimit(1)
                     if !project.slug.isEmpty && project.slug != project.title {

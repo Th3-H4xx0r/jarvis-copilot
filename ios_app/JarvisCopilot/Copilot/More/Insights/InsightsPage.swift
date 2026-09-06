@@ -133,7 +133,7 @@ struct InsightsPeriodSelector: View {
                 let selected = option.days == days
                 Button { onChange(option.days) } label: {
                     Text(option.label)
-                        .font(.system(size: 13.5, weight: .bold))
+                        .font(.system(size: 13.5, weight: .semibold))
                         .kerning(0.3)
                         .foregroundStyle(selected ? Color.white : JcTheme.muted)
                         .frame(maxWidth: .infinity)

@@ -203,7 +203,7 @@ struct InsightsMessagesCard: View {
 
     private func caption(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10.5, weight: .bold))
+            .font(.system(size: 10.5, weight: .semibold))
             .kerning(0.4)
             .foregroundStyle(JcTheme.muted)
     }
@@ -238,7 +238,7 @@ struct InsightsMessageRow: View {
                     .foregroundStyle(JcTheme.text)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 Text(Insights.formatTokensCompact(message.inputTokens + message.outputTokens))
-                    .font(.system(size: 12.5, weight: .bold))
+                    .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(JcTheme.text)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -320,7 +320,7 @@ struct InsightsCompositionSheet: View {
     private func total(_ label: String, _ value: Int) -> some View {
         (Text("\(label): ").font(.system(size: 12.5)).foregroundColor(JcTheme.muted)
          + Text(Insights.formatTokenCount(value))
-            .font(.system(size: 12.5, weight: .bold)).foregroundColor(JcTheme.text))
+            .font(.system(size: 12.5, weight: .semibold)).foregroundColor(JcTheme.text))
     }
 }
 

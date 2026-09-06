@@ -88,7 +88,7 @@ struct ProfilePersonalityCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("ACTIVE PERSONALITY")
-                        .font(.system(size: 10.5, weight: .bold)).kerning(0.6)
+                        .font(.system(size: 10.5, weight: .semibold)).kerning(0.6)
                         .foregroundStyle(JcTheme.muted)
                     Spacer(minLength: 8)
                     Button(expanded ? "Less" : "More") { expanded.toggle() }
@@ -136,7 +136,7 @@ struct ProfileCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Text(profile.name.isEmpty ? "(unnamed)" : profile.name)
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(JcTheme.text)
                             .lineLimit(1)
                         if isActive { StatusPill("ACTIVE", color: JcTheme.success, dense: true) }
