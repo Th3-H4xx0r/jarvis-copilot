@@ -245,6 +245,8 @@ enum ChatStreamReducer {
 
         let input = dig(["input_tokens", "prompt_tokens", "input"])
         let output = dig(["output_tokens", "completion_tokens", "output"])
+        let cached = (dig(["cache_read_tokens", "cache_read_input_tokens"]) ?? 0)
+            + (dig(["cache_write_tokens", "cache_creation_input_tokens"]) ?? 0)
         let cost = digDouble(["estimated_cost", "cost"])
         // The server says outright when it can't measure generation speed.
         let tps = object["tps_available"] as? Bool == false ? nil : digDouble(["tps", "tokens_per_second"])
@@ -254,6 +256,7 @@ enum ChatStreamReducer {
 
         var stats = state.message.stats ?? ChatTurnStats()
         if let input { stats.inputTokens = input; state.inputTokens = input }
+        if cached > 0 { stats.cachedTokens = cached }
         if let output { stats.outputTokens = output; state.outputTokens = output }
         if let tps { stats.tokensPerSecond = tps }
         if let estimated { stats.estimated = estimated }

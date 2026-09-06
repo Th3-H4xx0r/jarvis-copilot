@@ -141,7 +141,11 @@ struct MessageAttachment: Identifiable, Equatable, Sendable {
 /// Per-turn status shown as a small line under the reply. The UI shows only three
 /// of these: tokens in, tokens out, and the elapsed seconds.
 struct ChatTurnStats: Equatable, Sendable {
+    /// Uncached input tokens as the API counts them.
     var inputTokens: Int?
+    /// Prompt tokens served from the provider's cache (Anthropic's
+    /// `cache_read` + `cache_write`). The prompt the model saw is the sum.
+    var cachedTokens: Int?
     var outputTokens: Int?
     var durationMs: Int?
     /// Time to the first visible text — measured, but not shown.
@@ -152,12 +156,22 @@ struct ChatTurnStats: Equatable, Sendable {
 
     var isEmpty: Bool { inputTokens == nil && outputTokens == nil && durationMs == nil }
 
-    /// "16.4k in · 12 out · 3.2 s"
+    /// Everything the model read this turn: uncached input plus cached prompt.
+    var promptTokens: Int { (inputTokens ?? 0) + (cachedTokens ?? 0) }
+
+    /// "40.2k in (98% cached) · 12 out · 3.2 s". The "in" is the whole prompt —
+    /// showing only the uncached remainder ("2 in" for "Hi") hid where the
+    /// tokens actually went.
     var line: String {
         var parts: [String] = []
         if inputTokens != nil || outputTokens != nil {
             let tilde = estimated ? "~" : ""
-            parts.append("\(tilde)\(Self.compact(inputTokens ?? 0)) in · \(Self.compact(outputTokens ?? 0)) out")
+            var inPart = "\(tilde)\(Self.compact(promptTokens)) in"
+            if let cachedTokens, cachedTokens > 0, promptTokens > 0 {
+                let pct = Int((Double(cachedTokens) / Double(promptTokens) * 100).rounded())
+                inPart += " (\(pct)% cached)"
+            }
+            parts.append("\(inPart) · \(Self.compact(outputTokens ?? 0)) out")
         }
         if let durationMs { parts.append(Self.seconds(durationMs)) }
         return parts.joined(separator: " · ")
@@ -375,6 +389,18 @@ extension ChatMessage {
                   attachments: attachments,
                   onDevice: j["on_device"] as? Bool == true,
                   timestamp: j.int("timestamp"))
+        // The stats line the server persisted for this turn (`_turnUsage` +
+        // `_turnDuration`), so it shows after a reload, not only while streaming.
+        var stats = ChatTurnStats()
+        if let usage = j["_turnUsage"] as? [String: Any] {
+            stats.inputTokens = usage.int("input_tokens")
+            stats.outputTokens = usage.int("output_tokens")
+            let cached = (usage.int("cache_read_tokens") ?? 0) + (usage.int("cache_write_tokens") ?? 0)
+            if cached > 0 { stats.cachedTokens = cached }
+        }
+        if let seconds = j.double("_turnDuration") { stats.durationMs = Int(seconds * 1_000) }
+        if let tps = j.double("_turnTps") { stats.tokensPerSecond = tps }
+        if !stats.isEmpty { self.stats = stats }
     }
 }
 
