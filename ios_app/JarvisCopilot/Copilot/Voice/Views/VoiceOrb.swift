@@ -44,7 +44,7 @@ struct VoiceOrb: View {
     private static let bleed: CGFloat = 1.7
     /// How much of the layout box the glass fills (radius = 0.53·size/2·kFill).
     /// Mirrored in OrbShader.metal's radius; keep the two in step.
-    private static let kFill: CGFloat = 1.35
+    private static let kFill: CGFloat = 1.0
 
     var body: some View {
         TimelineView(.animation(paused: !animating)) { timeline in
@@ -172,39 +172,50 @@ struct VoiceOrb: View {
     /// particle's age is (t·rate + phase) mod lifetime, so it detaches from the
     /// rim, drifts outward along a gentle curve, fades, and is re-emitted at a
     /// new spot. Nothing is attached; nothing moves as a group.
+    /// Dust blown off the rim in clumpy jets (a handful of sprays, dense at the
+    /// glass and thinning outward), plus a sparse loose scatter.
     private func drawDust(_ context: inout GraphicsContext, centre: CGPoint, radius: CGFloat,
                           t: Double, colour: Color, bright: Double) {
-        let count = 220
-        let dot = max(0.45, radius * 0.0042)
-        var young = Path(), old = Path()
-        for i in 0..<count {
-            // Per-particle constants from a hash of the index.
-            var h = UInt32(truncatingIfNeeded: i &* 2654435761)
-            func u() -> Double { h = h &* 1664525 &+ 1013904223; return Double(h >> 8) / Double(1 << 24) }
-            let life = 3.0 + 4.0 * u()                       // seconds
-            let phase = u() * life
-            let speed = 0.06 + 0.10 * u()                    // radii per second
-            let baseAngle = u() * 2 * .pi
-            let curl = (u() - 0.5) * 0.9                     // sideways drift rate
-            let wobble = (u() - 0.5) * 0.35
-
-            let age = (t * 0.55 + phase).truncatingRemainder(dividingBy: life)
-            let k = age / life                               // 0 birth → 1 death
-            // Emission point creeps around the rim over time, and the particle
-            // curls sideways as it travels.
-            let angle = baseAngle + 0.15 * sin(t * 0.08 + baseAngle) + curl * age
-            let dist = 1.02 + speed * age + wobble * sin(age * 1.7 + baseAngle)
-            let alphaLife = k < 0.15 ? k / 0.15 : (1 - k) / 0.85   // quick in, slow out
-            guard alphaLife > 0.02 else { continue }
-            let x = centre.x + radius * CGFloat(dist * cos(angle))
-            let y = centre.y + radius * CGFloat(dist * sin(angle))
-            let r = dot * CGFloat(0.7 + 0.6 * (1 - k))
-            let rect = CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)
-            if k < 0.35 { young.addEllipse(in: rect) } else { old.addEllipse(in: rect) }
+        let jets = 7, perJet = 34
+        let dot = max(0.45, radius * 0.0045)
+        func h(_ n: Int) -> Double {            // stable per-index hash in [0,1)
+            let x = sin(Double(n) * 12.9898 + 78.233) * 43758.5453
+            return x - floor(x)
         }
-        context.fill(young, with: .color(blend(colour, .white, 0.35).opacity(clamp(0.70 * bright, 0.85))))
-        context.fill(old, with: .color(colour.opacity(clamp(0.32 * bright, 0.45))))
+        var path = Path()
+        var fine = Path()
+        for j in 0..<jets {
+            let base = h(j * 31 + 7) * .pi * 2 + t * 0.03 + 0.35 * sin(t * 0.21 + Double(j))
+            let strength = 0.6 + 0.4 * h(j * 17 + 3)
+            for k in 0..<perJet {
+                let n = j * perJet + k
+                let u1 = h(n * 3 + 1), u2 = h(n * 3 + 2), u3 = h(n * 3 + 3)
+                let reach = pow(u2, 0.65) * 0.55 * strength           // 0 at the glass
+                let dist = 1.01 + reach + 0.02 * sin(t * 0.6 + u3 * 6.28)
+                let spread = (u1 - 0.5) * (0.28 + 0.9 * reach)
+                let a = base + spread
+                let x = centre.x + radius * CGFloat(dist * cos(a))
+                let y = centre.y + radius * CGFloat(dist * sin(a))
+                let fade = 1 - reach / (0.55 * strength)
+                let r = dot * CGFloat(0.5 + 0.9 * u3) * CGFloat(0.6 + 0.4 * fade)
+                let rect = CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)
+                if u3 > 0.5 { path.addEllipse(in: rect) } else { fine.addEllipse(in: rect) }
+            }
+        }
+        // Loose motes drifting further out.
+        for k in 0..<28 {
+            let a = h(k * 5 + 11) * .pi * 2 + t * 0.02
+            let dist = 1.15 + 0.5 * h(k * 5 + 13) + 0.03 * sin(t * 0.4 + Double(k))
+            let r = dot * 0.6
+            fine.addEllipse(in: CGRect(x: centre.x + radius * CGFloat(dist * cos(a)) - r,
+                                       y: centre.y + radius * CGFloat(dist * sin(a)) - r,
+                                       width: r * 2, height: r * 2))
+        }
+        let tint = Color(red: 0.62, green: 0.74, blue: 1.0)
+        context.fill(path, with: .color(tint.opacity(clamp(0.85 * bright, 1))))
+        context.fill(fine, with: .color(tint.opacity(clamp(0.45 * bright, 1))))
     }
+
 
     /// A deterministic cloud of tiny dots hugging the sphere's edge, slowly
     /// rotating, densest at the surface and thinning outward.

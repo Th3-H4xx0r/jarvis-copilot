@@ -50,91 +50,111 @@ static float fbm3(float3 p, float t) {
 }
 
 // ── orb ──────────────────────────────────────────────────────────────────────
-// Reference look: a frosted, translucent white shell whose inner edge is
-// irregular (brushed), wrapped around a lit core that runs electric cyan at the
-// upper-left to deep blue at the lower-right, carved with fine contour ridges.
+// Reference: a frosted glass blob. The frost is a *volume* — thick at the left
+// where it goes fully white with fine radial brush streaks, thinning to almost
+// nothing on the right — wrapped around an off-centre core that folds hard from
+// near-black through cobalt to electric cyan, textured by very fine ridges.
 [[ stitchable ]] half4 liquidOrb(float2 pos, half4 inColor,
                                   float2 size, float t, float bright, float breathe,
                                   half4 deepH, half4 cyanH, half4 shellTintH)
 {
-    // SwiftUI hands `.color(...)` arguments to Metal as half4.
     float4 deep = float4(deepH), cyan = float4(cyanH), shellTint = float4(shellTintH);
     float2 c = size * 0.5;
-    // 0.312 = the Canvas orb's radius under the 1.7× bleed; 1.35 = kFill in VoiceOrb.
-    float R = min(size.x, size.y) * 0.5 * 0.312 * 1.35 * breathe;
+    // 0.312 = the Canvas orb's radius under the 1.7× bleed (kFill = 1 in VoiceOrb).
+    float R = min(size.x, size.y) * 0.5 * 0.312 * breathe;
     float2 p = (pos - c) / R;
 
-    // Fluid silhouette: slow large bulge + quicker small ripple + gentle sway.
+    // Silhouette: slow, large bulge + small ripple + sway.
     float2 dir = length(p) > 1e-4 ? normalize(p) : float2(1.0, 0.0);
-    float a = atan2(dir.y, dir.x);
-    float bulge = fbm3(float3(dir * 1.1, 0.0), t * 0.6) - 0.5;
-    float ripple = fbm3(float3(dir * 3.0 + 4.7, 0.0), t * 1.4) - 0.5;
-    float sway = 0.035 * sin(a * 2.0 + t * 0.55) + 0.025 * sin(a * 3.0 - t * 0.37 + 1.0);
-    float w = 1.0 + 0.14 * bulge + 0.04 * ripple + sway;
+    float ang = atan2(dir.y, dir.x);
+    float bulge = fbm3(float3(dir * 1.1, 0.0), t * 0.5) - 0.5;
+    float ripple = fbm3(float3(dir * 3.0 + 4.7, 0.0), t * 1.1) - 0.5;
+    float sway = 0.03 * sin(ang * 2.0 + t * 0.5) + 0.02 * sin(ang * 3.0 - t * 0.33 + 1.0);
+    float w = 1.0 + 0.11 * bulge + 0.03 * ripple + sway;
     float d = length(p) / w;
 
-    if (d > 1.50) { return half4(0.0); }
-    // Soft exterior haze.
-    float glow = smoothstep(1.50, 1.0, d);
-    glow = glow * glow * 0.22 * bright;
-    float3 glowCol = mix(deep.rgb, cyan.rgb, 0.6) * glow;
+    if (d > 1.35) { return half4(0.0); }
+    float glow = smoothstep(1.35, 1.0, d);
+    glow = glow * glow * 0.14 * bright;
+    float3 glowCol = mix(float3(1.0), cyan.rgb, 0.5) * glow;
     if (d > 1.0) { return half4(half3(glowCol), half(glow)); }
 
-    float2 q = p / w;                 // unit-disc coords, y down
+    float2 q = p / w;                                   // unit disc, y down
     float r = length(q);
-    float3 flow = float3(t * 0.10, -t * 0.08, t * 0.06);
-
-    // ── Core ──
-    // Key light from the upper-left: cyan there, deep blue opposite.
-    float2 lightDir = normalize(float2(-0.62, -0.78));
-    float lit = 0.5 + 0.5 * dot(q, lightDir);
-    float litNoise = fbm3(float3(q * 1.7 + 2.3, 0.4) + flow, t) - 0.5;
-    float3 base = mix(deep.rgb * 0.78, cyan.rgb, smoothstep(0.20, 0.92, lit + 0.30 * litNoise));
-
-    // Contour ridges: level sets of a domain-warped field → thin curved lines.
-    float3 warp = float3(fbm3(float3(q * 1.4, 0.2) + flow, t),
-                         fbm3(float3(q * 1.4 + 5.2, 0.2) + flow, t), 0.0) - 0.5;
-    float field = fbm3(float3(q * 1.5 + warp.xy * 0.45, 0.9) + flow * 0.6, t);
-    // Mostly parallel diagonal lines, bent by the field — like a thumbprint.
-    float diag = dot(q, float2(0.82, -0.57));
-    float ridge = 0.5 + 0.5 * sin(diag * 58.0 + field * 15.0 + t * 0.3);
-    ridge = pow(ridge, 7.0);                                   // thin bright lines
-    float ridgeAmt = 0.36 * (0.30 + 0.70 * lit);
-    float3 core = base * (0.88 + ridgeAmt * ridge) + cyan.rgb * 0.14 * ridge * lit;
-
-    // Dark pockets in the unlit half give the fluid depth.
-    float pocket = smoothstep(0.42, 0.78, fbm3(float3(q * 2.3 + 9.1, 0.0) + flow, t));
-    core *= 1.0 - 0.55 * pocket * (1.0 - lit);
-    // Soft cyan bloom near the key light, and a dim floor so blue never goes black.
-    float2 hlC = float2(-0.36, -0.42);
-    float hl = exp(-dot(q - hlC, q - hlC) * 3.6);
-    core += cyan.rgb * 0.30 * hl;
-    core = max(core, deep.rgb * 0.35);
-
-    // ── Frosted shell ──
-    // Inner edge wanders with angle (brushed, not a clean ring).
-    float edgeN = fbm3(float3(dir * 2.2 + 3.1, 0.0), t * 0.45) - 0.5;
-    float edgeF = fbm3(float3(dir * 6.5 + 8.4, 0.0), t * 0.8) - 0.5;
-    float innerEdge = 0.75 + 0.13 * edgeN + 0.04 * edgeF;
-    float shellMask = smoothstep(innerEdge - 0.14, innerEdge + 0.04, r);
-    float grain = fbm3(float3(q * 6.0, 1.3), t * 0.25);        // frosted texture
-    float wisp = fbm3(float3(q * 2.6 + 4.4, 0.6), t * 0.2) - 0.5;  // cloudy variation
-    float rim = smoothstep(0.55, 1.0, r);
-    float shellA = shellMask * clamp(0.68 + 0.30 * rim + 0.10 * (grain - 0.5) + 0.22 * wisp, 0.0, 1.0);
-    float3 shellCol = mix(float3(1.0), shellTint.rgb, 0.10) * (1.06 + 0.08 * grain);
-    // The lit core bleeds a little cyan into the frost around it.
-    shellCol = mix(shellCol, cyan.rgb, 0.22 * hl + 0.08 * (1.0 - rim) * lit);
-
-    // Specular pinpoint on the shell from the key light.
     float zN = sqrt(max(0.0, 1.0 - r * r));
     float3 n = normalize(float3(q, zN));
-    float3 v = float3(0.0, 0.0, 1.0);
-    float3 l = normalize(float3(lightDir, 0.9));
-    float spec = pow(max(dot(n, normalize(l + v)), 0.0), 160.0) * 0.45;
 
-    // Compose: core beneath, frosted shell over it, background faintly through the shell.
-    float3 colOut = mix(core * bright, shellCol * bright, shellA) + spec * bright;
-    float alpha = 1.0 - shellMask * 0.22 * (1.0 - rim * 0.5);
-    alpha *= smoothstep(1.0, 0.985, d);                        // AA silhouette
-    return half4(half3(colOut * alpha), half(alpha));
+    // Refraction through the glass: the core magnifies toward the centre and
+    // smears toward the edge. Sample the core in lens-bent coordinates.
+    float2 qr = q * mix(0.86, 1.18, r * r);
+
+    // ── Core blob (off-centre, toward the right) ──
+    float2 coreC = float2(0.11, 0.05) + 0.03 * float2(sin(t * 0.31), cos(t * 0.27));
+    float2 cq = qr - coreC;
+    float2 cdir = length(cq) > 1e-4 ? normalize(cq) : float2(1.0, 0.0);
+    float coreR = 0.80 + 0.07 * (fbm3(float3(cdir * 1.6 + 2.2, 0.0), t * 0.4) - 0.5) * 2.0;
+    float cd = length(cq) - coreR;                      // <0 inside the core
+    // Boundary is smeared more on the left (thick frost) than on the right.
+    float smear = mix(0.10, 0.34, smoothstep(0.35, -0.55, cq.x));
+
+    // Colour fold: near-black → cobalt → cyan along a warped diagonal.
+    float3 flow = float3(t * 0.06, -t * 0.05, t * 0.04);
+    float warpN = fbm3(float3(cq * 1.3 + 6.0, 0.3) + flow, t) - 0.5;
+    float u = dot(cq, normalize(float2(0.88, 0.32))) + 0.28 * warpN;
+    float3 navy = deep.rgb * 0.16;                                   // near-black blue
+    float3 cobalt = float3(0.08, 0.10, 0.96);
+    float3 cyanS = mix(float3(0.0, 0.88, 1.0), cyan.rgb, 0.2);
+    float3 core = mix(navy, cobalt, smoothstep(-0.55, -0.05, u));
+    core = mix(core, float3(0.22, 0.26, 1.0), 0.45 * smoothstep(-0.40, 0.0, u));   // brighter cobalt at the fold
+    float3 cyanG = cyanS * (0.78 + 0.28 * clamp(-cq.y + 0.3, 0.0, 1.0));
+    core = mix(core, cyanG, smoothstep(0.0, 0.14, u));              // hard fold
+    // A lighter cobalt lobe and a dark inner pocket give the fold volume.
+    float lobe = fbm3(float3(cq * 2.0 + 11.0, 0.1) + flow, t);
+    core = mix(core, cobalt * 1.15, 0.25 * smoothstep(0.5, 0.8, lobe) * smoothstep(-0.05, -0.5, u));
+    core *= 1.0 - 0.45 * smoothstep(0.5, 0.85, fbm3(float3(cq * 1.5 + 21.0, 0.0), t * 0.3)) * smoothstep(0.0, -0.6, u);
+    // Very fine ridges across the core — a curved scanline texture.
+    float ridge = 0.5 + 0.5 * sin(cq.y * 150.0 + 18.0 * cq.x * cq.x + 6.0 * warpN);
+    core *= 0.92 + 0.10 * ridge;
+    // Cyan blooms a little past the fold.
+    core += cyanS * 0.15 * smoothstep(0.0, 0.35, u) * (1.0 - smoothstep(0.35, 0.9, u));
+    // Lighter centre in the cyan lobe.
+    float2 cc = cq - float2(0.38, -0.08);
+    core = mix(core, mix(cyanS, float3(1.0), 0.35), 0.6 * exp(-dot(cc, cc) * 6.0) * smoothstep(0.0, 0.2, u));
+
+    // ── Frosted glass volume ──
+    // Thick where we are far outside the core (left), thin near it (right).
+    float thick = smoothstep(-smear, 0.16, cd);
+    // Fine radial brush streaks in the frost.
+    float streak = fbm3(float3(dir * 2.4, r * 1.5 + 0.7), t * 0.15);
+    float streakF = vnoise(float3(dir * 9.0, r * 2.5 + 2.0 + t * 0.05));
+    // Brushed white strands reaching from the frost over the core's edge.
+    float strand = vnoise(float3(dir * 11.0, r * 1.2 + 5.0 + t * 0.04));
+    strand = smoothstep(0.62, 0.95, strand) * smoothstep(0.35, 0.85, r) * (1.0 - thick) * smoothstep(0.45, -0.3, cq.x);
+    float frostA = clamp(thick + 0.38 * strand, 0.0, 1.0);
+    // Bright frost, lit from the upper-left, with faint brushed streaks.
+    float frostLit = 0.93 + 0.07 * dot(q, normalize(float2(-0.6, -0.8)));
+    float3 frostCol = float3(1.0) * clamp(frostLit + 0.07 * (streak - 0.5) * 2.0 + 0.04 * (streakF - 0.5) * 2.0, 0.0, 1.0);
+    // Glass gets a touch darker and cooler toward the rim (thickness), bar the highlight.
+    frostCol *= 1.0 - 0.14 * smoothstep(0.7, 1.0, r);
+    frostCol = mix(frostCol, frostCol * float3(0.90, 0.95, 1.0), smoothstep(0.6, 1.0, r));
+    frostCol = mix(frostCol, mix(float3(1.0), cyanS, 0.35), 0.25 * (1.0 - thick));
+    // Body haze: a faint white veil over everything, stronger toward the rim.
+    float veil = 0.06 + 0.10 * r * r;
+    // Thin crisp rim (narrow Fresnel) and a soft specular from upper-left.
+    float fres = pow(1.0 - max(dot(n, float3(0, 0, 1)), 0.0), 6.0);
+    float rimLine = smoothstep(0.92, 0.985, r) * 0.35 + fres * 0.30;
+    float3 l = normalize(float3(-0.55, -0.65, 0.55));
+    float spec = pow(max(dot(n, normalize(l + float3(0, 0, 1))), 0.0), 60.0) * 0.35;
+
+    float3 white = mix(float3(1.0), shellTint.rgb, 0.08);
+    float3 col = mix(core, frostCol, frostA);
+    col = mix(col, white, veil);
+    col += white * rimLine + white * spec;
+    col *= bright;
+
+    // Alpha: the glass is nearly opaque where frosted, slightly see-through in
+    // the clear right side, and the AA'd silhouette.
+    float alpha = clamp(0.96 + rimLine, 0.0, 1.0);
+    alpha *= smoothstep(1.0, 0.988, d);
+    return half4(half3(col * alpha), half(alpha));
 }
