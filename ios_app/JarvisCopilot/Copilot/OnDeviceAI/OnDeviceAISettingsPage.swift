@@ -19,7 +19,7 @@ struct OnDeviceAISettingsPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
-                availabilityCard
+                hero
                 section("Mode") { tierRows }
                 section("Use on-device for") { surfaceRows }
                 section("Local model") { modelRows }
@@ -32,6 +32,16 @@ struct OnDeviceAISettingsPage: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .jcScreen("On-device AI")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { Task { await store.refresh() } } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(JcTheme.muted)
+                }
+                .accessibilityLabel("Refresh")
+            }
+        }
         .task { await store.load() }
     }
 
@@ -43,30 +53,41 @@ struct OnDeviceAISettingsPage: View {
         }
     }
 
-    // MARK: - Availability
+    // MARK: - Hero
 
-    private var availabilityCard: some View {
-        GlassCard {
-            HStack(spacing: 12) {
-                Image(systemName: store.isReady ? "checkmark.circle.fill" : "exclamationmark.circle")
-                    .font(.system(size: 22))
-                    .foregroundStyle(store.isReady ? JcTheme.cyan : JcTheme.muted)
-                Text(store.availabilitySummary)
-                    .font(JcText.body)
-                    .foregroundStyle(JcTheme.text)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Button {
-                    Task { await store.refresh() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(JcTheme.muted)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Refresh")
+    /// The settings register: a quiet status pill, a headline and one muted line.
+    private var hero: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(store.isReady ? JcTheme.success : JcTheme.muted)
+                    .frame(width: 6, height: 6)
+                Text(store.isReady ? "Ready" : (store.loading ? "Checking…" : "Unavailable"))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(JcTheme.text.opacity(0.85))
             }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 8)
+            .background(.white.opacity(0.045), in: Capsule())
+            .padding(.top, 10)
+            .padding(.bottom, 18)
+            Text(activeModelLabel)
+                .font(.system(size: 25, weight: .medium))
+                .tracking(-0.6)
+                .foregroundStyle(JcTheme.text)
+                .multilineTextAlignment(.center)
+            Text(store.availabilitySummary)
+                .font(.system(size: 14))
+                .foregroundStyle(JcTheme.muted)
+                .multilineTextAlignment(.center)
+                .padding(.top, 8)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 4)
+    }
+
+    private var activeModelLabel: String {
+        store.models.first { $0.id == store.activeModelID }?.label ?? "On-device AI"
     }
 
     // MARK: - Tier
@@ -216,7 +237,7 @@ private struct OnDeviceDebugGenerate: View {
     @Bindable var store: OnDeviceAISettingsStore
 
     var body: some View {
-        GlassCard {
+        GlassCard(blur: false) {
             VStack(alignment: .leading, spacing: 12) {
                 TextField("Prompt the local model…", text: $store.prompt, axis: .vertical)
                     .font(JcText.body)
