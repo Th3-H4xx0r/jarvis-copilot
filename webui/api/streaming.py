@@ -211,7 +211,10 @@ def _classify_provider_error(err_str: str, exc=None, *, silent_failure: bool = F
     err_str = str(err_str or '')
     _err_lower = err_str.lower()
     _exc_name = type(exc).__name__ if exc is not None else ''
-    _is_cancelled = (
+    # A provider failure that was then cancelled/interrupted (e.g. a 429 whose
+    # retry wait was cut short) is reported as the provider failure.
+    _provider_first = _is_quota_error_text(err_str) or '429' in err_str or 'usage limit' in _err_lower
+    _is_cancelled = not _provider_first and (
         'cancelled by user' in _err_lower
         or 'canceled by user' in _err_lower
         or 'user cancelled' in _err_lower
@@ -353,6 +356,9 @@ def _cancelled_turn_content(message: str = 'Task cancelled.') -> str:
     _message = str(message or 'Task cancelled.').strip()
     if not _message.endswith('.'):
         _message += '.'
+    if 'provider error' in _message.lower():
+        # The run was cancelled mid-retry: the provider failure is the story.
+        return f"**Task cancelled:** {_message}"
     return (
         f"**Task cancelled:** {_message}\n\n"
         f"*{_cancelled_turn_hint()}*"
@@ -3933,6 +3939,12 @@ def _run_agent_streaming(
                     _voice_prev_reasoning = getattr(agent, "reasoning_config", None)
                     agent.reasoning_config = {"enabled": False}
                     _voice_swap = True
+                # Voice reply rules for this one call, as system text — the user
+                # message (what the Chats tab shows) stays the spoken words only.
+                _voice_directive = getattr(_voice_sess, "_voice_turn_directive", None)
+                if _voice_directive:
+                    _voice_sess._voice_turn_directive = None
+                    workspace_system_msg = ((workspace_system_msg or "").rstrip() + "\n\n" + str(_voice_directive)).strip()
             except Exception:
                 _voice_swap = False
             result = agent.run_conversation(
@@ -3949,11 +3961,17 @@ def _run_agent_streaming(
                     _checkpoint_stop.set()
                 if _ckpt_thread is not None:
                     _ckpt_thread.join(timeout=15)
+                # A cancel that lands while the agent is retrying a provider
+                # failure must not bury that failure under "no provider failure
+                # occurred" — carry the last error into the cancelled turn.
+                _pre_err = str(getattr(agent, '_last_error', None) or result.get('error') or '').strip()
+                _cancel_msg = (f'Cancelled while retrying after a provider error: {_pre_err}'
+                               if _pre_err else 'Task cancelled.')
                 if ephemeral:
                     _cleanup_ephemeral_cancelled_turn(s)
                 else:
                     with _agent_lock:
-                        _finalize_cancelled_turn(s, ephemeral=False)
+                        _finalize_cancelled_turn(s, ephemeral=False, message=_cancel_msg)
                         try:
                             append_turn_journal_event_for_stream(
                                 s.session_id,
@@ -4098,7 +4116,9 @@ def _run_agent_streaming(
                                 )
                             except Exception:
                                 logger.debug("Failed to append cancelled turn journal event", exc_info=True)
-                        put('cancel', {'message': 'Cancelled by user'})
+                        put('cancel', {'message': _cancel_msg if _pre_err else 'Cancelled by user',
+                                       'type': 'quota_exhausted' if _is_quota_error_text(_pre_err) else ('rate_limit' if '429' in _pre_err else 'cancel'),
+                                       'hint': _pre_err})
                         return
                     _last_err = getattr(agent, '_last_error', None) or result.get('error') or ''
                     _err_str = str(_last_err) if _last_err else ''

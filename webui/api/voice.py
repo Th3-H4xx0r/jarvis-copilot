@@ -730,8 +730,11 @@ _VOICE_REPLY_DIRECTIVE = (
     "3. Use tools silently. Do not narrate steps, plans, reasoning, or tool "
     "use — never 'Loading…', 'Verifying…', 'Let me…', and never describe what "
     "a tool is doing. When the task is done, speak ONE short sentence with the "
-    "outcome (for example: 'GPIO four is off.'). A plain question needs no "
-    "tool — just answer it directly.\n"
+    "outcome (for example: 'GPIO four is off.'). You have every tool you have "
+    "in chat — device actions, web, files, memory, skills, coding — so use "
+    "them whenever the request needs one; if the tool you need isn't loaded, "
+    "look it up with tool search before saying you can't. Only plain "
+    "conversation needs no tool.\n"
     "4. If a tool fails, say what failed in one sentence and stop; do not "
     "narrate alternatives.\n"
     "5. Keep every reply to two sentences or fewer — EXCEPT a multi-part "
@@ -833,6 +836,20 @@ def _consume_agent_stream(channel, subscriber, stream_id, first_text_emitted=Fal
                     current_text.clear()
                     if text:
                         yield {"kind": "text", "text": text}
+                return
+            elif event_type in ("error", "apperror", "cancel"):
+                # A failed turn used to end in silence ("didn't catch a reply");
+                # hand the bridge the classified failure so it can be spoken.
+                if current_text:
+                    text = "".join(current_text).strip()
+                    current_text.clear()
+                    if text:
+                        yield {"kind": "text", "text": text}
+                d = data if isinstance(data, dict) else {}
+                yield {"kind": "error",
+                       "etype": str(d.get("type") or event_type),
+                       "label": str(d.get("label") or ""),
+                       "text": str(d.get("hint") or d.get("error") or d.get("message") or "")}
                 return
             # reasoning / metering / approval — ignored (approval auto-granted
             # under yolo; reasoning is not voiced).
@@ -1014,12 +1031,16 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     # thread right before run_conversation.
     try:
         s._voice_turn_low_reasoning = True
+        # The voice rules ride in the SYSTEM prompt for this one call (consumed
+        # by the streaming thread) — not prefixed to the user message, which is
+        # what the Chats tab shows verbatim.
+        s._voice_turn_directive = _VOICE_REPLY_DIRECTIVE
     except Exception:
         pass
     try:
         response = _start_chat_stream_for_session(
             s,
-            msg=_VOICE_REPLY_DIRECTIVE + user_text,
+            msg=user_text,
             workspace=getattr(s, "workspace", None) or "",
             model=eff_model,
             model_provider=eff_provider,
@@ -1040,11 +1061,25 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         raise _VoiceAgentError("stream channel disappeared before subscribe", status=500)
     subscriber = channel.subscribe()
     _ACTIVE_VOICE_STREAMS[session_id] = stream_id
+    fallback_to_fast = False
     try:
-        yield from _consume_agent_stream(channel, subscriber, stream_id)
+        for seg in _consume_agent_stream(channel, subscriber, stream_id):
+            # The phone's override model is out of quota / rate-limited: don't
+            # leave the user stranded — say so and rerun this turn on the
+            # configured fast lane (the override keeps winning next turn).
+            if (seg.get("kind") == "error"
+                    and seg.get("etype") in ("quota_exhausted", "rate_limit")
+                    and explicit_override and fast_lane):
+                fallback_to_fast = True
+                yield {"kind": "text",
+                       "text": "That model is out of usage right now, so I'm answering on the fast lane."}
+                break
+            yield seg
     finally:
         if _ACTIVE_VOICE_STREAMS.get(session_id) == stream_id:
             _ACTIVE_VOICE_STREAMS.pop(session_id, None)
+    if fallback_to_fast:
+        yield from _run_agent_turn_via_chat(session_id, user_text, lane="fast")
 
 
 # ---------------------------------------------------------------------------
@@ -1983,6 +2018,21 @@ def _send_audio(conn, sock, state, audio) -> bool:
     return True
 
 
+def _spoken_failure(seg: dict) -> str:
+    """One spoken sentence for a failed turn, by the streaming layer's error class."""
+    etype = str(seg.get("etype") or "")
+    if etype in ("quota_exhausted", "rate_limit"):
+        return ("That model's usage limit is reached. Switch the voice model in the app, "
+                "or wait for the limit to reset.")
+    if etype == "auth_mismatch":
+        return "That model's credentials aren't working. Please check the provider login."
+    if etype == "cancel":
+        return "Okay, cancelled."
+    detail = re.sub(r"\s+", " ", str(seg.get("text") or seg.get("label") or "")).strip()
+    detail = re.sub(r"https?://\S+", "", detail)[:140].rstrip(" .:")
+    return f"Sorry, the model returned an error: {detail}." if detail else "Sorry, the model returned an error."
+
+
 def _stream_segment(conn, sock, state, seg: dict) -> bool:
     """Inline (non-pipelined) send of one segment. Used for the spoken apology
     messages and the no-session fallback reply. Returns False to abort."""
@@ -2168,6 +2218,9 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
             elif k == "clarify":
                 q = _format_clarify_speech(seg.get("question", ""), seg.get("choices") or [])
                 buf.append({"kind": "clarify", "text": q, "future": executor.submit(_synth_audio, q)})
+            elif k == "error":
+                spoken = _spoken_failure(seg)
+                buf.append({"kind": "text", "text": spoken, "future": executor.submit(_synth_audio, spoken)})
 
     try:
         _refill()

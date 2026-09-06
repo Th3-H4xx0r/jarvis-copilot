@@ -1429,8 +1429,10 @@ def run_conversation(
                             agent._vprint(f"{agent.log_prefix}⚡ Interrupt detected during retry wait, aborting.", force=True)
                             agent._persist_session(messages, conversation_history)
                             agent.clear_interrupt()
+                            agent._last_error = f"Invalid API response: {', '.join(error_details)}"
                             return {
                                 "final_response": f"Operation interrupted during retry ({_failure_hint}, attempt {retry_count}/{max_retries}).",
+                                "error": agent._last_error,
                                 "messages": messages,
                                 "api_calls": api_call_count,
                                 "completed": False,
@@ -3079,8 +3081,10 @@ def run_conversation(
                         agent._vprint(f"{agent.log_prefix}⚡ Interrupt detected during retry wait, aborting.", force=True)
                         agent._persist_session(messages, conversation_history)
                         agent.clear_interrupt()
+                        agent._last_error = str(api_error)
                         return {
-                            "final_response": f"Operation interrupted: retrying API call after error (retry {retry_count}/{max_retries}).",
+                            "final_response": f"Operation interrupted while retrying after a provider error: {api_error} (retry {retry_count}/{max_retries}).",
+                            "error": agent._last_error,
                             "messages": messages,
                             "api_calls": api_call_count,
                             "completed": False,
