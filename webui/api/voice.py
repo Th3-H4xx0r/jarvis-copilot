@@ -1067,9 +1067,8 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
             # The phone's override model is out of quota / rate-limited: don't
             # leave the user stranded — say so and rerun this turn on the
             # configured fast lane (the override keeps winning next turn).
-            if (seg.get("kind") == "error"
-                    and seg.get("etype") in ("quota_exhausted", "rate_limit")
-                    and explicit_override and fast_lane):
+            if (seg.get("kind") == "error" and explicit_override and fast_lane
+                    and _failure_class(seg) in ("quota_exhausted", "rate_limit", "auth_mismatch", "error")):
                 fallback_to_fast = True
                 yield {"kind": "text",
                        "text": "That model is out of usage right now, so I'm answering on the fast lane."}
@@ -2018,9 +2017,23 @@ def _send_audio(conn, sock, state, audio) -> bool:
     return True
 
 
+def _failure_class(seg: dict) -> str:
+    """The streaming layer's error class for a failed-turn segment. The event
+    may carry a generic type ("apperror"/"error"), so re-classify from the text
+    too — "You're out of extra usage" is a quota failure, not a plain error."""
+    etype = str(seg.get("etype") or "")
+    if etype in ("quota_exhausted", "rate_limit", "auth_mismatch", "cancel", "model_not_found"):
+        return etype
+    try:
+        from api.streaming import _classify_provider_error  # type: ignore
+        return str(_classify_provider_error(str(seg.get("text") or "")).get("type") or etype)
+    except Exception:
+        return etype
+
+
 def _spoken_failure(seg: dict) -> str:
     """One spoken sentence for a failed turn, by the streaming layer's error class."""
-    etype = str(seg.get("etype") or "")
+    etype = _failure_class(seg)
     if etype in ("quota_exhausted", "rate_limit"):
         return ("That model's usage limit is reached. Switch the voice model in the app, "
                 "or wait for the limit to reset.")

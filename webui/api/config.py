@@ -1938,15 +1938,11 @@ def model_with_provider_context(model_id: str, model_provider: str | None = None
     if provider == config_provider:
         return model
 
-    # OpenRouter selections with slash IDs are explicit provider/model paths.
-    if provider == "openrouter":
-        return f"@{provider}:{model}"
-
-    # For non-OpenRouter slash IDs, keep the ID intact so existing custom/proxy
-    # base_url routing and portal-provider handling remain in charge.
-    if "/" in model:
-        return model
-
+    # An explicitly selected provider always travels with the model. Slash ids
+    # (NVIDIA NIM "google/gemma-3-27b-it", OpenRouter "meta-llama/…", portal
+    # catalogues) used to be passed bare here, and resolve_model_provider()
+    # then routed them to the ACTIVE provider — so picking such a model in a
+    # client silently ran the default (Claude) instead.
     return f"@{provider}:{model}"
 
 
