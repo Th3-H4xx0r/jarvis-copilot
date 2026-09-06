@@ -12,6 +12,8 @@ struct VoicePage: View {
     @State private var store: VoiceStore
     @State private var models: VoiceModelStore
     @State private var showPicker = false
+    @State private var showSessionPicker = false
+    private let sessionSelection = VoiceSessionSelection.shared
     @State private var showMicDialog = false
     @State private var showDiagnostics = false
 
@@ -84,6 +86,9 @@ struct VoicePage: View {
         }
         .sheet(isPresented: $showPicker) {
             VoiceModelPickerSheet(store: store, models: models)
+        }
+        .sheet(isPresented: $showSessionPicker) {
+            VoiceSessionPicker(selection: sessionSelection) { store.sessionTargetChanged() }
         }
         .sheet(isPresented: $showDiagnostics) {
             VoiceDiagnosticsSheet(lines: store.diagnostics)
@@ -230,6 +235,17 @@ struct VoicePage: View {
     /// the picker is knowing what is answering without opening it.
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { showSessionPicker = true } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "bubble.left")
+                    Text(sessionSelection.chipLabel).lineLimit(1)
+                }
+                .font(.system(size: 14, weight: .medium))
+                .frame(maxWidth: 110)
+            }
+            .accessibilityLabel("Voice session: \(sessionSelection.chipLabel)")
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Button { showPicker = true } label: {
                 HStack(spacing: 6) {

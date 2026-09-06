@@ -101,7 +101,19 @@ extension VoiceStore {
     /// (e.g. Codex with an empty model) and silently failed. The server
     /// get-or-creates this one with a valid model/provider.
     func ensureSession() async throws -> String {
-        if let sessionID, !sessionID.isEmpty { return sessionID }
+        let target = VoiceSessionSelection.shared.target
+        if let sessionID, !sessionID.isEmpty, boundSessionTarget == target { return sessionID }
+        boundSessionTarget = target
+        // A session picked in the voice session picker (or created from it).
+        // Verify it still exists; a deleted one falls back to the default.
+        if let picked = target.sessionID, !picked.isEmpty {
+            if (try? await SessionsAPI(api: voice.api).get(picked)) != nil {
+                sessionID = picked
+                return picked
+            }
+            note("picked voice session missing; using default")
+            VoiceSessionSelection.shared.select(.defaultVoice)
+        }
         do {
             let id = try await voice.voiceSessionID()
             if !id.isEmpty {
@@ -226,6 +238,8 @@ extension VoiceStore {
                 sessionID = nil
             }
             raise(.turnEnded(reason: reason, producedReply: producedReply))
+            // Live chats: the Chat tab re-reads whichever session this turn wrote to.
+            if let sid = sessionID, !sid.isEmpty { ChatSyncBus.shared.sessionChanged(sid) }
 
         case .latency:
             // A server-side span for this turn (plan 0.2). Correlated by turn_id

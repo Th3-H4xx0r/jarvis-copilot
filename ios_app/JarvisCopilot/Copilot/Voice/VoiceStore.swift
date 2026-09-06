@@ -126,6 +126,9 @@ final class VoiceStore {
     // MARK: - Internal turn state
 
     var sessionID: String?
+    /// The ``VoiceSessionSelection/Target`` `sessionID` was resolved for, so a
+    /// change in the picker re-resolves instead of reusing the old socket target.
+    var boundSessionTarget: VoiceSessionSelection.Target?
     let endpointer = Endpointer()
     var speech: SpeechSession?
     private var resumeTimer: VoiceTimerToken?
@@ -320,6 +323,14 @@ final class VoiceStore {
 
     /// The user interrupts the assistant (the "Interrupt" button).
     func interrupt() { raise(.interruptRequested) }
+
+    /// The voice session picker changed: forget the resolved session so the next
+    /// conversation binds to the new target, ending a live one first.
+    func sessionTargetChanged() {
+        sessionID = nil
+        boundSessionTarget = nil
+        if machine.state.isActive { Task { await stopAll() } }
+    }
 
     /// Stop everything and return to idle (the Stop button / a mode switch).
     func stopAll() async {

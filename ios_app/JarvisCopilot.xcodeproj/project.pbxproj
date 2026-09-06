@@ -454,6 +454,9 @@
 		41E330849B125AA0A5996B5C /* MoshiLib in Frameworks */ = {isa = PBXBuildFile; productRef = 0F69476528E298B6FAE04201 /* MoshiLib */; };
 		5BD75D6A19FB8522AEAED409 /* MLXEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25BC2D0813C28A68510582A0 /* MLXEngine.swift */; };
 		48EBED01AF2D775CA72C979B /* OnDeviceLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 5FE8DCA271A7868ED473E098 /* OnDeviceLLM */; };
+		2435FEFA5532F9BDDBE1246B /* VoiceSessionSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 565E84810FA1EB62ED64ABDF /* VoiceSessionSelection.swift */; };
+		FF4FED7A336D17F69028E1CF /* VoiceSessionPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C04D3574640628A1A3B521 /* VoiceSessionPicker.swift */; };
+		0E94C214683B5F9B3991F55D /* VoiceSessionSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7275E274C36ABAB424A96B5 /* VoiceSessionSelectionTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -936,6 +939,9 @@
 		22FB7FDAD3A9DBD8008FBDEF /* MoshiPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoshiPage.swift; sourceTree = "<group>"; };
 		72108235F1233B4D6CF85C5C /* MoshiAudio.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoshiAudio.swift; sourceTree = "<group>"; };
 		25BC2D0813C28A68510582A0 /* MLXEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MLXEngine.swift; sourceTree = "<group>"; };
+		565E84810FA1EB62ED64ABDF /* VoiceSessionSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSessionSelection.swift; sourceTree = "<group>"; };
+		B8C04D3574640628A1A3B521 /* VoiceSessionPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSessionPicker.swift; sourceTree = "<group>"; };
+		B7275E274C36ABAB424A96B5 /* VoiceSessionSelectionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSessionSelectionTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1071,6 +1077,7 @@
 		1A8925273B4A31DF8BFA8A61 /* Voice */ = {
 			isa = PBXGroup;
 			children = (
+				B7275E274C36ABAB424A96B5 /* VoiceSessionSelectionTests.swift */,
 				34BAEE8B44D419A668FB7194 /* DeviceIconTests.swift */,
 				C0D11906CB17D802304BE126 /* EndpointerTests.swift */,
 				58599AC3C663A3E4825E3D7C /* OrbTickerPolicyTests.swift */,
@@ -1556,6 +1563,7 @@
 		86284070847F105923FE0A47 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				B8C04D3574640628A1A3B521 /* VoiceSessionPicker.swift */,
 				0E333BC6784D2209F2B7ED4C /* VoiceOrb.swift */,
 				AABB00BB00000000AEBA0001 /* OrbShader.metal */,
 				A3F89193A08A684698BC94D5 /* VoiceControls.swift */,
@@ -1656,6 +1664,7 @@
 		B64D90BD785DD26644FA3EC0 /* Voice */ = {
 			isa = PBXGroup;
 			children = (
+				565E84810FA1EB62ED64ABDF /* VoiceSessionSelection.swift */,
 				322E1110A5953ECE2DE854A9 /* Endpointer.swift */,
 				CB964E18AE00D6B7BEBECB30 /* VoiceState.swift */,
 				620783A3C8AF6257135DFB6D /* DeviceIcon.swift */,
@@ -2093,6 +2102,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0E94C214683B5F9B3991F55D /* VoiceSessionSelectionTests.swift in Sources */,
 				7C9D68CE31808F5EF35B6209 /* HarnessSmokeTests.swift in Sources */,
 				7F075BF1A809BE2EB56F9D66 /* JarvisAPITests.swift in Sources */,
 				D6ACB53B3C1E970A1D745825 /* TestSupport.swift in Sources */,
@@ -2238,6 +2248,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FF4FED7A336D17F69028E1CF /* VoiceSessionPicker.swift in Sources */,
+				2435FEFA5532F9BDDBE1246B /* VoiceSessionSelection.swift in Sources */,
 				5BD75D6A19FB8522AEAED409 /* MLXEngine.swift in Sources */,
 				C983A4931E20C23F8A0C22F0 /* MoshiPage.swift in Sources */,
 				40FACD770186955E84F6C278 /* MoshiAudio.swift in Sources */,
