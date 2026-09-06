@@ -16,11 +16,14 @@ struct ChatMarkdownText: View {
     let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(ChatMarkdownCache.blocks(for: rendered).enumerated()), id: \.offset) { _, block in
                 view(for: block)
             }
         }
+        .font(.body)
+        .foregroundStyle(JcTheme.text)
+        .tint(JcTheme.cyan)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -40,6 +43,7 @@ struct ChatMarkdownText: View {
 
         case .paragraph(let text):
             Text(chatInlineMarkdown(text))
+                .lineSpacing(4)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -47,7 +51,7 @@ struct ChatMarkdownText: View {
             ChatCodeBlock(language: language, code: text)
 
         case .list(let items):
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(item.marker)
@@ -65,7 +69,7 @@ struct ChatMarkdownText: View {
 
         case .quote(let text):
             HStack(alignment: .top, spacing: 8) {
-                RoundedRectangle(cornerRadius: 1.5).fill(JcTheme.accent).frame(width: 3)
+                RoundedRectangle(cornerRadius: 1.5).fill(JcTheme.cyan.opacity(0.6)).frame(width: 3)
                 Text(chatInlineMarkdown(text))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -78,6 +82,9 @@ struct ChatMarkdownText: View {
 
         case .image(let alt, let source):
             ChatInlineImage(alt: alt, source: source)
+
+        case .table(let table):
+            ChatMarkdownTable(table: table)
         }
     }
 
@@ -247,4 +254,65 @@ struct ChatInlineImage: View {
 /// memoised per block of text — see ``ChatMarkdownCache``.
 func chatInlineMarkdown(_ text: String) -> AttributedString {
     ChatMarkdownCache.inline(for: text)
+}
+
+/// A pipe table as a real grid: bold header, hairline row dividers, columns sized
+/// to content with a cap so a wordy cell wraps instead of pushing the table off
+/// screen, and the whole grid scrolls sideways when it's still wider than the
+/// bubble.
+struct ChatMarkdownTable: View {
+    let table: MarkdownTable
+
+    private let cellMaxWidth: CGFloat = 230
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
+                GridRow {
+                    ForEach(Array(table.header.enumerated()), id: \.offset) { column, text in
+                        cell(text, column: column, header: true)
+                    }
+                }
+                .background(JcTheme.surfaceAlt.opacity(0.55))
+                Divider().overlay(JcTheme.border)
+                ForEach(Array(table.rows.enumerated()), id: \.offset) { rowIndex, row in
+                    GridRow {
+                        ForEach(Array(row.enumerated()), id: \.offset) { column, text in
+                            cell(text, column: column, header: false)
+                        }
+                    }
+                    if rowIndex < table.rows.count - 1 {
+                        Divider().overlay(JcTheme.border.opacity(0.6))
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(JcTheme.border, lineWidth: 1))
+        }
+    }
+
+    private func alignment(_ column: Int) -> SwiftUI.Alignment {
+        guard column < table.alignments.count else { return .leading }
+        switch table.alignments[column] {
+        case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
+        }
+    }
+
+    private func cell(_ text: String, column: Int, header: Bool) -> some View {
+        Text(chatInlineMarkdown(text))
+            .font(header ? .subheadline.weight(.semibold) : .subheadline)
+            .foregroundStyle(header ? JcTheme.text : JcTheme.text.opacity(0.92))
+            .multilineTextAlignment(alignment(column) == .center ? .center
+                                    : alignment(column) == .trailing ? .trailing : .leading)
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: cellMaxWidth, alignment: alignment(column))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxHeight: .infinity, alignment: .topLeading)
+            .gridColumnAlignment(alignment(column).horizontal)
+    }
 }

@@ -182,4 +182,36 @@ final class MarkdownBlocksTests: XCTestCase {
             }
         }
     }
+
+    // MARK: Tables
+
+    func testPipeTableBecomesTableBlock() {
+        let md = """
+        Intro line.
+
+        | | Even Realities G1 | Vuzix Z100 |
+        |---|:---:|--:|
+        | Price | $599 | $500 |
+        | Weight | 44g | 36g |
+        After.
+        """
+        let blocks = MarkdownBlocks.split(md)
+        XCTAssertEqual(blocks.count, 3)
+        guard case .table(let table) = blocks[1] else { return XCTFail("expected table, got \(blocks[1])") }
+        XCTAssertEqual(table.header, ["", "Even Realities G1", "Vuzix Z100"])
+        XCTAssertEqual(table.alignments, [.leading, .center, .trailing])
+        XCTAssertEqual(table.rows, [["Price", "$599", "$500"], ["Weight", "44g", "36g"]])
+        XCTAssertEqual(blocks[2], .paragraph("After."))
+    }
+
+    func testHeaderWithoutDelimiterStaysProse() {
+        // Mid-stream: the delimiter row hasn't arrived yet.
+        XCTAssertEqual(MarkdownBlocks.split("| a | b |"), [.paragraph("| a | b |")])
+    }
+
+    func testShortRowIsPaddedAndEscapedPipeKept() {
+        let md = "| a | b |\n|---|---|\n| x \\| y |"
+        guard case .table(let table)? = MarkdownBlocks.split(md).first else { return XCTFail() }
+        XCTAssertEqual(table.rows, [["x | y", ""]])
+    }
 }

@@ -41,6 +41,17 @@ enum MarkdownBlock: Equatable, Sendable {
     /// A line that is *only* an image (`![alt](src)`), so it can render as a
     /// picture. An image inside a sentence stays in the paragraph.
     case image(alt: String, source: String)
+    /// A pipe table: header row, per-column alignment and body rows. Rows are
+    /// padded/truncated to the header's width so the view never indexes past a
+    /// short row that's still streaming in.
+    case table(MarkdownTable)
+}
+
+struct MarkdownTable: Equatable, Sendable {
+    enum Alignment: Equatable, Sendable { case leading, center, trailing }
+    var header: [String]
+    var alignments: [Alignment]
+    var rows: [[String]]
 }
 
 enum MarkdownBlocks {
@@ -107,6 +118,37 @@ enum MarkdownBlocks {
                 flushAll()
                 out.append(.image(alt: image.alt, source: image.source))
                 continue
+            }
+
+            // A table starts with a header row followed by a delimiter row
+            // (`|---|:--:|`). Until the delimiter arrives the header is prose,
+            // so a lone pipe-y line mid-stream doesn't flicker into a grid.
+            if line.contains("|"), index < lines.count,
+               let alignments = tableDelimiter(lines[index]) {
+                let header = tableCells(line)
+                if !header.isEmpty {
+                    flushAll()
+                    index += 1
+                    var rows: [[String]] = []
+                    while index < lines.count {
+                        let row = lines[index].trimmingCharacters(in: .whitespaces)
+                        guard !row.isEmpty, row.contains("|") else { break }
+                        var cells = tableCells(row)
+                        if cells.count < header.count {
+                            cells += Array(repeating: "", count: header.count - cells.count)
+                        }
+                        rows.append(Array(cells.prefix(header.count)))
+                        index += 1
+                    }
+                    var aligns = alignments
+                    if aligns.count < header.count {
+                        aligns += Array(repeating: .leading, count: header.count - aligns.count)
+                    }
+                    out.append(.table(MarkdownTable(header: header,
+                                                    alignments: Array(aligns.prefix(header.count)),
+                                                    rows: rows)))
+                    continue
+                }
             }
 
             if line.hasPrefix(">") {
@@ -184,6 +226,44 @@ enum MarkdownBlocks {
               afterDigits.dropFirst().first == " " else { return nil }
         let text = afterDigits.dropFirst(2).trimmingCharacters(in: .whitespaces)
         return MarkdownListItem(marker: "\(digits).", depth: depth, text: text, ordered: true)
+    }
+
+    /// Split a table row into cells on unescaped pipes, dropping the outer
+    /// pipes' empty ends. `\|` inside a cell is a literal pipe.
+    static func tableCells(_ line: String) -> [String] {
+        var cells: [String] = []
+        var current = ""
+        var escaped = false
+        var inCode = false
+        for char in line {
+            if escaped { current.append(char); escaped = false; continue }
+            if char == "\\" { escaped = true; continue }
+            if char == "`" { inCode.toggle() }
+            if char == "|" && !inCode { cells.append(current); current = "" } else { current.append(char) }
+        }
+        cells.append(current)
+        var trimmed = cells.map { $0.trimmingCharacters(in: .whitespaces) }
+        if line.trimmingCharacters(in: .whitespaces).hasPrefix("|"), !trimmed.isEmpty { trimmed.removeFirst() }
+        if line.trimmingCharacters(in: .whitespaces).hasSuffix("|"), !trimmed.isEmpty { trimmed.removeLast() }
+        return trimmed
+    }
+
+    /// `|---|:---:|--:|` → one alignment per column; nil if the line isn't a
+    /// delimiter row (every cell must be dashes with optional colons).
+    static func tableDelimiter(_ raw: String) -> [MarkdownTable.Alignment]? {
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        guard line.contains("-"), line.contains("|") || line.contains(":") else { return nil }
+        let cells = tableCells(line)
+        guard !cells.isEmpty else { return nil }
+        var out: [MarkdownTable.Alignment] = []
+        for cell in cells {
+            let squeezed = cell.replacingOccurrences(of: " ", with: "")
+            guard !squeezed.isEmpty, squeezed.allSatisfy({ $0 == "-" || $0 == ":" }),
+                  squeezed.contains("-") else { return nil }
+            let left = squeezed.hasPrefix(":"), right = squeezed.hasSuffix(":")
+            out.append(left && right ? .center : right ? .trailing : .leading)
+        }
+        return out
     }
 
     /// `![alt](source)` and nothing else on the line. Kept deliberately strict:
