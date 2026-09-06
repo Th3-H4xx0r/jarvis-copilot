@@ -40,7 +40,13 @@ struct PairPage: View {
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 32)
+            .frame(maxWidth: .infinity)
+            // Tap anywhere that isn't a control to put the keyboard away.
+            .background(Color.clear.contentShape(Rectangle()).onTapGesture { focus = nil })
         }
+        // Fixed page while everything fits; it only scrolls once the keyboard
+        // takes the bottom of the screen.
+        .scrollBounceBehavior(.basedOnSize)
         .scrollDismissesKeyboard(.interactively)
         .jcScreen("Pair device")
         #if os(iOS)
