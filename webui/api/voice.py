@@ -736,7 +736,12 @@ _VOICE_REPLY_DIRECTIVE = (
     "look it up with tool search before saying you can't. Only plain "
     "conversation needs no tool.\n"
     "4. If a tool fails, say what failed in one sentence and stop; do not "
-    "narrate alternatives.\n"
+    "narrate alternatives. Never apologise unless something actually failed.\n"
+    "6. When the action is visible on the user's device — opening an app, a "
+    "URL, directions, media, a setting change — say NOTHING once the tool "
+    "succeeds; the result speaks for itself. Only speak the outcome when there "
+    "is information to report (a result, a value, a confirmation the user "
+    "cannot see).\n"
     "5. Keep every reply to two sentences or fewer — EXCEPT a multi-part "
     "briefing (for example: date, weather, calendar, news), where you call ONE "
     "tool at a time and speak each part's result in one sentence as it "
@@ -2154,6 +2159,22 @@ def _failure_class(seg: dict) -> str:
         return etype
 
 
+_MODEL_ACK_RE = re.compile(
+    r"^(?:(?:right away|on it|one moment|certainly|of course|at your service|"
+    r"straight away|very well|as you wish|working on it|absolutely|sure thing)"
+    r"[,!.]?\s*(?:sir[,!.]?)?\s*)+",
+    re.IGNORECASE,
+)
+
+
+def _strip_model_ack(text: str) -> str:
+    """Remove a leading bare acknowledgement ("Right away, sir.") from the
+    model's first sentence — the bridge already spoke one. Keeps everything
+    after it; returns "" if the whole segment was just the ack."""
+    stripped = _MODEL_ACK_RE.sub("", text or "", count=1).strip()
+    return stripped if stripped != (text or "").strip() else text
+
+
 def _spoken_failure(seg: dict) -> str:
     """One spoken sentence for a failed turn, by the streaming layer's error class."""
     etype = _failure_class(seg)
@@ -2359,6 +2380,10 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
                 print(f"[webui] voice: seg kind={k} {str(seg)[:160]}", flush=True)
             if k == "text":
                 t = (seg.get("text") or "").strip()
+                if t and not ack_state["first_text_sent"]:
+                    # The model acked anyway ("Right away, sir.") on top of the
+                    # server's ack — drop that bare sentence.
+                    t = _strip_model_ack(t)
                 if t:
                     # The reply has ARRIVED: that is what cancels the ack, not the
                     # moment it is sent — otherwise ack and reply both get spoken.
