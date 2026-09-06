@@ -2950,7 +2950,7 @@ def _run_agent_streaming(
                 _base = getattr(_agent, '_turn_usage_base', None)
                 if _base:
                     _usage['turn'] = {
-                        'input_tokens': max(0, int(_usage['input_tokens']) - int(_base[0])),
+                        'input_tokens': max(0, int(getattr(_agent, 'session_input_tokens', 0) or 0) - int(_base[0])),
                         'output_tokens': max(0, int(_usage['output_tokens']) - int(_base[1])),
                         'cache_read_tokens': max(0, int(_usage['cache_read_tokens']) - int(_base[2])),
                         'cache_write_tokens': max(0, int(_usage['cache_write_tokens']) - int(_base[3])),
@@ -3986,8 +3986,10 @@ def _run_agent_streaming(
                 _voice_swap = False
             # The agent's token counters are running session totals; snapshot
             # them so this turn's own usage can be reported as a delta.
+            # session_prompt_tokens already INCLUDES cache reads/writes (canonical
+            # prompt = input + cache); the uncached figure is session_input_tokens.
             _pre_turn_usage = tuple(int(getattr(agent, _k, 0) or 0) for _k in (
-                'session_prompt_tokens', 'session_completion_tokens',
+                'session_input_tokens', 'session_completion_tokens',
                 'session_cache_read_tokens', 'session_cache_write_tokens'))
             agent._turn_usage_base = _pre_turn_usage
             result = agent.run_conversation(
@@ -3998,7 +4000,7 @@ def _run_agent_streaming(
                 persist_user_message=msg_text,
             )
             _post_turn_usage = tuple(int(getattr(agent, _k, 0) or 0) for _k in (
-                'session_prompt_tokens', 'session_completion_tokens',
+                'session_input_tokens', 'session_completion_tokens',
                 'session_cache_read_tokens', 'session_cache_write_tokens'))
             _turn_usage = {
                 'input_tokens': max(0, _post_turn_usage[0] - _pre_turn_usage[0]),
