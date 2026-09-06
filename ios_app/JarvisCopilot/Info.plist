@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.jarviscopilot.jarviscopilotMobileAndIOS.refresh</string>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.jarviscopilot.jarviscopilotMobileAndIOS</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>jarviscopilot</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>twitter</string>
+		<string>instagram</string>
+		<string>fb</string>
+		<string>fb-messenger</string>
+		<string>whatsapp</string>
+		<string>tg</string>
+		<string>sgnl</string>
+		<string>slack</string>
+		<string>spotify</string>
+		<string>youtube</string>
+		<string>snssdk1233</string>
+		<string>maps</string>
+		<string>comgooglemaps</string>
+		<string>googlegmail</string>
+		<string>googlechrome</string>
+		<string>x-web-search</string>
+		<string>calshow</string>
+		<string>mobilenotes</string>
+		<string>x-apple-reminderkit</string>
+		<string>shortcuts</string>
+		<string>uber</string>
+		<string>lyft</string>
+		<string>github</string>
+		<string>discord</string>
+		<string>zoomus</string>
+	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>JarvisCopilot uses Bluetooth to find and control your bottle, scale and Jarvis ESP32 boards.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>JarvisCopilot uses Bluetooth to find and control your bottle, scale and Jarvis ESP32 boards.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_jarvis-esp32._tcp</string>
+	</array>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>JarvisCopilot reads and adds calendar events when you ask Jarvis about your schedule.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>JarvisCopilot reads and adds calendar events when you ask Jarvis about your schedule.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>JarvisCopilot uses the camera to scan the Jarvis Copilot pairing QR code.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>JarvisCopilot looks up contacts so Jarvis can address a text or call to the right person.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>JarvisCopilot reads steps, heart rate and sleep when you ask Jarvis about your health.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>JarvisCopilot reaches Jarvis ESP32 boards over your Wi‑Fi network once they have been set up over Bluetooth.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>JarvisCopilot records where you have been, in the background, so Jarvis can answer questions about your day. Only on if you switch Location history on in Settings.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>JarvisCopilot shares a one-off location fix when you ask Jarvis where you are or for anything nearby.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>JarvisCopilot records a short audio clip when you ask Jarvis to listen or take a voice note.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>JarvisCopilot picks a photo from your library when you ask Jarvis to send or look at one.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>JarvisCopilot transcribes what you say on this device, so Jarvis can answer without sending your voice anywhere.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>bluetooth-central</string>
+		<string>location</string>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
+</dict>
+</plist>

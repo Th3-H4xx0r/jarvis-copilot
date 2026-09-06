@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  App Group: lets the JarvisWidget extension read the Dynamic Island design
+	  cache (island/design-<id>.json) that the app writes. The id MUST match
+	  JarvisCopilot/JarvisCopilot-iOS.entitlements and
+	  JarvisShared.appGroupID (Copilot/Shared/JarvisShared.swift, compiled into
+	  BOTH targets), or containerURL returns nil and every custom design silently
+	  falls back to the built-in voice/coding views.
+
+	  Wired into the target's Debug + Release configs as CODE_SIGN_ENTITLEMENTS by
+	  scripts/add-widget-target.rb.
+	-->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.jarviscopilot.jarviscopilotMobileAndIOS</string>
+	</array>
+</dict>
+</plist>

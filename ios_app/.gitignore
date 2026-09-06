@@ -1,0 +1,12 @@
+# Xcode
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+# ESP32 firmware build outputs (source stays; binaries are reproducible)
+firmware/build/
+# Reverse-engineering artifacts live outside the repo (../JarvisWearables-artifacts)
+*.apk
+*.apkm
+*.xapk
