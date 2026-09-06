@@ -444,14 +444,15 @@ private struct LivingAurora: View {
                 ZStack {
                     LinearGradient(colors: [Color(jcHex: 0x0A0C12), Color(jcHex: 0x050608)],
                                    startPoint: .top, endPoint: .bottom)
-                    blob(JcTheme.cyan, 0.14, 380,
-                         x: w * (0.15 + 0.10 * sin(t / 9)), y: h * (0.12 + 0.08 * cos(t / 11)))
-                    blob(JcTheme.primaryBlue, 0.12, 420,
-                         x: w * (0.85 + 0.08 * cos(t / 13)), y: h * (0.28 + 0.10 * sin(t / 8)))
-                    blob(JcTheme.accent, 0.11, 360,
-                         x: w * (0.30 + 0.12 * sin(t / 10 + 1)), y: h * (0.80 + 0.07 * cos(t / 9 + 2)))
-                    blob(JcTheme.accentAlt, 0.07, 300,
-                         x: w * (0.78 + 0.10 * cos(t / 12 + 1)), y: h * (0.88 + 0.06 * sin(t / 10 + 1)))
+                    // Wide, slow orbits so the colour visibly wanders the whole page.
+                    blob(JcTheme.cyan, 0.30, 520,
+                         x: w * (0.30 + 0.30 * sin(t / 7)), y: h * (0.25 + 0.20 * cos(t / 9)))
+                    blob(JcTheme.primaryBlue, 0.28, 600,
+                         x: w * (0.70 + 0.28 * cos(t / 8)), y: h * (0.45 + 0.25 * sin(t / 6.5)))
+                    blob(JcTheme.accent, 0.26, 520,
+                         x: w * (0.40 + 0.32 * sin(t / 9 + 1)), y: h * (0.75 + 0.18 * cos(t / 7 + 2)))
+                    blob(JcTheme.accentAlt, 0.16, 440,
+                         x: w * (0.65 + 0.30 * cos(t / 10 + 1)), y: h * (0.85 + 0.12 * sin(t / 8 + 1)))
                 }
             }
         }
@@ -461,7 +462,7 @@ private struct LivingAurora: View {
         Circle()
             .fill(color.opacity(alpha))
             .frame(width: size, height: size)
-            .blur(radius: size * 0.28)
+            .blur(radius: size * 0.30)
             .position(x: x, y: y)
     }
 }
