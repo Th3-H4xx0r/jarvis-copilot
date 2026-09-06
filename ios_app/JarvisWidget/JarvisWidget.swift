@@ -103,7 +103,7 @@ struct JarvisWidget: Widget {
 
 @available(iOS 18.0, *)
 struct JarvisVoiceControl: ControlWidget {
-    static let kind = "com.jarviscopilot.jarviscopilotMobileAndIOS.JarvisWidget.VoiceControl"
+    static let kind = "com.jarviscopilot.jarviscopilotMobileAndIOS.JarvisWidget1.VoiceControl"
 
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: Self.kind) {
