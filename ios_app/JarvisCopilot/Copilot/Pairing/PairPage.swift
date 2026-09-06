@@ -22,7 +22,7 @@ struct PairPage: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                header.padding(.top, 20)
+                header.padding(.top, 4)
                 GlassButton(title: "Scan QR code", symbol: "qrcode.viewfinder",
                             ghost: true, full: true) { startScanning() }
                 form
@@ -55,8 +55,12 @@ struct PairPage: View {
     // MARK: Header
 
     private var header: some View {
-        VStack(spacing: 12) {
-            JcLogo(size: 64)
+        VStack(spacing: 4) {
+            // The assistant's own orb, idling — the same particle sphere the Voice
+            // tab uses, so the first screen already looks like the product.
+            VoiceOrb(state: .idle, amplitude: 0.14, size: 200)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             Text("Pair with JarvisCopilot")
                 .font(JcText.title)
                 .foregroundStyle(JcTheme.text)
