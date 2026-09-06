@@ -51,19 +51,25 @@ static float fbm3(float3 p, float t) {
 
 // ── orb ──────────────────────────────────────────────────────────────────────
 [[ stitchable ]] half4 liquidOrb(float2 pos, half4 inColor,
-                                  float2 size, float t, float bright,
+                                  float2 size, float t, float bright, float breathe,
                                   half4 deepH, half4 cyanH, half4 shellTintH)
 {
     // SwiftUI hands `.color(...)` arguments to Metal as half4.
     float4 deep = float4(deepH), cyan = float4(cyanH), shellTint = float4(shellTintH);
     float2 c = size * 0.5;
-    float R = min(size.x, size.y) * 0.5 * 0.312;   // = VoiceOrbGeometry radius (0.53 × base) under the 1.7× bleed
+    // Radius = the Canvas orb's (0.53 × base under the 1.7× bleed), scaled by the
+    // slow breathing the whole orb does (passed in from VoiceOrbGeometry).
+    float R = min(size.x, size.y) * 0.5 * 0.312 * breathe;
     float2 p = (pos - c) / R;
 
-    // Fluid silhouette: radius displaced by fbm of the direction (+ time).
+    // Fluid silhouette: the outline itself sloshes — a slow, large fbm bulge
+    // plus a faster small ripple, both drifting around the rim over time.
     float2 dir = length(p) > 1e-4 ? normalize(p) : float2(1.0, 0.0);
-    float disp = fbm3(float3(dir * 1.6, 0.0), t) - 0.5;           // -0.5..0.5
-    float w = 1.0 + 0.11 * disp;
+    float a = atan2(dir.y, dir.x);
+    float bulge = fbm3(float3(dir * 1.1, 0.0), t * 0.6) - 0.5;        // big, slow
+    float ripple = fbm3(float3(dir * 3.0 + 4.7, 0.0), t * 1.4) - 0.5;  // small, quicker
+    float sway = 0.035 * sin(a * 2.0 + t * 0.55) + 0.025 * sin(a * 3.0 - t * 0.37 + 1.0);
+    float w = 1.0 + 0.16 * bulge + 0.05 * ripple + sway;
     float d = length(p) / w;
 
     if (d > 1.40) { return half4(0.0); }

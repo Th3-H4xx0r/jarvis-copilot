@@ -51,13 +51,16 @@ struct VoiceOrb: View {
             let energy = VoiceOrbGeometry.energy(state: state, t: t)
             let reactive = VoiceOrbGeometry.reactive(state: state, amplitude: amp, t: t)
             let bright = VoiceOrbGeometry.brightness(energy: energy, reactive: reactive)
+            // Breathing: the same slow radius swell the Canvas orb has always had
+            // (VoiceOrbGeometry.radius), as a ratio so the shader can scale by it.
+            let breathe = VoiceOrbGeometry.radius(base: 1, reactive: reactive, t: t) / 0.53
             let side = size * Self.bleed
             ZStack {
                 // The glass body: rendered per pixel by OrbShader.metal (liquidOrb).
                 Rectangle()
                     .fill(Color.white)
                     .colorEffect(ShaderLibrary.liquidOrb(
-                        .float2(side, side), .float(t), .float(bright),
+                        .float2(side, side), .float(t), .float(bright), .float(breathe),
                         .color(blend(Color(red: 0.05, green: 0.16, blue: 0.96), state.palette[1], 0.30)),
                         .color(blend(Color(red: 0.10, green: 0.82, blue: 1.00), state.palette[0], 0.25)),
                         .color(blend(state.palette[0], .white, 0.7))))
