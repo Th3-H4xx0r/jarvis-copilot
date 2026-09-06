@@ -1037,6 +1037,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         s._voice_turn_directive = _VOICE_REPLY_DIRECTIVE
     except Exception:
         pass
+    print(f"[webui] voice: turn model={eff_model!r} provider={eff_provider!r} lane={lane!r} override={explicit_override} fast_lane={bool(fast_lane)}", flush=True)
     try:
         response = _start_chat_stream_for_session(
             s,
@@ -1068,7 +1069,8 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
             # leave the user stranded — say so and rerun this turn on the
             # configured fast lane (the override keeps winning next turn).
             if (seg.get("kind") == "error" and explicit_override and fast_lane
-                    and _failure_class(seg) in ("quota_exhausted", "rate_limit", "auth_mismatch", "error")):
+                    and _failure_class(seg) in ("quota_exhausted", "rate_limit", "auth_mismatch", "model_not_found", "error")):
+                print(f"[webui] voice: override model failed ({_failure_class(seg)}); rerunning on the fast lane", flush=True)
                 fallback_to_fast = True
                 yield {"kind": "text",
                        "text": "That model is out of usage right now, so I'm answering on the fast lane."}
@@ -2218,6 +2220,8 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
                 break
             any_emitted = True
             k = seg.get("kind")
+            if k != "text":
+                print(f"[webui] voice: seg kind={k} {str(seg)[:160]}", flush=True)
             if k == "text":
                 t = (seg.get("text") or "").strip()
                 if t:
@@ -2282,6 +2286,7 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
         if not handled and not any_emitted and not state["interrupt"]:
             # The agent produced nothing — never a SILENT end_turn (the mobile
             # client ignores end_turn `reason`). Speak a short apology.
+            print("[webui] voice: agent stream produced no segments (no text, no error event)", flush=True)
             _stream_segment(conn, sock, state, {"kind": "text", "text": "Sorry, I didn't catch a reply that time. Please try again."})
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_reply"}))
             handled = True
