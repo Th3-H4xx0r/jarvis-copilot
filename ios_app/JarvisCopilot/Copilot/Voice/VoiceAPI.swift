@@ -204,6 +204,9 @@ struct VoiceAPI: Sendable {
     /// before starting a turn so a previously-orphaned turn (the app was
     /// backgrounded mid-reply) doesn't block us with "session already has an
     /// active stream". Best effort — if it fails we still try the turn.
+    /// How long a running turn is presumed live before it counts as orphaned.
+    static let liveTurnGraceSeconds: TimeInterval = 180
+
     func cancelActiveStream(sessionID: String) async {
         do {
             let body = try await api.get("/api/session",
@@ -211,6 +214,14 @@ struct VoiceAPI: Sendable {
             let session = body.dict("session") ?? body
             let streamID = session.string("active_stream_id") ?? ""
             guard !streamID.isEmpty else { return }
+            // A turn that started recently is live, not orphaned: the phone was
+            // just backgrounded by an action the turn itself took (opening a URL
+            // or an app) and voice is re-opening on return. Cancelling it here
+            // is what produced "Task cancelled" right after a correct reply.
+            if let started = session.double("pending_started_at"),
+               Date().timeIntervalSince1970 - started < Self.liveTurnGraceSeconds {
+                return
+            }
             _ = try await api.get("/api/chat/cancel", query: ["stream_id": streamID])
         } catch {
             // Best effort: the turn still runs, it may just hit "session already
