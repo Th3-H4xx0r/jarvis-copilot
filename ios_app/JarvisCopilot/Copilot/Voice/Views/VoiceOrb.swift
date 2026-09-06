@@ -92,6 +92,23 @@ struct VoiceOrb: View {
                 ]),
                 center: centre, startRadius: 0, endRadius: haloRadius))
 
+        // ── Sphere body: a dark-blue disc so the lattice reads as a solid globe ──
+        let bodyRect = CGRect(x: centre.x - radius, y: centre.y - radius,
+                              width: radius * 2, height: radius * 2)
+        context.fill(
+            Path(ellipseIn: bodyRect),
+            with: .radialGradient(
+                Gradient(stops: [
+                    .init(color: core.opacity(clamp(0.10 * bright, 0.3)), location: 0),
+                    .init(color: core.opacity(clamp(0.22 * bright, 0.45)), location: 0.80),
+                    .init(color: highlight.opacity(clamp(0.16 * bright, 0.4)), location: 1),
+                ]),
+                center: centre, startRadius: 0, endRadius: radius))
+
+        // ── Point lattice: a dotted wireframe globe turning with the spin ──
+        drawLattice(&context, centre: centre, radius: radius, spin: spin * 0.6, t: t,
+                    colour: blend(core, highlight, 0.55), bright: bright)
+
         // ── Ribbons, back to front so the additive light stacks correctly ──
         let built = VoiceOrbGeometry.strands
             .map { build($0, centre: centre, radius: radius, spin: spin, undulation: undulation, t: t) }
@@ -102,13 +119,13 @@ struct VoiceOrb: View {
         let halfBase = VoiceOrbGeometry.ribbonHalfWidth(radius, reactive: reactive)
 
         for ribbon in built {
-            let band = ribbonPath(ribbon, halfBase: halfBase)
+            let band = ribbonPath(ribbon, halfBase: halfBase * 1.35)
 
             // Soft wide glow (the ribbon's aura).
             context.drawLayer { layer in
-                layer.addFilter(.blur(radius: radius * 0.06))
+                layer.addFilter(.blur(radius: radius * 0.09))
                 layer.fill(band, with: .color(core.opacity(
-                    clamp((0.10 + 0.10 * ribbon.meanFront) * bright, 0.5))))
+                    clamp((0.16 + 0.14 * ribbon.meanFront) * bright, 0.6))))
             }
             // Defined translucent sheet.
             context.drawLayer { layer in
@@ -148,6 +165,52 @@ struct VoiceOrb: View {
             layer.stroke(arc, with: .color(rimColour.opacity(clamp(0.38 * bright, 0.7))),
                          style: StrokeStyle(lineWidth: radius * 0.045, lineCap: .round))
         }
+    }
+
+    // MARK: - Point lattice
+
+    private static let latRings = 22
+    private static let lonPoints = 44
+
+    /// Dots on a unit sphere (latitude rings × longitude points), rotated by the
+    /// orb's spin about Y plus a slow tilt, orthographically projected. Only the
+    /// front hemisphere is drawn, batched into three depth buckets so the whole
+    /// lattice costs three fills per frame instead of a thousand.
+    private func drawLattice(_ context: inout GraphicsContext, centre: CGPoint, radius: CGFloat,
+                             spin: Double, t: Double, colour: Color, bright: Double) {
+        let tilt = 0.42 + 0.10 * sin(t * 0.13)
+        let (ct, st) = (cos(tilt), sin(tilt))
+        let roll = 0.18 * sin(t * 0.07)
+        let (cr, sr) = (cos(roll), sin(roll))
+        let dot = max(0.6, radius * 0.0075)
+        var near = Path(), mid = Path(), far = Path()
+
+        for i in 1..<Self.latRings {
+            let theta = Double(i) / Double(Self.latRings) * .pi
+            let sinT = sin(theta), cosT = cos(theta)
+            for j in 0..<Self.lonPoints {
+                let phi = Double(j) / Double(Self.lonPoints) * 2 * .pi + spin
+                var x = sinT * cos(phi)
+                var y = cosT
+                var z = sinT * sin(phi)
+                // Tilt about X, then a slow roll about Z.
+                let y1 = y * ct - z * st, z1 = y * st + z * ct
+                y = y1; z = z1
+                let x2 = x * cr - y * sr, y2 = x * sr + y * cr
+                x = x2; y = y2
+                guard z > -0.05 else { continue }
+                let p = CGPoint(x: centre.x + radius * x, y: centre.y - radius * y)
+                let r = CGRect(x: p.x - dot, y: p.y - dot, width: dot * 2, height: dot * 2)
+                if z > 0.6 { near.addEllipse(in: r) } else if z > 0.25 { mid.addEllipse(in: r) } else { far.addEllipse(in: r) }
+            }
+        }
+        context.fill(far, with: .color(colour.opacity(clamp(0.16 * bright, 0.35))))
+        context.fill(mid, with: .color(colour.opacity(clamp(0.34 * bright, 0.6))))
+        context.drawLayer { layer in
+            layer.addFilter(.blur(radius: dot * 0.8))
+            layer.fill(near, with: .color(colour.opacity(clamp(0.30 * bright, 0.5))))
+        }
+        context.fill(near, with: .color(blend(colour, .white, 0.35).opacity(clamp(0.62 * bright, 0.9))))
     }
 
     // MARK: - Ribbon construction
