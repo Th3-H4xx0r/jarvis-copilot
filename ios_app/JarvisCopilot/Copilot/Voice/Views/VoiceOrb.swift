@@ -92,40 +92,83 @@ struct VoiceOrb: View {
                 ]),
                 center: centre, startRadius: 0, endRadius: haloRadius))
 
-        // ── Sphere body: a dark-blue disc so the lattice reads as a solid globe ──
+        // ── Liquid glass. No solid fill: the background shows THROUGH the orb. ──
+        // What makes it read as a glass blob is (1) a thin bright refractive edge,
+        // (2) a wider soft glow just inside that edge (thick-glass look), (3) a
+        // few translucent colour masses drifting inside, (4) a specular highlight
+        // top-left and a caustic crescent bottom-right, (5) dust blown off the rim.
         let body = blobPath(centre: centre, radius: radius, t: t)
-        context.fill(
-            body,
-            with: .radialGradient(
-                Gradient(stops: [
-                    .init(color: core.opacity(clamp(0.10 * bright, 0.3)), location: 0),
-                    .init(color: core.opacity(clamp(0.22 * bright, 0.45)), location: 0.80),
-                    .init(color: highlight.opacity(clamp(0.16 * bright, 0.4)), location: 1),
-                ]),
-                center: centre, startRadius: 0, endRadius: radius))
+        let inner = blobPath(centre: centre, radius: radius * 0.84, t: t * 1.25, wobble: 1.8)
 
-        // ── Liquid interior: iridescent colour swirling inside the glass ──
-        drawLiquid(&context, centre: centre, radius: radius, t: t,
-                   colours: [Color(red: 0.10, green: 0.16, blue: 0.95),   // deep electric blue
-                             Color(red: 0.16, green: 0.78, blue: 0.98),   // cyan
-                             Color(red: 0.62, green: 0.96, blue: 1.00)],  // pale cyan highlight
-                   bright: bright)
+        // (3) translucent colour inside — low alpha, heavy blur, clipped to the glass
+        context.drawLayer { layer in
+            layer.clip(to: body)
+            layer.blendMode = .plusLighter
+            layer.addFilter(.blur(radius: radius * 0.20))
+            let tints: [(Color, Double, Double, Double, Double, Double)] = [
+                // colour, orbit rx, ry, speed, phase, size
+                (Color(red: 0.12, green: 0.32, blue: 1.00), 0.34, 0.28, 0.40, 0.0, 0.62),
+                (Color(red: 0.20, green: 0.80, blue: 1.00), 0.36, 0.38, 0.33, 2.3, 0.50),
+                (Color(red: 0.55, green: 0.40, blue: 1.00), 0.28, 0.34, 0.47, 4.4, 0.42),
+            ]
+            for (colour, rx, ry, speed, phase, size) in tints {
+                let x = centre.x + radius * CGFloat(rx * sin(t * speed + phase))
+                let y = centre.y + radius * CGFloat(ry * cos(t * speed * 0.8 + phase * 1.3))
+                let r = radius * CGFloat(size)
+                layer.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)),
+                           with: .radialGradient(
+                               Gradient(colors: [colour.opacity(clamp(0.30 * bright, 0.42)),
+                                                 colour.opacity(clamp(0.08 * bright, 0.14)), .clear]),
+                               center: CGPoint(x: x, y: y), startRadius: 0, endRadius: r))
+            }
+        }
 
-        // ── Fine horizontal ridges across the body (the reference's contour lines) ──
-        drawRidges(&context, centre: centre, radius: radius, t: t, bright: bright)
+        // (2) thick-glass inner glow: a wide soft band hugging the inside of the edge
+        context.drawLayer { layer in
+            layer.clip(to: body)
+            layer.blendMode = .plusLighter
+            layer.addFilter(.blur(radius: radius * 0.08))
+            layer.stroke(blobPath(centre: centre, radius: radius * 0.97, t: t),
+                         with: .color(blend(core, .white, 0.35).opacity(clamp(0.28 * bright, 0.4))),
+                         style: StrokeStyle(lineWidth: radius * 0.14))
+        }
+        // faint inner refraction line — the back surface of the glass seen through it
+        context.drawLayer { layer in
+            layer.addFilter(.blur(radius: radius * 0.012))
+            layer.stroke(inner, with: .color(Color.white.opacity(clamp(0.10 * bright, 0.16))),
+                         style: StrokeStyle(lineWidth: max(0.6, radius * 0.008)))
+        }
 
-        // ── Frosted glass rim: a wide, soft white band just inside the edge ──
+        // (1) the refractive edge itself: thin, bright, slightly cyan-white
+        context.drawLayer { layer in
+            layer.addFilter(.blur(radius: radius * 0.006))
+            layer.stroke(body, with: .color(blend(highlight, .white, 0.55).opacity(clamp(0.85 * bright, 0.95))),
+                         style: StrokeStyle(lineWidth: max(0.8, radius * 0.014)))
+        }
+
+        // (4) specular highlight (top-left) and caustic crescent (bottom-right)
         context.drawLayer { layer in
             layer.clip(to: body)
             layer.addFilter(.blur(radius: radius * 0.09))
-            layer.stroke(blobPath(centre: centre, radius: radius * 0.94, t: t),
-                         with: .color(Color.white.opacity(clamp(0.50 * bright, 0.65))),
-                         style: StrokeStyle(lineWidth: radius * 0.18))
+            let w = radius * 0.70, h = radius * 0.26
+            layer.fill(Path(ellipseIn: CGRect(x: centre.x - radius * 0.38 - w / 2, y: centre.y - radius * 0.66 - h / 2,
+                                              width: w, height: h)),
+                       with: .color(Color.white.opacity(clamp(0.26 * bright, 0.36))))
+        }
+        context.drawLayer { layer in
+            layer.clip(to: body)
+            layer.addFilter(.blur(radius: radius * 0.03))
+            var caustic = Path()
+            caustic.addArc(center: centre, radius: radius * 0.80, startAngle: .degrees(20),
+                           endAngle: .degrees(75), clockwise: false)
+            layer.stroke(caustic, with: .color(blend(highlight, .white, 0.4).opacity(clamp(0.45 * bright, 0.6))),
+                         style: StrokeStyle(lineWidth: radius * 0.05, lineCap: .round))
         }
 
-        // ── Particle scatter dusting the edge, and orbit rings with sweeping arcs ──
-        drawScatter(&context, centre: centre, radius: radius, t: t,
-                    colour: blend(core, highlight, 0.4), bright: bright)
+        // (5) dust blown off the rim
+        drawDust(&context, centre: centre, radius: radius, t: t,
+                 colour: Color(red: 0.35, green: 0.45, blue: 1.00), bright: bright)
+        _ = spin
 
         // ── Ribbons, back to front so the additive light stacks correctly ──
         let built = VoiceOrbGeometry.strands
@@ -145,7 +188,7 @@ struct VoiceOrb: View {
                 layer.clip(to: body)
                 layer.addFilter(.blur(radius: radius * 0.14))
                 layer.fill(band, with: .color(sheetColour.opacity(
-                    clamp((0.14 + 0.12 * ribbon.meanFront) * bright, 0.45))))
+                    clamp((0.08 + 0.08 * ribbon.meanFront) * bright, 0.28))))
             }
         }
 
@@ -154,7 +197,7 @@ struct VoiceOrb: View {
         context.drawLayer { layer in
             layer.addFilter(.blur(radius: radius * 0.05))
             layer.stroke(body,
-                         with: .color(rimColour.opacity(clamp(0.22 * bright, 0.4))),
+                         with: .color(rimColour.opacity(clamp(0.06 * bright, 0.1))),
                          style: StrokeStyle(lineWidth: radius * 0.03))
             // Top emphasis arc — brighter up top, as light from above would be.
             var arc = Path()
@@ -219,15 +262,16 @@ struct VoiceOrb: View {
     /// The sphere's outline as a slowly wobbling blob: a circle displaced by three
     /// low-frequency harmonics that drift in time, so the body reads as liquid
     /// rather than a rigid ball. Used for the fill, every clip, and the rims.
-    private func blobPath(centre: CGPoint, radius: CGFloat, t: Double) -> Path {
+    private func blobPath(centre: CGPoint, radius: CGFloat, t: Double, wobble k: Double = 1.0) -> Path {
         var path = Path()
         let n = 120
         for i in 0...n {
             let a = Double(i) / Double(n) * 2 * .pi
             let wobble = 1.0
-                + 0.030 * sin(3 * a + t * 0.70)
-                + 0.022 * sin(5 * a - t * 0.45 + 1.3)
-                + 0.018 * sin(2 * a + t * 0.30 + 2.1)
+                + k * 0.030 * sin(3 * a + t * 0.70)
+                + k * 0.022 * sin(5 * a - t * 0.45 + 1.3)
+                + k * 0.018 * sin(2 * a + t * 0.30 + 2.1)
+                + k * 0.012 * sin(7 * a + t * 0.9 + 0.4)
             let r = radius * CGFloat(wobble)
             let p = CGPoint(x: centre.x + r * CGFloat(cos(a)), y: centre.y + r * CGFloat(sin(a)))
             if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
@@ -258,6 +302,36 @@ struct VoiceOrb: View {
             layer.stroke(lines, with: .color(Color.white.opacity(clamp(0.09 * bright, 0.14))),
                          style: StrokeStyle(lineWidth: max(0.5, radius * 0.006)))
         }
+    }
+
+    /// Fine particle JETS: a handful of emitters on the rim each spray a cone of
+    /// dots outward — dense at the surface, thinning with distance — like dust
+    /// blown off the edge. Emitters drift slowly around the blob.
+    private func drawDust(_ context: inout GraphicsContext, centre: CGPoint, radius: CGFloat,
+                          t: Double, colour: Color, bright: Double) {
+        var seed: UInt32 = 0x2545F491
+        func rnd() -> Double {
+            seed = seed &* 1664525 &+ 1013904223
+            return Double(seed >> 8) / Double(1 << 24)
+        }
+        let dot = max(0.45, radius * 0.0045)
+        var near = Path(), far = Path()
+        let emitters = 6
+        for e in 0..<emitters {
+            let base = Double(e) / Double(emitters) * 2 * .pi + 0.9 * sin(t * 0.06 + Double(e))
+            let jetLength = 0.35 + 0.25 * rnd()
+            let cone = 0.35 + 0.25 * rnd()
+            for _ in 0..<70 {
+                let d = pow(rnd(), 1.8) * jetLength
+                let a = base + (rnd() - 0.5) * cone * (0.4 + d)
+                let r = radius * CGFloat(1.0 + d)
+                let x = centre.x + r * CGFloat(cos(a)), y = centre.y + r * CGFloat(sin(a))
+                let rect = CGRect(x: x - dot, y: y - dot, width: dot * 2, height: dot * 2)
+                if d < 0.12 { near.addEllipse(in: rect) } else { far.addEllipse(in: rect) }
+            }
+        }
+        context.fill(far, with: .color(colour.opacity(clamp(0.40 * bright, 0.55))))
+        context.fill(near, with: .color(blend(colour, .white, 0.3).opacity(clamp(0.65 * bright, 0.8))))
     }
 
     /// A deterministic cloud of tiny dots hugging the sphere's edge, slowly
