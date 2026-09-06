@@ -21,6 +21,7 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
     case serverLogs
     case islandDesigns
     case photon
+    case moshi
     case settings
 
     var id: String { rawValue }
@@ -43,6 +44,7 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
         case .serverLogs:      return "Server logs"
         case .islandDesigns:   return "Dynamic Island"
         case .photon:          return "Photon"
+        case .moshi:           return "Moshi (on-device)"
         case .settings:        return "Settings"
         }
     }
@@ -62,6 +64,7 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
         case .serverLogs:      return "doc.text"
         case .islandDesigns:   return "rectangle.on.rectangle"
         case .photon:          return "bubble.left.and.bubble.right"
+        case .moshi:           return "waveform.circle"
         case .settings:        return "gearshape"
         }
     }

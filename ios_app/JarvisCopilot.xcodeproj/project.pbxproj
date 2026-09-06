@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -449,6 +449,9 @@
 		FF76E467CCE188136DF929EA /* OnDeviceChatBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76F49FA45D26A5348A0DB282 /* OnDeviceChatBridge.swift */; };
 		AABB00AA00000000ICON0002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AABB00AA00000000ICON0001 /* Assets.xcassets */; };
 		AABB00BB00000000AEBA0002 /* OrbShader.metal in Sources */ = {isa = PBXBuildFile; fileRef = AABB00BB00000000AEBA0001 /* OrbShader.metal */; };
+		C983A4931E20C23F8A0C22F0 /* MoshiPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22FB7FDAD3A9DBD8008FBDEF /* MoshiPage.swift */; };
+		40FACD770186955E84F6C278 /* MoshiAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72108235F1233B4D6CF85C5C /* MoshiAudio.swift */; };
+		41E330849B125AA0A5996B5C /* MoshiLib in Frameworks */ = {isa = PBXBuildFile; productRef = 0F69476528E298B6FAE04201 /* MoshiLib */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -928,6 +931,8 @@
 		FFCB08C9E189D1906A4D2402 /* IslandOffline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandOffline.swift; sourceTree = "<group>"; };
 		AABB00AA00000000ICON0001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AABB00BB00000000AEBA0001 /* OrbShader.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = OrbShader.metal; sourceTree = "<group>"; };
+		22FB7FDAD3A9DBD8008FBDEF /* MoshiPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoshiPage.swift; sourceTree = "<group>"; };
+		72108235F1233B4D6CF85C5C /* MoshiAudio.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoshiAudio.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -945,6 +950,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				41E330849B125AA0A5996B5C /* MoshiLib in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1485,6 +1491,7 @@
 		6C9AC46597275C69DBC22E96 /* More */ = {
 			isa = PBXGroup;
 			children = (
+				DD3552417711979E1B4FCD76 /* Moshi */,
 				B474480B73EBC2CA872FFAC3 /* ConnectionMonitor.swift */,
 				E028C31FBB80B7691BCAA529 /* MoreSupport.swift */,
 				77A6301A8F714FDE5EEF8924 /* Memory */,
@@ -1927,6 +1934,15 @@
 			path = Shell;
 			sourceTree = "<group>";
 		};
+		DD3552417711979E1B4FCD76 /* Moshi */ = {
+			isa = PBXGroup;
+			children = (
+				22FB7FDAD3A9DBD8008FBDEF /* MoshiPage.swift */,
+				72108235F1233B4D6CF85C5C /* MoshiAudio.swift */,
+			);
+			path = Moshi;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -1950,6 +1966,9 @@
 		};
 		42AEFBAE01D2DFD981F7DA7D /* JarvisCopilot */ = {
 			isa = PBXNativeTarget;
+			packageProductDependencies = (
+				0F69476528E298B6FAE04201 /* MoshiLib */,
+			);
 			buildConfigurationList = 450BBD6873F6CB73A9676607 /* Build configuration list for PBXNativeTarget "JarvisCopilot" */;
 			buildPhases = (
 				F6BE306E6A9E42DE559F6EDC /* Sources */,
@@ -1989,6 +2008,9 @@
 /* Begin PBXProject section */
 		46F86FAA6BBF9AC94A7E4595 /* Project object */ = {
 			isa = PBXProject;
+			packageReferences = (
+				A24EC250ED3D5C60E106D0D5 /* XCLocalSwiftPackageReference "MoshiLib" */,
+			);
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2600;
@@ -2209,6 +2231,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C983A4931E20C23F8A0C22F0 /* MoshiPage.swift in Sources */,
+				40FACD770186955E84F6C278 /* MoshiAudio.swift in Sources */,
 				AABB00BB00000000AEBA0002 /* OrbShader.metal in Sources */,
 				AAEE7D4588345241B7B2F492 /* JarvisCopilotApp.swift in Sources */,
 				2A2E210CC5D33E179A64033C /* BottleProtocol.swift in Sources */,
@@ -2790,6 +2814,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A24EC250ED3D5C60E106D0D5 /* XCLocalSwiftPackageReference "MoshiLib" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = MoshiLib;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0F69476528E298B6FAE04201 /* MoshiLib */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MoshiLib;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
 }

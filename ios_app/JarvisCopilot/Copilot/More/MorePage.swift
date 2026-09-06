@@ -71,6 +71,8 @@ struct MorePage: View {
             IslandDesignsPage()
         case .photon:
             PhotonSetupPage()
+        case .moshi:
+            MoshiPage()
         }
     }
 

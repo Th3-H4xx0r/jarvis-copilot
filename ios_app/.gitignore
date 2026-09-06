@@ -10,3 +10,7 @@ firmware/build/
 *.apk
 *.apkm
 *.xapk
+
+# SwiftPM build dirs (MoshiLib)
+.build/
+MoshiLib/.build/
