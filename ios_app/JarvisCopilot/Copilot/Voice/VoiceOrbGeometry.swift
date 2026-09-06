@@ -65,7 +65,7 @@ enum VoiceOrbGeometry {
             // Steep saturating curve: even quiet speech gives a clear swell (mic
             // level reads low), while loud input still tops out gracefully near 1.
             return 1 - exp(-5.0 * min(max(amplitude, 0), 1))
-        case .speaking:   return 0.30 + 0.45 * talk
+        case .speaking:   return min(0.39 + 0.585 * talk, 1)   // +30% peaks
         case .thinking:   return 0.10 + 0.22 * pulse
         case .idle:       return 0.06 + 0.14 * pulse
         case .connecting, .error: return 0.05 + 0.10 * pulse
@@ -106,7 +106,7 @@ enum VoiceOrbGeometry {
     /// Projected sphere radius. `base` is half the view's shortest side.
     static func radius(base: CGFloat, reactive: Double, t: Double) -> CGFloat {
         let breath = 0.5 + 0.5 * sin(t * 0.9)
-        let scale = 1.0 + 0.025 * breath + 0.40 * reactive
+        let scale = 1.0 + 0.025 * breath + 0.52 * reactive   // +30% swell on speech
         return base * 0.53 * scale
     }
 

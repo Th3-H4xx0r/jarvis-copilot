@@ -78,10 +78,15 @@ static float waveHeight(float x, float t) {
     float r = length(q);
     if (r > 1.30) { return half4(0.0); }
 
+    // Voice reactivity: `breathe` is the radius ratio the geometry computes
+    // from the mic / playback level (1.0 quiet). The liquid sloshes harder and
+    // burns brighter as it rises.
+    float react = clamp((breathe - 1.0) / 0.45, 0.0, 1.0);
+
     // Wave interface and the two rim hotspots where it meets the glass.
-    float hx = waveHeight(q.x, t);
+    float hx = waveHeight(q.x, t) * (1.0 + 1.1 * react) + 0.05 * react * sin(t * 6.0);
     float dy = q.y - hx;
-    float hl = waveHeight(-0.97, t), hr = waveHeight(0.97, t);
+    float hl = waveHeight(-0.97, t) * (1.0 + 1.1 * react), hr = waveHeight(0.97, t) * (1.0 + 1.1 * react);
     float2 pL = float2(-sqrt(max(0.0, 1.0 - hl * hl)), hl);
     float2 pR = float2( sqrt(max(0.0, 1.0 - hr * hr)), hr);
     float dL = length(q - pL), dR = length(q - pR);
@@ -115,8 +120,8 @@ static float waveHeight(float x, float t) {
     float w = 0.012 + 0.006 * warm;
     float core = exp(-dy * dy / (2.0 * w * w));
     float glow = exp(-abs(dy) / (0.06 + 0.06 * warm));
-    col += lineCol * core * (0.85 + 1.0 * warm);
-    col += lineCol * glow * (0.16 + 0.42 * warm);
+    col += lineCol * core * (0.85 + 1.0 * warm) * (1.0 + 0.6 * react);
+    col += lineCol * glow * (0.16 + 0.42 * warm) * (1.0 + 0.8 * react);
 
     // Warm lobe filling one side of the wave near the rim; the side drifts.
     float side = sin(t * 0.23);
