@@ -17,17 +17,18 @@ struct StatusPill: View {
     }
 
     var body: some View {
+        // The Voice page's status pill: a quiet translucent capsule where only
+        // the dot carries the colour, instead of a tinted badge.
         HStack(spacing: 6) {
             if live { PulsingDot(color: color, size: dense ? 6 : 7) }
+            else { Circle().fill(color).frame(width: dense ? 5 : 6, height: dense ? 5 : 6) }
             Text(label)
-                .font(.system(size: dense ? 10 : 11, weight: .bold))
-                .kerning(0.4)
-                .foregroundStyle(color)
+                .font(.system(size: dense ? 10.5 : 11.5, weight: .medium))
+                .foregroundStyle(JcTheme.text.opacity(0.85))
         }
-        .padding(.horizontal, dense ? 7 : 9)
-        .padding(.vertical, dense ? 2 : 3)
-        .background(color.opacity(0.15), in: Capsule())
-        .overlay(Capsule().strokeBorder(color.opacity(0.35), lineWidth: 0.8))
+        .padding(.horizontal, dense ? 8 : 11)
+        .padding(.vertical, dense ? 3 : 5)
+        .background(.white.opacity(0.045), in: Capsule())
     }
 }
 

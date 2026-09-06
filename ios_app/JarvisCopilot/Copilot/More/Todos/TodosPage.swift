@@ -117,24 +117,7 @@ struct TodoSpinningIcon: View {
 /// Icon + text empty state for a session with no plan.
 struct TodosEmptyState: View {
     var body: some View {
-        VStack(spacing: 0) {
-            Image(systemName: "checklist")
-                .font(.system(size: 28))
-                .foregroundStyle(JcTheme.muted.opacity(0.8))
-                .frame(width: 64, height: 64)
-                .background(JcTheme.glassFill, in: Circle())
-                .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-                .padding(.bottom, 16)
-            Text("No active todo list.")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(JcTheme.text)
-                .padding(.bottom, 6)
-            Text("When the active chat session has a plan, its todos show here.")
-                .font(.system(size: 13))
-                .foregroundStyle(JcTheme.muted)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 24)
+        JcEmptyState(symbol: "checklist", title: "No active todo list.",
+                     subtitle: "When the active chat session has a plan, its todos show here.")
     }
 }

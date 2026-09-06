@@ -249,25 +249,5 @@ struct WorkspacesEmptyState: View {
     let title: String
     let hint: String
 
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: symbol)
-                .font(.system(size: 28, weight: .light))
-                .foregroundStyle(JcTheme.muted)
-                .frame(width: 64, height: 64)
-                .background(JcTheme.glassFill, in: Circle())
-                .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-            VStack(spacing: 6) {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(JcTheme.text)
-                Text(hint)
-                    .font(.system(size: 13))
-                    .foregroundStyle(JcTheme.muted)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(24)
-    }
+    var body: some View { JcEmptyState(symbol: symbol, title: title, subtitle: hint).padding(.vertical, 24) }
 }

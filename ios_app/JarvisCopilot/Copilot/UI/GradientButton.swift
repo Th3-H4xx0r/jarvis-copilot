@@ -30,17 +30,15 @@ struct GradientButton: View {
                 } else if let symbol {
                     Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
                 }
-                Text(title).font(.system(size: 14, weight: .bold))
+                Text(title).font(.system(size: 15, weight: .semibold))
             }
             .foregroundStyle(Color.white)
             .frame(maxWidth: full ? .infinity : nil)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(JcTheme.brandGradient)
-                    .shadow(color: JcTheme.accent.opacity(0.4), radius: 8, y: 4)
-            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 13)
+            // The Voice page's primary control: one flat brand-blue capsule, no
+            // gradient, no glow. (The name is historical.)
+            .background(JcTheme.primaryBlue, in: Capsule())
         }
         .buttonStyle(.plain)
         .opacity(action == nil && !busy ? 0.45 : 1)

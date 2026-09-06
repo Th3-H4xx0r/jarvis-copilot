@@ -135,14 +135,11 @@ struct InsightsPeriodSelector: View {
                     Text(option.label)
                         .font(.system(size: 13.5, weight: .semibold))
                         .kerning(0.3)
-                        .foregroundStyle(selected ? Color.white : JcTheme.muted)
+                        .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 9)
+                        .padding(.vertical, 8)
                         .background {
-                            if selected {
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(JcTheme.blueGradient)
-                            }
+                            if selected { Capsule().fill(.white.opacity(0.10)) }
                         }
                 }
                 .buttonStyle(.plain)

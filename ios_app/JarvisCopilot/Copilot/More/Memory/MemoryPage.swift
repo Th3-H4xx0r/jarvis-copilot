@@ -71,51 +71,13 @@ struct MemoryPage: View {
     }
 }
 
-/// The My Notes / User Profile segmented control: one rounded track, the
-/// selected segment tinted with the brand accent.
+/// The My Notes / User Profile segmented control, in the Voice register.
 struct MemorySectionToggle: View {
     @Binding var section: MemorySection
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(MemorySection.allCases) { item in
-                Button { section = item } label: {
-                    MemorySegmentTab(symbol: item.iconName, label: item.label,
-                                     selected: item == section)
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity)
-            }
-        }
-        .padding(4)
-        .background(JcTheme.surfaceAlt, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-    }
-}
-
-struct MemorySegmentTab: View {
-    let symbol: String
-    let label: String
-    let selected: Bool
-
-    var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: symbol).font(.system(size: 14))
-            Text(label).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-        }
-        .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 9)
-        .background {
-            let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
-            if selected {
-                shape.fill(JcTheme.accent.opacity(0.28))
-                    .overlay(shape.strokeBorder(JcTheme.accent.opacity(0.45), lineWidth: 1))
-            }
-        }
-        .contentShape(Rectangle())
-        .animation(.easeInOut(duration: 0.18), value: selected)
+        JcSegmented(items: MemorySection.allCases, selection: $section,
+                    label: { $0.label }, symbol: { $0.iconName })
     }
 }
 
@@ -128,10 +90,9 @@ struct MemoryMtimeChip: View {
             Image(systemName: "clock").font(.system(size: 11)).foregroundStyle(JcTheme.muted)
             Text("Last edited \(mtime)").font(.system(size: 12)).foregroundStyle(JcTheme.muted)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(JcTheme.glassFill, in: Capsule())
-        .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+        .padding(.horizontal, 11)
+        .padding(.vertical, 6)
+        .background(.white.opacity(0.045), in: Capsule())
     }
 }
 
@@ -140,27 +101,7 @@ struct MemoryEmptyState: View {
     let text: String
     let hint: String
 
-    var body: some View {
-        VStack(spacing: 0) {
-            Image(systemName: symbol)
-                .font(.system(size: 26))
-                .foregroundStyle(JcTheme.muted)
-                .frame(width: 64, height: 64)
-                .background(JcTheme.glassFill, in: Circle())
-                .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-                .padding(.bottom, 16)
-            Text(text)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(JcTheme.text)
-                .padding(.bottom, 6)
-            Text(hint)
-                .font(.system(size: 13))
-                .foregroundStyle(JcTheme.muted)
-        }
-        .frame(maxWidth: .infinity)
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 24)
-    }
+    var body: some View { JcEmptyState(symbol: symbol, title: text, subtitle: hint) }
 }
 
 /// Full-screen Markdown editor for one memory section. Confirms before

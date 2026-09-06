@@ -161,12 +161,12 @@ struct KanbanTaskDetailView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 48)
             .background {
-                let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+                let shape = Capsule()
                 if store.isRunning {
                     shape.fill(JcTheme.danger.opacity(0.15))
                         .overlay(shape.strokeBorder(JcTheme.danger.opacity(0.5), lineWidth: 1))
                 } else {
-                    shape.fill(JcTheme.blueGradient)
+                    shape.fill(JcTheme.primaryBlue)
                 }
             }
         }

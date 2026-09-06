@@ -234,12 +234,9 @@ struct ServerLogsMenuChip: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(JcTheme.muted)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(JcTheme.surfaceAlt,
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+            .padding(.horizontal, 13)
+            .padding(.vertical, 8)
+            .background(.white.opacity(0.045), in: Capsule())
         }
         .menuStyle(.button)
         .buttonStyle(.plain)

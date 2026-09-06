@@ -221,15 +221,6 @@ struct CodeMemoryEmptyState: View {
     let message: String
 
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 32))
-                .foregroundStyle(JcTheme.muted.opacity(0.7))
-            Text(message)
-                .font(.system(size: 13))
-                .foregroundStyle(JcTheme.muted)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
+        JcEmptyState(symbol: symbol, title: message)
     }
 }

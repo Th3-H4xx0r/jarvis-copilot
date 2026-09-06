@@ -96,11 +96,9 @@ struct CronPromptCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background {
-            let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-            shape.fill(LinearGradient(colors: [JcTheme.accent.opacity(0.12),
-                                               JcTheme.cyan.opacity(0.04)],
-                                      startPoint: .leading, endPoint: .trailing))
-                .overlay(shape.strokeBorder(JcTheme.accent.opacity(0.25), lineWidth: 1))
+            let shape = RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
+            shape.fill(JcTheme.glassFill)
+                .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 1))
         }
     }
 }
@@ -155,9 +153,9 @@ struct CronActionButton: View {
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity, minHeight: 48)
             .background {
-                let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+                let shape = Capsule()
                 if primary {
-                    shape.fill(JcTheme.blueGradient)
+                    shape.fill(JcTheme.primaryBlue)
                 } else {
                     shape.fill(JcTheme.glassFill)
                         .overlay(shape.strokeBorder(

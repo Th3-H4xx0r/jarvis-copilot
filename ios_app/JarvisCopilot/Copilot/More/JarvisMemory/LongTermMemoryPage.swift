@@ -241,16 +241,12 @@ struct MemoryNamespaceChip: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(JcTheme.text)
             Text("\(count)")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(JcTheme.accent)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .background(JcTheme.accent.opacity(0.20), in: Capsule())
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(JcTheme.muted)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(JcTheme.glassFill, in: Capsule())
-        .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+        .padding(.horizontal, 11)
+        .padding(.vertical, 6)
+        .background(.white.opacity(0.045), in: Capsule())
     }
 }
 

@@ -336,6 +336,69 @@ struct GlassQuietLabel: View {
     }
 }
 
+/// Empty state in the Voice page's idle register: a quiet symbol, a medium
+/// headline and one muted line — no chip-in-a-circle.
+struct JcEmptyState: View {
+    let symbol: String
+    let title: String
+    var subtitle: String? = nil
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(JcTheme.muted)
+                .padding(.bottom, 6)
+            Text(title)
+                .font(.system(size: 21, weight: .medium))
+                .tracking(-0.4)
+                .foregroundStyle(JcTheme.text)
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.system(size: 14))
+                    .foregroundStyle(JcTheme.muted)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 28)
+    }
+}
+
+/// Segmented control in the Voice register: one translucent track, the
+/// selected segment lifted with a soft white fill rather than an accent tint.
+struct JcSegmented<T: Hashable & Identifiable>: View {
+    let items: [T]
+    @Binding var selection: T
+    let label: (T) -> String
+    var symbol: ((T) -> String)? = nil
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(items) { item in
+                let selected = item == selection
+                Button { selection = item } label: {
+                    HStack(spacing: 6) {
+                        if let symbol { Image(systemName: symbol(item)).font(.system(size: 12.5)) }
+                        Text(label(item)).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                    }
+                    .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background {
+                        if selected { Capsule().fill(.white.opacity(0.10)) }
+                    }
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .animation(.easeInOut(duration: 0.18), value: selected)
+            }
+        }
+        .padding(3)
+        .background(.white.opacity(0.045), in: Capsule())
+    }
+}
+
 // MARK: - Screen chrome
 
 extension View {

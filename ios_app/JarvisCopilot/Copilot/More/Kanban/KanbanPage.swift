@@ -391,7 +391,7 @@ struct KanbanTaskCard: View {
     }
 }
 
-/// A column filter pill; the selected one takes the blue CTA gradient.
+/// A column filter pill; the selected one lifts with a soft white fill.
 struct KanbanFilterChip: View {
     let label: String
     let selected: Bool
@@ -401,18 +401,10 @@ struct KanbanFilterChip: View {
         Button(action: action) {
             Text(label)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(selected ? Color.white : JcTheme.muted)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 9)
-                .background {
-                    if selected {
-                        Capsule().fill(JcTheme.blueGradient)
-                            .shadow(color: JcTheme.primaryBlue.opacity(0.3), radius: 10, y: 3)
-                    } else {
-                        Capsule().fill(JcTheme.glassFill)
-                            .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-                    }
-                }
+                .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
+                .padding(.horizontal, 15)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(.white.opacity(selected ? 0.10 : 0.045)))
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.16), value: selected)
@@ -431,9 +423,7 @@ struct KanbanHeaderButton: View {
                 .font(.system(size: 19))
                 .foregroundStyle(tint ?? JcTheme.text)
                 .frame(width: 46, height: 46)
-                .background((tint ?? JcTheme.text).opacity(tint == nil ? 0.08 : 0.16), in: Circle())
-                .overlay(Circle().strokeBorder(
-                    tint.map { $0.opacity(0.5) } ?? JcTheme.glassBorder, lineWidth: 1))
+                .background(.white.opacity(0.045), in: Circle())
         }
         .buttonStyle(.plain)
     }
