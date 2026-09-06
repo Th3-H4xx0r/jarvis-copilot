@@ -16,12 +16,48 @@ public final class MoshiRuntime {
     public static let sampleRate: Double = 24000
     public static let frameSize = 1920
 
+    /// Which checkpoint to run. Only the 7B "Moshi" models hold an open-ended
+    /// English conversation; Hibiki 1B is Kyutai's French→English simultaneous
+    /// translator (what their iPhone demo ships) and stays mostly quiet for
+    /// English input.
+    public enum Model: String, CaseIterable, Identifiable, Sendable {
+        case moshiko, moshika, hibiki
+        public var id: String { rawValue }
+
+        public var title: String {
+            switch self {
+            case .moshiko: return "Moshi 7B (male voice)"
+            case .moshika: return "Moshi 7B (female voice)"
+            case .hibiki: return "Hibiki 1B (French → English)"
+            }
+        }
+        public var detail: String {
+            switch self {
+            case .moshiko, .moshika: return "Conversational, English. ~4.2 GB download, needs a lot of RAM; may not keep real time on a phone."
+            case .hibiki: return "Simultaneous translation: speak French, hear English. ~1.3 GB."
+            }
+        }
+        /// Hub repo + file for the LM weights.
+        var weights: (repo: String, file: String) {
+            switch self {
+            case .moshiko: return ("kyutai/moshiko-mlx-q4", "model.q4.safetensors")
+            case .moshika: return ("kyutai/moshika-mlx-q4", "model.q4.safetensors")
+            case .hibiki: return ("lmz/moshi-swift", "moshi-37c6cfd6@200.q6.safetensors")
+            }
+        }
+        public var config: LmConfig {
+            switch self {
+            case .moshiko, .moshika: return LmConfig.moshi_2024_07()
+            case .hibiki: return LmConfig.moshi1b(audioDelay: 2)
+            }
+        }
+        public var vocabFile: String { Files.vocabFile(for: config) }
+    }
+
     public struct Files {
-        public static let hubRepo = "lmz/moshi-swift"
-        public static let moshiWeights = "moshi-37c6cfd6@200.q6.safetensors"
+        /// Mimi codec weights and the SentencePiece vocabs live in Kyutai's Swift repo.
+        public static let assetsRepo = "lmz/moshi-swift"
         public static let mimiWeights = "tokenizer-dbaa9758-checkpoint125.safetensors"
-        /// SentencePiece vocab, picked by the text vocab size of the config.
-        public static let vocab = vocabFile(for: LmConfig.moshi1b(audioDelay: 2))
 
         public static func vocabFile(for cfg: LmConfig) -> String {
             switch cfg.textOutVocabSize {
@@ -29,7 +65,7 @@ public final class MoshiRuntime {
             case 32000: return "tokenizer_spm_32k_3.json"
             case 8000: return "tokenizer_spm_8k_0.json"
             case 4000: return "test_en_audio_4000.json"
-            default: return "tokenizer_spm_48k_multi6_2.json"
+            default: return "tokenizer_spm_32k_3.json"
             }
         }
     }
@@ -46,7 +82,12 @@ public final class MoshiRuntime {
     private var vocab: [Int: String] = [:]
     private var stepCount = 0
 
-    public init() {}
+    public private(set) var model: Model?
+
+    public init() {
+        // Keep MLX's scratch cache small on a phone; the weights are what matter.
+        GPU.set(cacheLimit: 32 * 1024 * 1024)
+    }
 
     // MARK: - Loading
 
@@ -57,28 +98,30 @@ public final class MoshiRuntime {
             .appending(path: "moshi")
     }
 
-    /// True when every weight file is already on disk.
-    public static func isDownloaded() -> Bool {
-        let api = HubApi(downloadBase: downloadBase)
-        let repo = Hub.Repo(id: Files.hubRepo)
-        return [Files.moshiWeights, Files.mimiWeights, Files.vocab].allSatisfy {
-            FileManager.default.fileExists(atPath: api.localRepoLocation(repo).appending(path: $0).path)
-        }
+    private static func localFile(_ repoID: String, _ filename: String) -> URL {
+        HubApi(downloadBase: downloadBase).localRepoLocation(Hub.Repo(id: repoID)).appending(path: filename)
     }
 
-    /// Deletes the downloaded weights.
+    /// True when every file the model needs is already on disk.
+    public static func isDownloaded(_ model: Model) -> Bool {
+        let w = model.weights
+        return [localFile(w.repo, w.file),
+                localFile(Files.assetsRepo, Files.mimiWeights),
+                localFile(Files.assetsRepo, model.vocabFile)]
+            .allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// Deletes every downloaded file (all models).
     public static func deleteDownloads() throws {
-        let api = HubApi(downloadBase: downloadBase)
-        let dir = api.localRepoLocation(Hub.Repo(id: Files.hubRepo))
-        if FileManager.default.fileExists(atPath: dir.path) {
-            try FileManager.default.removeItem(at: dir)
+        if FileManager.default.fileExists(atPath: downloadBase.path) {
+            try FileManager.default.removeItem(at: downloadBase)
         }
     }
 
-    private static func download(_ filename: String,
+    private static func download(_ repoID: String, _ filename: String,
                                  progress: @escaping @Sendable (String, Double?) -> Void) async throws -> URL {
         let api = HubApi(downloadBase: downloadBase)
-        let repo = Hub.Repo(id: Files.hubRepo)
+        let repo = Hub.Repo(id: repoID)
         let target = api.localRepoLocation(repo).appending(path: filename)
         if FileManager.default.fileExists(atPath: target.path) { return target }
         progress("Downloading \(filename)", 0)
@@ -89,12 +132,13 @@ public final class MoshiRuntime {
     }
 
     /// Downloads (first run only), builds and warms up both models.
-    public func load(progress: @escaping @Sendable (String, Double?) -> Void) async throws {
-        guard !isLoaded else { return }
-        let cfg = LmConfig.moshi1b(audioDelay: 2)
-        let moshiURL = try await Self.download(Files.moshiWeights, progress: progress)
-        let mimiURL = try await Self.download(Files.mimiWeights, progress: progress)
-        let vocabURL = try await Self.download(Files.vocab, progress: progress)
+    public func load(_ which: Model, progress: @escaping @Sendable (String, Double?) -> Void) async throws {
+        if isLoaded { if model == which { return } else { unload() } }
+        let cfg = which.config
+        let w = which.weights
+        let moshiURL = try await Self.download(w.repo, w.file, progress: progress)
+        let mimiURL = try await Self.download(Files.assetsRepo, Files.mimiWeights, progress: progress)
+        let vocabURL = try await Self.download(Files.assetsRepo, which.vocabFile, progress: progress)
 
         progress("Building Moshi", nil)
         let moshi = try Self.makeMoshi(moshiURL, cfg)
@@ -111,12 +155,14 @@ public final class MoshiRuntime {
         self.mimi = mimi
         self.gen = LMGen(moshi, maxSteps: cfg.transformer.maxSeqLen,
                          audioSampler: Sampler(), textSampler: Sampler(), cb: EmptyCallbacks())
+        model = which
         isLoaded = true
         progress("Ready", nil)
     }
 
     public func unload() {
         moshi = nil; mimi = nil; gen = nil
+        model = nil
         isLoaded = false
         GPU.clearCache()
     }

@@ -132,4 +132,15 @@ final class AppleFoundationModelTests: XCTestCase {
     private func request(_ text: String) -> LocalRequest {
         LocalRequest(userText: text, surface: .chat, toolCatalogJSON: "[]", tier: .fullLocalFirst)
     }
+
+    func testMLXRowsFollowTheInstalledProbe() {
+        let models = OnDeviceModelCatalog.list(appleFM: .available,
+                                               mlxInstalled: { $0.contains("0.5B") })
+        let small = models.first { $0.id == "mlx-community/Qwen2.5-0.5B-Instruct-4bit" }!
+        let big = models.first { $0.id == "mlx-community/Qwen2.5-1.5B-Instruct-4bit" }!
+        XCTAssertTrue(small.installed)
+        XCTAssertNil(small.reason)
+        XCTAssertFalse(big.installed)
+        XCTAssertTrue(big.detail.hasPrefix("Not downloaded"), big.detail)
+    }
 }

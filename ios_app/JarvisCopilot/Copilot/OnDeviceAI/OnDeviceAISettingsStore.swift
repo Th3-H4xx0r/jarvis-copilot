@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OnDeviceLLM
 
 /// State behind ``OnDeviceAISettingsPage``: the persisted ``LocalAiSettings``, a
 /// live availability probe, the model catalogue and the debug generate box.
@@ -22,8 +23,13 @@ final class OnDeviceAISettingsStore {
     private(set) var output = ""
     private(set) var running = false
 
+    /// In-flight MLX downloads, model id → 0…1.
+    private(set) var downloadProgress: [String: Double] = [:]
+    private(set) var downloadError: String?
+
     @ObservationIgnored private let ai: OnDeviceAI
     @ObservationIgnored private var generateTask: Task<Void, Never>?
+    @ObservationIgnored private var downloads: [String: Task<Void, Never>] = [:]
 
     init(ai: OnDeviceAI? = nil, settings: LocalAiSettings? = nil) {
         let ai = ai ?? OnDeviceAI.shared
@@ -70,6 +76,49 @@ final class OnDeviceAISettingsStore {
     }
 
     var activeModelID: String { settings.activeLocalModelID }
+
+    // MARK: - MLX downloads
+
+    func download(_ model: LocalModelInfo) {
+        guard model.engine == .mlx, !model.installed, downloads[model.id] == nil else { return }
+        downloadError = nil
+        downloadProgress[model.id] = 0
+        let id = model.id
+        downloads[id] = Task { @MainActor [weak self] in
+            do {
+                try await LocalLLM.shared.download(id) { p in
+                    Task { @MainActor [weak self] in self?.downloadProgress[id] = p }
+                }
+                self?.downloadProgress[id] = nil
+                await self?.refresh()
+            } catch is CancellationError {
+                self?.downloadProgress[id] = nil
+            } catch {
+                self?.downloadProgress[id] = nil
+                self?.downloadError = error.localizedDescription
+            }
+            self?.downloads[id] = nil
+        }
+    }
+
+    func cancelDownload(_ model: LocalModelInfo) {
+        downloads[model.id]?.cancel()
+        downloads[model.id] = nil
+        downloadProgress[model.id] = nil
+    }
+
+    func delete(_ model: LocalModelInfo) {
+        guard model.engine == .mlx else { return }
+        Task { @MainActor in
+            await MLXEngine.shared.unload()
+            try? LocalLLM.delete(model.id)
+            if settings.activeLocalModelID == model.id {
+                settings.activeLocalModelID = OnDeviceModelCatalog.appleFMID
+                settings.save()
+            }
+            await refresh()
+        }
+    }
 
     /// One-line summary for the availability card.
     var availabilitySummary: String {

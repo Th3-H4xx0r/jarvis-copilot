@@ -4,8 +4,8 @@ import SwiftUI
 /// active local model, tunables and a debug generate box.
 ///
 /// Port of `mobile_client/lib/pages/ondevice_ai_settings_page.dart`. The model
-/// download rows are gone with the MLX engine (see ``OnDeviceModelCatalog``) —
-/// Apple's model needs no download, and an MLX row now explains why it's greyed.
+/// Apple's model needs no download; an MLX row downloads on tap (with a
+/// cancellable progress ring) and offers "Delete weights" on long-press.
 struct OnDeviceAISettingsPage: View {
     @State private var store: OnDeviceAISettingsStore
 
@@ -118,19 +118,46 @@ struct OnDeviceAISettingsPage: View {
             } else {
                 ForEach(Array(store.models.enumerated()), id: \.element.id) { index, model in
                     let selected = store.activeModelID == model.id
+                    let progress = store.downloadProgress[model.id]
+                    let downloadable = model.engine == .mlx && !model.installed
                     GlassRow(symbol: model.engine.symbol,
                              title: model.label,
-                             subtitle: model.detail,
+                             subtitle: progress.map { "Downloading… \(Int($0 * 100))%" } ?? model.detail,
                              subtitleLineLimit: 2,
                              last: index == store.models.count - 1,
-                             action: model.installed ? { store.selectModel(model) } : nil) {
-                        if selected {
+                             action: model.installed ? { store.selectModel(model) }
+                                   : (downloadable && progress == nil) ? { store.download(model) } : nil) {
+                        if let progress {
+                            Button { store.cancelDownload(model) } label: {
+                                ZStack {
+                                    ProgressView(value: progress).progressViewStyle(.circular).tint(JcTheme.cyan)
+                                    Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                                        .foregroundStyle(JcTheme.muted)
+                                }
+                                .frame(width: 22, height: 22)
+                            }
+                            .buttonStyle(.plain)
+                        } else if selected {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(JcTheme.cyan)
+                        } else if downloadable {
+                            Image(systemName: "arrow.down.circle")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(JcTheme.cyan)
                         }
                     }
-                    .opacity(model.installed ? 1 : 0.5)
+                    .opacity(model.installed || downloadable ? 1 : 0.5)
+                    .contextMenu {
+                        if model.engine == .mlx, model.installed {
+                            Button(role: .destructive) { store.delete(model) } label: {
+                                Label("Delete weights", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                if let error = store.downloadError {
+                    Text(error).font(.caption).foregroundStyle(JcTheme.danger).padding(.horizontal, 14).padding(.bottom, 8)
                 }
             }
         }

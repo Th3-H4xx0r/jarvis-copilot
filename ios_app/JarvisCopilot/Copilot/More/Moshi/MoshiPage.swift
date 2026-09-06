@@ -24,7 +24,13 @@ final class MoshiController {
     var note = ""
     var textTokens = 0
     var echoCancellation = true
-    var downloaded = MoshiRuntime.isDownloaded()
+    var dropped = 0
+    var model: MoshiRuntime.Model = MoshiRuntime.Model(rawValue: UserDefaults.standard.string(forKey: "moshi.model") ?? "") ?? .moshiko {
+        didSet { UserDefaults.standard.set(model.rawValue, forKey: "moshi.model"); downloaded = MoshiRuntime.isDownloaded(model) }
+    }
+    var downloaded: Bool = false
+
+    init() { downloaded = MoshiRuntime.isDownloaded(model) }
 
     private let runtime = MoshiRuntime()
     private var audio: MoshiAudioIO?
@@ -35,9 +41,10 @@ final class MoshiController {
     func load() {
         guard phase == .idle || { if case .failed = phase { return true }; return false }() else { return }
         phase = .loading
+        let which = model
         Task.detached { [runtime] in
             do {
-                try await runtime.load { stage, fraction in
+                try await runtime.load(which) { stage, fraction in
                     Task { @MainActor [weak self] in self?.stage = stage; self?.fraction = fraction }
                 }
                 await MainActor.run { [weak self] in
@@ -98,6 +105,7 @@ final class MoshiController {
                 self.buffered = audio.bufferedSeconds + Double(audio.frames.depth) * 0.08
                 self.playedSeconds = audio.playedSeconds
                 self.capturedFrames = audio.capturedFrames
+                self.dropped = audio.frames.dropped
                 // Watchdog: a voice-processing graph that never delivers mic
                 // frames is silently broken — rebuild without it.
                 if self.echoCancellation, audio.voiceProcessing, audio.capturedFrames == 0,
@@ -180,12 +188,17 @@ struct MoshiPage: View {
 
     private var idle: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(model.downloaded ? "Weights on device" : "About 1.3 GB to download once",
+            Picker("Model", selection: $model.model) {
+                ForEach(MoshiRuntime.Model.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.menu)
+            .tint(JcTheme.cyan)
+            Text(model.model.detail)
+                .font(.footnote)
+                .foregroundStyle(JcTheme.muted)
+            Label(model.downloaded ? "Weights on device" : "Downloads once, then loads from disk",
                   systemImage: model.downloaded ? "checkmark.circle" : "arrow.down.circle")
                 .font(.subheadline)
-                .foregroundStyle(JcTheme.muted)
-            Text("Needs an iPhone 15 Pro or newer (8 GB RAM). Loading takes a while the first time.")
-                .font(.footnote)
                 .foregroundStyle(JcTheme.muted)
             Button { model.load() } label: {
                 Label(model.downloaded ? "Load model" : "Download & load", systemImage: "cpu")
@@ -238,6 +251,7 @@ struct MoshiPage: View {
                     stat("in", String(format: "%.1fs", Double(model.capturedFrames) * 0.08), warn: false)
                     stat("out", String(format: "%.1fs", model.playedSeconds), warn: false)
                     stat("words", "\(model.textTokens)", warn: false)
+                    stat("drop", "\(model.dropped)", warn: model.dropped > 0)
                 }
             }
 
@@ -270,7 +284,7 @@ struct MoshiPage: View {
             if !model.note.isEmpty {
                 Text(model.note).font(.caption).foregroundStyle(JcTheme.danger)
             }
-            Text("A step over 80 ms means the phone can't keep up in real time; the buffer will grow.")
+            Text("A step over 80 ms means the phone can't keep up in real time; older mic frames get dropped so replies stay current.")
                 .font(.caption)
                 .foregroundStyle(JcTheme.muted)
         }

@@ -1,4 +1,5 @@
 import Foundation
+import OnDeviceLLM
 
 /// The app-facing entry point to the on-device AI layer — the Swift equivalent of
 /// `mobile_client/lib/services/on_device_ai.dart` (whose job was marshalling a
@@ -18,8 +19,9 @@ final class OnDeviceAI {
     init(engine: (any OnDeviceInferenceEngine)? = nil,
          settings: LocalAiSettings? = nil,
          persona: OnDevicePersona = .shared) {
-        self.engine = engine ?? AppleFMEngine.shared
-        self.settings = settings ?? .shared
+        let settings = settings ?? .shared
+        self.engine = engine ?? OnDeviceRoutingEngine(settings: settings)
+        self.settings = settings
         self.personaBox = persona
     }
 
@@ -41,7 +43,8 @@ final class OnDeviceAI {
     func availability() async -> OnDeviceAvailability { await model.availability() }
 
     func listModels() async -> [LocalModelInfo] {
-        OnDeviceModelCatalog.list(appleFM: await engine.availability())
+        OnDeviceModelCatalog.list(appleFM: await AppleFMEngine.shared.availability(),
+                                  mlxInstalled: LocalLLM.isInstalled)
     }
 
     /// Warm the engine for the selected model. Best-effort — a failure just means

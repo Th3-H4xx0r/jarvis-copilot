@@ -7,8 +7,21 @@ final class MoshiFrameQueue {
     private let lock = NSCondition()
     private var closed = false
 
+    /// Frames dropped because the model fell behind.
+    private(set) var dropped = 0
+    /// Keep at most this much backlog (in frames) so a slow model answers what
+    /// was said just now, not several seconds ago.
+    var maxDepth = 10
+
     func push(_ frame: [Float]) {
-        lock.lock(); frames.append(frame); lock.signal(); lock.unlock()
+        lock.lock()
+        frames.append(frame)
+        if frames.count > maxDepth {
+            let excess = frames.count - maxDepth / 2
+            frames.removeFirst(excess)
+            dropped += excess
+        }
+        lock.signal(); lock.unlock()
     }
 
     /// Blocks until a frame is available; nil once closed.

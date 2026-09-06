@@ -2,14 +2,16 @@ import XCTest
 @testable import MoshiLib
 
 final class MoshiLibTests: XCTestCase {
-    func testMoshi1bConfigMatchesTheBundledVocab() {
-        // The vocab we download must be the one the 1B config expects (48k pieces).
-        let cfg = LmConfig.moshi1b(audioDelay: 2)
-        XCTAssertEqual(cfg.textOutVocabSize, 48000)
-        XCTAssertEqual(MoshiRuntime.Files.vocab, "tokenizer_spm_48k_multi6_2.json")
-        XCTAssertEqual(MoshiRuntime.Files.vocabFile(for: LmConfig.asr300m()),
-                       MoshiRuntime.Files.vocabFile(for: cfg).isEmpty ? "" : MoshiRuntime.Files.vocabFile(for: LmConfig.asr300m()))
-        XCTAssertEqual(cfg.audioCodebooks, 16)
+    func testEachModelPairsWithTheRightVocab() {
+        // Vocab file must match the config's text vocab size, per Kyutai's CLI.
+        XCTAssertEqual(MoshiRuntime.Model.hibiki.config.textOutVocabSize, 48000)
+        XCTAssertEqual(MoshiRuntime.Model.hibiki.vocabFile, "tokenizer_spm_48k_multi6_2.json")
+        XCTAssertEqual(MoshiRuntime.Model.moshiko.config.textOutVocabSize, 32000)
+        XCTAssertEqual(MoshiRuntime.Model.moshiko.vocabFile, "tokenizer_spm_32k_3.json")
+        XCTAssertEqual(MoshiRuntime.Model.moshika.vocabFile, MoshiRuntime.Model.moshiko.vocabFile)
+        // The 7B weights come from Kyutai's MLX repos; the step loop slices 8 codebooks.
+        XCTAssertEqual(MoshiRuntime.Model.moshiko.weights.repo, "kyutai/moshiko-mlx-q4")
+        for m in MoshiRuntime.Model.allCases { XCTAssertEqual(m.config.depformerSlices(), 8, m.rawValue) }
     }
 
     func testTextPiecesSkipSilenceAndUnescapeSpaces() {

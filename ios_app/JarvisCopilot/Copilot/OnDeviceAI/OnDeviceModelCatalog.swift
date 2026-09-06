@@ -38,11 +38,8 @@ struct LocalModelInfo: Equatable, Identifiable, Sendable {
 }
 
 /// The local model catalogue. Port of the `catalog` in
-/// `mobile_client/ios/Runner/OnDeviceAI/ModelManager.swift`, minus the download
-/// machinery: MLX-Swift is a third-party package this target does not link, so
-/// the MLX entries stay as named, permanently-unavailable slots. Keeping them
-/// listed means a user upgrading from the Flutter build still sees the model they
-/// had selected instead of an empty screen.
+/// `mobile_client/ios/Runner/OnDeviceAI/ModelManager.swift`. The MLX entries are
+/// downloadable through ``MLXEngine`` / the `OnDeviceLLM` package.
 enum OnDeviceModelCatalog {
 
     static let appleFMID = OnDeviceEngineKind.appleFM.rawValue
@@ -82,8 +79,15 @@ enum OnDeviceModelCatalog {
         specs.first { $0.id == modelID }?.engine ?? .mlx
     }
 
-    /// Render the catalogue against a live Apple-FM availability probe.
+    /// Render the catalogue against a live Apple-FM availability probe. MLX rows
+    /// count as unavailable — see the two-argument overload for the real check.
     static func list(appleFM: OnDeviceEngineAvailability) -> [LocalModelInfo] {
+        list(appleFM: appleFM, mlxInstalled: { _ in false })
+    }
+
+    /// `mlxInstalled` answers whether a downloadable model's weights are on disk.
+    static func list(appleFM: OnDeviceEngineAvailability,
+                     mlxInstalled: (String) -> Bool) -> [LocalModelInfo] {
         specs.map { spec in
             switch spec.engine {
             case .appleFM:
@@ -93,9 +97,9 @@ enum OnDeviceModelCatalog {
                                       reason: appleFM.reason)
             case .mlx:
                 return LocalModelInfo(id: spec.id, label: spec.label, engine: spec.engine,
-                                      installed: false,
+                                      installed: mlxInstalled(spec.id),
                                       sizeBytes: spec.sizeBytes, ramHintMB: spec.ramHintMB,
-                                      reason: "Needs the MLX engine — not in this build.")
+                                      reason: nil)
             }
         }
     }
