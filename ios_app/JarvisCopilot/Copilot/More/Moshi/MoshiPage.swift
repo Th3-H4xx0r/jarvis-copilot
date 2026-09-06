@@ -180,7 +180,7 @@ struct MoshiPage: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("On-device speech, no server.")
                 .font(.headline)
-            Text("Kyutai's Moshi 1B and the Mimi codec run on the phone's GPU through MLX. Not connected to Jarvis yet — this is a test bench for full-duplex voice.")
+            Text("Kyutai's Moshi and the Mimi codec run on the phone's GPU through MLX. Not connected to Jarvis yet — this is a test bench for full-duplex voice.")
                 .font(.footnote)
                 .foregroundStyle(JcTheme.muted)
         }

@@ -145,7 +145,9 @@ public final class MoshiRuntime {
         // could catch, so check the budget against the weight file up front.
         let weightBytes = (try? FileManager.default.attributesOfItem(atPath: moshiURL.path)[.size] as? Int64) ?? 0
         let mimiBytes = (try? FileManager.default.attributesOfItem(atPath: mimiURL.path)[.size] as? Int64) ?? 0
-        let needed = Int64(Double(weightBytes + mimiBytes) * 1.25) + 700_000_000   // activations, caches, the app itself
+        // Weights map in lazily and land once; add headroom for activations, the
+        // KV caches, MLX's scratch cache and the rest of the app.
+        let needed = Int64(Double(weightBytes + mimiBytes) * 1.04) + 450_000_000
         let available = Self.availableMemoryBytes
         if available > 0, available < needed {
             throw MoshiRuntimeError.notEnoughMemory(neededMB: Int(needed / 1_000_000), availableMB: Int(available / 1_000_000))
