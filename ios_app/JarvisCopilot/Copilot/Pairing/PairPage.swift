@@ -158,7 +158,7 @@ struct PairPage: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Next")
-            .modifier(Entrance(revealed: revealed, index: 3, reduceMotion: reduceMotion))
+            .modifier(Entrance(revealed: revealed, index: 3, reduceMotion: reduceMotion, delay: 1.9))
             .padding(.bottom, 8)
         }
         .padding(.top, Self.columnTop)
@@ -407,6 +407,8 @@ private struct Entrance: ViewModifier {
     let index: Int
     var scale: Bool = false
     let reduceMotion: Bool
+    /// Absolute delay in seconds; overrides the index-based stagger when set.
+    var delay: Double? = nil
 
     func body(content: Content) -> some View {
         let shown = revealed || reduceMotion
@@ -415,7 +417,7 @@ private struct Entrance: ViewModifier {
             .offset(y: shown ? 0 : 18)
             .scaleEffect(scale && !shown ? 0.9 : 1)
             .animation(reduceMotion ? nil
-                       : .spring(response: 0.55, dampingFraction: 0.82).delay(Double(index) * 0.09),
+                       : .spring(response: 0.55, dampingFraction: 0.82).delay(delay ?? Double(index) * 0.09),
                        value: shown)
     }
 }
