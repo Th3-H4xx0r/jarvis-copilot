@@ -18,12 +18,13 @@ final class MoshiController {
     var buffered: Double = 0
     var elapsed: Double = 0
     var stepMs: Double = 0
+    var playedSeconds: Double = 0
+    var textTokens = 0
     var echoCancellation = true
     var downloaded = MoshiRuntime.isDownloaded()
 
     private let runtime = MoshiRuntime()
-    private var mic: MoshiMicrophone?
-    private var speaker: MoshiSpeaker?
+    private var audio: MoshiAudioIO?
     private var worker: Thread?
     private var stopFlag = false
     private var uiTimer: Timer?
@@ -54,12 +55,9 @@ final class MoshiController {
             try session.setCategory(.playAndRecord, mode: .voiceChat,
                                     options: [.defaultToSpeaker, .allowBluetooth])
             try session.setActive(true)
-            let mic = MoshiMicrophone(sampleRate: MoshiRuntime.sampleRate, frameSize: MoshiRuntime.frameSize)
-            let speaker = MoshiSpeaker(sampleRate: MoshiRuntime.sampleRate)
-            try speaker.start()
-            try mic.start(echoCancellation: echoCancellation)
-            self.mic = mic
-            self.speaker = speaker
+            let audio = MoshiAudioIO(sampleRate: MoshiRuntime.sampleRate, frameSize: MoshiRuntime.frameSize)
+            try audio.start(echoCancellation: echoCancellation)
+            self.audio = audio
         } catch {
             phase = .failed(error.localizedDescription)
             return
@@ -68,18 +66,24 @@ final class MoshiController {
         stopFlag = false
         runtime.reset()
         let started = Date()
-        let thread = Thread { [runtime, mic, speaker] in
-            guard let mic, let speaker else { return }
-            while let frame = mic.frames.pop() {
+        playedSeconds = 0
+        textTokens = 0
+        let thread = Thread { [runtime, audio] in
+            guard let audio else { return }
+            var smoothed = 0.0
+            while let frame = audio.frames.pop() {
                 let t0 = CFAbsoluteTimeGetCurrent()
                 let out = runtime.step(pcm: frame)
                 let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
-                if !out.audio.isEmpty { speaker.send(out.audio) }
+                smoothed = smoothed == 0 ? ms : smoothed * 0.8 + ms * 0.2
+                if !out.audio.isEmpty { audio.play(out.audio) }
                 if !out.text.isEmpty {
                     let text = out.text.joined()
-                    Task { @MainActor [weak self] in self?.transcript += text }
+                    let n = out.text.count
+                    Task { @MainActor [weak self] in self?.transcript += text; self?.textTokens += n }
                 }
-                Task { @MainActor [weak self] in self?.stepMs = ms }
+                let shown = smoothed
+                Task { @MainActor [weak self] in self?.stepMs = shown }
             }
         }
         thread.name = "moshi-step"
@@ -88,9 +92,10 @@ final class MoshiController {
         worker = thread
         uiTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, let mic = self.mic, let speaker = self.speaker else { return }
-                self.micLevel = mic.level
-                self.buffered = speaker.bufferedSeconds + Double(mic.frames.depth) * 0.08
+                guard let self, let audio = self.audio else { return }
+                self.micLevel = audio.level
+                self.buffered = audio.bufferedSeconds + Double(audio.frames.depth) * 0.08
+                self.playedSeconds = audio.playedSeconds
                 self.elapsed = Date().timeIntervalSince(started)
             }
         }
@@ -99,9 +104,8 @@ final class MoshiController {
     func stop() {
         guard phase == .running else { return }
         uiTimer?.invalidate(); uiTimer = nil
-        mic?.stop()          // closes the queue, which ends the worker loop
-        speaker?.stop()
-        mic = nil; speaker = nil; worker = nil
+        audio?.stop()        // closes the queue, which ends the worker loop
+        audio = nil; worker = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         phase = .ready
     }
@@ -219,6 +223,8 @@ struct MoshiPage: View {
                 HStack(spacing: 16) {
                     stat("step", "\(Int(model.stepMs)) ms", warn: model.stepMs > 80)
                     stat("buffer", "\(Int(model.buffered * 1000)) ms", warn: model.buffered > 0.5)
+                    stat("out", String(format: "%.1fs", model.playedSeconds), warn: false)
+                    stat("words", "\(model.textTokens)", warn: false)
                 }
             }
 

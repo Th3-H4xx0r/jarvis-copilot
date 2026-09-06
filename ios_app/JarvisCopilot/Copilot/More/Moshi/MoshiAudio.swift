@@ -1,10 +1,7 @@
 import AVFoundation
 import Foundation
 
-/// Microphone → fixed 80 ms frames at 24 kHz mono, handed to a worker via a
-/// blocking queue; and a ring-buffer speaker for Moshi's reply. Adapted from
-/// Kyutai's demo (`Moshi/AudioRT.swift`) with locks instead of `Atomic`, so it
-/// builds on iOS 17.
+/// Blocking queue of fixed-size mic frames feeding the model thread.
 final class MoshiFrameQueue {
     private var frames: [[Float]] = []
     private let lock = NSCondition()
@@ -23,66 +20,7 @@ final class MoshiFrameQueue {
 
     var depth: Int { lock.lock(); defer { lock.unlock() }; return frames.count }
 
-    func close() { lock.lock(); closed = true; lock.broadcast(); unlockAndClear() }
-    private func unlockAndClear() { frames.removeAll(); lock.unlock() }
-}
-
-final class MoshiMicrophone {
-    private let engine = AVAudioEngine()
-    private var pending: [Float] = []
-    let frames = MoshiFrameQueue()
-    private let frameSize: Int
-    private let sampleRate: Double
-    /// Peak level of the last buffer, 0…1, for the UI meter.
-    private(set) var level: Float = 0
-
-    init(sampleRate: Double, frameSize: Int) {
-        self.sampleRate = sampleRate
-        self.frameSize = frameSize
-    }
-
-    func start(echoCancellation: Bool) throws {
-        let input = engine.inputNode
-        if echoCancellation {
-            // Lets Moshi talk over the speaker without hearing itself.
-            try? input.setVoiceProcessingEnabled(true)
-        }
-        let inputFormat = input.inputFormat(forBus: 0)
-        guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
-                                         channels: 1, interleaved: false),
-              let converter = AVAudioConverter(from: inputFormat, to: target) else {
-            throw MoshiAudioError.format
-        }
-        input.installTap(onBus: 0, bufferSize: 1920, format: inputFormat) { [weak self] buffer, _ in
-            guard let self else { return }
-            let capacity = AVAudioFrameCount(Double(buffer.frameLength) * self.sampleRate / inputFormat.sampleRate + 16)
-            guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
-            var error: NSError?
-            var consumed = false
-            converter.convert(to: out, error: &error) { _, status in
-                if consumed { status.pointee = .noDataNow; return nil }
-                consumed = true
-                status.pointee = .haveData
-                return buffer
-            }
-            guard error == nil, let data = out.floatChannelData else { return }
-            let samples = Array(UnsafeBufferPointer(start: data[0], count: Int(out.frameLength)))
-            self.level = samples.reduce(0) { max($0, abs($1)) }
-            self.pending += samples
-            while self.pending.count >= self.frameSize {
-                self.frames.push(Array(self.pending[0..<self.frameSize]))
-                self.pending.removeFirst(self.frameSize)
-            }
-        }
-        engine.prepare()
-        try engine.start()
-    }
-
-    func stop() {
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        frames.close()
-    }
+    func close() { lock.lock(); closed = true; frames.removeAll(); lock.broadcast(); lock.unlock() }
 }
 
 enum MoshiAudioError: LocalizedError {
@@ -90,23 +28,54 @@ enum MoshiAudioError: LocalizedError {
     var errorDescription: String? { "Couldn't configure the microphone format." }
 }
 
-final class MoshiSpeaker {
+/// Mic in and speaker out on ONE `AVAudioEngine`. iOS echo cancellation
+/// (voice processing) is a property of the engine's paired input/output nodes,
+/// and enabling it reconfigures the session — a second engine for playback gets
+/// stopped underneath us, which is why a split design plays nothing.
+///
+/// Input: tap → resample to 24 kHz mono → 1920-sample (80 ms) frames on `frames`.
+/// Output: a source node draining a ring buffer of Moshi's reply samples.
+final class MoshiAudioIO {
+    let frames = MoshiFrameQueue()
+    /// Peak of the last mic buffer, 0…1.
+    private(set) var level: Float = 0
+    /// Total reply audio handed to the speaker, in seconds.
+    private(set) var playedSeconds: Double = 0
+
     private let engine = AVAudioEngine()
+    private let sampleRate: Double
+    private let frameSize: Int
+    private var pending: [Float] = []
     private var ring: [Float]
     private var readIndex = 0, writeIndex = 0, count = 0
     private let lock = NSLock()
-    private let sampleRate: Double
+    private var observer: NSObjectProtocol?
 
-    init(sampleRate: Double) {
+    init(sampleRate: Double, frameSize: Int) {
         self.sampleRate = sampleRate
-        ring = [Float](repeating: 0, count: Int(sampleRate * 4))
+        self.frameSize = frameSize
+        ring = [Float](repeating: 0, count: Int(sampleRate * 6))
     }
 
     var bufferedSeconds: Double { lock.lock(); defer { lock.unlock() }; return Double(count) / sampleRate }
 
-    func start() throws {
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        let source = AVAudioSourceNode(format: format) { [weak self] _, _, frameCount, list -> OSStatus in
+    func start(echoCancellation: Bool) throws {
+        let input = engine.inputNode
+        if echoCancellation {
+            try? input.setVoiceProcessingEnabled(true)
+        }
+        // Query the format only after voice processing is set: it changes it.
+        let inputFormat = input.inputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0,
+              let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
+                                         channels: 1, interleaved: false),
+              let converter = AVAudioConverter(from: inputFormat, to: target) else {
+            throw MoshiAudioError.format
+        }
+
+        // Speaker: source node → mixer, at 24 kHz mono; the engine resamples to the route.
+        let outFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        let source = AVAudioSourceNode(format: outFormat) { [weak self] _, _, frameCount, list -> OSStatus in
             let buffers = UnsafeMutableAudioBufferListPointer(list)
             guard let self, let out = buffers[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
             self.lock.lock()
@@ -123,19 +92,57 @@ final class MoshiSpeaker {
             return noErr
         }
         engine.attach(source)
-        engine.connect(source, to: engine.mainMixerNode, format: format)
+        engine.connect(source, to: engine.mainMixerNode, format: outFormat)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: nil)
+
+        input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
+            guard let self else { return }
+            let capacity = AVAudioFrameCount(Double(buffer.frameLength) * self.sampleRate / inputFormat.sampleRate + 32)
+            guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
+            var error: NSError?
+            var consumed = false
+            converter.convert(to: out, error: &error) { _, status in
+                if consumed { status.pointee = .noDataNow; return nil }
+                consumed = true
+                status.pointee = .haveData
+                return buffer
+            }
+            guard error == nil, out.frameLength > 0, let data = out.floatChannelData else { return }
+            let samples = Array(UnsafeBufferPointer(start: data[0], count: Int(out.frameLength)))
+            self.level = samples.reduce(0) { max($0, abs($1)) }
+            self.pending += samples
+            while self.pending.count >= self.frameSize {
+                self.frames.push(Array(self.pending[0..<self.frameSize]))
+                self.pending.removeFirst(self.frameSize)
+            }
+        }
+
+        // A route change (headphones, speaker toggle) stops the engine; restart it.
+        observer = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            guard let self, !self.engine.isRunning else { return }
+            try? self.engine.start()
+        }
+
+        engine.prepare()
         try engine.start()
     }
 
-    func stop() { engine.stop() }
+    func stop() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        frames.close()
+    }
 
-    /// Drops audio that won't fit rather than blocking the model thread.
-    func send(_ samples: [Float]) {
+    /// Queue reply audio; drops what won't fit rather than blocking the model thread.
+    func play(_ samples: [Float]) {
         lock.lock(); defer { lock.unlock() }
         for s in samples where count < ring.count {
             ring[writeIndex] = s
             writeIndex = (writeIndex + 1) % ring.count
             count += 1
         }
+        playedSeconds += Double(samples.count) / sampleRate
     }
 }
