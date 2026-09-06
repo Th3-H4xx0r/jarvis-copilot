@@ -63,6 +63,18 @@ final class MoshiAudioIO {
 
     var bufferedSeconds: Double { lock.lock(); defer { lock.unlock() }; return Double(count) / sampleRate }
 
+    /// Session setup per Apple's voice-processing engine sample: play-and-record
+    /// in voice-chat mode, speaker by default, and the whole route pinned to
+    /// 48 kHz so the voice-IO input and output formats can be identical.
+    static func configureSession() throws {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playAndRecord, mode: .voiceChat,
+                                options: [.defaultToSpeaker, .allowBluetoothHFP])
+        try session.setPreferredSampleRate(48000)
+        try session.setPreferredIOBufferDuration(0.02)
+        try session.setActive(true, options: [])
+    }
+
     func start(echoCancellation: Bool) throws {
         let input = engine.inputNode
         // Per AVAudioIONode.h: voice processing can only be toggled while the
@@ -90,8 +102,13 @@ final class MoshiAudioIO {
             throw MoshiAudioError.format
         }
 
-        // Speaker: source node → mixer, at 24 kHz mono; the engine resamples to the route.
+        // Speaker: source node → mixer at 24 kHz mono. The mixer → output link is
+        // made in the voice-IO format (the input node's output format): per
+        // AVAudioIONode.h the output node's input format must equal it, and
+        // leaving it to the route (2 ch 44.1 kHz) breaks the voice-IO unit —
+        // the engine reports running but the tap never fires.
         let outFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        let voiceIOFormat = voiceProcessing ? tapFormat : engine.outputNode.inputFormat(forBus: 0)
         let source = AVAudioSourceNode(format: outFormat) { [weak self] _, _, frameCount, list -> OSStatus in
             let buffers = UnsafeMutableAudioBufferListPointer(list)
             guard let self, let out = buffers[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
@@ -110,7 +127,7 @@ final class MoshiAudioIO {
         }
         engine.attach(source)
         engine.connect(source, to: engine.mainMixerNode, format: outFormat)
-        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: nil)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: voiceIOFormat)
 
         input.installTap(onBus: 0, bufferSize: 2400, format: tapFormat) { [weak self] buffer, _ in
             guard let self else { return }

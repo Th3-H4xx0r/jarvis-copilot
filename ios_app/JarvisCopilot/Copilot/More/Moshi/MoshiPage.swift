@@ -20,6 +20,8 @@ final class MoshiController {
     var stepMs: Double = 0
     var playedSeconds: Double = 0
     var capturedFrames = 0
+    /// One-line status shown under the stats (e.g. echo cancellation fell back).
+    var note = ""
     var textTokens = 0
     var echoCancellation = true
     var downloaded = MoshiRuntime.isDownloaded()
@@ -52,10 +54,7 @@ final class MoshiController {
         transcript = ""
         elapsed = 0
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .voiceChat,
-                                    options: [.defaultToSpeaker, .allowBluetooth])
-            try session.setActive(true)
+            try MoshiAudioIO.configureSession()
             let audio = MoshiAudioIO(sampleRate: MoshiRuntime.sampleRate, frameSize: MoshiRuntime.frameSize)
             try audio.start(echoCancellation: echoCancellation)
             self.audio = audio
@@ -63,6 +62,7 @@ final class MoshiController {
             phase = .failed(error.localizedDescription)
             return
         }
+        note = ""
         phase = .running
         stopFlag = false
         runtime.reset()
@@ -98,6 +98,16 @@ final class MoshiController {
                 self.buffered = audio.bufferedSeconds + Double(audio.frames.depth) * 0.08
                 self.playedSeconds = audio.playedSeconds
                 self.capturedFrames = audio.capturedFrames
+                // Watchdog: a voice-processing graph that never delivers mic
+                // frames is silently broken — rebuild without it.
+                if self.echoCancellation, audio.voiceProcessing, audio.capturedFrames == 0,
+                   Date().timeIntervalSince(started) > 3 {
+                    NSLog("[moshi] no mic frames with voice processing; restarting without it")
+                    self.echoCancellation = false
+                    self.stop()
+                    self.note = "Echo cancellation unavailable on this route — restarted without it. Use headphones to avoid Moshi hearing itself."
+                    self.start()
+                }
                 self.elapsed = Date().timeIntervalSince(started)
             }
         }
@@ -257,6 +267,9 @@ struct MoshiPage: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(model.phase == .running ? JcTheme.danger : JcTheme.primaryBlue)
+            if !model.note.isEmpty {
+                Text(model.note).font(.caption).foregroundStyle(JcTheme.danger)
+            }
             Text("A step over 80 ms means the phone can't keep up in real time; the buffer will grow.")
                 .font(.caption)
                 .foregroundStyle(JcTheme.muted)
