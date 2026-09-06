@@ -12,6 +12,10 @@ struct PairPage: View {
     @State private var showManual = false
     /// Drives the staggered entrance of each screen's elements; reset on step change.
     @State private var revealed = false
+    /// When the current screen's reveal began. Fades are computed from elapsed time
+    /// (a pure opacity ramp) instead of implicit animations, which also animated
+    /// layout and made text glide in from the corner.
+    @State private var revealAt: Date? = nil
     /// The orb is ONE view drawn over both screens; this is the step whose slot
     /// it is currently sitting in (it moves ahead of the content swap).
     @State private var orbStep: Step = .welcome
@@ -80,7 +84,7 @@ struct PairPage: View {
                         GlassIconButton(symbol: "chevron.left", size: 36, iconSize: 15) {
                             go(to: .welcome)
                         }
-                        .modifier(Entrance(revealed: revealed, index: 0, reduceMotion: reduceMotion))
+                        .modifier(Entrance(revealAt: revealAt, index: 0, reduceMotion: reduceMotion))
                         Spacer()
                     }
                     .padding(.horizontal, 16)
@@ -93,7 +97,7 @@ struct PairPage: View {
         // A scanned QR that carried a Cloudflare token opens the manual form so
         // the values it filled are visible.
         .onChange(of: store.showsCloudflareFields) { _, shown in if shown { showManual = true } }
-        .onAppear { revealed = true }
+        .onAppear { revealed = true; revealAt = Date() }
         #if os(iOS)
         .fullScreenCover(isPresented: Binding(
             get: { store.phase == .scanning },
@@ -110,7 +114,7 @@ struct PairPage: View {
         guard target != step else { return }
         focus = nil
         if reduceMotion {
-            step = target; orbStep = target; revealed = true
+            step = target; orbStep = target; revealed = true; revealAt = Date()
             return
         }
         contentVisible = false
@@ -118,12 +122,14 @@ struct PairPage: View {
             // Lay the next screen out while still invisible so its orb slot
             // reports a position, then send the orb there.
             revealed = false
+            revealAt = nil
             step = target
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { orbStep = target }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.62) {
             contentVisible = true
             revealed = true
+            revealAt = Date()
         }
     }
 
@@ -137,10 +143,10 @@ struct PairPage: View {
                 orbSlot(.welcome, size: Self.orbWelcomeSize)
                 VStack(spacing: 10) {
                     WordReveal("Hey, I'm Jarvis.", font: .system(size: 34, weight: .bold),
-                               color: JcTheme.text, revealed: revealed, startDelay: 0.25,
+                               color: JcTheme.text, revealAt: revealAt, startDelay: 0.25,
                                step: 0.16, reduceMotion: reduceMotion)
                     WordReveal("Your assistant across every device you own.", font: JcText.body,
-                               color: JcTheme.muted, revealed: revealed, startDelay: 0.85,
+                               color: JcTheme.muted, revealAt: revealAt, startDelay: 0.85,
                                step: 0.07, reduceMotion: reduceMotion)
                 }
                 .padding(.top, 0)
@@ -158,7 +164,7 @@ struct PairPage: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Next")
-            .modifier(Entrance(revealed: revealed, index: 3, reduceMotion: reduceMotion, delay: 1.9))
+            .modifier(Entrance(revealAt: revealAt, index: 3, reduceMotion: reduceMotion, delay: 1.9))
             .padding(.bottom, 8)
         }
         .padding(.top, Self.columnTop)
@@ -187,18 +193,18 @@ struct PairPage: View {
                 Text("Connect to your server")
                     .font(JcText.title)
                     .foregroundStyle(JcTheme.text)
-                    .modifier(Entrance(revealed: revealed, index: 1, reduceMotion: reduceMotion))
+                    .modifier(Entrance(revealAt: revealAt, index: 1, reduceMotion: reduceMotion))
                 Text("On the server, open Devices and tap Pair new device.")
                     .font(JcText.body)
                     .foregroundStyle(JcTheme.muted)
                     .multilineTextAlignment(.center)
-                    .modifier(Entrance(revealed: revealed, index: 2, reduceMotion: reduceMotion))
+                    .modifier(Entrance(revealAt: revealAt, index: 2, reduceMotion: reduceMotion))
             }
             .frame(maxWidth: .infinity)
 
             if !showManual {
                 BlueButton("Scan QR code") { startScanning() }
-                    .modifier(Entrance(revealed: revealed, index: 3, reduceMotion: reduceMotion))
+                    .modifier(Entrance(revealAt: revealAt, index: 3, reduceMotion: reduceMotion))
                 Button { withAnimation { showManual = true } } label: {
                     Text("Enter details manually")
                         .font(JcText.small)
@@ -206,7 +212,7 @@ struct PairPage: View {
                         .underline()
                 }
                 .buttonStyle(.plain)
-                .modifier(Entrance(revealed: revealed, index: 4, reduceMotion: reduceMotion))
+                .modifier(Entrance(revealAt: revealAt, index: 4, reduceMotion: reduceMotion))
             } else {
                 form
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -400,23 +406,22 @@ struct PairPage: View {
     #endif
 }
 
-/// Staggered entrance: each element rises 18 pt and fades in, `index` × 90 ms
-/// after the screen appears; the orb also scales from 0.9. Off under Reduce Motion.
+/// Staggered entrance: a pure opacity ramp starting `delay` seconds (or index × 90 ms)
+/// after `revealAt`. Time-based, so it never animates layout.
 private struct Entrance: ViewModifier {
-    let revealed: Bool
+    let revealAt: Date?
     let index: Int
-    var scale: Bool = false
     let reduceMotion: Bool
-    /// Absolute delay in seconds; overrides the index-based stagger when set.
     var delay: Double? = nil
+    private let fade = 0.6
 
     func body(content: Content) -> some View {
-        let shown = revealed || reduceMotion
-        content
-            .opacity(shown ? 1 : 0)
-            .animation(reduceMotion ? nil
-                       : .easeOut(duration: 0.6).delay(delay ?? Double(index) * 0.09),
-                       value: shown)
+        TimelineView(.animation(minimumInterval: 1 / 60, paused: revealAt == nil || reduceMotion)) { tl in
+            let elapsed = revealAt.map { tl.date.timeIntervalSince($0) } ?? 0
+            let start = delay ?? Double(index) * 0.09
+            let x = reduceMotion ? 1 : (revealAt == nil ? 0 : min(max((elapsed - start) / fade, 0), 1))
+            content.opacity(x * x * (3 - 2 * x))
+        }
     }
 }
 
@@ -465,37 +470,50 @@ private struct LivingAurora: View {
     }
 }
 
-/// A line of text whose words fade and rise in one after another.
+/// A line of text whose words fade in one after another. Opacity is a function
+/// of elapsed time since `revealAt` — no implicit animation, so nothing but
+/// opacity ever changes.
 private struct WordReveal: View {
     let words: [String]
     let font: Font
     let color: Color
-    let revealed: Bool
+    let revealAt: Date?
     let startDelay: Double
     let step: Double
     let reduceMotion: Bool
+    private let fade = 0.6
 
-    init(_ text: String, font: Font, color: Color, revealed: Bool,
+    init(_ text: String, font: Font, color: Color, revealAt: Date?,
          startDelay: Double, step: Double, reduceMotion: Bool) {
         words = text.split(separator: " ").map(String.init)
-        self.font = font; self.color = color; self.revealed = revealed
+        self.font = font; self.color = color; self.revealAt = revealAt
         self.startDelay = startDelay; self.step = step; self.reduceMotion = reduceMotion
     }
 
+    private var totalDuration: Double { startDelay + Double(max(words.count - 1, 0)) * step + fade }
+
     var body: some View {
-        let shown = revealed || reduceMotion
-        HStack(spacing: 0) {
-            ForEach(Array(words.enumerated()), id: \.offset) { i, word in
-                Text(word + (i < words.count - 1 ? " " : ""))
-                    .font(font)
-                    .foregroundStyle(color)
-                    .opacity(shown ? 1 : 0)
-                    .animation(reduceMotion ? nil
-                               : .easeOut(duration: 0.6).delay(startDelay + Double(i) * step),
-                               value: shown)
+        TimelineView(.animation(minimumInterval: 1 / 60, paused: revealAt == nil || reduceMotion)) { tl in
+            let elapsed = revealAt.map { tl.date.timeIntervalSince($0) } ?? 0
+            HStack(spacing: 0) {
+                ForEach(Array(words.enumerated()), id: \.offset) { i, word in
+                    Text(word + (i < words.count - 1 ? " " : ""))
+                        .font(font)
+                        .foregroundStyle(color)
+                        .opacity(opacity(index: i, elapsed: elapsed))
+                }
             }
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(maxWidth: .infinity)
         }
-        .fixedSize(horizontal: true, vertical: false)
-        .frame(maxWidth: .infinity)
+    }
+
+    private func opacity(index: Int, elapsed: Double) -> Double {
+        if reduceMotion { return 1 }
+        guard revealAt != nil else { return 0 }
+        let start = startDelay + Double(index) * step
+        let k = (elapsed - start) / fade
+        let x = min(max(k, 0), 1)
+        return x * x * (3 - 2 * x)   // smoothstep ease
     }
 }

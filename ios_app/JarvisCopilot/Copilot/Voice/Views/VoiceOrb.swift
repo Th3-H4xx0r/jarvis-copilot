@@ -42,6 +42,9 @@ struct VoiceOrb: View {
     /// the canvas is oversized and then constrained back to `size` for layout (a
     /// SwiftUI `frame` positions without clipping).
     private static let bleed: CGFloat = 1.7
+    /// How much of the layout box the glass fills (radius = 0.53·size/2·kFill).
+    /// Mirrored in OrbShader.metal's radius; keep the two in step.
+    private static let kFill: CGFloat = 1.35
 
     var body: some View {
         TimelineView(.animation(paused: !animating)) { timeline in
@@ -81,7 +84,7 @@ struct VoiceOrb: View {
         let centre = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
         // Divide the bleed back out so the orb draws at its declared `size`; the
         // extra surface is only headroom for the halo.
-        let base = min(canvasSize.width, canvasSize.height) / 2 / Self.bleed
+        let base = min(canvasSize.width, canvasSize.height) / 2 / Self.bleed * Self.kFill
         guard base > 0 else { return }
 
         let palette = state.palette
