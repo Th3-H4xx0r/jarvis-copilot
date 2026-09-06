@@ -97,7 +97,9 @@ struct VoiceOrb: View {
         let spin = t * VoiceOrbGeometry.spinSpeed(state) + VoiceOrbGeometry.wander(t)
         let undulation = t * VoiceOrbGeometry.undulationRate(state)
 
-        context.blendMode = .plusLighter
+        // The glass sphere (OrbShader.metal) is the whole orb now: no halo, no dust.
+        _ = (radius, bright, spin, undulation, highlight, core, accent)
+        return
 
         // ── Outer halo (blooms outward with the voice) ─────────────────────
         let haloRadius = VoiceOrbGeometry.haloRadius(radius, reactive: reactive)
