@@ -835,7 +835,17 @@ def _consume_agent_stream(channel, subscriber, stream_id, first_text_emitted=Fal
                     text = "".join(current_text).strip()
                     current_text.clear()
                     if text:
+                        first_text_emitted = True
                         yield {"kind": "text", "text": text}
+                elif not first_text_emitted:
+                    # Nothing was streamed as tokens, but the turn may still have
+                    # produced a reply in the session payload: a provider that
+                    # doesn't stream, or the agent's own failure message after a
+                    # non-retryable error ("trying fallback…"), which the chat
+                    # tab shows but the voice bridge used to read as silence.
+                    tail = _last_assistant_from_done(data)
+                    if tail is not None:
+                        yield tail
                 return
             elif event_type in ("error", "apperror", "cancel"):
                 # A failed turn used to end in silence ("didn't catch a reply");
@@ -863,6 +873,35 @@ def _consume_agent_stream(channel, subscriber, stream_id, first_text_emitted=Fal
         text = "".join(current_text).strip()
         if text:
             yield {"kind": "text", "text": text}
+
+
+def _last_assistant_from_done(data) -> "Optional[dict]":
+    """The final assistant message of a `done` payload as a voice segment, or
+    None. An error-flagged message (or one that reads as a provider failure)
+    becomes an error segment so the bridge speaks the reason and can fall back."""
+    try:
+        msgs = ((data or {}).get("session") or {}).get("messages") or []
+    except Exception:
+        return None
+    for m in reversed(msgs):
+        if not isinstance(m, dict) or m.get("role") != "assistant":
+            continue
+        content = m.get("content")
+        if isinstance(content, list):
+            content = "\n".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
+        text = re.sub(r"\*+", "", str(content or "")).strip()
+        if not text:
+            continue
+        etype = ""
+        if m.get("_error"):
+            try:
+                from api.streaming import _classify_provider_error  # type: ignore
+                etype = str(_classify_provider_error(str(m.get("provider_details") or text)).get("type") or "error")
+            except Exception:
+                etype = "error"
+            return {"kind": "error", "etype": etype, "label": "", "text": text}
+        return {"kind": "text", "text": text}
+    return None
 
 
 def _run_agent_continuation_after_clarify(session_id: str, answer: str):
