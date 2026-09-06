@@ -1878,6 +1878,71 @@ def _pick_ack_phrase(state: dict) -> str:
     return _ACK_PHRASES[idx % len(_ACK_PHRASES)]
 
 
+# How much longer than _ACK_DELAY_MS the bridge will wait for a generated ack
+# (text + TTS) before falling back to a canned phrase.
+_ACK_GENERATE_WAIT_MS = 700
+_ACK_SYSTEM_PROMPT = (
+    "You are JARVIS, a calm British assistant. The user just spoke a request; "
+    "write ONE short spoken acknowledgement (at most nine words) that you are "
+    "starting on it, mentioning what it is about. Plain speech, no markdown, no "
+    "questions, no 'Certainly'. Address the user as sir. Output only the sentence."
+)
+
+
+def _start_ack_generation(user_text: str):
+    """Kick off a model-written ack on the fast lane in a daemon thread.
+    Returns a dict the timer can wait on; result is (text, audio) or None."""
+    job = {"done": threading.Event(), "result": None}
+    text = (user_text or "").strip()
+    lane = (get_voice_lane_config() or {}).get("fast_lane")
+    if not text or not lane:
+        job["done"].set()
+        return job
+
+    def _run():
+        try:
+            from api.oauth import resolve_runtime_provider_with_anthropic_env_lock  # type: ignore
+            from jarviscopilot_cli.runtime_provider import resolve_runtime_provider  # type: ignore
+            import urllib.request as _ur
+            rt = resolve_runtime_provider_with_anthropic_env_lock(resolve_runtime_provider, requested=lane["provider"])
+            base = (rt.get("base_url") or "").rstrip("/")
+            key = rt.get("api_key") or ""
+            if not base:
+                return
+            body = json.dumps({
+                "model": lane["model"], "stream": False, "max_tokens": 32, "temperature": 0.7,
+                "messages": [{"role": "system", "content": _ACK_SYSTEM_PROMPT},
+                             {"role": "user", "content": text[:400]}],
+            }).encode()
+            req = _ur.Request(base + "/chat/completions", data=body,
+                              headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+            with _ur.urlopen(req, timeout=2.5) as r:
+                data = json.loads(r.read())
+            phrase = str(((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "")
+            phrase = re.sub(r"[*_`#\[\]]+", "", phrase).strip().split("\n")[0].strip()
+            if not phrase or len(phrase) > 90:
+                return
+            if phrase[-1] not in ".!?":
+                phrase += "."
+            audio = _synth_audio_uncached(phrase)
+            job["result"] = (phrase, audio)
+        except Exception as exc:
+            print(f"[webui] voice: ack generation failed: {exc}", flush=True)
+        finally:
+            job["done"].set()
+
+    threading.Thread(target=_run, name="voice-ack-gen", daemon=True).start()
+    return job
+
+
+def _await_ack_generation(job, timeout_s: float):
+    try:
+        job["done"].wait(timeout_s)
+        return job.get("result")
+    except Exception:
+        return None
+
+
 def _synth_audio(text: str):
     cached = _ACK_CACHE.get(text)
     if cached is not None:
@@ -2245,16 +2310,24 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
     # moment (both are audio_meta → frames → audio_end sequences).
     seg_lock = state.setdefault("seg_lock", threading.Lock())
     ack_state = {"first_text_sent": False, "ack_sent": False}
+    # A model-written acknowledgement, generated in parallel with the turn so
+    # it's ready (text + audio) by the time the ack timer fires. The canned
+    # phrases are only the last resort when the fast lane is slow or absent.
+    ack_job = _start_ack_generation(str(state.get("last_user_text") or ""))
 
     def _fire_ack():
         with seg_lock:
             if ack_state["first_text_sent"] or ack_state["ack_sent"] or state.get("interrupt") or state.get("closed"):
                 return
             ack_state["ack_sent"] = True
-            phrase = _pick_ack_phrase(state)
+            generated = _await_ack_generation(ack_job, _ACK_GENERATE_WAIT_MS / 1000.0)
+            # The model's first sentence may have landed while we waited.
+            if ack_state["first_text_sent"] or state.get("interrupt") or state.get("closed"):
+                return
+            phrase, audio = generated if generated else (_pick_ack_phrase(state), None)
             _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": phrase, "ack": True}))
             try:
-                _send_audio(conn, sock, state, _synth_audio(phrase))
+                _send_audio(conn, sock, state, audio if audio is not None else _synth_audio(phrase))
             except Exception:
                 print("[webui] ack send failed: " + traceback.format_exc(), flush=True)
 
@@ -2399,6 +2472,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
     if sid:
         turn_model = (state.get("model") or "").strip()
         turn_provider = (state.get("model_provider") or "").strip()
+        state["last_user_text"] = transcript
         _mark_span(timing, "prep_ms", _elapsed_ms(timing))
         handled = _stream_segments(conn, sock, state, _run_agent_turn_via_chat(
             sid, transcript, model_override=turn_model, provider_override=turn_provider,
