@@ -2790,6 +2790,16 @@ def _refresh_device_tools(agent) -> None:
         if len(base) == len(current) and not fresh:
             return
         agent.tools = base + list(fresh)
+        # The executor validates calls against valid_tool_names; a tool that is
+        # advertised but not valid fails with "does not exist" — which is what
+        # every device_* call did on a warm agent.
+        names = {_name(t) for t in agent.tools}
+        names.discard("")
+        valid = set(getattr(agent, "valid_tool_names", None) or set())
+        valid = {n for n in valid if not n.startswith("device_")} | names
+        agent.valid_tool_names = valid
+        if getattr(agent, "_lazy_all_tool_names", None) is not None:
+            agent._lazy_all_tool_names = set(agent._lazy_all_tool_names) | names
     except Exception:
         pass
 

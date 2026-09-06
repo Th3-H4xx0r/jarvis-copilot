@@ -394,6 +394,9 @@ def apply_lazy_partition(agent) -> None:
         agent._lazy_tools_manifest = ""
         return
     core_names = get_lazy_core_names() | set(agent._lazy_loaded_tools)
+    # Device tools are never deferred on any provider (voice-first: "open
+    # directions" must be one call, not tool_search then the call).
+    core_names |= _tool_names_for_toolsets(NATIVE_ALWAYS_LOADED_TOOLSETS)
     core, deferred = partition_lazy_tools(agent.tools, core_names)
     agent._lazy_all_tool_names = (
         {c.get("function", {}).get("name") for c in core}
@@ -412,6 +415,13 @@ def apply_lazy_partition(agent) -> None:
     ).hexdigest()[:16]
     if len(deferred) < _LAZY_MIN_DEFERRED:
         return  # not worth the manifest + tool_search round-trips
+    # A manifest without a reachable tool_search strands every deferred tool
+    # ("Tool 'tool_search' does not exist"). A mid-session rebuild of
+    # agent.tools can drop it (its check_fn re-reads config), so re-add the
+    # schema here rather than trust the registry pass.
+    if not any((c.get("function", {}) or {}).get("name") == "tool_search" for c in core):
+        core.append({"type": "function", "function": TOOL_SEARCH_SCHEMA})
+        _warn_once("tool_search was missing from the advertised core; re-added")
     agent.tools = core
     agent._lazy_tools_manifest = build_manifest_text(deferred)
     agent.valid_tool_names = {c.get("function", {}).get("name") for c in core}

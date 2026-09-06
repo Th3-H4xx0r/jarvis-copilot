@@ -3327,6 +3327,11 @@ def run_conversation(
                         if repaired:
                             print(f"{agent.log_prefix}🔧 Auto-repaired tool name: '{tc.function.name}' -> '{repaired}'")
                             tc.function.name = repaired
+                # tool_search is intercepted by the executor and stays callable for
+                # as long as a deferred manifest is live, even if a tool-list
+                # rebuild dropped its schema from valid_tool_names.
+                if getattr(agent, "_lazy_tools_manifest", "") and "tool_search" not in agent.valid_tool_names:
+                    agent.valid_tool_names.add("tool_search")
                 invalid_tool_calls = [
                     tc.function.name for tc in assistant_message.tool_calls
                     if tc.function.name not in agent.valid_tool_names

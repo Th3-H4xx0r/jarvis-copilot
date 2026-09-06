@@ -76,6 +76,11 @@ struct VoiceTurnMachine: Equatable {
     /// Set as soon as the server produces ANYTHING for this turn. Barge-in
     /// during "thinking" is only allowed once this is true.
     private(set) var serverProducedOutput = false
+    /// A server turn is in flight: `end_turn` was sent and the server hasn't
+    /// answered with its own end-of-turn yet. While it's open, playback draining
+    /// (the spoken acknowledgement, or a mid-turn sentence before a long tool
+    /// run) must NOT resume listening — the model is still working.
+    private(set) var serverTurnOpen = false
 
     init(mode: VoiceMode = .realtime) { self.mode = mode }
 
@@ -112,10 +117,12 @@ struct VoiceTurnMachine: Equatable {
                 // so the incoming one starts fresh (within one realtime session
                 // segments would otherwise accumulate across turns).
                 state = .thinking
+                serverTurnOpen = true
                 return [.cancelResume, .resetEndpointer, .clearReply, .newTurnEpoch,
                         .markSpeechEnd, .sendEndTurn, .armThinkingWatchdog]
             }
             state = .thinking
+            serverTurnOpen = true
             return [.stopMic, .markSpeechEnd, .sendEndTurn, .armThinkingWatchdog]
 
         case .serverOutput:
@@ -139,6 +146,9 @@ struct VoiceTurnMachine: Equatable {
                 // arrives within a beat. Show "thinking" and wait out the grace
                 // window; a new clip cancels the resume.
                 if state == .speaking { state = .thinking }
+                // The server is still on this turn (an ack or a sentence played
+                // before a long tool run): stay in thinking; `turnEnded` resumes.
+                if serverTurnOpen { return [.cancelResume, .armThinkingWatchdog] }
                 return [.scheduleResume]
             }
             if mode == .quality, state == .speaking {
@@ -154,17 +164,20 @@ struct VoiceTurnMachine: Equatable {
 
         case .bargeIn:
             guard bargeInAllowed else { return [] }
+            serverTurnOpen = false
             state = .listening
             return [.sendInterrupt, .stopPlayback, .cancelResume, .resetEndpointer,
                     .abortRecognizer, .restartRecognizer]
 
         case .interruptRequested:
             guard mode == .realtime, state == .speaking || state == .thinking else { return [] }
+            serverTurnOpen = false
             state = .listening
             return [.cancelResume, .cancelThinkingWatchdog, .newTurnEpoch, .sendInterrupt,
                     .stopPlayback, .resetEndpointer, .abortRecognizer, .restartRecognizer]
 
         case .turnEnded(let reason, let producedReply):
+            serverTurnOpen = false
             var effects: [VoiceTurnEffect] = [.cancelThinkingWatchdog]
             guard state.isActive else { return effects }
             if Self.failureReasons.contains(reason) && !producedReply {
@@ -176,15 +189,19 @@ struct VoiceTurnMachine: Equatable {
                     ? "I didn't catch a reply — please try again."
                     : "Something went wrong — please try again."))
             }
-            effects.append(.scheduleResume)
+            // Still speaking the tail of the reply: `playbackDrained` will
+            // schedule the resume once the audio is out.
+            if state != .speaking { effects.append(.scheduleResume) }
             return effects
 
         case .failed(let message):
+            serverTurnOpen = false
             state = .error
             return [.cancelResume, .cancelThinkingWatchdog, .abortRecognizer,
                     .teardown, .stopPlayback, .showError(message)]
 
         case .stopRequested:
+            serverTurnOpen = false
             let wasError = state == .error
             state = wasError ? .error : .idle
             // Keep the reply on screen after Stop — DON'T erase it and DON'T

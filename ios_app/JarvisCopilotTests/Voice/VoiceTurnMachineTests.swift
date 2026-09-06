@@ -38,11 +38,17 @@ final class VoiceTurnMachineTests: XCTestCase {
         XCTAssertTrue(playing.contains(.cancelResume))
         XCTAssertTrue(playing.contains(.cancelThinkingWatchdog))
 
-        // A drained queue does NOT resume immediately — a follow-up segment
-        // often arrives within a beat.
+        // A drained queue while the server is still on the turn (an ack, or a
+        // sentence before a long tool run) stays in thinking — no resume yet.
         let drained = m.apply(.playbackDrained)
         XCTAssertEqual(m.state, .thinking)
-        XCTAssertEqual(drained, [.scheduleResume])
+        XCTAssertEqual(drained, [.cancelResume, .armThinkingWatchdog])
+        XCTAssertEqual(m.apply(.resumeGraceElapsed), [], "nothing was scheduled")
+        XCTAssertEqual(m.state, .thinking)
+
+        // The server's end-of-turn is what schedules the resume.
+        let ended2 = m.apply(.turnEnded(reason: "done", producedReply: true))
+        XCTAssertTrue(ended2.contains(.scheduleResume))
 
         let resumed = m.apply(.resumeGraceElapsed)
         XCTAssertEqual(m.state, .listening)
@@ -306,5 +312,25 @@ final class VoiceTurnMachineTests: XCTestCase {
         _ = m.apply(.startRequested)
         _ = m.apply(.connected)
         return m
+    }
+
+    func testAnAcknowledgementDoesNotResumeListeningMidTurn() {
+        var m = VoiceTurnMachine(mode: .realtime)
+        _ = m.apply(.startRequested); _ = m.apply(.connected); _ = m.apply(.endOfSpeech)
+        // Server ack: "On it, sir." plays and drains long before the reply.
+        _ = m.apply(.serverOutput); _ = m.apply(.playbackStarted)
+        XCTAssertEqual(m.state, .speaking)
+        _ = m.apply(.playbackDrained)
+        XCTAssertEqual(m.state, .thinking, "still working — never back to listening yet")
+        XCTAssertEqual(m.apply(.resumeGraceElapsed), [])
+        // The real reply, then the server ends the turn while it is still playing.
+        _ = m.apply(.serverOutput); _ = m.apply(.playbackStarted)
+        let ended = m.apply(.turnEnded(reason: "done", producedReply: true))
+        XCTAssertFalse(ended.contains(.scheduleResume), "tail of the reply is still playing")
+        XCTAssertEqual(m.state, .speaking)
+        let drained = m.apply(.playbackDrained)
+        XCTAssertEqual(drained, [.scheduleResume])
+        _ = m.apply(.resumeGraceElapsed)
+        XCTAssertEqual(m.state, .listening)
     }
 }
