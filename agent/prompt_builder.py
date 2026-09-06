@@ -1483,8 +1483,13 @@ def build_context_files_prompt(cwd: Optional[str] = None, skip_soul: bool = Fals
     cwd_path = Path(cwd).resolve()
     sections = []
 
+    # The agent's own install repo is never "project context" for a chat: its
+    # AGENTS.md is developer guidance for hacking on JarvisCopilot, not for the
+    # user's request. (A coding session on the repo can opt in via env.)
+    _install_root = Path(__file__).resolve().parent.parent
+    _in_install = cwd_path == _install_root or _install_root in cwd_path.parents
     # Priority-based project context: first match wins
-    project_context = (
+    project_context = None if (_in_install and not os.getenv("HERMES_ALLOW_REPO_CONTEXT")) else (
         _load_hermes_md(cwd_path)
         or _load_agents_md(cwd_path)
         or _load_claude_md(cwd_path)

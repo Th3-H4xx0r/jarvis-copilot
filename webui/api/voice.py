@@ -1039,6 +1039,8 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     # specific server model/provider for this single turn. It still flows
     # through the SAME _resolve_compatible_session_model_state() the chat path
     # uses, so an empty/stale/cross-provider override is normalized identically.
+    prev_session_model = getattr(s, "model", None)
+    prev_session_provider = getattr(s, "model_provider", None)
     override_model = (model_override or "").strip()
     override_provider = (provider_override or "").strip()
     fast_lane = (get_voice_lane_config() or {}).get("fast_lane")
@@ -1123,6 +1125,12 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     subscriber = channel.subscribe()
     _ACTIVE_VOICE_STREAMS[session_id] = stream_id
     fallback_to_fast = False
+    # A voice turn on a user-picked chat session must not re-pin that session
+    # to the voice model: "Auto" in Chat would then silently continue on the
+    # fast lane. The dedicated Voice session keeps following the voice model.
+    _restore_model = None
+    if not (getattr(s, "source_tag", "") or "").startswith("voice") and not explicit_override:
+        _restore_model = (prev_session_model, prev_session_provider)
     try:
         for seg in _consume_agent_stream(channel, subscriber, stream_id):
             # The phone's override model is out of quota / rate-limited: don't
@@ -1139,6 +1147,12 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     finally:
         if _ACTIVE_VOICE_STREAMS.get(session_id) == stream_id:
             _ACTIVE_VOICE_STREAMS.pop(session_id, None)
+        if _restore_model is not None:
+            try:
+                s.model, s.model_provider = _restore_model
+                s.save()
+            except Exception:
+                pass
     if fallback_to_fast:
         yield from _run_agent_turn_via_chat(session_id, user_text, lane="fast")
 

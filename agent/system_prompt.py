@@ -305,7 +305,11 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         # mode).  The gateway process runs from the jarviscopilot install
         # dir, so os.getcwd() would pick up the repo's AGENTS.md and
         # other dev files — inflating token usage by ~10k for no benefit.
-        _context_cwd = os.getenv("TERMINAL_CWD") or None
+        # The webui pins the session workspace on the agent; TERMINAL_CWD is a
+        # process-wide env that is not reliably set when this prompt is built,
+        # and falling back to os.getcwd() picked up the install repo's AGENTS.md
+        # (~4.5k tokens of developer instructions) in every chat.
+        _context_cwd = getattr(agent, "_context_cwd", None) or os.getenv("TERMINAL_CWD") or None
         context_files_prompt = _r.build_context_files_prompt(
             cwd=_context_cwd, skip_soul=_soul_loaded)
         if context_files_prompt:

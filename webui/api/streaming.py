@@ -3948,10 +3948,13 @@ def _run_agent_streaming(
                 _agent_msg_text = "\n\n".join([*_process_notifications, msg_text]).strip()
             user_message = _build_native_multimodal_message(workspace_ctx, _agent_msg_text, attachments, workspace, cfg=_cfg)
             _refresh_device_tools(agent)  # plan 3.1 — warm agents have a static tool list
+            agent._context_cwd = str(workspace) if workspace else None
             # Voice turn (webui/api/voice.py flags the session): no extended
             # thinking / reasoning effort for this one call — restored below.
             _voice_prev_reasoning = None
             _voice_swap = False
+            _voice_directive = None
+            _voice_loaded_before = set()
             try:
                 from api.models import get_session as _voice_gs
                 _voice_sess = _voice_gs(session_id)
@@ -3970,6 +3973,7 @@ def _run_agent_streaming(
                     # spoken request never spends a step on tool_search.
                     try:
                         from tools.lazy_tools import load_all_deferred
+                        _voice_loaded_before = set(getattr(agent, "_lazy_loaded_tools", None) or set())
                         _added = load_all_deferred(agent)
                         if _added:
                             print(f"[webui] voice: advertised all tools (+{_added}) for this turn", flush=True)
@@ -4004,6 +4008,15 @@ def _run_agent_streaming(
             }
             if _voice_swap:
                 agent.reasoning_config = _voice_prev_reasoning
+            if _voice_directive:
+                # Put the lean manifest back so later CHAT turns on this
+                # warm agent don't keep paying for every tool schema.
+                try:
+                    from tools.lazy_tools import apply_lazy_partition
+                    agent._lazy_loaded_tools = _voice_loaded_before
+                    apply_lazy_partition(agent)
+                except Exception:
+                    logger.debug("voice: re-partition after turn failed", exc_info=True)
             if cancel_event.is_set():
                 if _checkpoint_stop is not None:
                     _checkpoint_stop.set()

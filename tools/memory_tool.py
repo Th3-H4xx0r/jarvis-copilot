@@ -166,11 +166,31 @@ class MemoryStore:
         self.memory_entries = list(dict.fromkeys(self.memory_entries))
         self.user_entries = list(dict.fromkeys(self.user_entries))
 
-        # Capture frozen snapshot for system prompt injection
+        # Capture frozen snapshot for system prompt injection. The configured
+        # char limit caps what is INJECTED too (not only what can be added):
+        # notes that outgrew the cap on disk used to ride into every prompt in
+        # full — the newest entries win, and the model is told to use
+        # memory_recall for the rest.
         self._system_prompt_snapshot = {
-            "memory": self._render_block("memory", self.memory_entries),
-            "user": self._render_block("user", self.user_entries),
+            "memory": self._render_block("memory", self._capped("memory", self.memory_entries)),
+            "user": self._render_block("user", self._capped("user", self.user_entries)),
         }
+
+    def _capped(self, target: str, entries):
+        lim = self._raw_limit(target)
+        if not lim or lim <= 0:
+            return entries
+        kept, total = [], 0
+        for e in reversed(entries):  # newest first
+            n = len(e) + 1
+            if total + n > lim:
+                break
+            kept.append(e)
+            total += n
+        kept.reverse()
+        if len(kept) < len(entries):
+            kept.insert(0, f"[{len(entries) - len(kept)} older entries not shown — use memory_recall to search them]")
+        return kept
 
     @staticmethod
     @contextmanager
