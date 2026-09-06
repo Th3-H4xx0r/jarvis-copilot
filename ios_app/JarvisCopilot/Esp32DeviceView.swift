@@ -12,6 +12,10 @@ struct Esp32DeviceView: View {
     @State private var linkMessage: String?
 
     private var ready: Bool { manager.state == .ready }
+    @State private var showMaintenance = false
+    @State private var showReflash = false
+    @State private var resetting = false
+    @State private var resetNote: String?
     /// While a script owns the pins, manual controls step aside.
     private var scriptRunning: Bool { manager.script?.state == .running }
     private var blue: Color { Color(red: 0.30, green: 0.62, blue: 1.0) }
@@ -25,7 +29,7 @@ struct Esp32DeviceView: View {
         ScrollView {
             VStack(spacing: 22) {
                 hero
-                if let error = manager.lastError { errorBanner(error) }
+                if let error = manager.lastError, !error.contains("another phone") { errorBanner(error) }
                 quickActions
                 program
                 connection
@@ -154,6 +158,7 @@ struct Esp32DeviceView: View {
 
     private var program: some View {
         VStack(spacing: 22) {
+            maintenance
             CardGroup("Program") {
                 NavigationLink {
                     Esp32ChatView(manager: manager, board: board)
@@ -172,6 +177,68 @@ struct Esp32DeviceView: View {
                 .disabled(!ready)
             }
             scriptCard
+        }
+    }
+
+    /// A board claimed by a previous install: one card, one action. The
+    /// firmware only honours the reset while BOOT is held, so the card says just
+    /// that. The reflash route stays one tap away for the laptop case.
+    @ViewBuilder private var maintenance: some View {
+        let needsReset = manager.lastError?.contains("another phone") == true
+        if needsReset || showMaintenance {
+            CardGroup(needsReset ? nil : "Ownership") {
+                Row(minHeight: 64) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(needsReset ? "Paired to another phone" : "Reset ownership")
+                            .font(.headline)
+                        Text(resetNote ?? "Hold the board's BOOT button, then tap Reset.")
+                            .font(.footnote)
+                            .foregroundStyle(resetNote == nil ? .secondary : .primary)
+                        Button {
+                            Task {
+                                resetting = true
+                                do {
+                                    try await manager.resetOwnership(deviceID: deviceID)
+                                    resetNote = "Done. Reconnecting…"
+                                    manager.connect(board)
+                                } catch {
+                                    resetNote = error.localizedDescription
+                                }
+                                resetting = false
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                if resetting { ProgressView().controlSize(.small).tint(.white) }
+                                Text(resetting ? "Resetting…" : "Reset")
+                                    .font(.system(size: 15, weight: .semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(JcTheme.primaryBlue, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(resetting || manager.connected?.id != board.id)
+                        Button(showReflash ? "Hide reflash steps" : "Reflash from a Mac instead") {
+                            showReflash.toggle()
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        if showReflash {
+                            Text("Plug the board in over USB and run ios_app/firmware/flash.sh. A fresh flash also clears ownership.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
+        } else {
+            Button("Reset ownership…") { showMaintenance = true }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 20)
         }
     }
 

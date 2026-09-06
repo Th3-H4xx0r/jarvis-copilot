@@ -32,7 +32,7 @@ enum Esp32Protocol {
         case ledSet = 0x10, ledBlink = 0x11
         case pinMode = 0x20, pinWrite = 0x21, pinRead = 0x22, pinPWM = 0x23, pinPulse = 0x24
         case allOff = 0x2F
-        case wifiSet = 0x40, wifiStatus = 0x41, wifiForget = 0x42, auth = 0x44, claim = 0x45, wifiScan = 0x46
+        case wifiSet = 0x40, wifiStatus = 0x41, wifiForget = 0x42, auth = 0x44, claim = 0x45, wifiScan = 0x46, resetOwner = 0x47
         case cloudSet = 0x48, cloudStatus = 0x49, cloudForget = 0x4A, cloudPause = 0x4B
         case scriptBegin = 0x50, scriptChunk = 0x51, scriptCommit = 0x52, scriptStop = 0x53, scriptStart = 0x54
         case scriptStatus = 0x55, scriptDelete = 0x56, jarvisResult = 0x57

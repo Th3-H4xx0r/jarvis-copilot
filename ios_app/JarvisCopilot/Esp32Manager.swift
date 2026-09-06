@@ -58,6 +58,7 @@ enum Esp32Error: LocalizedError {
     case bluetoothOnly
     case notOwner
     case scriptFailed(String)
+    case message(String)
 
     var errorDescription: String? {
         switch self {
@@ -70,8 +71,9 @@ enum Esp32Error: LocalizedError {
         case .pairingRefused:      return "pairing was refused — tap Pair when iOS asks, or forget the board in Settings › Bluetooth and retry"
         case .wifiNotSetUp:        return "set up Wi‑Fi over Bluetooth first"
         case .bluetoothOnly:       return "that needs the Bluetooth link"
-        case .notOwner:            return "this board belongs to another phone — reflash it to reset ownership"
+        case .notOwner:            return "paired to another phone"
         case .scriptFailed(let m): return "script: \(m)"
+        case .message(let m):      return m
         }
     }
 }
@@ -1066,6 +1068,19 @@ final class Esp32Manager: NSObject, ObservableObject {
         var best: [String: Esp32Protocol.WifiNetwork] = [:]
         for n in all where best[n.ssid].map({ n.rssi > $0.rssi }) ?? true { best[n.ssid] = n }
         return best.values.sorted { $0.rssi > $1.rssi }
+    }
+
+    /// Reset the board's owner key while the user holds its BOOT button, then
+    /// forget our own copy so the next handshake claims it afresh. The firmware
+    /// refuses without the button (`unauthorized`), which we surface as guidance.
+    func resetOwnership(deviceID: String) async throws {
+        do {
+            _ = try await request(.resetOwner, timeoutSeconds: 4)
+        } catch Esp32Error.status(.unauthorized) {
+            throw Esp32Error.message("Hold the BOOT button on the board while tapping Reset.")
+        }
+        Keychain.write("esp32Token.\(deviceID)", nil)
+        lastError = nil
     }
 
     func forgetWifi() async throws {

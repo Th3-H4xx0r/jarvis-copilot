@@ -966,6 +966,23 @@ void handle_claim(const proto::Request& r) {
   send_status(op, proto::Status::ok);
 }
 
+// Reset ownership without a laptop: the phone sends this while the user holds
+// BOOT. Without the button it is refused (unauthorized). Clears the key, drops
+// this session's authorisation and the Wi‑Fi/cloud pairing tied to the old owner.
+void handle_reset_owner(const proto::Request& r) {
+  constexpr proto::Op op = proto::Op::reset_owner;
+  if (digitalRead(boot_button_gpio) != LOW) { send_status(op, proto::Status::unauthorized); return; }
+  memset(g_owner_key, 0, sizeof(g_owner_key));
+  g_claimed = false;
+  g_ble_authorized = false;
+  {
+    Preferences prefs;
+    if (prefs.begin(prefs_namespace, /*readOnly=*/false)) { prefs.remove(key_owner); prefs.end(); }
+  }
+  Serial.println("[auth] ownership reset (BOOT held); board is unclaimed");
+  send_status(op, proto::Status::ok);
+}
+
 void handle_auth(const proto::Request& r) {
   constexpr proto::Op op = proto::Op::auth;
   if (!g_claimed || r.payload_len != proto::token_len || !key_matches(r.payload)) {
@@ -1020,6 +1037,7 @@ void dispatch(const uint8_t* bytes, size_t len, Link link) {
     case proto::Op::wifi_forget: handle_wifi_forget(req); break;
     case proto::Op::auth:        handle_auth(req); break;
     case proto::Op::claim:       handle_claim(req); break;
+    case proto::Op::reset_owner: handle_reset_owner(req); break;
     case proto::Op::wifi_scan:   handle_wifi_scan(req); break;
     case proto::Op::script_begin:  handle_script_begin(req); break;
     case proto::Op::script_chunk:  handle_script_chunk(req); break;

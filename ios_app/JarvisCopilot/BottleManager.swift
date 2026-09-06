@@ -96,7 +96,10 @@ final class BottleManager: NSObject, ObservableObject {
 
     func startScan() {
         guard bluetoothReady else { return }
-        discovered.removeAll()
+        // Keep what is already linked: a connected bottle does not advertise, so
+        // a scan-only list dropped it the moment a rescan started.
+        discovered.removeAll { $0.id != connected?.id }
+        surfaceKnownPeripherals()
         state = .scanning
         // No duplicate reports: one sighting is all the list needs, and duplicate-flooding
         // an unfiltered scan is the most power-hungry mode CoreBluetooth offers.
@@ -116,6 +119,21 @@ final class BottleManager: NSObject, ObservableObject {
         if case .scanning = state { state = .idle }
     }
 
+    /// A bottle iOS already holds a link to, or the one we connected last time,
+    /// belongs in the list even though it never shows up in scan results.
+    func surfaceKnownPeripherals() {
+        guard bluetoothReady else { return }
+        var candidates = central.retrieveConnectedPeripherals(withServices: [CBUUID(string: BottleProtocol.serviceUUID)])
+        if let stored = UserDefaults.standard.string(forKey: Self.lastPeripheralKey),
+           let uuid = UUID(uuidString: stored) {
+            candidates += central.retrievePeripherals(withIdentifiers: [uuid])
+        }
+        for p in candidates where !discovered.contains(where: { $0.id == p.identifier }) {
+            discovered.append(DiscoveredBottle(id: p.identifier, name: p.name ?? "VSITOO-S1-Pro",
+                                               rssi: 0, peripheral: p))
+        }
+    }
+
     // MARK: Connection
 
     func connect(_ bottle: DiscoveredBottle) {
@@ -123,6 +141,7 @@ final class BottleManager: NSObject, ObservableObject {
         resetDeviceState()
         peripheral = bottle.peripheral
         connected = bottle
+        if !discovered.contains(where: { $0.id == bottle.id }) { discovered.insert(bottle, at: 0) }
         state = .connecting
         central.connect(bottle.peripheral)
     }

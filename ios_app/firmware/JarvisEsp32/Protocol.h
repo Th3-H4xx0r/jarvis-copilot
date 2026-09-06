@@ -72,6 +72,9 @@ enum class Op : uint8_t {
   cloud_status = 0x49, // → status, state, mode, url_len, url…, err_len, err…
   cloud_forget = 0x4A, // → status. Drops the session and reboots into Bluetooth mode.
   cloud_pause  = 0x4B, // → status. Keeps the session, reboots into Bluetooth mode for now.
+  reset_owner = 0x47,  // → status. Forgets the owner key so the next phone can claim the
+                       //   board — ONLY while the BOOT button is held (physical presence),
+                       //   so a stranger over BLE cannot steal a board. Any link may send it.
   wifi_scan   = 0x46,  // page                                  → status, total, page, count,
                        //   (rssi (i8), secure, ssid_len, ssid…)… — or `scanning`, retry
   // Script runtime. Upload = BEGIN, CHUNK…, COMMIT. The stored script autostarts at boot.
