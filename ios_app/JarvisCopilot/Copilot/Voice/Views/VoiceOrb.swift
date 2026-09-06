@@ -107,12 +107,30 @@ struct VoiceOrb: View {
 
         // ── Liquid interior: iridescent colour swirling inside the glass ──
         drawLiquid(&context, centre: centre, radius: radius, t: t,
-                   colours: [core, accent, blend(highlight, core, 0.5), blend(accent, .white, 0.25)],
+                   colours: [Color(red: 0.10, green: 0.16, blue: 0.95),   // deep electric blue
+                             Color(red: 0.16, green: 0.78, blue: 0.98),   // cyan
+                             Color(red: 0.62, green: 0.96, blue: 1.00)],  // pale cyan highlight
                    bright: bright)
 
-        // ── Point lattice: a faint dotted globe seen through the liquid ──
-        drawLattice(&context, centre: centre, radius: radius, spin: spin * 0.6, t: t,
-                    colour: blend(core, highlight, 0.55), bright: bright * 0.45)
+        // ── Fine horizontal ridges across the body (the reference's contour lines) ──
+        drawRidges(&context, centre: centre, radius: radius, t: t, bright: bright)
+
+        // ── Frosted glass rim: a wide, soft white band just inside the edge ──
+        context.drawLayer { layer in
+            layer.clip(to: Path(ellipseIn: CGRect(x: centre.x - radius, y: centre.y - radius,
+                                                  width: radius * 2, height: radius * 2)))
+            layer.addFilter(.blur(radius: radius * 0.07))
+            layer.stroke(Path(ellipseIn: CGRect(x: centre.x - radius * 0.93, y: centre.y - radius * 0.93,
+                                                width: radius * 1.86, height: radius * 1.86)),
+                         with: .color(Color.white.opacity(clamp(0.55 * bright, 0.7))),
+                         style: StrokeStyle(lineWidth: radius * 0.16))
+        }
+
+        // ── Particle scatter dusting the edge, and orbit rings with sweeping arcs ──
+        drawScatter(&context, centre: centre, radius: radius, t: t,
+                    colour: blend(core, highlight, 0.4), bright: bright)
+        drawOrbits(&context, centre: centre, radius: radius, t: t,
+                   ring: JcTheme.text, arc: highlight, bright: bright)
 
         // ── Ribbons, back to front so the additive light stacks correctly ──
         let built = VoiceOrbGeometry.strands
@@ -160,7 +178,7 @@ struct VoiceOrb: View {
         context.drawLayer { layer in
             layer.addFilter(.blur(radius: radius * 0.05))
             layer.stroke(Path(ellipseIn: rimRect),
-                         with: .color(rimColour.opacity(clamp(0.40 * bright, 0.7))),
+                         with: .color(rimColour.opacity(clamp(0.22 * bright, 0.4))),
                          style: StrokeStyle(lineWidth: radius * 0.03))
             // Top emphasis arc — brighter up top, as light from above would be.
             var arc = Path()
@@ -187,11 +205,10 @@ struct VoiceOrb: View {
             layer.addFilter(.blur(radius: radius * 0.16))
             let masses: [(Int, Double, Double, Double, Double, Double)] = [
                 // colour index, orbit rx, ry, speed, phase, size
-                (0, 0.42, 0.30, 0.55, 0.0, 0.62),
-                (1, 0.36, 0.44, 0.41, 1.9, 0.56),
-                (2, 0.48, 0.26, 0.33, 3.7, 0.50),
-                (3, 0.30, 0.40, 0.62, 5.1, 0.42),
-                (1, 0.22, 0.20, 0.27, 2.6, 0.70),
+                (0, 0.30, 0.26, 0.42, 0.0, 0.80),   // deep blue body
+                (0, 0.40, 0.34, 0.31, 2.2, 0.62),   // second deep-blue lobe
+                (1, 0.38, 0.40, 0.37, 4.1, 0.58),   // cyan pool
+                (2, 0.26, 0.30, 0.53, 1.1, 0.40),   // bright cyan highlight
             ]
             for (ci, rx, ry, speed, phase, size) in masses {
                 let x = centre.x + radius * CGFloat(rx * sin(t * speed + phase))
@@ -219,6 +236,75 @@ struct VoiceOrb: View {
             let rect = CGRect(x: centre.x - radius * 0.42 - w / 2, y: centre.y - radius * 0.62 - h / 2,
                               width: w, height: h)
             layer.fill(Path(ellipseIn: rect), with: .color(Color.white.opacity(clamp(0.22 * bright, 0.32))))
+        }
+    }
+
+    // MARK: - Ridges, scatter, orbits
+
+    /// Thin latitude lines across the sphere — the fine "contour" texture of the
+    /// reference — drawn as ellipses whose height compresses toward the poles.
+    private func drawRidges(_ context: inout GraphicsContext, centre: CGPoint, radius: CGFloat,
+                            t: Double, bright: Double) {
+        let sphere = Path(ellipseIn: CGRect(x: centre.x - radius, y: centre.y - radius,
+                                            width: radius * 2, height: radius * 2))
+        context.drawLayer { layer in
+            layer.clip(to: sphere)
+            var lines = Path()
+            let n = 26
+            let drift = CGFloat(sin(t * 0.35)) * radius * 0.02
+            for i in 1..<n {
+                let f = CGFloat(i) / CGFloat(n)            // 0..1 top→bottom
+                let y = centre.y - radius + f * radius * 2 + drift
+                let halfW = radius * sqrt(max(0, 1 - pow(2 * f - 1, 2)))
+                lines.move(to: CGPoint(x: centre.x - halfW, y: y))
+                lines.addLine(to: CGPoint(x: centre.x + halfW, y: y))
+            }
+            layer.stroke(lines, with: .color(Color.white.opacity(clamp(0.16 * bright, 0.25))),
+                         style: StrokeStyle(lineWidth: max(0.5, radius * 0.006)))
+        }
+    }
+
+    /// A deterministic cloud of tiny dots hugging the sphere's edge, slowly
+    /// rotating, densest at the surface and thinning outward.
+    private func drawScatter(_ context: inout GraphicsContext, centre: CGPoint, radius: CGFloat,
+                             t: Double, colour: Color, bright: Double) {
+        var dots = Path()
+        var seed: UInt32 = 0x9E3779B9
+        func rnd() -> Double {                       // small LCG, stable per frame
+            seed = seed &* 1664525 &+ 1013904223
+            return Double(seed >> 8) / Double(1 << 24)
+        }
+        let dot = max(0.5, radius * 0.006)
+        for _ in 0..<260 {
+            let a = rnd() * 2 * .pi + t * 0.05
+            let d = 1.0 + pow(rnd(), 2.2) * 0.32           // 1.00r .. 1.32r, dense near the edge
+            let jitter = 0.97 + rnd() * 0.06
+            let x = centre.x + radius * CGFloat(d * jitter * cos(a))
+            let y = centre.y + radius * CGFloat(d * jitter * sin(a))
+            dots.addEllipse(in: CGRect(x: x - dot, y: y - dot, width: dot * 2, height: dot * 2))
+        }
+        context.fill(dots, with: .color(colour.opacity(clamp(0.45 * bright, 0.6))))
+    }
+
+    /// Hairline concentric rings well outside the sphere, each carrying one short
+    /// bright arc that sweeps around at its own rate.
+    private func drawOrbits(_ context: inout GraphicsContext, centre: CGPoint, radius: CGFloat,
+                            t: Double, ring: Color, arc: Color, bright: Double) {
+        let radii: [CGFloat] = [1.42, 1.62, 1.84]
+        let hair = max(0.5, radius * 0.005)
+        for (i, k) in radii.enumerated() {
+            let r = radius * k
+            context.stroke(Path(ellipseIn: CGRect(x: centre.x - r, y: centre.y - r, width: r * 2, height: r * 2)),
+                           with: .color(ring.opacity(0.10)), style: StrokeStyle(lineWidth: hair))
+            let start = Angle.radians(t * (0.35 - Double(i) * 0.09) * (i % 2 == 0 ? 1 : -1) + Double(i) * 2.1)
+            var sweep = Path()
+            sweep.addArc(center: centre, radius: r, startAngle: start,
+                         endAngle: start + .degrees(28 + Double(i) * 10), clockwise: false)
+            context.drawLayer { layer in
+                layer.addFilter(.blur(radius: hair * 2))
+                layer.stroke(sweep, with: .color(arc.opacity(clamp(0.9 * bright, 1))),
+                             style: StrokeStyle(lineWidth: hair * 2.4, lineCap: .round))
+            }
         }
     }
 

@@ -441,16 +441,16 @@ private struct LivingAurora: View {
                 ZStack {
                     LinearGradient(colors: [Color(jcHex: 0x04050A), Color(jcHex: 0x020307)],
                                    startPoint: .top, endPoint: .bottom)
-                    // Small distinct colour fields on ~10–20 s orbits; the page stays
-                    // dark between them — this is a dark-theme app, the aurora is an accent.
-                    blob(JcTheme.cyan, 0.26, 220,
-                         x: w * (0.30 + 0.42 * sin(t / 2.6)), y: h * (0.22 + 0.22 * cos(t / 2.1)))
-                    blob(JcTheme.primaryBlue, 0.26, 250,
-                         x: w * (0.70 + 0.38 * cos(t / 2.3 + 1)), y: h * (0.50 + 0.30 * sin(t / 2.9)))
-                    blob(JcTheme.accent, 0.22, 230,
-                         x: w * (0.40 + 0.44 * sin(t / 3.1 + 2)), y: h * (0.78 + 0.18 * cos(t / 2.4 + 1)))
-                    blob(JcTheme.accentAlt, 0.14, 190,
-                         x: w * (0.62 + 0.40 * cos(t / 2.7 + 3)), y: h * (0.35 + 0.35 * sin(t / 3.3 + 2)))
+                    // Small, deep-toned glows on slow orbits — an accent in the dark,
+                    // never a light show.
+                    blob(Color(jcHex: 0x123A8C), 0.16, 160,
+                         x: w * (0.28 + 0.36 * sin(t / 4.2)), y: h * (0.20 + 0.20 * cos(t / 3.6)))
+                    blob(Color(jcHex: 0x0C4C55), 0.14, 150,
+                         x: w * (0.72 + 0.34 * cos(t / 3.9 + 1)), y: h * (0.52 + 0.28 * sin(t / 4.6)))
+                    blob(Color(jcHex: 0x2C1E6E), 0.14, 170,
+                         x: w * (0.42 + 0.40 * sin(t / 5.1 + 2)), y: h * (0.80 + 0.16 * cos(t / 4.0 + 1)))
+                    blob(Color(jcHex: 0x3A1F4E), 0.10, 130,
+                         x: w * (0.60 + 0.36 * cos(t / 4.4 + 3)), y: h * (0.36 + 0.32 * sin(t / 5.3 + 2)))
                 }
             }
         }
