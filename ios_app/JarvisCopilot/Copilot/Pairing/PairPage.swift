@@ -130,25 +130,26 @@ struct PairPage: View {
     // MARK: Welcome
 
     private func welcome(height: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            // Equal spacers above the orb and below the text centre the group;
-            // the arrow stays anchored near the bottom edge.
-            Spacer(minLength: 0)
-            orbSlot(.welcome, size: Self.orbWelcomeSize)
-            VStack(spacing: 10) {
-                Text("Hey, I'm Jarvis.")
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(JcTheme.text)
-                    .modifier(Entrance(revealed: revealed, index: 1, reduceMotion: reduceMotion))
-                Text("Your assistant across every device you own.")
-                    .font(JcText.body)
-                    .foregroundStyle(JcTheme.muted)
-                    .multilineTextAlignment(.center)
-                    .modifier(Entrance(revealed: revealed, index: 2, reduceMotion: reduceMotion))
+        ZStack(alignment: .bottom) {
+            // Orb + headline sit at the exact vertical centre (equal spacers).
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                orbSlot(.welcome, size: Self.orbWelcomeSize)
+                VStack(spacing: 10) {
+                    Text("Hey, I'm Jarvis.")
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundStyle(JcTheme.text)
+                        .modifier(Entrance(revealed: revealed, index: 1, reduceMotion: reduceMotion))
+                    Text("Your assistant across every device you own.")
+                        .font(JcText.body)
+                        .foregroundStyle(JcTheme.muted)
+                        .multilineTextAlignment(.center)
+                        .modifier(Entrance(revealed: revealed, index: 2, reduceMotion: reduceMotion))
+                }
+                .padding(.top, 8)
+                Spacer(minLength: 0)
             }
-            .padding(.top, 8)
-            Spacer(minLength: 0)
-            Spacer(minLength: 0)
+            // The arrow is pinned to the bottom, outside the centred group.
             Button { go(to: .connect) } label: {
                 Image(systemName: "arrow.right")
                     .font(.system(size: 22, weight: .semibold))
@@ -161,6 +162,7 @@ struct PairPage: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Next")
             .modifier(Entrance(revealed: revealed, index: 3, reduceMotion: reduceMotion))
+            .padding(.bottom, 8)
         }
         .padding(.top, Self.columnTop)
         .padding(.bottom, 32)
