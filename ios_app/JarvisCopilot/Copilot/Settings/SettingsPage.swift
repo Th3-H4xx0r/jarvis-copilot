@@ -100,7 +100,7 @@ struct SettingsPage: View {
 
     private var identity: some View {
         VStack(alignment: .leading, spacing: 0) {
-            QuietLabel("This device")
+            GlassQuietLabel("This device")
             GlassGroup(blur: false) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Device name").font(JcText.small).foregroundStyle(JcTheme.muted)
@@ -120,7 +120,7 @@ struct SettingsPage: View {
 
     private var assistant: some View {
         VStack(alignment: .leading, spacing: 0) {
-            QuietLabel("Assistant")
+            GlassQuietLabel("Assistant")
             GlassGroup(blur: false) {
                 SwitchRow(symbol: "location.fill",
                           title: "Track my location",
@@ -170,7 +170,7 @@ struct SettingsPage: View {
 
     private var navigation: some View {
         VStack(alignment: .leading, spacing: 0) {
-            QuietLabel("More")
+            GlassQuietLabel("More")
             GlassGroup(blur: false) {
                 NavigationLink {
                     OnDeviceAISettingsPage()
@@ -219,23 +219,6 @@ struct SettingsPage: View {
                 confirmUnpair = true
             }
         }
-    }
-}
-
-/// Section label in the Voice page's register: small, spaced, muted — not a
-/// bold header competing with the rows.
-private struct QuietLabel: View {
-    let text: String
-    init(_ text: String) { self.text = text }
-
-    var body: some View {
-        Text(text.uppercased())
-            .font(.system(size: 11, weight: .semibold))
-            .tracking(1.1)
-            .foregroundStyle(JcTheme.muted)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 6)
-            .padding(.bottom, 10)
     }
 }
 

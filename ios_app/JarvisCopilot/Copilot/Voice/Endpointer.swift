@@ -32,14 +32,16 @@ final class Endpointer {
     // are the ONLY timing numbers in the endpointing path — nothing downstream
     // may hard-code a silence wait.
 
-    /// Opens a turn. Calibrated against PEAK (not RMS) amplitude, matching the
-    /// webui VAD — RMS runs several times smaller and would never cross this.
-    static let speechThreshold = 0.08
+    /// Opens a turn using PCM16 peak amplitude. Phone speech can peak around
+    /// 0.02 after input processing; the old 0.08 gate animated the orb but never
+    /// opened a turn. Keep a separate lower closing gate and the minimum voiced
+    /// duration so quiet room noise and short clicks do not submit a turn.
+    static let speechThreshold = 0.012
 
     /// Closes a turn. Deliberately LOWER than `speechThreshold`: the gap is the
     /// hysteresis band that stops a voice sitting near the boundary from
     /// flapping between "speaking" and "silent" every frame.
-    static let silenceThreshold = 0.04
+    static let silenceThreshold = 0.006
 
     /// Normal end-of-speech wait. 650 ms: 400 ms cut people off mid-sentence (an
     /// ordinary clause break is 300–600 ms), while the old 1500 ms put a full

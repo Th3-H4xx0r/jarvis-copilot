@@ -20,9 +20,15 @@ final class DefaultAudioInput: AudioInput {
     static let tapBufferSize: AVAudioFrameCount = 2048
 
     var onFrame: ((Data) -> Void)?
-    private(set) var isRunning = false
+    /// An engine can stop on route changes without `stop()` being called. Also
+    /// consider a tap that stopped delivering buffers unhealthy.
+    var isRunning: Bool {
+        engine?.isRunning == true && Date().timeIntervalSince(lastFrameAt) < 3
+    }
 
     private var engine: AVAudioEngine?
+    private var lastFrameAt = Date.distantPast
+    private var generation = 0
 
     func requestPermission() async -> Bool {
         if AVAudioApplication.shared.recordPermission == .granted { return true }
@@ -36,14 +42,15 @@ final class DefaultAudioInput: AudioInput {
         var lastError: Error?
         for attempt in 0..<Self.startAttempts {
             do {
+                try Task.checkCancellation()
                 try startEngine(sampleRate: sampleRate)
-                isRunning = true
                 return
             } catch {
+                if Task.isCancelled { throw CancellationError() }
                 lastError = error
                 teardown()
                 if attempt + 1 < Self.startAttempts {
-                    try? await Task.sleep(nanoseconds: UInt64(Self.retryDelayMs) * 1_000_000)
+                    try await Task.sleep(nanoseconds: UInt64(Self.retryDelayMs) * 1_000_000)
                 }
             }
         }
@@ -52,7 +59,6 @@ final class DefaultAudioInput: AudioInput {
 
     func stop() async {
         teardown()
-        isRunning = false
     }
 
     // MARK: - Private
@@ -72,6 +78,7 @@ final class DefaultAudioInput: AudioInput {
         converter.sampleRateConverterQuality = AVAudioQuality.medium.rawValue
         let ratio = Double(sampleRate) / hardware.sampleRate
 
+        let tapGeneration = generation
         input.installTap(onBus: 0, bufferSize: Self.tapBufferSize, format: hardware) { [weak self] buffer, _ in
             guard let data = Self.pcm16(buffer, converter: converter, target: target, ratio: ratio),
                   !data.isEmpty else { return }
@@ -79,15 +86,21 @@ final class DefaultAudioInput: AudioInput {
             // audible (and the endpointer's budget depends on it), and Task
             // enqueue order onto an actor is not guaranteed FIFO.
             DispatchQueue.main.async {
-                MainActor.assumeIsolated { self?.onFrame?(data) }
+                MainActor.assumeIsolated {
+                    guard let self, self.generation == tapGeneration else { return }
+                    self.lastFrameAt = Date()
+                    self.onFrame?(data)
+                }
             }
         }
+        self.engine = engine
         engine.prepare()
         try engine.start()
-        self.engine = engine
+        lastFrameAt = Date()
     }
 
     private func teardown() {
+        generation += 1
         if let engine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()

@@ -18,7 +18,7 @@ struct OnDeviceAISettingsPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 30) {
                 availabilityCard
                 section("Mode") { tierRows }
                 section("Use on-device for") { surfaceRows }
@@ -38,7 +38,7 @@ struct OnDeviceAISettingsPage: View {
     private func section<Content: View>(_ title: String,
                                         @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionLabel(title)
+            GlassQuietLabel(title)
             content()
         }
     }
@@ -72,7 +72,7 @@ struct OnDeviceAISettingsPage: View {
     // MARK: - Tier
 
     private var tierRows: some View {
-        GlassGroup {
+        GlassGroup(blur: false) {
             tierRow(.off, "Off", "Everything runs on the server.")
             tierRow(.routerCommands, "Router + instant commands",
                     "Answer trivial turns + fire device commands locally; escalate the rest.")
@@ -98,7 +98,7 @@ struct OnDeviceAISettingsPage: View {
     // MARK: - Surfaces
 
     private var surfaceRows: some View {
-        GlassGroup {
+        GlassGroup(blur: false) {
             OnDeviceSwitchRow(symbol: "bubble.left", title: "Chat",
                               isOn: store.settings.chatEnabled) { store.setChatEnabled($0) }
             OnDeviceSwitchRow(symbol: "waveform", title: "Voice",
@@ -110,7 +110,7 @@ struct OnDeviceAISettingsPage: View {
     // MARK: - Models
 
     private var modelRows: some View {
-        GlassGroup {
+        GlassGroup(blur: false) {
             if store.models.isEmpty {
                 GlassRow(symbol: "cpu", title: "No local models",
                          subtitle: "Apple Foundation Models needs iOS 26 + Apple Intelligence.",
@@ -166,7 +166,7 @@ struct OnDeviceAISettingsPage: View {
     // MARK: - Advanced
 
     private var advancedRows: some View {
-        GlassGroup {
+        GlassGroup(blur: false) {
             GlassRow(symbol: "arrow.triangle.branch",
                      title: "The model decides escalation",
                      subtitle: "Each turn runs the on-device model to completion; it chooses "

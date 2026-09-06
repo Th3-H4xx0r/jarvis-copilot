@@ -1,8 +1,6 @@
 import SwiftUI
 
-/// The bottom control row: mute on the left, the big mic in the middle,
-/// Done/Interrupt on the right. Port of `_Controls` in `voice_page.dart`
-/// (`EdgeInsets.fromLTRB(36, 4, 36, 4)`, `spaceBetween`).
+/// Labeled controls keep stopping a session distinct from submitting a turn.
 struct VoiceControls: View {
     let state: VoiceState
     let isActive: Bool
@@ -12,96 +10,82 @@ struct VoiceControls: View {
     let onFinish: () -> Void
     let onInterrupt: () -> Void
 
-    /// 88 pt button + 4 pt of padding top and bottom — what the page reserves
-    /// under the stage so the orb block can't grow into it.
-    static let height: CGFloat = 96
+    static let height: CGFloat = 108
 
     var body: some View {
-        HStack {
-            // Mute — only live while a session is.
+        HStack(alignment: .center) {
             VoiceGhostCircle(symbol: muted ? "mic.slash" : "mic",
                              highlighted: muted,
                              label: muted ? "Unmute" : "Mute",
                              action: isActive ? onMute : nil)
-            Spacer(minLength: 0)
+            Spacer(minLength: 16)
             VoiceMicButton(active: isActive, action: onPrimary)
-            Spacer(minLength: 0)
-            trailing
+            Spacer(minLength: 16)
+            if isActive && state == .listening {
+                VoiceGhostCircle(symbol: "arrow.up", label: "Send", action: muted ? nil : onFinish)
+            } else if isActive && (state == .speaking || state == .thinking) {
+                VoiceGhostCircle(symbol: "hand.raised", label: "Interrupt", action: onInterrupt)
+            } else {
+                VoiceGhostCircle(symbol: "arrow.up", label: "Send", action: nil)
+            }
         }
-        .padding(.horizontal, 36)
-        .padding(.vertical, 4)
-    }
-
-    /// Done while listening, Interrupt while the assistant has the floor. Idle
-    /// shows the same disabled check the slot turns into, so the glyph doesn't
-    /// jump to something unrelated when a turn starts.
-    @ViewBuilder
-    private var trailing: some View {
-        if isActive && state == .listening {
-            VoiceGhostCircle(symbol: "checkmark", label: "Done", action: onFinish)
-        } else if isActive && (state == .speaking || state == .thinking) {
-            VoiceGhostCircle(symbol: "stop.fill", label: "Interrupt", action: onInterrupt)
-        } else {
-            VoiceGhostCircle(symbol: "checkmark", label: "Done", action: nil)
-        }
+        .frame(maxWidth: 320)
+        .frame(height: Self.height)
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity)
     }
 }
 
-/// The big central mic — a glossy solid-blue 66 pt disc inside a faint 88 pt
-/// ring, matching `_MicButton`. Shows a stop glyph while a session is running.
 struct VoiceMicButton: View {
     let active: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            ZStack {
-                Circle()
-                    .strokeBorder(Color.white.opacity(0x2E / 255.0), lineWidth: 1.2)
-                    .frame(width: 88, height: 88)
-                Circle()
-                    // Flutter's `radius: 1.05` is a fraction of the box's short
-                    // side, so the gradient runs past the disc's own edge.
-                    .fill(RadialGradient(
-                        stops: [.init(color: Color(jcHex: 0x6FB0FF), location: 0),
-                                .init(color: Color(jcHex: 0x2E6BFF), location: 0.55),
-                                .init(color: Color(jcHex: 0x1E57DC), location: 1)],
-                        center: UnitPoint(x: 0.35, y: 0.30),
-                        startRadius: 0, endRadius: 66 * 1.05))
-                    .frame(width: 66, height: 66)
-                    .shadow(color: JcTheme.primaryBlue.opacity(0.4), radius: 14)
-                Image(systemName: active ? "stop.fill" : "mic.fill")
-                    .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(.white)
+            VStack(spacing: 8) {
+                Image(systemName: active ? "xmark" : "mic.fill")
+                    .font(.system(size: 25, weight: .medium))
+                    .foregroundStyle(active ? JcTheme.text : Color.white)
+                    .frame(width: 68, height: 68)
+                    .jcLiquidGlass(in: Circle(), tint: active ? .clear : JcTheme.primaryBlue)
+                Text(active ? "End" : "Start")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(JcTheme.text)
             }
-            .frame(width: 88, height: 88)
-            .contentShape(Circle())
+            .frame(width: 86)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(active ? "Stop" : "Start talking")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(active ? "End conversation" : "Start talking")
     }
 }
 
-/// A small frosted ghost circle for the side actions (`_GhostCircle`).
 struct VoiceGhostCircle: View {
     let symbol: String
-    var highlighted: Bool = false
+    var highlighted = false
     let label: String
     let action: (() -> Void)?
 
     var body: some View {
         Button { action?() } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(highlighted ? JcTheme.accent : JcTheme.text)
-                .frame(width: 52, height: 52)
-                .background(highlighted ? JcTheme.accent.opacity(0.18) : JcTheme.glassFill,
-                            in: Circle())
-                .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+            VStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(highlighted ? JcTheme.cyan : JcTheme.text)
+                    .frame(width: 50, height: 50)
+                    .jcLiquidGlass(in: Circle(), tint: highlighted ? JcTheme.cyan.opacity(0.25) : .clear)
+                Text(label)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(JcTheme.muted)
+            }
+            .frame(width: 76)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .opacity(action == nil ? 0.4 : 1)
+        .opacity(action == nil ? 0.35 : 1)
         .disabled(action == nil)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
     }
 }

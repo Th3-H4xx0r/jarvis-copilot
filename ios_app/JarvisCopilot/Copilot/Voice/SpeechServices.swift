@@ -197,13 +197,23 @@ private final class VoiceStopGate {
 /// whole tunnel round-trip to an action that already finished. Real replies still
 /// use the JARVIS voice from the server.
 @MainActor
-final class DefaultVoiceSynthesizing: VoiceSynthesizing {
+final class DefaultVoiceSynthesizing: NSObject, VoiceSynthesizing, AVSpeechSynthesizerDelegate {
 
     /// Dart's default. Sits just above Apple's, which reads short confirmations
     /// naturally.
     static let defaultRate: Float = 0.52
 
     private let synthesizer = AVSpeechSynthesizer()
+    private var currentUtterance: AVSpeechUtterance?
+    private var pulseTimer: Timer?
+    var onPlaybackStart: (() -> Void)?
+    var onPlaybackEnd: (() -> Void)?
+    var onSpeechPulse: ((Double) -> Void)?
+
+    override init() {
+        super.init()
+        synthesizer.delegate = self
+    }
 
     var isAvailable: Bool { true }
 
@@ -213,16 +223,70 @@ final class DefaultVoiceSynthesizing: VoiceSynthesizing {
         guard !trimmed.isEmpty else { return false }
         // An ack is only ever about the turn happening right now — anything
         // still being said is stale.
-        if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
+        stop()
         let utterance = AVSpeechUtterance(string: trimmed)
         utterance.rate = min(max(rate, AVSpeechUtteranceMinimumSpeechRate),
                              AVSpeechUtteranceMaximumSpeechRate)
         utterance.voice = Self.preferredVoice()
+        currentUtterance = utterance
         synthesizer.speak(utterance)
         return true
     }
 
-    func stop() { synthesizer.stopSpeaking(at: .immediate) }
+    func stop() {
+        currentUtterance = nil
+        pulseTimer?.invalidate()
+        pulseTimer = nil
+        onSpeechPulse?(0)
+        synthesizer.stopSpeaking(at: .immediate)
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                       didStart utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.currentUtterance === utterance else { return }
+            self.onPlaybackStart?()
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                       willSpeakRangeOfSpeechString range: NSRange,
+                                       utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.currentUtterance === utterance else { return }
+            // AVSpeechSynthesizer owns its render graph. Its actual word timing
+            // gives local confirmations a pulse without changing the low-latency
+            // playback path or pretending a fixed level is measured audio.
+            self.onSpeechPulse?(0.08 + Double(min(range.length, 12)) * 0.01)
+            self.pulseTimer?.invalidate()
+            let timer = Timer(timeInterval: 0.12, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated { self?.onSpeechPulse?(0) }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            self.pulseTimer = timer
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                       didFinish utterance: AVSpeechUtterance) {
+        finish(utterance)
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                       didCancel utterance: AVSpeechUtterance) {
+        finish(utterance)
+    }
+
+    private nonisolated func finish(_ utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.currentUtterance === utterance else { return }
+            self.currentUtterance = nil
+            self.pulseTimer?.invalidate()
+            self.pulseTimer = nil
+            self.onSpeechPulse?(0)
+            self.onPlaybackEnd?()
+        }
+    }
 
     /// Prefer an enhanced/premium voice for the user's own locale — the compact
     /// default sounds noticeably more robotic than the server voice, and these

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// One row of the transcript. A user turn is a right-aligned slate bubble; an
-/// assistant turn is the avatar-plus-card of ``ChatAssistantTurnCard``.
+/// assistant turn uses the open layout of ``ChatAssistantTurnCard``.
 ///
 /// The row owns the vertical rhythm too, because only it knows both neighbours:
 /// consecutive turns from the same speaker sit 6 pt apart, a change of speaker
@@ -27,7 +27,7 @@ struct ChatMessageRow: View {
     }
 }
 
-/// The user's own turn: slate, radius 18, hugged to the right, with any
+/// The user's own turn: a restrained blue surface hugged to the right, with any
 /// attachments shown underneath the text inside the same bubble.
 struct ChatUserBubble: View {
     let message: ChatMessage
@@ -35,11 +35,13 @@ struct ChatUserBubble: View {
 
     var body: some View {
         HStack(alignment: .bottom) {
-            Spacer(minLength: 48)
+            Spacer(minLength: 44)
             VStack(alignment: .trailing, spacing: 6) {
                 let text = message.plainText
                 if !text.isEmpty {
                     Text(text)
+                        .font(.body)
+                        .lineSpacing(3)
                         .textSelection(.enabled)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -50,17 +52,20 @@ struct ChatUserBubble: View {
                     }
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(JcTheme.slate, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .foregroundStyle(.white)
+            .padding(.horizontal, 17)
+            .padding(.vertical, 13)
+            .background(JcTheme.blue.opacity(0.13),
+                        in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(JcTheme.blue.opacity(0.10), lineWidth: 0.5))
+            .foregroundStyle(JcTheme.text)
             .contextMenu {
                 if let onCopy, !message.plainText.isEmpty {
                     Button { onCopy() } label: { Label("Copy", systemImage: "doc.on.doc") }
                 }
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
     }
 }
 

@@ -1,9 +1,7 @@
 import SwiftUI
 
-/// The composer: one rounded field on the same material as the reply cards, a
-/// thin border, the attach button and a 30 pt round send button — no separate
-/// bar, no blur. `Esp32ChatView`'s composer, plus the attachment strip and the
-/// pick-error line from `pages/chat_page.dart`.
+/// A glass composer with comfortable touch targets. Attachment previews and
+/// errors grow above the field; the surrounding page reserves its layout space.
 struct ChatComposer: View {
     let store: ChatStore
     @Binding var draft: String
@@ -28,55 +26,58 @@ struct ChatComposer: View {
     /// technically still streaming — the answer is what unblocks it.
     private var canStop: Bool { store.streaming && store.pendingClarify == nil }
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 22, style: .continuous) }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 28, style: .continuous) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !store.pendingAttachments.isEmpty {
                 ChatAttachmentStrip(store: store)
-                    .padding(.leading, 8).padding(.trailing, 4).padding(.top, 6)
+                    .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 4)
             }
             if let attachError = store.attachError {
                 Text(attachError)
                     .font(.caption)
                     .foregroundStyle(JcTheme.danger)
-                    .padding(.leading, 12).padding(.top, 6)
+                    .padding(.horizontal, 16).padding(.top, 8)
             }
-            HStack(alignment: .bottom, spacing: 4) {
+            HStack(alignment: .bottom, spacing: 8) {
                 ChatAttachControl(store: store, enabled: !store.streaming)
-                    .padding(.bottom, 3)
-                TextField("Message", text: $draft, axis: .vertical)
+                TextField("Message Jarvis", text: $draft,
+                          prompt: Text("Message Jarvis").foregroundStyle(JcTheme.muted), axis: .vertical)
                     .id(generation)
+                    .font(.body)
+                    .foregroundStyle(JcTheme.text)
+                    .tint(JcTheme.cyan)
                     .lineLimit(1...6)
                     .focused($focused)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 11)
+                    .accessibilityLabel("Message")
                 Button {
                     if canStop { onStop() } else { onSend() }
                 } label: {
                     Image(systemName: canStop ? "stop.fill" : "arrow.up")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 30)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(canSend || canStop ? .white : JcTheme.muted)
+                        .frame(width: 44, height: 44)
                         .background(sendFill, in: Circle())
+                        .overlay(Circle().strokeBorder(.white.opacity(canSend ? 0.22 : 0.06), lineWidth: 0.5))
                 }
                 .buttonStyle(.plain)
                 .disabled(!canStop && !canSend)
                 .animation(.smooth(duration: 0.2), value: store.streaming)
                 .animation(.smooth(duration: 0.2), value: canSend)
-                .padding(.bottom, 4)
                 .accessibilityLabel(canStop ? "Stop" : "Send")
             }
-            .padding(.leading, 4).padding(.trailing, 6)
+            .padding(.horizontal, 6)
         }
-        .padding(.vertical, 4)
-        .background(Color.white.opacity(0.07), in: shape)
-        .overlay(shape.strokeBorder(.white.opacity(0.08), lineWidth: 1))
-        .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
+        .padding(.vertical, 6)
+        .jcLiquidGlass(in: shape)
+        .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 12)
     }
 
     private var sendFill: Color {
-        if canStop { return Color.white.opacity(0.14) }
-        return canSend ? JcTheme.slate : Color.white.opacity(0.14)
+        if canStop { return Color.white.opacity(0.18) }
+        return canSend ? JcTheme.primaryBlue : Color.white.opacity(0.055)
     }
 }
 

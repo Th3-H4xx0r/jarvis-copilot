@@ -105,6 +105,8 @@ final class VoiceStore {
     var toolStatus: String?
     var error: String?
     var muted = false
+    var captureReady = false
+    var audioInterrupted = false
     var engines = VoiceEngineList()
     /// Icon kinds for the Live Activity devices strip.
     var deviceKinds: [String] = []
@@ -129,6 +131,8 @@ final class VoiceStore {
     private var resumeTimer: VoiceTimerToken?
     private var thinkingWatchdog: VoiceTimerToken?
     private var bgIdleTimer: VoiceTimerToken?
+    private var micHealthTimer: VoiceTimerToken?
+    private var micRecoveryAttempts = 0
     /// Invalidates in-flight per-turn async work (STT, TTS) when the user
     /// interrupts, stops, or starts a new turn.
     var turnEpoch = 0
@@ -225,6 +229,18 @@ final class VoiceStore {
         audio.onPosition = { [weak self] tag, ms in
             self?.reply.clipPosition(tag: tag, positionMs: ms)
         }
+        self.synthesizer.onPlaybackStart = { [weak self] in
+            guard let self, self.isActive else { return }
+            self.raise(.playbackStarted)
+        }
+        self.synthesizer.onSpeechPulse = { [weak self] level in
+            guard let self, self.state == .speaking else { return }
+            self.amplitude = level
+        }
+        self.synthesizer.onPlaybackEnd = { [weak self] in
+            guard let self, self.isActive else { return }
+            self.raise(.playbackDrained)
+        }
         session.onFrame = { [weak self] frame in self?.handle(frame) }
         session.onLog = { [weak self] line in self?.note(line) }
         session.onClose = { [weak self] error in
@@ -240,12 +256,28 @@ final class VoiceStore {
             }
         }
         audioSession.onInterruption = { [weak self] event in
-            guard let self, event == .ended, self.machine.state.isActive else { return }
-            // A phone call / Siri grabbed audio; iOS paused our playback. When it
-            // ends, re-grab the session so we can keep speaking. Failing here
-            // means playback never comes back, so say so rather than going mute.
-            do { try self.audioSession.setActive(true) }
-            catch { self.error = JcLog.report(JcLog.voice, "re-activate after interruption", error) }
+            guard let self, self.machine.state.isActive else { return }
+            if event == .began {
+                self.audioInterrupted = true
+                self.captureReady = false
+                self.amplitude = 0
+                self.micHealthTimer?.cancel()
+                // Supersede startup retries as well as a live engine. A retry
+                // failing under Siri must not turn a resumable pause into error.
+                self.perform(.stopMic)
+                self.note("audio interrupted")
+                return
+            }
+            self.audioInterrupted = false
+            do {
+                try self.audioSession.setActive(true)
+                if self.foreground && self.wantsCapture {
+                    self.note("audio resumed; restarting capture")
+                    self.perform(.startMic)
+                }
+            } catch {
+                self.raise(.failed(JcLog.report(JcLog.voice, "resume audio", error)))
+            }
         }
     }
 
@@ -266,6 +298,7 @@ final class VoiceStore {
             } else if !machine.state.isActive {
                 guard await ensureMic() else { return }
                 qualityPcm.removeAll()
+                muted = false
                 raise(.startRequested)
             }
             return
@@ -274,6 +307,7 @@ final class VoiceStore {
             await stopAll()
         } else {
             guard await ensureMic() else { return }
+            muted = false
             raise(.startRequested)
         }
     }
@@ -354,9 +388,14 @@ final class VoiceStore {
         foreground = true
         bgIdleTimer?.cancel()
         bgIdleTimer = nil
-        guard machine.mode == .realtime, machine.state.isActive else { return }
-        do { try audioSession.setActive(true) }
-        catch { self.error = JcLog.report(JcLog.voice, "re-activate on foreground", error) }
+        guard machine.state.isActive else { return }
+        do {
+            try audioSession.setActive(true)
+            if wantsCapture && !audioInterrupted {
+                if input.isRunning { monitorMic() }
+                else { perform(.startMic) }
+            }
+        } catch { raise(.failed(JcLog.report(JcLog.voice, "re-activate on foreground", error))) }
     }
 
     // MARK: - FSM plumbing
@@ -382,6 +421,8 @@ final class VoiceStore {
             let generation = nextMicGeneration()
             runMicEffect { [weak self] in await self?.startMic(generation: generation) }
         case .stopMic:
+            micHealthTimer?.cancel()
+            captureReady = false
             _ = nextMicGeneration()
             runMicEffect { [weak self] in await self?.input.stop() }
         case .sendEndTurn:
@@ -487,20 +528,47 @@ final class VoiceStore {
         })
     }
 
+    var wantsCapture: Bool {
+        mode == .quality ? state == .listening : state.isActive && state != .connecting
+    }
+
+    /// Detect a stopped engine or stalled tap, independently of speech volume.
+    /// Silence still delivers PCM, so a quiet user never trips this recovery.
+    func monitorMic() {
+        micHealthTimer?.cancel()
+        micHealthTimer = clock.schedule(after: 3000) { [weak self] in
+            guard let self, self.wantsCapture, !self.audioInterrupted else { return }
+            guard self.foreground else { self.monitorMic(); return }
+            if self.input.isRunning {
+                self.monitorMic()
+            } else if self.micRecoveryAttempts == 0 {
+                self.micRecoveryAttempts += 1
+                self.captureReady = false
+                self.note("capture stalled; restarting input")
+                self.perform(.startMic)
+            } else {
+                self.raise(.failed("Microphone audio stopped. Check your microphone or headphones, then tap to try again."))
+            }
+        }
+    }
+
     // MARK: - Mic frames
 
     private func handleMicFrame(_ chunk: Data) {
+        guard wantsCapture, !audioInterrupted, !chunk.isEmpty else { return }
+        captureReady = true
+        micRecoveryAttempts = 0
         let amp = voicePeakAmplitude(chunk)
 
         if machine.mode == .quality {
             guard machine.state == .listening else { return }
-            amplitude = amp
-            qualityPcm.append(chunk)
+            amplitude = muted ? 0 : amp
+            if !muted { qualityPcm.append(chunk) }
             return
         }
 
         // Drive the orb only while listening (playback drives it otherwise).
-        if machine.state == .listening { amplitude = amp }
+        if machine.state == .listening { amplitude = muted ? 0 : amp }
         if muted { return }
 
         // Barge-in: a loud frame during playback interrupts the assistant. Only
@@ -521,6 +589,8 @@ final class VoiceStore {
             // this is the only trace that the audio never left the phone.
             loggedMicDrop = true
             note("ws→ pcm DROPPED (no socket)")
+            raise(.failed(Self.connectionLostNotice))
+            return
         }
 
         // The platform recognizer ends its own session after a stretch of silence
@@ -538,7 +608,15 @@ final class VoiceStore {
         // Adaptive endpointing (plan 1.1). Frame duration comes from the audio
         // itself, not a wall clock, so scheduler jitter can't skew the budget.
         let dtMs = Endpointer.frameMsForPcm16(byteLength: chunk.count, sampleRate: Self.micRate)
-        if endpointer.update(amp, dtMs) == .endOfTurn { raise(.endOfSpeech) }
+        let wasSpeaking = endpointer.speaking
+        let endpoint = endpointer.update(amp, dtMs)
+        if !wasSpeaking && endpointer.speaking {
+            note("speech detected (peak=\(String(format: "%.3f", amp)))")
+        }
+        if endpoint == .endOfTurn {
+            note("speech ended; submitting turn")
+            raise(.endOfSpeech)
+        }
     }
 
     func detectBargeIn(_ amp: Double) -> Bool {
@@ -626,6 +704,11 @@ final class VoiceStore {
     // MARK: - Teardown
 
     private func teardown() async {
+        micHealthTimer?.cancel()
+        micHealthTimer = nil
+        captureReady = false
+        audioInterrupted = false
+        micRecoveryAttempts = 0
         abortSpeechSession()
         synthesizer.stop()
         qualityTask.cancel()

@@ -144,3 +144,125 @@ static float waveHeight(float x, float t) {
     alpha *= smoothstep(1.0, 0.992, r);                                 // AA edge
     return half4(half3(col * alpha), half(alpha));
 }
+
+// Setup-only glass orb. Broad refracted liquid light moves inside a crisp shell.
+// Breathing repeats every 9.6 seconds; the full flow repeats every 38.4 seconds.
+// RGB is interior light; the fourth channel is warm light reaching the glass.
+static float4 setupLiquidLight(float2 q, float drift, float aa) {
+    float3 light = float3(0.0);
+    float warmLight = 0.0;
+    float r = length(q);
+    for (int i = 0; i < 2; ++i) {
+        float seed = float(i) * 2.4;
+        float turn = (i == 0 ? drift : -drift) + seed
+            - 0.4 * sin(2.0 * drift + seed);
+        float2 local = float2(q.x * cos(turn) + q.y * sin(turn),
+                             -q.x * sin(turn) + q.y * cos(turn));
+        float u = local.x - 0.24 * sin(3.0 * drift + seed);
+        float bend = 0.24 * sin(2.8 * u + 5.0 * drift + seed)
+            + 0.18 * sin(3.0 * drift + seed);
+        float v = local.y - bend;
+        float opening = 0.5 + 0.5 * sin(2.0 * u - 4.0 * drift + seed);
+        float width = 0.13 + 0.19 * opening;
+        float envelope = exp(-pow(u / 0.91, 6.0));
+        // One defined liquid boundary with depth fading into its broad body.
+        // The surface itself carries the color; no luminous outline is drawn.
+        float surface = smoothstep(-width - 0.018, -width + 0.018, v);
+        float thickness = exp(-pow(max(v + width, 0.0) / (width * 1.45), 1.5));
+        float body = surface * thickness * envelope;
+        // Reflections occupy short patches on broad liquid surfaces. There is
+        // no continuous bright contour connecting two points on the rim.
+        float glintAt = 0.36 * sin(2.0 * drift + seed + 0.8);
+        float glint = exp(-pow((v + width * 0.88) / (0.014 + aa * 0.5), 2.0))
+            * exp(-pow((u - glintAt) / 0.16, 2.0));
+        float depth = i == 0 ? 1.0 : 0.20;
+        float warm = smoothstep(0.48, 0.93, r)
+            * (0.20 + 0.80 * smoothstep(-0.10, 0.55, u));
+        float3 tint = mix(float3(0.035, 0.24, 0.80), float3(1.0, 0.37, 0.07), warm);
+        light += tint * body * depth * 0.74;
+        light += float3(0.58, 0.80, 1.0) * body * opening * depth * 0.10;
+        light += float3(0.80, 0.93, 1.0) * glint * depth * 0.34;
+        warmLight += body * warm * depth;
+    }
+    return float4(light, warmLight);
+}
+
+[[ stitchable ]] half4 setupOrb(float2 pos, half4 inColor, float2 size, float t) {
+    // Match the setup screen's existing visible diameter (53% of its slot).
+    float phase = t * (2.0 * M_PI_F / 9.6);
+    float breathe = 1.0 + 0.035 * sin(phase) - 0.012 * sin(2.0 * phase);
+    float radius = min(size.x, size.y) * 0.265 * breathe;
+    float2 q = (pos - size * 0.5) / radius;
+    // Inverse-warp the glass and its liquid together so reflections stay
+    // attached as the idle silhouette softly pulses.
+    float angle = dot(q, q) > 0.00001 ? atan2(q.y, q.x) : 0.0;
+    float flex = 0.022 * sin(3.0 * angle + phase)
+        + 0.012 * sin(2.0 * angle - 2.0 * phase);
+    q /= 1.0 + flex * smoothstep(0.1, 0.9, length(q));
+    float r = length(q);
+    if (r > 1.22) { return half4(0.0); }
+
+    float drift = t * (2.0 * M_PI_F / 38.4);
+    float aa = 1.0 / radius;
+    float4 liquid = setupLiquidLight(q, drift, aa);
+    float3 ice = float3(0.55, 0.77, 1.0);
+    float3 pearl = float3(0.88, 0.96, 1.0);
+    float3 blue = float3(0.045, 0.30, 0.82);
+    // Warm light only blooms where a liquid surface reaches the glass.
+    float contact = exp(-pow((r - 0.99) / 0.048, 2.0));
+    float3 glow = float3(1.0, 0.57, 0.20) * liquid.a * contact * 0.34;
+    float coverage = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, r);
+
+    // A transparent exterior lets the page's aurora show through the bloom.
+    float glowAlpha = clamp(max(glow.r, max(glow.g, glow.b)), 0.0, 1.0);
+    float outerFade = 1.0 - smoothstep(1.02, 1.22, r);
+    float3 exterior = glow * outerFade;
+    float exteriorAlpha = glowAlpha * outerFade;
+    if (r > 1.0 + aa) { return half4(half3(exterior), half(exteriorAlpha)); }
+
+    float3 col = float3(0.002, 0.005, 0.009);
+    float interiorMask = 1.0 - smoothstep(0.58, 0.91, r);
+    // Motes follow tilted 3D orbits: depth changes their focus and brightness,
+    // making them feel suspended inside the sphere instead of stuck on top.
+    for (int i = 0; i < 7; ++i) {
+        float seed = float(i) * 2.39996;
+        float orbit = 0.30 + 0.045 * float(i);
+        float theta = drift + seed;
+        float3 p = float3(orbit * cos(theta), 0.18 * sin(seed), orbit * sin(theta));
+        float2 mote = float2(p.x, p.y * 0.82 - p.z * 0.57);
+        float depth = 0.5 + 0.5 * (p.y * 0.57 + p.z * 0.82) / 0.7;
+        float d2 = dot(q - mote, q - mote);
+        float focus = max(mix(0.011, 0.0045, depth), aa * 0.5);
+        float light = exp(-d2 / (focus * focus)) * (0.24 + 0.55 * depth)
+            + exp(-d2 / 0.0014) * 0.018;
+        col += mix(ice, pearl, depth) * light * interiorMask;
+    }
+    float bowl = sqrt(max(0.0, 1.0 - q.x * q.x));
+    // Curved reflections with a narrow specular highlight over a blue body.
+    float capY = -0.80 * bowl - 0.075;
+    float cap = exp(-pow((q.y - capY) / 0.075, 2.0));
+    float capFalloff = exp(-pow(q.x / 0.82, 4.0));
+    float keyLight = 0.68 + 0.32 * exp(-pow((q.x + 0.25) / 0.55, 2.0));
+    col += ice * cap * capFalloff * keyLight * 0.88;
+    col += pearl * exp(-pow((q.y - capY + 0.015) / 0.017, 2.0))
+        * exp(-pow((q.x + 0.22) / 0.48, 2.0)) * 0.46;
+    col += blue * exp(-pow((q.y - capY) / 0.15, 2.0)) * capFalloff * 0.07;
+    float bottomY = 0.89 * bowl + 0.025;
+    float bottom = exp(-pow((q.y - bottomY) / 0.060, 2.0));
+    col += ice * bottom * exp(-pow(q.x / 0.78, 4.0)) * 0.76;
+    col += pearl * exp(-pow((q.y - bottomY) / 0.014, 2.0))
+        * exp(-pow(q.x / 0.34, 2.0)) * 0.52;
+    col += blue * exp(-pow((q.y - bottomY) / 0.14, 2.0)) * 0.07;
+    // A crisp Fresnel edge, strongest where the glass catches the key light.
+    float rim = exp(-pow((r - 0.991) / (0.005 + aa * 0.45), 2.0));
+    col += ice * rim * (0.18 + 0.30 * abs(q.y));
+
+    col += liquid.rgb;
+    col += glow;
+
+    // Preserve the near-black glass interior and return premultiplied alpha.
+    col = min(col, float3(1.0));
+    float alpha = mix(exteriorAlpha, 1.0, coverage);
+    float3 result = mix(exterior, col, coverage);
+    return half4(half3(min(result, float3(alpha))), half(alpha));
+}

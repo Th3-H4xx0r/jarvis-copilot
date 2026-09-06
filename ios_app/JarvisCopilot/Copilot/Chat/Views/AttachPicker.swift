@@ -29,10 +29,10 @@ struct ChatAttachControl: View {
             }
             Button { showFiles = true } label: { Label("File", systemImage: "doc") }
         } label: {
-            Image(systemName: "plus.circle")
-                .font(.system(size: 20))
-                .foregroundStyle(JcTheme.muted)
-                .frame(width: 32, height: 32)
+            Image(systemName: "plus")
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(enabled ? JcTheme.text : JcTheme.muted.opacity(0.5))
+                .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
         .disabled(!enabled)

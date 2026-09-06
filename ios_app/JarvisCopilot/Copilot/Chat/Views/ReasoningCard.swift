@@ -19,14 +19,14 @@ struct ChatReasoningCard: View {
                 HStack(spacing: 7) {
                     Image(systemName: "sparkles").font(.system(size: 11))
                     Text(active ? "Thinking…" : "Thought process")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 12, weight: .medium))
                     Spacer(minLength: 6)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 10, weight: .semibold))
                         .opacity(0.7)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
-                .foregroundStyle(JcTheme.accent)
+                .foregroundStyle(active ? JcTheme.cyan : JcTheme.muted)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .contentShape(Rectangle())
@@ -46,9 +46,9 @@ struct ChatReasoningCard: View {
                 .padding(.bottom, 10)
             }
         }
-        .background(JcTheme.accent.opacity(0.07),
+        .background(JcTheme.cyan.opacity(0.04),
                     in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(JcTheme.accent.opacity(0.18), lineWidth: 1))
+            .strokeBorder(JcTheme.cyan.opacity(0.10), lineWidth: 0.5))
     }
 }

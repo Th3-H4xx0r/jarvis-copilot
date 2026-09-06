@@ -16,23 +16,28 @@ struct CardGroup<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             if let title {
-                Text(title)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 20)
+                // Same register as the settings screens: quiet small caps.
+                Text(title.uppercased())
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(1.1)
+                    .foregroundStyle(JcTheme.muted)
+                    .padding(.leading, 6)
+                    .padding(.bottom, 3)
             }
             VStack(spacing: 0) { content }
-                .background(Color.white.opacity(0.07),
-                            in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(JcTheme.glassFill,
+                            in: RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
+                    .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
             if let footer {
                 Text(footer)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 1)
+                    .padding(.horizontal, 6)
+                    .padding(.top, 4)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
     }
 }
 

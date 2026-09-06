@@ -92,6 +92,8 @@ protocol AudioInput: AnyObject {
 ///  • one-shot encoded clips (MP3 from quality mode and from server TTS).
 @MainActor
 protocol AudioOutput: AnyObject {
+    /// Peak level of audio actually being rendered, including silence between words.
+    var onAmplitude: ((Double) -> Void)? { get set }
     /// False when the render stream can't run here; `AudioQueue` then falls back
     /// to cutting PCM into WAV clips.
     var isStreamAvailable: Bool { get }
@@ -148,6 +150,10 @@ protocol SpeechRecognizing: AnyObject {
 /// `/api/voice/synthesize`.
 @MainActor
 protocol VoiceSynthesizing: AnyObject {
+    var onPlaybackStart: (() -> Void)? { get set }
+    var onPlaybackEnd: (() -> Void)? { get set }
+    /// Word-timed pulse for native confirmations, whose audio Apple renders.
+    var onSpeechPulse: ((Double) -> Void)? { get set }
     var isAvailable: Bool { get }
     /// Speak now, interrupting anything still being said (an ack is only ever
     /// about the turn happening right now). False when we couldn't say it.

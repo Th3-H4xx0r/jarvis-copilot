@@ -112,6 +112,10 @@ final class AudioQueue {
         self.output = output
         self.clock = clock
 
+        output.onAmplitude = { [weak self] level in
+            guard let self, !self.stopped, self.isBusy else { return }
+            self.onAmplitude?(level)
+        }
         output.onClipComplete = { [weak self] in self?.advance() }
         output.onClipPosition = { [weak self] pos in
             guard let self, let tag = self.currentTag else { return }
@@ -282,7 +286,6 @@ final class AudioQueue {
                 self.nativeStart = self.clock.now
                 self.currentTag = tag
                 self.onPlaybackStart?()
-                self.onAmplitude?(0.6) // coarse "speaking" pulse for the orb
                 self.armNativeTick()
             }
             self.currentTag = tag
@@ -397,7 +400,6 @@ final class AudioQueue {
             self.currentTag = clip.tag
             self.currentClipBaseMs = clip.baseMs
             self.onPlaybackStart?()
-            self.onAmplitude?(0.6)
             guard clip.tag != nil else { return }
             if let dur = clip.durationMs {
                 // PCM: exact duration, schedule the karaoke immediately. For a

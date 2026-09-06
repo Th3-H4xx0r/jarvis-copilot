@@ -1,8 +1,6 @@
 import SwiftUI
 
-/// The Chat tab, ported from `pages/chat_page.dart` and dressed exactly like
-/// `Esp32ChatView` — the user's favourite chat look — with the pieces extracted
-/// into `Copilot/Chat/Views/` so that screen can adopt them later.
+/// The native Chat tab, sharing Voice's quiet canvas and glass controls.
 ///
 /// All state and networking live in ``ChatStore``; this file is layout, chrome
 /// and the three lifecycle hooks the Flutter page has:
@@ -25,6 +23,7 @@ struct ChatPage: View {
     @FocusState private var focused: Bool
 
     private static let bottomAnchor = "chat.bottom"
+    private static let welcomeAnchor = "chat.welcome"
 
     /// `store` is injected by tests; the app takes the default. Built here rather
     /// than in `body` so the store outlives a re-render, and with
@@ -103,16 +102,19 @@ struct ChatPage: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button { showSessions = true } label: { Image(systemName: "line.3.horizontal") }
+            Button { showSessions = true } label: { Image(systemName: "sidebar.left") }
                 .accessibilityLabel("Chats")
         }
         ToolbarItem(placement: .principal) {
-            VStack(spacing: 1) {
-                Text("Jarvis").font(.headline)
-                Text(store.sessionTitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            VStack(spacing: 2) {
+                Text("Chat").font(.headline)
+                if !store.messages.isEmpty, !store.sessionTitle.isEmpty {
+                    Text(store.sessionTitle)
+                        .font(.caption2)
+                        .foregroundStyle(JcTheme.muted)
+                        .lineLimit(1)
+                        .frame(maxWidth: 120)
+                }
             }
         }
         ToolbarItem(placement: .topBarTrailing) { modelCapsule }
@@ -128,13 +130,13 @@ struct ChatPage: View {
 
     private var modelCapsule: some View {
         Button { showModels = true } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "cpu")
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
                 Text(ChatUIFormat.shortModelName(store.selectedModel?.label ?? store.selectedModelID ?? ""))
-                    .font(.footnote.weight(.medium))
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(Color.white.opacity(0.08), in: Capsule())
+            .font(.system(size: 14, weight: .medium))
+            .frame(maxWidth: 112)
         }
         .buttonStyle(.plain)
         .foregroundStyle(JcTheme.text)
@@ -161,47 +163,52 @@ struct ChatPage: View {
 
     private var transcript: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if store.historyLoading && store.messages.isEmpty {
-                        ProgressView().padding(.vertical, 40).frame(maxWidth: .infinity)
-                    } else if store.messages.isEmpty {
-                        ChatEmptyState { suggestion in
-                            focused = false
-                            Task { await store.send(suggestion) }
+            GeometryReader { geometry in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if store.historyLoading && store.messages.isEmpty {
+                            ProgressView().padding(.vertical, 40).frame(maxWidth: .infinity)
+                        } else if store.messages.isEmpty {
+                            ChatEmptyState(compact: geometry.size.height < 520) { suggestion in
+                                focused = false
+                                Task { await store.send(suggestion) }
+                            }
+                            .frame(minHeight: max(0, geometry.size.height - 29))
+                            .id(Self.welcomeAnchor)
                         }
+                        ForEach(Array(store.rows.enumerated()), id: \.element.id) { index, row in
+                            ChatMessageRow(
+                                row: row,
+                                isFirst: index == 0,
+                                onCopy: { store.copy(row.message) },
+                                onRetryOnServer: row.message.onDevice
+                                    ? { Task { await store.retryOnServer(row.message) } } : nil)
+                                .id(row.id)
+                        }
+                        Color.clear.frame(height: 1).id(Self.bottomAnchor)
                     }
-                    ForEach(Array(store.rows.enumerated()), id: \.element.id) { index, row in
-                        ChatMessageRow(
-                            row: row,
-                            isFirst: index == 0,
-                            onCopy: { store.copy(row.message) },
-                            onRetryOnServer: row.message.onDevice
-                                ? { Task { await store.retryOnServer(row.message) } } : nil)
-                            .id(row.id)
+                    .padding(.vertical, 14)
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .onTapGesture { focused = false }
+                .onAppear { jump(proxy) }
+                // A tick, not the transcript: `onChange(of: store.messages)` compares
+                // every message in the thread on every streamed token
+                // (swift-correctness H9).
+                .onChange(of: store.messagesTick) { _, _ in
+                    guard !store.messages.isEmpty else { jump(proxy); return }
+                    withAnimation(.smooth(duration: 0.25)) {
+                        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                     }
-                    Color.clear.frame(height: 1).id(Self.bottomAnchor)
                 }
-                .padding(.vertical, 14)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .onTapGesture { focused = false }
-            .onAppear { jump(proxy) }
-            // A tick, not the transcript: `onChange(of: store.messages)` compares
-            // every message in the thread on every streamed token
-            // (swift-correctness H9).
-            .onChange(of: store.messagesTick) { _, _ in
-                withAnimation(.smooth(duration: 0.25)) {
-                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-                }
-            }
-            // Opening or switching a chat lands at the newest message, however
-            // far up the previous thread was scrolled.
-            .onChange(of: store.sessionID) { _, _ in jump(proxy) }
-            .onChange(of: store.historyLoading) { _, loading in if !loading { jump(proxy) } }
-            .onChange(of: focused) { _, isFocused in
-                if isFocused {
-                    withAnimation { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
+                // Opening or switching a chat lands at the newest message, however
+                // far up the previous thread was scrolled.
+                .onChange(of: store.sessionID) { _, _ in jump(proxy) }
+                .onChange(of: store.historyLoading) { _, loading in if !loading { jump(proxy) } }
+                .onChange(of: focused) { _, isFocused in
+                    if isFocused, !store.messages.isEmpty {
+                        withAnimation { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
+                    }
                 }
             }
         }
@@ -211,10 +218,14 @@ struct ChatPage: View {
     /// as markdown, tool rows and images lay out. Re-pin on the next runloop turn,
     /// which is what the Flutter page's `_pinToBottom` retry loop is for.
     @MainActor private func jump(_ proxy: ScrollViewProxy) {
-        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+        let empty = store.messages.isEmpty
+        proxy.scrollTo(empty ? Self.welcomeAnchor : Self.bottomAnchor, anchor: empty ? .top : .bottom)
         // Structured rather than `DispatchQueue.main.async`, so the hop stays on
         // the actor SwiftUI actually runs on (swift-correctness M31).
-        Task { @MainActor in proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
+        Task { @MainActor in
+            let empty = store.messages.isEmpty
+            proxy.scrollTo(empty ? Self.welcomeAnchor : Self.bottomAnchor, anchor: empty ? .top : .bottom)
+        }
     }
 
     // MARK: Actions
@@ -235,48 +246,79 @@ struct ChatPage: View {
     }
 }
 
-/// New-chat welcome. The Flutter page leads with the gradient voice orb; that
-/// belongs to the Voice tab, so this is the minimalist card `Esp32ChatView` opens
-/// with — one line of intent, one of explanation, and starter prompts that send
-/// straight away.
+/// A spacious welcome that gives way to the conversation after the first turn.
 struct ChatEmptyState: View {
+    var compact = false
     let onSuggestion: (String) -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var tight: Bool { compact && !dynamicTypeSize.isAccessibilitySize }
 
     private static let suggestions = [
-        "What can you do?",
-        "Summarize my day",
-        "Check my devices",
-        "Run a skill",
+        ("sparkles", "Explore", "What can you do?"),
+        ("sun.horizon", "Reflect", "Summarize my day"),
+        ("desktopcomputer", "Connect", "Check my devices"),
+        ("bolt", "Take action", "Run a skill"),
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "sparkles").font(.title3).foregroundStyle(JcTheme.accent)
-                Text("Ask Jarvis anything.").font(.headline)
+        VStack(spacing: tight ? 20 : 30) {
+            VStack(spacing: tight ? 12 : 18) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: tight ? 24 : 28, weight: .light))
+                    .foregroundStyle(JcTheme.cyan)
+                    .frame(width: tight ? 52 : 72, height: tight ? 52 : 72)
+                    .background {
+                        Circle().fill(JcTheme.cyan.opacity(0.055))
+                            .overlay(Circle().strokeBorder(JcTheme.cyan.opacity(0.14), lineWidth: 0.5))
+                    }
+                    .accessibilityHidden(true)
+
+                VStack(spacing: 10) {
+                    Text("What’s on your mind?")
+                        .font(.system(.title2, weight: .medium))
+                        .tracking(-0.6)
+                        .foregroundStyle(JcTheme.text)
+                    Text("A question, a plan, or the next thing to get done.")
+                        .font(.subheadline)
+                        .foregroundStyle(JcTheme.muted)
+                        .frame(maxWidth: 280)
+                }
+                .multilineTextAlignment(.center)
             }
-            Text("Your copilot for the server, your devices and everything you have asked it to remember.")
-                .font(.subheadline).foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Self.suggestions, id: \.self) { suggestion in
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10),
+                                     count: dynamicTypeSize.isAccessibilitySize ? 1 : 2), spacing: 10) {
+                ForEach(Self.suggestions, id: \.2) { symbol, title, suggestion in
                     Button { onSuggestion(suggestion) } label: {
-                        HStack {
-                            Text(suggestion).font(.footnote).multilineTextAlignment(.leading)
-                            Spacer(minLength: 6)
-                            Image(systemName: "arrow.up.left").font(.caption2).foregroundStyle(.tertiary)
+                        VStack(alignment: .leading, spacing: tight ? 8 : 12) {
+                            HStack(spacing: 6) {
+                                Image(systemName: symbol).foregroundStyle(JcTheme.cyan.opacity(0.85))
+                                Text(title).foregroundStyle(JcTheme.muted)
+                            }
+                            .font(.caption)
+                            Text(suggestion)
+                                .font((tight ? Font.footnote : Font.subheadline).weight(.medium))
+                                .foregroundStyle(JcTheme.text)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .padding(.horizontal, 12).padding(.vertical, 9)
-                        .background(Color.white.opacity(0.06),
-                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .frame(maxWidth: .infinity, minHeight: tight ? 50 : 66, alignment: .leading)
+                        .padding(tight ? 12 : 15)
+                        .background(.white.opacity(0.035),
+                                    in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .strokeBorder(.white.opacity(0.065), lineWidth: 0.5))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(suggestion)
                 }
             }
         }
-        .padding(18)
-        .background(Color.white.opacity(0.06),
-                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .padding(.horizontal, 16)
+        .frame(maxWidth: 460)
+        .padding(.horizontal, 24)
+        .padding(.vertical, tight ? 16 : 24)
+        .frame(maxWidth: .infinity)
     }
 }
 

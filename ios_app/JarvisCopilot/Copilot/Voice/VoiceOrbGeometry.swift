@@ -27,6 +27,13 @@ enum VoiceOrbGeometry {
         return previous + (target - previous) * k
     }
 
+    /// Perceptual gain makes quiet speech visible without scaling the audio.
+    /// Idle keeps the shader's own breathing; both speakers drive the same pulse.
+    static func speechPulse(state: VoiceState, amplitude: Double) -> Double {
+        guard state == .listening || state == .speaking, amplitude.isFinite else { return 0 }
+        return min(pow(min(max(amplitude - 0.003, 0), 1), 0.35) * 1.2, 1)
+    }
+
     /// Only the user's own voice drives the orb; a reply's playback envelope
     /// would make it pulse at the assistant, which reads as feedback.
     static func micDrive(state: VoiceState, amplitude: Double) -> Double {

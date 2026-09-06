@@ -68,7 +68,7 @@ struct PairPage: View {
 
                 // The shared orb: one view over both screens, scaled from its top
                 // edge and moved to whichever slot `orbStep` names.
-                VoiceOrb(state: .idle, amplitude: 0.14, size: Self.orbWelcomeSize)
+                LiquidGlassOrb(size: Self.orbWelcomeSize)
                     .scaleEffect(orbStep == .welcome ? 1 : Self.orbConnectSize / Self.orbWelcomeSize,
                                  anchor: .top)
                     .offset(y: slotTop[orbStep] ?? Self.columnTop)

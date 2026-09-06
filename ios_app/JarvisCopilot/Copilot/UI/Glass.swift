@@ -322,6 +322,24 @@ struct GlassSectionLabel: View {
     }
 }
 
+/// Section label in the Voice page's register — small, spaced, muted — for the
+/// settings screens, where the rows should carry the weight rather than a bold
+/// header. `GlassSectionLabel` stays for the content pages.
+struct GlassQuietLabel: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text.uppercased())
+            .font(.system(size: 11, weight: .semibold))
+            .tracking(1.1)
+            .foregroundStyle(JcTheme.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 6)
+            .padding(.bottom, 10)
+    }
+}
+
 // MARK: - Screen chrome
 
 extension View {

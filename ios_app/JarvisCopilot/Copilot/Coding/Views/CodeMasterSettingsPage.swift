@@ -33,7 +33,7 @@ struct CodeMasterSettingsPage: View {
     private var form: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                GlassSectionLabel("Notifications")
+                GlassQuietLabel("Notifications")
                 Text("Which coding events notify you, and on which channels.")
                     .font(.system(size: 13))
                     .foregroundStyle(JcTheme.muted)
@@ -43,7 +43,7 @@ struct CodeMasterSettingsPage: View {
                     eventCard(event).padding(.bottom, 12)
                 }
 
-                GlassSectionLabel("Usage rings").padding(.top, 12)
+                GlassQuietLabel("Usage rings").padding(.top, 12)
                 GlassCard(padding: 14, blur: false) {
                     Toggle(isOn: Binding(get: { store.usageDisplay },
                                          set: { store.usageDisplay = $0 })) {
@@ -54,7 +54,7 @@ struct CodeMasterSettingsPage: View {
                     .tint(JcTheme.primaryBlue)
                 }
 
-                GlassSectionLabel("Remote approvals").padding(.top, 22)
+                GlassQuietLabel("Remote approvals").padding(.top, 22)
                 GlassCard(padding: 14, blur: false) {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle(isOn: Binding(get: { store.remoteApprovals },
@@ -99,7 +99,7 @@ struct CodeMasterSettingsPage: View {
         GlassCard(padding: 14, blur: false) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(event.label)
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(JcTheme.text)
                     .padding(.bottom, 4)
                 ForEach(CodeMasterSettingsStore.channels, id: \.key) { channel in

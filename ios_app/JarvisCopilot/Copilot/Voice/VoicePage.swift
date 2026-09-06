@@ -3,23 +3,11 @@ import SwiftUI
 import UIKit
 #endif
 
-/// The Voice tab — a recreation of the webui voice experience: a state-coloured
-/// orb, the user's line above it, and the reply lit up word-by-word as it's
-/// spoken.
-///
-/// Port of `pages/voice_page.dart` at its current HEAD, which is deliberately
-/// bare: caption → orb → reply → three buttons, and nothing else. No mode
-/// segment, no waveform, no device strip, no status pill and no error banner —
-/// a failure is shown THROUGH the reply slot, so it reads as an answer. The
-/// settings those controls used to expose now live behind the toolbar chip.
-///
-/// It references the single app-wide session (``VoiceStore/shared``) rather than
-/// constructing one: the mic, the audio session and the socket are all
-/// process-wide, so a second store would fight the first, and a rebuilt page must
-/// not be able to spawn one.
+/// A single conversation surface backed by the app-wide voice session.
 struct VoicePage: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var store: VoiceStore
     @State private var models: VoiceModelStore
@@ -43,24 +31,7 @@ struct VoicePage: View {
     /// recording fail to start.
     private let wakeWord: WakeWordController
 
-    // Flutter's fixed run down the stage: caption, 30, orb 248, 30. The caption is
-    // pinned at its two-line height so the orb doesn't jump when a transcript
-    // wraps (Flutter lets it shift; a 248 pt orb sliding 21 pt reads as a glitch).
-    private static let orbSize: CGFloat = 248
-    private static let captionHeight: CGFloat = 44
-    private static let orbGap: CGFloat = 30
-
-    /// What the control row leaves under itself, and nothing more.
-    ///
-    /// This page used to add `GlassNavBar.reservedHeight` here as well, because
-    /// the pill was an overlay and the `safeAreaInset` the shell applied to each
-    /// page did not survive the page's own `NavigationStack` (a
-    /// `UINavigationController` re-reads the safe area from UIKit). `NavShell`
-    /// now gives the pill REAL layout space, so this container already ends at the
-    /// top of the pill's strip — the compensation had become a second reservation
-    /// and floated the mic a whole bar-height too high (measured: 101 pt of
-    /// clearance where the chat composer has 20). See `ShellPolishSnapshotTests`.
-    private static let controlsGap: CGFloat = 12
+    private static let controlsGap: CGFloat = 14
 
     var body: some View {
         NavigationStack {
@@ -76,10 +47,16 @@ struct VoicePage: View {
                     VoiceControls(state: store.state,
                                   isActive: store.isActive,
                                   muted: store.muted,
-                                  onPrimary: { Task { await onPrimary() } },
+                                  onPrimary: { Task {
+                                      if store.isActive { await store.stopAll() }
+                                      else { await onPrimary() }
+                                  } },
                                   onMute: store.toggleMute,
                                   onFinish: store.finishSpeaking,
-                                  onInterrupt: store.interrupt)
+                                  onInterrupt: {
+                                      if store.mode == .quality { Task { await store.stopAll() } }
+                                      else { store.interrupt() }
+                                  })
                         .padding(.bottom, Self.controlsGap)
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
@@ -122,58 +99,127 @@ struct VoicePage: View {
 
     // MARK: - Stage
 
-    /// Everything above the controls. Flutter splits the space it doesn't spend on
-    /// the caption + orb three ways — `Spacer(flex: 3)`, `Expanded(flex: 6)` for
-    /// the reply, `Spacer(flex: 1)` — which SwiftUI has no weighted spacer for, so
-    /// the leftover is measured and divided here.
     private func stage(height: CGFloat) -> some View {
-        let fixed = Self.captionHeight + Self.orbGap + Self.orbSize + Self.orbGap
-        let leftover = max(height - fixed, 0)
-
+        let orbSize = min(246, max(150, height * 0.43))
         return VStack(spacing: 0) {
-            Color.clear.frame(height: leftover * 0.3)
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 6, height: 6)
+                if store.state == .listening && store.captureReady && !store.muted && !store.audioInterrupted {
+                    HStack(spacing: 2) {
+                        ForEach(0..<5) { index in
+                            Capsule().fill(JcTheme.cyan)
+                                .frame(width: 2, height: 3 + 9 * min(store.amplitude * 12, 1)
+                                       * [0.4, 0.75, 1.0, 0.6, 0.35][index])
+                        }
+                    }
+                    .frame(height: 12)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: store.amplitude)
+                    .accessibilityHidden(true)
+                }
+                Text(statusText)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(JcTheme.text.opacity(0.85))
+            }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 8)
+            .background(.white.opacity(0.045), in: Capsule())
+            .padding(.top, 12)
+            .accessibilityElement(children: .combine)
+            .opacity(store.state == .idle ? 0 : 1)
+            .accessibilityHidden(store.state == .idle)
 
-            VoiceTopLine(text: store.userTranscript.isEmpty
-                         ? voiceCaption(for: store.state)
-                         : store.userTranscript)
-                .frame(height: Self.captionHeight)
-                .animation(.easeInOut(duration: 0.25), value: store.userTranscript)
+            Spacer(minLength: 12)
 
-            Color.clear.frame(height: Self.orbGap)
-
-            VoiceOrb(state: store.state, amplitude: store.amplitude,
-                     size: Self.orbSize, animating: tickerEnabled)
+            VoiceOrb(state: store.state, amplitude: store.state == .listening && store.muted ? 0 : store.amplitude,
+                     size: orbSize, animating: tickerEnabled)
+                .frame(height: orbSize + 20)
                 .onLongPressGesture(minimumDuration: 0.7) { showDiagnostics = true }
 
-            Color.clear.frame(height: Self.orbGap)
+            Spacer(minLength: 12)
 
-            reply
-                .frame(maxWidth: .infinity)
-                .frame(height: leftover * 0.6, alignment: .top)
+            dialogue
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, 14)
 
-            Color.clear.frame(height: leftover * 0.1)
+            Text(controlHint)
+                .font(.system(size: 12))
+                .foregroundStyle(JcTheme.muted)
+                .multilineTextAlignment(.center)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
         }
         .padding(.horizontal, 28)
+        .frame(height: height)
     }
 
-    /// The reply slot. A failure is the reply (Flutter: `reply = _c.error!` with
-    /// every word "spoken"); otherwise the karaoke reply, and before either, a
-    /// quiet echo of the state where the reply will land.
+    private var statusText: String {
+        if store.audioInterrupted { return "Audio paused" }
+        if store.muted && store.isActive { return "Microphone off" }
+        if store.state == .listening && !store.captureReady { return "Starting microphone…" }
+        switch store.state {
+        case .idle: return ""
+        case .connecting: return "Connecting"
+        case .listening: return "Listening"
+        case .thinking: return store.toolStatus ?? "Thinking"
+        case .speaking: return "Jarvis is speaking"
+        case .error: return "Let's try again"
+        }
+    }
+
+    private var statusColor: Color {
+        store.muted || store.audioInterrupted ? JcTheme.muted : voiceStateColor(store.state)
+    }
+
+    private var controlHint: String {
+        if store.audioInterrupted { return "Your conversation will resume when audio is available." }
+        if store.muted && store.isActive { return "Unmute to keep talking." }
+        switch store.state {
+        case .listening:
+            return store.mode == .quality ? "Tap Send when you're done." : "Pause when you're done, or tap Send."
+        case .thinking, .speaking: return "You can interrupt at any time."
+        case .idle, .error: return "Tap the microphone to start."
+        case .connecting: return "Getting your conversation ready."
+        }
+    }
+
     @ViewBuilder
-    private var reply: some View {
+    private var dialogue: some View {
         if let failure = store.error, !failure.isEmpty {
-            // Flutter lights every word of a failure (`spokenWords = 1 << 30`), so
-            // it reads in the reply's own white — the red orb and the "Something
-            // went wrong" caption above it are what mark it as a failure.
-            VoicePlainReply(text: failure)
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.circle")
+                    .foregroundStyle(JcTheme.danger)
+                VoicePlainReply(text: failure, tint: JcTheme.text)
+            }
         } else if !store.replySegments.isEmpty {
-            VoiceKaraokeReply(segments: store.replySegments, spokenWords: store.spokenWords)
+            VStack(spacing: 14) {
+                if !store.userTranscript.isEmpty {
+                    Text(store.userTranscript)
+                        .font(.system(size: 14))
+                        .foregroundStyle(JcTheme.muted)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
+                VoiceKaraokeReply(segments: store.replySegments, spokenWords: store.spokenWords)
+            }
+        } else if !store.userTranscript.isEmpty {
+            VoicePlainReply(text: store.userTranscript)
         } else {
-            VoiceStatusLabel(state: store.state, toolStatus: store.toolStatus)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .frame(maxHeight: .infinity, alignment: .top)
-                .contentShape(Rectangle())
-                .onLongPressGesture(minimumDuration: 0.7) { showDiagnostics = true }
+            VStack(spacing: 10) {
+                Text(store.state == .idle ? "What’s on your mind?" :
+                     store.state == .listening ? (store.muted ? "Take your time." : "Go ahead, I’m here.") :
+                     store.state == .connecting ? "One moment…" : "Thinking it through…")
+                    .font(.system(size: 25, weight: .medium))
+                    .tracking(-0.6)
+                    .foregroundStyle(JcTheme.text)
+                    .multilineTextAlignment(.center)
+                Text(store.state == .idle ? "Ask a question or think out loud." :
+                     store.state == .listening ? "Your words will appear here." : "Your reply will appear here.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(JcTheme.muted)
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 
@@ -185,7 +231,15 @@ struct VoicePage: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            VoiceModelChip(label: models.chipLabel) { showPicker = true }
+            Button { showPicker = true } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                    Text(models.chipLabel).lineLimit(1)
+                }
+                .font(.system(size: 14, weight: .medium))
+                .frame(maxWidth: 140)
+            }
+            .accessibilityLabel("Voice model: \(models.chipLabel)")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button {

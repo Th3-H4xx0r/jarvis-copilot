@@ -18,11 +18,14 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
     /// Karaoke position cadence for clip playback.
     static let positionIntervalMs = 200
 
+    var onAmplitude: ((Double) -> Void)?
+
     // MARK: Stream
 
     private var engine: AVAudioEngine?
     private var node: AVAudioPlayerNode?
     private var streamFormat: AVAudioFormat?
+    private var streamGeneration = 0
     /// Latched false once the engine refuses to start, so we don't keep retrying
     /// a broken output and `AudioQueue` falls back to WAV clips.
     private(set) var isStreamAvailable = true
@@ -35,6 +38,7 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
 
     private var clip: AVAudioPlayer?
     private var positionTimer: Timer?
+    private var meterTimer: Timer?
 
     // MARK: - Stream path
 
@@ -51,6 +55,18 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
         engine.attach(node)
         // The mixer resamples 24 kHz mono to whatever the output runs at.
         engine.connect(node, to: engine.mainMixerNode, format: format)
+        let generation = streamGeneration
+        // Measure the render side, not incoming network chunks, so the pulse
+        // follows audible syllables even when the server buffers ahead.
+        engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+            let level = Self.peakAmplitude(buffer)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.streamGeneration == generation, self.clip == nil else { return }
+                    self.onAmplitude?(level)
+                }
+            }
+        }
         do {
             try engine.start()
         } catch {
@@ -100,11 +116,14 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
     }
 
     func stopStream() async {
+        streamGeneration += 1
         node?.stop()
+        engine?.mainMixerNode.removeTap(onBus: 0)
         engine?.stop()
         node = nil
         engine = nil
         streamFormat = nil
+        onAmplitude?(0)
     }
 
     // MARK: - Clip path
@@ -118,6 +137,7 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
             let player = try AVAudioPlayer(data: bytes,
                                            fileTypeHint: Self.typeHint(fileExtension))
             player.delegate = self
+            player.isMeteringEnabled = true
             player.prepareToPlay()
             guard player.play() else { return false }
             clip = player
@@ -126,6 +146,7 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
             // of starting on a words × rate estimate.
             if player.duration > 0 { onClipDuration?(player.duration) }
             startPositionTimer()
+            startClipMeter()
             return true
         } catch {
             // The queue skips a clip it can't play; without this a corrupt MP3
@@ -138,6 +159,8 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
     func stopClip() async { stopClipPlayer() }
 
     private func stopClipPlayer() {
+        meterTimer?.invalidate()
+        meterTimer = nil
         positionTimer?.invalidate()
         positionTimer = nil
         if let clip {
@@ -145,6 +168,41 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
             clip.stop()
         }
         clip = nil
+        onAmplitude?(0)
+    }
+
+    private func startClipMeter() {
+        meterTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let clip = self.clip, clip.isPlaying else { return }
+                clip.updateMeters()
+                let peak = (0..<clip.numberOfChannels).map { clip.peakPower(forChannel: $0) }.max() ?? -160
+                self.onAmplitude?(Self.linearAmplitude(decibels: Double(peak)))
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        meterTimer = timer
+    }
+
+    nonisolated static func linearAmplitude(decibels: Double) -> Double {
+        guard decibels.isFinite else { return 0 }
+        return min(max(pow(10, decibels / 20), 0), 1)
+    }
+
+    nonisolated static func peakAmplitude(_ buffer: AVAudioPCMBuffer) -> Double {
+        guard let channels = buffer.floatChannelData else { return 0 }
+        let count = Int(buffer.format.channelCount)
+        let frames = Int(buffer.frameLength)
+        var peak: Float = 0
+        if buffer.format.isInterleaved {
+            for i in 0..<(frames * count) { peak = max(peak, abs(channels[0][i])) }
+        } else {
+            for channel in 0..<count {
+                for i in 0..<frames { peak = max(peak, abs(channels[channel][i])) }
+            }
+        }
+        return peak.isFinite ? min(Double(peak), 1) : 0
     }
 
     private func startPositionTimer() {

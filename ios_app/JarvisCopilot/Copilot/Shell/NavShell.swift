@@ -91,11 +91,13 @@ struct NavShell: View {
     }
 }
 
-/// Floating frosted bottom nav. The active tab gets a blue gradient badge with a
-/// glow; the others are muted. Fixed 44×32 badges keep every slot the same width
-/// (an expanding pill overflowed the row).
+/// Floating system Liquid Glass navigation with a sliding selection capsule.
+/// Equal-width items keep all six
+/// destinations directly reachable.
 struct GlassNavBar: View {
     @Binding var selection: AppTab
+    @Namespace private var selectionAnimation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The window's home-indicator inset. The bar sits over a fraction of it
     /// rather than above the whole thing, so it hugs the bottom edge.
     var bottomInset: CGFloat = 0
@@ -122,13 +124,8 @@ struct GlassNavBar: View {
             }
         }
         .frame(height: Self.barHeight)
-        .background {
-            let shape = RoundedRectangle(cornerRadius: JcTheme.pillRadius, style: .continuous)
-            shape.fill(.ultraThinMaterial)
-                .overlay(shape.fill(Color(jcHex: 0x0E0E18, alpha: 0xF2 / 255.0)))
-                .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-                .shadow(color: .black.opacity(0.4), radius: 12, y: 10)
-        }
+        .padding(.horizontal, 5)
+        .jcLiquidGlass(in: Capsule())
         .padding(.horizontal, 16)
         // Sit low — a small clearance above the home indicator rather than the
         // whole safe-area inset, so the bar hugs the bottom edge.
@@ -138,31 +135,48 @@ struct GlassNavBar: View {
     private func item(_ tab: AppTab) -> some View {
         let active = tab == selection
         return Button {
-            selection = tab
+            withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82)) {
+                selection = tab
+            }
         } label: {
-            VStack(spacing: 3) {
+            VStack(spacing: 4) {
                 Image(systemName: active ? tab.filledSymbol : tab.symbol)
-                    .font(.system(size: 19, weight: .medium))
-                    .foregroundStyle(active ? Color.white : JcTheme.muted)
-                    .frame(width: 44, height: 32)
-                    .background {
-                        if active {
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(JcTheme.blueGradient)
-                                .shadow(color: JcTheme.primaryBlue.opacity(0.45), radius: 8)
-                        }
-                    }
+                    .font(.system(size: 20, weight: .medium))
+                    .frame(height: 25)
                 Text(tab.title)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(active ? Color.white : JcTheme.muted)
+                    .font(.system(size: 10, weight: active ? .semibold : .medium))
                     .lineLimit(1)
             }
+            .foregroundStyle(active ? JcTheme.cyan : JcTheme.text.opacity(0.75))
             .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
+            .frame(height: 56)
+            .background {
+                if active {
+                    Capsule()
+                        .fill(.white.opacity(0.10))
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.09), lineWidth: 0.5))
+                        .matchedGeometryEffect(id: "selected-tab", in: selectionAnimation)
+                }
+            }
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .animation(.easeOut(duration: 0.2), value: active)
         .accessibilityLabel(tab.title)
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+extension View {
+    /// Use the system optical material on iOS 26, with a readable material
+    /// fallback on the older iOS versions supported by this app.
+    @ViewBuilder
+    func jcLiquidGlass<S: Shape>(in shape: S, tint: Color = .clear) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(.regular.tint(tint).interactive(), in: shape)
+        } else {
+            self.background(.ultraThinMaterial, in: shape)
+                .background(tint.opacity(0.2), in: shape)
+                .overlay(shape.stroke(.white.opacity(0.16), lineWidth: 0.5))
+        }
     }
 }

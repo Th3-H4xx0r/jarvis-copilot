@@ -74,17 +74,20 @@ extension VoiceStore {
     /// (Stop, a failure, a mode switch) — and a live mic at `.idle` is a privacy
     /// bug, not just a battery one.
     func startMic(generation: Int) async {
+        guard generation == micGeneration, wantsCapture, !audioInterrupted else { return }
+        captureReady = false
         do {
             // Both modes route through here, so this is the one place that can
             // guarantee the session is recordable before the engine is built.
             try acquireAudioSession()
             try await input.start(sampleRate: Self.micRate)
-            guard generation == micGeneration, machine.state.isActive else {
+            guard generation == micGeneration, wantsCapture, !audioInterrupted else {
                 await input.stop()
                 note("mic start superseded (gen \(generation))")
                 return
             }
             note("mic started @\(Self.micRate)")
+            monitorMic()
         } catch {
             guard generation == micGeneration else { return }
             raise(.failed(JcLog.report(JcLog.voice, "start mic", error)))
@@ -434,7 +437,7 @@ extension VoiceStore {
             reply.append(text)
             noteFirstAudio()
             reply.finalizeSpoken()
-            raise(.playbackDrained)
+            // Native playback callbacks own the speaking state and completion.
         } else {
             await speakLocally(text)
         }
@@ -458,6 +461,11 @@ extension VoiceStore {
             return
         }
         speech = session
+        session.onPartial = { [weak self, weak session] text in
+            guard let self, let session, self.speech === session,
+                  self.state == .listening, !self.muted else { return }
+            self.userTranscript = text
+        }
     }
 
     /// Drop any in-flight recognizer (barge-in, stop, teardown).

@@ -11,7 +11,7 @@ struct ChatToolRow: View {
 
     private var statusColor: Color {
         if tool.isError { return JcTheme.danger }
-        return tool.done ? JcTheme.accent : JcTheme.blue
+        return tool.done ? JcTheme.cyan : JcTheme.blue
     }
 
     var body: some View {
