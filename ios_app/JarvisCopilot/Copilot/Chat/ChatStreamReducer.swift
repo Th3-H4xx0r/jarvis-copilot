@@ -220,7 +220,11 @@ enum ChatStreamReducer {
     /// `data.usage`), and providers disagree on the field names, so dig through all
     /// of them for each field.
     private static func applyUsage(_ object: [String: Any], to state: inout ChatStreamState) -> Bool {
+        // `turn` is THIS turn's usage; the outer numbers are session totals.
         let nests: [[String: Any]] = [
+            object.dict("usage")?.dict("turn") ?? [:],
+            object.dict("data")?.dict("usage")?.dict("turn") ?? [:],
+            object.dict("turn") ?? [:],
             object,
             object.dict("usage") ?? [:],
             object.dict("data") ?? [:],

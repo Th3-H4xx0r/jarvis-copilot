@@ -2944,6 +2944,17 @@ def _run_agent_streaming(
                 _usage['estimated_cost'] = getattr(_agent, 'session_estimated_cost_usd', 0) or 0
                 _usage['cache_read_tokens'] = getattr(_agent, 'session_cache_read_tokens', 0) or 0
                 _usage['cache_write_tokens'] = getattr(_agent, 'session_cache_write_tokens', 0) or 0
+                # This turn's own usage (deltas from the counters snapshotted
+                # just before run_conversation), so live metering shows the
+                # same numbers the done event will.
+                _base = getattr(_agent, '_turn_usage_base', None)
+                if _base:
+                    _usage['turn'] = {
+                        'input_tokens': max(0, int(_usage['input_tokens']) - int(_base[0])),
+                        'output_tokens': max(0, int(_usage['output_tokens']) - int(_base[1])),
+                        'cache_read_tokens': max(0, int(_usage['cache_read_tokens']) - int(_base[2])),
+                        'cache_write_tokens': max(0, int(_usage['cache_write_tokens']) - int(_base[3])),
+                    }
             except Exception:
                 pass
             try:
@@ -3966,6 +3977,12 @@ def _run_agent_streaming(
                         logger.debug("voice: load_all_deferred failed", exc_info=True)
             except Exception:
                 _voice_swap = False
+            # The agent's token counters are running session totals; snapshot
+            # them so this turn's own usage can be reported as a delta.
+            _pre_turn_usage = tuple(int(getattr(agent, _k, 0) or 0) for _k in (
+                'session_prompt_tokens', 'session_completion_tokens',
+                'session_cache_read_tokens', 'session_cache_write_tokens'))
+            agent._turn_usage_base = _pre_turn_usage
             result = agent.run_conversation(
                 user_message=user_message,
                 system_message=workspace_system_msg,
@@ -3973,6 +3990,15 @@ def _run_agent_streaming(
                 task_id=session_id,
                 persist_user_message=msg_text,
             )
+            _post_turn_usage = tuple(int(getattr(agent, _k, 0) or 0) for _k in (
+                'session_prompt_tokens', 'session_completion_tokens',
+                'session_cache_read_tokens', 'session_cache_write_tokens'))
+            _turn_usage = {
+                'input_tokens': max(0, _post_turn_usage[0] - _pre_turn_usage[0]),
+                'output_tokens': max(0, _post_turn_usage[1] - _pre_turn_usage[1]),
+                'cache_read_tokens': max(0, _post_turn_usage[2] - _pre_turn_usage[2]),
+                'cache_write_tokens': max(0, _post_turn_usage[3] - _pre_turn_usage[3]),
+            }
             if _voice_swap:
                 agent.reasoning_config = _voice_prev_reasoning
             if cancel_event.is_set():
@@ -4506,12 +4532,7 @@ def _run_agent_streaming(
                             # Per-turn usage on the message itself, so a client
                             # reloading the session shows the same stats line it
                             # saw while streaming (the SSE usage is not persisted).
-                            _dm['_turnUsage'] = {
-                                'input_tokens': int(input_tokens or 0),
-                                'output_tokens': int(output_tokens or 0),
-                                'cache_read_tokens': int(cache_read_tokens or 0),
-                                'cache_write_tokens': int(cache_write_tokens or 0),
-                            }
+                            _dm['_turnUsage'] = dict(_turn_usage)
                             if _gateway_routing:
                                 _dm['_gatewayRouting'] = _gateway_routing
                             break
@@ -4688,6 +4709,9 @@ def _run_agent_streaming(
             }
             if _turn_tps is not None:
                 usage['tps'] = _turn_tps
+            # This turn alone (the top-level numbers are session totals, kept
+            # for the context ring and older clients).
+            usage['turn'] = dict(_turn_usage)
             if _gateway_routing:
                 usage['gateway_routing'] = _gateway_routing
             # Include context window data from the agent's compressor for the UI indicator.
