@@ -200,6 +200,10 @@ struct MoshiPage: View {
                   systemImage: model.downloaded ? "checkmark.circle" : "arrow.down.circle")
                 .font(.subheadline)
                 .foregroundStyle(JcTheme.muted)
+            Label("Memory iOS allows this app right now: \(MoshiRuntime.availableMemoryBytes / 1_000_000) MB",
+                  systemImage: "memorychip")
+                .font(.footnote)
+                .foregroundStyle(JcTheme.muted)
             Button { model.load() } label: {
                 Label(model.downloaded ? "Load model" : "Download & load", systemImage: "cpu")
                     .frame(maxWidth: .infinity)

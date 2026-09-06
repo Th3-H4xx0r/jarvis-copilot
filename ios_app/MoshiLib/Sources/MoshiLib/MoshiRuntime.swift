@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Hub
 import MLX
@@ -140,6 +141,15 @@ public final class MoshiRuntime {
         let mimiURL = try await Self.download(Files.assetsRepo, Files.mimiWeights, progress: progress)
         let vocabURL = try await Self.download(Files.assetsRepo, which.vocabFile, progress: progress)
 
+        // iOS kills a process that crosses its memory budget with no error we
+        // could catch, so check the budget against the weight file up front.
+        let weightBytes = (try? FileManager.default.attributesOfItem(atPath: moshiURL.path)[.size] as? Int64) ?? 0
+        let mimiBytes = (try? FileManager.default.attributesOfItem(atPath: mimiURL.path)[.size] as? Int64) ?? 0
+        let needed = Int64(Double(weightBytes + mimiBytes) * 1.25) + 700_000_000   // activations, caches, the app itself
+        let available = Self.availableMemoryBytes
+        if available > 0, available < needed {
+            throw MoshiRuntimeError.notEnoughMemory(neededMB: Int(needed / 1_000_000), availableMB: Int(available / 1_000_000))
+        }
         progress("Building Moshi", nil)
         let moshi = try Self.makeMoshi(moshiURL, cfg)
         progress("Building Mimi", nil)
@@ -159,6 +169,9 @@ public final class MoshiRuntime {
         isLoaded = true
         progress("Ready", nil)
     }
+
+    /// What iOS will let this process allocate right now (0 if unknown).
+    public static var availableMemoryBytes: Int64 { Int64(os_proc_available_memory()) }
 
     public func unload() {
         moshi = nil; mimi = nil; gen = nil
@@ -264,5 +277,15 @@ public final class MoshiRuntime {
         let parameters = ModuleParameters.unflattened(weights)
         try model.update(parameters: parameters, verify: [.all])
         return model
+    }
+}
+
+public enum MoshiRuntimeError: LocalizedError {
+    case notEnoughMemory(neededMB: Int, availableMB: Int)
+    public var errorDescription: String? {
+        switch self {
+        case .notEnoughMemory(let needed, let available):
+            return "Not enough memory to load this model: it needs about \(needed) MB and iOS allows this app \(available) MB right now. The app must be signed with the Increased Memory Limit capability (Xcode → Signing & Capabilities) to load it, or pick a smaller model."
+        }
     }
 }
