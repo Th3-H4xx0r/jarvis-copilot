@@ -4503,6 +4503,15 @@ def _run_agent_streaming(
                             _dm['_turnDuration'] = round(_turn_duration_seconds, 3)
                             if _turn_tps is not None:
                                 _dm['_turnTps'] = _turn_tps
+                            # Per-turn usage on the message itself, so a client
+                            # reloading the session shows the same stats line it
+                            # saw while streaming (the SSE usage is not persisted).
+                            _dm['_turnUsage'] = {
+                                'input_tokens': int(input_tokens or 0),
+                                'output_tokens': int(output_tokens or 0),
+                                'cache_read_tokens': int(cache_read_tokens or 0),
+                                'cache_write_tokens': int(cache_write_tokens or 0),
+                            }
                             if _gateway_routing:
                                 _dm['_gatewayRouting'] = _gateway_routing
                             break
