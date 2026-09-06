@@ -56,8 +56,11 @@ final class BridgeClient: NSObject, ObservableObject {
         set { Keychain.write("bridgeServerURL", newValue); objectWillChange.send() }
     }
     /// Keeps the BLE link (and this socket) alive when the app backgrounds.
+    /// ON by default: Jarvis has to reach the phone and its wearables whenever
+    /// they are around, not only while the app is open. The Settings switch
+    /// ("Stay connected in background") turns it off explicitly.
     var enabled: Bool {
-        get { Keychain.read("bridgeEnabled") == "1" }
+        get { Keychain.read("bridgeEnabled") != "0" }
         set {
             Keychain.write("bridgeEnabled", newValue ? "1" : "0")
             syncKeepalive()
@@ -71,6 +74,10 @@ final class BridgeClient: NSObject, ObservableObject {
     private func syncKeepalive() {
         BackgroundKeepalive.shared.sync(active: enabled && isPaired)
     }
+
+    /// Start the keepalive at launch when bridge mode is on — the setter only
+    /// syncs on a change, so a fresh launch used to run without it.
+    func syncKeepaliveNow() { syncKeepalive() }
 
     // MARK: Per-device exposure
 

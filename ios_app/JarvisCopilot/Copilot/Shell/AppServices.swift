@@ -258,6 +258,12 @@ final class AppServices {
         // 2. The live bridge. Unpaired means there is nothing to connect to, and
         //    bridge mode off means the user asked us not to.
         if bridge.isPaired && bridge.isBridgeEnabled { bridge.connect() }
+        BridgeClient.shared.syncKeepaliveNow()
+
+        // 2b. The Bluetooth wearables (bottle, scale, ESP32) live for the whole
+        //     app now, not just while the Devices tab shows them, so their
+        //     skills are registered whenever the devices are around.
+        WearablesHub.shared.reconnectKnownDevices()
 
         // 3. Push: the notification delegate, the Approve/Deny/Reply categories
         //    and the APNs registration. Early, because a tap that LAUNCHED the
@@ -324,6 +330,7 @@ final class AppServices {
             // waiting out its reconnect backoff, and flush whatever the server
             // queued while we were away.
             if bridge.isPaired && bridge.isBridgeEnabled { bridge.connect() }
+            WearablesHub.shared.appDidBecomeActive()
             liveActivity.onResume()
             Task { [weak self] in
                 guard let self else { return }
@@ -334,6 +341,7 @@ final class AppServices {
             }
         } else {
             voice.pauseForBackground()
+            WearablesHub.shared.appDidEnterBackground()
             Task { [weak self] in await self?.wake.setForeground(false) }
         }
     }

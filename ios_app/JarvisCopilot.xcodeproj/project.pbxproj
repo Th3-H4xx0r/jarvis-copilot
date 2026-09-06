@@ -457,6 +457,7 @@
 		2435FEFA5532F9BDDBE1246B /* VoiceSessionSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 565E84810FA1EB62ED64ABDF /* VoiceSessionSelection.swift */; };
 		FF4FED7A336D17F69028E1CF /* VoiceSessionPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C04D3574640628A1A3B521 /* VoiceSessionPicker.swift */; };
 		0E94C214683B5F9B3991F55D /* VoiceSessionSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7275E274C36ABAB424A96B5 /* VoiceSessionSelectionTests.swift */; };
+		CF992EB81A4F75A757238BF2 /* WearablesHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15E07F70B0F3B547523638C3 /* WearablesHub.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -942,6 +943,7 @@
 		565E84810FA1EB62ED64ABDF /* VoiceSessionSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSessionSelection.swift; sourceTree = "<group>"; };
 		B8C04D3574640628A1A3B521 /* VoiceSessionPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSessionPicker.swift; sourceTree = "<group>"; };
 		B7275E274C36ABAB424A96B5 /* VoiceSessionSelectionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSessionSelectionTests.swift; sourceTree = "<group>"; };
+		15E07F70B0F3B547523638C3 /* WearablesHub.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearablesHub.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1160,6 +1162,7 @@
 		1FBA5ABDACC3E06E44EE5D3C /* JarvisCopilot */ = {
 			isa = PBXGroup;
 			children = (
+				15E07F70B0F3B547523638C3 /* WearablesHub.swift */,
 				3AB26F406B74736CE3749527 /* JarvisCopilotApp.swift */,
 				CCB41EB73741A77002320B13 /* BottleProtocol.swift */,
 				F02DCCD3CD284FCC808A1665 /* BottleManager.swift */,
@@ -2248,6 +2251,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CF992EB81A4F75A757238BF2 /* WearablesHub.swift in Sources */,
 				FF4FED7A336D17F69028E1CF /* VoiceSessionPicker.swift in Sources */,
 				2435FEFA5532F9BDDBE1246B /* VoiceSessionSelection.swift in Sources */,
 				5BD75D6A19FB8522AEAED409 /* MLXEngine.swift in Sources */,

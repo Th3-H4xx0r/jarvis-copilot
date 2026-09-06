@@ -1,9 +1,10 @@
 import SwiftUI
 
 struct ScanView: View {
-    @StateObject private var manager = BottleManager()
-    @StateObject private var scaleManager = ScaleManager()
-    @StateObject private var esp32Manager = Esp32Manager()
+    // App-lifetime managers (see `WearablesHub`): this view only *shows* them.
+    @ObservedObject private var manager = WearablesHub.shared.bottle
+    @ObservedObject private var scaleManager = WearablesHub.shared.scale
+    @ObservedObject private var esp32Manager = WearablesHub.shared.esp32
     @Environment(\.scenePhase) private var scenePhase
 
     private let spacing: CGFloat = 14
@@ -31,7 +32,8 @@ struct ScanView: View {
             // Only .background — .inactive also fires for Control Centre and the app
             // switcher, and dropping the link for those would be needlessly disruptive.
             case .background:
-                manager.enterBackground()
+                // Manager lifecycle is the hub's job now (it runs whether or not
+                // this view exists); the socket handling below is unchanged.
                 // With the keepalive running we are not going to be suspended, so the
                 // socket stays up and invokes take the live path. Otherwise close it
                 // explicitly: iOS suspends us without tearing the TCP connection down,
@@ -45,8 +47,6 @@ struct ScanView: View {
                 }
                 scheduleBackgroundRefresh()
             case .active:
-                manager.enterForeground()
-                esp32Manager.resumeIfNeeded()
                 BridgeClient.shared.connect()
                 Task { await BridgeClient.shared.drainQueue(foreground: true) }
             default:          break
