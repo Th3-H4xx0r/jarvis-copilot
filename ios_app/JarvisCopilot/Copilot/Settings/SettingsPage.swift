@@ -60,13 +60,10 @@ struct SettingsPage: View {
 
     // MARK: Hero
 
-    /// The same stage the Voice tab opens on: the orb, a quiet status pill, a
-    /// headline and one muted line — instead of a gradient card.
+    /// The Voice tab's register without the orb: a quiet status pill, a headline
+    /// and one muted line — instead of a gradient card.
     private var hero: some View {
         VStack(spacing: 0) {
-            VoiceOrb(state: .idle, amplitude: 0.1, size: 150)
-                .padding(.top, 6)
-                .padding(.bottom, 14)
             HStack(spacing: 7) {
                 Circle().fill(JcTheme.success).frame(width: 6, height: 6)
                 Text(store.deviceName)
@@ -77,6 +74,7 @@ struct SettingsPage: View {
             .padding(.horizontal, 13)
             .padding(.vertical, 8)
             .background(.white.opacity(0.045), in: Capsule())
+            .padding(.top, 10)
             .padding(.bottom, 18)
             Text("Connected")
                 .font(.system(size: 25, weight: .medium))
