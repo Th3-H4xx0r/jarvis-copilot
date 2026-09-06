@@ -41,6 +41,10 @@ final class MoshiAudioIO {
     private(set) var level: Float = 0
     /// Total reply audio handed to the speaker, in seconds.
     private(set) var playedSeconds: Double = 0
+    /// Mic frames delivered to the model queue.
+    private(set) var capturedFrames = 0
+    /// Whether echo cancellation actually came on.
+    private(set) var voiceProcessing = false
 
     private let engine = AVAudioEngine()
     private let sampleRate: Double
@@ -61,15 +65,28 @@ final class MoshiAudioIO {
 
     func start(echoCancellation: Bool) throws {
         let input = engine.inputNode
+        // Per AVAudioIONode.h: voice processing can only be toggled while the
+        // engine is stopped, and enabling it on the input node enables it on
+        // the output node too (both must share a format). Do it before any
+        // connection or tap so the graph is built against the final formats.
         if echoCancellation {
-            try? input.setVoiceProcessingEnabled(true)
+            do {
+                try input.setVoiceProcessingEnabled(true)
+                voiceProcessing = true
+            } catch {
+                NSLog("[moshi] voice processing unavailable: \(error)")
+            }
         }
-        // Query the format only after voice processing is set: it changes it.
-        let inputFormat = input.inputFormat(forBus: 0)
-        guard inputFormat.sampleRate > 0,
+        // Per AVAudioNode.h, a tap observes a node's OUTPUT bus, and its format
+        // must be that bus's format. `inputFormat(forBus:)` is the hardware
+        // side, which differs once voice processing is on — a tap installed
+        // with it never fires.
+        let tapFormat = input.outputFormat(forBus: 0)
+        NSLog("[moshi] mic tap format: \(tapFormat), hardware: \(input.inputFormat(forBus: 0))")
+        guard tapFormat.sampleRate > 0, tapFormat.channelCount > 0,
               let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
                                          channels: 1, interleaved: false),
-              let converter = AVAudioConverter(from: inputFormat, to: target) else {
+              let converter = AVAudioConverter(from: tapFormat, to: target) else {
             throw MoshiAudioError.format
         }
 
@@ -95,9 +112,9 @@ final class MoshiAudioIO {
         engine.connect(source, to: engine.mainMixerNode, format: outFormat)
         engine.connect(engine.mainMixerNode, to: engine.outputNode, format: nil)
 
-        input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 2400, format: tapFormat) { [weak self] buffer, _ in
             guard let self else { return }
-            let capacity = AVAudioFrameCount(Double(buffer.frameLength) * self.sampleRate / inputFormat.sampleRate + 32)
+            let capacity = AVAudioFrameCount(Double(buffer.frameLength) * self.sampleRate / tapFormat.sampleRate + 32)
             guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
             var error: NSError?
             var consumed = false
@@ -107,13 +124,15 @@ final class MoshiAudioIO {
                 status.pointee = .haveData
                 return buffer
             }
-            guard error == nil, out.frameLength > 0, let data = out.floatChannelData else { return }
+            if let error { NSLog("[moshi] mic convert error: \(error)"); return }
+            guard out.frameLength > 0, let data = out.floatChannelData else { return }
             let samples = Array(UnsafeBufferPointer(start: data[0], count: Int(out.frameLength)))
             self.level = samples.reduce(0) { max($0, abs($1)) }
             self.pending += samples
             while self.pending.count >= self.frameSize {
                 self.frames.push(Array(self.pending[0..<self.frameSize]))
                 self.pending.removeFirst(self.frameSize)
+                self.capturedFrames += 1
             }
         }
 
@@ -126,6 +145,7 @@ final class MoshiAudioIO {
 
         engine.prepare()
         try engine.start()
+        NSLog("[moshi] engine running=\(engine.isRunning) vp=\(voiceProcessing) out=\(engine.outputNode.inputFormat(forBus: 0))")
     }
 
     func stop() {

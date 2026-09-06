@@ -19,6 +19,7 @@ final class MoshiController {
     var elapsed: Double = 0
     var stepMs: Double = 0
     var playedSeconds: Double = 0
+    var capturedFrames = 0
     var textTokens = 0
     var echoCancellation = true
     var downloaded = MoshiRuntime.isDownloaded()
@@ -96,6 +97,7 @@ final class MoshiController {
                 self.micLevel = audio.level
                 self.buffered = audio.bufferedSeconds + Double(audio.frames.depth) * 0.08
                 self.playedSeconds = audio.playedSeconds
+                self.capturedFrames = audio.capturedFrames
                 self.elapsed = Date().timeIntervalSince(started)
             }
         }
@@ -223,6 +225,7 @@ struct MoshiPage: View {
                 HStack(spacing: 16) {
                     stat("step", "\(Int(model.stepMs)) ms", warn: model.stepMs > 80)
                     stat("buffer", "\(Int(model.buffered * 1000)) ms", warn: model.buffered > 0.5)
+                    stat("in", String(format: "%.1fs", Double(model.capturedFrames) * 0.08), warn: false)
                     stat("out", String(format: "%.1fs", model.playedSeconds), warn: false)
                     stat("words", "\(model.textTokens)", warn: false)
                 }
