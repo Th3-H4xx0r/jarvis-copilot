@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// Shared types for the on-device AI layer. These are the interfaces the router,
 /// the tool catalogue and (later) the chat/voice surfaces all speak in.
@@ -136,15 +137,18 @@ struct UnavailableOnDeviceModel: OnDeviceModel {
 
 /// Persisted configuration for the on-device AI layer. Plain mutable fields so
 /// tests and a settings screen can read/write them directly; `load`/`save`
-/// handle durability.
+/// handle durability. `@Observable` so the settings screen re-renders the
+/// moment a tier, toggle or model changes — without it every tap needed a
+/// manual refresh to show.
 ///
 /// Port of `mobile_client/lib/services/local_ai_settings.dart`, minus the
 /// Android-only STT flag.
 @MainActor
+@Observable
 final class LocalAiSettings {
     static let shared = LocalAiSettings()
 
-    private let store: any KeyValueStore
+    @ObservationIgnored private let store: any KeyValueStore
 
     // Safe defaults: off / server.
     var tier: LocalAiTier = .off
