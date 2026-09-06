@@ -1043,6 +1043,19 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         # lane=fast) and lands on the fast lane below.
         raw_model = override_model or getattr(s, "model", None)
         raw_provider = override_provider or getattr(s, "model_provider", None)
+        # The phone's picker lists Claude twice: under the Anthropic API and
+        # under Claude Code (the local CLI on the subscription). When the
+        # server's configured provider is claude-code, an "anthropic" pick of
+        # the same model means the CLI path — the API key path 400s with
+        # "out of extra usage" the moment the pay-as-you-go budget is gone.
+        try:
+            from api.config import cfg as _cfg  # type: ignore
+            _active = str(((_cfg.get("model") or {}) if isinstance(_cfg, dict) else {}).get("provider") or "").strip().lower()
+        except Exception:
+            _active = ""
+        if str(raw_provider or "").strip().lower() == "anthropic" and _active == "claude-code":
+            print(f"[webui] voice: routing anthropic pick {raw_model!r} through claude-code (configured provider)", flush=True)
+            raw_provider = "claude-code"
     elif fast_lane:
         # plan 2.1 — default voice model: the configured fast lane.
         raw_model, raw_provider = fast_lane["model"], fast_lane["provider"]
