@@ -29,17 +29,16 @@ struct SettingsPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                ConnectionCard(server: store.serverURL.isEmpty ? "—" : store.serverURL,
-                               device: store.deviceName)
+            VStack(alignment: .leading, spacing: 30) {
+                hero
                 identity
                 assistant
                 navigation
                 danger
             }
             .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 32)
+            .padding(.top, 4)
+            .padding(.bottom, 40)
         }
         .scrollDismissesKeyboard(.interactively)
         .jcScreen("Settings")
@@ -59,12 +58,52 @@ struct SettingsPage: View {
         }
     }
 
+    // MARK: Hero
+
+    /// The same stage the Voice tab opens on: the orb, a quiet status pill, a
+    /// headline and one muted line — instead of a gradient card.
+    private var hero: some View {
+        VStack(spacing: 0) {
+            VoiceOrb(state: .idle, amplitude: 0.1, size: 150)
+                .padding(.top, 6)
+                .padding(.bottom, 14)
+            HStack(spacing: 7) {
+                Circle().fill(JcTheme.success).frame(width: 6, height: 6)
+                Text(store.deviceName)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(JcTheme.text.opacity(0.85))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 8)
+            .background(.white.opacity(0.045), in: Capsule())
+            .padding(.bottom, 18)
+            Text("Connected")
+                .font(.system(size: 25, weight: .medium))
+                .tracking(-0.6)
+                .foregroundStyle(JcTheme.text)
+            Text(serverHost)
+                .font(.system(size: 14))
+                .foregroundStyle(JcTheme.muted)
+                .lineLimit(1)
+                .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 4)
+    }
+
+    /// Just the host: the scheme and path are noise in a status line.
+    private var serverHost: String {
+        guard !store.serverURL.isEmpty else { return "No server" }
+        return URL(string: store.serverURL)?.host ?? store.serverURL
+    }
+
     // MARK: Identity
 
     private var identity: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionLabel("This device")
-            GlassGroup {
+            QuietLabel("This device")
+            GlassGroup(blur: false) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Device name").font(JcText.small).foregroundStyle(JcTheme.muted)
                     TextField("My iPhone", text: $deviceNameDraft)
@@ -83,8 +122,8 @@ struct SettingsPage: View {
 
     private var assistant: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionLabel("Assistant")
-            GlassGroup {
+            QuietLabel("Assistant")
+            GlassGroup(blur: false) {
                 SwitchRow(symbol: "location.fill",
                           title: "Track my location",
                           subtitle: "Background location history for the assistant. "
@@ -133,8 +172,8 @@ struct SettingsPage: View {
 
     private var navigation: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionLabel("More")
-            GlassGroup {
+            QuietLabel("More")
+            GlassGroup(blur: false) {
                 NavigationLink {
                     OnDeviceAISettingsPage()
                 } label: {
@@ -175,7 +214,7 @@ struct SettingsPage: View {
     }
 
     private var danger: some View {
-        GlassGroup {
+        GlassGroup(blur: false) {
             GlassRow(symbol: "rectangle.portrait.and.arrow.right",
                      title: "Unpair this device",
                      last: true, danger: true) {
@@ -185,36 +224,20 @@ struct SettingsPage: View {
     }
 }
 
-/// Gradient hero card summarising the paired connection.
-private struct ConnectionCard: View {
-    let server: String
-    let device: String
+/// Section label in the Voice page's register: small, spaced, muted — not a
+/// bold header competing with the rows.
+private struct QuietLabel: View {
+    let text: String
+    init(_ text: String) { self.text = text }
 
     var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(Color.white)
-                .frame(width: 48, height: 48)
-                .background(JcTheme.blueGradient, in: Circle())
-                .shadow(color: JcTheme.primaryBlue.opacity(0.4), radius: 8)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Connected")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(JcTheme.text)
-                Text(device).font(.system(size: 13)).foregroundStyle(JcTheme.text).lineLimit(1)
-                Text(server).font(JcText.mono).foregroundStyle(JcTheme.muted).lineLimit(1)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(20)
-        .background {
-            let shape = RoundedRectangle(cornerRadius: JcTheme.cardRadius, style: .continuous)
-            shape.fill(LinearGradient(colors: [Color(jcHex: 0x15224A), Color(jcHex: 0x0C1020)],
-                                      startPoint: .topLeading, endPoint: .bottomTrailing))
-                .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-                .shadow(color: JcTheme.primaryBlue.opacity(0.18), radius: 12, y: 8)
-        }
+        Text(text.uppercased())
+            .font(.system(size: 11, weight: .semibold))
+            .tracking(1.1)
+            .foregroundStyle(JcTheme.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 6)
+            .padding(.bottom, 10)
     }
 }
 
