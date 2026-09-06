@@ -58,8 +58,9 @@ struct VoiceOrb: View {
                     .fill(Color.white)
                     .colorEffect(ShaderLibrary.liquidOrb(
                         .float2(side, side), .float(t), .float(bright),
-                        .color(state.palette[1]), .color(state.palette[0]),
-                        .color(blend(state.palette[0], .white, 0.6))))
+                        .color(blend(Color(red: 0.05, green: 0.16, blue: 0.96), state.palette[1], 0.30)),
+                        .color(blend(Color(red: 0.10, green: 0.82, blue: 1.00), state.palette[0], 0.25)),
+                        .color(blend(state.palette[0], .white, 0.7))))
                 // Halo and dust stay on the Canvas above the glass.
                 Canvas(opaque: false, rendersAsynchronously: false) { context, canvasSize in
                     draw(&context, canvasSize, t: t, amp: amp)

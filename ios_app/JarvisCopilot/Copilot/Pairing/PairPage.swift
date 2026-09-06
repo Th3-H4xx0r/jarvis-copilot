@@ -18,8 +18,8 @@ struct PairPage: View {
     /// False while the outgoing screen fades away before the orb travels.
     @State private var contentVisible = true
 
-    private static let orbWelcomeSize: CGFloat = 260
-    private static let orbConnectSize: CGFloat = 150
+    private static let orbWelcomeSize: CGFloat = 210
+    private static let orbConnectSize: CGFloat = 130
     private static let columnTop: CGFloat = 20
     /// Where each screen's orb slot currently sits (top edge, in the page's
     /// coordinate space). Published by the slots so the overlay orb can travel to
@@ -143,7 +143,7 @@ struct PairPage: View {
                                color: JcTheme.muted, revealed: revealed, startDelay: 0.85,
                                step: 0.07, reduceMotion: reduceMotion)
                 }
-                .padding(.top, 8)
+                .padding(.top, 36)
                 Spacer(minLength: 0)
             }
             // The arrow is pinned to the bottom, outside the centred group.

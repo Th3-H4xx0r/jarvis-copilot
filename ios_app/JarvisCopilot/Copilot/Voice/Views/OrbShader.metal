@@ -57,7 +57,7 @@ static float fbm3(float3 p, float t) {
     // SwiftUI hands `.color(...)` arguments to Metal as half4.
     float4 deep = float4(deepH), cyan = float4(cyanH), shellTint = float4(shellTintH);
     float2 c = size * 0.5;
-    float R = min(size.x, size.y) * 0.5 * 0.60;
+    float R = min(size.x, size.y) * 0.5 * 0.312;   // = VoiceOrbGeometry radius (0.53 × base) under the 1.7× bleed
     float2 p = (pos - c) / R;
 
     // Fluid silhouette: radius displaced by fbm of the direction (+ time).
@@ -81,8 +81,8 @@ static float fbm3(float3 p, float t) {
     float NdotV = max(dot(n, v), 0.0);
 
     // Schlick Fresnel, broad exponent for a frosted (not razor-thin) rim.
-    float R0 = 0.06;
-    float fres = R0 + (1.0 - R0) * pow(1.0 - NdotV, 2.2);
+    float R0 = 0.04;
+    float fres = R0 + (1.0 - R0) * pow(1.0 - NdotV, 3.2);
     // Glass thickness seen through the shell grows toward the edge.
     float thick = 1.0 - zN;
 
@@ -102,34 +102,34 @@ static float fbm3(float3 p, float t) {
                              fbm3(sp * 1.3 + flow + 7.1, t),
                              fbm3(sp * 1.3 + flow + 13.7, t)) - 0.5;
         float dens = fbm3(sp * 1.8 + warp * 0.9 + flow * 0.5, t);
-        dens = smoothstep(0.32, 0.78, dens);                        // carve pockets
+        dens = smoothstep(0.28, 0.72, dens);                        // carve pockets
         // Colour by density: sparse = deep blue, dense = cyan; lit from upper-left.
         float lit = clamp(0.5 + 0.6 * dot(normalize(float3(-0.6, 0.7, 0.4)), normalize(sp + 1e-3)), 0.0, 1.0);
         float3 col = mix(deep.rgb * 0.9, cyan.rgb, dens * (0.55 + 0.45 * lit));
         // Beer–Lambert: light travelling deeper into the volume is absorbed.
         float depthIn = dt * (float(i) + 0.5);
         float trans = exp(-1.4 * depthIn);
-        float a = dens * 0.42 * (0.5 + 0.5 * trans);
+        float a = dens * 0.55 * (0.45 + 0.55 * trans);
         acc += (1.0 - alphaAcc) * a * col;
         alphaAcc += (1.0 - alphaAcc) * a;
         if (alphaAcc > 0.985) { break; }
     }
     // Fine contour ridges (≈ -28°) riding on the core, faint.
     float2 rq = float2(q.x * cos(-0.49) - q.y * sin(-0.49), q.x * sin(-0.49) + q.y * cos(-0.49));
-    acc *= 0.90 + 0.10 * sin(rq.y * 58.0 + t * 1.1);
+    acc *= 0.95 + 0.05 * sin(rq.y * 90.0 + t * 1.1);
     // Tonemap the glow so the dense cyan reads luminous without clipping.
-    acc = tanh(acc * 1.6 * bright);
+    acc = tanh(acc * 2.0 * bright);
 
     // ── Shell + lighting ──
-    float shell = clamp(fres * 0.95 + thick * thick * 0.55, 0.0, 1.0);
-    float3 shellCol = mix(float3(1.0), shellTint.rgb, 0.22);
+    float shell = clamp(fres * 0.80 + thick * thick * thick * 0.35, 0.0, 1.0);
+    float3 shellCol = mix(float3(1.0), shellTint.rgb, 0.30);
     float3 l = normalize(float3(-0.55, 0.65, 0.55));
-    float spec = pow(max(dot(n, normalize(l + v)), 0.0), 80.0) * 0.85;
+    float spec = pow(max(dot(n, normalize(l + v)), 0.0), 140.0) * 0.55;
     float3 l2 = normalize(float3(0.6, -0.5, 0.35));
     float caustic = pow(max(dot(n, normalize(l2 + v)), 0.0), 36.0) * 0.30 * fres;
 
     // Compose: core seen through the shell, shell on top, highlights last.
-    float coreVis = 1.0 - shell * 0.85;
+    float coreVis = 1.0 - shell * 0.65;
     float3 colOut = acc * coreVis + shellCol * shell * bright + float3(spec + caustic) * bright;
     float alpha = clamp(max(shell, alphaAcc * 0.92) + spec, 0.0, 1.0);
     alpha *= smoothstep(1.0, 0.985, d);                              // AA silhouette
