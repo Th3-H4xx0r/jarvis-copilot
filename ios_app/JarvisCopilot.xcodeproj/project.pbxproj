@@ -448,6 +448,7 @@
 		FEC5436CF7CC309FA1DBA6F0 /* JarvisActivityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3634082F63862E42A4DC85D /* JarvisActivityViews.swift */; };
 		FF76E467CCE188136DF929EA /* OnDeviceChatBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76F49FA45D26A5348A0DB282 /* OnDeviceChatBridge.swift */; };
 		AABB00AA00000000ICON0002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AABB00AA00000000ICON0001 /* Assets.xcassets */; };
+		AABB00BB00000000AEBA0002 /* OrbShader.metal in Sources */ = {isa = PBXBuildFile; fileRef = AABB00BB00000000AEBA0001 /* OrbShader.metal */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -926,6 +927,7 @@
 		FEECBD4B5207707D0F7D6AAF /* CodingChatModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingChatModels.swift; sourceTree = "<group>"; };
 		FFCB08C9E189D1906A4D2402 /* IslandOffline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandOffline.swift; sourceTree = "<group>"; };
 		AABB00AA00000000ICON0001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AABB00BB00000000AEBA0001 /* OrbShader.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = OrbShader.metal; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1543,6 +1545,7 @@
 			isa = PBXGroup;
 			children = (
 				0E333BC6784D2209F2B7ED4C /* VoiceOrb.swift */,
+				AABB00BB00000000AEBA0001 /* OrbShader.metal */,
 				A3F89193A08A684698BC94D5 /* VoiceControls.swift */,
 				7F40E6FA16F0520E66BF37D4 /* VoiceEnginePicker.swift */,
 				0EDA87658BCF6EC069838DBB /* VoiceReplyView.swift */,
@@ -2206,6 +2209,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AABB00BB00000000AEBA0002 /* OrbShader.metal in Sources */,
 				AAEE7D4588345241B7B2F492 /* JarvisCopilotApp.swift in Sources */,
 				2A2E210CC5D33E179A64033C /* BottleProtocol.swift in Sources */,
 				C9906D5F89A8BEB0190F3605 /* BottleManager.swift in Sources */,
