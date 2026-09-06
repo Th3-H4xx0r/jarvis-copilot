@@ -52,8 +52,10 @@ static float fbm3(float3 p, float t) {
 // ── orb ──────────────────────────────────────────────────────────────────────
 [[ stitchable ]] half4 liquidOrb(float2 pos, half4 inColor,
                                   float2 size, float t, float bright,
-                                  float4 deep, float4 cyan, float4 shellTint)
+                                  half4 deepH, half4 cyanH, half4 shellTintH)
 {
+    // SwiftUI hands `.color(...)` arguments to Metal as half4.
+    float4 deep = float4(deepH), cyan = float4(cyanH), shellTint = float4(shellTintH);
     float2 c = size * 0.5;
     float R = min(size.x, size.y) * 0.5 * 0.60;
     float2 p = (pos - c) / R;

@@ -414,10 +414,8 @@ private struct Entrance: ViewModifier {
         let shown = revealed || reduceMotion
         content
             .opacity(shown ? 1 : 0)
-            .offset(y: shown ? 0 : 18)
-            .scaleEffect(scale && !shown ? 0.9 : 1)
             .animation(reduceMotion ? nil
-                       : .spring(response: 0.55, dampingFraction: 0.82).delay(delay ?? Double(index) * 0.09),
+                       : .easeOut(duration: 0.6).delay(delay ?? Double(index) * 0.09),
                        value: shown)
     }
 }
@@ -492,10 +490,8 @@ private struct WordReveal: View {
                     .font(font)
                     .foregroundStyle(color)
                     .opacity(shown ? 1 : 0)
-                    .offset(y: shown ? 0 : 10)
-                    .blur(radius: shown ? 0 : 3)
                     .animation(reduceMotion ? nil
-                               : .easeOut(duration: 0.5).delay(startDelay + Double(i) * step),
+                               : .easeOut(duration: 0.6).delay(startDelay + Double(i) * step),
                                value: shown)
             }
         }
