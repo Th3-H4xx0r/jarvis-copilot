@@ -12,9 +12,23 @@ struct PairPage: View {
     @State private var showManual = false
     /// Drives the staggered entrance of each screen's elements; reset on step change.
     @State private var revealed = false
+    /// The orb is ONE view drawn over both screens; this is the step whose slot
+    /// it is currently sitting in (it moves ahead of the content swap).
+    @State private var orbStep: Step = .welcome
+    /// False while the outgoing screen fades away before the orb travels.
+    @State private var contentVisible = true
+
+    private static let orbWelcomeSize: CGFloat = 260
+    private static let orbConnectSize: CGFloat = 150
+    private static let columnTop: CGFloat = 20
+    /// Where each screen's orb slot currently sits (top edge, in the page's
+    /// coordinate space). Published by the slots so the overlay orb can travel to
+    /// the exact spot even when the connect column is vertically centred.
+    @State private var slotTop: [Step: CGFloat] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private enum Step { case welcome, connect }
+    enum StepKey: Hashable { case welcome, connect }
+    private typealias Step = StepKey
 
     private enum Field: Hashable { case url, code, name, cfID, cfSecret }
 
@@ -27,49 +41,59 @@ struct PairPage: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                if step == .welcome {
-                    welcome
-                        .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity),
-                                                removal: .move(edge: .leading).combined(with: .opacity)))
-                } else {
-                    connect
-                        .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
-                                                removal: .move(edge: .trailing).combined(with: .opacity)))
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 32)
-            .frame(maxWidth: .infinity)
-            // Tap anywhere that isn't a control to put the keyboard away.
-            .background(Color.clear.contentShape(Rectangle()).onTapGesture { focus = nil })
-            .animation(.spring(response: 0.45, dampingFraction: 0.86), value: step)
-            .animation(.easeInOut(duration: 0.22), value: showManual)
-        }
-        // Fixed page while everything fits; it only scrolls once the keyboard
-        // takes the bottom of the screen.
-        .scrollBounceBehavior(.basedOnSize)
-        .scrollDismissesKeyboard(.interactively)
-        .jcScreen(step == .welcome ? nil : "Connect")
-        .toolbar {
-            if step == .connect {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button { withAnimation { step = .welcome; focus = nil } } label: {
-                        Image(systemName: "chevron.left").font(.system(size: 15, weight: .semibold))
+        GeometryReader { geo in
+            ZStack(alignment: .top) {
+                ScrollView {
+                    VStack(spacing: 24) {
+                        if step == .welcome { welcome(height: geo.size.height) }
+                        else { connect(height: geo.size.height) }
                     }
-                    .tint(JcTheme.text)
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity)
+                    .opacity(contentVisible ? 1 : 0)
+                    .animation(.easeOut(duration: 0.22), value: contentVisible)
+                    // Tap anywhere that isn't a control to put the keyboard away.
+                    .background(Color.clear.contentShape(Rectangle()).onTapGesture { focus = nil })
+                    .animation(.easeInOut(duration: 0.22), value: showManual)
+                }
+                // Fixed page while everything fits; it only scrolls once the keyboard
+                // takes the bottom of the screen.
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollDismissesKeyboard(.interactively)
+                .onPreferenceChange(SlotTopKey.self) { slotTop = $0 }
+
+                // The shared orb: one view over both screens, scaled from its top
+                // edge and moved to whichever slot `orbStep` names.
+                VoiceOrb(state: .idle, amplitude: 0.14, size: Self.orbWelcomeSize)
+                    .scaleEffect(orbStep == .welcome ? 1 : Self.orbConnectSize / Self.orbWelcomeSize,
+                                 anchor: .top)
+                    .offset(y: slotTop[orbStep] ?? Self.columnTop)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .animation(reduceMotion ? nil : .spring(response: 0.6, dampingFraction: 0.85),
+                               value: orbStep)
+                    .animation(reduceMotion ? nil : .spring(response: 0.6, dampingFraction: 0.85),
+                               value: slotTop)
+
+                if step == .connect {
+                    HStack {
+                        GlassIconButton(symbol: "chevron.left", size: 36, iconSize: 15) {
+                            go(to: .welcome)
+                        }
+                        .modifier(Entrance(revealed: revealed, index: 0, reduceMotion: reduceMotion))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
                 }
             }
+            .coordinateSpace(name: "pair")
         }
+        .background(LivingAurora(reduceMotion: reduceMotion).ignoresSafeArea())
         // A scanned QR that carried a Cloudflare token opens the manual form so
         // the values it filled are visible.
         .onChange(of: store.showsCloudflareFields) { _, shown in if shown { showManual = true } }
         .onAppear { revealed = true }
-        .onChange(of: step) { _, _ in
-            revealed = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { revealed = true }
-        }
         #if os(iOS)
         .fullScreenCover(isPresented: Binding(
             get: { store.phase == .scanning },
@@ -79,15 +103,38 @@ struct PairPage: View {
         #endif
     }
 
+    // MARK: Step transition
+
+    /// Fade the current content out, move the orb, then fade the next content in.
+    private func go(to target: Step) {
+        guard target != step else { return }
+        focus = nil
+        if reduceMotion {
+            step = target; orbStep = target; revealed = true
+            return
+        }
+        contentVisible = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            // Lay the next screen out while still invisible so its orb slot
+            // reports a position, then send the orb there.
+            revealed = false
+            step = target
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { orbStep = target }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.62) {
+            contentVisible = true
+            revealed = true
+        }
+    }
+
     // MARK: Welcome
 
-    private var welcome: some View {
+    private func welcome(height: CGFloat) -> some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 24)
-            VoiceOrb(state: .idle, amplitude: 0.16, size: 260)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-                .modifier(Entrance(revealed: revealed, index: 0, scale: true, reduceMotion: reduceMotion))
+            // Equal spacers above the orb and below the text centre the group;
+            // the arrow stays anchored near the bottom edge.
+            Spacer(minLength: 0)
+            orbSlot(.welcome, size: Self.orbWelcomeSize)
             VStack(spacing: 10) {
                 Text("Hey, I'm Jarvis.")
                     .font(.system(size: 34, weight: .bold))
@@ -100,8 +147,9 @@ struct PairPage: View {
                     .modifier(Entrance(revealed: revealed, index: 2, reduceMotion: reduceMotion))
             }
             .padding(.top, 8)
-            Spacer(minLength: 40)
-            Button { withAnimation { step = .connect } } label: {
+            Spacer(minLength: 0)
+            Spacer(minLength: 0)
+            Button { go(to: .connect) } label: {
                 Image(systemName: "arrow.right")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(Color.white)
@@ -114,18 +162,29 @@ struct PairPage: View {
             .accessibilityLabel("Next")
             .modifier(Entrance(revealed: revealed, index: 3, reduceMotion: reduceMotion))
         }
-        .frame(maxWidth: .infinity, minHeight: 620)
+        .padding(.top, Self.columnTop)
+        .padding(.bottom, 32)
+        .frame(maxWidth: .infinity, minHeight: height)
+    }
+
+    /// An invisible box the size of the orb; publishes its top edge so the
+    /// overlay orb can sit exactly here.
+    private func orbSlot(_ which: Step, size: CGFloat) -> some View {
+        Color.clear
+            .frame(height: size)
+            .background(GeometryReader { g in
+                Color.clear.preference(key: SlotTopKey.self,
+                                       value: [which: g.frame(in: .named("pair")).minY])
+            })
     }
 
     // MARK: Connect
 
-    private var connect: some View {
+    private func connect(height: CGFloat) -> some View {
         VStack(spacing: 22) {
+            Spacer(minLength: 0)
             VStack(spacing: 6) {
-                VoiceOrb(state: .idle, amplitude: 0.12, size: 150)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                    .modifier(Entrance(revealed: revealed, index: 0, scale: true, reduceMotion: reduceMotion))
+                orbSlot(.connect, size: Self.orbConnectSize)
                 Text("Connect to your server")
                     .font(JcText.title)
                     .foregroundStyle(JcTheme.text)
@@ -176,7 +235,12 @@ struct PairPage: View {
                     .foregroundStyle(JcTheme.danger)
                     .multilineTextAlignment(.center)
             }
+            Spacer(minLength: 0)
         }
+        .padding(.top, Self.columnTop)
+        .padding(.bottom, 24)
+        // Centred while it fits; grows past the height once the manual form is out.
+        .frame(maxWidth: .infinity, minHeight: showManual ? nil : height)
     }
 
     // MARK: Form
@@ -354,5 +418,48 @@ private struct Entrance: ViewModifier {
             .animation(reduceMotion ? nil
                        : .spring(response: 0.55, dampingFraction: 0.82).delay(Double(index) * 0.09),
                        value: shown)
+    }
+}
+
+private struct SlotTopKey: PreferenceKey {
+    static var defaultValue: [PairPage.StepKey: CGFloat] = [:]
+    static func reduce(value: inout [PairPage.StepKey: CGFloat], nextValue: () -> [PairPage.StepKey: CGFloat]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+/// The aurora, alive: four soft colour fields drifting on slow Lissajous paths.
+/// Same palette and weight as `AuroraBackdrop`, so the page still reads as the
+/// rest of the app — it just breathes. Static under Reduce Motion.
+private struct LivingAurora: View {
+    let reduceMotion: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { tl in
+            let t = reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate
+            GeometryReader { g in
+                let w = g.size.width, h = g.size.height
+                ZStack {
+                    LinearGradient(colors: [Color(jcHex: 0x0A0C12), Color(jcHex: 0x050608)],
+                                   startPoint: .top, endPoint: .bottom)
+                    blob(JcTheme.cyan, 0.14, 380,
+                         x: w * (0.15 + 0.10 * sin(t / 9)), y: h * (0.12 + 0.08 * cos(t / 11)))
+                    blob(JcTheme.primaryBlue, 0.12, 420,
+                         x: w * (0.85 + 0.08 * cos(t / 13)), y: h * (0.28 + 0.10 * sin(t / 8)))
+                    blob(JcTheme.accent, 0.11, 360,
+                         x: w * (0.30 + 0.12 * sin(t / 10 + 1)), y: h * (0.80 + 0.07 * cos(t / 9 + 2)))
+                    blob(JcTheme.accentAlt, 0.07, 300,
+                         x: w * (0.78 + 0.10 * cos(t / 12 + 1)), y: h * (0.88 + 0.06 * sin(t / 10 + 1)))
+                }
+            }
+        }
+    }
+
+    private func blob(_ color: Color, _ alpha: Double, _ size: CGFloat, x: CGFloat, y: CGFloat) -> some View {
+        Circle()
+            .fill(color.opacity(alpha))
+            .frame(width: size, height: size)
+            .blur(radius: size * 0.28)
+            .position(x: x, y: y)
     }
 }
