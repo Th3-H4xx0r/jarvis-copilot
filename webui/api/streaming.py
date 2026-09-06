@@ -3973,6 +3973,9 @@ def _run_agent_streaming(
                         _added = load_all_deferred(agent)
                         if _added:
                             print(f"[webui] voice: advertised all tools (+{_added}) for this turn", flush=True)
+                        # With everything advertised the deferred-tools manifest
+                        # and its "call tool_search first" guidance only mislead.
+                        agent._lazy_tools_manifest = ""
                     except Exception:
                         logger.debug("voice: load_all_deferred failed", exc_info=True)
             except Exception:
