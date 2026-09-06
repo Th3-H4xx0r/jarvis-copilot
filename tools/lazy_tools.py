@@ -503,6 +503,34 @@ TOOL_SEARCH_SCHEMA = {
 _MAX_SEARCH_RESULTS = 12
 
 
+def load_all_deferred(agent) -> int:
+    """Promote EVERY deferred tool into the live ``agent.tools`` — the voice
+    bridge does this for its turns: a spoken request must be one tool call, not
+    a tool_search round trip first. Returns how many tools were added. Leaves
+    the manifest in place (it is harmless once everything is advertised)."""
+    names = set(getattr(agent, "_lazy_all_tool_names", None) or set())
+    if not names:
+        return 0
+    advertised = {(t.get("function", {}) or {}).get("name") for t in (agent.tools or [])}
+    missing = names - advertised - {None}
+    if not missing:
+        return 0
+    defs = registry.get_definitions(missing)
+    added = 0
+    for d in defs:
+        nm = (d.get("function", {}) or {}).get("name")
+        if nm and nm not in advertised:
+            agent.tools.append(d)
+            advertised.add(nm)
+            added += 1
+    agent.valid_tool_names = set(getattr(agent, "valid_tool_names", None) or set()) | advertised
+    agent.valid_tool_names.discard(None)
+    if getattr(agent, "_lazy_loaded_tools", None) is None:
+        agent._lazy_loaded_tools = set()
+    agent._lazy_loaded_tools.update(n for n in advertised if n)
+    return added
+
+
 def handle_tool_search(agent, args: dict) -> str:
     """Resolve the query to tool names, load their schemas, and promote them into
     the live ``agent.tools`` / ``agent.valid_tool_names`` so the provider lets the

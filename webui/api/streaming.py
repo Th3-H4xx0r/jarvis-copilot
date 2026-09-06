@@ -3955,6 +3955,15 @@ def _run_agent_streaming(
                 if _voice_directive:
                     _voice_sess._voice_turn_directive = None
                     workspace_system_msg = ((workspace_system_msg or "").rstrip() + "\n\n" + str(_voice_directive)).strip()
+                    # Voice-first: every toolset is advertised up front, so a
+                    # spoken request never spends a step on tool_search.
+                    try:
+                        from tools.lazy_tools import load_all_deferred
+                        _added = load_all_deferred(agent)
+                        if _added:
+                            print(f"[webui] voice: advertised all tools (+{_added}) for this turn", flush=True)
+                    except Exception:
+                        logger.debug("voice: load_all_deferred failed", exc_info=True)
             except Exception:
                 _voice_swap = False
             result = agent.run_conversation(
