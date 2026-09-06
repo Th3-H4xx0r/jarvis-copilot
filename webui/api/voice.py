@@ -1882,10 +1882,13 @@ def _pick_ack_phrase(state: dict) -> str:
 # (text + TTS) before falling back to a canned phrase.
 _ACK_GENERATE_WAIT_MS = 700
 _ACK_SYSTEM_PROMPT = (
-    "You are JARVIS, a calm British assistant. The user just spoke a request; "
-    "write ONE short spoken acknowledgement (at most nine words) that you are "
-    "starting on it, mentioning what it is about. Plain speech, no markdown, no "
-    "questions, no 'Certainly'. Address the user as sir. Output only the sentence."
+    "You are JARVIS, a calm British assistant. The user just spoke. If it is a "
+    "task that takes work (looking something up, controlling a device, sending "
+    "or writing something, a multi-step job), write ONE short spoken "
+    "acknowledgement (at most nine words) that you are starting on it, naming "
+    "what it is about — plain speech, no markdown, no questions, no 'Certainly', "
+    "address the user as sir. If it is a greeting, small talk, a thank-you, or a "
+    "simple question you would just answer, output exactly: SKIP"
 )
 
 
@@ -1920,7 +1923,8 @@ def _start_ack_generation(user_text: str):
                 data = json.loads(r.read())
             phrase = str(((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "")
             phrase = re.sub(r"[*_`#\[\]]+", "", phrase).strip().split("\n")[0].strip()
-            if not phrase or len(phrase) > 90:
+            if not phrase or len(phrase) > 90 or phrase.upper().startswith("SKIP"):
+                job["skip"] = phrase.upper().startswith("SKIP")
                 return
             if phrase[-1] not in ".!?":
                 phrase += "."
@@ -2316,14 +2320,20 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
     ack_job = _start_ack_generation(str(state.get("last_user_text") or ""))
 
     def _fire_ack():
+        # Wait for the generated ack OUTSIDE the segment lock, so an arriving
+        # reply (which takes the lock to mark itself) is never held up by it.
         with seg_lock:
             if ack_state["first_text_sent"] or ack_state["ack_sent"] or state.get("interrupt") or state.get("closed"):
                 return
-            ack_state["ack_sent"] = True
-            generated = _await_ack_generation(ack_job, _ACK_GENERATE_WAIT_MS / 1000.0)
-            # The model's first sentence may have landed while we waited.
-            if ack_state["first_text_sent"] or state.get("interrupt") or state.get("closed"):
+        generated = _await_ack_generation(ack_job, _ACK_GENERATE_WAIT_MS / 1000.0)
+        with seg_lock:
+            # The model's first sentence may have landed while we waited; and a
+            # conversational turn (the generator said SKIP) gets no ack at all.
+            if ack_state["first_text_sent"] or ack_state["ack_sent"] or state.get("interrupt") or state.get("closed"):
                 return
+            if ack_job.get("skip"):
+                return
+            ack_state["ack_sent"] = True
             phrase, audio = generated if generated else (_pick_ack_phrase(state), None)
             _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": phrase, "ack": True}))
             try:
@@ -2350,6 +2360,11 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
             if k == "text":
                 t = (seg.get("text") or "").strip()
                 if t:
+                    # The reply has ARRIVED: that is what cancels the ack, not the
+                    # moment it is sent — otherwise ack and reply both get spoken.
+                    with seg_lock:
+                        ack_state["first_text_sent"] = True
+                    ack_timer.cancel()
                     buf.append({"kind": "text", "text": t, "future": executor.submit(_synth_audio, t)})
             elif k == "tool":
                 name = seg.get("name", "")
