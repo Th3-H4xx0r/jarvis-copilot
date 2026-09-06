@@ -439,17 +439,17 @@ private struct LivingAurora: View {
             GeometryReader { g in
                 let w = g.size.width, h = g.size.height
                 ZStack {
-                    LinearGradient(colors: [Color(jcHex: 0x07090F), Color(jcHex: 0x04050A)],
+                    LinearGradient(colors: [Color(jcHex: 0x04050A), Color(jcHex: 0x020307)],
                                    startPoint: .top, endPoint: .bottom)
-                    // Distinct colour fields on ~10–16 s orbits that cross the whole
-                    // page; small enough that most of the screen stays dark between them.
-                    blob(JcTheme.cyan, 0.34, 300,
+                    // Small distinct colour fields on ~10–20 s orbits; the page stays
+                    // dark between them — this is a dark-theme app, the aurora is an accent.
+                    blob(JcTheme.cyan, 0.26, 220,
                          x: w * (0.30 + 0.42 * sin(t / 2.6)), y: h * (0.22 + 0.22 * cos(t / 2.1)))
-                    blob(JcTheme.primaryBlue, 0.34, 340,
+                    blob(JcTheme.primaryBlue, 0.26, 250,
                          x: w * (0.70 + 0.38 * cos(t / 2.3 + 1)), y: h * (0.50 + 0.30 * sin(t / 2.9)))
-                    blob(JcTheme.accent, 0.30, 320,
+                    blob(JcTheme.accent, 0.22, 230,
                          x: w * (0.40 + 0.44 * sin(t / 3.1 + 2)), y: h * (0.78 + 0.18 * cos(t / 2.4 + 1)))
-                    blob(JcTheme.accentAlt, 0.18, 260,
+                    blob(JcTheme.accentAlt, 0.14, 190,
                          x: w * (0.62 + 0.40 * cos(t / 2.7 + 3)), y: h * (0.35 + 0.35 * sin(t / 3.3 + 2)))
                 }
             }

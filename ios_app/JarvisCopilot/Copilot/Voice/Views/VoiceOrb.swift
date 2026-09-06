@@ -105,9 +105,14 @@ struct VoiceOrb: View {
                 ]),
                 center: centre, startRadius: 0, endRadius: radius))
 
-        // ── Point lattice: a dotted wireframe globe turning with the spin ──
+        // ── Liquid interior: iridescent colour swirling inside the glass ──
+        drawLiquid(&context, centre: centre, radius: radius, t: t,
+                   colours: [core, accent, blend(highlight, core, 0.5), blend(accent, .white, 0.25)],
+                   bright: bright)
+
+        // ── Point lattice: a faint dotted globe seen through the liquid ──
         drawLattice(&context, centre: centre, radius: radius, spin: spin * 0.6, t: t,
-                    colour: blend(core, highlight, 0.55), bright: bright)
+                    colour: blend(core, highlight, 0.55), bright: bright * 0.45)
 
         // ── Ribbons, back to front so the additive light stacks correctly ──
         let built = VoiceOrbGeometry.strands
@@ -164,6 +169,56 @@ struct VoiceOrb: View {
                        clockwise: false)
             layer.stroke(arc, with: .color(rimColour.opacity(clamp(0.38 * bright, 0.7))),
                          style: StrokeStyle(lineWidth: radius * 0.045, lineCap: .round))
+        }
+    }
+
+    // MARK: - Liquid interior
+
+    /// Five soft colour masses drifting on slow, incommensurate orbits inside the
+    /// sphere, clipped to it and additively blended — the "liquid light" body —
+    /// plus a glossy specular highlight top-left so the surface reads as glass.
+    private func drawLiquid(_ context: inout GraphicsContext, centre: CGPoint, radius: CGFloat,
+                            t: Double, colours: [Color], bright: Double) {
+        let sphere = Path(ellipseIn: CGRect(x: centre.x - radius, y: centre.y - radius,
+                                            width: radius * 2, height: radius * 2))
+        context.drawLayer { layer in
+            layer.clip(to: sphere)
+            layer.blendMode = .plusLighter
+            layer.addFilter(.blur(radius: radius * 0.16))
+            let masses: [(Int, Double, Double, Double, Double, Double)] = [
+                // colour index, orbit rx, ry, speed, phase, size
+                (0, 0.42, 0.30, 0.55, 0.0, 0.62),
+                (1, 0.36, 0.44, 0.41, 1.9, 0.56),
+                (2, 0.48, 0.26, 0.33, 3.7, 0.50),
+                (3, 0.30, 0.40, 0.62, 5.1, 0.42),
+                (1, 0.22, 0.20, 0.27, 2.6, 0.70),
+            ]
+            for (ci, rx, ry, speed, phase, size) in masses {
+                let x = centre.x + radius * CGFloat(rx * sin(t * speed + phase))
+                let y = centre.y + radius * CGFloat(ry * cos(t * speed * 0.8 + phase * 1.3))
+                let r = radius * CGFloat(size)
+                let colour = colours[ci % colours.count]
+                layer.fill(
+                    Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)),
+                    with: .radialGradient(
+                        Gradient(colors: [colour.opacity(clamp(0.55 * bright, 0.75)),
+                                          colour.opacity(clamp(0.18 * bright, 0.35)), .clear]),
+                        center: CGPoint(x: x, y: y), startRadius: 0, endRadius: r))
+            }
+            // Deep shade at the bottom so the liquid has volume.
+            layer.blendMode = .normal
+            layer.fill(sphere, with: .linearGradient(
+                Gradient(colors: [.clear, .clear, Color.black.opacity(0.35)]),
+                startPoint: CGPoint(x: centre.x, y: centre.y - radius),
+                endPoint: CGPoint(x: centre.x, y: centre.y + radius)))
+        }
+        // Glass specular: a soft white highlight near the top-left of the sphere.
+        context.drawLayer { layer in
+            layer.addFilter(.blur(radius: radius * 0.10))
+            let w = radius * 0.62, h = radius * 0.30
+            let rect = CGRect(x: centre.x - radius * 0.42 - w / 2, y: centre.y - radius * 0.62 - h / 2,
+                              width: w, height: h)
+            layer.fill(Path(ellipseIn: rect), with: .color(Color.white.opacity(clamp(0.22 * bright, 0.32))))
         }
     }
 
