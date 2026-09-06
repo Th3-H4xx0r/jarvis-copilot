@@ -160,34 +160,43 @@ struct VoiceOrb: View {
         }
     }
 
-    /// Fine particle JETS: a handful of emitters on the rim each spray a cone of
-    /// dots outward — dense at the surface, thinning with distance — like dust
-    /// blown off the edge. Emitters drift slowly around the blob.
+    /// Free-floating dust. Each of N particles has its own seed → emission angle
+    /// (slowly drifting), birth phase, speed, lifetime and curl. At time `t` a
+    /// particle's age is (t·rate + phase) mod lifetime, so it detaches from the
+    /// rim, drifts outward along a gentle curve, fades, and is re-emitted at a
+    /// new spot. Nothing is attached; nothing moves as a group.
     private func drawDust(_ context: inout GraphicsContext, centre: CGPoint, radius: CGFloat,
                           t: Double, colour: Color, bright: Double) {
-        var seed: UInt32 = 0x2545F491
-        func rnd() -> Double {
-            seed = seed &* 1664525 &+ 1013904223
-            return Double(seed >> 8) / Double(1 << 24)
+        let count = 220
+        let dot = max(0.45, radius * 0.0042)
+        var young = Path(), old = Path()
+        for i in 0..<count {
+            // Per-particle constants from a hash of the index.
+            var h = UInt32(truncatingIfNeeded: i &* 2654435761)
+            func u() -> Double { h = h &* 1664525 &+ 1013904223; return Double(h >> 8) / Double(1 << 24) }
+            let life = 3.0 + 4.0 * u()                       // seconds
+            let phase = u() * life
+            let speed = 0.06 + 0.10 * u()                    // radii per second
+            let baseAngle = u() * 2 * .pi
+            let curl = (u() - 0.5) * 0.9                     // sideways drift rate
+            let wobble = (u() - 0.5) * 0.35
+
+            let age = (t * 0.55 + phase).truncatingRemainder(dividingBy: life)
+            let k = age / life                               // 0 birth → 1 death
+            // Emission point creeps around the rim over time, and the particle
+            // curls sideways as it travels.
+            let angle = baseAngle + 0.15 * sin(t * 0.08 + baseAngle) + curl * age
+            let dist = 1.02 + speed * age + wobble * sin(age * 1.7 + baseAngle)
+            let alphaLife = k < 0.15 ? k / 0.15 : (1 - k) / 0.85   // quick in, slow out
+            guard alphaLife > 0.02 else { continue }
+            let x = centre.x + radius * CGFloat(dist * cos(angle))
+            let y = centre.y + radius * CGFloat(dist * sin(angle))
+            let r = dot * CGFloat(0.7 + 0.6 * (1 - k))
+            let rect = CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)
+            if k < 0.35 { young.addEllipse(in: rect) } else { old.addEllipse(in: rect) }
         }
-        let dot = max(0.45, radius * 0.0045)
-        var near = Path(), far = Path()
-        let emitters = 6
-        for e in 0..<emitters {
-            let base = Double(e) / Double(emitters) * 2 * .pi + 0.9 * sin(t * 0.06 + Double(e))
-            let jetLength = 0.35 + 0.25 * rnd()
-            let cone = 0.35 + 0.25 * rnd()
-            for _ in 0..<70 {
-                let d = pow(rnd(), 1.8) * jetLength
-                let a = base + (rnd() - 0.5) * cone * (0.4 + d)
-                let r = radius * CGFloat(1.0 + d)
-                let x = centre.x + r * CGFloat(cos(a)), y = centre.y + r * CGFloat(sin(a))
-                let rect = CGRect(x: x - dot, y: y - dot, width: dot * 2, height: dot * 2)
-                if d < 0.12 { near.addEllipse(in: rect) } else { far.addEllipse(in: rect) }
-            }
-        }
-        context.fill(far, with: .color(colour.opacity(clamp(0.40 * bright, 0.55))))
-        context.fill(near, with: .color(blend(colour, .white, 0.3).opacity(clamp(0.65 * bright, 0.8))))
+        context.fill(young, with: .color(blend(colour, .white, 0.35).opacity(clamp(0.70 * bright, 0.85))))
+        context.fill(old, with: .color(colour.opacity(clamp(0.32 * bright, 0.45))))
     }
 
     /// A deterministic cloud of tiny dots hugging the sphere's edge, slowly
