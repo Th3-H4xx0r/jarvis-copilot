@@ -53,6 +53,8 @@ _HERMES_CORE_TOOLS = [
     "text_to_speech",
     # Planning & memory
     "todo", "memory",
+    # Email is a first-class action, not a shell script to be rediscovered.
+    "send_email",
     # Session history search
     "session_search",
     # Clarifying questions
@@ -250,7 +252,7 @@ TOOLSETS = {
     
     "messaging": {
         "description": "Cross-platform messaging: send messages to Telegram, Discord, Slack, SMS, etc.",
-        "tools": ["send_message"],
+        "tools": ["send_message", "send_email"],
         "includes": []
     },
 
