@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import WatchConnectivity
 
 /// The phone half of the Apple Watch companion.
@@ -40,8 +41,10 @@ final class WatchBridge: NSObject, ObservableObject {
     /// Bumped per turn; a reply from an abandoned turn is dropped.
     private var turnCounter = 0
     private var activeTurn = 0
-    private var hapticNonce = 0
-    private var firstSentenceNonce = 0
+    // Seeded from the clock: the watch dedupes on `nonce != last`, so restarting
+    // at 0 each launch could silently swallow the first haptic or ack.
+    private var hapticNonce = Int(Date().timeIntervalSince1970 * 1000)
+    private var firstSentenceNonce = Int(Date().timeIntervalSince1970 * 1000)
 
     init(api: JarvisAPI = .shared, defaults: UserDefaults = .standard) {
         self.api = api
@@ -49,6 +52,30 @@ final class WatchBridge: NSObject, ObservableObject {
         self.voice = VoiceAPI(api: api)
         self.defaults = defaults
         super.init()
+    }
+
+    // MARK: - The reply the watch decodes
+
+    /// `AskResult.from` (JarvisWatch/AskResult.swift) reads exactly these keys.
+    /// Built here, and covered by tests, because getting them wrong fails
+    /// silently: a reply under the wrong key simply arrives blank.
+    enum Failure: Equatable {
+        case notConfigured
+        case network(String)
+    }
+
+    nonisolated static func reply(text: String, sentClip: Bool) -> [String: Any] {
+        ["ok": true, "replyText": text, "expectsClip": sentClip]
+    }
+
+    nonisolated static func failure(_ failure: Failure) -> [String: Any] {
+        switch failure {
+        case .notConfigured:
+            // The watch matches this string exactly to show its setup screen.
+            return ["ok": false, "error": "not_configured"]
+        case .network(let detail):
+            return ["ok": false, "error": "network", "detail": detail]
+        }
     }
 
     // MARK: - Lifecycle
@@ -65,12 +92,27 @@ final class WatchBridge: NSObject, ObservableObject {
     /// screen instead of failing every turn.
     func pushLoginState() {
         guard WCSession.isSupported() else { return }
-        push(["loggedIn": api.isPaired])
+        // `preferLocalVoice` is set on the PHONE but read on the watch, which
+        // has its own UserDefaults — without carrying it across, the toggle
+        // did nothing at all.
+        push(["loggedIn": api.isPaired,
+              "preferLocalVoice": defaults.bool(forKey: Self.preferLocalVoiceKey)])
     }
 
     private func refreshState(_ session: WCSession) {
         isPaired = session.isPaired && session.isWatchAppInstalled
         isReachable = session.isReachable
+    }
+
+    /// The live preview, at ~3/s. `updateApplicationContext` is rate-limited
+    /// and re-serializes the whole context, so pushing every token dropped
+    /// updates on the floor.
+    private var lastStreamPush = Date.distantPast
+    private func pushStreaming(_ text: String) {
+        let now = Date()
+        guard now.timeIntervalSince(lastStreamPush) >= 0.3 else { return }
+        lastStreamPush = now
+        push(["streamingText": text])
     }
 
     private func push(_ values: [String: Any]) {
@@ -103,9 +145,7 @@ final class WatchBridge: NSObject, ObservableObject {
     /// Sentences are synthesized and delivered as they complete, so the watch
     /// starts speaking while the rest of the answer is still being written.
     func runTurn(text: String, preferLocalVoice: Bool) async -> [String: Any] {
-        guard api.isPaired else {
-            return ["ok": false, "error": "notConfigured"]
-        }
+        guard api.isPaired else { return Self.failure(.notConfigured) }
         let turn = beginTurn()
         push(["streamingText": ""])
 
@@ -113,24 +153,36 @@ final class WatchBridge: NSObject, ObservableObject {
         do { sessionID = try await watchSessionID() }
         catch {
             lastError = apiErrorMessage(error)
-            return ["ok": false, "error": "network", "detail": lastError ?? ""]
+            // A bad/deleted session id must not be reused for every later turn.
+            startNewSession()
+            return Self.failure(.network(lastError ?? "could not start the turn"))
         }
 
+        /// Set from the delivery closure, read after the stream ends.
+        final class ClipFlag { var sent = false }
+        let clipFlag = ClipFlag()
         let splitter = WatchRelay.SentenceSplitter()
         let pipeline = SentencePipeline(voice: voice, preferLocalVoice: preferLocalVoice) { [weak self] data, seq, isFirst in
-            self?.sendVoiceClip(data, seq: seq, isFirst: isFirst)
+            // A clip synthesized for an ABANDONED turn must not play over the
+            // new one: the SSE loop's guard doesn't cover a slow synthesis.
+            guard let self, self.isActive(turn) else { return }
+            clipFlag.sent = true
+            self.sendVoiceClip(data, seq: seq, isFirst: isFirst)
         }
         var reply = ""
         var sawFirstSentence = false
 
         do {
-            for try await event in chat.sendMessage(sessionID: sessionID, text: text) {
+            stream: for try await event in chat.sendMessage(sessionID: sessionID, text: text) {
                 guard isActive(turn) else { break }
                 switch event.event {
-                case "token":
-                    guard let delta = event.string("text"), !delta.isEmpty else { continue }
+                case "token", "delta", "text":
+                    // Match ChatStreamReducer's names and key fallbacks — a
+                    // `delta`-shaped server produced a silent, empty turn.
+                    guard let delta = event.string("text") ?? event.string("delta")
+                            ?? event.string("content"), !delta.isEmpty else { continue }
                     reply += delta
-                    push(["streamingText": reply])
+                    pushStreaming(reply)
                     for sentence in splitter.feed(delta) {
                         if !sawFirstSentence {
                             sawFirstSentence = true
@@ -143,16 +195,19 @@ final class WatchBridge: NSObject, ObservableObject {
                 case "apperror", "error", "cancel":
                     let detail = event.string("text") ?? event.string("error") ?? "the turn failed"
                     lastError = detail
-                    return ["ok": false, "error": "network", "detail": detail]
-                case "stream_end", "done":
-                    break
+                    return Self.failure(.network(detail))
+                case "stream_end", "done", "complete":
+                    // `break` in a switch leaves the SWITCH; the stream has to
+                    // stop here or a server that holds the socket open hangs
+                    // the watch until its reply handler times out.
+                    break stream
                 default:
                     break
                 }
             }
         } catch {
             lastError = apiErrorMessage(error)
-            return ["ok": false, "error": "network", "detail": lastError ?? ""]
+            return Self.failure(.network(lastError ?? "the turn failed"))
         }
 
         if let tail = splitter.finish() {
@@ -168,10 +223,11 @@ final class WatchBridge: NSObject, ObservableObject {
 
         let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return ["ok": false, "error": "network", "detail": "the reply was empty"]
+            return Self.failure(.network("the reply was empty"))
         }
-        // The clips already went out of band; the ack only carries the text.
-        return ["ok": true, "text": trimmed]
+        // The clips already went out of band; the ack carries the text and
+        // whether audio is on its way, so the watch knows not to speak it.
+        return Self.reply(text: trimmed, sentClip: clipFlag.sent)
     }
 
     private func isActive(_ turn: Int) -> Bool { turn == activeTurn }
@@ -192,6 +248,25 @@ final class WatchBridge: NSObject, ObservableObject {
     /// Forget the remembered session, so the next turn starts a fresh one.
     func startNewSession() { defaults.removeObject(forKey: Self.sessionKey) }
 
+    // MARK: - Background assertion
+
+    private func beginBackgroundAssertion() -> UIBackgroundTaskIdentifier {
+        var identifier = UIBackgroundTaskIdentifier.invalid
+        identifier = UIApplication.shared.beginBackgroundTask(withName: "jc.watch.turn") { [weak self] in
+            // Out of time: abandon the turn so the expiring assertion can end.
+            Task { @MainActor in self?.abandonActiveTurn() }
+        }
+        return identifier
+    }
+
+    private func endBackgroundAssertion(_ identifier: UIBackgroundTaskIdentifier) {
+        guard identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
+    }
+
+    /// Stop attributing work to the running turn (its clips are then dropped).
+    private func abandonActiveTurn() { activeTurn = 0 }
+
     // MARK: - Clip delivery
 
     /// Small clips go over `sendMessageData` (immediate, reachable-only); the
@@ -203,6 +278,11 @@ final class WatchBridge: NSObject, ObservableObject {
     private func sendVoiceClip(_ data: Data, seq: Int, isFirst: Bool) {
         guard WCSession.isSupported(), !data.isEmpty else { return }
         let session = WCSession.default
+        if isFirst {
+            // Queued clips from the previous answer would otherwise play over
+            // this one — `transferFile` survives the turn that made it.
+            for transfer in session.outstandingFileTransfers { transfer.cancel() }
+        }
         if session.isReachable && data.count <= Self.inlineClipLimit {
             var framed = Data([0x01, isFirst ? 1 : 0, UInt8(clamping: seq)])
             framed.append(data)
@@ -254,7 +334,13 @@ extension WatchBridge: WCSessionDelegate {
         let text = (message["text"] as? String) ?? ""
         let preferLocal = (message["preferLocalVoice"] as? Bool) ?? false
         Task { @MainActor in
-            replyHandler(await self.runTurn(text: text, preferLocalVoice: preferLocal))
+            // iOS background-launches us to deliver this message, and will
+            // suspend us mid-turn without an assertion — the watch then waits
+            // out its reply handler and reports "can't reach the phone".
+            let assertion = await self.beginBackgroundAssertion()
+            let reply = await self.runTurn(text: text, preferLocalVoice: preferLocal)
+            replyHandler(reply)
+            await self.endBackgroundAssertion(assertion)
         }
     }
 

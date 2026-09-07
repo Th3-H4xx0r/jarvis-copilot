@@ -58,11 +58,22 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
 
     /// Hand every contiguous, already-arrived clip starting at
     /// `nextSeqToPlay` to the play queue, in order.
+    /// A sentence whose synthesis failed is never sent, so waiting forever for
+    /// its `seq` left every later clip stuck in `pendingBySeq` — silence, with
+    /// the UI pinned on "speaking". If something newer is already waiting, skip
+    /// the gap rather than stall.
+    private func skipGapIfStranded() {
+        guard !pendingBySeq.isEmpty, pendingBySeq[nextSeqToPlay] == nil else { return }
+        guard let lowest = pendingBySeq.keys.min(), lowest > nextSeqToPlay else { return }
+        nextSeqToPlay = lowest
+    }
+
     private func drainReadyClips() {
+        skipGapIfStranded()
         while let data = pendingBySeq.removeValue(forKey: nextSeqToPlay) {
             nextSeqToPlay += 1
-            if let p = player, p.isPlaying, !calibrating {
-                clipQueue.append(data)            // a chunk is already playing → queue after it
+            if isStarting || (player?.isPlaying == true && !calibrating) {
+                clipQueue.append(data)            // a chunk is already playing (or about to) → queue after it
             } else {
                 calibrating = false               // preempt the silent volume loop / idle
                 start(data: data, loop: false)
@@ -77,6 +88,7 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
         clipQueue.removeAll()
         pendingBySeq.removeAll()
         nextSeqToPlay = 0
+        isStarting = false
         isSpeaking = false
         stopProgressPolling(completed: false)
         playbackProgress = 0
@@ -147,16 +159,24 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
         } catch {}
     }
 
+    /// `player` is only assigned inside the async session-activation callback,
+    /// so two contiguous clips draining in one pass both saw `player == nil`
+    /// and started — playing over each other. This is set synchronously.
+    private var isStarting = false
+
     private func start(data: Data, loop: Bool) {
+        isStarting = true
         let s = AVAudioSession.sharedInstance()
         do {
             try s.setCategory(.playback, mode: .default)
         } catch {
+            isStarting = false
             VoiceStatus.shared.set("🔇 \(error.localizedDescription)")
             return
         }
         s.activate(options: []) { success, error in
             Task { @MainActor in
+                defer { self.isStarting = false }
                 guard success, error == nil else {
                     VoiceStatus.shared.set("🔇 audio session unavailable")
                     return

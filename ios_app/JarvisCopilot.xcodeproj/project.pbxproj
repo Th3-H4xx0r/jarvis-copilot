@@ -494,6 +494,8 @@
 		D8E1D1327953EDB312AAC053 /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6358EC26D522B891FC6A82E /* WatchBridge.swift */; };
 		DDEAB2C2B682A53C1D655892 /* Watch_WatchRelayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CB021F425C50DBCFF7BCF53 /* Watch_WatchRelayTests.swift */; };
 		1C96D692B83AB70E6A5BA112 /* WatchPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1788D1CD0A121B7279E028 /* WatchPage.swift */; };
+		4E29F5BC9C71C26B29A2A7FF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3F7A94ACC1A8A3D908CE2F8B /* Assets.xcassets */; };
+		2925241893EFAB10621386B6 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = A2101217A4D1C9AC81A28B7C /* Fonts */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1032,6 +1034,8 @@
 		F6358EC26D522B891FC6A82E /* WatchBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		2CB021F425C50DBCFF7BCF53 /* Watch_WatchRelayTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Watch_WatchRelayTests.swift; path = ../Watch_WatchRelayTests.swift; sourceTree = "<group>"; };
 		0D1788D1CD0A121B7279E028 /* WatchPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchPage.swift; sourceTree = "<group>"; };
+		3F7A94ACC1A8A3D908CE2F8B /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A2101217A4D1C9AC81A28B7C /* Fonts */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = Fonts; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2079,6 +2083,8 @@
 		7C93F90DEB00E1E996CC0919 /* JarvisWatch */ = {
 			isa = PBXGroup;
 			children = (
+				3F7A94ACC1A8A3D908CE2F8B /* Assets.xcassets */,
+				A2101217A4D1C9AC81A28B7C /* Fonts */,
 				BBC59431147E7314E8587018 /* AckTimer.swift */,
 				C87704B30F39558E71E144A7 /* AskResult.swift */,
 				9F4C9C5AB789FDD5A49DB3FD /* AudioPlayer.swift */,
@@ -2252,6 +2258,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4E29F5BC9C71C26B29A2A7FF /* Assets.xcassets in Resources */,
+				2925241893EFAB10621386B6 /* Fonts in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3041,11 +3049,13 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ENABLE_PREVIEWS = YES;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Debug;
 		};
@@ -3072,11 +3082,13 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ENABLE_PREVIEWS = YES;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Release;
 		};

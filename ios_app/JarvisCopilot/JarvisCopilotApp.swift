@@ -32,6 +32,11 @@ struct JarvisCopilotApp: App {
                 // Shortcut x-callback results and `jarviscopilot://` deep links
                 // (voice, chat?session=, coding?session=).
                 .onOpenURL { AppServices.shared.open(url: $0) }
+                // WCSession has to be live from LAUNCH, not from the first
+                // foreground: iOS background-launches this app to deliver the
+                // watch's message, and with no delegate set by then the watch
+                // just reports that it cannot reach the phone.
+                .task { WatchBridge.shared.activate() }
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     AppServices.shared.setForeground(phase == .active)
                     #if os(iOS)

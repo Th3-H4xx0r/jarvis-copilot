@@ -26,6 +26,13 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     static let preferLocalVoiceKey = "watch.preferLocalVoice"
     static var preferLocalVoice: Bool { UserDefaults.standard.bool(forKey: preferLocalVoiceKey) }
 
+    /// Adopt the phone's setting. The toggle lives on the iPhone (the watch has
+    /// no settings screen), and the two devices have separate UserDefaults, so
+    /// without this the toggle did nothing at all.
+    static func adoptPreferLocalVoice(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: preferLocalVoiceKey)
+    }
+
     override init() {
         super.init()
         if WCSession.isSupported() {
@@ -62,6 +69,7 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
 
     nonisolated func session(_ s: WCSession, didReceiveApplicationContext ctx: [String: Any]) {
         let v = ctx["loggedIn"] as? Bool
+        let prefersLocal = ctx["preferLocalVoice"] as? Bool
         let streaming = ctx["streamingText"] as? String
         let hapticNonce = ctx["hapticNonce"] as? Int
         let hapticCount = ctx["hapticCount"] as? Int
@@ -69,6 +77,7 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
         let firstSentenceNonce = ctx["firstSentenceNonce"] as? Int
         Task { @MainActor in
             if let v { self.loggedIn = v }
+            if let prefersLocal { Self.adoptPreferLocalVoice(prefersLocal) }
             if let streaming { self.streamingText = streaming }
             // Agent → watch haptic command (deduped by nonce so we buzz once).
             if let nonce = hapticNonce, nonce != self.lastHapticNonce {

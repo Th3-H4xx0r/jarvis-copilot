@@ -58,7 +58,10 @@ final class AckCoordinator {
     func firstSentenceKnown(_ text: String, preferLocalVoice: Bool) {
         nonce += 1
         let myNonce = nonce
-        clipArrived = false
+        // NOT cleared here. The clip (sendMessageData) and the first-sentence
+        // context are independent channels: a clip that lands first had its
+        // arrival erased, and 700 ms later the watch spoke over it. Only
+        // `reset()`, at the start of a turn, clears this.
         let waitMs = preferLocalVoice ? 0 : AckTimer.localVoiceFallbackMs
         Task { [weak self] in
             if waitMs > 0 {
