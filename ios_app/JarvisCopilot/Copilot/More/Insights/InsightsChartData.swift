@@ -239,6 +239,15 @@ enum InsightsUI {
 
     /// "12 sessions · 1.2M tokens · 41% share" — the sub-line of a model row.
     /// Share prefers cost, then tokens, then sessions (the web's fallback chain).
+    /// What the trailing pill shows. Cost when the model has pricing; otherwise
+    /// its token count — every row read "—" on a screen whose whole point is
+    /// showing usage, because local and free models carry no cost.
+    static func modelPill(_ model: ModelStat) -> String {
+        if model.cost > 0 { return Insights.formatCost(model.cost) }
+        if model.totalTokens > 0 { return Insights.formatTokensCompact(model.totalTokens) }
+        return "—"
+    }
+
     static func modelSubtitle(_ model: ModelStat) -> String {
         let share = modelShare(model)
         return "\(Insights.formatTokenCount(model.sessions)) sessions · "

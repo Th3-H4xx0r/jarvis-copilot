@@ -238,7 +238,8 @@ struct InsightsTokenBreakdownCard: View {
 
 // MARK: - By model
 
-/// Per-model breakdown: name over "sessions · tokens · share", cost as a chip.
+/// Per-model breakdown: name over "sessions · tokens · share", with cost (or
+/// tokens, when the model has no pricing) as a chip.
 struct InsightsModelsCard: View {
     let models: [ModelStat]
 
@@ -277,7 +278,7 @@ struct InsightsModelRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
-            StatusPill(Insights.formatCost(model.cost), color: JcTheme.cyan, dense: true)
+            StatusPill(InsightsUI.modelPill(model), color: JcTheme.cyan, dense: true)
         }
         .padding(.vertical, 10)
     }

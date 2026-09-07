@@ -474,6 +474,7 @@
 		DB5B9E759DBD0AE44371C4E8 /* ClockSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33B976A13B047F8380A8012B /* ClockSkillsTests.swift */; };
 		E7B7D20070A68AB5B2DD8FCA /* JarvisStopwatchActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5572E7D57DF38456D03160E4 /* JarvisStopwatchActivity.swift */; };
 		CF0A2B559A9933D060E7444A /* PhotoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED899060A8E9519B6538191B /* PhotoLibrary.swift */; };
+		92142E4642D7229F752D417B /* InsightsModelPillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EF5FDC5241D57C71303856C /* InsightsModelPillTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -974,6 +975,7 @@
 		33B976A13B047F8380A8012B /* ClockSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClockSkillsTests.swift; sourceTree = "<group>"; };
 		5572E7D57DF38456D03160E4 /* JarvisStopwatchActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisStopwatchActivity.swift; path = JarvisWidget/JarvisStopwatchActivity.swift; sourceTree = "<group>"; };
 		ED899060A8E9519B6538191B /* PhotoLibrary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotoLibrary.swift; sourceTree = "<group>"; };
+		9EF5FDC5241D57C71303856C /* InsightsModelPillTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsModelPillTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1797,6 +1799,7 @@
 		BCF88642CC69AD35980A514B /* MoreUIA */ = {
 			isa = PBXGroup;
 			children = (
+				9EF5FDC5241D57C71303856C /* InsightsModelPillTests.swift */,
 				BAD972BD94BF423F742A06C7 /* MoreToneColorTests.swift */,
 				D132B7937C3D516237DC06DE /* MoreUIARouteTests.swift */,
 				42726FC7D424203700ABE2E7 /* MoreUIAHostingTests.swift */,
@@ -2153,6 +2156,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				92142E4642D7229F752D417B /* InsightsModelPillTests.swift in Sources */,
+				92142E4642D7229F752D417B /* InsightsModelPillTests.swift in Sources */,
 				DB5B9E759DBD0AE44371C4E8 /* ClockSkillsTests.swift in Sources */,
 				44595E61E3E9CDDCAEDC4C68 /* StopwatchCoreTests.swift in Sources */,
 				AE432524B706CCE8F8E9BD82 /* AlarmSkillsTests.swift in Sources */,
