@@ -817,3 +817,49 @@ final class PhoneSkillsTests: XCTestCase {
         }
     }
 }
+
+// MARK: - send_sms attachments
+
+extension PhoneSkillsTests {
+    func testSendSmsAttachesAPhotoFromTheServer() async throws {
+        let sms = MockSmsComposer()
+        let png = Data([0x89, 0x50, 0x4E, 0x47])
+        _ = try await IOSSkills.sendSMS(sms).run([
+            "number": "+15551234", "message": "Here you go",
+            "image_base64": png.base64EncodedString(),
+            "mime": "image/png", "filename": "shot.png",
+        ])
+        let attached = try XCTUnwrap(sms.attachments.first ?? nil)
+        XCTAssertEqual(attached.data, png)
+        XCTAssertEqual(attached.mime, "image/png")
+        XCTAssertEqual(attached.filename, "shot.png")
+        XCTAssertEqual(sms.composed.first?.message, "Here you go")
+    }
+
+    func testSendSmsWithoutAnAttachmentIsUnchanged() async throws {
+        let sms = MockSmsComposer()
+        _ = try await IOSSkills.sendSMS(sms).run(["number": "+1", "message": "hi"])
+        XCTAssertNil(sms.attachments.first ?? nil)
+    }
+
+    func testAPhotoWithNoWordsIsStillAValidText() async throws {
+        let sms = MockSmsComposer()
+        _ = try await IOSSkills.sendSMS(sms).run([
+            "number": "+1", "message": "",
+            "image_base64": Data([1, 2, 3]).base64EncodedString(),
+        ])
+        XCTAssertNotNil(sms.attachments.first ?? nil)
+    }
+
+    func testUndecodableAttachmentBytesAreRejected() async {
+        let sms = MockSmsComposer()
+        do {
+            _ = try await IOSSkills.sendSMS(sms).run([
+                "number": "+1", "message": "hi", "image_base64": "%%%not base64%%%",
+            ])
+            XCTFail("expected badArgument")
+        } catch let e as SkillError {
+            if case .badArgument = e {} else { XCTFail("wrong error \(e)") }
+        } catch { XCTFail("wrong error \(error)") }
+    }
+}

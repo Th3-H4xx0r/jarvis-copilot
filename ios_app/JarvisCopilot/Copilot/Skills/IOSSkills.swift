@@ -29,15 +29,35 @@ enum IOSSkills {
             inputSchema: SkillSchema.object([
                 "number": SkillSchema.string(),
                 "message": SkillSchema.string(),
+                "image_path": SkillSchema.string("A photo to attach. The server inlines the file."),
+                "image_base64": SkillSchema.string("Attachment bytes (filled in by the server)."),
+                "mime": SkillSchema.string(),
+                "filename": SkillSchema.string(),
             ], required: ["number", "message"]),
             requiresForeground: true
         ) { args in
             let number = SkillArgs.string(args, "number").trimmingCharacters(in: .whitespaces)
             let message = SkillArgs.string(args, "message")
             guard !number.isEmpty else { throw SkillError.badArgument("number required") }
-            guard !message.isEmpty else { throw SkillError.badArgument("message required") }
+            // A photo on its own is a perfectly good text.
+            let b64 = SkillArgs.string(args, "image_base64")
+            guard !message.isEmpty || !b64.isEmpty else {
+                throw SkillError.badArgument("message required")
+            }
+            var attachment: SmsAttachment?
+            if !b64.isEmpty {
+                guard let data = Data(base64Encoded: b64, options: [.ignoreUnknownCharacters]) else {
+                    throw SkillError.badArgument("image_base64 is not decodable")
+                }
+                let mime = SkillArgs.string(args, "mime")
+                let name = SkillArgs.string(args, "filename")
+                attachment = SmsAttachment(data: data,
+                                           mime: mime.isEmpty ? "image/jpeg" : mime,
+                                           filename: name.isEmpty ? "photo.jpg" : name)
+            }
             do {
-                return try await composer.compose(number: number, message: message).json
+                return try await composer.compose(number: number, message: message,
+                                                  attachment: attachment).json
             } catch {
                 return ["shown": false, "error": SystemSkills.message(error)]
             }

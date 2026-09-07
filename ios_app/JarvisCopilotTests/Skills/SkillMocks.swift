@@ -218,8 +218,11 @@ final class MockSmsComposer: SmsComposing, @unchecked Sendable {
     var outcome: SmsComposeOutcome = .sent
     var error: Error?
     var composed: [(number: String, message: String)] = []
-    func compose(number: String, message: String) async throws -> SmsComposeOutcome {
+    var attachments: [SmsAttachment?] = []
+    func compose(number: String, message: String,
+                 attachment: SmsAttachment?) async throws -> SmsComposeOutcome {
         composed.append((number, message))
+        attachments.append(attachment)
         if let error { throw error }
         return outcome
     }

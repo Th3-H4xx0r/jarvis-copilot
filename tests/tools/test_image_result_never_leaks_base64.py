@@ -104,3 +104,73 @@ def test_the_result_tells_the_model_how_to_send_the_photo(monkeypatch, tmp_path)
     out = json.loads(handler({}))
     assert out["send_with"].startswith("MEDIA:")
     assert out["image_path"] in out["send_with"]
+
+
+# ── outbound: sending a server-side photo THROUGH a device skill ────────────
+
+def _sms_handler(monkeypatch, tmp_path):
+    monkeypatch.setattr(device_bridge, "all_device_skills", lambda: [
+        {"device_id": "dev1", "device_name": "Phone", "name": "send_sms",
+         "description": "Text someone.", "input_schema": {
+             "type": "object",
+             "properties": {"number": {"type": "string"}, "message": {"type": "string"}}}},
+    ])
+    device_skill_tools.rebuild_device_tools()
+    monkeypatch.setattr(device_bridge, "in_process_available", lambda: True)
+    seen = {}
+
+    def _invoke(device_id, skill, args, **kw):
+        seen.update(args)
+        return {"ok": True, "result": {"shown": True}}
+
+    monkeypatch.setattr(device_bridge, "invoke_skill", _invoke)
+    monkeypatch.setattr(device_skill_tools, "_IMAGE_DIR", tmp_path)
+    tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
+    return tools["device_send_sms"]["handler"], seen
+
+
+def test_a_server_side_photo_is_inlined_for_the_phone(monkeypatch, tmp_path):
+    """The phone cannot read /root/.jarviscopilot/cache/images/... — without
+    inlining the bytes, iMessage showed the path as text instead of the photo."""
+    photo = tmp_path / "jc-device-recent_photo-1.jpg"
+    photo.write_bytes(base64.b64decode(_PNG_1PX))
+    handler, seen = _sms_handler(monkeypatch, tmp_path)
+
+    handler({"number": "+15551234", "message": "Here you go", "image_path": str(photo)})
+
+    assert seen["image_base64"], "the phone needs the bytes, not a server path"
+    assert base64.b64decode(seen["image_base64"]) == photo.read_bytes()
+    assert seen["mime"] == "image/jpeg"
+    assert seen["filename"] == photo.name
+    assert "image_path" not in seen, "a server path is meaningless on the phone"
+    assert seen["message"] == "Here you go"
+
+
+def test_a_media_tag_in_the_message_becomes_the_attachment(monkeypatch, tmp_path):
+    photo = tmp_path / "jc-device-shot.png"
+    photo.write_bytes(base64.b64decode(_PNG_1PX))
+    handler, seen = _sms_handler(monkeypatch, tmp_path)
+
+    handler({"number": "+15551234", "message": f"Look at this\nMEDIA:{photo}"})
+
+    assert "MEDIA:" not in seen["message"], "the tag must never be sent as text"
+    assert seen["message"].strip() == "Look at this"
+    assert base64.b64decode(seen["image_base64"]) == photo.read_bytes()
+    assert seen["mime"] == "image/png"
+
+
+def test_a_path_outside_the_media_roots_is_refused(monkeypatch, tmp_path):
+    secret = tmp_path / "outside" / "id_rsa.png"
+    secret.parent.mkdir()
+    secret.write_bytes(b"not really an image")
+    handler, seen = _sms_handler(monkeypatch, tmp_path / "allowed")
+    (tmp_path / "allowed").mkdir()
+
+    handler({"number": "+1", "message": "hi", "image_path": str(secret)})
+    assert "image_base64" not in seen, "only files under the media roots may be sent"
+
+
+def test_a_message_without_media_is_untouched(monkeypatch, tmp_path):
+    handler, seen = _sms_handler(monkeypatch, tmp_path)
+    handler({"number": "+1", "message": "just words"})
+    assert seen == {"number": "+1", "message": "just words"}

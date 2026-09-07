@@ -110,6 +110,82 @@ def _prune_images() -> None:
         pass
 
 
+_MEDIA_TAG_RE = re.compile(r"^[ \t]*MEDIA:[ \t]*(?P<path>\S+)[ \t]*$", re.MULTILINE)
+_OUTBOUND_PATH_KEYS = ("image_path", "attachment_path", "file_path", "photo_path", "media_path")
+
+
+def _media_delivery_ok(path: Path) -> bool:
+    """Only files under a media-delivery allowed root may leave the machine."""
+    try:
+        target = path.expanduser().resolve()
+    except Exception:
+        return False
+    roots = []
+    try:
+        from gateway.platforms.base import _media_delivery_allowed_roots
+        roots.extend(_media_delivery_allowed_roots())
+    except Exception:
+        pass
+    # Where WE put device photos always counts, even if the gateway allowlist
+    # can't be imported in this process.
+    roots.append(_IMAGE_DIR)
+    for root in roots:
+        try:
+            if target.is_relative_to(Path(root).expanduser().resolve()):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _inline_outbound_media(call_args: dict) -> dict:
+    """Turn a SERVER-side file path into bytes the device can actually use.
+
+    A phone cannot read `/root/.jarviscopilot/cache/images/...`, so "text my
+    latest photo to X" arrived as that path in the message body instead of the
+    picture. Any `*_path` argument — or a `MEDIA:<path>` line in the message —
+    is replaced with `image_base64` + `mime` + `filename` before the skill call
+    crosses the bridge. Paths outside the media-delivery roots are refused.
+    """
+    args = dict(call_args or {})
+    chosen: Optional[Path] = None
+
+    for key in _OUTBOUND_PATH_KEYS:
+        raw = str(args.get(key) or "").strip()
+        if not raw:
+            continue
+        candidate = Path(os.path.expanduser(raw))
+        args.pop(key, None)          # meaningless on the device either way
+        if candidate.is_file() and _media_delivery_ok(candidate):
+            chosen = candidate
+            break
+
+    message = args.get("message")
+    if isinstance(message, str) and "MEDIA:" in message:
+        cleaned = message
+        for match in _MEDIA_TAG_RE.finditer(message):
+            candidate = Path(os.path.expanduser(match.group("path").strip("`\"'")))
+            if chosen is None and candidate.is_file() and _media_delivery_ok(candidate):
+                chosen = candidate
+        # The tag is an instruction to us, never text for the recipient.
+        cleaned = _MEDIA_TAG_RE.sub("", cleaned)
+        args["message"] = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+    if chosen is not None:
+        try:
+            blob = chosen.read_bytes()
+        except Exception:
+            return args
+        mime = next((m for m, e in _IMAGE_EXT.items() if chosen.suffix.lower() == e), "")
+        if not mime:
+            import mimetypes
+            mime = mimetypes.guess_type(chosen.name)[0] or "application/octet-stream"
+        args["image_base64"] = base64.b64encode(blob).decode()
+        args["mime"] = mime
+        args["filename"] = chosen.name
+    return args
+
+
 def _materialize_image(result: dict, skill_name: str, call_args: dict) -> Any:
     """If `result` carries an image (`base64` + image `mime`), swap the blob for
     an `image_path` and a `description` the model can actually use.
@@ -296,6 +372,7 @@ def _make_handler(skill_name: str, candidates: list[dict]) -> Callable:
             return json.dumps({"ok": False, "error": err})
         call_args = dict(args or {})
         call_args.pop("device", None)
+        call_args = _inline_outbound_media(call_args)
         try:
             result = _invoke(device_id, skill_name, call_args)
         except Exception as exc:  # 3.4 — never raise into the model loop

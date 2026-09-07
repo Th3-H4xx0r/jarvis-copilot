@@ -5,6 +5,7 @@ import UIKit
 #endif
 #if canImport(MessageUI)
 import MessageUI
+import UniformTypeIdentifiers
 #endif
 
 /// Production implementations of the UIKit-shaped boundaries.
@@ -229,11 +230,13 @@ private final class ShareTextItem: NSObject, UIActivityItemSource {
 final class DefaultSmsComposer: NSObject, MFMessageComposeViewControllerDelegate, SmsComposing {
     private var pending: CheckedContinuation<SmsComposeOutcome, Never>?
 
-    nonisolated func compose(number: String, message: String) async throws -> SmsComposeOutcome {
-        try await present(number: number, message: message)
+    nonisolated func compose(number: String, message: String,
+                             attachment: SmsAttachment?) async throws -> SmsComposeOutcome {
+        try await present(number: number, message: message, attachment: attachment)
     }
 
-    private func present(number: String, message: String) async throws -> SmsComposeOutcome {
+    private func present(number: String, message: String,
+                         attachment: SmsAttachment?) async throws -> SmsComposeOutcome {
         guard MFMessageComposeViewController.canSendText() else {
             throw SkillError.unavailable("SMS not available on this device")
         }
@@ -249,9 +252,39 @@ final class DefaultSmsComposer: NSObject, MFMessageComposeViewControllerDelegate
         composer.messageComposeDelegate = self
         composer.recipients = [number]
         composer.body = message
+        if let attachment, MFMessageComposeViewController.canSendAttachments() {
+            // `addAttachmentData` needs a UTI, not a MIME type.
+            let uti = Self.uti(for: attachment.mime, filename: attachment.filename)
+            if !composer.addAttachmentData(attachment.data, typeIdentifier: uti,
+                                           filename: attachment.filename) {
+                JcLog.services.notice("send_sms: attachment refused by the composer")
+            }
+        }
         return await withCheckedContinuation { continuation in
             pending = continuation
             top.present(composer, animated: true)
+        }
+    }
+
+    /// MIME → UTI. `addAttachmentData` silently refuses an unknown identifier,
+    /// which is how a photo turned into a text-only message.
+    private static func uti(for mime: String, filename: String) -> String {
+        switch mime.lowercased() {
+        case "image/jpeg", "image/jpg": return "public.jpeg"
+        case "image/png": return "public.png"
+        case "image/gif": return "com.compuserve.gif"
+        case "image/heic": return "public.heic"
+        case "image/webp": return "org.webmproject.webp"
+        case "video/mp4": return "public.mpeg-4"
+        case "video/quicktime": return "com.apple.quicktime-movie"
+        case "application/pdf": return "com.adobe.pdf"
+        default:
+            if #available(iOS 14.0, *),
+               let ext = filename.split(separator: ".").last.map(String.init),
+               let type = UTType(filenameExtension: ext) {
+                return type.identifier
+            }
+            return "public.data"
         }
     }
 

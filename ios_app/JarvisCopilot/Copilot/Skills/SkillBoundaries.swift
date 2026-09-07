@@ -228,8 +228,23 @@ enum SmsComposeOutcome: Sendable, Equatable {
     }
 }
 
+/// A file to attach to a text. The bytes arrive from the server (the phone
+/// cannot read a server path), already decoded.
+struct SmsAttachment: Sendable, Equatable {
+    let data: Data
+    let mime: String
+    let filename: String
+}
+
 protocol SmsComposing: Sendable {
-    func compose(number: String, message: String) async throws -> SmsComposeOutcome
+    func compose(number: String, message: String,
+                 attachment: SmsAttachment?) async throws -> SmsComposeOutcome
+}
+
+extension SmsComposing {
+    func compose(number: String, message: String) async throws -> SmsComposeOutcome {
+        try await compose(number: number, message: message, attachment: nil)
+    }
 }
 
 // MARK: - Opening another app

@@ -136,7 +136,8 @@ enum PhoneSkills {
 
 /// Fallback when MessageUI isn't available (macOS / Catalyst).
 final class UnavailableSmsComposer: SmsComposing {
-    func compose(number: String, message: String) async throws -> SmsComposeOutcome {
+    func compose(number: String, message: String,
+                 attachment: SmsAttachment?) async throws -> SmsComposeOutcome {
         .unavailable("the Messages composer needs iOS")
     }
 }
