@@ -53,7 +53,12 @@ struct DeviceView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .onAppear { if manager.connected?.id != bottle.id { manager.connect(bottle) } }
+        // Connect when this is a different bottle — OR the same bottle whose link
+        // is down (dropped while we were away, or a connect that failed). The old
+        // "different bottle only" test left the screen sitting on a dead link.
+        .onAppear {
+            if manager.connected?.id != bottle.id || !manager.linkIsUp { manager.connect(bottle) }
+        }
         .onDisappear {
             // Keep the link when bridging: leaving this screen would otherwise
             // unregister the bottle and Jarvis would lose it.

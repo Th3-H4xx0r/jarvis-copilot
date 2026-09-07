@@ -136,7 +136,17 @@ final class BottleManager: NSObject, ObservableObject {
 
     // MARK: Connection
 
+    /// True while a link to `connected` exists or is being brought up. False at
+    /// `.idle` / `.failed` — the bottle is remembered but nothing is talking to it.
+    var linkIsUp: Bool {
+        switch state {
+        case .connecting, .discovering, .ready: return true
+        case .idle, .scanning, .failed: return false
+        }
+    }
+
     func connect(_ bottle: DiscoveredBottle) {
+        JcLog.services.notice("bottle: connect \(bottle.name, privacy: .public) state=\(self.state.text, privacy: .public)")
         stopScan()
         resetDeviceState()
         peripheral = bottle.peripheral
@@ -147,6 +157,7 @@ final class BottleManager: NSObject, ObservableObject {
     }
 
     func disconnect() {
+        JcLog.services.notice("bottle: disconnect state=\(self.state.text, privacy: .public)")
         pollTask?.cancel(); pollTask = nil
         timeoutTask?.cancel(); timeoutTask = nil
         if let p = peripheral { central.cancelPeripheralConnection(p) }
@@ -450,19 +461,39 @@ extension BottleManager: CBCentralManagerDelegate {
     nonisolated func centralManager(_ c: CBCentralManager,
                                     didFailToConnect p: CBPeripheral, error: Error?) {
         Task { @MainActor in
+            JcLog.services.notice("bottle: failed to connect (\(error?.localizedDescription ?? "?", privacy: .public))")
             self.state = .failed(error?.localizedDescription ?? "could not connect")
         }
     }
 
     nonisolated func centralManager(_ c: CBCentralManager,
                                     didDisconnectPeripheral p: CBPeripheral, error: Error?) {
+        let reason = error?.localizedDescription ?? "no error"
         Task { @MainActor in
+            // `disconnect()` lets the peripheral go BEFORE CoreBluetooth reports the
+            // drop, so a callback for a peripheral we no longer track is either the
+            // tail of that deliberate disconnect or noise. Acting on it was the
+            // "tap the bottle again and it never connects" bug: leaving the screen
+            // cancelled the link, tapping the card called `connect()` on the same
+            // peripheral, then the stale callback for the cancel landed and reset
+            // everything to idle — with the fresh connect request thrown away.
+            guard p === self.peripheral else {
+                JcLog.services.notice("bottle: ignoring disconnect for a released peripheral (\(reason))")
+                return
+            }
             self.pollTask?.cancel(); self.pollTask = nil
             self.timeoutTask?.cancel(); self.timeoutTask = nil
             self.inFlight = nil
             self.queue.removeAll()
-            self.connected = nil
-            self.state = .idle
+            self.writeChar = nil
+            // We still want this bottle (a screen is on it, or bridge mode holds the
+            // link for Jarvis): ask CoreBluetooth for it again. A pending connect is
+            // free — it simply completes when the bottle is next in range — so the
+            // link comes back on its own instead of sitting at "Idle" until someone
+            // rescans. `connected` stays set so the card keeps its place in the list.
+            JcLog.services.notice("bottle: link dropped (\(reason)); reconnecting")
+            self.state = .connecting
+            self.central.connect(p)
         }
     }
 }
