@@ -17,7 +17,7 @@ struct LiquidGlassOrb: View {
     static let fill: CGFloat = 0.53
     /// The shader's outer loop; the frames span exactly this, so it seams.
     static let loop: Double = 38.4
-    static let frameCount = 36
+    static let frameCount = 18
 
     /// Visible sphere diameter.
     let size: CGFloat
@@ -26,6 +26,7 @@ struct LiquidGlassOrb: View {
     var audioLevel: Double = 0
 
     @State private var envelope = OrbEnvelope()
+    @ObservedObject private var frames = OrbFrames.shared
     @State private var origin = Date()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -33,7 +34,7 @@ struct LiquidGlassOrb: View {
     private var surface: CGFloat { size / Self.fill }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 20,
+        TimelineView(.animation(minimumInterval: 1 / 12,
                                 paused: !animating || reduceMotion || scenePhase != .active)) { timeline in
             let elapsed = timeline.date.timeIntervalSince(origin)
             let position = reduceMotion ? 0 : elapsed.truncatingRemainder(dividingBy: Self.loop)
@@ -52,11 +53,12 @@ struct LiquidGlassOrb: View {
         }
         .frame(width: surface, height: surface)
         .accessibilityHidden(true)
+        .task { frames.load(count: Self.frameCount) }
     }
 
     @ViewBuilder
     private static func frame(_ index: Int) -> some View {
-        if let image = OrbFrames.image(index) {
+        if let image = OrbFrames.shared.image(index) {
             Image(uiImage: image).resizable().scaledToFit()
         } else {
             Color.clear
@@ -64,21 +66,50 @@ struct LiquidGlassOrb: View {
     }
 }
 
-/// Decodes the bundled frames once and keeps them; 36 small PNGs are cheap to
-/// hold and decoding one per displayed frame would stutter.
-enum OrbFrames {
-    private static var cache: [Int: UIImage] = [:]
+/// Decodes the bundled frames ONCE, off the main thread.
+///
+/// Decoding a PNG inside the animation tick froze the watch: two 320 px images
+/// per frame, twelve times a second, on the main actor — the UI stopped
+/// answering touches entirely. They are small and few, so loading them all up
+/// front and holding them is both cheaper and simpler.
+@MainActor
+final class OrbFrames: ObservableObject {
+    static let shared = OrbFrames()
 
-    static func image(_ index: Int) -> UIImage? {
-        if let hit = cache[index] { return hit }
-        let name = String(format: "orb-%03d", index)
-        guard let url = Bundle.main.url(forResource: name, withExtension: "png",
-                                        subdirectory: "OrbFrames")
-                ?? Bundle.main.url(forResource: name, withExtension: "png"),
-              let data = try? Data(contentsOf: url),
-              let image = UIImage(data: data) else { return nil }
-        cache[index] = image
-        return image
+    @Published private(set) var images: [UIImage] = []
+    private var loading = false
+
+    func load(count: Int) {
+        guard images.isEmpty, !loading else { return }
+        loading = true
+        Task.detached(priority: .userInitiated) {
+            var decoded: [UIImage] = []
+            for index in 0..<count {
+                let name = String(format: "orb-%03d", index)
+                guard let url = Bundle.main.url(forResource: name, withExtension: "png",
+                                                subdirectory: "OrbFrames")
+                        ?? Bundle.main.url(forResource: name, withExtension: "png"),
+                      let data = try? Data(contentsOf: url),
+                      let image = UIImage(data: data) else { continue }
+                // Force the decode here rather than on first draw: drawing an
+                // undecoded UIImage does the work on the main thread, which is
+                // exactly what we are moving off it.
+                UIGraphicsBeginImageContextWithOptions(image.size, false, image.scale)
+                image.draw(at: .zero)
+                let ready = UIGraphicsGetImageFromCurrentImageContext() ?? image
+                UIGraphicsEndImageContext()
+                decoded.append(ready)
+            }
+            await MainActor.run {
+                self.images = decoded
+                self.loading = false
+            }
+        }
+    }
+
+    func image(_ index: Int) -> UIImage? {
+        guard !images.isEmpty else { return nil }
+        return images[index % images.count]
     }
 }
 
