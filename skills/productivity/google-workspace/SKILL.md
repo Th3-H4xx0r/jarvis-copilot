@@ -188,6 +188,11 @@ $GAPI gmail send --to user@example.com --subject "Hello" --body "Message text"
 $GAPI gmail send --to user@example.com --subject "Report" --body "<h1>Q4</h1><p>Details...</p>" --html
 $GAPI gmail send --to user@example.com --subject "Hello" --from '"Research Agent" <user@example.com>' --body "Message text"
 
+# Attach a file (repeatable). A MEDIA:<path> line in --body is attached too,
+# so a photo from a device skill's image_path is delivered as a real
+# attachment rather than pasted into the body as text.
+$GAPI gmail send --to user@example.com --subject "Your Latest Photo" --body "Here it is." --attach /path/to/photo.jpg
+
 # Reply (automatically threads and sets In-Reply-To)
 $GAPI gmail reply MESSAGE_ID --body "Thanks, that works for me."
 $GAPI gmail reply MESSAGE_ID --from '"Support Bot" <user@example.com>' --body "Thanks"

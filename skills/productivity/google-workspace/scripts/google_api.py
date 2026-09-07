@@ -24,6 +24,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -311,15 +312,67 @@ def gmail_get(args):
 
 
 
+_MEDIA_TAG_RE = re.compile(r"^[ \t]*MEDIA:[ \t]*(?P<path>\S+)[ \t]*$", re.MULTILINE)
+
+
+def _build_gmail_message(args):
+    """Build the outgoing message, attaching files when there are any.
+
+    Attachments come from ``--attach`` and from ``MEDIA:<path>`` lines in the
+    body. Without this the body carried the literal path
+    ("MEDIA:/root/.jarviscopilot/image_cache/....jpg") and the photo never went.
+    """
+    import mimetypes
+    from email import encoders
+    from email.mime.base import MIMEBase
+    from email.mime.multipart import MIMEMultipart
+
+    body = args.body or ""
+    paths = list(getattr(args, "attach", None) or [])
+    if "MEDIA:" in body:
+        for match in _MEDIA_TAG_RE.finditer(body):
+            paths.append(match.group("path").strip("`\"\'"))
+        body = _MEDIA_TAG_RE.sub("", body)
+        body = re.sub(r"\n{3,}", "\n\n", body).strip()
+
+    attachments = []
+    for raw in paths:
+        path = Path(os.path.expanduser(str(raw)))
+        try:
+            if path.is_file():
+                attachments.append((path, path.read_bytes()))
+            else:
+                print(f"warning: attachment not found, sending without it: {path}",
+                      file=sys.stderr)
+        except OSError as exc:
+            print(f"warning: could not read attachment {path}: {exc}", file=sys.stderr)
+
+    if not attachments:
+        message = MIMEText(body, "html" if args.html else "plain")
+    else:
+        message = MIMEMultipart()
+        message.attach(MIMEText(body, "html" if args.html else "plain"))
+        for path, blob in attachments:
+            ctype, _ = mimetypes.guess_type(path.name)
+            maintype, _, subtype = (ctype or "application/octet-stream").partition("/")
+            part = MIMEBase(maintype, subtype or "octet-stream")
+            part.set_payload(blob)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", "attachment", filename=path.name)
+            message.attach(part)
+
+    message["to"] = args.to
+    message["subject"] = args.subject
+    if args.cc:
+        message["cc"] = args.cc
+    if args.from_header:
+        message["from"] = args.from_header
+    return message
+
+
 def gmail_send(args):
     if _gws_binary():
-        message = MIMEText(args.body, "html" if args.html else "plain")
-        message["to"] = args.to
-        message["subject"] = args.subject
-        if args.cc:
-            message["cc"] = args.cc
-        if args.from_header:
-            message["from"] = args.from_header
+        message = _build_gmail_message(args)
 
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
         body = {"raw": raw}
@@ -335,13 +388,7 @@ def gmail_send(args):
         return
 
     service = build_service("gmail", "v1")
-    message = MIMEText(args.body, "html" if args.html else "plain")
-    message["to"] = args.to
-    message["subject"] = args.subject
-    if args.cc:
-        message["cc"] = args.cc
-    if args.from_header:
-        message["from"] = args.from_header
+    message = _build_gmail_message(args)
 
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
     body = {"raw": raw}
@@ -1072,6 +1119,8 @@ def main():
     p.add_argument("--from", dest="from_header", default="", help="Custom From header (e.g. '\"Agent Name\" <user@example.com>')")
     p.add_argument("--html", action="store_true", help="Send body as HTML")
     p.add_argument("--thread-id", default="", help="Thread ID for threading")
+    p.add_argument("--attach", action="append", default=[], metavar="PATH",
+                   help="Attach a file (repeatable). MEDIA:<path> lines in --body work too.")
     p.set_defaults(func=gmail_send)
 
     p = gmail_sub.add_parser("reply")
