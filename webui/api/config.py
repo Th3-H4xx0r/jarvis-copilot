@@ -1606,6 +1606,37 @@ def _get_provider_base_url(provider_id):
     return None
 
 
+def split_provider_qualified_model(model_id: str) -> tuple | None:
+    """``@provider:model`` → ``(provider_hint, bare_model)``, or None when the id
+    is not provider-qualified.
+
+    The model half may itself contain colons (Ollama tags: ``gemma4:31b``,
+    ``llama3.2:latest``), so a naive split on the LAST colon reads the tag as
+    the model and the real model as part of the provider. Split on the
+    provider boundary instead: a known provider id, ``custom:<slug>`` (one
+    slug segment, or ``custom:<host>:<port>``), else the first colon.
+    """
+    model_id = str(model_id or "").strip()
+    if not (model_id.startswith("@") and ":" in model_id):
+        return None
+    inner = model_id[1:]
+    provider_hint, bare_model = inner.rsplit(":", 1)
+    if provider_hint.startswith("custom:") and provider_hint.count(":") >= 2:
+        _slug_rest = provider_hint[len("custom:"):]
+        if not _custom_slug_rest_looks_like_host_port(_slug_rest):
+            # custom:<slug> is one segment; everything after it is the model.
+            head, _, tail = _slug_rest.partition(":")
+            provider_hint = f"custom:{head}"
+            bare_model = f"{tail}:{bare_model}" if tail else bare_model
+    elif (provider_hint not in _PROVIDER_MODELS
+            and provider_hint not in _PROVIDER_DISPLAY
+            and not provider_hint.startswith("custom:")):
+        provider_hint, bare_model = inner.split(":", 1)
+    if not provider_hint or not bare_model:
+        return None
+    return provider_hint, bare_model
+
+
 def resolve_model_provider(model_id: str) -> tuple:
     """Resolve model name, provider, and base_url for AIAgent.
 

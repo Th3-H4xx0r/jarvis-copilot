@@ -1422,11 +1422,19 @@ def _clean_session_model_provider(value: str | None) -> str | None:
 
 
 def _split_provider_qualified_model(model: str) -> tuple[str, str | None]:
+    """(bare_model, provider) for ``@provider:model``; (model, None) otherwise.
+
+    Delegates to config.split_provider_qualified_model so the session
+    normaliser and the runtime router agree on where the provider ends —
+    splitting on the last colon here turned ``@ollama-cloud:gemma4:31b`` into
+    provider "ollama-cloud:gemma4" and swapped in the default model.
+    """
     model = str(model or "").strip()
-    if model.startswith("@") and ":" in model:
-        provider_hint, bare_model = model[1:].rsplit(":", 1)
-        provider = _clean_session_model_provider(provider_hint)
-        bare = bare_model.strip()
+    from api.config import split_provider_qualified_model as _split_qualified
+    parts = _split_qualified(model)
+    if parts:
+        provider = _clean_session_model_provider(parts[0])
+        bare = parts[1].strip()
         if provider and bare:
             return bare, provider
     return model, None

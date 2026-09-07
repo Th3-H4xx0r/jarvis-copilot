@@ -1098,6 +1098,13 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         if str(raw_provider or "").strip().lower() == "anthropic" and _active == "claude-code":
             print(f"[webui] voice: routing anthropic pick {raw_model!r} through claude-code (configured provider)", flush=True)
             raw_provider = "claude-code"
+            # The picker's Anthropic rows are `@anthropic:<model>`; that prefix
+            # is an explicit provider to the resolver and would win over the
+            # provider field, so strip it to the bare model (which is exactly
+            # what the Claude Code group lists).
+            _m = str(raw_model or "").strip()
+            if _m.lower().startswith("@anthropic:"):
+                raw_model = _m[len("@anthropic:"):]
     elif fast_lane:
         # plan 2.1 — default voice model: the configured fast lane.
         raw_model, raw_provider = fast_lane["model"], fast_lane["provider"]

@@ -240,3 +240,22 @@ def test_failed_override_is_skipped_on_the_next_turn(monkeypatch):
     )
     assert captured["model"] == "gpt-5.5"
     voice._OVERRIDE_COOLDOWN.clear()
+
+
+# ── anthropic pick → claude-code redirect must rewrite the MODEL too ─────────
+
+def test_anthropic_pick_is_rerouted_to_claude_code_including_the_model_prefix(monkeypatch):
+    """The phone's Anthropic rows carry `@anthropic:` ids. Rewriting only the
+    provider left the prefix in the model string, which the resolver treats as
+    an explicit provider — so the call still hit the Anthropic API (400, out of
+    usage) and fell to the fast lane every time."""
+    import api.config as config_mod
+    monkeypatch.setattr(config_mod, "cfg", {"model": {"provider": "claude-code", "default": "claude-sonnet-5"}})
+    voice._OVERRIDE_COOLDOWN.clear()
+    captured = _drive(
+        monkeypatch,
+        fast_lane={"provider": "ollama-cloud", "model": "gemma4:31b"},
+        model_override="@anthropic:claude-sonnet-5", provider_override="anthropic",
+    )
+    assert captured["model"] == "claude-sonnet-5"
+    assert captured["provider"] == "claude-code"
