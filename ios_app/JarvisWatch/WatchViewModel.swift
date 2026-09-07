@@ -38,8 +38,12 @@ final class WatchViewModel: ObservableObject {
             state = .error("Sign in on your iPhone first.")
         case .failure(.unreachable):
             state = .error("Open JarvisCopilot on your iPhone to use voice.")
-        case .failure(.network):
-            state = .error("Couldn't reach JarvisCopilot. Try again.")
+        case .failure(.network(let detail)):
+            // Show what actually went wrong. "Couldn't reach JarvisCopilot"
+            // was the same message whether the phone was busy, the session was
+            // gone, or the model errored — nothing to act on.
+            let reason = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+            state = .error(reason.isEmpty ? "Couldn't reach JarvisCopilot. Try again." : reason)
         }
     }
 

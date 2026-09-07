@@ -115,10 +115,18 @@ struct ContentView: View {
                     }
                 }
             case .error(let msg):
-                VStack(spacing: 12) {
-                    orbButton(.error, size: 96)
-                    Text(msg).font(.inter(13)).multilineTextAlignment(.center)
-                        .foregroundStyle(JcWatch.muted)
+                // Scrollable and dismissable: a long reason used to run off the
+                // screen with no way back to the orb.
+                ScrollView {
+                    VStack(spacing: 12) {
+                        orbButton(.error, size: 84)
+                        Text(msg).font(.inter(13)).multilineTextAlignment(.center)
+                            .foregroundStyle(JcWatch.muted)
+                        Button("Try again") { vm.reset() }
+                            .font(.inter(13, .semibold))
+                        volumeButton.padding(.top, 2)
+                    }
+                    .padding(.vertical, 6)
                 }
             }
         }

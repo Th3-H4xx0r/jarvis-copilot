@@ -37,6 +37,39 @@ final class WatchBridge: NSObject, ObservableObject {
     @Published private(set) var isReachable = false
     @Published private(set) var lastError: String?
 
+    // MARK: - Link statistics
+    //
+    // Watch problems are almost always the LINK, not the code: a turn that
+    // silently did nothing looks the same as one that never left the wrist.
+    // These make the connection legible on the phone's Apple Watch page.
+    @Published private(set) var turnsRun = 0
+    @Published private(set) var turnsFailed = 0
+    @Published private(set) var messagesIn = 0
+    @Published private(set) var messagesOut = 0
+    @Published private(set) var segmentsSent = 0
+    @Published private(set) var clipsSent = 0
+    @Published private(set) var clipBytesSent = 0
+    /// Wall-clock of the last completed turn.
+    @Published private(set) var lastTurnSeconds: Double?
+    /// Round trip for the last clip/segment handed to the watch.
+    @Published private(set) var lastRoundTripMs: Int?
+    @Published private(set) var lastTurnAt: Date?
+    /// Files still queued for a watch that wasn't reachable.
+    var queuedTransfers: Int {
+        WCSession.isSupported() ? WCSession.default.outstandingFileTransfers.count : 0
+    }
+    /// Rough throughput of the last clip, which is what "slow" usually means.
+    var lastClipKBPerSecond: Double? {
+        guard let ms = lastRoundTripMs, ms > 0, clipBytesSent > 0 else { return nil }
+        return (Double(clipBytesSent) / 1024) / (Double(ms) / 1000)
+    }
+
+    func resetStatistics() {
+        turnsRun = 0; turnsFailed = 0; messagesIn = 0; messagesOut = 0
+        segmentsSent = 0; clipsSent = 0; clipBytesSent = 0
+        lastTurnSeconds = nil; lastRoundTripMs = nil; lastError = nil
+    }
+
     private let api: JarvisAPI
     private let voice: VoiceAPI
     private let defaults: UserDefaults
@@ -148,12 +181,15 @@ final class WatchBridge: NSObject, ObservableObject {
     func runTurn(text: String, preferLocalVoice: Bool) async -> [String: Any] {
         guard api.isPaired else { return Self.failure(.notConfigured) }
         let turn = beginTurn()
+        let startedAt = Date()
+        turnsRun += 1
         push(["streamingText": ""])
 
         let sessionID: String
         do { sessionID = try await watchSessionID() }
         catch {
             lastError = apiErrorMessage(error)
+            turnsFailed += 1
             return Self.failure(.network(lastError ?? "could not start the turn"))
         }
 
@@ -201,7 +237,8 @@ final class WatchBridge: NSObject, ObservableObject {
                 case "error":
                     let detail = event.error ?? event.text ?? "the turn failed"
                     lastError = detail
-                    return Self.failure(.network(detail))
+                    turnsFailed += 1
+            return Self.failure(.network(detail))
                 case "done":
                     break
                 default:
@@ -210,12 +247,18 @@ final class WatchBridge: NSObject, ObservableObject {
             }
         } catch {
             lastError = apiErrorMessage(error)
+            turnsFailed += 1
             return Self.failure(.network(lastError ?? "the turn failed"))
         }
 
         push(["streamingText": ""])
+        lastTurnSeconds = Date().timeIntervalSince(startedAt)
+        lastTurnAt = Date()
         let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return Self.failure(.network("the reply was empty")) }
+        guard !trimmed.isEmpty else {
+            turnsFailed += 1
+            return Self.failure(.network("the turn produced no reply"))
+        }
         return Self.reply(text: trimmed, sentClip: sentAnyClip)
     }
 
@@ -256,6 +299,8 @@ final class WatchBridge: NSObject, ObservableObject {
     private func sendSegment(_ text: String, isFirst: Bool) {
         let session = WCSession.default
         guard session.activationState == .activated, session.isReachable else { return }
+        messagesOut += 1
+        segmentsSent += 1
         session.sendMessage(["type": "segment", "text": text, "first": isFirst],
                             replyHandler: nil) { _ in
             // Best effort: the application-context push and the final reply
@@ -279,12 +324,17 @@ final class WatchBridge: NSObject, ObservableObject {
             // this one — `transferFile` survives the turn that made it.
             for transfer in session.outstandingFileTransfers { transfer.cancel() }
         }
+        let sentAt = Date()
+        clipsSent += 1
+        clipBytesSent += data.count
+        messagesOut += 1
         if session.isReachable && data.count <= Self.inlineClipLimit {
             var framed = Data([0x01, isFirst ? 1 : 0, UInt8(clamping: seq)])
             framed.append(data)
             session.sendMessageData(framed, replyHandler: nil) { [weak self] _ in
                 Task { @MainActor in self?.transferClipFile(data, seq: seq) }
             }
+            lastRoundTripMs = Int(Date().timeIntervalSince(sentAt) * 1000)
             return
         }
         transferClipFile(data, seq: seq)
@@ -324,6 +374,7 @@ extension WatchBridge: WCSessionDelegate {
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any],
                              replyHandler: @escaping ([String: Any]) -> Void) {
         let kind = (message["type"] as? String) ?? ""
+        Task { @MainActor in self.messagesIn += 1 }
         // Everything the watch can ask for beyond a turn is answered from the
         // phone's own hub and API — see WatchDataProvider.
         switch kind {
