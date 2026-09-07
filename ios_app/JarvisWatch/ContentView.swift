@@ -16,7 +16,7 @@ struct ContentView: View {
     @State private var activeSheet: ActiveSheet?
     @State private var vol: Float = 0   // live system volume shown in the drawer
 
-    enum ActiveSheet: Int, Identifiable { case volume; var id: Int { rawValue } }
+    enum ActiveSheet: Int, Identifiable { case volume, menu, chats; var id: Int { rawValue } }
 
     init(connector: WatchConnector) {
         self.connector = connector
@@ -50,10 +50,15 @@ struct ContentView: View {
             // vanished and the app stopped responding). Chats live inside the
             // menu instead, one tap further in.
             .toolbar {
+                // A SHEET, not a NavigationLink: the watch scene gives us a
+                // navigation BAR but no stack to push onto, so a link did
+                // nothing when tapped. The sheet brings its own stack.
+                //
+                // Only ONE toolbar button is possible here — watchOS keeps the
+                // leading slot for the clock — so choosing a chat lives next to
+                // Volume under the orb, where it is one tap either way.
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        WatchMenuScreen(store: menu, onVoice: { activeSheet = .volume })
-                    } label: {
+                    Button { activeSheet = .menu } label: {
                         Image(systemName: "ellipsis.circle")
                     }
                 }
@@ -62,6 +67,14 @@ struct ContentView: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .volume: volumeSheet
+            case .menu:
+                NavigationStack {
+                    WatchMenuScreen(store: menu) {
+                        activeSheet = .volume
+                    }
+                }
+            case .chats:
+                NavigationStack { WatchChatPicker(store: menu) }
             }
         }
         // The orb is a TextFieldLink, so dictation can't be opened
@@ -186,10 +199,20 @@ struct ContentView: View {
     }
 
     private var volumeButton: some View {
-        Button { activeSheet = .volume } label: {
-            Label("Volume", systemImage: "speaker.wave.2.fill").font(.inter(12, .medium))
+        // Icons, not labels: two labelled buttons are wider than a 42 mm watch
+        // and the second was clipped off the screen entirely.
+        HStack(spacing: 22) {
+            Button { activeSheet = .volume } label: {
+                Image(systemName: "speaker.wave.2.fill").font(.system(size: 15, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Volume")
+            Button { activeSheet = .chats } label: {
+                Image(systemName: "bubble.left").font(.system(size: 15, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Chats")
         }
-        .buttonStyle(.plain)
         .foregroundStyle(JcWatch.muted)
     }
 

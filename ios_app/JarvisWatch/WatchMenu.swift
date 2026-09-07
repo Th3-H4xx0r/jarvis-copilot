@@ -121,8 +121,10 @@ struct WatchMenuScreen: View {
     var body: some View {
         List {
             Button {
+                // Close this sheet first; presenting another from inside a
+                // dismissing one is dropped.
                 dismiss()
-                onVoice()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onVoice() }
             } label: {
                 Label("Voice", systemImage: "waveform")
             }
