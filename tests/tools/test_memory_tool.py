@@ -380,3 +380,45 @@ class TestExternalDriftGuard:
         # at the same snapshot. Different second is also fine.
         assert ".bak." in r1["drift_backup"]
         assert ".bak." in r2["drift_backup"]
+
+
+# ── the write cap and the prompt-injection cap are different knobs ──────────
+
+def test_a_full_memory_still_accepts_writes_when_only_injection_is_capped(tmp_path, monkeypatch):
+    """`memory_char_limit` was raised to trim the SYSTEM PROMPT, and it silently
+    became a hard write cap too: once the notes outgrew it, every add and
+    replace was refused with "Memory at 20,335/12,000 chars"."""
+    monkeypatch.setattr("tools.memory_tool.get_memory_dir", lambda: tmp_path)
+    store = MemoryStore(memory_char_limit=0, user_char_limit=0,
+                                    memory_inject_char_limit=40, user_inject_char_limit=40)
+    store.load_from_disk()
+    for i in range(8):
+        assert store.add("memory", f"Fact number {i} that is reasonably long")["success"] is True
+
+    # Writing still works…
+    assert store.add("memory", "Sreeja is Pranav's girlfriend")["success"] is True
+    # …while the system prompt only carries the newest slice.
+    injected = store._system_prompt_snapshot["memory"]
+    store.load_from_disk()
+    injected = store._system_prompt_snapshot["memory"]
+    assert len(injected) < 400
+    assert "older entries not shown" in injected
+
+
+def test_the_write_cap_still_applies_when_it_is_set(tmp_path, monkeypatch):
+    monkeypatch.setattr("tools.memory_tool.get_memory_dir", lambda: tmp_path)
+    store = MemoryStore(memory_char_limit=60, user_char_limit=60)
+    store.load_from_disk()
+    assert store.add("memory", "x" * 50)["success"] is True
+    refused = store.add("memory", "y" * 50)
+    assert refused["success"] is False and "exceed" in refused["error"]
+
+
+def test_injection_cap_defaults_to_the_write_cap_for_old_configs(tmp_path, monkeypatch):
+    """A config that only sets memory_char_limit keeps its old prompt size."""
+    monkeypatch.setattr("tools.memory_tool.get_memory_dir", lambda: tmp_path)
+    store = MemoryStore(memory_char_limit=50, user_char_limit=50)
+    store.load_from_disk()
+    store.add("memory", "a" * 40)
+    store.load_from_disk()
+    assert "a" * 40 in store._system_prompt_snapshot["memory"]

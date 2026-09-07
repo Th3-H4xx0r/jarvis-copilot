@@ -26,6 +26,7 @@ import base64
 import json
 import logging
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -91,14 +92,33 @@ def _prune_images() -> None:
         pass
 
 
-def _materialize_image(result: dict, skill_name: str, call_args: dict) -> dict:
+def _materialize_image(result: dict, skill_name: str, call_args: dict) -> Any:
     """If `result` carries an image (`base64` + image `mime`), swap the blob for
-    an `image_path` and add a `description` from the vision model."""
-    b64 = result.get("base64")
-    mime = str(result.get("mime") or "").lower()
+    an `image_path` and a `description` the model can actually use.
+
+    The bridge wraps a skill's own dict as ``{"ok": True, "result": {...}}``, so
+    the image fields may be one level down. Reading only the top level left the
+    base64 blob in the payload: the model saw a truncated string and invented a
+    photo that was never there.
+    """
+    inner = result
+    wrapper_key = None
+    if not isinstance(result.get("base64"), str) and isinstance(result.get("result"), dict):
+        inner = result["result"]
+        wrapper_key = "result"
+
+    b64 = inner.get("base64")
+    mime = str(inner.get("mime") or "").lower()
     if not isinstance(b64, str) or not b64 or not mime.startswith("image/"):
         return result
-    out = {k: v for k, v in result.items() if k != "base64"}
+    if wrapper_key:
+        # Re-wrap whatever we produce so the caller's shape is preserved.
+        materialized = _materialize_image({k: v for k, v in inner.items()}, skill_name, call_args)
+        if _is_multimodal(materialized):
+            return materialized
+        rest = {k: v for k, v in result.items() if k != wrapper_key}
+        return {**rest, wrapper_key: materialized}
+    out = {k: v for k, v in inner.items() if k != "base64"}
     try:
         _IMAGE_DIR.mkdir(parents=True, exist_ok=True)
         data = base64.b64decode(b64, validate=False)
@@ -117,6 +137,14 @@ def _materialize_image(result: dict, skill_name: str, call_args: dict) -> dict:
     except Exception as exc:
         out["vision_error"] = str(exc)
         return out
+    if _is_multimodal(seen) and not _model_sees_images():
+        # The pixels can't reach this model; fall back to whatever prose the
+        # envelope carries rather than letting a data: URL into the prompt.
+        summary = str(seen.get("text_summary") or "")
+        texts = [c.get("text", "") for c in (seen.get("content") or [])
+                 if isinstance(c, dict) and c.get("type") == "text"]
+        out["description"] = _strip_data_urls(" ".join(t for t in texts if t) or summary)
+        return out
     if _is_multimodal(seen):
         # The model sees the photo itself. Carry the skill's metadata (when it
         # was taken, how many photos there are) in the envelope's text part so
@@ -131,8 +159,31 @@ def _materialize_image(result: dict, skill_name: str, call_args: dict) -> dict:
         envelope["meta"] = {**(envelope.get("meta") or {}),
                             **{k: v for k, v in out.items() if k != "error"}}
         return envelope
-    out["description"] = seen
+    out["description"] = _strip_data_urls(seen)
     return out
+
+
+_DATA_URL_RE = re.compile(r"data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]{40,}")
+
+
+def _model_sees_images() -> bool:
+    """Whether the ACTIVE model can be handed image parts inside a tool result.
+
+    When it cannot, a multimodal envelope is stringified into the prompt and the
+    model echoes `data:image/jpeg;base64,…` back at the user — so a text-only
+    model gets the written description instead.
+    """
+    try:
+        from agent.auxiliary_client import _read_main_provider, _read_main_model
+        from tools.vision_tools import _supports_media_in_tool_results
+        return bool(_supports_media_in_tool_results(_read_main_provider(), _read_main_model()))
+    except Exception:
+        return False
+
+
+def _strip_data_urls(text: str) -> str:
+    """Never let raw image bytes through as prose."""
+    return _DATA_URL_RE.sub("[image]", str(text))
 
 
 def _is_multimodal(value: Any) -> bool:

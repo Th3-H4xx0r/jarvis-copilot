@@ -1088,6 +1088,9 @@ def init_agent(
                 agent._memory_store = MemoryStore(
                     memory_char_limit=mem_config.get("memory_char_limit", 0),
                     user_char_limit=mem_config.get("user_char_limit", 0),
+                    # Prompt-size knobs, separate from the write caps above.
+                    memory_inject_char_limit=mem_config.get("memory_inject_char_limit"),
+                    user_inject_char_limit=mem_config.get("user_inject_char_limit"),
                 )
                 agent._memory_store.load_from_disk()
         except Exception:

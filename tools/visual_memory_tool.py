@@ -119,6 +119,18 @@ def _save_person(name: str, description: str, image_path: str,
                        "note": f"Reference photo saved. Call visual_memory recall to see {name} again."})
 
 
+def _model_sees_images() -> bool:
+    """Whether the ACTIVE model can take image parts in a tool result. When it
+    cannot, handing it one gets the data: URL stringified into the prompt and
+    echoed back at the user, so recall returns names and descriptions instead."""
+    try:
+        from agent.auxiliary_client import _read_main_provider, _read_main_model
+        from tools.vision_tools import _supports_media_in_tool_results
+        return bool(_supports_media_in_tool_results(_read_main_provider(), _read_main_model()))
+    except Exception:
+        return False
+
+
 def _recall(query: str) -> Any:
     index = _load()
     q = str(query or "").strip().lower()
@@ -133,6 +145,16 @@ def _recall(query: str) -> Any:
     if not matches:
         return json.dumps({"ok": True, "results": [],
                            "note": "No visual memories match. Save one with visual_memory save."})
+
+    if not _model_sees_images():
+        return json.dumps({
+            "ok": True,
+            "results": [{"name": e.get("name"), "description": e.get("description") or "",
+                         "images": len(e.get("images") or [])} for e in matches],
+            "note": ("This model cannot see images, so the reference photos were not attached. "
+                     "Use the names and descriptions above, and say plainly that you cannot "
+                     "visually confirm a face."),
+        })
 
     content: List[Dict[str, Any]] = [{
         "type": "text",

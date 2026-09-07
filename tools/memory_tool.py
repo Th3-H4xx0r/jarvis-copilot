@@ -146,11 +146,24 @@ class MemoryStore:
         Tool responses always reflect this live state.
     """
 
-    def __init__(self, memory_char_limit: int = 0, user_char_limit: int = 0):  # 0 = unlimited
+    def __init__(self, memory_char_limit: int = 0, user_char_limit: int = 0,  # 0 = unlimited
+                 memory_inject_char_limit: int | None = None,
+                 user_inject_char_limit: int | None = None):
         self.memory_entries: List[str] = []
         self.user_entries: List[str] = []
+        # Two DIFFERENT caps. `*_char_limit` is how much may be STORED; the
+        # `*_inject_char_limit` pair is how much of it rides into the system
+        # prompt. Conflating them meant that lowering the prompt budget also
+        # froze the notes: once they outgrew it, every add and replace was
+        # refused with "Memory at 20,335/12,000 chars".
         self.memory_char_limit = memory_char_limit
         self.user_char_limit = user_char_limit
+        # Unset → the write cap doubles as the injection cap, which is the
+        # historical behaviour for configs that only set the one knob.
+        self.memory_inject_char_limit = (memory_char_limit if memory_inject_char_limit is None
+                                         else memory_inject_char_limit)
+        self.user_inject_char_limit = (user_char_limit if user_inject_char_limit is None
+                                       else user_inject_char_limit)
         # Frozen snapshot for system prompt -- set once at load_from_disk()
         self._system_prompt_snapshot: Dict[str, str] = {"memory": "", "user": ""}
 
@@ -176,8 +189,12 @@ class MemoryStore:
             "user": self._render_block("user", self._capped("user", self.user_entries)),
         }
 
+    def _inject_limit(self, target: str) -> int:
+        """How much may ride into the SYSTEM PROMPT (not how much may be stored)."""
+        return self.user_inject_char_limit if target == "user" else self.memory_inject_char_limit
+
     def _capped(self, target: str, entries):
-        lim = self._raw_limit(target)
+        lim = self._inject_limit(target)
         if not lim or lim <= 0:
             return entries
         kept, total = [], 0

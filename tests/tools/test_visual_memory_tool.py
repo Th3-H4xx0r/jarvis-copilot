@@ -17,6 +17,8 @@ _PNG_1PX = base64.b64decode(
 
 def _store(tmp_path, monkeypatch):
     monkeypatch.setattr(vm, "_visual_dir", lambda: tmp_path)
+    # Assume a vision-capable model unless a test says otherwise.
+    monkeypatch.setattr(vm, "_model_sees_images", lambda: True)
     return tmp_path
 
 
@@ -128,3 +130,18 @@ def test_visual_memory_is_registered_and_discoverable():
     from tools.registry import discover_builtin_tools, registry
     discover_builtin_tools()
     assert "visual_memory" in registry.get_tool_names_for_toolset("memory")
+
+
+def test_recall_gives_a_text_only_model_names_not_a_data_url(tmp_path, monkeypatch):
+    """Same rule as device photos: a model that cannot take image parts must
+    never be handed a base64 data URL, or it echoes it into the chat."""
+    _store(tmp_path / "vault", monkeypatch)
+    monkeypatch.setattr(vm, "_model_sees_images", lambda: False)
+    vm.visual_memory("save", name="Anjali", description="Pranav's sister",
+                     image_path=_photo(tmp_path))
+    out = vm.visual_memory("recall", query="anjali")
+    assert isinstance(out, str)
+    assert "data:image" not in out and "base64," not in out
+    parsed = json.loads(out)
+    assert parsed["results"][0]["name"] == "Anjali"
+    assert "cannot see images" in parsed["note"] or "no_vision" in json.dumps(parsed)

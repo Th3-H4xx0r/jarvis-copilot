@@ -213,6 +213,8 @@ def _image_skill(monkeypatch, tmp_path, result, described="A cat on a sofa."):
         return described
 
     monkeypatch.setattr(device_skill_tools, "_describe_image", fake_describe)
+    # Assume a vision-capable main model unless a test says otherwise.
+    monkeypatch.setattr(device_skill_tools, "_model_sees_images", lambda: True)
     tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
     return tools["device_recent_photo"]["handler"], calls
 
