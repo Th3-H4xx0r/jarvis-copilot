@@ -30,6 +30,9 @@ extension VoiceStore {
             try await session.open()
             session.send(beginTurn(sessionID: sid))
             raise(.connected)
+            // The machine is `listening` now, which is the only state that
+            // accepts a turn.
+            deliverPendingWatchTurnIfReady()
         } catch {
             raise(.failed("Could not start voice: \(JcLog.report(JcLog.voice, "open transport", error))"))
         }
@@ -135,6 +138,7 @@ extension VoiceStore {
         guard session.send(.endTurn(text: text, clientTs: nowMs(),
                                     speechEndTs: speechEndMs, turnID: turnID)) else {
             raise(.failed(Self.connectionLostNotice))
+            if watchTurnActive { finishWatchTurn(error: Self.connectionLostNotice) }
             return
         }
     }
@@ -176,6 +180,8 @@ extension VoiceStore {
         case .assistantText(let text):
             reply.append(text)
             toolStatus = nil
+            // A watch turn wants this on the wrist as it lands, not at the end.
+            noteWatchSegment(text: text, audio: nil)
             raise(.serverOutput)
 
         case .tool(let name, let status):
@@ -206,6 +212,10 @@ extension VoiceStore {
                 sessionID = nil
             }
             raise(.turnEnded(reason: reason, producedReply: producedReply))
+            if watchTurnActive {
+                finishWatchTurn(error: producedReply ? nil
+                                : "the turn ended without a reply (\(reason))")
+            }
             // Live chats: the Chat tab re-reads whichever session this turn wrote to.
             if let sid = sessionID, !sid.isEmpty { ChatSyncBus.shared.sessionChanged(sid) }
 
@@ -239,6 +249,13 @@ extension VoiceStore {
         // segment (plan 1.7) — the first ~160 ms starts playing immediately.
         if pcmTag == nil { pcmTag = reply.claimSegmentTag() } // text may land after audio_meta
         noteFirstAudio()
+        if watchTurnActive {
+            // The watch plays whole clips, so buffer the segment here. The
+            // server picks the format, and it is usually PCM — forwarding only
+            // the MP3 branch would have sent the wrist no audio at all.
+            segPcm.append(data)
+            return
+        }
         audio.appendPcm(data, sampleRate: inRate, tag: pcmTag)
     }
 
@@ -248,8 +265,22 @@ extension VoiceStore {
         if inFormat == "mp3" {
             guard !segMp3.isEmpty else { return }
             noteFirstAudio()
-            audio.enqueueMp3(segMp3, tag: reply.claimSegmentTag())
+            if watchTurnActive {
+                // Straight to the wrist; the phone stays silent for a turn the
+                // user dictated on their watch.
+                noteWatchSegment(text: "", audio: segMp3)
+            } else {
+                audio.enqueueMp3(segMp3, tag: reply.claimSegmentTag())
+            }
             segMp3.removeAll()
+        } else if watchTurnActive {
+            // WAV, not raw PCM: the watch decodes clips with AVAudioPlayer,
+            // which needs a container.
+            if !segPcm.isEmpty {
+                noteWatchSegment(text: "", audio: AudioQueue.wrapWav(segPcm, sampleRate: inRate))
+                segPcm.removeAll()
+            }
+            pcmTag = nil
         } else {
             audio.endPcmSegment(tag: pcmTag)
             pcmTag = nil

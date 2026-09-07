@@ -176,8 +176,10 @@ final class WatchBridge: NSObject, ObservableObject {
         return activeTurn
     }
 
-    /// Run one dictated turn through the phone's voice pipeline and return the
-    /// reply for `sendMessage`'s ack. Segments arrive already spoken, in order.
+    /// Run one dictated turn by driving the PHONE'S OWN voice store — the same
+    /// realtime socket, `begin_turn` model fields, server prompt, tools and
+    /// speech a turn spoken at the phone gets. There is no watch-specific turn
+    /// logic left: this hands the text over and mirrors what comes back.
     func runTurn(text: String, preferLocalVoice: Bool) async -> [String: Any] {
         guard api.isPaired else { return Self.failure(.notConfigured) }
         let turn = beginTurn()
@@ -185,81 +187,62 @@ final class WatchBridge: NSObject, ObservableObject {
         turnsRun += 1
         push(["streamingText": ""])
 
-        let sessionID: String
-        do { sessionID = try await watchSessionID() }
-        catch {
-            lastError = apiErrorMessage(error)
-            turnsFailed += 1
-            return Self.failure(.network(lastError ?? "could not start the turn"))
-        }
-
-        var reply = ""
+        // The one app-wide voice store — the same object the Voice tab drives.
+        let store = VoiceStore.shared
         var seq = 0
-        var sawFirstSentence = false
-        var sentAnyClip = false
+        var sawFirst = false
+        var streamed = ""
 
-        // The voice model the PHONE is set to — the watch has no picker of its
-        // own and shouldn't: whatever voice answers on the phone answers here.
-        var extra = voiceTurnModelFields()
-        extra["text"] = text
-
-        do {
-            for try await event in voice.qualityTurn(audio: Data(), sessionID: sessionID, extra: extra) {
-                guard isActive(turn) else { break }
-                switch event.type {
-                case "segment":
-                    guard event.kind == "text" else { continue }   // tool frames aren't spoken
-                    let piece = (event.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !piece.isEmpty {
-                        reply += reply.isEmpty ? piece : " " + piece
-                        // Straight to the watch, NOT through application
-                        // context: that is rate-limited and coalesced, so the
-                        // acknowledgement and every sentence only surfaced once
-                        // the whole turn (tool calls and all) had finished.
-                        sendSegment(piece, isFirst: !sawFirstSentence)
-                        pushStreaming(reply)
-                        if !sawFirstSentence {
-                            sawFirstSentence = true
-                            firstSentenceNonce += 1
-                            // Belt and braces for a watch that wasn't reachable
-                            // at the moment the segment went out.
-                            push(["firstSentence": piece, "firstSentenceNonce": firstSentenceNonce])
-                        }
+        let outcome: WatchTurnOutcome = await withCheckedContinuation { continuation in
+            var finished = false
+            store.onWatchSegment = { [weak self] piece, audio in
+                guard let self, self.isActive(turn) else { return }
+                let text = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    streamed += streamed.isEmpty ? text : " " + text
+                    self.sendSegment(text, isFirst: !sawFirst)
+                    self.pushStreaming(streamed)
+                    if !sawFirst {
+                        sawFirst = true
+                        self.firstSentenceNonce += 1
+                        self.push(["firstSentence": text,
+                                   "firstSentenceNonce": self.firstSentenceNonce])
                     }
-                    // The server already synthesized this segment in the JARVIS
-                    // voice; send it straight on unless the watch asked to speak
-                    // for itself.
-                    if !preferLocalVoice, let audio = event.audio, !audio.isEmpty {
-                        sendVoiceClip(audio, seq: seq, isFirst: seq == 0)
-                        sentAnyClip = true
-                        seq += 1
-                    }
-                case "error":
-                    let detail = event.error ?? event.text ?? "the turn failed"
-                    lastError = detail
-                    turnsFailed += 1
-            return Self.failure(.network(detail))
-                case "done":
-                    break
-                default:
-                    break
+                }
+                // The phone already synthesized this in the JARVIS voice.
+                if !preferLocalVoice, let audio, !audio.isEmpty {
+                    self.sendVoiceClip(audio, seq: seq, isFirst: seq == 0)
+                    seq += 1
                 }
             }
-        } catch {
-            lastError = apiErrorMessage(error)
-            turnsFailed += 1
-            return Self.failure(.network(lastError ?? "the turn failed"))
+            store.onWatchFinished = { result in
+                guard !finished else { return }
+                finished = true
+                store.onWatchSegment = nil
+                store.onWatchFinished = nil
+                continuation.resume(returning: result)
+            }
+            store.startWatchTurn(text: text)
         }
 
         push(["streamingText": ""])
         lastTurnSeconds = Date().timeIntervalSince(startedAt)
         lastTurnAt = Date()
-        let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
+
+        switch outcome {
+        case .answered(let reply):
+            let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = trimmed.isEmpty ? streamed.trimmingCharacters(in: .whitespacesAndNewlines) : trimmed
+            guard !body.isEmpty else {
+                turnsFailed += 1
+                return Self.failure(.network("the turn produced no reply"))
+            }
+            return Self.reply(text: body, sentClip: seq > 0)
+        case .failed(let detail):
             turnsFailed += 1
-            return Self.failure(.network("the turn produced no reply"))
+            lastError = detail
+            return Self.failure(.network(detail))
         }
-        return Self.reply(text: trimmed, sentClip: sentAnyClip)
     }
 
     private func isActive(_ turn: Int) -> Bool { turn == activeTurn }

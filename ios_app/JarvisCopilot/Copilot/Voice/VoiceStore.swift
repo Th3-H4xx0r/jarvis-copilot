@@ -1,6 +1,13 @@
 import Foundation
 import Observation
 
+/// How a watch-dictated turn ended. A plain `Result` would need an `Error` type
+/// for what is only ever a sentence to show on a small screen.
+enum WatchTurnOutcome {
+    case answered(String)
+    case failed(String)
+}
+
 /// Drives the voice screen. Port of `voice/voice_controller.dart`.
 ///
 /// Owns the mic, the FSM (`VoiceTurnMachine`), the playback queue
@@ -158,6 +165,8 @@ final class VoiceStore {
     var inFormat = "pcm_s16le"
     var inRate = 24000
     var segMp3 = Data()
+    /// A watch turn's PCM, buffered per segment and sent as one WAV clip.
+    var segPcm = Data()
     /// Karaoke segment the CURRENT streamed PCM reply belongs to (plan 1.7).
     var pcmTag: Int?
 
@@ -514,6 +523,79 @@ final class VoiceStore {
     /// rides the ordinary end-of-speech path (which clears the reply, bumps the
     /// epoch, marks the speech end and arms the watchdog) rather than opening a
     /// second way to start a turn.
+    // MARK: - Apple Watch
+
+    /// True while the turn now running was dictated on the WATCH. The reply's
+    /// audio is mirrored to the wrist and kept off the phone's speaker.
+    private(set) var watchTurnActive = false
+    /// Called with each reply segment's text and audio while a watch turn runs.
+    var onWatchSegment: ((String, Data?) -> Void)?
+    /// Called when a watch turn finishes: the whole reply, or an error.
+    var onWatchFinished: ((WatchTurnOutcome) -> Void)?
+
+    /// Run a turn dictated on the watch through THIS pipeline — the same
+    /// realtime socket, the same `begin_turn` model fields, the same server
+    /// prompt, tools and speech as a turn spoken at the phone. The watch used
+    /// to call a different endpoint entirely, which is why its answers behaved
+    /// differently.
+    ///
+    /// It rides the ordinary end-of-speech path, exactly as `retryLastOnServer`
+    /// does, rather than opening a second way to start a turn.
+    func startWatchTurn(text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            onWatchFinished?(.failed("nothing was dictated"))
+            return
+        }
+        watchTurnActive = true
+        watchReply = ""
+        if machine.state == .listening {
+            submitWatchText(trimmed)
+            return
+        }
+        // Not listening yet: open the session, then submit once it is.
+        pendingWatchText = trimmed
+        if !machine.state.isActive { raise(.startRequested) }
+    }
+
+    /// Set aside until the session reaches `listening`.
+    private var pendingWatchText: String?
+    private var watchReply = ""
+
+    /// Called by the transport when the machine settles into `listening`.
+    func deliverPendingWatchTurnIfReady() {
+        guard let text = pendingWatchText, machine.state == .listening else { return }
+        pendingWatchText = nil
+        submitWatchText(text)
+    }
+
+    private func submitWatchText(_ text: String) {
+        abortSpeechSession()   // this turn's text is already decided
+        pendingRetryText = text
+        note("watch turn")
+        raise(.endOfSpeech)
+        userTranscript = text
+        pushLiveActivity()
+    }
+
+    /// The transport hands every reply segment here while a watch turn runs.
+    func noteWatchSegment(text: String, audio: Data?) {
+        guard watchTurnActive else { return }
+        if !text.isEmpty {
+            watchReply += watchReply.isEmpty ? text : " " + text
+        }
+        onWatchSegment?(text, audio)
+    }
+
+    func finishWatchTurn(error: String? = nil) {
+        guard watchTurnActive else { return }
+        watchTurnActive = false
+        pendingWatchText = nil
+        if let error { onWatchFinished?(.failed(error)) }
+        else { onWatchFinished?(.answered(watchReply)) }
+        watchReply = ""
+    }
+
     func retryLastOnServer() {
         guard canRetryOnServer, let text = lastLocalTranscript else { return }
         lastLocalTranscript = nil // one-shot
