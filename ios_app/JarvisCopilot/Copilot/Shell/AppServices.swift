@@ -331,6 +331,10 @@ final class AppServices {
             // queued while we were away.
             if bridge.isPaired && bridge.isBridgeEnabled { bridge.connect() }
             WearablesHub.shared.appDidBecomeActive()
+            // The watch needs a live WCSession and an up-to-date paired state,
+            // or its first dictated turn shows the setup screen.
+            WatchBridge.shared.activate()
+            WatchBridge.shared.pushLoginState()
             liveActivity.onResume()
             Task { [weak self] in
                 guard let self else { return }

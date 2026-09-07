@@ -73,6 +73,8 @@ struct MorePage: View {
             PhotonSetupPage()
         case .moshi:
             MoshiPage()
+        case .appleWatch:
+            WatchPage()
         }
     }
 

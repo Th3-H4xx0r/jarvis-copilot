@@ -121,6 +121,10 @@ final class VoiceTurnMachineTests: XCTestCase {
         _ = m.apply(.serverOutput)
         _ = m.apply(.playbackStarted)
         _ = m.apply(.playbackDrained)
+        // The server has to END the turn before the mic comes back — a resume
+        // timer that fires mid-turn is ignored on purpose (it used to hand the
+        // mic back in the middle of a reply).
+        _ = m.apply(.turnEnded(reason: "done", producedReply: true))
         _ = m.apply(.resumeGraceElapsed)
         _ = m.apply(.endOfSpeech)
         XCTAssertFalse(m.serverProducedOutput, "the next turn starts with nothing said")
