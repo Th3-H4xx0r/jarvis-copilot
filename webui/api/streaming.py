@@ -2791,10 +2791,29 @@ def _refresh_device_tools(agent) -> None:
         def _name(t):
             return ((t.get("function") or {}).get("name") or t.get("name") or "") if isinstance(t, dict) else ""
         current = list(getattr(agent, "tools", None) or [])
-        base = [t for t in current if not _name(t).startswith("device_")]
+        fresh = list(fresh)
+        # Drop the stale device_* tools AND anything the refreshed `devices`
+        # toolset is about to re-supply. `notify_phone` lives in that toolset
+        # but is not named device_*, so keeping it here and appending the
+        # toolset's copy sent the declaration twice — which Gemini rejects
+        # outright ("Duplicate function declaration found: notify_phone").
+        fresh_names = {_name(t) for t in fresh}
+        fresh_names.discard("")
+        base = [t for t in current
+                if not _name(t).startswith("device_") and _name(t) not in fresh_names]
         if len(base) == len(current) and not fresh:
             return
-        agent.tools = base + list(fresh)
+        merged = base + fresh
+        # Belt and braces: never advertise the same name twice, whatever the source.
+        seen, deduped = set(), []
+        for tool in merged:
+            name = _name(tool)
+            if name and name in seen:
+                continue
+            if name:
+                seen.add(name)
+            deduped.append(tool)
+        agent.tools = deduped
         # The executor validates calls against valid_tool_names; a tool that is
         # advertised but not valid fails with "does not exist" — which is what
         # every device_* call did on a warm agent.
