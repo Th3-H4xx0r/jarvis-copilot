@@ -78,23 +78,6 @@ func voiceWordTokens(_ s: String) -> [String] {
     s.split(whereSeparator: { $0.isWhitespace }).map(String.init)
 }
 
-/// Strip markdown so the reply reads like clean speech — matches what the server
-/// synthesizes (see voice.py `_speakable`). Kept next to `VoiceSegment` (not in
-/// the view) so the displayed text and the word schedule tokenize identically.
-/// Port of `voice_controller.dart`'s `_plainSpeech`.
-func voicePlainSpeech(_ text: String) -> String {
-    var s = text
-    s = regexReplace(s, #"```[\s\S]*?```"#, " ")
-    s = regexReplace(s, #"\[([^\]]+)\]\([^)]*\)"#, "$1")
-    s = regexReplace(s, "`([^`]+)`", "$1")
-    s = regexReplace(s, #"^\s{0,3}#{1,6}\s*"#, "", .anchorsMatchLines)
-    s = regexReplace(s, #"^\s{0,3}>\s?"#, "", .anchorsMatchLines)
-    s = regexReplace(s, #"^\s{0,3}[-*+]\s+"#, "", .anchorsMatchLines)
-    s = regexReplace(s, #"\*\*|\*|__|_|~~|`"#, "")
-    s = regexReplace(s, #"\n{3,}"#, "\n\n")
-    return s.trimmingCharacters(in: .whitespacesAndNewlines)
-}
-
 /// Split a reply into sentence/line-sized chunks for per-clip TTS + karaoke,
 /// merging very short fragments so we don't make a clip per word.
 /// Port of `voice_controller.dart`'s `_splitForSpeech`.
@@ -122,14 +105,6 @@ func voiceSplitForSpeech(_ text: String) -> [String] {
 // NSRegularExpression rather than Swift Regex: the iOS 17 deployment target
 // allows either, but `(?<=…)` lookbehind and `.anchorsMatchLines` translate
 // 1:1 from the Dart patterns, so parity is verifiable by eye.
-
-private func regexReplace(_ s: String, _ pattern: String, _ template: String,
-                          _ options: NSRegularExpression.Options = []) -> String {
-    guard let re = try? NSRegularExpression(pattern: pattern, options: options) else { return s }
-    let ns = s as NSString
-    return re.stringByReplacingMatches(in: s, range: NSRange(location: 0, length: ns.length),
-                                       withTemplate: template)
-}
 
 private func regexSplit(_ s: String, _ pattern: String) -> [String] {
     guard let re = try? NSRegularExpression(pattern: pattern) else { return [s] }

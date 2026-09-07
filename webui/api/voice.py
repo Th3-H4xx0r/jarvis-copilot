@@ -603,17 +603,27 @@ def _voice_quality_turn(handler, body) -> bool:
     pcm_b64 = ((body or {}).get("audio_base64") or "")
     sr = int((body or {}).get("sample_rate") or 16000)
     session_id = ((body or {}).get("session_id") or "").strip()
-    if not pcm_b64:
-        return j(handler, {"error": "audio_base64 is required"}, status=400)
+    # A caller that already has the words — the Apple Watch dictates on-device —
+    # sends `text` and skips STT. It is the SAME turn either way, so the voice
+    # directive, the fast lane and the model choice all still apply.
+    supplied_text = str((body or {}).get("text") or "").strip()
+    # The surface's chosen voice model, exactly as the realtime path sends it.
+    turn_model = str((body or {}).get("model") or "").strip()
+    turn_provider = str((body or {}).get("model_provider") or "").strip()
+    if not pcm_b64 and not supplied_text:
+        return j(handler, {"error": "text or audio_base64 is required"}, status=400)
     if not session_id:
         return j(handler, {"error": "session_id is required"}, status=400)
-    try:
-        pcm_bytes = base64.b64decode(pcm_b64)
-    except Exception:
-        return j(handler, {"error": "invalid base64 audio"}, status=400)
-    if len(pcm_bytes) < 1000:
-        return j(handler, {"error": "audio too short"}, status=400)
-    transcript = _pcm_to_transcript(pcm_bytes, sr)
+    if supplied_text:
+        transcript = supplied_text
+    else:
+        try:
+            pcm_bytes = base64.b64decode(pcm_b64)
+        except Exception:
+            return j(handler, {"error": "invalid base64 audio"}, status=400)
+        if len(pcm_bytes) < 1000:
+            return j(handler, {"error": "audio too short"}, status=400)
+        transcript = _pcm_to_transcript(pcm_bytes, sr)
 
     # Headers go out BEFORE we touch the agent so the browser sees the
     # streaming response start instantly (and reveals the transcript line
@@ -664,7 +674,9 @@ def _voice_quality_turn(handler, body) -> bool:
         return True
 
     try:
-        for seg in _run_agent_turn_via_chat(session_id, transcript):
+        for seg in _run_agent_turn_via_chat(session_id, transcript,
+                                            model_override=turn_model,
+                                            provider_override=turn_provider):
             if seg.get("kind") == "text":
                 text = (seg.get("text") or "").strip()
                 if not text:

@@ -496,6 +496,12 @@
 		1C96D692B83AB70E6A5BA112 /* WatchPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1788D1CD0A121B7279E028 /* WatchPage.swift */; };
 		4E29F5BC9C71C26B29A2A7FF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3F7A94ACC1A8A3D908CE2F8B /* Assets.xcassets */; };
 		2925241893EFAB10621386B6 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = A2101217A4D1C9AC81A28B7C /* Fonts */; };
+		8098335C7BE0DD6FEFBF023F /* LiquidGlassOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6E3A3E188EDA825C7949C30 /* LiquidGlassOrb.swift */; };
+		A584F8E70227690EB39B430C /* OrbShader.metal in Sources */ = {isa = PBXBuildFile; fileRef = F0ECB46F9DF0ED0005696A76 /* OrbShader.metal */; };
+		09996E37D49CF4B4B0A3802B /* VoiceSessionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 302C99DE91260B3A74792393 /* VoiceSessionResolver.swift */; };
+		607CAAF1446D268439887916 /* OrbFrames in Resources */ = {isa = PBXBuildFile; fileRef = F9F69B4BC251C401DCB7252F /* OrbFrames */; };
+		47747C669736D49DFEABA3B6 /* SpokenMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */; };
+		8E0134296AB486D2509BD5DB /* SpokenMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1036,6 +1042,11 @@
 		0D1788D1CD0A121B7279E028 /* WatchPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchPage.swift; sourceTree = "<group>"; };
 		3F7A94ACC1A8A3D908CE2F8B /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2101217A4D1C9AC81A28B7C /* Fonts */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = Fonts; sourceTree = "<group>"; };
+		E6E3A3E188EDA825C7949C30 /* LiquidGlassOrb.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlassOrb.swift; sourceTree = "<group>"; };
+		F0ECB46F9DF0ED0005696A76 /* OrbShader.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = OrbShader.metal; sourceTree = "<group>"; };
+		302C99DE91260B3A74792393 /* VoiceSessionResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSessionResolver.swift; sourceTree = "<group>"; };
+		F9F69B4BC251C401DCB7252F /* OrbFrames */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = OrbFrames; sourceTree = "<group>"; };
+		888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SpokenMarkdown.swift; path = SpokenMarkdown.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1782,6 +1793,7 @@
 		B64D90BD785DD26644FA3EC0 /* Voice */ = {
 			isa = PBXGroup;
 			children = (
+				302C99DE91260B3A74792393 /* VoiceSessionResolver.swift */,
 				565E84810FA1EB62ED64ABDF /* VoiceSessionSelection.swift */,
 				322E1110A5953ECE2DE854A9 /* Endpointer.swift */,
 				CB964E18AE00D6B7BEBECB30 /* VoiceState.swift */,
@@ -1979,6 +1991,7 @@
 		DD7C0E11A2C0CEC54959FA90 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */,
 				8E3BD034C4996815954B0847 /* JarvisStopwatchAttributes.swift */,
 				89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */,
 				DE1A7A3F834AEDA49F40CAE3 /* JarvisActivityAttributes.swift */,
@@ -2083,6 +2096,9 @@
 		7C93F90DEB00E1E996CC0919 /* JarvisWatch */ = {
 			isa = PBXGroup;
 			children = (
+				F9F69B4BC251C401DCB7252F /* OrbFrames */,
+				E6E3A3E188EDA825C7949C30 /* LiquidGlassOrb.swift */,
+				F0ECB46F9DF0ED0005696A76 /* OrbShader.metal */,
 				3F7A94ACC1A8A3D908CE2F8B /* Assets.xcassets */,
 				A2101217A4D1C9AC81A28B7C /* Fonts */,
 				BBC59431147E7314E8587018 /* AckTimer.swift */,
@@ -2258,6 +2274,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				607CAAF1446D268439887916 /* OrbFrames in Resources */,
 				4E29F5BC9C71C26B29A2A7FF /* Assets.xcassets in Resources */,
 				2925241893EFAB10621386B6 /* Fonts in Resources */,
 			);
@@ -2443,6 +2460,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				47747C669736D49DFEABA3B6 /* SpokenMarkdown.swift in Sources */,
+				09996E37D49CF4B4B0A3802B /* VoiceSessionResolver.swift in Sources */,
 				1C96D692B83AB70E6A5BA112 /* WatchPage.swift in Sources */,
 				D8E1D1327953EDB312AAC053 /* WatchBridge.swift in Sources */,
 				2043FF18CE80691E6DEB17A3 /* WatchRelay.swift in Sources */,
@@ -2758,6 +2777,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8E0134296AB486D2509BD5DB /* SpokenMarkdown.swift in Sources */,
+				8098335C7BE0DD6FEFBF023F /* LiquidGlassOrb.swift in Sources */,
+				A584F8E70227690EB39B430C /* OrbShader.metal in Sources */,
 				8DD227C4766A40406E416A9F /* AckTimer.swift in Sources */,
 				7E4D77E9C0ED8E3AC082423B /* AskResult.swift in Sources */,
 				854D7883CC4DB392B8D08AF0 /* AudioPlayer.swift in Sources */,

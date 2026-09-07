@@ -83,7 +83,7 @@ struct ContentView: View {
                     ScrollView {
                         VStack(spacing: 8) {
                             VoiceOrb(mode: .thinking, size: 52)
-                            Text(connector.streamingText)
+                            Text(voicePlainSpeech(connector.streamingText))
                                 .font(.inter(15)).foregroundStyle(JcWatch.text)
                                 .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -96,7 +96,7 @@ struct ContentView: View {
                         orbButton(.speaking, size: 58)
                         // Speaking is finished here (the speaking screen owns the
                         // live highlight) → fully lit, centred.
-                        KaraokeText(text: text, progress: 1.0)
+                        KaraokeText(text: voicePlainSpeech(text), progress: 1.0)
                         if !voice.note.isEmpty {
                             Text(voice.note)
                                 .font(.inter(11)).foregroundStyle(JcWatch.muted)
@@ -139,7 +139,7 @@ struct ContentView: View {
                     if !currentAnswerText.isEmpty {
                         // Karaoke: words light up white as the clip speaks them,
                         // and the view auto-scrolls to follow the spoken line.
-                        KaraokeText(text: currentAnswerText,
+                        KaraokeText(text: voicePlainSpeech(currentAnswerText),
                                     progress: audio.playbackProgress,
                                     scrollProxy: proxy)
                     }
@@ -232,13 +232,27 @@ private struct KaraokeText: View {
     }
 
     // One sentence "chunk" as a single coloured Text (white = spoken).
+    // Each word is parsed as markdown so **bold** and *italic* actually render
+    // instead of showing their asterisks; block syntax (#, bullets, fences) is
+    // already gone, stripped by the shared `voicePlainSpeech`.
     private func chunkText(_ words: [String], start: Int, spoken: Int) -> Text {
         var out = Text(verbatim: "")
         for (j, w) in words.enumerated() {
-            out = out + Text(verbatim: j == 0 ? w : " " + w)
+            let styled = Text(KaraokeText.inlineMarkdown(w))
                 .foregroundStyle((start + j) < spoken ? JcWatch.text : JcWatch.muted)
+            out = out + (j == 0 ? styled : Text(verbatim: " ") + styled)
         }
         return out
+    }
+
+    /// `**bold**` → bold, `*italic*` → italic, `` `code` `` → monospaced.
+    /// Falls back to the literal word when it isn't valid markdown.
+    static func inlineMarkdown(_ word: String) -> AttributedString {
+        guard word.contains("*") || word.contains("`") || word.contains("_") else {
+            return AttributedString(word)
+        }
+        if let parsed = try? AttributedString(markdown: word) { return parsed }
+        return AttributedString(word)
     }
 
     private static func tokenize(_ s: String) -> [String] {

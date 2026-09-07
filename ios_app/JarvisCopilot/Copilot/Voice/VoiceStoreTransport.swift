@@ -94,44 +94,12 @@ extension VoiceStore {
         }
     }
 
-    /// The server's dedicated, persistent "Voice" chat — NOT whatever session is
-    /// most-recent. The old Flutter code grabbed index 0 of `/api/sessions`,
-    /// which is sorted recent-first and includes coding/CLI/Telegram channels;
-    /// voice then ran against a session wired to a provider+model it couldn't use
-    /// (e.g. Codex with an empty model) and silently failed. The server
-    /// get-or-creates this one with a valid model/provider.
+    /// Resolved by `VoiceSessionResolver`, which the Apple Watch uses too, so a
+    /// dictated turn lands in the same conversation as a spoken one.
     func ensureSession() async throws -> String {
-        let target = VoiceSessionSelection.shared.target
-        if let sessionID, !sessionID.isEmpty, boundSessionTarget == target { return sessionID }
-        boundSessionTarget = target
-        // A session picked in the voice session picker (or created from it).
-        // Verify it still exists; a deleted one falls back to the default.
-        if let picked = target.sessionID, !picked.isEmpty {
-            if (try? await SessionsAPI(api: voice.api).get(picked)) != nil {
-                sessionID = picked
-                return picked
-            }
-            note("picked voice session missing; using default")
-            VoiceSessionSelection.shared.select(.defaultVoice)
+        let id = try await VoiceSessionResolver.shared.ensureSession(voice: voice) { [weak self] message in
+            self?.note(message)
         }
-        do {
-            let id = try await voice.voiceSessionID()
-            if !id.isEmpty {
-                sessionID = id
-                return id
-            }
-        } catch {
-            // Older servers have no /api/voice/session; fall through and create
-            // a plain chat instead.
-            JcLog.dropped(JcLog.voice, "resolve voice session", error)
-        }
-        // Fallback for older servers without /api/voice/session: a plain chat
-        // titled "Voice".
-        let created = try await voice.api.post("/api/session/new",
-                                               json: ["title": "Voice"]).object()
-        let session = created.dict("session") ?? created
-        let id = session.string("session_id") ?? ""
-        guard !id.isEmpty else { throw APIError.badResponse("could not create a voice session") }
         sessionID = id
         return id
     }
