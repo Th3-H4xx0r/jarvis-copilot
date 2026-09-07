@@ -35,44 +35,20 @@ struct ContentView: View {
     }
 
     var body: some View {
-        // NO NavigationStack of our own: a watchOS app scene already provides
-        // the root navigation (which is why `.toolbar` and NavigationLink work
-        // here). Nesting a second stack inside it hung the first render — the
-        // app launched, stayed alive, and never drew anything but the system
-        // loading swirl.
-        Group {
-            ZStack {
-                JcWatch.background
-                content.padding(.horizontal, 6)
-            }
-            // ONE trailing item: watchOS shows a single toolbar button, and
-            // asking for two left the bar in a bad state (the chat bubble
-            // vanished and the app stopped responding). Chats live inside the
-            // menu instead, one tap further in.
-            .toolbar {
-                // A SHEET, not a NavigationLink: the watch scene gives us a
-                // navigation BAR but no stack to push onto, so a link did
-                // nothing when tapped. The sheet brings its own stack.
-                //
-                // Only ONE toolbar button is possible here — watchOS keeps the
-                // leading slot for the clock — so choosing a chat lives next to
-                // Volume under the orb, where it is one tap either way.
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { activeSheet = .menu } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
-            }
+        // NO NavigationStack of our own: nesting one inside the watch scene's
+        // own navigation hung the first render — the app launched, stayed
+        // alive, and drew nothing but the system loading swirl. Without a
+        // stack there is also no bar for `.toolbar` to attach to, which is why
+        // every control lives on screen under the orb instead.
+        ZStack {
+            JcWatch.background
+            content.padding(.horizontal, 6)
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .volume: volumeSheet
             case .menu:
-                NavigationStack {
-                    WatchMenuScreen(store: menu) {
-                        activeSheet = .volume
-                    }
-                }
+                NavigationStack { WatchMenuScreen(store: menu) { activeSheet = .volume } }
             case .chats:
                 NavigationStack { WatchChatPicker(store: menu) }
             }
@@ -199,9 +175,12 @@ struct ContentView: View {
     }
 
     private var volumeButton: some View {
-        // Icons, not labels: two labelled buttons are wider than a 42 mm watch
-        // and the second was clipped off the screen entirely.
-        HStack(spacing: 22) {
+        // The app's controls live HERE, under the orb — not in `.toolbar`.
+        // Toolbar items need a NavigationStack to attach to, and adding one at
+        // the root hangs the watch app on launch, so a toolbar button simply
+        // never appeared. Icons, not labels: two labelled buttons are already
+        // wider than a 42 mm screen.
+        HStack(spacing: 18) {
             Button { activeSheet = .volume } label: {
                 Image(systemName: "speaker.wave.2.fill").font(.system(size: 15, weight: .medium))
             }
@@ -212,6 +191,11 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Chats")
+            Button { activeSheet = .menu } label: {
+                Image(systemName: "ellipsis.circle").font(.system(size: 15, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Menu")
         }
         .foregroundStyle(JcWatch.muted)
     }

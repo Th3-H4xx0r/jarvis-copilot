@@ -111,12 +111,17 @@ struct WatchWearable: Identifiable, Equatable {
 
 // MARK: - Screens
 
-/// The top-right menu. watchOS has no `Menu`, so it is a small pushed list —
-/// which is also easier to hit on a wrist than a popover.
+/// The top-right menu: Voice, then the wearables themselves.
+///
+/// Everything is INLINE — no NavigationLink pushes. A watchOS scene provides a
+/// navigation bar but not always a stack to push onto, and a row that silently
+/// does nothing when tapped is worse than one more scroll. Tapping a device
+/// expands its readings in place.
 struct WatchMenuScreen: View {
     @ObservedObject var store: WatchMenuStore
     var onVoice: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var expanded: String?
 
     var body: some View {
         List {
@@ -128,18 +133,65 @@ struct WatchMenuScreen: View {
             } label: {
                 Label("Voice", systemImage: "waveform")
             }
-            NavigationLink {
-                WatchWearablesList(store: store)
-            } label: {
-                Label("Jarvis wearables", systemImage: "sensor")
-            }
-            NavigationLink {
-                WatchChatPicker(store: store)
-            } label: {
-                Label("Chats", systemImage: "bubble.left")
+
+            Section("Jarvis wearables") {
+                if store.wearables.isEmpty {
+                    Text(store.error ?? (store.loading ? "Loading…" : "No wearables paired."))
+                        .font(.inter(12)).foregroundStyle(JcWatch.muted)
+                }
+                ForEach(store.wearables) { device in
+                    WatchWearableRow(device: device,
+                                     expanded: expanded == device.id) {
+                        expanded = expanded == device.id ? nil : device.id
+                    }
+                }
             }
         }
         .navigationTitle("Menu")
+        .task { store.loadWearables() }
+    }
+}
+
+/// The identical row for every device — that uniformity IS the design. Tapping
+/// it reveals the same three-line reading list for each.
+struct WatchWearableRow: View {
+    let device: WatchWearable
+    let expanded: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button(action: toggle) {
+                HStack(spacing: 10) {
+                    Image(systemName: device.symbol)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(device.connected ? JcWatch.accent : JcWatch.muted)
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(device.name).font(.inter(14, .semibold)).lineLimit(1)
+                        Text(device.state).font(.inter(11)).foregroundStyle(JcWatch.muted)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                if device.readings.isEmpty {
+                    Text(device.connected ? "No readings yet." : "Not connected.")
+                        .font(.inter(11)).foregroundStyle(JcWatch.muted)
+                } else {
+                    ForEach(device.readings) { reading in
+                        HStack {
+                            Text(reading.label).font(.inter(11)).foregroundStyle(JcWatch.muted)
+                            Spacer()
+                            Text(reading.value).font(.inter(12, .semibold))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -182,82 +234,5 @@ struct WatchChatPicker: View {
         }
         .navigationTitle("Chat")
         .task { store.loadSessions() }
-    }
-}
-
-struct WatchWearablesList: View {
-    @ObservedObject var store: WatchMenuStore
-
-    var body: some View {
-        List {
-            if store.wearables.isEmpty && !store.loading {
-                Text(store.error ?? "No wearables paired.")
-                    .font(.inter(12)).foregroundStyle(JcWatch.muted)
-            }
-            ForEach(store.wearables) { device in
-                NavigationLink {
-                    WatchWearableDetail(device: device, store: store)
-                } label: {
-                    WatchWearableRow(device: device)
-                }
-            }
-        }
-        .navigationTitle("Wearables")
-        .task { store.loadWearables() }
-    }
-}
-
-/// The identical row for every device — that uniformity IS the design.
-private struct WatchWearableRow: View {
-    let device: WatchWearable
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: device.symbol)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(device.connected ? JcWatch.accent : JcWatch.muted)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(device.name).font(.inter(14, .semibold)).lineLimit(1)
-                Text(device.state).font(.inter(11)).foregroundStyle(JcWatch.muted)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-/// One detail layout for all three: the same header, the same reading grid.
-struct WatchWearableDetail: View {
-    let device: WatchWearable
-    @ObservedObject var store: WatchMenuStore
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                Image(systemName: device.symbol)
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(device.connected ? JcWatch.accent : JcWatch.muted)
-                Text(device.state)
-                    .font(.inter(12)).foregroundStyle(JcWatch.muted)
-
-                let live = store.wearables.first { $0.id == device.id } ?? device
-                if live.readings.isEmpty {
-                    Text(live.connected ? "No readings yet." : "Not connected.")
-                        .font(.inter(12)).foregroundStyle(JcWatch.muted)
-                } else {
-                    ForEach(live.readings) { reading in
-                        HStack {
-                            Text(reading.label).font(.inter(12)).foregroundStyle(JcWatch.muted)
-                            Spacer()
-                            Text(reading.value).font(.inter(14, .semibold))
-                        }
-                        .padding(.horizontal, 4)
-                    }
-                }
-            }
-            .padding(.horizontal, 8)
-        }
-        .navigationTitle(device.name)
-        .task { store.loadWearables() }
     }
 }
