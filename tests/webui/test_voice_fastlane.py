@@ -160,3 +160,83 @@ def test_partial_per_turn_override_still_wins(monkeypatch):
     # A partial explicit pick still wins; provider falls back to the session's.
     assert captured["model"] == "override-model"
     assert captured["provider"] == "session-provider"
+
+
+# ── override failure → silent fast-lane fallback + cooldown ──────────────────
+
+def _drive_failing_override(monkeypatch, *, fast_lane, model_override, provider_override):
+    """Like _drive, but the FIRST stream (the override) fails with a quota error.
+    Returns (segments yielded, list of (model, provider) attempted)."""
+    import api.models as models_mod
+    import api.routes as routes_mod
+    import api.config as config_mod
+
+    fake_session = _FakeSession("whatever", "whatever-provider")
+    monkeypatch.setattr(models_mod, "get_session", lambda sid: fake_session)
+    monkeypatch.setattr(voice, "get_voice_lane_config",
+                         lambda: {"fast_lane": fast_lane, "escalation": None})
+    attempts = []
+
+    def _fake_resolve(model, provider):
+        attempts.append((model, provider))
+        return (model or ""), provider, False
+
+    monkeypatch.setattr(routes_mod, "_resolve_compatible_session_model_state", _fake_resolve)
+    monkeypatch.setattr(routes_mod, "_start_chat_stream_for_session",
+                         lambda session, **kw: {"stream_id": "bench-stream"})
+    monkeypatch.setattr(config_mod, "STREAMS", {"bench-stream": _FakeChannel()})
+
+    def _fake_consume(*a, **k):
+        # First attempt (the override) fails; the fast-lane rerun answers.
+        if len(attempts) == 1:
+            yield {"kind": "error", "text": "out of extra usage", "code": 400}
+        else:
+            yield {"kind": "text", "text": "Very good, sir."}
+
+    monkeypatch.setattr(voice, "_consume_agent_stream", _fake_consume)
+    segs = list(voice._run_agent_turn_via_chat(
+        "sess-1", "hello",
+        model_override=model_override, provider_override=provider_override,
+    ))
+    return segs, attempts
+
+
+def test_override_failure_falls_back_silently(monkeypatch):
+    voice._OVERRIDE_COOLDOWN.clear()
+    segs, attempts = _drive_failing_override(
+        monkeypatch,
+        fast_lane={"provider": "ollama-cloud", "model": "gemma4:31b"},
+        model_override="claude-sonnet-5", provider_override="anthropic",
+    )
+    texts = [s.get("text", "") for s in segs if s.get("kind") == "text"]
+    # No apology / narration about the lane switch — just the answer.
+    assert texts == ["Very good, sir."]
+    assert not any("out of usage" in t or "fast lane" in t for t in texts)
+    assert attempts[0] == ("claude-sonnet-5", "anthropic")
+    assert attempts[1] == ("gemma4:31b", "ollama-cloud")
+
+
+def test_failed_override_is_skipped_on_the_next_turn(monkeypatch):
+    voice._OVERRIDE_COOLDOWN.clear()
+    _drive_failing_override(
+        monkeypatch,
+        fast_lane={"provider": "ollama-cloud", "model": "gemma4:31b"},
+        model_override="claude-sonnet-5", provider_override="anthropic",
+    )
+    # Next turn with the same pick goes straight to the fast lane — no retry
+    # of the exhausted model, no error segment, no extra round trip.
+    captured = _drive(
+        monkeypatch,
+        fast_lane={"provider": "ollama-cloud", "model": "gemma4:31b"},
+        model_override="claude-sonnet-5", provider_override="anthropic",
+    )
+    assert captured["model"] == "gemma4:31b"
+    assert captured["provider"] == "ollama-cloud"
+    # A DIFFERENT pick is not affected by the cooldown.
+    captured = _drive(
+        monkeypatch,
+        fast_lane={"provider": "ollama-cloud", "model": "gemma4:31b"},
+        model_override="gpt-5.5", provider_override="codex",
+    )
+    assert captured["model"] == "gpt-5.5"
+    voice._OVERRIDE_COOLDOWN.clear()

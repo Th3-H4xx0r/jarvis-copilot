@@ -233,16 +233,16 @@ struct VoicePage: View {
     /// Flutter's app bar: a sparkles chip that opens the model picker, then the
     /// wake-word ear. The chip carries the model NAME here — the whole point of
     /// the picker is knowing what is answering without opening it.
+    ///
+    /// The session chip is ICON-ONLY: with a title on it too the trailing group
+    /// grew past the bar and squeezed the "Voice" title down to "V…". The
+    /// session's name lives in the picker sheet (and in the accessibility label).
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Button { showSessionPicker = true } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "bubble.left")
-                    Text(sessionSelection.chipLabel).lineLimit(1)
-                }
-                .font(.system(size: 14, weight: .medium))
-                .frame(maxWidth: 110)
+                Image(systemName: "bubble.left")
+                    .font(.system(size: 15, weight: .medium))
             }
             .accessibilityLabel("Voice session: \(sessionSelection.chipLabel)")
         }

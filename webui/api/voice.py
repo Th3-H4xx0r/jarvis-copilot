@@ -973,6 +973,31 @@ def _cancel_active_voice_stream(state: dict) -> None:
         print("[webui] voice: cancel_stream failed: " + traceback.format_exc(), flush=True)
 
 
+# A voice model pick that just failed (quota / rate limit / auth) — keyed by
+# (model, provider), value = time it may be retried. Keeps the phone's pick
+# intact while sparing every following turn the doomed round trip.
+_OVERRIDE_COOLDOWN: dict = {}
+_OVERRIDE_COOLDOWN_SECONDS = 10 * 60
+
+
+def _override_key(model: str, provider: str) -> tuple:
+    return ((model or "").strip().lower(), (provider or "").strip().lower())
+
+
+def _put_override_on_cooldown(model: str, provider: str) -> None:
+    _OVERRIDE_COOLDOWN[_override_key(model, provider)] = time.time() + _OVERRIDE_COOLDOWN_SECONDS
+
+
+def _override_on_cooldown(model: str, provider: str) -> bool:
+    until = _OVERRIDE_COOLDOWN.get(_override_key(model, provider))
+    if until is None:
+        return False
+    if until <= time.time():
+        _OVERRIDE_COOLDOWN.pop(_override_key(model, provider), None)
+        return False
+    return True
+
+
 def _run_agent_turn_via_chat(session_id: str, user_text: str,
                              model_override: str = "", provider_override: str = "",
                              lane: str = ""):
@@ -1045,6 +1070,13 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     override_provider = (provider_override or "").strip()
     fast_lane = (get_voice_lane_config() or {}).get("fast_lane")
     explicit_override = bool(override_model or override_provider) and lane != "fast"
+    if explicit_override and fast_lane and _override_on_cooldown(override_model, override_provider):
+        # This pick failed (quota / rate limit / auth) a moment ago. Don't burn
+        # a round trip re-proving it every turn: go straight to the fast lane,
+        # silently, until the cooldown lapses. The pick itself is untouched —
+        # the phone keeps sending it and it is retried once the window closes.
+        print(f"[webui] voice: pick {override_model!r}/{override_provider!r} on cooldown; using the fast lane", flush=True)
+        explicit_override = False
     if explicit_override:
         # The phone's own VOICE model pick (Settings → voice model). It must
         # keep winning: when Claude usage runs out the user switches voice to
@@ -1134,14 +1166,15 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
     try:
         for seg in _consume_agent_stream(channel, subscriber, stream_id):
             # The phone's override model is out of quota / rate-limited: don't
-            # leave the user stranded — say so and rerun this turn on the
-            # configured fast lane (the override keeps winning next turn).
+            # leave the user stranded — rerun this turn on the configured fast
+            # lane SILENTLY (no "that model is out of usage" narration; the
+            # user asked for the switch to be invisible) and put the pick on
+            # cooldown so the next turns skip the failing round trip.
             if (seg.get("kind") == "error" and explicit_override and fast_lane
                     and _failure_class(seg) in ("quota_exhausted", "rate_limit", "auth_mismatch", "model_not_found", "error")):
                 print(f"[webui] voice: override model failed ({_failure_class(seg)}); rerunning on the fast lane", flush=True)
                 fallback_to_fast = True
-                yield {"kind": "text",
-                       "text": "That model is out of usage right now, so I'm answering on the fast lane."}
+                _put_override_on_cooldown(override_model, override_provider)
                 break
             yield seg
     finally:
