@@ -212,6 +212,11 @@ struct JarvisWidgetBundle: WidgetBundle {
         // Dynamic Island / Lock Screen Live Activity (iOS 16.2+).
         if #available(iOS 16.2, *) {
             JarvisLiveActivity()
+            JarvisStopwatchActivity()
+        }
+        // AlarmKit alarm / timer countdown (iOS 26+).
+        if #available(iOS 26.0, *) {
+            JarvisAlarmActivity()
         }
         // Control Center button — only on iOS 18+, where Controls exist.
         if #available(iOS 18.0, *) {

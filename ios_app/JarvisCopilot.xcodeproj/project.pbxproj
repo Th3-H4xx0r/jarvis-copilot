@@ -464,6 +464,15 @@
 		1089378A7B6EC20A7F093BD6 /* JarvisAlarmMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */; };
 		9C02A52853326127CDF20CDC /* AlarmScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67C5388D0E62093D65F5F5D3 /* AlarmScheduler.swift */; };
 		AE432524B706CCE8F8E9BD82 /* AlarmSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB12CB13E9BF57149510662B /* AlarmSkillsTests.swift */; };
+		BE6FDB0ABB7CA323632F1D39 /* JarvisAlarmActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13D09CC62009E9E6FCC897A9 /* JarvisAlarmActivity.swift */; };
+		0B1FD1A97E9531D7AACE2F78 /* JarvisStopwatchAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E3BD034C4996815954B0847 /* JarvisStopwatchAttributes.swift */; };
+		D1D00F66AF12A3BBC0E35A07 /* JarvisStopwatchAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E3BD034C4996815954B0847 /* JarvisStopwatchAttributes.swift */; };
+		BDEFDDB02CFAFD78AE00B6C0 /* StopwatchCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAF71CACE44225D6301CEE5D /* StopwatchCore.swift */; };
+		E8A39D9DFCDBC0B6A7749699 /* StopwatchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86D2305E0AA679A9364DF87 /* StopwatchService.swift */; };
+		7C036D0D1EF428EE6A305E8F /* ClockSkills.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19019582C3C4BC9B73A4DC77 /* ClockSkills.swift */; };
+		44595E61E3E9CDDCAEDC4C68 /* StopwatchCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02908E275794FF531BE5A76F /* StopwatchCoreTests.swift */; };
+		DB5B9E759DBD0AE44371C4E8 /* ClockSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33B976A13B047F8380A8012B /* ClockSkillsTests.swift */; };
+		E7B7D20070A68AB5B2DD8FCA /* JarvisStopwatchActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5572E7D57DF38456D03160E4 /* JarvisStopwatchActivity.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -955,6 +964,14 @@
 		89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisAlarmMetadata.swift; sourceTree = "<group>"; };
 		67C5388D0E62093D65F5F5D3 /* AlarmScheduler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmScheduler.swift; sourceTree = "<group>"; };
 		BB12CB13E9BF57149510662B /* AlarmSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmSkillsTests.swift; sourceTree = "<group>"; };
+		13D09CC62009E9E6FCC897A9 /* JarvisAlarmActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisAlarmActivity.swift; path = JarvisWidget/JarvisAlarmActivity.swift; sourceTree = "<group>"; };
+		8E3BD034C4996815954B0847 /* JarvisStopwatchAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisStopwatchAttributes.swift; sourceTree = "<group>"; };
+		AAF71CACE44225D6301CEE5D /* StopwatchCore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StopwatchCore.swift; sourceTree = "<group>"; };
+		D86D2305E0AA679A9364DF87 /* StopwatchService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StopwatchService.swift; sourceTree = "<group>"; };
+		19019582C3C4BC9B73A4DC77 /* ClockSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClockSkills.swift; sourceTree = "<group>"; };
+		02908E275794FF531BE5A76F /* StopwatchCoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StopwatchCoreTests.swift; sourceTree = "<group>"; };
+		33B976A13B047F8380A8012B /* ClockSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClockSkillsTests.swift; sourceTree = "<group>"; };
+		5572E7D57DF38456D03160E4 /* JarvisStopwatchActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisStopwatchActivity.swift; path = JarvisWidget/JarvisStopwatchActivity.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1129,6 +1146,8 @@
 		1C5BE1A7BD21E2769F81692B /* Skills */ = {
 			isa = PBXGroup;
 			children = (
+				33B976A13B047F8380A8012B /* ClockSkillsTests.swift */,
+				02908E275794FF531BE5A76F /* StopwatchCoreTests.swift */,
 				BB12CB13E9BF57149510662B /* AlarmSkillsTests.swift */,
 				06C8F260581D2A124ED7BC83 /* AlarmSpecTests.swift */,
 				41EBDFDA8D6095A261B3FB34 /* ContactLookupTests.swift */,
@@ -1607,6 +1626,8 @@
 		91F3A419F2D1AC85A3002A95 /* . */ = {
 			isa = PBXGroup;
 			children = (
+				5572E7D57DF38456D03160E4 /* JarvisStopwatchActivity.swift */,
+				13D09CC62009E9E6FCC897A9 /* JarvisAlarmActivity.swift */,
 				C3634082F63862E42A4DC85D /* JarvisActivityViews.swift */,
 				889D92C554FB71D50C20DD9D /* JarvisDesignModel.swift */,
 				5B6A16D43A180F2C9D38FF70 /* JarvisDesignRenderer.swift */,
@@ -1642,6 +1663,9 @@
 		B47DA598B4C92C5890AD45DD /* Skills */ = {
 			isa = PBXGroup;
 			children = (
+				19019582C3C4BC9B73A4DC77 /* ClockSkills.swift */,
+				D86D2305E0AA679A9364DF87 /* StopwatchService.swift */,
+				AAF71CACE44225D6301CEE5D /* StopwatchCore.swift */,
 				67C5388D0E62093D65F5F5D3 /* AlarmScheduler.swift */,
 				3115460CFC4448185AE1D9BC /* AlarmScheduling.swift */,
 				17D81F3D77511AA70B32B057 /* ActionBanner.swift */,
@@ -1878,6 +1902,7 @@
 		DD7C0E11A2C0CEC54959FA90 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				8E3BD034C4996815954B0847 /* JarvisStopwatchAttributes.swift */,
 				89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */,
 				DE1A7A3F834AEDA49F40CAE3 /* JarvisActivityAttributes.swift */,
 				9AC12F5609914381F51043A4 /* JarvisShared.swift */,
@@ -2106,6 +2131,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E7B7D20070A68AB5B2DD8FCA /* JarvisStopwatchActivity.swift in Sources */,
+				D1D00F66AF12A3BBC0E35A07 /* JarvisStopwatchAttributes.swift in Sources */,
+				BE6FDB0ABB7CA323632F1D39 /* JarvisAlarmActivity.swift in Sources */,
 				1089378A7B6EC20A7F093BD6 /* JarvisAlarmMetadata.swift in Sources */,
 				FEC5436CF7CC309FA1DBA6F0 /* JarvisActivityViews.swift in Sources */,
 				E00AA0EBB1548F19335733BC /* JarvisDesignModel.swift in Sources */,
@@ -2122,6 +2150,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DB5B9E759DBD0AE44371C4E8 /* ClockSkillsTests.swift in Sources */,
+				44595E61E3E9CDDCAEDC4C68 /* StopwatchCoreTests.swift in Sources */,
 				AE432524B706CCE8F8E9BD82 /* AlarmSkillsTests.swift in Sources */,
 				1A21D154E34CFB9FF2799959 /* AlarmSpecTests.swift in Sources */,
 				0E94C214683B5F9B3991F55D /* VoiceSessionSelectionTests.swift in Sources */,
@@ -2270,6 +2300,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7C036D0D1EF428EE6A305E8F /* ClockSkills.swift in Sources */,
+				E8A39D9DFCDBC0B6A7749699 /* StopwatchService.swift in Sources */,
+				BDEFDDB02CFAFD78AE00B6C0 /* StopwatchCore.swift in Sources */,
+				0B1FD1A97E9531D7AACE2F78 /* JarvisStopwatchAttributes.swift in Sources */,
 				9C02A52853326127CDF20CDC /* AlarmScheduler.swift in Sources */,
 				B6EEF3001FF1DA174A7C57E5 /* JarvisAlarmMetadata.swift in Sources */,
 				E05C1391BEF5240E13805E1D /* AlarmScheduling.swift in Sources */,

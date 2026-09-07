@@ -202,6 +202,12 @@ final class LocalExecutor {
         // ── alarms + timers ────────────────────────────────────────────────
         if alarmWord.hasMatch(lower) {
             if let rel = relativeMinutes(lower) {
+                // "timer for 10 minutes" is a countdown (Dynamic Island, pause/resume);
+                // "alarm in 10 minutes" is a clock alarm at that instant.
+                if lower.contains("timer") {
+                    return LocalRun(skill: "set_timer", args: ["minutes": rel],
+                                    ack: "Timer set for \(rel) \(rel == 1 ? "minute" : "minutes"), sir.")
+                }
                 return LocalRun(skill: "set_alarm", args: ["in_minutes": rel],
                                 ack: "Alarm set for \(rel) \(rel == 1 ? "minute" : "minutes") from now, sir.")
             }

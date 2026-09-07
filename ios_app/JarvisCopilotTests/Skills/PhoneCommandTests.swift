@@ -115,6 +115,7 @@ final class PhoneCommandTests: XCTestCase {
                        "open_app")
         XCTAssertEqual(PhoneCommand.nativeRedirectSkill(["action": "alarm", "time": "7:00 AM"]),
                        "set_alarm")
+        XCTAssertEqual(PhoneCommand.nativeRedirectSkill(["action": "timer", "minutes": 5]), "set_timer")
         XCTAssertTrue(PhoneCommand.nativeRedirectSkill(["action": "flashlight"])?
             .contains("flashlight") ?? false)
     }

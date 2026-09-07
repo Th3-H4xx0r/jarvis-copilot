@@ -132,11 +132,11 @@ final class LocalRouterTests: XCTestCase {
     // MARK: allow-listed device actions (local_router_local_actions_test.dart)
 
     func testAnAllowListedDeviceActionBecomesADeviceLocalToolCall() async throws {
-        let r = router(settings(), skills: ["set_alarm", "clipboard_read", "vibrate"])
+        let r = router(settings(), skills: ["set_alarm", "set_timer", "clipboard_read", "vibrate"])
         let res = await r.handle("set a timer for 10 minutes", surface: .chat)
         let plan = try XCTUnwrap(res.plan)
-        XCTAssertEqual(plan.name, "set_alarm")
-        XCTAssertEqual(plan.args["in_minutes"] as? Int, 10)
+        XCTAssertEqual(plan.name, "set_timer")
+        XCTAssertEqual(plan.args["minutes"] as? Int, 10)
         XCTAssertEqual(plan.execClass, .deviceLocal)
         XCTAssertFalse(plan.confirmation?.isEmpty ?? true)
     }

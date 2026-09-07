@@ -151,6 +151,8 @@ enum PhoneCommand {
             return "open_app"
         case "alarm":
             return "set_alarm"
+        case "timer":
+            return "set_timer"
         case "get":
             switch SkillArgs.string(command, "what") {
             case "battery":   return "battery_level"

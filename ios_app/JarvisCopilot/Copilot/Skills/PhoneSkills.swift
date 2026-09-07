@@ -32,6 +32,7 @@ enum PhoneSkills {
         var shortcuts: any ShortcutRunning = DefaultShortcutRunner()
         var sms: any SmsComposing = Self.defaultSmsComposer()
         var alarms: any AlarmScheduling = DefaultAlarmScheduler()
+        var stopwatch: any Stopwatching = DefaultStopwatch()
 
         init() {}
 
@@ -81,6 +82,8 @@ enum PhoneSkills {
             DataSkills.setTimer(b.alarms, notifier: b.notifier),
             DataSkills.listAlarms(b.alarms, notifier: b.notifier),
             DataSkills.cancelAlarm(b.alarms, notifier: b.notifier),
+            ClockSkills.stopwatch(b.stopwatch),
+            ClockSkills.worldTime(),
             DataSkills.readHealth(b.health),
             IOSSkills.sendSMS(b.sms),
             IOSSkills.runShortcut(b.shortcuts),

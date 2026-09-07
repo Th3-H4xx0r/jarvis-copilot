@@ -45,6 +45,9 @@ let kLocalActionAllowList: Set<String> = [
     "phone_control",   // iOS volume/brightness only — the executor never emits other verbs
     "vibrate",
     "set_alarm",
+    "set_timer",
+    "stopwatch",
+    "world_time",
     "notify",
     "clipboard_read",
     "clipboard_write",

@@ -41,6 +41,8 @@ final class LocalToolCatalog: ToolCatalog {
         "set_timer",
         "list_alarms",
         "cancel_alarm",
+        "stopwatch",
+        "world_time",
         "vibrate",
         "play_audio",
         "flashlight_on",

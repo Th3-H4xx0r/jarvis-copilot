@@ -411,3 +411,20 @@ final class MockAlarmScheduler: AlarmScheduling, @unchecked Sendable {
 
     func stop(id: String) async throws { stopped.append(id) }
 }
+
+final class MockStopwatch: Stopwatching, @unchecked Sendable {
+    var core = StopwatchCore()
+    var actions: [StopwatchAction] = []
+
+    @MainActor func perform(_ action: StopwatchAction, at now: Date) -> StopwatchCore {
+        actions.append(action)
+        switch action {
+        case .start: core.start(at: now)
+        case .stop: core.stop(at: now)
+        case .lap: core.lap(at: now)
+        case .reset: core.reset()
+        case .read: break
+        }
+        return core
+    }
+}

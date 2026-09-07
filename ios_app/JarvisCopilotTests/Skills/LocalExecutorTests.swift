@@ -12,14 +12,14 @@ final class LocalExecutorTests: XCTestCase {
     /// iOS reaches through `phone_control`).
     private static let androidSkills: Set<String> = [
         "open_app", "open_url", "notify", "clipboard_read", "clipboard_write",
-        "vibrate", "take_photo", "play_audio", "set_alarm", "flashlight_on",
+        "vibrate", "take_photo", "play_audio", "set_alarm", "set_timer", "flashlight_on",
         "flashlight_off", "set_volume", "adjust_volume", "send_sms", "make_call",
     ]
 
     /// iOS has no set_volume/adjust_volume — volume goes through phone_control.
     private static let iosSkills: Set<String> = [
         "open_app", "open_url", "notify", "clipboard_read", "clipboard_write",
-        "vibrate", "take_photo", "play_audio", "set_alarm", "flashlight_on",
+        "vibrate", "take_photo", "play_audio", "set_alarm", "set_timer", "flashlight_on",
         "flashlight_off", "phone_control", "send_sms", "make_call",
     ]
 
@@ -111,8 +111,14 @@ final class LocalExecutorTests: XCTestCase {
         XCTAssertEqual(try run("vibrate the phone").skill, "vibrate")
     }
 
-    func testTimerInMinutesBecomesARelativeAlarm() throws {
+    func testTimerInMinutesBecomesACountdownTimer() throws {
         let r = try run("set a timer for 10 minutes")
+        XCTAssertEqual(r.skill, "set_timer")
+        XCTAssertEqual(r.args["minutes"] as? Int, 10)
+    }
+
+    func testAnAlarmInMinutesStaysARelativeAlarm() throws {
+        let r = try run("set an alarm in 10 minutes")
         XCTAssertEqual(r.skill, "set_alarm")
         XCTAssertEqual(r.args["in_minutes"] as? Int, 10)
     }
@@ -236,7 +242,7 @@ final class LocalExecutorTests: XCTestCase {
     func testAFlashlightRequestForSomeoneElse() { escalates("turn on the flashlight for Mom") }
 
     func testATimerDurationIsNotAThirdPartyTarget() throws {
-        XCTAssertEqual(try run("set a timer for 10 minutes").skill, "set_alarm")
+        XCTAssertEqual(try run("set a timer for 10 minutes").skill, "set_timer")
     }
 
     func testForMeIsNotAThirdPartyTarget() throws {
