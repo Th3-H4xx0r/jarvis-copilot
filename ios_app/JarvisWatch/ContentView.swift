@@ -35,21 +35,25 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        // NO NavigationStack of our own: a watchOS app scene already provides
+        // the root navigation (which is why `.toolbar` and NavigationLink work
+        // here). Nesting a second stack inside it hung the first render — the
+        // app launched, stayed alive, and never drew anything but the system
+        // loading swirl.
+        Group {
             ZStack {
                 JcWatch.background
                 content.padding(.horizontal, 6)
             }
+            // ONE trailing item: watchOS shows a single toolbar button, and
+            // asking for two left the bar in a bad state (the chat bubble
+            // vanished and the app stopped responding). Chats live inside the
+            // menu instead, one tap further in.
             .toolbar {
-                // Top right: pick the conversation, and reach the wearables.
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink { WatchChatPicker(store: menu) } label: {
-                        Image(systemName: "bubble.left")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    // watchOS has no `Menu`; a pushed list is the native shape.
-                    NavigationLink { WatchMenuScreen(store: menu, onVoice: { activeSheet = .volume }) } label: {
+                    NavigationLink {
+                        WatchMenuScreen(store: menu, onVoice: { activeSheet = .volume })
+                    } label: {
                         Image(systemName: "ellipsis.circle")
                     }
                 }
