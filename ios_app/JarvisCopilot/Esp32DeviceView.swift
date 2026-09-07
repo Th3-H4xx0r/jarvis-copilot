@@ -543,7 +543,7 @@ struct Esp32DeviceView: View {
 
     // MARK: Sharing
 
-    private var sharing: some View {
+    @ViewBuilder private var sharing: some View {
         CardGroup("Sharing", footer: bridge.isPaired ? nil : "Pair with Jarvis in Settings first.") {
             Row {
                 Toggle("Share with Jarvis", isOn: Binding(
@@ -554,6 +554,9 @@ struct Esp32DeviceView: View {
                     }))
             }
             .disabled(!bridge.isPaired)
+        }
+        CardGroup("Connection", footer: WearableKeepAliveToggle.footer) {
+            Row { WearableKeepAliveToggle(device: WearableKeepAlive.esp32) }
         }
     }
 }

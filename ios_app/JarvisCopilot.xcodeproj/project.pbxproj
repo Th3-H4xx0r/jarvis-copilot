@@ -475,6 +475,8 @@
 		E7B7D20070A68AB5B2DD8FCA /* JarvisStopwatchActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5572E7D57DF38456D03160E4 /* JarvisStopwatchActivity.swift */; };
 		CF0A2B559A9933D060E7444A /* PhotoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED899060A8E9519B6538191B /* PhotoLibrary.swift */; };
 		92142E4642D7229F752D417B /* InsightsModelPillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EF5FDC5241D57C71303856C /* InsightsModelPillTests.swift */; };
+		0D785B0B38A3BB96570E3338 /* WearableKeepAlive.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3CFC22BAB81F97AC993A527 /* WearableKeepAlive.swift */; };
+		656995DCA866398F6B30D990 /* WearableKeepAliveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189234657EFA815A52334D62 /* WearableKeepAliveTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -976,6 +978,8 @@
 		5572E7D57DF38456D03160E4 /* JarvisStopwatchActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisStopwatchActivity.swift; path = JarvisWidget/JarvisStopwatchActivity.swift; sourceTree = "<group>"; };
 		ED899060A8E9519B6538191B /* PhotoLibrary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotoLibrary.swift; sourceTree = "<group>"; };
 		9EF5FDC5241D57C71303856C /* InsightsModelPillTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InsightsModelPillTests.swift; sourceTree = "<group>"; };
+		B3CFC22BAB81F97AC993A527 /* WearableKeepAlive.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableKeepAlive.swift; sourceTree = "<group>"; };
+		189234657EFA815A52334D62 /* WearableKeepAliveTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearableKeepAliveTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1198,6 +1202,7 @@
 		1FBA5ABDACC3E06E44EE5D3C /* JarvisCopilot */ = {
 			isa = PBXGroup;
 			children = (
+				B3CFC22BAB81F97AC993A527 /* WearableKeepAlive.swift */,
 				15E07F70B0F3B547523638C3 /* WearablesHub.swift */,
 				3AB26F406B74736CE3749527 /* JarvisCopilotApp.swift */,
 				CCB41EB73741A77002320B13 /* BottleProtocol.swift */,
@@ -1932,6 +1937,7 @@
 		E2F14E6EC2FEC1A300A0A710 /* Devices */ = {
 			isa = PBXGroup;
 			children = (
+				189234657EFA815A52334D62 /* WearableKeepAliveTests.swift */,
 				C41C5EDBC28E2E4F936EE5E0 /* DevicesFixtures.swift */,
 				195070864CE5E2E428B49E9D /* DevicesSnapshotTests.swift */,
 				9A713B8F4657D2BD51435488 /* DevicesTextTests.swift */,
@@ -2156,6 +2162,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				656995DCA866398F6B30D990 /* WearableKeepAliveTests.swift in Sources */,
 				92142E4642D7229F752D417B /* InsightsModelPillTests.swift in Sources */,
 				92142E4642D7229F752D417B /* InsightsModelPillTests.swift in Sources */,
 				DB5B9E759DBD0AE44371C4E8 /* ClockSkillsTests.swift in Sources */,
@@ -2308,6 +2315,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0D785B0B38A3BB96570E3338 /* WearableKeepAlive.swift in Sources */,
 				CF0A2B559A9933D060E7444A /* PhotoLibrary.swift in Sources */,
 				7C036D0D1EF428EE6A305E8F /* ClockSkills.swift in Sources */,
 				E8A39D9DFCDBC0B6A7749699 /* StopwatchService.swift in Sources */,

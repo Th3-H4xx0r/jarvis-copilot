@@ -149,6 +149,9 @@ final class VsitooS1Pro: WearableDevice {
         // A command can arrive while the app is backgrounded and the link idle, so
         // bring it back up rather than failing.
         guard await manager.ensureConnected() else { throw DeviceError.notConnected }
+        // With Keep Alive off this link was opened just for this command; let it
+        // go once the work settles so the bottle isn't held awake.
+        defer { manager.releaseIfIdle() }
 
         func bool(_ key: String) throws -> Bool {
             guard let v = args[key] as? Bool else {

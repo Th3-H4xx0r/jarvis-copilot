@@ -57,13 +57,18 @@ struct DeviceView: View {
         // is down (dropped while we were away, or a connect that failed). The old
         // "different bottle only" test left the screen sitting on a dead link.
         .onAppear {
+            // While this screen is up the link is wanted regardless of the
+            // Keep Alive setting — you are looking at live readings.
+            manager.screenIsOpen = true
             if manager.connected?.id != bottle.id || !manager.linkIsUp { manager.connect(bottle) }
         }
         .onDisappear {
             // Keep the link when bridging: leaving this screen would otherwise
             // unregister the bottle and Jarvis would lose it.
+            if !showingSettings { manager.screenIsOpen = false }
             let bridging = BridgeClient.shared.enabled
                 && manager.exposedDeviceID.map(BridgeClient.isExposed) == true
+                && manager.keepAliveEnabled
             if !showingSettings && !bridging { manager.disconnect() }
         }
         .navigationDestination(isPresented: $showingSettings) {

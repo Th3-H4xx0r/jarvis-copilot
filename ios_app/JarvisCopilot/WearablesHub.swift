@@ -28,7 +28,7 @@ final class WearablesHub: ObservableObject {
     /// Foreground: resume links, reconnect the remembered bottle, re-register.
     func appDidBecomeActive() {
         bottle.enterForeground()
-        esp32.resumeIfNeeded()
+        if WearableKeepAlive.isOn(WearableKeepAlive.esp32) { esp32.resumeIfNeeded() }
         reconnectKnownDevices()
     }
 
@@ -52,10 +52,14 @@ final class WearablesHub: ObservableObject {
                 if Task.isCancelled { return }
             }
             guard self.bottle.bluetoothReady, !Task.isCancelled else { return }
-            if await self.bottle.ensureConnected(timeout: 15) == false {
-                JcLog.services.notice("wearables: bottle not reachable at launch")
+            // Keep Alive off: don't reach for the bottle at all. It is connected
+            // on demand instead — see BottleManager.ensureConnected.
+            if WearableKeepAlive.isOn(WearableKeepAlive.bottle) {
+                if await self.bottle.ensureConnected(timeout: 15) == false {
+                    JcLog.services.notice("wearables: bottle not reachable at launch")
+                }
             }
-            self.scale.startScan()
+            if WearableKeepAlive.isOn(WearableKeepAlive.scale) { self.scale.startScan() }
         }
     }
 

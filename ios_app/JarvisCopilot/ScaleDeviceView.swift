@@ -306,7 +306,7 @@ private struct ScaleSettingsView: View {
         }
     }
 
-    private var sharing: some View {
+    @ViewBuilder private var sharing: some View {
         CardGroup("Jarvis Copilot",
                   footer: bridge.isPaired
                       ? "Lets Jarvis read this scale's latest measurement and history."
@@ -320,6 +320,9 @@ private struct ScaleSettingsView: View {
                     }))
             }
             .disabled(!bridge.isPaired)
+        }
+        CardGroup("Connection", footer: WearableKeepAliveToggle.footer) {
+            Row { WearableKeepAliveToggle(device: WearableKeepAlive.scale) }
         }
     }
 

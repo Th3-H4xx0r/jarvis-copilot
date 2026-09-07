@@ -63,6 +63,17 @@ final class BottleManager: NSObject, ObservableObject {
     /// Off by default: an idle connection should generate no traffic at all.
     @Published var liveUpdates = false { didSet { updatePolling() } }
 
+    /// True while a bottle screen is open: an on-demand link stays up for as
+    /// long as the user is looking at it, whatever the keep-alive setting says.
+    var screenIsOpen = false {
+        didSet { if screenIsOpen { idleDropTask?.cancel(); idleDropTask = nil } }
+    }
+    /// Drops an on-demand link once the work is done (keep-alive off only).
+    private var idleDropTask: Task<Void, Never>?
+
+    /// See `WearableKeepAlive`. Off means: connect only when something asks.
+    var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.bottle) }
+
     private var wasConnectedBeforeBackground: DiscoveredBottle?
     /// Bridge mode holds the BLE link open in the background. That link is nearly free
     /// on its own — the drain came from *polling* — so all periodic traffic is
@@ -178,6 +189,21 @@ final class BottleManager: NSObject, ObservableObject {
     /// The last bottle we were connected to, so a queued command can bring the link
     /// back up without scanning.
     private static let lastPeripheralKey = "lastConnectedPeripheral"
+
+    /// Release an on-demand link once the work is done. No-op while Keep Alive
+    /// is on, or while a bottle screen is open. The grace period means a burst
+    /// of commands shares one connection instead of reconnecting between each.
+    func releaseIfIdle() {
+        guard !keepAliveEnabled, !screenIsOpen else { return }
+        idleDropTask?.cancel()
+        idleDropTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(WearableKeepAlive.idleGraceSeconds))
+            guard let self, !Task.isCancelled, !self.keepAliveEnabled, !self.screenIsOpen else { return }
+            guard self.queue.isEmpty, self.inFlight == nil else { return }
+            JcLog.services.notice("bottle: idle after on-demand use; dropping the link")
+            self.disconnect()
+        }
+    }
 
     /// Reconnects if needed and waits for the link to be usable. Returns false on
     /// timeout. CoreBluetooth can re-open a known peripheral by identifier, so this
@@ -381,7 +407,9 @@ final class BottleManager: NSObject, ObservableObject {
         stopScan()
         // Bridge mode deliberately holds the link: JarvisCopilot can't run a command
         // on a bottle we've disconnected from. Costs battery, which is why it's opt-in.
-        guard !BridgeClient.shared.enabled else { return }
+        // Keep Alive off overrides it — the link is then re-opened on demand
+        // (`ensureConnected`) whenever a command actually arrives.
+        guard !BridgeClient.shared.enabled || !keepAliveEnabled else { return }
         if connected != nil { wasConnectedBeforeBackground = connected; disconnect() }
     }
 
@@ -390,7 +418,7 @@ final class BottleManager: NSObject, ObservableObject {
         updatePolling()
         if let b = wasConnectedBeforeBackground {
             wasConnectedBeforeBackground = nil
-            connect(b)
+            if keepAliveEnabled { connect(b) }
         }
     }
 }
@@ -491,6 +519,14 @@ extension BottleManager: CBCentralManagerDelegate {
             // free — it simply completes when the bottle is next in range — so the
             // link comes back on its own instead of sitting at "Idle" until someone
             // rescans. `connected` stays set so the card keeps its place in the list.
+            guard self.keepAliveEnabled || self.screenIsOpen else {
+                // Keep Alive is off: a drop is just a drop. Reconnecting here is
+                // what made the bottle buzz over and over.
+                JcLog.services.notice("bottle: link dropped (\(reason)); keep-alive off, staying disconnected")
+                self.connected = nil
+                self.state = .idle
+                return
+            }
             JcLog.services.notice("bottle: link dropped (\(reason)); reconnecting")
             self.state = .connecting
             self.central.connect(p)
