@@ -34,7 +34,12 @@ struct LiquidGlassOrb: View {
                 Color.clear
             }
         }
+        // Drawn at the shader's full surface, but only `size` is CLAIMED —
+        // otherwise the orb reserves twice its visible width and pushes the
+        // controls under it off the screen.
         .frame(width: surface, height: surface)
+        .frame(width: size, height: size)
+        .clipped()
         // Two cheap, additive motions: a slow breath, and a swell with the
         // voice. Both are handled by the render server, not by us.
         .scaleEffect((breathing ? 1.03 : 0.985) + 0.10 * audioLevel)

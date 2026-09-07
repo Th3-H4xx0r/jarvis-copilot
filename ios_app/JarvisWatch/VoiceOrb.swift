@@ -29,9 +29,13 @@ struct VoiceOrb: View {
     var body: some View {
         LiquidGlassOrb(size: size, animating: mode != .error, audioLevel: drive)
             .frame(width: size, height: size)
-            // The shader surface is wider than the sphere it draws; clipping
-            // keeps the transparent bleed from shoving a small watch layout.
+            // The shader surface is nearly twice the sphere it draws, and that
+            // transparent bleed still swallowed touches: the orb sat invisibly
+            // over the controls below it, so Volume/Chats/Menu did nothing
+            // until a reply re-laid the screen out. Clip the drawing AND pin
+            // the hit area to the sphere itself.
             .clipped()
+            .contentShape(Circle())
             // An error still shows the orb, dimmed and drained, rather than
             // swapping in a different shape.
             .opacity(mode == .error ? 0.55 : 1)

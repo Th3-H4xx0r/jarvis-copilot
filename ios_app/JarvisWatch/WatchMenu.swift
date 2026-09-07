@@ -14,6 +14,8 @@ final class WatchMenuStore: ObservableObject {
     @Published var wearables: [WatchWearable] = []
     @Published var loading = false
     @Published var error: String?
+    /// The outcome of the last command, shown under the buttons.
+    @Published var lastResult: String?
 
     func loadSessions() { request(["type": "sessions"]) { reply in
         self.sessions = (reply["sessions"] as? [[String: Any]] ?? []).map(WatchSession.init)
@@ -34,6 +36,21 @@ final class WatchMenuStore: ObservableObject {
             if let id = reply["id"] as? String { self.selectedSessionID = id }
             self.loadSessions()
             done()
+        }
+    }
+
+    /// Ask the PHONE to bring the device up — the same thing saying "connect to
+    /// my bottle" in chat does. A wearable that is merely out of the app's
+    /// foreground should connect, not report failure.
+    func connect(_ id: String) {
+        request(["type": "wearable_connect", "id": id]) { _ in self.loadWearables() }
+    }
+
+    func run(_ action: WatchWearable.Action) {
+        lastResult = nil
+        request(["type": "wearable_invoke", "device": action.device, "action": action.name]) { reply in
+            self.lastResult = (reply["ok"] as? Bool) == true ? "Done." : "Didn't work."
+            self.loadWearables()
         }
     }
 
@@ -89,6 +106,15 @@ struct WatchWearable: Identifiable, Equatable {
     let state: String
     let connected: Bool
     let readings: [Reading]
+    let actions: [Action]
+
+    /// One of the device's own commands, exactly as JARVIS sees it.
+    struct Action: Identifiable, Equatable {
+        let name: String
+        let title: String
+        let device: String
+        var id: String { name }
+    }
 
     struct Reading: Identifiable, Equatable {
         let label: String
@@ -106,6 +132,11 @@ struct WatchWearable: Identifiable, Equatable {
             Reading(label: $0["label"] as? String ?? "",
                     value: $0["value"] as? String ?? "")
         }
+        actions = (d["actions"] as? [[String: Any]] ?? []).map {
+            Action(name: $0["name"] as? String ?? "",
+                   title: $0["title"] as? String ?? "",
+                   device: $0["device"] as? String ?? "")
+        }
     }
 }
 
@@ -121,7 +152,6 @@ struct WatchMenuScreen: View {
     @ObservedObject var store: WatchMenuStore
     var onVoice: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var expanded: String?
 
     var body: some View {
         List {
@@ -140,9 +170,10 @@ struct WatchMenuScreen: View {
                         .font(.inter(12)).foregroundStyle(JcWatch.muted)
                 }
                 ForEach(store.wearables) { device in
-                    WatchWearableRow(device: device,
-                                     expanded: expanded == device.id) {
-                        expanded = expanded == device.id ? nil : device.id
+                    NavigationLink {
+                        WatchWearableScreen(device: device, store: store)
+                    } label: {
+                        WatchWearableRow(device: device)
                     }
                 }
             }
@@ -156,42 +187,84 @@ struct WatchMenuScreen: View {
 /// it reveals the same three-line reading list for each.
 struct WatchWearableRow: View {
     let device: WatchWearable
-    let expanded: Bool
-    let toggle: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button(action: toggle) {
+        HStack(spacing: 10) {
+            Image(systemName: device.symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(device.connected ? JcWatch.accent : JcWatch.muted)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(device.name).font(.inter(14, .semibold)).lineLimit(1)
+                Text(device.state).font(.inter(11)).foregroundStyle(JcWatch.muted)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+/// One screen for every wearable: its readings, its own commands, and — when it
+/// is not connected — a button that asks the phone to bring it up rather than
+/// simply reporting "not connected".
+struct WatchWearableScreen: View {
+    let device: WatchWearable
+    @ObservedObject var store: WatchMenuStore
+
+    private var live: WatchWearable {
+        store.wearables.first { $0.id == device.id } ?? device
+    }
+
+    var body: some View {
+        List {
+            Section {
                 HStack(spacing: 10) {
-                    Image(systemName: device.symbol)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(device.connected ? JcWatch.accent : JcWatch.muted)
-                        .frame(width: 22)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(device.name).font(.inter(14, .semibold)).lineLimit(1)
-                        Text(device.state).font(.inter(11)).foregroundStyle(JcWatch.muted)
+                    Image(systemName: live.symbol)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(live.connected ? JcWatch.accent : JcWatch.muted)
+                    Text(live.state).font(.inter(12)).foregroundStyle(JcWatch.muted)
+                }
+                if !live.connected {
+                    Button {
+                        store.connect(live.id)
+                    } label: {
+                        Label(store.loading ? "Connecting…" : "Connect",
+                              systemImage: "antenna.radiowaves.left.and.right")
                     }
-                    Spacer(minLength: 0)
+                    .disabled(store.loading)
                 }
             }
-            .buttonStyle(.plain)
 
-            if expanded {
-                if device.readings.isEmpty {
-                    Text(device.connected ? "No readings yet." : "Not connected.")
-                        .font(.inter(11)).foregroundStyle(JcWatch.muted)
-                } else {
-                    ForEach(device.readings) { reading in
+            if !live.readings.isEmpty {
+                Section("Readings") {
+                    ForEach(live.readings) { reading in
                         HStack {
-                            Text(reading.label).font(.inter(11)).foregroundStyle(JcWatch.muted)
+                            Text(reading.label).font(.inter(12)).foregroundStyle(JcWatch.muted)
                             Spacer()
-                            Text(reading.value).font(.inter(12, .semibold))
+                            Text(reading.value).font(.inter(13, .semibold))
                         }
                     }
                 }
             }
+
+            if !live.actions.isEmpty {
+                Section("Controls") {
+                    ForEach(live.actions) { action in
+                        Button(action.title) { store.run(action) }
+                            .disabled(!live.connected || store.loading)
+                    }
+                }
+            }
+
+            if let result = store.lastResult {
+                Text(result).font(.inter(11)).foregroundStyle(JcWatch.muted)
+            }
+            if let error = store.error {
+                Text(error).font(.inter(11)).foregroundStyle(JcWatch.muted)
+            }
         }
-        .padding(.vertical, 2)
+        .navigationTitle(live.name)
+        .task { store.loadWearables() }
     }
 }
 

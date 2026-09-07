@@ -65,6 +65,7 @@ enum WatchDataProvider {
             "id": "bottle", "name": hub.bottle.connected?.name ?? "Water bottle",
             "symbol": "waterbottle", "state": hub.bottle.state.text,
             "connected": hub.bottle.state == .ready,
+            "actions": actions(for: hub.bottle.exposedDeviceID),
         ]
         if let status = hub.bottle.status {
             bottle["readings"] = [
@@ -80,6 +81,7 @@ enum WatchDataProvider {
             "id": "scale", "name": hub.scale.connected?.name ?? "Scale",
             "symbol": "scalemass", "state": hub.scale.state.text,
             "connected": hub.scale.state == .ready,
+            "actions": actions(for: hub.scale.exposedDeviceID),
         ]
         if let observation = hub.scale.latestObservation {
             scale["readings"] = [
@@ -93,6 +95,7 @@ enum WatchDataProvider {
             "id": "esp32", "name": hub.esp32.connected?.name ?? "ESP32 board",
             "symbol": "cpu", "state": hub.esp32.state.text,
             "connected": hub.esp32.state == .ready,
+            "actions": actions(for: hub.esp32.exposedDeviceID),
         ]
         if let info = hub.esp32.info {
             board["readings"] = [["label": "Firmware", "value": info.firmwareString]]
@@ -100,5 +103,62 @@ enum WatchDataProvider {
         rows.append(board)
 
         return ["ok": true, "wearables": rows]
+    }
+
+    /// The commands JARVIS itself can run on this device, straight from its own
+    /// capability catalogue — the watch offers exactly what chat offers, and
+    /// nothing is listed twice.
+    private static func actions(for deviceID: String?) -> [[String: Any]] {
+        guard let deviceID, let device = DeviceRegistry.shared.device(id: deviceID) else { return [] }
+        return device.capabilities
+            // Commands that need arguments belong in chat, where you can say
+            // what you want; the watch offers the one-tap ones.
+            .filter { (($0.inputSchema["properties"] as? [String: Any]) ?? [:]).isEmpty }
+            .prefix(6)
+            .map { ["name": $0.name, "title": title(of: $0.name), "device": deviceID] }
+    }
+
+    /// "bottle_start_sterilise" → "Start sterilise".
+    private static func title(of name: String) -> String {
+        let words = name.split(separator: "_").dropFirst().map(String.init)
+        let text = (words.isEmpty ? name.replacingOccurrences(of: "_", with: " ") : words.joined(separator: " "))
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    // MARK: - Connecting and controlling
+
+    /// Bring a wearable up from the watch, the same way a chat request does:
+    /// the phone's manager reconnects it on demand.
+    static func connect(_ id: String) async -> [String: Any] {
+        let hub = WearablesHub.shared
+        switch id {
+        case "bottle":
+            let ok = await hub.bottle.ensureConnected(timeout: 15)
+            return ["ok": ok, "state": hub.bottle.state.text,
+                    "error": ok ? "" : "the bottle didn't answer — is it in range?"]
+        case "scale":
+            hub.scale.startScan()
+            return ["ok": true, "state": hub.scale.state.text,
+                    "note": "Step on the scale to wake it."]
+        case "esp32":
+            hub.esp32.resumeIfNeeded()
+            hub.esp32.startScan()
+            return ["ok": true, "state": hub.esp32.state.text]
+        default:
+            return ["ok": false, "error": "unknown device"]
+        }
+    }
+
+    /// Run one of the device's own commands — the same call chat makes.
+    static func invoke(deviceID: String, action: String) async -> [String: Any] {
+        guard let device = DeviceRegistry.shared.device(id: deviceID) else {
+            return ["ok": false, "error": "that device isn't connected"]
+        }
+        do {
+            let result = try await device.invoke(action, args: [:])
+            return ["ok": true, "result": result]
+        } catch {
+            return ["ok": false, "error": SystemSkills.message(error)]
+        }
     }
 }

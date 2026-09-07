@@ -322,6 +322,18 @@ extension WatchBridge: WCSessionDelegate {
         case "wearables":
             Task { @MainActor in replyHandler(WatchDataProvider.wearables()) }
             return
+        case "wearable_connect":
+            Task { @MainActor in
+                replyHandler(await WatchDataProvider.connect((message["id"] as? String) ?? ""))
+            }
+            return
+        case "wearable_invoke":
+            Task { @MainActor in
+                replyHandler(await WatchDataProvider.invoke(
+                    deviceID: (message["device"] as? String) ?? "",
+                    action: (message["action"] as? String) ?? ""))
+            }
+            return
         case "ask":
             break
         default:
