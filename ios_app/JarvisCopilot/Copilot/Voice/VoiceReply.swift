@@ -23,6 +23,7 @@ struct VoiceReply: Equatable {
 
     /// Clear all reply + highlight state at the start of a new turn.
     mutating func reset() {
+        msPerWord = 300
         segments.removeAll()
         text = ""
         spokenWords = 0
@@ -68,16 +69,49 @@ struct VoiceReply: Equatable {
     /// For an MP3 clip this fires TWICE: once with an estimate at play time, then
     /// again with the real decoded duration. The second call is a schedule
     /// CORRECTION for the same segment — it must not reset its progress.
-    mutating func clipStarted(tag: Int?, durationMs: Int) {
+    ///
+    /// `complete: false` means `durationMs` is only the audio received SO FAR
+    /// (the realtime PCM stream announces a running total after every chunk).
+    /// That is a lower bound, not the sentence's length: scheduling all the
+    /// words over it pushed them into the first few hundred milliseconds and
+    /// the highlight — which never rewinds — ran to the end of a long sentence
+    /// while the voice had barely begun. Until the segment completes, the
+    /// schedule spans max(received, speaking-rate estimate); the exact duration
+    /// re-schedules it once known, and calibrates the estimate for the rest of
+    /// the reply.
+    mutating func clipStarted(tag: Int?, durationMs: Int, complete: Bool = true) {
         guard let tag, segments.indices.contains(tag) else { return }
         for i in 0..<tag { segments[i].localSpoken = segments[i].words.count }
         let isNew = tag != currentSegment
         currentSegment = tag
+        let estimate = estimatedMs(for: segments[tag])
         var ms = durationMs
-        if ms <= 0 { ms = segments[tag].words.count * 300 } // ~200 wpm estimate
+        if complete {
+            if ms <= 0 { ms = estimate }
+            else if segments[tag].words.count > 0 {
+                // Learn this voice's pace: an exponential average, clamped so
+                // one odd clip (a long pause, an empty stretch) can't wreck it.
+                let observed = Double(ms) / Double(segments[tag].words.count)
+                msPerWord = min(700, max(180, msPerWord * 0.5 + observed * 0.5))
+            }
+            segments[tag].complete = true
+        } else if !segments[tag].complete {
+            ms = max(ms, estimate)
+        } else {
+            // A running total after the exact duration was already known — keep
+            // the exact schedule.
+            ms = segments[tag].durMs
+        }
         segments[tag].schedule(ms)
         if isNew { segments[tag].localSpoken = 0 }
         recomputeSpoken()
+    }
+
+    /// ~200 wpm by default (300 ms/word), tuned by completed segments.
+    private var msPerWord: Double = 300
+
+    private func estimatedMs(for segment: VoiceSegment) -> Int {
+        Int((Double(segment.words.count) * msPerWord).rounded())
     }
 
     /// Advance the highlight to match the current clip's playback position.

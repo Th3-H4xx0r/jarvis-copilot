@@ -17,6 +17,8 @@ struct VoiceSegment: Equatable {
     var audioAssigned = false
     /// This segment's clip duration (set by `schedule`).
     var durMs = 0
+    /// The exact clip duration is known (`durMs` is no longer a running total).
+    var complete = false
     /// Per-word start time (ms) within the clip.
     private(set) var starts: [Double] = []
     /// Words spoken so far within this segment.

@@ -166,3 +166,65 @@ final class VoiceReplyTests: XCTestCase {
                                     "the highlight never steps backward")
     }
 }
+
+// MARK: - Streaming segments (teleprompter racing ahead)
+
+/// While PCM streams in, the queue announces the segment's duration as "audio
+/// received so far". Scheduling the whole sentence over that partial length
+/// pushed every word into the first few hundred ms and, because the highlight
+/// never rewinds, the teleprompter ran to the end of a long sentence while the
+/// voice had barely started. An incomplete duration is a LOWER BOUND: the
+/// schedule uses a speaking-rate estimate until the segment completes.
+final class VoiceReplyStreamingTests: XCTestCase {
+    private let long = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty"
+
+    func testAPartialDurationDoesNotRaceTheHighlightAhead() {
+        var reply = VoiceReply()
+        reply.append(long) // 20 words ≈ 6 s of speech
+        reply.clipStarted(tag: 0, durationMs: 300, complete: false)
+        reply.clipPosition(tag: 0, positionMs: 300)
+        XCTAssertLessThanOrEqual(reply.spokenWords, 2, "300 ms of audio is one or two words, not the sentence")
+        reply.clipStarted(tag: 0, durationMs: 1200, complete: false)
+        reply.clipPosition(tag: 0, positionMs: 1200)
+        XCTAssertLessThanOrEqual(reply.spokenWords, 7, "1.2 s of a ~6 s sentence is a handful of words")
+        XCTAssertGreaterThanOrEqual(reply.spokenWords, 3)
+    }
+
+    func testTheCompleteDurationReschedulesExactly() {
+        var reply = VoiceReply()
+        reply.append(long)
+        reply.clipStarted(tag: 0, durationMs: 300, complete: false)
+        reply.clipStarted(tag: 0, durationMs: 4000, complete: true)
+        XCTAssertEqual(reply.segments[0].durMs, 4000)
+        reply.clipPosition(tag: 0, positionMs: 2000)
+        // Length-weighted schedule: the later words are longer, so half the
+        // clip covers somewhat more than half the words.
+        XCTAssertGreaterThanOrEqual(reply.spokenWords, 8)
+        XCTAssertLessThanOrEqual(reply.spokenWords, 14)
+        reply.clipPosition(tag: 0, positionMs: 4000)
+        XCTAssertEqual(reply.spokenWords, 20)
+    }
+
+    func testAPartialDurationLongerThanTheEstimateIsTrusted() {
+        var reply = VoiceReply()
+        reply.append("one two") // estimate ≈ 600 ms
+        reply.clipStarted(tag: 0, durationMs: 1500, complete: false)
+        XCTAssertEqual(reply.segments[0].durMs, 1500, "audio already received can't be shorter than itself")
+    }
+
+    func testCompletedSegmentsCalibrateTheSpeakingRate() {
+        var reply = VoiceReply()
+        reply.append("one two three four five six seven eight nine ten") // 10 words
+        reply.clipStarted(tag: 0, durationMs: 5000, complete: true)     // 500 ms/word
+        reply.append(long)
+        reply.clipStarted(tag: 1, durationMs: 100, complete: false)
+        XCTAssertGreaterThan(reply.segments[1].durMs, 20 * 300, "the estimate learned this voice is slower than the default")
+    }
+
+    func testDefaultBehaviourIsCompleteSoExistingCallersAreUnchanged() {
+        var reply = VoiceReply()
+        reply.append("one two three four")
+        reply.clipStarted(tag: 0, durationMs: 1000)
+        XCTAssertEqual(reply.segments[0].durMs, 1000)
+    }
+}

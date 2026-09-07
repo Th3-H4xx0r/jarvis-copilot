@@ -26,6 +26,10 @@ final class AudioQueue {
     /// PCM, the running segment total on the streaming path). `tag` is the
     /// caller's karaoke segment id.
     var onClipStart: ((Int?, Int) -> Void)?
+    /// The EXACT duration of a tagged segment is now known (whole-clip PCM at
+    /// play time, MP3 once decoded, streamed PCM at its `audio_end`). Until this
+    /// fires, `onClipStart`'s streaming totals are lower bounds only.
+    var onSegmentComplete: ((Int?, Int) -> Void)?
     /// The current clip's playback position in ms.
     var onPosition: ((Int?, Int) -> Void)?
 
@@ -59,6 +63,9 @@ final class AudioQueue {
         /// Audio of `tag` played by EARLIER clips — added to every position
         /// report so the word highlight is continuous across a split segment.
         let baseMs: Int
+        /// Streaming-fallback path: this is the segment's last slice, so
+        /// `segmentMs` is its exact total.
+        var segmentComplete = false
     }
 
     private var queue: [Clip] = []
@@ -133,6 +140,7 @@ final class AudioQueue {
             if pending.estimateAnnounced {
                 self.correction = nil
                 self.onClipStart?(pending.tag, ms)
+                self.onSegmentComplete?(pending.tag, ms)
             } else {
                 pending.durationMs = ms
                 self.correction = pending
@@ -189,6 +197,10 @@ final class AudioQueue {
             serial { [weak self] in
                 guard let self, ep == self.epoch, self.nativeActive else { return }
                 self.nativeEnded = true
+                // Everything for this segment has been fed: its total is exact now.
+                if self.nativeTag == tag || tag == nil {
+                    self.onSegmentComplete?(self.nativeTag, self.nativeFedMs - self.nativeSegBaseMs)
+                }
             }
             return
         }
@@ -272,6 +284,11 @@ final class AudioQueue {
                 self.nativeTag = tag
             }
             if tag != self.nativeTag {
+                // The previous sentence can't grow any more — its total is exact
+                // even if its audio_end got lost.
+                if self.nativeTag != nil {
+                    self.onSegmentComplete?(self.nativeTag, self.nativeFedMs - self.nativeSegBaseMs)
+                }
                 // Next sentence in the same stream: positions restart at its base.
                 self.nativeSegBaseMs = self.nativeFedMs
                 self.nativeTag = tag
@@ -360,7 +377,8 @@ final class AudioQueue {
                      // length, so the karaoke schedule stretches as more of the
                      // sentence arrives.
                      segmentMs: chunk.segmentMsSoFar,
-                     baseMs: chunk.segmentMsSoFar - chunk.durationMs))
+                     baseMs: chunk.segmentMsSoFar - chunk.durationMs,
+                     segmentComplete: chunk.isSegmentEnd))
     }
 
     private func enqueue(_ clip: Clip) {
@@ -403,8 +421,12 @@ final class AudioQueue {
             guard clip.tag != nil else { return }
             if let dur = clip.durationMs {
                 // PCM: exact duration, schedule the karaoke immediately. For a
-                // streamed segment we report the running TOTAL so far.
+                // streamed segment we report the running TOTAL so far, and
+                // confirm it as exact only with the segment's last slice.
                 self.onClipStart?(clip.tag, clip.segmentMs ?? dur)
+                if clip.segmentMs == nil || clip.segmentComplete {
+                    self.onSegmentComplete?(clip.tag, clip.segmentMs ?? dur)
+                }
             } else {
                 // MP3: start on an estimate now (so the segment is current and
                 // words can advance), then correct with the real duration.
@@ -413,6 +435,7 @@ final class AudioQueue {
                 if let pending = self.correction, let ms = pending.durationMs {
                     self.correction = nil
                     self.onClipStart?(pending.tag, ms)
+                    self.onSegmentComplete?(pending.tag, ms)
                 }
             }
         }

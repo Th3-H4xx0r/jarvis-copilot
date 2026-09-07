@@ -226,8 +226,13 @@ final class VoiceStore {
         audio.onIdle = { [weak self] in self?.raise(.playbackDrained) }
         audio.onPlaybackStart = { [weak self] in self?.raise(.playbackStarted) }
         audio.onAmplitude = { [weak self] a in self?.amplitude = a }
+        // A clip start carries a duration that may still be growing (streamed
+        // PCM); only `onSegmentComplete` is exact. See VoiceReply.clipStarted.
         audio.onClipStart = { [weak self] tag, ms in
-            self?.reply.clipStarted(tag: tag, durationMs: ms)
+            self?.reply.clipStarted(tag: tag, durationMs: ms, complete: false)
+        }
+        audio.onSegmentComplete = { [weak self] tag, ms in
+            self?.reply.clipStarted(tag: tag, durationMs: ms, complete: true)
         }
         audio.onPosition = { [weak self] tag, ms in
             self?.reply.clipPosition(tag: tag, positionMs: ms)
