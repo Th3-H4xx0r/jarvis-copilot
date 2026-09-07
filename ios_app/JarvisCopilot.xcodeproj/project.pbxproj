@@ -502,6 +502,8 @@
 		607CAAF1446D268439887916 /* OrbFrames in Resources */ = {isa = PBXBuildFile; fileRef = F9F69B4BC251C401DCB7252F /* OrbFrames */; };
 		47747C669736D49DFEABA3B6 /* SpokenMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */; };
 		8E0134296AB486D2509BD5DB /* SpokenMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */; };
+		9053D14EB3DD232516508832 /* WatchDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F927409323D2CBEB230EDB28 /* WatchDataProvider.swift */; };
+		F398D9D43A1AC5F598AA8FB1 /* WatchMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7FFEFB7BF04D5089068227C /* WatchMenu.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1047,6 +1049,8 @@
 		302C99DE91260B3A74792393 /* VoiceSessionResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSessionResolver.swift; sourceTree = "<group>"; };
 		F9F69B4BC251C401DCB7252F /* OrbFrames */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = OrbFrames; sourceTree = "<group>"; };
 		888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SpokenMarkdown.swift; path = SpokenMarkdown.swift; sourceTree = "<group>"; };
+		F927409323D2CBEB230EDB28 /* WatchDataProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchDataProvider.swift; sourceTree = "<group>"; };
+		B7FFEFB7BF04D5089068227C /* WatchMenu.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchMenu.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2096,6 +2100,7 @@
 		7C93F90DEB00E1E996CC0919 /* JarvisWatch */ = {
 			isa = PBXGroup;
 			children = (
+				B7FFEFB7BF04D5089068227C /* WatchMenu.swift */,
 				F9F69B4BC251C401DCB7252F /* OrbFrames */,
 				E6E3A3E188EDA825C7949C30 /* LiquidGlassOrb.swift */,
 				F0ECB46F9DF0ED0005696A76 /* OrbShader.metal */,
@@ -2120,6 +2125,7 @@
 		5615154571BED8FB7D73E28A /* Watch */ = {
 			isa = PBXGroup;
 			children = (
+				F927409323D2CBEB230EDB28 /* WatchDataProvider.swift */,
 				0D1788D1CD0A121B7279E028 /* WatchPage.swift */,
 				F6358EC26D522B891FC6A82E /* WatchBridge.swift */,
 				E05DB767D15E338BE60EF417 /* WatchRelay.swift */,
@@ -2460,6 +2466,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9053D14EB3DD232516508832 /* WatchDataProvider.swift in Sources */,
 				47747C669736D49DFEABA3B6 /* SpokenMarkdown.swift in Sources */,
 				09996E37D49CF4B4B0A3802B /* VoiceSessionResolver.swift in Sources */,
 				1C96D692B83AB70E6A5BA112 /* WatchPage.swift in Sources */,
@@ -2777,6 +2784,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F398D9D43A1AC5F598AA8FB1 /* WatchMenu.swift in Sources */,
 				8E0134296AB486D2509BD5DB /* SpokenMarkdown.swift in Sources */,
 				8098335C7BE0DD6FEFBF023F /* LiquidGlassOrb.swift in Sources */,
 				A584F8E70227690EB39B430C /* OrbShader.metal in Sources */,

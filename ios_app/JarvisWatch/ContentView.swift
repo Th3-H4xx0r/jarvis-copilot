@@ -12,6 +12,7 @@ struct ContentView: View {
     @StateObject private var vm: WatchViewModel
     @ObservedObject private var voice = VoiceStatus.shared
     @ObservedObject private var audio = AudioPlayer.shared
+    @StateObject private var menu = WatchMenuStore()
     @State private var activeSheet: ActiveSheet?
     @State private var vol: Float = 0   // live system volume shown in the drawer
 
@@ -34,9 +35,25 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack {
-            JcWatch.background
-            content.padding(.horizontal, 6)
+        NavigationStack {
+            ZStack {
+                JcWatch.background
+                content.padding(.horizontal, 6)
+            }
+            .toolbar {
+                // Top right: pick the conversation, and reach the wearables.
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink { WatchChatPicker(store: menu) } label: {
+                        Image(systemName: "bubble.left")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    // watchOS has no `Menu`; a pushed list is the native shape.
+                    NavigationLink { WatchMenuScreen(store: menu, onVoice: { activeSheet = .volume }) } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+            }
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {

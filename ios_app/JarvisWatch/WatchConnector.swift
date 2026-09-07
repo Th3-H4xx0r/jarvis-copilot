@@ -48,6 +48,12 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     /// "can't reach the phone" as `.unreachable`.
     func ask(text: String) async -> Result<AskResult, AskError> {
         guard WCSession.isSupported() else { return .failure(.unreachable) }
+        // Same rule as the menu: sending before activation is a crash, not an
+        // error callback.
+        guard WCSession.default.activationState == .activated else {
+            WCSession.default.activate()
+            return .failure(.unreachable)
+        }
         streamingText = ""   // clear last turn's live preview
         AudioPlayer.shared.resetClips()  // drop any leftover clips from the previous reply
         ack.reset()          // invalidate any still-pending instant-ack timer from the last turn

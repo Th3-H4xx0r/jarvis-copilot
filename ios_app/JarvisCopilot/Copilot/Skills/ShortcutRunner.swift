@@ -47,6 +47,10 @@ final class ShortcutResultBus {
     }
 
     /// Wait for this run's callback. Nil when nothing arrived in time.
+    /// Tests override `timeoutMsForTests` so proving the timeout path costs
+    /// milliseconds instead of a real second each.
+    static var timeoutMsForTests: Int?
+
     func wait(_ rid: String, timeoutSeconds: Int) async -> ShortcutOutcome? {
         pruneEarly()
         if let alreadyThere = early.removeValue(forKey: rid) { return alreadyThere.outcome }
@@ -59,7 +63,8 @@ final class ShortcutResultBus {
             // was never resumed at all — the call hung forever.
             waiters[rid] = continuation
             timeout = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(max(1, timeoutSeconds)) * 1_000_000_000)
+                let ms = Self.timeoutMsForTests ?? (max(1, timeoutSeconds) * 1000)
+                try? await Task.sleep(nanoseconds: UInt64(ms) * 1_000_000)
                 guard !Task.isCancelled else { return }
                 self?.resume(rid, nil)
             }

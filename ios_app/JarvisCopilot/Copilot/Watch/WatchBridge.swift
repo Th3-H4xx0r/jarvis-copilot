@@ -30,7 +30,8 @@ final class WatchBridge: NSObject, ObservableObject {
     /// Read by the WATCH app (`WatchConnector.preferLocalVoice`) and sent with
     /// every turn; declared here so the phone's settings page can toggle it.
     static let preferLocalVoiceKey = "watch.preferLocalVoice"
-    static let sessionTitle = "Watch"
+    /// The shared voice conversation both surfaces write to.
+    static let sessionTitle = "Voice"
 
     @Published private(set) var isPaired = false
     @Published private(set) var isReachable = false
@@ -303,7 +304,27 @@ extension WatchBridge: WCSessionDelegate {
 
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any],
                              replyHandler: @escaping ([String: Any]) -> Void) {
-        guard (message["type"] as? String) == "ask" else {
+        let kind = (message["type"] as? String) ?? ""
+        // Everything the watch can ask for beyond a turn is answered from the
+        // phone's own hub and API — see WatchDataProvider.
+        switch kind {
+        case "sessions":
+            Task { @MainActor in replyHandler(await WatchDataProvider.sessions(api: self.api)) }
+            return
+        case "session_select":
+            Task { @MainActor in
+                replyHandler(WatchDataProvider.selectSession((message["id"] as? String) ?? ""))
+            }
+            return
+        case "session_new":
+            Task { @MainActor in replyHandler(await WatchDataProvider.newSession(api: self.api)) }
+            return
+        case "wearables":
+            Task { @MainActor in replyHandler(WatchDataProvider.wearables()) }
+            return
+        case "ask":
+            break
+        default:
             replyHandler(["ok": false, "error": "unknown"])
             return
         }

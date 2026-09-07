@@ -7,6 +7,8 @@ enum JcWatch {
     // Text
     static let text = Color(red: 0.93, green: 0.94, blue: 0.97)
     static let muted = Color(red: 0.72, green: 0.75, blue: 0.81)
+    /// The orb's cool rim blue, used for anything live or selected.
+    static let accent = Color(red: 0.55, green: 0.77, blue: 1.0)
 
     /// Ambient backdrop: near-black with a couple of very faint colour washes,
     /// matching the mobile voice screen (kept subtle for OLED battery).

@@ -236,7 +236,8 @@ final class PhoneSkillsTests: XCTestCase {
 
     func testVibrateClampsOutOfRangeValues() async throws {
         let haptics = MockHaptics()
-        let result = try await SystemSkills.vibrate(haptics)
+        // gapMs 0: the clamp is what's under test, not three seconds of waiting.
+        let result = try await SystemSkills.vibrate(haptics, gapMs: 0)
             .run(["duration_ms": 1, "repeat": 99])
         XCTAssertEqual(result["repeat"] as? Int, 20)
     }

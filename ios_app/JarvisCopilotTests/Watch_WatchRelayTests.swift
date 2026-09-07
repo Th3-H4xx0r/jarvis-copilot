@@ -172,30 +172,25 @@ final class AckTimerTests: XCTestCase {
 
 // MARK: - The watch's own chat session
 
-/// A dictated turn goes into a dedicated "Watch" conversation rather than
-/// whatever chat is open on the phone, and that session is created once and
-/// then reused — a new one per turn would litter Chats and lose all context.
+/// A dictated turn goes into the PHONE'S VOICE session, not a private one, so
+/// the watch inherits the voice model, the voice system prompt and the same
+/// history — and the Voice tab's session picker governs both surfaces.
 final class WatchSessionTests: XCTestCase {
-    private var defaults: UserDefaults!
-
-    override func setUp() {
-        super.setUp()
-        defaults = UserDefaults(suiteName: "watch-session-\(UUID().uuidString)")
-    }
-
     @MainActor
-    func testTheSessionIdIsRememberedBetweenTurns() {
-        let bridge = WatchBridge(defaults: defaults)
-        // The app extends UserDefaults with KeyValueStore, so name the overload.
-        defaults.setValue("sess-42", forKey: "watch.sessionId")
-        XCTAssertEqual(defaults.string(forKey: "watch.sessionId"), "sess-42")
-        bridge.startNewSession()
-        XCTAssertNil(defaults.string(forKey: "watch.sessionId"),
-                     "starting a new session forgets the old id so the next turn creates one")
+    func testTheWatchSharesTheVoiceSessionResolver() {
+        // Selecting on either surface moves both: there is one resolver.
+        VoiceSessionSelection.shared.select(.session(id: "sess-42", title: "Trip"))
+        XCTAssertEqual(VoiceSessionSelection.shared.target.sessionID, "sess-42")
+
+        WatchBridge.shared.startNewSession()
+        // Invalidating drops the cached id; the target itself is the user's
+        // choice and is left alone.
+        XCTAssertEqual(VoiceSessionSelection.shared.target.sessionID, "sess-42")
+        VoiceSessionSelection.shared.select(.defaultVoice)
     }
 
-    func testTheSessionIsTitledSoItIsRecognisableInChats() {
-        XCTAssertEqual(WatchBridge.sessionTitle, "Watch")
+    func testTheSessionIsLabelledLikeTheVoiceChat() {
+        XCTAssertEqual(WatchBridge.sessionTitle, "Voice")
     }
 
     func testASessionIdIsReadFromEitherShape() {

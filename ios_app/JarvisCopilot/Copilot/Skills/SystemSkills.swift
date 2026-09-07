@@ -206,7 +206,9 @@ enum SystemSkills {
     /// so a requested duration or wait/vibrate pattern is turned into a burst of
     /// haptic taps of roughly the same length. The schema is unchanged so the
     /// server-side prompt and any stored tool call keep working.
-    static func vibrate(_ haptics: any Vibrating) -> AnySkill {
+    /// `gapMs` is the pause between repeats. Injectable so tests don't spend
+    /// three real seconds proving that `repeat` is clamped to 20.
+    static func vibrate(_ haptics: any Vibrating, gapMs: Int = 150) -> AnySkill {
         AnySkill(
             name: "vibrate",
             description: "Vibrate the device. Pass duration_ms for a single buzz (up to 30s), OR "
@@ -250,7 +252,9 @@ enum SystemSkills {
             for i in 0..<repeatCount {
                 pulses += await Self.pulse(haptics, forMilliseconds: duration)
                 if repeatCount > 1, i < repeatCount - 1 {
-                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    if gapMs > 0 {
+                        try? await Task.sleep(nanoseconds: UInt64(gapMs) * 1_000_000)
+                    }
                 }
             }
             return ["vibrated": true, "duration_ms": duration, "repeat": repeatCount, "pulses": pulses]

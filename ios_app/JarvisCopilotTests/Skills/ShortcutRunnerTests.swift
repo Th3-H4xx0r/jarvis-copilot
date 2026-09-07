@@ -5,6 +5,18 @@ import XCTest
 @MainActor
 final class ShortcutRunnerTests: XCTestCase {
 
+    override func setUp() {
+        super.setUp()
+        // The timeout PATH is what these assert; a real second per test is
+        // three seconds of the suite spent watching a clock.
+        ShortcutResultBus.timeoutMsForTests = 120
+    }
+
+    override func tearDown() {
+        ShortcutResultBus.timeoutMsForTests = nil
+        super.tearDown()
+    }
+
     // MARK: URL building
 
     func testLaunchModeOmitsTheCallbacksAndReturnsImmediately() async throws {
