@@ -117,6 +117,11 @@ def _is_quota_error_text(err_text: str) -> bool:
         or 'usage limit exceeded' in _err_lower
         or 'reached the limit of messages' in _err_lower
         or 'used up your usage' in _err_lower
+        # Anthropic pay-as-you-go exhaustion, verbatim: "You're out of extra
+        # usage" (HTTP 400). Without this it fell into the generic error
+        # bucket and voice retried the dead model on every turn.
+        or 'out of extra usage' in _err_lower
+        or 'out of usage' in _err_lower
         or ('plan' in _err_lower and 'limit' in _err_lower and 'reached' in _err_lower)
     )
 

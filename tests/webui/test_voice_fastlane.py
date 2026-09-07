@@ -259,3 +259,37 @@ def test_anthropic_pick_is_rerouted_to_claude_code_including_the_model_prefix(mo
     )
     assert captured["model"] == "claude-sonnet-5"
     assert captured["provider"] == "claude-code"
+
+
+def test_a_transient_error_falls_back_but_does_not_cool_the_pick_down(monkeypatch):
+    """A tool crash or a stream hiccup must not silently demote the user's
+    picked model for ten minutes — only durable failures (quota, rate limit,
+    auth, unknown model) do that."""
+    voice._OVERRIDE_COOLDOWN.clear()
+    monkeypatch.setattr(voice, "_failure_class", lambda seg: "error")  # a generic, non-durable failure
+    _drive_failing_override(
+        monkeypatch,
+        fast_lane={"provider": "ollama-cloud", "model": "gemma4:31b"},
+        model_override="claude-sonnet-5", provider_override="anthropic",
+    )
+    assert not voice._override_on_cooldown("claude-sonnet-5", "anthropic")
+    captured = _drive(
+        monkeypatch,
+        fast_lane={"provider": "ollama-cloud", "model": "gemma4:31b"},
+        model_override="claude-sonnet-5", provider_override="anthropic",
+    )
+    assert captured["model"] == "claude-sonnet-5", "the pick is tried again next turn"
+
+
+def test_an_anthropic_prefixed_model_is_rerouted_even_without_a_provider(monkeypatch):
+    import api.config as config_mod
+    monkeypatch.setattr(config_mod, "cfg", {"model": {"provider": "claude-code"}})
+    voice._OVERRIDE_COOLDOWN.clear()
+    captured = _drive(
+        monkeypatch,
+        session_provider="ollama-cloud",
+        fast_lane={"provider": "ollama-cloud", "model": "gemma4:31b"},
+        model_override="@anthropic:claude-sonnet-5",
+    )
+    assert captured["model"] == "claude-sonnet-5"
+    assert captured["provider"] == "claude-code"

@@ -46,3 +46,23 @@ def test_resolve_keeps_tagged_ollama_pick(monkeypatch):
     assert model == "@ollama-cloud:gemma4:31b"
     assert provider == "ollama-cloud"
     assert normalized is False
+
+
+def test_split_custom_host_port_slug_with_tagged_model():
+    """`custom:<host>:<port>` is ONE slug and the model may still carry a tag."""
+    assert routes._split_provider_qualified_model("@custom:10.0.0.5:11434:llama3.2:latest") == (
+        "llama3.2:latest", "custom:10.0.0.5:11434")
+
+
+def test_config_resolver_agrees_with_the_shared_helper():
+    """resolve_model_provider and the normaliser must split identically, or a
+    session model routes to a provider the catalogue has never heard of."""
+    for model in ("@ollama-cloud:gemma4:31b",
+                  "@custom:macbook-ollama:llama3.2:latest",
+                  "@custom:10.0.0.5:11434:llama3",
+                  "@custom:10.0.0.5:11434:llama3.2:latest",
+                  "@custom:my-key:llama3.2:8b:latest",
+                  "@anthropic:claude-sonnet-5"):
+        provider, bare = config_mod.split_provider_qualified_model(model)
+        resolved_model, resolved_provider, _ = config_mod.resolve_model_provider(model)
+        assert (resolved_model, resolved_provider) == (bare, provider), model

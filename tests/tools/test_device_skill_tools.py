@@ -190,3 +190,84 @@ def test_reader_skill_keeps_full_result(monkeypatch):
     tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
     out = json.loads(tools["device_chrome_snapshot"]["handler"](args={}))
     assert out["result"] == big
+
+
+# ── image results: save to disk + describe through the vision tool ──────────
+
+_PNG_1PX = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+            "YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+
+
+def _image_skill(monkeypatch, tmp_path, result, described="A cat on a sofa."):
+    _reset(monkeypatch, [
+        {"device_id": "dev1", "device_name": "Phone", "name": "recent_photo",
+         "description": "Latest photo.", "input_schema": {"type": "object", "properties": {}}},
+    ])
+    monkeypatch.setattr(device_bridge, "in_process_available", lambda: True)
+    monkeypatch.setattr(device_bridge, "invoke_skill", lambda d, s, a: dict(result))
+    monkeypatch.setattr(device_skill_tools, "_IMAGE_DIR", tmp_path)
+    calls = []
+
+    def fake_describe(path, prompt):
+        calls.append((path, prompt))
+        return described
+
+    monkeypatch.setattr(device_skill_tools, "_describe_image", fake_describe)
+    tools = {t["name"]: t for t in device_skill_tools.get_device_tools()}
+    return tools["device_recent_photo"]["handler"], calls
+
+
+def test_image_result_is_saved_and_described(monkeypatch, tmp_path):
+    handler, calls = _image_skill(monkeypatch, tmp_path,
+                                  {"base64": _PNG_1PX, "mime": "image/png", "bytes": 70, "date": "2026-09-06"})
+    out = json.loads(handler({"question": "what is in it?"}))
+    assert "base64" not in out, "the model reads text — a base64 blob is useless and blows the budget"
+    assert out["image_path"].endswith(".png") and Path(out["image_path"]).exists()
+    assert out["description"] == "A cat on a sofa."
+    assert out["date"] == "2026-09-06"
+    assert calls and calls[0][1] == "what is in it?"
+
+
+def test_image_result_without_a_question_gets_a_default_description(monkeypatch, tmp_path):
+    handler, calls = _image_skill(monkeypatch, tmp_path, {"base64": _PNG_1PX, "mime": "image/jpeg"})
+    out = json.loads(handler({}))
+    assert out["image_path"].endswith(".jpg")
+    assert calls[0][1]  # some default prompt was used
+    assert out["description"] == "A cat on a sofa."
+
+
+def test_vision_failure_still_returns_the_saved_image(monkeypatch, tmp_path):
+    handler, _ = _image_skill(monkeypatch, tmp_path, {"base64": _PNG_1PX, "mime": "image/png"})
+
+    def boom(path, prompt):
+        raise RuntimeError("no vision model")
+
+    monkeypatch.setattr(device_skill_tools, "_describe_image", boom)
+    out = json.loads(handler({}))
+    assert Path(out["image_path"]).exists()
+    assert "description" not in out
+    assert "no vision model" in out["vision_error"]
+
+
+def test_non_image_results_are_untouched(monkeypatch, tmp_path):
+    handler, calls = _image_skill(monkeypatch, tmp_path, {"cancelled": True})
+    out = json.loads(handler({}))
+    assert out == {"cancelled": True}
+    assert not calls
+
+
+def test_a_multimodal_vision_envelope_is_passed_through_with_metadata(monkeypatch, tmp_path):
+    """When the main model can see images in tool results, the pixels go to it
+    directly (same path as an attached photo) instead of a text description."""
+    envelope = {"_multimodal": True,
+                "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,xx"}}],
+                "text_summary": "Image attached natively."}
+    handler, _ = _image_skill(monkeypatch, tmp_path,
+                              {"base64": _PNG_1PX, "mime": "image/png", "taken_at": "2026-09-06T21:41:00Z"},
+                              described=envelope)
+    out = handler({})
+    assert isinstance(out, dict), "a multimodal result must NOT be JSON-encoded"
+    assert out["_multimodal"] is True
+    assert out["content"][0]["type"] == "text" and "taken_at" in out["content"][0]["text"]
+    assert out["content"][1]["type"] == "image_url"
+    assert out["meta"]["image_path"].endswith(".png")

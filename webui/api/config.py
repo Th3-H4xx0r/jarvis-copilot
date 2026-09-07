@@ -1624,10 +1624,18 @@ def split_provider_qualified_model(model_id: str) -> tuple | None:
     if provider_hint.startswith("custom:") and provider_hint.count(":") >= 2:
         _slug_rest = provider_hint[len("custom:"):]
         if not _custom_slug_rest_looks_like_host_port(_slug_rest):
-            # custom:<slug> is one segment; everything after it is the model.
             head, _, tail = _slug_rest.partition(":")
-            provider_hint = f"custom:{head}"
-            bare_model = f"{tail}:{bare_model}" if tail else bare_model
+            second, _, rest = tail.partition(":")
+            if rest and _custom_slug_rest_looks_like_host_port(f"{head}:{second}"):
+                # custom:<host>:<port> is ONE slug and the model kept a tag —
+                # the whole-remainder check above failed only because the tag's
+                # colon is in it.
+                provider_hint = f"custom:{head}:{second}"
+                bare_model = f"{rest}:{bare_model}"
+            else:
+                # custom:<slug> is one segment; everything after it is the model.
+                provider_hint = f"custom:{head}"
+                bare_model = f"{tail}:{bare_model}" if tail else bare_model
     elif (provider_hint not in _PROVIDER_MODELS
             and provider_hint not in _PROVIDER_DISPLAY
             and not provider_hint.startswith("custom:")):
@@ -1762,18 +1770,12 @@ def resolve_model_provider(model_id: str) -> tuple:
     #
     # Exception: ``custom:<ip-or-host>:<port>`` is a single logical slug derived
     # from OpenAI ``base_url`` authority and contains no eaten model segments.
-    if model_id.startswith("@") and ":" in model_id:
-        inner = model_id[1:]
-        provider_hint, bare_model = inner.rsplit(":", 1)
-        if provider_hint.startswith("custom:") and provider_hint.count(":") >= 2:
-            _slug_rest = provider_hint[len("custom:"):]
-            if not _custom_slug_rest_looks_like_host_port(_slug_rest):
-                provider_hint, extra = provider_hint.rsplit(":", 1)
-                bare_model = f"{extra}:{bare_model}"
-        elif (provider_hint not in _PROVIDER_MODELS
-                and provider_hint not in _PROVIDER_DISPLAY
-                and not provider_hint.startswith("custom:")):
-            provider_hint, bare_model = inner.split(":", 1)
+    _qualified = split_provider_qualified_model(model_id)
+    if _qualified:
+        # ONE splitter for the whole codebase (see split_provider_qualified_model):
+        # when this disagreed with api.routes' normaliser, a session model was
+        # judged stale and silently replaced with the default model.
+        provider_hint, bare_model = _qualified
         if (
             provider_hint.startswith("custom:")
             and config_base_url

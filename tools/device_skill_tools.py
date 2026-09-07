@@ -22,9 +22,13 @@ host-signed HTTP loopback ``tools/chrome_device_tool.py`` uses.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import os
 import threading
+import time
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from tools.registry import registry
@@ -36,7 +40,104 @@ logger = logging.getLogger(__name__)
 # a screenshot, a directory listing, ...). Mirrors tools/chrome_device_tool.py's
 # server-side truncation for the chrome_* skills.
 _RESULT_TRIM_CHARS = 1024  # plan 3.1
-_READER_PREFIXES = ("chrome_snapshot", "screenshot", "read_", "list_", "get_")
+_READER_PREFIXES = ("chrome_snapshot", "screenshot", "read_", "list_", "get_",
+                    "recent_photo", "pick_photo", "take_photo")
+
+# Photos / screenshots from a device come back as base64. The model reads
+# text, so the pixels are written to disk and — because the whole point of
+# "what is my latest photo" is to SEE it — described through the vision tool,
+# with the caller's question (or a default) as the prompt.
+_IMAGE_DIR = Path(os.path.expanduser("~/.jarviscopilot/webui/device_images"))
+_IMAGE_KEEP = 40
+_IMAGE_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic",
+              "image/webp": ".webp", "image/gif": ".gif"}
+_DEFAULT_IMAGE_PROMPT = ("Describe this photo in two or three sentences: the subject, the setting, "
+                         "any text, and anything notable.")
+
+
+def _describe_image(path: str, prompt: str) -> Any:
+    """Hand a local image to the vision layer, exactly as an attached image is
+    handled: a multimodal envelope (the main model sees the pixels itself) when
+    the provider supports images in tool results, else the aux model's text
+    description. Raises on failure."""
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    from tools.vision_tools import _handle_vision_analyze
+
+    awaitable = _handle_vision_analyze({"image_url": path, "question": prompt})
+    # The tool handler runs on the agent's worker thread; there may or may not
+    # be a running loop, so always drive the coroutine on a fresh one.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        raw = pool.submit(asyncio.run, awaitable).result(timeout=120)
+    if isinstance(raw, dict):
+        return raw          # _multimodal envelope — pixels go to the model
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return str(raw)
+    if isinstance(parsed, dict) and parsed.get("success") is False:
+        raise RuntimeError(str(parsed.get("analysis") or parsed.get("error") or "vision failed"))
+    if isinstance(parsed, dict):
+        return str(parsed.get("analysis") or parsed.get("result") or raw)
+    return str(raw)
+
+
+def _prune_images() -> None:
+    try:
+        files = sorted(_IMAGE_DIR.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for stale in files[_IMAGE_KEEP:]:
+            stale.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _materialize_image(result: dict, skill_name: str, call_args: dict) -> dict:
+    """If `result` carries an image (`base64` + image `mime`), swap the blob for
+    an `image_path` and add a `description` from the vision model."""
+    b64 = result.get("base64")
+    mime = str(result.get("mime") or "").lower()
+    if not isinstance(b64, str) or not b64 or not mime.startswith("image/"):
+        return result
+    out = {k: v for k, v in result.items() if k != "base64"}
+    try:
+        _IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        data = base64.b64decode(b64, validate=False)
+        name = f"{skill_name}-{int(time.time() * 1000)}{_IMAGE_EXT.get(mime, '.img')}"
+        path = _IMAGE_DIR / name
+        path.write_bytes(data)
+        out["image_path"] = str(path)
+        out["bytes"] = len(data)
+        _prune_images()
+    except Exception as exc:
+        out["error"] = f"could not save image: {exc}"
+        return out
+    prompt = str((call_args or {}).get("question") or (call_args or {}).get("prompt") or "").strip()
+    try:
+        seen = _describe_image(str(path), prompt or _DEFAULT_IMAGE_PROMPT)
+    except Exception as exc:
+        out["vision_error"] = str(exc)
+        return out
+    if _is_multimodal(seen):
+        # The model sees the photo itself. Carry the skill's metadata (when it
+        # was taken, how many photos there are) in the envelope's text part so
+        # nothing is lost, and hand the envelope back untouched.
+        envelope = dict(seen)
+        facts = ", ".join(f"{k}: {v}" for k, v in out.items()
+                          if k in ("taken_at", "index", "library_count", "width", "height"))
+        if facts:
+            content = list(envelope.get("content") or [])
+            content.insert(0, {"type": "text", "text": f"Photo from the user's device ({facts})."})
+            envelope["content"] = content
+        envelope["meta"] = {**(envelope.get("meta") or {}),
+                            **{k: v for k, v in out.items() if k != "error"}}
+        return envelope
+    out["description"] = seen
+    return out
+
+
+def _is_multimodal(value: Any) -> bool:
+    return (isinstance(value, dict) and value.get("_multimodal") is True
+            and isinstance(value.get("content"), list))
 
 _LOCK = threading.Lock()
 _current_tools: list[dict] = []
@@ -125,6 +226,11 @@ def _make_handler(skill_name: str, candidates: list[dict]) -> Callable:
             return json.dumps({"ok": False, "error": str(exc)})
         if not isinstance(result, dict):
             result = {"ok": True, "result": result}
+        result = _materialize_image(result, skill_name, call_args)
+        if _is_multimodal(result):
+            # Returned as a dict, not JSON: the agent loop unwraps this into a
+            # tool result carrying the image itself.
+            return result
         result = _trim_result(result, skill_name)
         return json.dumps(result, ensure_ascii=False)
 

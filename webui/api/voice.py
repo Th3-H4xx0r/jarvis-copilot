@@ -1095,14 +1095,18 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
             _active = str(((_cfg.get("model") or {}) if isinstance(_cfg, dict) else {}).get("provider") or "").strip().lower()
         except Exception:
             _active = ""
-        if str(raw_provider or "").strip().lower() == "anthropic" and _active == "claude-code":
+        # The picker's Anthropic rows are `@anthropic:<model>`, and that prefix
+        # alone routes to the Anthropic API even when no provider was sent —
+        # so test the MODEL as well as the provider field.
+        _m = str(raw_model or "").strip()
+        _is_anthropic_pick = (str(raw_provider or "").strip().lower() == "anthropic"
+                              or _m.lower().startswith("@anthropic:"))
+        if _is_anthropic_pick and _active == "claude-code":
             print(f"[webui] voice: routing anthropic pick {raw_model!r} through claude-code (configured provider)", flush=True)
             raw_provider = "claude-code"
-            # The picker's Anthropic rows are `@anthropic:<model>`; that prefix
-            # is an explicit provider to the resolver and would win over the
-            # provider field, so strip it to the bare model (which is exactly
-            # what the Claude Code group lists).
-            _m = str(raw_model or "").strip()
+            # The prefix is an explicit provider to the resolver and would win
+            # over the provider field, so strip it to the bare model — which is
+            # exactly what the Claude Code catalogue group lists.
             if _m.lower().startswith("@anthropic:"):
                 raw_model = _m[len("@anthropic:"):]
     elif fast_lane:
@@ -1179,9 +1183,16 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
             # cooldown so the next turns skip the failing round trip.
             if (seg.get("kind") == "error" and explicit_override and fast_lane
                     and _failure_class(seg) in ("quota_exhausted", "rate_limit", "auth_mismatch", "model_not_found", "error")):
-                print(f"[webui] voice: override model failed ({_failure_class(seg)}); rerunning on the fast lane", flush=True)
+                _cls = _failure_class(seg)
+                print(f"[webui] voice: override model failed ({_cls}); rerunning on the fast lane", flush=True)
                 fallback_to_fast = True
-                _put_override_on_cooldown(override_model, override_provider)
+                # Only a DURABLE failure demotes the pick for the next ten
+                # minutes. A one-off (a tool crash, a stream hiccup, a 500)
+                # falls back for this turn and is retried next turn — the
+                # fallback is silent, so a cooldown on a transient error would
+                # strand the user on the fast lane with no signal at all.
+                if _cls in ("quota_exhausted", "rate_limit", "auth_mismatch", "model_not_found"):
+                    _put_override_on_cooldown(override_model, override_provider)
                 break
             yield seg
     finally:
