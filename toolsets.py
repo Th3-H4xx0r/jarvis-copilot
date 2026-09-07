@@ -274,8 +274,8 @@ TOOLSETS = {
     },
     
     "memory": {
-        "description": "Persistent memory across sessions (personal notes + user profile)",
-        "tools": ["memory"],
+        "description": "Persistent memory across sessions (personal notes + user profile, plus reference photos of people)",
+        "tools": ["memory", "visual_memory"],
         "includes": []
     },
     
