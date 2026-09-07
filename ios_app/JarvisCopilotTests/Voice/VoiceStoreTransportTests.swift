@@ -196,6 +196,21 @@ final class VoiceStoreTransportTests: XCTestCase {
         XCTAssertTrue(output.played.isEmpty, "the abandoned reply must never reach the speaker")
     }
 
+    func testNativeConfirmationsPulseUntilTheyActuallyFinish() async {
+        let rig = makeRig()
+        await startListening(rig)
+        rig.synthesizer.automaticallyFinishes = false
+        await rig.store.acknowledgeLocally("Flashlight on")
+        XCTAssertEqual(rig.store.state, .speaking)
+        rig.synthesizer.onSpeechPulse?(0.18)
+        XCTAssertEqual(rig.store.amplitude, 0.18)
+        rig.synthesizer.onSpeechPulse?(0)
+        rig.synthesizer.onPlaybackEnd?()
+        XCTAssertEqual(rig.store.state, .thinking)
+        XCTAssertEqual(rig.store.amplitude, 0)
+        await rig.store.stopAll()
+    }
+
     // MARK: - acknowledgeLocally
 
     func testALocalAckUsesThePhoneVoiceAndFinishesTheTurn() async {

@@ -52,7 +52,7 @@ struct JarvisStopwatchActivity: Widget {
                             .foregroundStyle(.white.opacity(0.7))
                         Spacer()
                         if let last = laps.last {
-                            Text("Lap \(laps.count) · \(JarvisStopwatchTime.format(last))")
+                            Text("Lap \(max(context.state.lapCount, laps.count)) · \(JarvisStopwatchTime.format(last))")
                                 .font(.system(size: 13, weight: .medium, design: .rounded))
                                 .foregroundStyle(.white)
                                 .monospacedDigit()

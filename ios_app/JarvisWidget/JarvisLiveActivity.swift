@@ -214,10 +214,13 @@ struct JarvisWidgetBundle: WidgetBundle {
             JarvisLiveActivity()
             JarvisStopwatchActivity()
         }
-        // AlarmKit alarm / timer countdown (iOS 26+).
+        // AlarmKit alarm / timer countdown (iOS 26+). The type only exists
+        // when the SDK has AlarmKit, so the availability check is not enough.
+        #if canImport(AlarmKit)
         if #available(iOS 26.0, *) {
             JarvisAlarmActivity()
         }
+        #endif
         // Control Center button — only on iOS 18+, where Controls exist.
         if #available(iOS 18.0, *) {
             JarvisVoiceControl()

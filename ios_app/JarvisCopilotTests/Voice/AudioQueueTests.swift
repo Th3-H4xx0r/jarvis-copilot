@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import JarvisCopilot
 
@@ -10,6 +11,45 @@ final class AudioQueueTests: XCTestCase {
         let output = MockAudioOutput()
         let clock = TestVoiceClock()
         return (AudioQueue(output: output, clock: clock), output, clock)
+    }
+
+    func testOrbFollowsRenderedSpeechLevelsAndStopsAfterPlayback() async {
+        let (queue, output, _) = make()
+        var levels: [Double] = []
+        queue.onAmplitude = { levels.append($0) }
+        queue.enqueueMp3(Data([1]))
+        await queue.settle()
+        levels.removeAll()
+        output.onAmplitude?(0.025)
+        output.onAmplitude?(0.4)
+        output.onAmplitude?(0)
+        XCTAssertEqual(levels, [0.025, 0.4, 0], "actual words and pauses must drive the orb")
+        await queue.stop()
+        let count = levels.count
+        output.onAmplitude?(0.8)
+        XCTAssertEqual(levels.count, count, "late metering callbacks must not revive a stopped orb")
+    }
+
+    func testRenderMeterReadsBothChannelsAndSilence() throws {
+        let format = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                                 sampleRate: 24000, channels: 2, interleaved: false))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 64))
+        buffer.frameLength = 64
+        let channels = try XCTUnwrap(buffer.floatChannelData)
+        for channel in 0..<2 {
+            for frame in 0..<64 { channels[channel][frame] = 0 }
+        }
+        XCTAssertEqual(DefaultAudioOutput.peakAmplitude(buffer), 0)
+        channels[0][12] = 0.025
+        channels[1][18] = -0.4
+        XCTAssertEqual(DefaultAudioOutput.peakAmplitude(buffer), 0.4, accuracy: 0.0001)
+    }
+
+    func testEncodedClipMeterConvertsDecibelsToLinearLevel() {
+        XCTAssertEqual(DefaultAudioOutput.linearAmplitude(decibels: -20), 0.1, accuracy: 0.00001)
+        XCTAssertEqual(DefaultAudioOutput.linearAmplitude(decibels: -40), 0.01, accuracy: 0.00001)
+        XCTAssertEqual(DefaultAudioOutput.linearAmplitude(decibels: 6), 1)
+        XCTAssertEqual(DefaultAudioOutput.linearAmplitude(decibels: -.infinity), 0)
     }
 
     // MARK: - Clip queue ordering
@@ -55,12 +95,13 @@ final class AudioQueueTests: XCTestCase {
         XCTAssertTrue(queue.isBusy)
         XCTAssertEqual(idleCount, 0)
 
+        output.onAmplitude?(0.2)
         output.finishClip() // queue is now empty
         await queue.settle()
         XCTAssertEqual(idleCount, 1)
         XCTAssertFalse(queue.isBusy)
         XCTAssertEqual(amplitudes.last, 0)
-        XCTAssertTrue(amplitudes.contains(0.6), "a coarse speaking pulse drives the orb")
+        XCTAssertTrue(amplitudes.contains(0.2), "rendered speech drives the orb")
     }
 
     func testABadClipIsSkippedRatherThanWedgingTheQueue() async {
@@ -342,5 +383,39 @@ final class AudioQueueTests: XCTestCase {
 
     private func le32(_ d: Data, _ offset: Int) -> Int {
         Int(d[offset]) | Int(d[offset + 1]) << 8 | Int(d[offset + 2]) << 16 | Int(d[offset + 3]) << 24
+    }
+}
+
+// MARK: - Exact segment duration (karaoke scheduling)
+
+extension AudioQueueTests {
+    func testSegmentCompleteFiresOncePerSegmentOnTheStream() async {
+        let (queue, _, _) = make()
+        var completes: [(Int?, Int)] = []
+        queue.onSegmentComplete = { completes.append(($0, $1)) }
+
+        queue.appendPcm(replyPcm(ms: 200), sampleRate: 24000, tag: 0)
+        queue.endPcmSegment(tag: 0)
+        queue.appendPcm(replyPcm(ms: 150), sampleRate: 24000, tag: 1)
+        queue.endPcmSegment(tag: 1)
+        await queue.settle()
+
+        // Exactly one exact duration per segment: a duplicate would run
+        // VoiceReply's speaking-rate average twice for the same sentence.
+        XCTAssertEqual(completes.map(\.0), [0, 1])
+        XCTAssertEqual(completes.map(\.1), [200, 150])
+    }
+
+    func testSegmentCompleteStillFiresWhenTheTagChangesWithoutAnAudioEnd() async {
+        let (queue, _, _) = make()
+        var completes: [(Int?, Int)] = []
+        queue.onSegmentComplete = { completes.append(($0, $1)) }
+
+        queue.appendPcm(replyPcm(ms: 200), sampleRate: 24000, tag: 0)
+        queue.appendPcm(replyPcm(ms: 150), sampleRate: 24000, tag: 1)
+        await queue.settle()
+
+        XCTAssertEqual(completes.map(\.0), [0], "the previous sentence can't grow any more")
+        XCTAssertEqual(completes.map(\.1), [200])
     }
 }

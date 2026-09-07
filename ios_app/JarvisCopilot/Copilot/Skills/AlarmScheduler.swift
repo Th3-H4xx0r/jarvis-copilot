@@ -131,7 +131,10 @@ final class DefaultAlarmScheduler: AlarmScheduling, @unchecked Sendable {
         let snooze = AlarmButton(text: "Snooze", textColor: .white, systemImageName: "zzz")
         let pause = AlarmButton(text: "Pause", textColor: .white, systemImageName: "pause.fill")
         let resume = AlarmButton(text: "Resume", textColor: .white, systemImageName: "play.fill")
-        let title = LocalizedStringResource(stringLiteral: label)
+        // Interpolation, not `stringLiteral:`: the latter treats a runtime
+        // label as a LOCALIZATION KEY and would translate any label that
+        // happened to collide with one. This is user text.
+        let title = LocalizedStringResource("\(label)")
         return AlarmPresentation(
             alert: AlarmPresentation.Alert(title: title, stopButton: stop,
                                            secondaryButton: snooze, secondaryButtonBehavior: .countdown),
@@ -187,7 +190,8 @@ final class DefaultAlarmScheduler: AlarmScheduling, @unchecked Sendable {
             var days: [Int] = []
             if case .weekly(let list) = rel.repeats { days = list.map(weekdayNumber).sorted() }
             specKind = .daily(hour: rel.time.hour, minute: rel.time.minute, weekdays: days)
-            fire = AlarmSpec.nextOccurrence(hour: rel.time.hour, minute: rel.time.minute, from: Date())
+            fire = AlarmSpec.nextOccurrence(hour: rel.time.hour, minute: rel.time.minute,
+                                            from: Date(), weekdays: days)
         case .none:
             specKind = .timer(seconds: alarm.countdownDuration?.preAlert ?? 0)
         @unknown default:

@@ -36,6 +36,10 @@ struct JarvisCopilotApp: App {
                     AppServices.shared.setForeground(phase == .active)
                     #if os(iOS)
                     if phase == .background { scheduleBackgroundRefresh() }
+                    // `Activity.request` throws while backgrounded, which is
+                    // exactly where a voice-driven "start the stopwatch" runs;
+                    // open the island we owe as soon as we come forward.
+                    if phase == .active { StopwatchService.shared.resyncActivity() }
                     #endif
                 }
         }

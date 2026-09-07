@@ -16,8 +16,12 @@ struct JarvisStopwatchAttributes: ActivityAttributes {
         var reference: Date
         /// Elapsed seconds at the moment of the last stop (shown while stopped).
         var frozenElapsed: TimeInterval
-        /// Lap durations, most recent last. Capped by the app (4 KB budget).
+        /// The most recent lap durations, oldest first. Capped by the app
+        /// (4 KB ContentState budget) — see `lapCount` for how many there are.
         var laps: [TimeInterval]
+        /// Total laps taken, which `laps` may not hold all of. The island
+        /// labels the newest lap with this, so lap 12 doesn't read "Lap 8".
+        var lapCount: Int = 0
     }
 
     var label: String

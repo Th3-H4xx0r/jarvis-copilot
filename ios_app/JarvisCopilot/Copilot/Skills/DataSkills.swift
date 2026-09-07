@@ -182,15 +182,25 @@ enum DataSkills {
             let current = now()
             let snooze = SkillArgs.int(args, "snooze_minutes") ?? 9
             var repeatDays: [Int] = []
+            // A model very often sends `"repeat": "weekdays"` rather than a
+            // list; reading only the array silently dropped it.
+            var repeatWords: [String] = []
             if let raw = args["repeat"] as? [Any] {
-                let words = raw.map { SkillArgs.text($0) }
-                guard let parsed = AlarmWeekdays.parse(words) else {
-                    throw SkillError.badArgument("unknown weekday in repeat: \(words)")
+                repeatWords = raw.map { SkillArgs.text($0) }
+            } else {
+                let single = SkillArgs.string(args, "repeat")
+                if !single.isEmpty {
+                    repeatWords = single.split(whereSeparator: { $0 == "," || $0 == " " }).map(String.init)
+                }
+            }
+            if !repeatWords.isEmpty {
+                guard let parsed = AlarmWeekdays.parse(repeatWords) else {
+                    throw SkillError.badArgument("unknown weekday in repeat: \(repeatWords)")
                 }
                 repeatDays = parsed
             }
             let when: Date
-            var kind: AlarmSpec.Kind
+            let kind: AlarmSpec.Kind
             if let minutes = SkillArgs.int(args, "in_minutes") {
                 guard minutes >= 1 else { throw SkillError.badArgument("in_minutes must be at least 1") }
                 when = current.addingTimeInterval(TimeInterval(minutes * 60))
@@ -201,7 +211,7 @@ enum DataSkills {
                     throw SkillError.badArgument("hour must be 0-23 and minute 0-59")
                 }
                 guard let next = AlarmSpec.nextOccurrence(hour: hour, minute: minute, from: current,
-                                                          calendar: calendar) else {
+                                                          calendar: calendar, weekdays: repeatDays) else {
                     throw SkillError.badArgument("could not build that time")
                 }
                 when = next
@@ -215,11 +225,17 @@ enum DataSkills {
             case .scheduled(let alarm):
                 var out: [String: Any] = ["scheduled": true, "native": true, "id": alarm.id,
                                           "label": alarm.label]
-                if let fire = alarm.fireDate ?? (repeatDays.isEmpty ? when : nil) { out["at"] = isoString(fire) }
-                if !repeatDays.isEmpty { out["repeat"] = repeatDays.map(AlarmWeekdays.name) }
+                out["at"] = isoString(alarm.fireDate ?? when)
+                // Report the repeat only when the alarm ACTUALLY repeats: with
+                // `in_minutes` the spec is a one-off, whatever `repeat` said.
+                if case .daily(_, _, let days) = kind, !days.isEmpty {
+                    out["repeat"] = days.map(AlarmWeekdays.name)
+                }
                 return out
             case .fallback(let note):
-                guard repeatDays.isEmpty else {
+                // Only a genuinely repeating alarm has no notification
+                // equivalent; a one-off falls back fine.
+                if case .daily(_, _, let days) = kind, !days.isEmpty {
                     return ["scheduled": false, "native": false,
                             "error": "repeating alarms need system alarm permission (\(note))"]
                 }
@@ -294,7 +310,8 @@ enum DataSkills {
             for id in await notifier.pending() where id.hasPrefix(notificationAlarmPrefix) {
                 var row: [String: Any] = ["id": id, "label": "Alarm", "kind": "alarm",
                                           "state": "scheduled", "native": false]
-                if let ts = TimeInterval(id.dropFirst(notificationAlarmPrefix.count)) {
+                let stamp = id.dropFirst(notificationAlarmPrefix.count).prefix { $0.isNumber }
+                if let ts = TimeInterval(stamp) {
                     row["at"] = isoString(Date(timeIntervalSince1970: ts))
                 }
                 out.append(row)
@@ -319,8 +336,12 @@ enum DataSkills {
                 var count = 0
                 if alarms.isAvailable {
                     for a in (try? await alarms.list()) ?? [] {
-                        try? await alarms.stop(id: a.id)
-                        if (try? await alarms.cancel(id: a.id)) != nil { count += 1 }
+                        // `stop` may already remove a ringing alarm, which makes
+                        // the following `cancel` throw — that is still a
+                        // successful cancellation, so count either outcome.
+                        let stopped = (try? await alarms.stop(id: a.id)) != nil
+                        let cancelled = (try? await alarms.cancel(id: a.id)) != nil
+                        if stopped || cancelled { count += 1 }
                     }
                 }
                 let pending = await notifier.pending().filter { $0.hasPrefix(notificationAlarmPrefix) }
@@ -372,7 +393,9 @@ enum DataSkills {
     /// The pre-AlarmKit alarm: a time-sensitive local notification with a sound.
     private static func notificationAlarm(_ notifier: any Notifying, label: String,
                                           at when: Date, note: String) async throws -> [String: Any] {
-        let identifier = "\(notificationAlarmPrefix)\(Int(when.timeIntervalSince1970))"
+        // The epoch second alone collided when two alarms landed in the same
+        // second, and UNUserNotificationCenter silently REPLACES a duplicate id.
+        let identifier = "\(notificationAlarmPrefix)\(Int(when.timeIntervalSince1970))-\(UUID().uuidString.prefix(6))"
         _ = try await notifier.post(LocalNotificationRequest(
             title: label,
             body: "JARVIS alarm",

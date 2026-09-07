@@ -32,6 +32,11 @@ final class StopwatchService: Stopwatching {
 
     private(set) var core: StopwatchCore
     private let defaults: UserDefaults
+    /// A Live Activity we could not open (backgrounded); retried on `.active`.
+    private var pendingActivity = false
+    #if os(iOS)
+    private let queue = ActivityUpdateQueue()
+    #endif
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -69,22 +74,41 @@ final class StopwatchService: Stopwatching {
             running: core.isRunning,
             reference: now.addingTimeInterval(-elapsed),
             frozenElapsed: elapsed,
-            laps: Array(core.laps.suffix(8)))   // ~4 KB ContentState budget
+            laps: Array(core.laps.suffix(8)),   // ~4 KB ContentState budget
+            lapCount: core.laps.count)
         let content = ActivityContent(state: state, staleDate: nil)
         let live = Activity<JarvisStopwatchAttributes>.activities
+        // Through a serial queue, never a bare `Task`: unstructured tasks run
+        // in an arbitrary order, so start→lap could land backwards and freeze
+        // the island on a stale frame (the same hazard LiveActivityController
+        // documents).
         if ended {
-            Task { for a in live { await a.end(nil, dismissalPolicy: .immediate) } }
+            queue.enqueue { for a in live { await a.end(nil, dismissalPolicy: .immediate) } }
             return
         }
         if let existing = live.first {
-            Task { await existing.update(content) }
+            queue.enqueue { await existing.update(content) }
             return
         }
         do {
             _ = try Activity.request(attributes: JarvisStopwatchAttributes(label: "Stopwatch"), content: content)
+            pendingActivity = false
         } catch {
+            // `Activity.request` throws when the app is backgrounded, which is
+            // exactly where a voice-driven "start the stopwatch" runs. Remember
+            // that we owe an activity and open it when we next come forward.
+            pendingActivity = true
             JcLog.dropped(JcLog.services, "stopwatch live activity", error)
         }
+        #endif
+    }
+
+    /// Called when the app becomes active: opens the Live Activity that
+    /// `Activity.request` refused while we were in the background.
+    func resyncActivity() {
+        #if os(iOS)
+        guard pendingActivity, core.isRunning || core.elapsed(at: Date()) > 0 else { return }
+        syncActivity(now: Date(), ended: false)
         #endif
     }
 }

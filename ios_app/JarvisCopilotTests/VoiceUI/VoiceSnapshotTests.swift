@@ -49,6 +49,7 @@ final class VoiceSnapshotTests: XCTestCase {
         _ = listening.machine.apply(.connected)
         listening.userTranscript = "What's the weather like in San Francisco today?"
         listening.amplitude = 0.62
+        listening.captureReady = true
         XCTAssertEqual(listening.state, .listening)
         try snapshot(listening, named: "02-listening")
 
@@ -99,27 +100,19 @@ final class VoiceSnapshotTests: XCTestCase {
 
     private func snapshot(_ store: VoiceStore, named name: String,
                           file: StaticString = #filePath, line: UInt = #line) throws {
-        // The shell inserts the nav-bar reserve on every page; a snapshot without
-        // it would put the mic button where the pill will be.
-        let page = VoicePage(store: store, models: mockedModels())
-            .environment(AppRouter())
-            .safeAreaInset(edge: .bottom, spacing: 0) { navBarStandIn }
+        // Match NavShell's real layout allocation; an outer safeAreaInset is
+        // reclaimed by the page's NavigationStack and hides the controls.
+        let router = AppRouter()
+        router.selectedTab = .voice
+        let page = VStack(spacing: 0) {
+            VoicePage(store: store, models: mockedModels())
+                .environment(router)
+            GlassNavBar(selection: .constant(.voice), bottomInset: Self.safeBottom)
+        }
+        .ignoresSafeArea(.container, edges: .bottom)
         let image = render(page)
         try write(image, named: name)
         assertPainted(image, name: name, file: file, line: line)
-    }
-
-    /// A stand-in for the shell's floating nav pill, drawn INSIDE the 74 pt the
-    /// shell reserves. Without it a snapshot can't show whether the mic button
-    /// actually clears the bar — which is the bug that started this pass.
-    private var navBarStandIn: some View {
-        let shape = RoundedRectangle(cornerRadius: JcTheme.pillRadius, style: .continuous)
-        return shape.fill(Color(jcHex: 0x0E0E18))
-            .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-            .frame(height: GlassNavBar.barHeight)
-            .padding(.horizontal, 16)
-            .padding(.bottom, GlassNavBar.bottomClearance)
-            .frame(height: Self.navReserve)
     }
 
     private func render(_ view: some View) -> UIImage {

@@ -473,6 +473,7 @@
 		44595E61E3E9CDDCAEDC4C68 /* StopwatchCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02908E275794FF531BE5A76F /* StopwatchCoreTests.swift */; };
 		DB5B9E759DBD0AE44371C4E8 /* ClockSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33B976A13B047F8380A8012B /* ClockSkillsTests.swift */; };
 		E7B7D20070A68AB5B2DD8FCA /* JarvisStopwatchActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5572E7D57DF38456D03160E4 /* JarvisStopwatchActivity.swift */; };
+		CF0A2B559A9933D060E7444A /* PhotoLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED899060A8E9519B6538191B /* PhotoLibrary.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -972,6 +973,7 @@
 		02908E275794FF531BE5A76F /* StopwatchCoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StopwatchCoreTests.swift; sourceTree = "<group>"; };
 		33B976A13B047F8380A8012B /* ClockSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClockSkillsTests.swift; sourceTree = "<group>"; };
 		5572E7D57DF38456D03160E4 /* JarvisStopwatchActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisStopwatchActivity.swift; path = JarvisWidget/JarvisStopwatchActivity.swift; sourceTree = "<group>"; };
+		ED899060A8E9519B6538191B /* PhotoLibrary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhotoLibrary.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1663,6 +1665,7 @@
 		B47DA598B4C92C5890AD45DD /* Skills */ = {
 			isa = PBXGroup;
 			children = (
+				ED899060A8E9519B6538191B /* PhotoLibrary.swift */,
 				19019582C3C4BC9B73A4DC77 /* ClockSkills.swift */,
 				D86D2305E0AA679A9364DF87 /* StopwatchService.swift */,
 				AAF71CACE44225D6301CEE5D /* StopwatchCore.swift */,
@@ -2300,6 +2303,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CF0A2B559A9933D060E7444A /* PhotoLibrary.swift in Sources */,
 				7C036D0D1EF428EE6A305E8F /* ClockSkills.swift in Sources */,
 				E8A39D9DFCDBC0B6A7749699 /* StopwatchService.swift in Sources */,
 				BDEFDDB02CFAFD78AE00B6C0 /* StopwatchCore.swift in Sources */,

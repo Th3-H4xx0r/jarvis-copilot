@@ -181,3 +181,110 @@ final class ChatPageSmokeTests: XCTestCase {
         XCTAssertEqual(store.rows.count, 1)
     }
 }
+
+/// Real-window previews plus composer bounds checks against the shell's actual
+/// navigation bar. PNGs are review artifacts, not brittle golden-image tests.
+@MainActor
+final class ChatStyleSnapshotTests: XCTestCase {
+    func testEmptyAndConversationLayouts() throws {
+        try snapshot("01-empty") { _ in }
+        try snapshot("02-conversation") { store in
+            var reply = ChatMessage.assistant()
+            reply.startTool(ToolInvocation(id: "devices", name: "device_status",
+                                           args: ["scope": "all"], preview: "Checking your devices"))
+            reply.completeTool(id: "devices", durationSec: 0.8, result: "3 devices online")
+            reply.appendToken("Everything is connected.\n\n- **MacBook Pro** is online.\n- **Living room** is ready.\n- **Office speaker** is playing.\n\nWhat would you like to do next?")
+            reply.stats = ChatTurnStats(inputTokens: 420, outputTokens: 86, durationMs: 1_200)
+            store.sessionTitle = "A quick check-in"
+            store.setMessages([.user("Check my devices and tell me what’s online."), reply])
+        }
+        try snapshot("03-streaming-attachments") { store in
+            var reply = ChatMessage.assistant(streaming: true)
+            reply.reasoning = "Reviewing the notes and finding the next steps."
+            store.setMessages([.user("Help me make a plan for today."), reply])
+            store.streaming = true
+            store.addAttachment(ChatPendingAttachment(name: "project-notes.pdf", data: Data(count: 2_048)))
+            store.pendingClarify = ClarifyPrompt(question: "Which project should we start with?",
+                                                choices: ["The app", "My workspace"])
+        }
+    }
+
+    func testCompactAndLargeTextKeepComposerAboveNavigation() throws {
+        try snapshot("04-compact", size: CGSize(width: 375, height: 667)) { _ in }
+        try snapshot("05-large-text", dynamicType: .accessibility1) { _ in }
+    }
+
+    private func snapshot(_ name: String,
+                          size: CGSize = CGSize(width: 440, height: 956),
+                          dynamicType: DynamicTypeSize = .large,
+                          configure: (ChatStore) -> Void) throws {
+        let (api, transport) = JarvisAPI.mocked()
+        transport.route("/api/sessions", json: ["sessions": []])
+        transport.route("/api/models", json: ["default_model": "", "groups": []])
+        let store = ChatStore(api: api, selection: ModelSelection(store: MemoryKeyValueStore()),
+                              bus: ChatSyncBus())
+        let router = AppRouter()
+        router.selectedTab = .chat
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+        window.frame = CGRect(origin: .zero, size: size)
+        let page = VStack(spacing: 0) {
+            ChatPage(store: store, launch: ChatLaunchBus(), targets: DeepLinkTargets())
+                .environment(router)
+                .environment(\.dynamicTypeSize, dynamicType)
+            GlassNavBar(selection: .constant(.chat), bottomInset: 34)
+        }
+        .ignoresSafeArea(.container, edges: .bottom)
+        .preferredColorScheme(.dark)
+        let host = UIHostingController(rootView: page)
+        window.rootViewController = host
+        window.overrideUserInterfaceStyle = .dark
+        window.makeKeyAndVisible()
+        defer {
+            store.setListPolling(false)
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        if window.safeAreaInsets.top < 1 {
+            host.additionalSafeAreaInsets = UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)
+        }
+        // Let initial session loading finish before installing the preview turn.
+        settle(window)
+        configure(store)
+        settle(window)
+
+        let editors = descendants(window).compactMap { $0 as? UITextView }.filter(\.isEditable)
+        XCTAssertFalse(editors.isEmpty, "\(name): composer missing")
+        let navTop = size.height - GlassNavBar.stripHeight(bottomInset: 34)
+        for editor in editors {
+            let frame = editor.convert(editor.bounds, to: window)
+            XCTAssertGreaterThan(frame.width, 100, "\(name): field too narrow to type")
+            XCTAssertGreaterThanOrEqual(frame.minX, 0)
+            XCTAssertLessThanOrEqual(frame.maxX, size.width)
+            XCTAssertGreaterThan(navTop - frame.maxY, 0, "\(name): composer overlaps navigation")
+            XCTAssertLessThan(navTop - frame.maxY, 46, "\(name): navigation clearance reserved twice")
+        }
+
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            if !window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) {
+                window.layer.render(in: context.cgContext)
+            }
+        }
+        let directory = URL(fileURLWithPath:
+            ProcessInfo.processInfo.environment["CHAT_SNAPSHOT_DIR"] ?? "/tmp/jc-chat-snapshots")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try XCTUnwrap(image.pngData()).write(to: directory.appendingPathComponent("\(name).png"))
+    }
+
+    private func settle(_ window: UIWindow) {
+        window.setNeedsLayout()
+        window.layoutIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        window.setNeedsLayout()
+        window.layoutIfNeeded()
+    }
+
+    private func descendants(_ view: UIView) -> [UIView] {
+        [view] + view.subviews.flatMap(descendants)
+    }
+}

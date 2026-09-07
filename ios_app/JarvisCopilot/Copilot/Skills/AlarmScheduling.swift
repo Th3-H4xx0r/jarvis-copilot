@@ -19,15 +19,25 @@ struct AlarmSpec: Equatable, Sendable {
     var snoozeMinutes: Int = 9
 
     /// The next hour:minute after `from` — today if still ahead, else tomorrow.
+    ///
+    /// With `weekdays`, the next day that is IN that set (1 = Sunday … 7 =
+    /// Saturday). Ignoring it reported a Monday-only alarm as ringing tomorrow.
     static func nextOccurrence(hour: Int, minute: Int, from now: Date,
-                               calendar: Calendar = .current) -> Date? {
+                               calendar: Calendar = .current,
+                               weekdays: [Int] = []) -> Date? {
         var parts = calendar.dateComponents([.year, .month, .day], from: now)
         parts.hour = hour
         parts.minute = minute
         parts.second = 0
         guard let today = calendar.date(from: parts) else { return nil }
-        if today > now { return today }
-        return calendar.date(byAdding: .day, value: 1, to: today)
+        var candidate = today > now ? today : (calendar.date(byAdding: .day, value: 1, to: today) ?? today)
+        guard !weekdays.isEmpty else { return candidate }
+        for _ in 0..<7 {
+            if weekdays.contains(calendar.component(.weekday, from: candidate)) { return candidate }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: candidate) else { break }
+            candidate = next
+        }
+        return candidate
     }
 }
 

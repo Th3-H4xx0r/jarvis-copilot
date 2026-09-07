@@ -159,6 +159,12 @@ struct VoiceTurnMachine: Equatable {
 
         case .resumeGraceElapsed:
             guard mode == .realtime, state.isActive else { return [] }
+            // The server is still on this turn (an ack drained, or a sentence
+            // before a long tool run): a resume timer left over from before it
+            // opened must not hand the mic back mid-reply. `playbackDrained`
+            // already refuses to schedule a resume while the turn is open; this
+            // is the same rule for a timer that was already in flight.
+            guard !serverTurnOpen else { return [] }
             state = .listening
             return [.finalizeSpoken, .resetEndpointer, .restartRecognizer]
 

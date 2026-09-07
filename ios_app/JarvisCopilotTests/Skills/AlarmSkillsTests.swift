@@ -114,6 +114,28 @@ final class AlarmSkillsTests: XCTestCase {
         XCTAssertTrue(notifier.posted.isEmpty)
     }
 
+    func testARepeatGivenAsABareStringIsAccepted() async throws {
+        let alarms = MockAlarmScheduler()
+        _ = try await setAlarm(alarms, MockNotifier()).run(["hour": 6, "repeat": "weekdays"])
+        XCTAssertEqual(alarms.scheduled.first?.kind, .daily(hour: 6, minute: 0, weekdays: [2, 3, 4, 5, 6]))
+    }
+
+    func testInMinutesWithRepeatIsStillAOneOff() async throws {
+        // "in 10 minutes" names an instant, not a time of day — there is
+        // nothing to repeat, and the result must not claim otherwise.
+        let alarms = MockAlarmScheduler()
+        let r = try await setAlarm(alarms, MockNotifier()).run(["in_minutes": 10, "repeat": ["mon"]])
+        XCTAssertEqual(alarms.scheduled.first?.kind, .fixed(now.addingTimeInterval(600)))
+        XCTAssertNil(r["repeat"], "a one-off alarm must not advertise a repeat")
+    }
+
+    func testInMinutesWithRepeatStillFallsBackToANotification() async throws {
+        let notifier = MockNotifier()
+        let r = try await setAlarm(MockAlarmScheduler(granted: false), notifier).run(["in_minutes": 5, "repeat": ["mon"]])
+        XCTAssertEqual(r["scheduled"] as? Bool, true, "a one-off has a perfectly good notification fallback")
+        XCTAssertEqual(notifier.posted.count, 1)
+    }
+
     // MARK: set_timer
 
     func testTimerMinutesBecomeACountdown() async throws {
@@ -178,6 +200,15 @@ final class AlarmSkillsTests: XCTestCase {
         let r = try await DataSkills.cancelAlarm(MockAlarmScheduler(), notifier: notifier).run(["id": "jc-alarm-123"])
         XCTAssertEqual(r["cancelled"] as? Bool, true)
         XCTAssertEqual(notifier.cancelled, ["jc-alarm-123"])
+    }
+
+    func testAWeeklyAlarmReportsTheNextMatchingWeekday() async throws {
+        // 2026-09-07 08:00 UTC is a Monday. A Friday-only alarm rings on the 11th.
+        let alarms = MockAlarmScheduler()
+        let r = try await setAlarm(alarms, MockNotifier()).run(["hour": 6, "repeat": ["fri"]])
+        let at = try XCTUnwrap(r["at"] as? String)
+        XCTAssertTrue(at.hasPrefix("2026-09-11"), "expected the next Friday, got \(at)")
+        XCTAssertEqual(r["repeat"] as? [String], ["Fri"])
     }
 
     func testCancelAllClearsEverything() async throws {

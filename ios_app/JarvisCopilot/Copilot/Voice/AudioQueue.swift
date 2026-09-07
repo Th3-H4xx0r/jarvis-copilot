@@ -100,6 +100,10 @@ final class AudioQueue {
     private var nativeFedMs = 0
     /// Fed ms when the current segment began.
     private var nativeSegBaseMs = 0
+    /// `onSegmentComplete` already fired for `nativeTag` (its audio_end
+    /// landed), so the tag-change branch must not fire a second time — the
+    /// duplicate ran VoiceReply's speaking-rate average twice for one segment.
+    private var nativeSegDone = false
     private var nativeStart: Date?
     private var nativeTick: VoiceTimerToken?
     /// A feed is queued on the chain but has not yet run.
@@ -198,14 +202,22 @@ final class AudioQueue {
                 guard let self, ep == self.epoch, self.nativeActive else { return }
                 self.nativeEnded = true
                 // Everything for this segment has been fed: its total is exact now.
-                if self.nativeTag == tag || tag == nil {
+                if (self.nativeTag == tag || tag == nil), !self.nativeSegDone {
+                    self.nativeSegDone = true
                     self.onSegmentComplete?(self.nativeTag, self.nativeFedMs - self.nativeSegBaseMs)
                 }
             }
             return
         }
         guard let chunker else { return }
-        for chunk in chunker.flush(tag: tag) { enqueueChunk(chunk) }
+        let tail = chunker.flush(tag: tag)
+        for chunk in tail { enqueueChunk(chunk) }
+        if tail.isEmpty, let tag {
+            // The buffer happened to be empty at audio_end, so no clip carries
+            // `isSegmentEnd` and the karaoke schedule would stay on the
+            // estimate for the whole sentence.
+            onSegmentComplete?(tag, chunker.segmentMsSoFar(tag: tag))
+        }
     }
 
     /// Drop anything queued and stop playback immediately (barge-in / new turn).
@@ -282,13 +294,15 @@ final class AudioQueue {
                 self.nativeSegBaseMs = 0
                 self.nativeStart = nil
                 self.nativeTag = tag
+                self.nativeSegDone = false
             }
             if tag != self.nativeTag {
                 // The previous sentence can't grow any more — its total is exact
                 // even if its audio_end got lost.
-                if self.nativeTag != nil {
+                if self.nativeTag != nil, !self.nativeSegDone {
                     self.onSegmentComplete?(self.nativeTag, self.nativeFedMs - self.nativeSegBaseMs)
                 }
+                self.nativeSegDone = false
                 // Next sentence in the same stream: positions restart at its base.
                 self.nativeSegBaseMs = self.nativeFedMs
                 self.nativeTag = tag

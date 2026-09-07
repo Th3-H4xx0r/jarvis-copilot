@@ -20,6 +20,19 @@ final class EndpointerTests: XCTestCase {
 
     // MARK: - VAD hysteresis
 
+    func testQuietPhoneSpeechEndsAfterAPause() {
+        let ep = Endpointer()
+        _ = feed(ep, 0.025, 1600)
+        XCTAssertTrue(ep.speaking)
+        XCTAssertEqual(feed(ep, 0.002, 1200), .endOfTurn)
+    }
+
+    func testQuietRoomNoiseDoesNotCreateATurn() {
+        let ep = Endpointer()
+        XCTAssertEqual(feed(ep, 0.003, 5000), .none)
+        XCTAssertFalse(ep.speaking)
+    }
+
     func testDoesNotStartATurnBelowTheSpeechThreshold() {
         let ep = Endpointer()
         XCTAssertEqual(feed(ep, Endpointer.speechThreshold - 0.01, 2000), .none)

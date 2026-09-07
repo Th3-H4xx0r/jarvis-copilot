@@ -22,7 +22,8 @@ enum PhoneSkills {
         var haptics: any Vibrating = DefaultHaptics()
         var torch: any Torching = DefaultTorch()
         var location: any LocationFixing = DefaultLocationFixer()
-        var photos: any PhotoPicking = UnavailablePhotoPicker()
+        var photos: any PhotoPicking = Self.defaultPhotoPicker()
+        var library: any PhotoLibraryReading = Self.defaultPhotoLibrary()
         var speech: any SpeechSynthesizing = DefaultSpeechSynthesizer()
         var recorder: any AudioRecording = DefaultAudioRecorder()
         var player: any AudioPlaying = DefaultAudioPlayer()
@@ -35,6 +36,22 @@ enum PhoneSkills {
         var stopwatch: any Stopwatching = DefaultStopwatch()
 
         init() {}
+
+        private static func defaultPhotoPicker() -> any PhotoPicking {
+            #if canImport(UIKit)
+            return DefaultPhotoPicker()
+            #else
+            return UnavailablePhotoPicker()
+            #endif
+        }
+
+        private static func defaultPhotoLibrary() -> any PhotoLibraryReading {
+            #if canImport(UIKit)
+            return DefaultPhotoLibrary()
+            #else
+            return UnavailablePhotoLibrary()
+            #endif
+        }
 
         private static func defaultHealthReader() -> any HealthReading {
             #if canImport(HealthKit)
@@ -72,6 +89,7 @@ enum PhoneSkills {
             MediaSkills.getLocation(b.location),
             MediaSkills.takePhoto(b.photos),
             MediaSkills.pickPhoto(b.photos),
+            MediaSkills.recentPhoto(b.library),
             MediaSkills.textToSpeech(b.speech),
             MediaSkills.recordAudio(b.recorder),
             MediaSkills.playAudio(b.player),

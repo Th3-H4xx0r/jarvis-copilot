@@ -60,9 +60,16 @@ final class StopwatchCoreTests: XCTestCase {
         XCTAssertEqual(sw, StopwatchCore())
     }
 
+    func testFormattingNeverPrintsASixtiethSecond() {
+        // Truncating the minutes while rounding the seconds printed "00:60.0".
+        XCTAssertEqual(StopwatchCore.format(59.96), "01:00.0")
+        XCTAssertEqual(StopwatchCore.format(119.98), "02:00.0")
+        XCTAssertEqual(StopwatchCore.format(3599.99), "1:00:00.0")
+    }
+
     func testFormatting() {
         XCTAssertEqual(StopwatchCore.format(0), "00:00.0")
-        XCTAssertEqual(StopwatchCore.format(83.25), "01:23.2")   // %04.1f rounds half-even-ish; .25 → .2
+        XCTAssertEqual(StopwatchCore.format(83.25), "01:23.3")   // rounded to tenths, once
         XCTAssertEqual(StopwatchCore.format(3723.4), "1:02:03.4")
         XCTAssertEqual(StopwatchCore.format(-5), "00:00.0")
     }

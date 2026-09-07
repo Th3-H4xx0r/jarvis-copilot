@@ -66,6 +66,12 @@ final class PcmChunker {
     }
 
     /// The segment is complete — emit whatever is left, however short.
+    /// Total audio already emitted for `tag`, so the queue can report an exact
+    /// segment length even when `flush` had nothing left to cut.
+    func segmentMsSoFar(tag: Int?) -> Int {
+        tag == currentTag ? segmentMs : 0
+    }
+
     func flush(tag: Int?) -> [PcmChunk] {
         if tag != currentTag { return [] }
         // Drop a dangling half-sample; it can't be played and would desync the

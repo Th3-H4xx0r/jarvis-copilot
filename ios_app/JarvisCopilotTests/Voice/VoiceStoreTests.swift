@@ -292,7 +292,7 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(rig.socket).sentTypes.contains("interrupt"))
     }
 
-    func testMuteStopsStreamingButKeepsTheOrbAlive() async throws {
+    func testMuteStopsStreamingAndAudioReactivity() async throws {
         let rig = makeRig()
         await startListening(rig)
         let socket = try XCTUnwrap(rig.socket)
@@ -303,8 +303,28 @@ final class VoiceStoreTests: XCTestCase {
         await settleVoiceTasks()
 
         XCTAssertTrue(socket.sentData.isEmpty, "muted frames never reach the server")
-        XCTAssertGreaterThan(rig.store.amplitude, 0, "the orb still reacts")
+        XCTAssertEqual(rig.store.amplitude, 0, "muted audio must not look like it is being received")
         XCTAssertEqual(rig.store.state, .listening)
+    }
+
+    func testStartingANewConversationUnmutesTheMicrophone() async {
+        let rig = makeRig()
+        rig.store.muted = true
+        await startListening(rig)
+        XCTAssertFalse(rig.store.muted)
+        await rig.store.stopAll()
+    }
+
+    func testLiveRecognitionUpdatesTheTranscriptAndIgnoresStaleSessions() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        let speech = try XCTUnwrap(rig.recognizer.sessions.last)
+        speech.emitPartial("A live sentence")
+        XCTAssertEqual(rig.store.userTranscript, "A live sentence")
+        rig.store.abortSpeechSession()
+        speech.emitPartial("A stale callback")
+        XCTAssertEqual(rig.store.userTranscript, "A live sentence")
+        await rig.store.stopAll()
     }
 
     // MARK: - Interrupt / cancel
@@ -788,10 +808,15 @@ final class VoiceStoreTests: XCTestCase {
         await settleVoiceTasks()
         XCTAssertNotNil(rig.store.error)
 
-        rig.store.error = nil
-        rig.store.pauseForBackground()
-        await rig.store.resumeFromBackground()
-        XCTAssertNotNil(rig.store.error, "the same goes for coming back from the background")
+        XCTAssertEqual(rig.store.state, .error)
+
+        let foregroundRig = makeRig()
+        await startListening(foregroundRig)
+        foregroundRig.audioSession.activateError = APIError.badResponse("session busy")
+        foregroundRig.store.pauseForBackground()
+        await foregroundRig.store.resumeFromBackground()
+        XCTAssertNotNil(foregroundRig.store.error, "foreground recovery also surfaces the failure")
+        XCTAssertEqual(foregroundRig.store.state, .error)
     }
 
     /// silent-failures M15: TTS that returns nothing left the reply on screen

@@ -117,6 +117,19 @@ final class LocalExecutorTests: XCTestCase {
         XCTAssertEqual(r.args["minutes"] as? Int, 10)
     }
 
+    func testATimerWithSecondsKeepsThem() throws {
+        let r = try run("set a timer for 1 minute 30 seconds")
+        XCTAssertEqual(r.skill, "set_timer")
+        XCTAssertEqual(r.args["minutes"] as? Int, 1)
+        XCTAssertEqual(r.args["seconds"] as? Int, 30)
+    }
+
+    func testATimerForSecondsOnly() throws {
+        let r = try run("set a timer for 45 seconds")
+        XCTAssertEqual(r.skill, "set_timer")
+        XCTAssertEqual(r.args["seconds"] as? Int, 45)
+    }
+
     func testAnAlarmInMinutesStaysARelativeAlarm() throws {
         let r = try run("set an alarm in 10 minutes")
         XCTAssertEqual(r.skill, "set_alarm")

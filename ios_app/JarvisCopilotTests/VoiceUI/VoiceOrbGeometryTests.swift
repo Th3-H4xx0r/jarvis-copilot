@@ -38,6 +38,19 @@ final class VoiceOrbGeometryTests: XCTestCase {
         XCTAssertGreaterThan(afterGap, 0)
     }
 
+    func testBothSpeakersHaveAVisibleQuietSpeechPulse() {
+        let mic = VoiceOrbGeometry.speechPulse(state: .listening, amplitude: 0.025)
+        let reply = VoiceOrbGeometry.speechPulse(state: .speaking, amplitude: 0.025)
+        XCTAssertGreaterThan(mic, 0.3, "quiet speech must visibly expand the orb")
+        XCTAssertEqual(reply, mic)
+        XCTAssertGreaterThan(VoiceOrbGeometry.speechPulse(state: .speaking, amplitude: 0.4), reply)
+        for state in [VoiceState.idle, .connecting, .thinking, .error] {
+            XCTAssertEqual(VoiceOrbGeometry.speechPulse(state: state, amplitude: 0.8), 0)
+        }
+        XCTAssertEqual(VoiceOrbGeometry.speechPulse(state: .listening, amplitude: 0.002), 0)
+        XCTAssertLessThanOrEqual(VoiceOrbGeometry.speechPulse(state: .speaking, amplitude: 2), 1)
+    }
+
     // MARK: - Drive
 
     /// Only the user's own voice drives the orb: pulsing at the assistant's own

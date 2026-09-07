@@ -120,6 +120,7 @@ final class MockAudioInput: AudioInput {
 
 @MainActor
 final class MockAudioOutput: AudioOutput {
+    var onAmplitude: ((Double) -> Void)?
     var isStreamAvailable = true
     /// Make `startStream` refuse, to exercise the WAV-clip fallback.
     var streamStartSucceeds = true
@@ -246,6 +247,10 @@ final class MockSpeechRecognizing: SpeechRecognizing {
 
 @MainActor
 final class MockVoiceSynthesizing: VoiceSynthesizing {
+    var onPlaybackStart: (() -> Void)?
+    var onPlaybackEnd: (() -> Void)?
+    var onSpeechPulse: ((Double) -> Void)?
+    var automaticallyFinishes = true
     var isAvailable = true
     var speakSucceeds = true
     private(set) var spoken: [String] = []
@@ -255,6 +260,8 @@ final class MockVoiceSynthesizing: VoiceSynthesizing {
     func speak(_ text: String, rate: Float) async -> Bool {
         guard speakSucceeds else { return false }
         spoken.append(text)
+        onPlaybackStart?()
+        if automaticallyFinishes { onPlaybackEnd?() }
         return true
     }
 

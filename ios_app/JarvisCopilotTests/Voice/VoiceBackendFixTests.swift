@@ -90,7 +90,142 @@ final class VoiceBackendFixTests: XCTestCase {
         XCTAssertFalse(rig.input.isRunning)
     }
 
+    func testQuietSpeechIsSentAndAReplyReturns() async throws {
+        let rig = makeRig()
+        await rig.store.primaryAction()
+        _ = await waitUntilVoice { rig.input.isRunning }
+        let socket = try XCTUnwrap(rig.socket)
+        rig.input.emitFrames(amplitude: 0.025, ms: 1600)
+        rig.input.emitFrames(amplitude: 0.002, ms: 1200)
+        let sent = await waitUntilVoice { socket.sentTypes.contains("end_turn") }
+        XCTAssertTrue(sent, "quiet but audible speech must submit after the pause")
+        XCTAssertEqual(rig.store.state, .thinking)
+        socket.receive(json: ["type": "assistant_text", "text": "I heard you."])
+        XCTAssertEqual(rig.store.assistantText, "I heard you.")
+        await rig.store.stopAll()
+    }
+
+    func testCaptureRecoveryIsBoundedWhenNoFramesReturn() async {
+        let rig = makeRig()
+        await rig.store.primaryAction()
+        _ = await waitUntilVoice { rig.input.isRunning }
+        await rig.input.stop()
+        rig.clock.advance(ms: 3000)
+        _ = await waitUntilVoice { rig.input.startedRates.count == 2 }
+        await rig.input.stop()
+        rig.clock.advance(ms: 3000)
+        XCTAssertEqual(rig.store.state, .error)
+        XCTAssertEqual(rig.input.startedRates.count, 2)
+        await rig.store.stopAll()
+    }
+
+    func testLostSocketWhileRecordingDoesNotRemainListening() async {
+        let rig = makeRig()
+        await rig.store.primaryAction()
+        _ = await waitUntilVoice { rig.input.isRunning }
+        rig.store.session.close() // no onClose callback, as on a silent drop
+        rig.input.emit(amplitude: 0.025, ms: 20)
+        XCTAssertEqual(rig.store.state, .error)
+        XCTAssertEqual(rig.store.error, VoiceStore.connectionLostNotice)
+        await rig.store.stopAll()
+    }
+
+    func testInterruptionSupersedesAStartupFailureAndCanResume() async {
+        let rig = makeRig()
+        rig.input.stallStart = true
+        await rig.store.primaryAction()
+        _ = await waitUntilVoice { rig.audioSession.configureCount >= 2 }
+        rig.audioSession.simulate(.began)
+        rig.input.startError = VoiceAudioError.micUnavailable("session interrupted")
+        rig.input.releaseStart()
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening, "an interrupted startup is recoverable")
+        XCTAssertNil(rig.store.error)
+        rig.input.stallStart = false
+        rig.input.startError = nil
+        rig.audioSession.simulate(.ended)
+        let resumed = await waitUntilVoice { rig.input.isRunning }
+        XCTAssertTrue(resumed)
+        await rig.store.stopAll()
+    }
+
+    func testForegroundRearmsCaptureMonitoringAfterABackgroundInterruption() async throws {
+        let rig = makeRig()
+        await rig.store.primaryAction()
+        _ = await waitUntilVoice { rig.input.isRunning }
+        rig.audioSession.simulate(.began)
+        await settleVoiceTasks()
+        await rig.input.stop()
+        rig.store.pauseForBackground()
+        rig.audioSession.simulate(.ended)
+        try await rig.input.start(sampleRate: VoiceStore.micRate) // OS resumed the engine itself
+        await rig.store.resumeFromBackground()
+        let starts = rig.input.startedRates.count
+        await rig.input.stop() // a later route change must still be detected
+        rig.clock.advance(ms: 3000)
+        let recovered = await waitUntilVoice { rig.input.startedRates.count > starts }
+        XCTAssertTrue(recovered)
+        await rig.store.stopAll()
+    }
+
     // MARK: - 2. `voices` decoding
+
+    func testInterruptionRestartsCaptureAndAudioReachesTransportAgain() async throws {
+        let rig = makeRig()
+        await rig.store.primaryAction()
+        let started = await waitUntilVoice { rig.input.isRunning }
+        XCTAssertTrue(started)
+        let starts = rig.input.startedRates.count
+        rig.audioSession.simulate(.began)
+        await rig.input.stop() // AVAudioEngine stops when iOS interrupts the session.
+        rig.audioSession.simulate(.ended)
+        let resumed = await waitUntilVoice { rig.input.startedRates.count > starts }
+        XCTAssertTrue(resumed, "session activation alone does not restart AVAudioEngine")
+        rig.input.emitFrames(amplitude: 0.3, ms: 1400)
+        rig.input.emitFrames(amplitude: 0, ms: 1200)
+        XCTAssertEqual(rig.store.state, .thinking)
+        await rig.store.stopAll()
+    }
+
+    func testStoppedCaptureRecoversWithoutRemainingInListening() async {
+        let rig = makeRig()
+        await rig.store.primaryAction()
+        _ = await waitUntilVoice { rig.input.isRunning }
+        let starts = rig.input.startedRates.count
+        await rig.input.stop() // route/configuration change stopped the input engine
+        rig.clock.advance(ms: 3000)
+        let resumed = await waitUntilVoice { rig.input.startedRates.count > starts }
+        XCTAssertTrue(resumed)
+        await rig.store.stopAll()
+    }
+
+    func testFailedCaptureRecoverySurfacesAnError() async {
+        let rig = makeRig()
+        await rig.store.primaryAction()
+        _ = await waitUntilVoice { rig.input.isRunning }
+        await rig.input.stop()
+        rig.input.startError = VoiceAudioError.micUnavailable("input route lost")
+        rig.clock.advance(ms: 3000)
+        _ = await waitUntilVoice { rig.store.state == .error }
+        XCTAssertEqual(rig.store.state, .error)
+        XCTAssertNotNil(rig.store.error)
+        await rig.store.stopAll()
+    }
+
+    func testStoppingDuringAnInterruptionDoesNotRestartCapture() async {
+        let rig = makeRig()
+        await rig.store.primaryAction()
+        _ = await waitUntilVoice { rig.input.isRunning }
+        rig.audioSession.simulate(.began)
+        await rig.store.stopAll()
+        _ = await waitUntilVoice { !rig.input.isRunning }
+        let starts = rig.input.startedRates.count
+        rig.audioSession.simulate(.ended)
+        rig.clock.advance(ms: 6000)
+        await Task.yield()
+        XCTAssertEqual(rig.input.startedRates.count, starts)
+        XCTAssertFalse(rig.input.isRunning)
+    }
     //
     // The server sends objects, not strings:
     //   webui/api/voice.py:2785  item["voices"] = list(return_voices)

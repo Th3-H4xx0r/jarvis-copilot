@@ -52,11 +52,15 @@ struct StopwatchCore: Codable, Equatable, Sendable {
     }
 
     /// "1:02:03.4" / "02:03.4" — what the skill reports and the island shows.
+    ///
+    /// Rounds ONCE to tenths and derives every field from that. Truncating the
+    /// minutes while rounding the seconds printed a 60th second: 59.96 s came
+    /// out as "00:60.0".
     static func format(_ seconds: TimeInterval) -> String {
-        let total = max(0, seconds)
-        let h = Int(total) / 3600
-        let m = (Int(total) % 3600) / 60
-        let s = total - Double(h * 3600 + m * 60)
+        let tenths = Int((max(0, seconds) * 10).rounded())
+        let h = tenths / 36000
+        let m = (tenths % 36000) / 600
+        let s = Double(tenths % 600) / 10
         if h > 0 { return String(format: "%d:%02d:%04.1f", h, m, s) }
         return String(format: "%02d:%04.1f", m, s)
     }

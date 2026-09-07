@@ -205,12 +205,27 @@ final class LocalExecutor {
                 // "timer for 10 minutes" is a countdown (Dynamic Island, pause/resume);
                 // "alarm in 10 minutes" is a clock alarm at that instant.
                 if lower.contains("timer") {
-                    return LocalRun(skill: "set_timer", args: ["minutes": rel],
-                                    ack: "Timer set for \(rel) \(rel == 1 ? "minute" : "minutes"), sir.")
+                    // set_timer takes minutes AND seconds; dropping the seconds
+                    // silently turned "1 minute 30 seconds" into one minute.
+                    var args: [String: Any] = ["minutes": rel]
+                    var ack = "Timer set for \(rel) \(rel == 1 ? "minute" : "minutes")"
+                    if let secs = trailingSeconds(lower), secs > 0 {
+                        args["seconds"] = secs
+                        ack += " \(secs) \(secs == 1 ? "second" : "seconds")"
+                    }
+                    return LocalRun(skill: "set_timer", args: args, ack: ack + ", sir.")
                 }
                 return LocalRun(skill: "set_alarm", args: ["in_minutes": rel],
                                 ack: "Alarm set for \(rel) \(rel == 1 ? "minute" : "minutes") from now, sir.")
             }
+            // "set a timer for 45 seconds" has no minutes at all.
+            if lower.contains("timer"), let secs = trailingSeconds(lower), secs > 0 {
+                return LocalRun(skill: "set_timer", args: ["seconds": secs],
+                                ack: "Timer set for \(secs) \(secs == 1 ? "second" : "seconds"), sir.")
+            }
+            // A "timer" phrased with a clock time is not an alarm — let the
+            // server work out what was meant rather than guessing wrong.
+            if lower.contains("timer") { return nil }
             if let clock = clockTime(lower) {
                 let hh = String(format: "%02d", clock.hour)
                 let mm = String(format: "%02d", clock.minute)
@@ -429,7 +444,16 @@ final class LocalExecutor {
     // ── Small parsers ─────────────────────────────────────────────────────────
 
     private static let minutesRx = Rx(#"\b(?:in|for)\s+(\d{1,3})\s*(minutes?|mins?|m)\b"#)
+    /// A trailing seconds part ("1 minute 30 seconds", "45 seconds").
+    private static let secondsRx = Rx(#"\b(\d{1,2})\s*(seconds?|secs?|s)\b"#)
     private static let hoursRx = Rx(#"\b(?:in|for)\s+(\d{1,2})\s*(hours?|hrs?|h)\b"#)
+
+    /// The seconds part of a duration phrase, when there is one.
+    private static func trailingSeconds(_ lower: String) -> Int? {
+        guard let m = secondsRx.firstMatch(lower), let digits = m.group(1),
+              let v = Int(digits), v >= 1, v <= 59 else { return nil }
+        return v
+    }
 
     private static func relativeMinutes(_ lower: String) -> Int? {
         if let m = minutesRx.firstMatch(lower), let digits = m.group(1), let v = Int(digits),

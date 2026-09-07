@@ -28,25 +28,70 @@ enum MediaSkills {
 
     static func takePhoto(_ picker: any PhotoPicking) -> AnySkill {
         photo(name: "take_photo",
-              description: "Open the camera, return the captured photo as base64.",
+              description: "Open the camera so the user can take a photo; the server describes it "
+                + "(pass `question` to ask something specific about it).",
               source: .camera, picker: picker)
     }
 
     static func pickPhoto(_ picker: any PhotoPicking) -> AnySkill {
         photo(name: "pick_photo",
-              description: "Open the gallery picker, return the chosen photo as base64.",
+              description: "Open the iOS photo picker so the user can choose a photo from their "
+                + "library; the server describes it (pass `question` to ask something specific). "
+                + "For 'my latest photo' use recent_photo instead — no picker needed.",
               source: .library, picker: picker)
     }
 
+    /// The `question` arg is read by the SERVER (device_skill_tools) as the
+    /// vision prompt; the skill only ships the pixels.
+    private static let questionSchema = SkillSchema.object([
+        "question": SkillSchema.string("What to look for / answer about the photo"),
+    ])
+
     private static func photo(name: String, description: String,
                               source: PhotoSource, picker: any PhotoPicking) -> AnySkill {
-        AnySkill(name: name, description: description, requiresForeground: true) { _ in
+        AnySkill(name: name, description: description, inputSchema: questionSchema,
+                 requiresForeground: true) { _ in
             guard let image = try await picker.pick(source) else { return ["cancelled": true] }
             return [
                 "base64": image.data.base64EncodedString(),
                 "mime": image.mime,
                 "bytes": image.data.count,
             ]
+        }
+    }
+
+    // MARK: recent_photo
+
+    static func recentPhoto(_ library: any PhotoLibraryReading) -> AnySkill {
+        AnySkill(
+            name: "recent_photo",
+            description: "Read the user's most recent photo straight from the iOS photo library "
+                + "(no picker): `index` 0 = newest, 1 = the one before, … The server describes "
+                + "it; pass `question` to ask something specific about it.",
+            inputSchema: SkillSchema.object([
+                "index": SkillSchema.integer(min: 0, max: 50, description: "0 = newest"),
+                "question": SkillSchema.string("What to look for / answer about the photo"),
+            ])
+        ) { args in
+            let index = max(0, SkillArgs.int(args, "index") ?? 0)
+            guard try await library.requestAuthorization() else {
+                throw SkillError.permissionDenied("photo library")
+            }
+            guard let photo = try await library.recent(index: index, maxPixels: PhotoEncoding.defaultMaxPixels) else {
+                return ["found": false, "error": "the library has no photo at index \(index)", "index": index]
+            }
+            var out: [String: Any] = [
+                "found": true,
+                "index": index,
+                "base64": photo.data.base64EncodedString(),
+                "mime": photo.mime,
+                "bytes": photo.data.count,
+                "width": photo.width,
+                "height": photo.height,
+                "library_count": photo.total,
+            ]
+            if let t = photo.takenAt { out["taken_at"] = DataSkills.isoString(t) }
+            return out
         }
     }
 
