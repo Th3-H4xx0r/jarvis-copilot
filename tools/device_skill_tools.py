@@ -48,7 +48,22 @@ _READER_PREFIXES = ("chrome_snapshot", "screenshot", "read_", "list_", "get_",
 # text, so the pixels are written to disk and — because the whole point of
 # "what is my latest photo" is to SEE it — described through the vision tool,
 # with the caller's question (or a default) as the prompt.
-_IMAGE_DIR = Path(os.path.expanduser("~/.jarviscopilot/webui/device_images"))
+def _default_image_dir() -> Path:
+    """Where a device photo is written.
+
+    It MUST be a media-delivery allowed root, or `send_message` /
+    `filter_media_delivery_paths` drops the file before any platform sees it
+    and "email me my latest photo" silently loses the attachment. The shared
+    image cache is on that allowlist, so photos are sendable on every channel.
+    """
+    try:
+        from gateway.platforms.base import IMAGE_CACHE_DIR
+        return Path(IMAGE_CACHE_DIR).expanduser()
+    except Exception:
+        return Path(os.path.expanduser("~/.jarviscopilot/cache/images"))
+
+
+_IMAGE_DIR = _default_image_dir()
 _IMAGE_KEEP = 40
 _IMAGE_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic",
               "image/webp": ".webp", "image/gif": ".gif"}
@@ -84,8 +99,11 @@ def _describe_image(path: str, prompt: str) -> Any:
 
 
 def _prune_images() -> None:
+    """Keep the newest device photos. Only OUR files are considered — the cache
+    directory is shared with generated images and browser screenshots."""
     try:
-        files = sorted(_IMAGE_DIR.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        files = sorted(_IMAGE_DIR.glob("jc-device-*"),
+                       key=lambda p: p.stat().st_mtime, reverse=True)
         for stale in files[_IMAGE_KEEP:]:
             stale.unlink(missing_ok=True)
     except Exception:
@@ -122,10 +140,17 @@ def _materialize_image(result: dict, skill_name: str, call_args: dict) -> Any:
     try:
         _IMAGE_DIR.mkdir(parents=True, exist_ok=True)
         data = base64.b64decode(b64, validate=False)
-        name = f"{skill_name}-{int(time.time() * 1000)}{_IMAGE_EXT.get(mime, '.img')}"
+        name = f"jc-device-{skill_name}-{int(time.time() * 1000)}{_IMAGE_EXT.get(mime, '.img')}"
         path = _IMAGE_DIR / name
         path.write_bytes(data)
         out["image_path"] = str(path)
+        # How to actually deliver this file. The model was emitting its own
+        # `MEDIA:` line into an email body (where it arrived as literal text);
+        # naming the exact string, and where it works, keeps that honest.
+        out["send_with"] = f"MEDIA:{path}"
+        out["send_note"] = ("To send this photo to email, Telegram, Signal or another channel, "
+                            "pass send_message with the `send_with` string on its own line in "
+                            "the message — it is delivered as a real attachment, not as text.")
         out["bytes"] = len(data)
         _prune_images()
     except Exception as exc:

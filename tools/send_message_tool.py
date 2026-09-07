@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import ssl
+from pathlib import Path
 import time
 from email.utils import formatdate
 from typing import Dict, Optional
@@ -743,14 +744,15 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
             )
         }
     warning = None
-    if media_files:
+    if media_files and platform != Platform.EMAIL:
         warning = (
             f"MEDIA attachments were omitted for {platform.value}; "
-            "native send_message media delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and feishu"
+            "native send_message media delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao, feishu and email"
         )
 
     last_result = None
-    for chunk in chunks:
+    for _chunk_index, chunk in enumerate(chunks):
+        is_last = (_chunk_index == len(chunks) - 1)
         if platform == Platform.SLACK:
             result = await _send_slack(pconfig.token, chat_id, chunk)
         elif platform == Platform.WHATSAPP:
@@ -758,7 +760,10 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
         elif platform == Platform.SIGNAL:
             result = await _send_signal(pconfig.extra, chat_id, chunk)
         elif platform == Platform.EMAIL:
-            result = await _send_email(pconfig.extra, chat_id, chunk)
+            # Attachments ride with the LAST chunk, so a long body split into
+            # several emails doesn't send the same photo again and again.
+            result = await _send_email(pconfig.extra, chat_id, chunk,
+                                       media_files=media_files if is_last else [])
         elif platform == Platform.SMS:
             result = await _send_sms(pconfig.api_key, chat_id, chunk)
         elif platform == Platform.MATTERMOST:
@@ -1268,10 +1273,19 @@ async def _send_signal(extra, chat_id, message, media_files=None):
         return _error(f"Signal send failed: {e}")
 
 
-async def _send_email(extra, chat_id, message):
-    """Send via SMTP (one-shot, no persistent connection needed)."""
+async def _send_email(extra, chat_id, message, media_files=None):
+    """Send via SMTP (one-shot, no persistent connection needed).
+
+    `media_files` are real attachments. Without this the sender built a plain
+    MIMEText and every `MEDIA:<path>` the model emitted was delivered as
+    literal text in the body — "here is your photo: MEDIA:/root/.../x.jpg".
+    """
+    import mimetypes
     import smtplib
+    from email.mime.base import MIMEBase
+    from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
+    from email import encoders
     from email.utils import formatdate
 
     address = extra.get("address") or os.getenv("EMAIL_ADDRESS", "")
@@ -1286,10 +1300,38 @@ async def _send_email(extra, chat_id, message):
         return {"error": "Email not configured (EMAIL_ADDRESS, EMAIL_PASSWORD, EMAIL_SMTP_HOST required)"}
 
     try:
-        msg = MIMEText(message, "plain", "utf-8")
+        attachments = []
+        for media_path, _is_voice in (media_files or []):
+            path = Path(str(media_path)).expanduser()
+            try:
+                if not path.is_file():
+                    logger.warning("email: attachment missing, sending without it")
+                    continue
+                attachments.append((path, path.read_bytes()))
+            except Exception:
+                # A note worth sending should not be lost to one unreadable file.
+                logger.warning("email: could not read attachment, sending without it", exc_info=True)
+
+        if attachments:
+            msg = MIMEMultipart()
+            msg.attach(MIMEText(message or "", "plain", "utf-8"))
+            for path, blob in attachments:
+                ctype, _ = mimetypes.guess_type(path.name)
+                maintype, _, subtype = (ctype or "application/octet-stream").partition("/")
+                part = MIMEBase(maintype, subtype or "octet-stream")
+                part.set_payload(blob)
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", "attachment", filename=path.name)
+                msg.attach(part)
+        else:
+            msg = MIMEText(message or "", "plain", "utf-8")
         msg["From"] = address
         msg["To"] = chat_id
-        msg["Subject"] = "JarvisCopilot"
+        subject = "JarvisCopilot"
+        if attachments and not (message or "").strip():
+            names = ", ".join(p.name for p, _ in attachments)
+            subject = f"JarvisCopilot: {names}"
+        msg["Subject"] = subject
         msg["Date"] = formatdate(localtime=True)
 
         server = smtplib.SMTP(smtp_host, smtp_port)

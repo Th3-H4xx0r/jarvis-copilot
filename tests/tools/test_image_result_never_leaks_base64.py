@@ -94,3 +94,13 @@ def test_the_bridges_nested_result_envelope_is_unwrapped(monkeypatch, tmp_path):
     assert inner["description"] == "A white mug on a wooden table."
     assert inner["image_path"].endswith(".jpg")
     assert inner["taken_at"] == "2026-09-06T22:14:00Z"
+
+
+def test_the_result_tells_the_model_how_to_send_the_photo(monkeypatch, tmp_path):
+    """Without this the model either pasted the raw path or invented a
+    MEDIA: line the email sender could not use."""
+    handler = _handler(monkeypatch, tmp_path, supports_media=False,
+                       described="A white mug.")
+    out = json.loads(handler({}))
+    assert out["send_with"].startswith("MEDIA:")
+    assert out["image_path"] in out["send_with"]
