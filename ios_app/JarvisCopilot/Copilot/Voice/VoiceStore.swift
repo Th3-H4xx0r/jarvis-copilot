@@ -439,6 +439,18 @@ final class VoiceStore {
     }
 
     private func perform(_ effect: VoiceTurnEffect) {
+        // A turn dictated on the WATCH runs the same pipeline, but it must not
+        // take over the phone: no microphone, no recognizer, no speaker. The
+        // phone was opening its Voice screen, listening, and sometimes speaking
+        // the answer aloud while the user was looking at their wrist.
+        if watchTurnActive {
+            switch effect {
+            case .startMic, .restartRecognizer, .stopMic, .abortRecognizer:
+                return
+            default:
+                break
+            }
+        }
         switch effect {
         case .openTransport:
             Task { await openTransport() }
@@ -574,8 +586,9 @@ final class VoiceStore {
         pendingRetryText = text
         note("watch turn")
         raise(.endOfSpeech)
-        userTranscript = text
-        pushLiveActivity()
+        // Deliberately NOT setting `userTranscript` or pushing the Live
+        // Activity: what you say to your wrist should not appear on the phone's
+        // Voice screen or its Dynamic Island.
     }
 
     /// The transport hands every reply segment here while a watch turn runs.

@@ -111,9 +111,17 @@ enum WatchRelay {
     /// see Runner-visible code. Keep the two copies in sync if the decision
     /// logic ever changes.
     enum AckTimer {
-        /// How long the watch waits for the hi-fi clip before falling back to
-        /// its own voice. plan 1.6.
-        static let localVoiceFallbackMs = 700
+            /// How long the watch waits for the JARVIS clip before falling back to its
+        /// own voice.
+        ///
+        /// This is a FAILURE backstop, not a race the built-in voice is meant to
+        /// win. At 700 ms it won almost every time: a real turn synthesizes on the
+        /// server and is relayed by the phone, which takes longer than that even
+        /// when the phone is in the foreground — so the watch spoke in the system
+        /// voice and the JARVIS clip arrived to a stopped synthesizer. Long enough
+        /// now that the clip normally wins, short enough that a turn whose audio
+        /// never arrives is still spoken.
+        static let localVoiceFallbackMs = 6000
 
         enum Decision: Equatable {
             case wait          // keep waiting for the hi-fi clip

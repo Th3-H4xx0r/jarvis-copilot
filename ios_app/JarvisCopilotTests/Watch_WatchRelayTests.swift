@@ -154,12 +154,20 @@ final class AckTimerTests: XCTestCase {
     }
 
     func testSpeaksLocallyAtOrAfterThreshold() {
-        XCTAssertEqual(WatchRelay.AckTimer.decide(elapsedMs: 700, clipArrived: false, preferLocalVoice: false), .speakLocally)
-        XCTAssertEqual(WatchRelay.AckTimer.decide(elapsedMs: 5000, clipArrived: false, preferLocalVoice: false), .speakLocally)
+        XCTAssertEqual(WatchRelay.AckTimer.decide(elapsedMs: WatchRelay.AckTimer.localVoiceFallbackMs,
+                                          clipArrived: false, preferLocalVoice: false), .speakLocally)
+        XCTAssertEqual(WatchRelay.AckTimer.decide(elapsedMs: WatchRelay.AckTimer.localVoiceFallbackMs + 1000,
+                                          clipArrived: false, preferLocalVoice: false), .speakLocally)
     }
 
-    func testThresholdConstantMatchesPlan() {
-        XCTAssertEqual(WatchRelay.AckTimer.localVoiceFallbackMs, 700)
+    func testTheLocalVoiceIsABackstopNotARace() {
+        // The JARVIS clip is synthesized on the server and relayed by the
+        // phone. At 700 ms the built-in voice won almost every turn, which is
+        // not what the fallback is for; it must outlast a normal round trip.
+        XCTAssertGreaterThanOrEqual(WatchRelay.AckTimer.localVoiceFallbackMs, 3000)
+        XCTAssertEqual(WatchRelay.AckTimer.decide(elapsedMs: 2000, clipArrived: false,
+                                                  preferLocalVoice: false), .wait,
+                       "two seconds in, keep waiting for the real voice")
     }
 
     func testClipCheckedBeforePreference() {

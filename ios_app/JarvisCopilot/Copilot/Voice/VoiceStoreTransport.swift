@@ -372,6 +372,12 @@ extension VoiceStore {
     /// playback start after the first sentence. Offline (no TTS bytes) the reply
     /// stays on screen as text and we resume listening.
     func speakLocally(_ text: String) async {
+        // Same rule: the phone stays silent for a turn dictated on the watch.
+        guard !watchTurnActive else {
+            noteWatchSegment(text: text, audio: nil)
+            raise(.playbackDrained)
+            return
+        }
         let epoch = turnEpoch
         let chunks = voiceSplitForSpeech(voicePlainSpeech(text))
         guard !chunks.isEmpty else {
@@ -446,6 +452,12 @@ extension VoiceStore {
     /// acknowledging something that already happened locally. Falls back to the
     /// JARVIS voice when there's no synthesizer.
     func acknowledgeLocally(_ text: String) async {
+        // A watch turn is answered on the wrist; the phone speaking it aloud is
+        // the "it randomly talks when I asked my watch" bug.
+        guard !watchTurnActive else {
+            noteWatchSegment(text: text, audio: nil)
+            return
+        }
         if await synthesizer.speak(text, rate: DefaultVoiceSynthesizing.defaultRate) {
             reply.append(text)
             noteFirstAudio()
