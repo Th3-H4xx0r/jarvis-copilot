@@ -125,6 +125,22 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     /// plan 1.6e: the low-latency path for a small clip — `sendMessageData`,
     /// reachable-only, delivered immediately (no transfer queue). Framed as
     /// [version:1][isFirst:1][seq:1][mp3 bytes...] by `WatchBridge.sendVoiceClip`.
+    /// A reply segment pushed by the phone the moment the model produced it,
+    /// rather than at the end of the turn.
+    nonisolated func session(_ s: WCSession, didReceiveMessage message: [String: Any]) {
+        guard (message["type"] as? String) == "segment",
+              let text = message["text"] as? String, !text.isEmpty else { return }
+        let isFirst = (message["first"] as? Bool) ?? false
+        Task { @MainActor in
+            self.streamingText = self.streamingText.isEmpty ? text : self.streamingText + " " + text
+            if isFirst {
+                // Start the instant-ack countdown now, not when the whole turn
+                // is done.
+                self.ack.firstSentenceKnown(text, preferLocalVoice: Self.preferLocalVoice)
+            }
+        }
+    }
+
     nonisolated func session(_ s: WCSession, didReceiveMessageData messageData: Data) {
         guard messageData.count > 3, messageData[0] == 0x01 else { return }
         let seq = Int(messageData[2])

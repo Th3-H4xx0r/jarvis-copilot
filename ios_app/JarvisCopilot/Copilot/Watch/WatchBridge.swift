@@ -176,11 +176,17 @@ final class WatchBridge: NSObject, ObservableObject {
                     let piece = (event.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     if !piece.isEmpty {
                         reply += reply.isEmpty ? piece : " " + piece
+                        // Straight to the watch, NOT through application
+                        // context: that is rate-limited and coalesced, so the
+                        // acknowledgement and every sentence only surfaced once
+                        // the whole turn (tool calls and all) had finished.
+                        sendSegment(piece, isFirst: !sawFirstSentence)
                         pushStreaming(reply)
                         if !sawFirstSentence {
                             sawFirstSentence = true
                             firstSentenceNonce += 1
-                            // Starts the watch's instant-ack countdown.
+                            // Belt and braces for a watch that wasn't reachable
+                            // at the moment the segment went out.
                             push(["firstSentence": piece, "firstSentenceNonce": firstSentenceNonce])
                         }
                     }
@@ -243,6 +249,19 @@ final class WatchBridge: NSObject, ObservableObject {
 
     /// Stop attributing work to the running turn (its clips are then dropped).
     private func abandonActiveTurn() { activeTurn = 0 }
+
+    /// One reply segment, delivered immediately. `sendMessage` reaches a
+    /// reachable watch at once, which is exactly the case during a turn it
+    /// started.
+    private func sendSegment(_ text: String, isFirst: Bool) {
+        let session = WCSession.default
+        guard session.activationState == .activated, session.isReachable else { return }
+        session.sendMessage(["type": "segment", "text": text, "first": isFirst],
+                            replyHandler: nil) { _ in
+            // Best effort: the application-context push and the final reply
+            // both still carry the text.
+        }
+    }
 
     // MARK: - Clip delivery
 
