@@ -156,54 +156,233 @@ enum DataSkills {
     /// A local notification with a sound that fires at the given time even if
     /// the app is closed. iOS has no public API for a true Clock alarm, so this
     /// respects Silent / Do-Not-Disturb — same caveat the Flutter skill carried.
-    static func setAlarm(_ notifier: any Notifying,
-                         now: @escaping () -> Date = Date.init) -> AnySkill {
+    static func setAlarm(_ alarms: any AlarmScheduling,
+                         notifier: any Notifying,
+                         now: @escaping () -> Date = Date.init,
+                         calendar: Calendar = .current) -> AnySkill {
         AnySkill(
             name: "set_alarm",
-            description: "Schedule an on-device alarm: a local notification with an alarm sound "
-                + "that fires at the given time even if the app is closed. Give the time as 24h "
-                + "hour (+minute) for the next occurrence, OR in_minutes from now. Optional "
-                + "label. Note: it respects the OS Silent / Do-Not-Disturb settings (iOS has no "
-                + "public API for a true Clock alarm).",
+            description: "Set a REAL system alarm on the phone (rings through Silent mode and Focus, "
+                + "full-screen with Stop/Snooze; iOS 26+). Give the time as 24h hour (+minute) for "
+                + "the next occurrence, OR in_minutes from now. Optional label, repeat (weekday "
+                + "names, 'weekdays', 'weekends', 'daily') and snooze_minutes. For a countdown "
+                + "('timer for 10 minutes') use set_timer. Falls back to a notification alarm when "
+                + "system alarms are unavailable or not permitted.",
             inputSchema: SkillSchema.object([
                 "hour": SkillSchema.integer(min: 0, max: 23),
                 "minute": SkillSchema.integer(min: 0, max: 59),
                 "in_minutes": SkillSchema.integer(min: 1, max: 1440),
                 "label": SkillSchema.string(),
+                "repeat": ["type": "array", "items": ["type": "string"],
+                           "description": "Weekday names to repeat on, e.g. [\"mon\", \"fri\"], or 'weekdays' / 'weekends' / 'daily'"],
+                "snooze_minutes": SkillSchema.integer(min: 1, max: 60),
             ])
         ) { args in
             let label = SkillArgs.string(args, "label")
             let current = now()
+            let snooze = SkillArgs.int(args, "snooze_minutes") ?? 9
+            var repeatDays: [Int] = []
+            if let raw = args["repeat"] as? [Any] {
+                let words = raw.map { SkillArgs.text($0) }
+                guard let parsed = AlarmWeekdays.parse(words) else {
+                    throw SkillError.badArgument("unknown weekday in repeat: \(words)")
+                }
+                repeatDays = parsed
+            }
             let when: Date
+            var kind: AlarmSpec.Kind
             if let minutes = SkillArgs.int(args, "in_minutes") {
+                guard minutes >= 1 else { throw SkillError.badArgument("in_minutes must be at least 1") }
                 when = current.addingTimeInterval(TimeInterval(minutes * 60))
+                kind = .fixed(when)
             } else if let hour = SkillArgs.int(args, "hour") {
                 let minute = SkillArgs.int(args, "minute") ?? 0
-                let calendar = Calendar.current
-                var parts = calendar.dateComponents([.year, .month, .day], from: current)
-                parts.hour = hour
-                parts.minute = minute
-                parts.second = 0
-                guard var candidate = calendar.date(from: parts) else {
+                guard (0...23).contains(hour), (0...59).contains(minute) else {
+                    throw SkillError.badArgument("hour must be 0-23 and minute 0-59")
+                }
+                guard let next = AlarmSpec.nextOccurrence(hour: hour, minute: minute, from: current,
+                                                          calendar: calendar) else {
                     throw SkillError.badArgument("could not build that time")
                 }
-                if candidate <= current {
-                    candidate = calendar.date(byAdding: .day, value: 1, to: candidate) ?? candidate
-                }
-                when = candidate
+                when = next
+                kind = repeatDays.isEmpty ? .fixed(next)
+                                          : .daily(hour: hour, minute: minute, weekdays: repeatDays)
             } else {
                 return ["scheduled": false, "error": "hour or in_minutes required"]
             }
-            let identifier = "jc-alarm-\(Int(when.timeIntervalSince1970))"
-            _ = try await notifier.post(LocalNotificationRequest(
-                title: label.isEmpty ? "Alarm" : label,
-                body: "JARVIS alarm",
-                at: when,
-                identifier: identifier,
-                sound: true,
-                timeSensitive: true))
-            return ["scheduled": true, "at": isoString(when), "id": identifier]
+            let spec = AlarmSpec(kind: kind, label: label, snoozeMinutes: snooze)
+            switch await tryNative(alarms, spec) {
+            case .scheduled(let alarm):
+                var out: [String: Any] = ["scheduled": true, "native": true, "id": alarm.id,
+                                          "label": alarm.label]
+                if let fire = alarm.fireDate ?? (repeatDays.isEmpty ? when : nil) { out["at"] = isoString(fire) }
+                if !repeatDays.isEmpty { out["repeat"] = repeatDays.map(AlarmWeekdays.name) }
+                return out
+            case .fallback(let note):
+                guard repeatDays.isEmpty else {
+                    return ["scheduled": false, "native": false,
+                            "error": "repeating alarms need system alarm permission (\(note))"]
+                }
+                return try await notificationAlarm(notifier, label: label.isEmpty ? "Alarm" : label,
+                                                   at: when, note: note)
+            }
         }
+    }
+
+    // MARK: set_timer
+
+    static func setTimer(_ alarms: any AlarmScheduling,
+                         notifier: any Notifying,
+                         now: @escaping () -> Date = Date.init) -> AnySkill {
+        AnySkill(
+            name: "set_timer",
+            description: "Start a countdown timer on the phone: a REAL system timer with a live "
+                + "countdown in the Dynamic Island / Lock Screen that rings through Silent mode "
+                + "(iOS 26+). minutes and/or seconds; optional label. Falls back to a notification "
+                + "when system alarms are unavailable or not permitted.",
+            inputSchema: SkillSchema.object([
+                "minutes": SkillSchema.integer(min: 0, max: 1440),
+                "seconds": SkillSchema.integer(min: 0, max: 59),
+                "label": SkillSchema.string(),
+            ])
+        ) { args in
+            let label = SkillArgs.string(args, "label")
+            let total = (SkillArgs.int(args, "minutes") ?? 0) * 60 + (SkillArgs.int(args, "seconds") ?? 0)
+            guard total >= 1 else { return ["scheduled": false, "error": "minutes or seconds required"] }
+            let current = now()
+            let spec = AlarmSpec(kind: .timer(seconds: TimeInterval(total)), label: label)
+            switch await tryNative(alarms, spec) {
+            case .scheduled(let alarm):
+                return ["scheduled": true, "native": true, "id": alarm.id, "label": alarm.label,
+                        "seconds": total, "at": isoString(current.addingTimeInterval(TimeInterval(total)))]
+            case .fallback(let note):
+                var out = try await notificationAlarm(notifier, label: label.isEmpty ? "Timer" : label,
+                                                      at: current.addingTimeInterval(TimeInterval(total)), note: note)
+                out["seconds"] = total
+                return out
+            }
+        }
+    }
+
+    // MARK: list_alarms
+
+    static func listAlarms(_ alarms: any AlarmScheduling, notifier: any Notifying) -> AnySkill {
+        AnySkill(
+            name: "list_alarms",
+            description: "List the alarms and timers JARVIS has set on this phone (system alarms "
+                + "plus any notification-alarm fallbacks), with ids for cancel_alarm."
+        ) { _ in
+            var out: [[String: Any]] = []
+            if alarms.isAvailable {
+                for a in (try? await alarms.list()) ?? [] {
+                    var row: [String: Any] = ["id": a.id, "label": a.label, "state": a.state, "native": true]
+                    switch a.kind {
+                    case .fixed(let d):
+                        row["kind"] = "alarm"; row["at"] = isoString(d)
+                    case .daily(let h, let m, let days):
+                        row["kind"] = "alarm"
+                        row["time"] = String(format: "%02d:%02d", h, m)
+                        row["repeat"] = days.map(AlarmWeekdays.name)
+                        if let f = a.fireDate { row["at"] = isoString(f) }
+                    case .timer(let secs):
+                        row["kind"] = "timer"; row["seconds"] = Int(secs)
+                        if let f = a.fireDate { row["at"] = isoString(f) }
+                    }
+                    out.append(row)
+                }
+            }
+            for id in await notifier.pending() where id.hasPrefix(notificationAlarmPrefix) {
+                var row: [String: Any] = ["id": id, "label": "Alarm", "kind": "alarm",
+                                          "state": "scheduled", "native": false]
+                if let ts = TimeInterval(id.dropFirst(notificationAlarmPrefix.count)) {
+                    row["at"] = isoString(Date(timeIntervalSince1970: ts))
+                }
+                out.append(row)
+            }
+            return ["alarms": out, "count": out.count]
+        }
+    }
+
+    // MARK: cancel_alarm
+
+    static func cancelAlarm(_ alarms: any AlarmScheduling, notifier: any Notifying) -> AnySkill {
+        AnySkill(
+            name: "cancel_alarm",
+            description: "Cancel (or silence, if ringing) an alarm or timer by id from list_alarms, "
+                + "or all of them with all=true.",
+            inputSchema: SkillSchema.object([
+                "id": SkillSchema.string("Alarm id from list_alarms / set_alarm / set_timer"),
+                "all": SkillSchema.boolean,
+            ])
+        ) { args in
+            if SkillArgs.bool(args, "all") == true {
+                var count = 0
+                if alarms.isAvailable {
+                    for a in (try? await alarms.list()) ?? [] {
+                        try? await alarms.stop(id: a.id)
+                        if (try? await alarms.cancel(id: a.id)) != nil { count += 1 }
+                    }
+                }
+                let pending = await notifier.pending().filter { $0.hasPrefix(notificationAlarmPrefix) }
+                if !pending.isEmpty {
+                    await notifier.cancel(identifiers: pending)
+                    count += pending.count
+                }
+                return ["cancelled": true, "cancelled_count": count]
+            }
+            let id = SkillArgs.string(args, "id")
+            guard !id.isEmpty else { return ["cancelled": false, "error": "id or all=true required"] }
+            if id.hasPrefix(notificationAlarmPrefix) {
+                await notifier.cancel(identifiers: [id])
+                return ["cancelled": true, "id": id, "native": false]
+            }
+            do {
+                try? await alarms.stop(id: id)
+                try await alarms.cancel(id: id)
+                return ["cancelled": true, "id": id, "native": true]
+            } catch {
+                return ["cancelled": false, "id": id, "error": error.localizedDescription]
+            }
+        }
+    }
+
+    // MARK: alarm helpers
+
+    static let notificationAlarmPrefix = "jc-alarm-"
+
+    private enum NativeAttempt {
+        case scheduled(ScheduledAlarm)
+        case fallback(String)
+    }
+
+    /// AlarmKit first; every way it can fail becomes a `fallback` with an honest
+    /// note the skill puts in its result.
+    private static func tryNative(_ alarms: any AlarmScheduling, _ spec: AlarmSpec) async -> NativeAttempt {
+        guard alarms.isAvailable else { return .fallback("system alarms need iOS 26") }
+        do {
+            guard try await alarms.requestAuthorization() else {
+                return .fallback("alarm permission denied — enable it in Settings > JarvisCopilot")
+            }
+            return .scheduled(try await alarms.schedule(spec))
+        } catch {
+            return .fallback(error.localizedDescription)
+        }
+    }
+
+    /// The pre-AlarmKit alarm: a time-sensitive local notification with a sound.
+    private static func notificationAlarm(_ notifier: any Notifying, label: String,
+                                          at when: Date, note: String) async throws -> [String: Any] {
+        let identifier = "\(notificationAlarmPrefix)\(Int(when.timeIntervalSince1970))"
+        _ = try await notifier.post(LocalNotificationRequest(
+            title: label,
+            body: "JARVIS alarm",
+            at: when,
+            identifier: identifier,
+            sound: true,
+            timeSensitive: true))
+        return ["scheduled": true, "native": false, "at": isoString(when), "id": identifier,
+                "label": label,
+                "note": "Notification alarm (respects Silent mode): \(note)"]
     }
 
     // MARK: read_healthkit

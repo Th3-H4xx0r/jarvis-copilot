@@ -31,6 +31,7 @@ enum PhoneSkills {
         var health: any HealthReading = Self.defaultHealthReader()
         var shortcuts: any ShortcutRunning = DefaultShortcutRunner()
         var sms: any SmsComposing = Self.defaultSmsComposer()
+        var alarms: any AlarmScheduling = DefaultAlarmScheduler()
 
         init() {}
 
@@ -76,7 +77,10 @@ enum PhoneSkills {
             DataSkills.readContacts(b.contacts),
             DataSkills.addCalendarEvent(b.calendars),
             DataSkills.listCalendarEvents(b.calendars),
-            DataSkills.setAlarm(b.notifier),
+            DataSkills.setAlarm(b.alarms, notifier: b.notifier),
+            DataSkills.setTimer(b.alarms, notifier: b.notifier),
+            DataSkills.listAlarms(b.alarms, notifier: b.notifier),
+            DataSkills.cancelAlarm(b.alarms, notifier: b.notifier),
             DataSkills.readHealth(b.health),
             IOSSkills.sendSMS(b.sms),
             IOSSkills.runShortcut(b.shortcuts),

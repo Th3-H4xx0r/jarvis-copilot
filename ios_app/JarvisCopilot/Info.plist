@@ -49,6 +49,8 @@
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
 	<true/>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>JARVIS sets real alarms and timers that ring even in Silent mode.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>JarvisCopilot uses Bluetooth to find and control your bottle, scale and Jarvis ESP32 boards.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

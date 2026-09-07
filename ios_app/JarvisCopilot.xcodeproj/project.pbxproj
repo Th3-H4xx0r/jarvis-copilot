@@ -458,6 +458,12 @@
 		FF4FED7A336D17F69028E1CF /* VoiceSessionPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C04D3574640628A1A3B521 /* VoiceSessionPicker.swift */; };
 		0E94C214683B5F9B3991F55D /* VoiceSessionSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7275E274C36ABAB424A96B5 /* VoiceSessionSelectionTests.swift */; };
 		CF992EB81A4F75A757238BF2 /* WearablesHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15E07F70B0F3B547523638C3 /* WearablesHub.swift */; };
+		E05C1391BEF5240E13805E1D /* AlarmScheduling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3115460CFC4448185AE1D9BC /* AlarmScheduling.swift */; };
+		1A21D154E34CFB9FF2799959 /* AlarmSpecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C8F260581D2A124ED7BC83 /* AlarmSpecTests.swift */; };
+		B6EEF3001FF1DA174A7C57E5 /* JarvisAlarmMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */; };
+		1089378A7B6EC20A7F093BD6 /* JarvisAlarmMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */; };
+		9C02A52853326127CDF20CDC /* AlarmScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67C5388D0E62093D65F5F5D3 /* AlarmScheduler.swift */; };
+		AE432524B706CCE8F8E9BD82 /* AlarmSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB12CB13E9BF57149510662B /* AlarmSkillsTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -944,6 +950,11 @@
 		B8C04D3574640628A1A3B521 /* VoiceSessionPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSessionPicker.swift; sourceTree = "<group>"; };
 		B7275E274C36ABAB424A96B5 /* VoiceSessionSelectionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceSessionSelectionTests.swift; sourceTree = "<group>"; };
 		15E07F70B0F3B547523638C3 /* WearablesHub.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WearablesHub.swift; sourceTree = "<group>"; };
+		3115460CFC4448185AE1D9BC /* AlarmScheduling.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmScheduling.swift; sourceTree = "<group>"; };
+		06C8F260581D2A124ED7BC83 /* AlarmSpecTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmSpecTests.swift; sourceTree = "<group>"; };
+		89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisAlarmMetadata.swift; sourceTree = "<group>"; };
+		67C5388D0E62093D65F5F5D3 /* AlarmScheduler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmScheduler.swift; sourceTree = "<group>"; };
+		BB12CB13E9BF57149510662B /* AlarmSkillsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AlarmSkillsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1118,6 +1129,8 @@
 		1C5BE1A7BD21E2769F81692B /* Skills */ = {
 			isa = PBXGroup;
 			children = (
+				BB12CB13E9BF57149510662B /* AlarmSkillsTests.swift */,
+				06C8F260581D2A124ED7BC83 /* AlarmSpecTests.swift */,
 				41EBDFDA8D6095A261B3FB34 /* ContactLookupTests.swift */,
 				6E42D2FF078487E8F65AAD06 /* ForegroundDeferTests.swift */,
 				49C6321567B4B9E63AE85410 /* PhoneCommandTests.swift */,
@@ -1629,6 +1642,8 @@
 		B47DA598B4C92C5890AD45DD /* Skills */ = {
 			isa = PBXGroup;
 			children = (
+				67C5388D0E62093D65F5F5D3 /* AlarmScheduler.swift */,
+				3115460CFC4448185AE1D9BC /* AlarmScheduling.swift */,
 				17D81F3D77511AA70B32B057 /* ActionBanner.swift */,
 				C0D57976E70D77D0DA8B31D6 /* AppLifecycle.swift */,
 				044FE3473B389F40EB81E9F3 /* ContactLookup.swift */,
@@ -1863,6 +1878,7 @@
 		DD7C0E11A2C0CEC54959FA90 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */,
 				DE1A7A3F834AEDA49F40CAE3 /* JarvisActivityAttributes.swift */,
 				9AC12F5609914381F51043A4 /* JarvisShared.swift */,
 				DD4A473E2CA82D35F62AB3DA /* VoiceLaunchIntent.swift */,
@@ -2090,6 +2106,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1089378A7B6EC20A7F093BD6 /* JarvisAlarmMetadata.swift in Sources */,
 				FEC5436CF7CC309FA1DBA6F0 /* JarvisActivityViews.swift in Sources */,
 				E00AA0EBB1548F19335733BC /* JarvisDesignModel.swift in Sources */,
 				B97E00C70CE63090766FAD20 /* JarvisDesignRenderer.swift in Sources */,
@@ -2105,6 +2122,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AE432524B706CCE8F8E9BD82 /* AlarmSkillsTests.swift in Sources */,
+				1A21D154E34CFB9FF2799959 /* AlarmSpecTests.swift in Sources */,
 				0E94C214683B5F9B3991F55D /* VoiceSessionSelectionTests.swift in Sources */,
 				7C9D68CE31808F5EF35B6209 /* HarnessSmokeTests.swift in Sources */,
 				7F075BF1A809BE2EB56F9D66 /* JarvisAPITests.swift in Sources */,
@@ -2251,6 +2270,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9C02A52853326127CDF20CDC /* AlarmScheduler.swift in Sources */,
+				B6EEF3001FF1DA174A7C57E5 /* JarvisAlarmMetadata.swift in Sources */,
+				E05C1391BEF5240E13805E1D /* AlarmScheduling.swift in Sources */,
 				CF992EB81A4F75A757238BF2 /* WearablesHub.swift in Sources */,
 				FF4FED7A336D17F69028E1CF /* VoiceSessionPicker.swift in Sources */,
 				2435FEFA5532F9BDDBE1246B /* VoiceSessionSelection.swift in Sources */,

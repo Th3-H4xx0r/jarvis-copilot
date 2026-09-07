@@ -543,12 +543,12 @@ final class PhoneSkillsTests: XCTestCase {
         XCTAssertFalse((event["start_iso"] as? String ?? "").isEmpty)
     }
 
-    // MARK: set_alarm
+    // MARK: set_alarm (the notification fallback — the native path is in AlarmSkillsTests)
 
     func testSetAlarmSchedulesARelativeAlarm() async throws {
         let notifier = MockNotifier()
         let now = Date(timeIntervalSince1970: 1_757_055_600)
-        let result = try await DataSkills.setAlarm(notifier, now: { now })
+        let result = try await DataSkills.setAlarm(MockAlarmScheduler(available: false), notifier: notifier, now: { now })
             .run(["in_minutes": 10, "label": "Pasta"])
         XCTAssertEqual(result["scheduled"] as? Bool, true)
         let posted = try XCTUnwrap(notifier.posted.first)
@@ -564,7 +564,7 @@ final class PhoneSkillsTests: XCTestCase {
         let calendar = Calendar.current
         // 10:00 local today; ask for 09:00, which has passed.
         let now = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: Date())!
-        _ = try await DataSkills.setAlarm(notifier, now: { now }).run(["hour": 9, "minute": 0])
+        _ = try await DataSkills.setAlarm(MockAlarmScheduler(available: false), notifier: notifier, now: { now }).run(["hour": 9, "minute": 0])
         let at = try XCTUnwrap(notifier.posted.first?.at)
         XCTAssertGreaterThan(at, now)
         XCTAssertEqual(calendar.component(.hour, from: at), 9)
@@ -576,7 +576,7 @@ final class PhoneSkillsTests: XCTestCase {
         let notifier = MockNotifier()
         let calendar = Calendar.current
         let now = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: Date())!
-        _ = try await DataSkills.setAlarm(notifier, now: { now }).run(["hour": 9, "minute": 30])
+        _ = try await DataSkills.setAlarm(MockAlarmScheduler(available: false), notifier: notifier, now: { now }).run(["hour": 9, "minute": 30])
         let at = try XCTUnwrap(notifier.posted.first?.at)
         XCTAssertEqual(calendar.component(.hour, from: at), 9)
         XCTAssertEqual(calendar.component(.minute, from: at), 30)
@@ -585,7 +585,7 @@ final class PhoneSkillsTests: XCTestCase {
 
     func testSetAlarmNeedsATime() async throws {
         let notifier = MockNotifier()
-        let result = try await DataSkills.setAlarm(notifier).run(["label": "orphan"])
+        let result = try await DataSkills.setAlarm(MockAlarmScheduler(available: false), notifier: notifier).run(["label": "orphan"])
         XCTAssertEqual(result["scheduled"] as? Bool, false)
         XCTAssertEqual(result["error"] as? String, "hour or in_minutes required")
         XCTAssertTrue(notifier.posted.isEmpty)

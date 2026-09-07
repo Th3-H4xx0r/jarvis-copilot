@@ -358,3 +358,56 @@ final class RefusingKeyValueStore: KeyValueStore, @unchecked Sendable {
     func data(_ key: String) -> Data? { nil }
     func set(_ value: Any?, forKey key: String) {}
 }
+
+final class MockAlarmScheduler: AlarmScheduling, @unchecked Sendable {
+    var available: Bool
+    var granted: Bool
+    var scheduled: [AlarmSpec] = []
+    var existing: [ScheduledAlarm] = []
+    var cancelled: [String] = []
+    var stopped: [String] = []
+    var authorizationRequests = 0
+    /// Thrown from `schedule` (e.g. AlarmKit's maximumLimitReached).
+    var scheduleError: Error?
+
+    init(available: Bool = true, granted: Bool = true) {
+        self.available = available
+        self.granted = granted
+    }
+
+    var isAvailable: Bool { available }
+
+    func requestAuthorization() async throws -> Bool {
+        authorizationRequests += 1
+        return granted
+    }
+
+    func schedule(_ spec: AlarmSpec) async throws -> ScheduledAlarm {
+        if let scheduleError { throw scheduleError }
+        guard granted else { throw SkillError.permissionDenied("alarms") }
+        scheduled.append(spec)
+        let id = "mock-alarm-\(scheduled.count)"
+        let fire: Date?
+        switch spec.kind {
+        case .fixed(let d): fire = d
+        case .timer(let s): fire = Date().addingTimeInterval(s)
+        case .daily: fire = nil
+        }
+        let alarm = ScheduledAlarm(id: id, label: spec.label, kind: spec.kind,
+                                   state: "scheduled", fireDate: fire)
+        existing.append(alarm)
+        return alarm
+    }
+
+    func list() async throws -> [ScheduledAlarm] { existing }
+
+    func cancel(id: String) async throws {
+        guard existing.contains(where: { $0.id == id }) else {
+            throw SkillError.failed("no alarm \(id)")
+        }
+        cancelled.append(id)
+        existing.removeAll { $0.id == id }
+    }
+
+    func stop(id: String) async throws { stopped.append(id) }
+}

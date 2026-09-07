@@ -38,6 +38,9 @@ final class LocalToolCatalog: ToolCatalog {
     /// bridge / need the network.
     private static let offlineSkillNames: Set<String> = [
         "set_alarm",
+        "set_timer",
+        "list_alarms",
+        "cancel_alarm",
         "vibrate",
         "play_audio",
         "flashlight_on",
