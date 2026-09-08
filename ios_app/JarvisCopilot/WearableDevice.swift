@@ -126,11 +126,17 @@ final class DeviceRegistry: ObservableObject {
     /// Routes a bridge invoke to the right device.
     func invoke(skill: String, args: [String: Any]) async throws -> [String: Any] {
         let requested = args["device_id"] as? String
+        // `device_id` picks BETWEEN devices offering the same skill; it does not
+        // override which skill was asked for. Honour it only when that device
+        // actually has the skill, otherwise a `wearables_connect` naming a bottle
+        // would route into the bottle — which has no such command — instead of the
+        // hub that does.
+        let offersSkill = { (d: any WearableDevice) in d.capabilities.contains { $0.name == skill } }
         let target: (any WearableDevice)?
-        if let requested, !requested.isEmpty {
-            target = device(id: requested)
+        if let requested, !requested.isEmpty, let d = device(id: requested), offersSkill(d) {
+            target = d
         } else {
-            target = devices.first { $0.capabilities.contains { $0.name == skill } }
+            target = devices.first(where: offersSkill)
         }
         guard let target else { throw DeviceError.unknownCommand(skill) }
         return try await target.invoke(skill, args: args)

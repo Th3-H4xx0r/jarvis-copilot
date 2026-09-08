@@ -19,7 +19,16 @@ final class VsitooS1Pro: WearableDevice {
     /// back to the CoreBluetooth identifier, which is stable per install but not
     /// across reinstalls.
     var deviceID: String {
-        manager.macAddress ?? manager.connected?.id.uuidString ?? "unpaired"
+        // Remembered BEFORE the CoreBluetooth identifier, not after. The MAC only
+        // arrives a beat after the link comes up, so a bottle registered offline under
+        // its remembered MAC would flip to the peripheral UUID on connect and register
+        // a SECOND time — two ids, two copies of every command — before settling back
+        // on the MAC. The remembered id is the stable one; the UUID is only for a
+        // bottle whose MAC we have never learned.
+        manager.macAddress
+            ?? WearableIdentity.remembered(WearableKeepAlive.bottle)
+            ?? manager.connected?.id.uuidString
+            ?? "unpaired"
     }
 
     var isConnected: Bool { manager.state == .ready }

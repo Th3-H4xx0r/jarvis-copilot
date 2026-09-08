@@ -1109,6 +1109,9 @@ final class Esp32Manager: NSObject, ObservableObject {
 
     func refreshRegistryMembership() {
         guard let device = exposedDevice else { return }
+        // Pin the identity while we have a real one, so this device keeps the
+        // same id after the link drops and can be re-registered offline.
+        WearableIdentity.remember(device.deviceID, for: WearableKeepAlive.esp32)
         // A board on its own Jarvis link registers its skills itself; advertising them
         // from the phone too would give Jarvis two copies of every command.
         let boardHoldsBridge = cloud?.cloudMode == true && (cloud?.state == .connected || cloud?.state == .connecting)
@@ -1123,6 +1126,20 @@ final class Esp32Manager: NSObject, ObservableObject {
             BridgeClient.forget(deviceID: device.deviceID)
         }
         BridgeClient.shared.sendRegistration()
+    }
+
+    /// Register this device's catalogue with no live link.
+    ///
+    /// Registration used to follow the Bluetooth connection, so between app launch
+    /// and the first successful connect the agent had no skills for this device at
+    /// all — not a failing tool, no tool. `invoke` already reconnects on demand, so
+    /// the catalogue is what needed to stop disappearing.
+    func publishRemembered() {
+        if exposedDevice == nil {
+            guard WearableIdentity.remembered(WearableKeepAlive.esp32) != nil else { return }
+            exposedDevice = Esp32Board(manager: self)
+        }
+        refreshRegistryMembership()
     }
 
     private func unpublish() {

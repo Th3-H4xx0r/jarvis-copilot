@@ -263,6 +263,9 @@ final class AppServices {
         // 2b. The Bluetooth wearables (bottle, scale, ESP32) live for the whole
         //     app now, not just while the Devices tab shows them, so their
         //     skills are registered whenever the devices are around.
+        // Register what the user has already shared BEFORE any Bluetooth work, so the
+        // catalogue the server gets on `hello` already has the wearables in it.
+        WearablesHub.shared.restoreSharedDevices()
         WearablesHub.shared.reconnectKnownDevices()
 
         // 3. Push: the notification delegate, the Approve/Deny/Reply categories

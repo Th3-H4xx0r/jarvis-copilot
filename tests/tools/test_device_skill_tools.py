@@ -273,3 +273,25 @@ def test_a_multimodal_vision_envelope_is_passed_through_with_metadata(monkeypatc
     assert out["content"][0]["type"] == "text" and "taken_at" in out["content"][0]["text"]
     assert out["content"][1]["type"] == "image_url"
     assert out["meta"]["image_path"].endswith(".png")
+
+
+def test_disconnected_device_still_produces_tools(monkeypatch):
+    """A wearable whose Bluetooth link is down must keep its tools.
+
+    The iOS app used to register its catalogue only while connected, so between
+    app launch and the first BLE connect the agent had no `bottle_*` tool at all
+    — not a tool that failed, no tool — and reported the bottle as unsupported.
+    The app now advertises paired devices regardless of link state and reconnects
+    on invoke; this locks the server half of that contract.
+    """
+    _reset(monkeypatch, [
+        {"device_id": "A4:C1:38:99:2D:08", "device_name": "JarvisWearables (iPhone)",
+         "name": "bottle_get_status", "description": "Full state snapshot.",
+         "input_schema": {"type": "object", "properties": {}}},
+        {"device_id": "wearables", "device_name": "JarvisWearables (iPhone)",
+         "name": "wearables_connect", "description": "Bring a paired wearable up.",
+         "input_schema": {"type": "object", "properties": {}}},
+    ])
+    names = {t["name"] for t in device_skill_tools.get_device_tools()}
+    assert "device_bottle_get_status" in names
+    assert "device_wearables_connect" in names

@@ -8,7 +8,14 @@ final class Esp32Board: WearableDevice {
     private unowned let manager: Esp32Manager
     init(manager: Esp32Manager) { self.manager = manager }
 
-    var deviceID: String { manager.info?.deviceID ?? manager.connected?.id ?? "esp32" }
+    var deviceID: String {
+        // Remembered before the connection's id, for the same reason as the bottle:
+        // `DiscoveredEsp32.id` is CoreBluetooth's UUID until the board reports its own.
+        manager.info?.deviceID
+            ?? WearableIdentity.remembered(WearableKeepAlive.esp32)
+            ?? manager.connected?.id
+            ?? "esp32"
+    }
     var isConnected: Bool { manager.state == .ready }
 
     private var gpioSchema: [String: Any] {

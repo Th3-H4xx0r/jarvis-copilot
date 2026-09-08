@@ -5,7 +5,11 @@ final class Esf551Scale: WearableDevice {
     static let model = "Etekcity ESF551"
     private unowned let manager: ScaleManager
     init(manager: ScaleManager) { self.manager = manager }
-    var deviceID: String { manager.connected?.id.uuidString ?? "esf551" }
+    var deviceID: String {
+        manager.connected?.id.uuidString
+            ?? WearableIdentity.remembered(WearableKeepAlive.scale)
+            ?? "esf551"
+    }
     var isConnected: Bool { if case .ready = manager.state { return true }; return false }
     var capabilities: [DeviceCapability] { [
         DeviceCapability(name: "scale_get_reading", description: "Get the latest ESF551 weight and available body-composition estimates.", inputSchema: DeviceCapability.schema()),

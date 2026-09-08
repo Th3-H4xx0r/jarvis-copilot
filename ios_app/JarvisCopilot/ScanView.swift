@@ -8,6 +8,8 @@ struct ScanView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     private let spacing: CGFloat = 14
+    /// device_id of the card whose "Try to connect" is in flight.
+    @State private var connecting: String?
     @Namespace private var cardNamespace
 
     /// `true` when the Wearables half of `DevicesPage` hosts this inside the tab's
@@ -78,7 +80,8 @@ struct ScanView: View {
     private var scroller: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if manager.discovered.isEmpty && scaleManager.discovered.isEmpty && esp32Manager.discovered.isEmpty {
+                if manager.discovered.isEmpty && scaleManager.discovered.isEmpty
+                    && esp32Manager.discovered.isEmpty && absent.isEmpty {
                     emptyState
                 } else {
                     grid
@@ -143,7 +146,25 @@ struct ScanView: View {
                 .buttonStyle(.plain)
                 .zoomSource(id: board.id, in: cardNamespace)
             }
+            ForEach(absent) { entry in
+                AbsentDeviceCard(entry: entry, busy: connecting == entry.deviceID) {
+                    connecting = entry.deviceID
+                    Task {
+                        _ = await WearablesHub.shared.connect(deviceID: entry.deviceID)
+                        connecting = nil
+                    }
+                }
+            }
         }
+    }
+
+    /// Paired devices this scan didn't turn up.
+    ///
+    /// The list used to be the live scan buffer alone, so a bottle that was merely
+    /// out of range vanished from the Devices tab entirely — indistinguishable from
+    /// one that was never paired. They keep their card and say what's wrong instead.
+    private var absent: [WearableEntry] {
+        WearablesHub.shared.roster().filter { !$0.connected && !$0.seenInLastScan }
     }
 
     // MARK: Chrome
@@ -407,5 +428,59 @@ extension View {
         #else
         self
         #endif
+    }
+}
+
+
+/// A paired device that isn't answering right now.
+///
+/// Deliberately not a `NavigationLink`: the detail screens take a `Discovered*`
+/// value built from a live CoreBluetooth peripheral, and we don't have one. The
+/// card offers the connect directly, and the real card takes its place once the
+/// link comes up.
+private struct AbsentDeviceCard: View {
+    let entry: WearableEntry
+    let busy: Bool
+    let connect: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                .font(.system(size: 26, weight: .light))
+                .foregroundStyle(.secondary)
+                .frame(width: 34)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            if busy {
+                ProgressView()
+            } else {
+                Button("Connect", action: connect)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(.white.opacity(0.07)))
+    }
+
+    private var subtitle: String {
+        guard let seen = entry.lastSeen else { return "Not found" }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        let signal = entry.lastRSSI.map { " · \($0) dBm" } ?? ""
+        return "Not found · last seen \(f.localizedString(for: seen, relativeTo: Date()))\(signal)"
     }
 }
