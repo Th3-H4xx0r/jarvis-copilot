@@ -12,7 +12,6 @@ struct CodingProject: Identifiable, Equatable {
     let id: String
     var name: String
     var repoPath: String?
-    var host: String?
     var deviceId: String?
     var syncEnabled: Bool
     var syncDesktopPath: String?
@@ -20,14 +19,13 @@ struct CodingProject: Identifiable, Equatable {
     var defaultBranch: String?
     var sessions: [CodingSession]
 
-    init(id: String, name: String, repoPath: String? = nil, host: String? = nil,
+    init(id: String, name: String, repoPath: String? = nil,
          deviceId: String? = nil, syncEnabled: Bool = false, syncDesktopPath: String? = nil,
          ignoreRules: String? = nil, defaultBranch: String? = nil,
          sessions: [CodingSession] = []) {
         self.id = id
         self.name = name
         self.repoPath = repoPath
-        self.host = host
         self.deviceId = deviceId
         self.syncEnabled = syncEnabled
         self.syncDesktopPath = syncDesktopPath
@@ -41,7 +39,6 @@ struct CodingProject: Identifiable, Equatable {
             id: CodingJSON.text(j["id"]),
             name: CodingJSON.text(j["name"]),
             repoPath: CodingJSON.str(j["repo_path"]),
-            host: CodingJSON.str(j["host"]),
             deviceId: CodingJSON.str(j["device_id"]),
             syncEnabled: CodingJSON.bool(j["sync_enabled"]),
             syncDesktopPath: CodingJSON.str(j["sync_desktop_path"]),
@@ -133,15 +130,11 @@ struct CodingSyncStatus: Equatable {
     var total: Int
     var done: Int
     var conflicts: Int
-    /// Conflicts the client auto-resolved (newest-edit-wins, loser backed up).
-    var healed: Int
-    /// Epoch seconds.
-    var lastSyncAt: Double?
     var error: String?
 
     init(enabled: Bool = false, device: String? = nil, deviceOnline: Bool = false,
          status: String = "off", total: Int = 0, done: Int = 0, conflicts: Int = 0,
-         healed: Int = 0, lastSyncAt: Double? = nil, error: String? = nil) {
+         error: String? = nil) {
         self.enabled = enabled
         self.device = device
         self.deviceOnline = deviceOnline
@@ -149,8 +142,6 @@ struct CodingSyncStatus: Equatable {
         self.total = total
         self.done = done
         self.conflicts = conflicts
-        self.healed = healed
-        self.lastSyncAt = lastSyncAt
         self.error = error
     }
 
@@ -163,8 +154,6 @@ struct CodingSyncStatus: Equatable {
             total: CodingJSON.int(j["total"]),
             done: CodingJSON.int(j["done"]),
             conflicts: CodingJSON.int(j["conflicts"]),
-            healed: CodingJSON.int(j["healed"]),
-            lastSyncAt: CodingJSON.double(j["last_sync_at"]),
             error: CodingJSON.str(j["error"]))
     }
 

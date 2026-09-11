@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(UIKit)
 import UIKit
-#endif
 
 /// The "Server logs" screen, ported from `pages/more/server_logs_page.dart`.
 ///
@@ -73,9 +71,7 @@ struct ServerLogsPage: View {
     }
 
     private func copyAll() {
-        #if canImport(UIKit)
         UIPasteboard.general.string = store.copyText
-        #endif
         toast = "Logs copied"
     }
 }

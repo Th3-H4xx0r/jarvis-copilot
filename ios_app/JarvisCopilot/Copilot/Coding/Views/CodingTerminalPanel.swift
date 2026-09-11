@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(UIKit)
 import UIKit
-#endif
 
 /// The live terminal: the server PTY's output rendered as monospaced lines, with
 /// the console key bar and a raw input row beneath it.
@@ -132,13 +130,9 @@ struct CodingTerminalPanel: View {
     /// One character cell of the monospaced face the pane draws with. Measured
     /// rather than guessed: the system mono's advance is not `fontSize × 0.6`.
     static var cell: CGSize {
-        #if canImport(UIKit)
         let font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         let width = ("M" as NSString).size(withAttributes: [.font: font]).width
         return CGSize(width: max(1, width), height: max(1, font.lineHeight))
-        #else
-        return CGSize(width: fontSize * 0.6, height: fontSize * 1.2)
-        #endif
     }
 }
 
@@ -244,11 +238,11 @@ struct CodingTerminalInputRow: View {
     }
 
     private var canSend: Bool {
-        enabled && !sending && !CodingUI.trim(text).isEmpty
+        enabled && !sending && !jcTrim(text).isEmpty
     }
 
     private func send() {
-        let body = CodingUI.trim(text)
+        let body = jcTrim(text)
         guard !body.isEmpty, !sending else { return }
         text = ""
         sending = true

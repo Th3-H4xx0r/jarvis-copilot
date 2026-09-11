@@ -274,11 +274,6 @@ final class CodingStoreTests: XCTestCase {
         await store.refreshSyncStatus()
         XCTAssertEqual(store.sync?.done, 1)
 
-        // Only `last_sync_at` moved — re-rendering the card for that is churn.
-        t.enqueue(json: ["enabled": true, "status": "syncing", "total": 4, "done": 1, "last_sync_at": 999])
-        await store.refreshSyncStatus()
-        XCTAssertEqual(store.sync?.lastSyncAt, 1)
-
         t.enqueue(json: ["enabled": true, "status": "syncing", "total": 4, "done": 2])
         await store.refreshSyncStatus()
         XCTAssertEqual(store.sync?.done, 2)
@@ -296,11 +291,6 @@ final class CodingStoreTests: XCTestCase {
         var moved = base
         moved.done = 2
         XCTAssertTrue(CodingStore.syncChanged(base, moved))
-        var stamped = base
-        stamped.lastSyncAt = 1
-        stamped.healed = 3
-        XCTAssertFalse(CodingStore.syncChanged(base, stamped),
-                       "the constantly-ticking fields are deliberately ignored")
     }
 
     // MARK: - Approvals

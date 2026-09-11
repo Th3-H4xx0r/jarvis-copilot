@@ -7,7 +7,6 @@ struct BridgeSettingsView: View {
     /// Without observing this, the list never refreshes when a device is shared.
     @StateObject private var registry = DeviceRegistry.shared
 
-
     var body: some View {
         ScrollView {
             VStack(spacing: 22) {

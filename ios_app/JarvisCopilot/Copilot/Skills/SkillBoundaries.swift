@@ -283,9 +283,6 @@ protocol ShortcutRunning: Sendable {
     /// `awaitResult: false` is "launch" mode — omit the x-callback so iOS
     /// leaves the user in whatever app the Shortcut opens.
     func run(name: String, input: String, timeoutSeconds: Int, awaitResult: Bool) async -> ShortcutOutcome
-    /// Best-effort list of the user's Shortcuts; nil when iOS won't say (it
-    /// won't, today — kept so the skill's contract doesn't change later).
-    func installedNames() async -> [String]?
     /// Open the Shortcuts app on a new-shortcut editor or an import prompt.
     func openEditor(importURL: String, suggestedName: String) async -> Bool
 }

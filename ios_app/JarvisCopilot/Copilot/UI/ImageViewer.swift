@@ -37,9 +37,7 @@ struct ImageViewerPage: View {
                     .tint(JcTheme.text)
             }
         }
-        #if os(iOS)
         .toolbarBackground(.hidden, for: .navigationBar)
-        #endif
         .animation(.snappy(duration: 0.2), value: scale)
     }
 }

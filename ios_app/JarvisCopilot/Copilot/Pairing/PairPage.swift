@@ -1,7 +1,5 @@
 import SwiftUI
-#if os(iOS)
 import AVFoundation
-#endif
 
 /// First-run pair screen. The state machine lives in `PairStore`; this file is
 /// only the layout: mark, one line, scan, an inset form, Pair.
@@ -97,13 +95,11 @@ struct PairPage: View {
         // the values it filled are visible.
         .onChange(of: store.showsCloudflareFields) { _, shown in if shown { showManual = true } }
         .onAppear { revealAt = Date() }
-        #if os(iOS)
         .fullScreenCover(isPresented: Binding(
             get: { store.phase == .scanning },
             set: { if !$0 { store.cancelScanning() } })) {
             scannerSheet
         }
-        #endif
     }
 
     // MARK: Step transition
@@ -252,12 +248,10 @@ struct PairPage: View {
             formRow("Server") {
                 TextField("https://…", text: $store.serverURL)
                     .autocorrectionDisabled()
-                    #if os(iOS)
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
                     .textContentType(.URL)
                     .submitLabel(.next)
-                    #endif
                     .focused($focus, equals: .url)
                     .onSubmit { focus = .code }
             }
@@ -266,20 +260,16 @@ struct PairPage: View {
                 TextField("ABC-DEF", text: codeBinding)
                     .autocorrectionDisabled()
                     .font(.system(size: 15, weight: .medium, design: .monospaced))
-                    #if os(iOS)
                     .textInputAutocapitalization(.characters)
                     .keyboardType(.asciiCapable)
                     .submitLabel(.next)
-                    #endif
                     .focused($focus, equals: .code)
                     .onSubmit { focus = .name }
             }
             rule
             formRow("Name") {
                 TextField("iPhone", text: $store.deviceName)
-                    #if os(iOS)
                     .submitLabel(.done)
-                    #endif
                     .focused($focus, equals: .name)
                     .onSubmit { focus = nil }
             }
@@ -336,9 +326,7 @@ struct PairPage: View {
                 formRow("Client ID") {
                     TextField("xxxxxxxx.access", text: $store.cfClientID)
                         .autocorrectionDisabled()
-                        #if os(iOS)
                         .textInputAutocapitalization(.never)
-                        #endif
                         .focused($focus, equals: .cfID)
                 }
                 rule
@@ -360,7 +348,6 @@ struct PairPage: View {
     // MARK: Scanner
 
     private func startScanning() {
-        #if os(iOS)
         Task {
             if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
                 _ = await AVCaptureDevice.requestAccess(for: .video)
@@ -371,10 +358,8 @@ struct PairPage: View {
             }
             store.startScanning()
         }
-        #endif
     }
 
-    #if os(iOS)
     @ViewBuilder private var scannerSheet: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -400,7 +385,6 @@ struct PairPage: View {
             }
         }
     }
-    #endif
 }
 
 /// Staggered entrance: a pure opacity ramp starting `delay` seconds (or index × 90 ms)

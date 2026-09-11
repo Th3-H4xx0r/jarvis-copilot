@@ -103,7 +103,6 @@ final class CodingModelsTests: XCTestCase {
         XCTAssertEqual(s.title, "Port the coding tab")
         XCTAssertEqual(s.status, "running")
         XCTAssertEqual(s.host, "server")
-        XCTAssertEqual(s.branch, "main")
         XCTAssertEqual(s.model, "opus")
         XCTAssertTrue(s.skipPermissions)          // 1 → true
         XCTAssertEqual(s.sync?.device, "mac-studio")
@@ -111,8 +110,6 @@ final class CodingModelsTests: XCTestCase {
         XCTAssertEqual(s.createdAt, 1781000000.5)
         XCTAssertEqual(s.projectId, "pj_7")
         XCTAssertFalse(s.external)                // 0 → false
-        XCTAssertNil(s.deviceId)                  // "" → nil
-        XCTAssertEqual(s.tmuxName, "jc-cs_9f2a")
         XCTAssertTrue(s.attached)
         XCTAssertEqual(s.displayTitle, "Port the coding tab")
         XCTAssertTrue(s.isLive)
@@ -283,8 +280,6 @@ final class CodingModelsTests: XCTestCase {
         XCTAssertTrue(syncing.isSyncing)
         XCTAssertEqual(syncing.pct, 38)
         XCTAssertEqual(syncing.conflicts, 1)
-        XCTAssertEqual(syncing.healed, 2)
-        XCTAssertEqual(syncing.lastSyncAt, 1781006400)
 
         XCTAssertEqual(CodingSyncStatus(json: obj(#"{"status":"synced"}"#)).pct, 100)
         XCTAssertEqual(CodingSyncStatus(json: obj(#"{"status":"error","error":"boom"}"#)).pct, 0)
@@ -294,12 +289,7 @@ final class CodingModelsTests: XCTestCase {
         XCTAssertEqual(CodingSyncStatus(json: [:]).status, "off")
     }
 
-    // MARK: - CodingSessionDetail / usage
-
-    func testSessionDetailUnwrapsOrAcceptsABareSession() {
-        XCTAssertEqual(CodingSessionDetail(json: obj(#"{"session":{"id":"a"},"subagents":[]}"#)).session.id, "a")
-        XCTAssertEqual(CodingSessionDetail(json: obj(#"{"id":"b"}"#)).session.id, "b")
-    }
+    // MARK: - Usage
 
     func testUsageParsingUsesMinusOneForUnknown() {
         XCTAssertNil(CodingUsage.from(nil))
@@ -331,6 +321,5 @@ final class CodingModelsTests: XCTestCase {
         XCTAssertFalse(PendingAttachment.looksImage("notes.pdf"))
         let a = PendingAttachment(name: "shot.png", data: Data([1, 2, 3]))
         XCTAssertTrue(a.isImage)
-        XCTAssertEqual(a.size, 3)
     }
 }

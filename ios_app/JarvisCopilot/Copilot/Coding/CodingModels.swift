@@ -22,16 +22,14 @@ struct PendingPermission: Identifiable, Equatable {
     let tool: String
     /// One line, e.g. "Bash: rm -rf build/".
     let summary: String
-    let sessionId: String
     let cwd: String
 
     var id: String { requestId }
 
-    init(requestId: String, tool: String, summary: String, sessionId: String = "", cwd: String = "") {
+    init(requestId: String, tool: String, summary: String, cwd: String = "") {
         self.requestId = requestId
         self.tool = tool
         self.summary = summary
-        self.sessionId = sessionId
         self.cwd = cwd
     }
 
@@ -50,7 +48,6 @@ struct PendingPermission: Identifiable, Equatable {
             requestId: rid,
             tool: CodingJSON.text(j["tool"], "tool"),
             summary: CodingJSON.text(j["summary"]),
-            sessionId: CodingJSON.text(j["session_id"]),
             cwd: CodingJSON.text(j["cwd"]))
     }
 }
@@ -71,8 +68,6 @@ struct PendingAttachment: Identifiable, Equatable {
         self.data = data
         self.isImage = isImage ?? Self.looksImage(name)
     }
-
-    var size: Int { data.count }
 
     static func looksImage(_ name: String) -> Bool {
         let n = name.lowercased()
@@ -127,7 +122,6 @@ struct CodingSession: Identifiable, Equatable {
     /// server | desktop
     var host: String?
     var cwd: String?
-    var branch: String?
     var claudeSessionId: String?
     /// chat | manual | discovered-tmux | discovered-transcript
     var source: String?
@@ -144,10 +138,6 @@ struct CodingSession: Identifiable, Equatable {
     /// True for device-discovered sessions (a live tmux or a past transcript
     /// surfaced from a paired desktop). Drives the "discovered/live" badge.
     var external: Bool
-    /// The device that owns a discovered session (used by resume, informational).
-    var deviceId: String?
-    /// The tmux session name backing a live session (informational).
-    var tmuxName: String?
     /// Last activity timestamp — preferred sort key over `createdAt`. May be an
     /// epoch number or an ISO string; kept as a string for robust comparison.
     var lastActivityAt: String?
@@ -160,17 +150,16 @@ struct CodingSession: Identifiable, Equatable {
     var attached: Bool
 
     init(id: String, title: String? = nil, status: String = "starting", host: String? = nil,
-         cwd: String? = nil, branch: String? = nil, claudeSessionId: String? = nil,
+         cwd: String? = nil, claudeSessionId: String? = nil,
          source: String? = nil, model: String? = nil, skipPermissions: Bool = false,
          sync: CodingSync? = nil, createdAt: Double? = nil, projectId: String? = nil,
-         external: Bool = false, deviceId: String? = nil, tmuxName: String? = nil,
-         lastActivityAt: String? = nil, activityState: String? = nil, attached: Bool = true) {
+         external: Bool = false, lastActivityAt: String? = nil, activityState: String? = nil,
+         attached: Bool = true) {
         self.id = id
         self.title = title
         self.status = status
         self.host = host
         self.cwd = cwd
-        self.branch = branch
         self.claudeSessionId = claudeSessionId
         self.source = source
         self.model = model
@@ -179,8 +168,6 @@ struct CodingSession: Identifiable, Equatable {
         self.createdAt = createdAt
         self.projectId = projectId
         self.external = external
-        self.deviceId = deviceId
-        self.tmuxName = tmuxName
         self.lastActivityAt = lastActivityAt
         self.activityState = activityState
         self.attached = attached
@@ -193,7 +180,6 @@ struct CodingSession: Identifiable, Equatable {
             status: CodingJSON.text(j["status"], "starting"),
             host: CodingJSON.str(j["host"]),
             cwd: CodingJSON.str(j["cwd"]),
-            branch: CodingJSON.str(j["branch"]),
             claudeSessionId: CodingJSON.str(j["claude_session_id"]),
             source: CodingJSON.str(j["source"]),
             model: CodingJSON.str(j["model"]),
@@ -202,8 +188,6 @@ struct CodingSession: Identifiable, Equatable {
             createdAt: CodingJSON.double(j["created_at"]),
             projectId: CodingJSON.str(j["project_id"]),
             external: CodingJSON.bool(j["external"]),
-            deviceId: CodingJSON.str(j["device_id"]),
-            tmuxName: CodingJSON.str(j["tmux_name"]),
             lastActivityAt: CodingJSON.str(j["last_activity_at"]),
             activityState: CodingJSON.str(j["activity_state"]),
             attached: CodingJSON.bool(j["attached"], or: true))
@@ -310,18 +294,5 @@ struct CodingSession: Identifiable, Equatable {
             return SessionBadge(kind: "desktop", label: "desktop")
         }
         return SessionBadge(kind: "server", label: "server")
-    }
-}
-
-/// The `/api/coding/session/{id}` payload — we only consume `session` (the
-/// `subagents` UI was dropped to match the web).
-struct CodingSessionDetail: Equatable {
-    let session: CodingSession
-
-    init(session: CodingSession) { self.session = session }
-
-    /// Tolerates a bare session object (no `session` wrapper).
-    init(json j: [String: Any]) {
-        session = CodingSession(json: (j["session"] as? [String: Any]) ?? j)
     }
 }

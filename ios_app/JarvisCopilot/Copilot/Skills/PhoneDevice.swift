@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(UIKit)
 import UIKit
-#endif
 
 /// The phone itself, exposed to the Jarvis bridge as one more `WearableDevice`.
 ///
@@ -41,9 +39,7 @@ final class PhoneDevice: WearableDevice {
             "skills": registry.enabledNames,
             "disabled": registry.disabled.sorted(),
         ]
-        #if canImport(UIKit)
         out["system"] = "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
-        #endif
         return out
     }
 

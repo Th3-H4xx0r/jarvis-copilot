@@ -8,9 +8,8 @@ import XCTest
 @MainActor
 final class SkillsUITests: XCTestCase {
 
-    private func item(_ name: String, _ detail: String = "", enabled: Bool = true,
-                      category: String? = nil) -> SkillListItem {
-        SkillListItem(name: name, detail: detail, enabled: enabled, category: category)
+    private func item(_ name: String, _ detail: String = "", enabled: Bool = true) -> SkillListItem {
+        SkillListItem(name: name, detail: detail, enabled: enabled)
     }
 
     // MARK: Search
@@ -37,21 +36,6 @@ final class SkillsUITests: XCTestCase {
                                                 item("call"), item("_internal")])
         XCTAssertEqual(sections.map(\.title), ["#", "C", "S"])
         XCTAssertEqual(sections[1].items.map(\.name), ["call", "copy_text"])
-    }
-
-    func testCategorySectionsWhenEverySkillCarriesOne() {
-        let sections = SkillsGrouping.sections([item("b", category: "Media"),
-                                                item("a", category: "Media"),
-                                                item("c", category: "System")])
-        XCTAssertEqual(sections.map(\.title), ["Media", "System"])
-        XCTAssertEqual(sections[0].items.map(\.name), ["a", "b"])
-    }
-
-    func testMixedCategoriesFallBackToAlphabetical() {
-        // One row without a category is enough — a half-categorised list would
-        // otherwise get a phantom "" section.
-        let sections = SkillsGrouping.sections([item("b", category: "Media"), item("a")])
-        XCTAssertEqual(sections.map(\.title), ["A", "B"])
     }
 
     func testEmptyCatalogueHasNoSections() {

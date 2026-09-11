@@ -2,11 +2,8 @@ import Foundation
 
 /// Every `jarviscopilot://…` URL the app answers to.
 ///
-/// The Flutter client split this between `AppDelegate.handleIncomingURL` (native)
-/// and the pair channel (Dart); here it is one pure parser so the routing table
-/// is testable without a scene. Unknown hosts return nil so `.onOpenURL` can fall
-/// through to the Shortcuts result bus (which owns `shortcut-result` /
-/// `shortcut-error`) and to whatever handles pairing.
+/// One pure parser, so the routing table is testable without a scene. Unknown
+/// hosts return nil.
 enum AppDeepLink: Equatable, Sendable {
     /// `jarviscopilot://voice` — the Lock Screen widget, the Control Center
     /// control and the Live Activity all land here.
@@ -16,18 +13,15 @@ enum AppDeepLink: Equatable, Sendable {
     /// `jarviscopilot://coding[?session=<id>]`
     case coding(session: String?)
     /// `jarviscopilot://island` — a custom-design Live Activity tap. Bring the
-    /// app forward and show the designs screen; it must NOT fall through to the
-    /// pairing handler (which is what the Flutter comment warns about).
+    /// app forward and show the designs screen.
     case island
     /// `jarviscopilot://shortcut-result/<rid>` and `…/shortcut-error/<rid>`.
     /// Parsed here only so a caller can *recognise* one; `ShortcutResultBus` owns
     /// the payload.
     case shortcutCallback
-    /// Anything else on our scheme: the pairing deep link
-    /// (`jarviscopilot://pair?server=…&code=…`).
-    case pair(URL)
 
-    /// Nil when the URL is not ours (a different scheme, or no host at all).
+    /// Nil when the URL is not ours: a different scheme, no host, or a host we
+    /// don't route.
     static func parse(_ url: URL) -> AppDeepLink? {
         guard url.scheme?.lowercased() == JarvisShared.urlScheme else { return nil }
         // `URL.host` is nil for `scheme:///path`; treat that as malformed rather
@@ -45,7 +39,7 @@ enum AppDeepLink: Equatable, Sendable {
         case "shortcut-result", "shortcut-error":
             return .shortcutCallback
         default:
-            return .pair(url)
+            return nil
         }
     }
 
@@ -112,8 +106,8 @@ struct AppDeepLinkRouter {
         self.targets = targets
     }
 
-    /// Returns true when the link was handled here. `pair` and `shortcutCallback`
-    /// are someone else's, so they come back false and the caller falls through.
+    /// Returns true when the link was handled here. `shortcutCallback` belongs to
+    /// `ShortcutResultBus`, so it comes back false.
     @discardableResult
     func open(_ link: AppDeepLink) -> Bool {
         switch link {
@@ -133,7 +127,7 @@ struct AppDeepLinkRouter {
             // router goes (More owns its own destination stack).
             router.selectedTab = .more
             return true
-        case .shortcutCallback, .pair:
+        case .shortcutCallback:
             return false
         }
     }

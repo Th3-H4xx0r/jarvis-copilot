@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(UIKit)
 import UIKit
-#endif
 
 /// Photon (hosted iMessage) setup, ported from `pages/photon_setup_page.dart`.
 ///

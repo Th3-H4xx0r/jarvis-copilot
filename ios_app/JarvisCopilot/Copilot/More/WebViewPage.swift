@@ -1,7 +1,5 @@
 import SwiftUI
-#if os(iOS)
 import WebKit
-#endif
 
 /// Embeds a server tab, ported from `pages/webview_page.dart`.
 ///
@@ -37,7 +35,6 @@ struct WebViewPage: View {
 
     var body: some View {
         Group {
-            #if os(iOS)
             if let url {
                 VStack(spacing: 0) {
                     if isLoading {
@@ -53,15 +50,10 @@ struct WebViewPage: View {
             } else {
                 CenteredMessage(text: "No server paired.")
             }
-            #else
-            CenteredMessage(text: "Web views are not available on this platform.")
-            #endif
         }
         .jcScreen(title)
     }
 }
-
-#if os(iOS)
 
 /// The `WKWebView` itself. Seeds cookies, then loads once — `updateUIView`
 /// deliberately does nothing, because re-issuing the load on every SwiftUI
@@ -197,4 +189,3 @@ struct ServerWebView: UIViewRepresentable {
     }
 }
 
-#endif

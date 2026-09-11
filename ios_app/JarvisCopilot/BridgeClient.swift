@@ -81,14 +81,11 @@ final class BridgeClient: NSObject, ObservableObject {
 
     /// The keepalive runs when bridge mode could deliver something (on, and
     /// paired) and background delivery is wanted. Without it the app is suspended
-    /// on background and every invoke goes through the silent push.
-    private func syncKeepalive() {
+    /// on background and every invoke goes through the silent push. `AppServices`
+    /// also calls this at launch, since the setters only sync on a change.
+    func syncKeepalive() {
         BackgroundKeepalive.shared.sync(active: enabled && backgroundKeepalive && isPaired)
     }
-
-    /// Start the keepalive at launch when bridge mode is on — the setter only
-    /// syncs on a change, so a fresh launch used to run without it.
-    func syncKeepaliveNow() { syncKeepalive() }
 
     // MARK: Per-device exposure
 
@@ -143,7 +140,6 @@ final class BridgeClient: NSObject, ObservableObject {
     }()
     private var pingTask: Task<Void, Never>?
     private var reconnectAttempt = 0
-    private var pollTask: Task<Void, Never>?
 
     private override init() { super.init() }
 
@@ -185,20 +181,21 @@ final class BridgeClient: NSObject, ObservableObject {
     /// A request against the paired server carrying the session cookie and, when the
     /// tunnel needs one, the Cloudflare service token. Nil when no server URL is set.
     func authorizedRequest(path: String, query: [URLQueryItem] = [], timeout: TimeInterval = 60) -> URLRequest? {
-        guard let base = baseURL(),
+        guard let base = apiBaseURL(),
               var comps = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false) else { return nil }
         if !query.isEmpty { comps.queryItems = query }
         guard let url = comps.url else { return nil }
         var request = URLRequest(url: url, timeoutInterval: timeout)
-        for (k, v) in authHeaders() { request.setValue(v, forHTTPHeaderField: k) }
+        for (k, v) in apiAuthHeaders() { request.setValue(v, forHTTPHeaderField: k) }
         return request
     }
 
     /// The cookie-free session every bridge call goes through.
     var urlSession: URLSession { http }
 
-    /// For `JarvisAPI` (Copilot port): the paired server and the auth headers.
-    /// Nonisolated (Keychain reads are thread-safe) so background actors can call them.
+    /// The paired server and its auth headers: the session cookie plus, when the
+    /// tunnel needs one, the Cloudflare Access service token. Nonisolated (Keychain
+    /// reads are thread-safe) so background actors can call them.
     nonisolated func apiBaseURL() -> URL? {
         var text = (Keychain.read("bridgeServerURL") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
@@ -223,31 +220,11 @@ final class BridgeClient: NSObject, ObservableObject {
         return (id, secret)
     }
 
-    private func baseURL() -> URL? {
-        var text = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
-        if !text.contains("://") { text = "https://" + text }
-        while text.hasSuffix("/") { text.removeLast() }
-        return URL(string: text)
-    }
-
-    /// Session cookie plus, when the server handed us one at pairing, the Cloudflare
-    /// Access service token its tunnel requires for non-browser clients.
-    private func authHeaders() -> [String: String] {
-        var h: [String: String] = [:]
-        if let cookie = sessionCookie { h["Cookie"] = "hermes_session=\(cookie)" }
-        if let id = cfClientID, let secret = cfClientSecret {
-            h["CF-Access-Client-Id"] = id
-            h["CF-Access-Client-Secret"] = secret
-        }
-        return h
-    }
-
     // MARK: Pairing
 
     /// Claims a pairing code from JarvisCopilot and stores the resulting session.
     func pair(code: String) async throws {
-        guard let base = baseURL() else {
+        guard let base = apiBaseURL() else {
             throw BridgeError.message("Set the server URL first")
         }
         status = .pairing
@@ -257,7 +234,7 @@ final class BridgeClient: NSObject, ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Carries a Cloudflare service token if one is already stored, so re-pairing
         // against an Access-protected tunnel still clears the edge.
-        for (k, v) in authHeaders() where k.hasPrefix("CF-") {
+        for (k, v) in apiAuthHeaders() where k.hasPrefix("CF-") {
             request.setValue(v, forHTTPHeaderField: k)
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: [
@@ -293,9 +270,7 @@ final class BridgeClient: NSObject, ObservableObject {
 
         enabled = true
         connect()
-        #if canImport(UIKit)
         PushService.shared.registerIfPaired()
-        #endif
     }
 
     private static func sessionCookie(from response: HTTPURLResponse, url: URL) -> String? {
@@ -339,18 +314,14 @@ final class BridgeClient: NSObject, ObservableObject {
     }
 
     private func deviceLabel() -> String {
-        #if canImport(UIKit)
         return "JarvisCopilot (iPhone)"
-        #else
-        return "JarvisCopilot (Mac)"
-        #endif
     }
 
     // MARK: Connection
 
     func connect() {
         syncKeepalive()
-        guard enabled, isPaired, let base = baseURL() else { return }
+        guard enabled, isPaired, let base = apiBaseURL() else { return }
         guard socket == nil else { return }
 
         var components = URLComponents(url: base.appendingPathComponent("api/devices/bridge/ws"),
@@ -360,7 +331,7 @@ final class BridgeClient: NSObject, ObservableObject {
 
         status = .connecting
         var request = URLRequest(url: wsURL)
-        for (k, v) in authHeaders() { request.setValue(v, forHTTPHeaderField: k) }
+        for (k, v) in apiAuthHeaders() { request.setValue(v, forHTTPHeaderField: k) }
 
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
@@ -379,7 +350,6 @@ final class BridgeClient: NSObject, ObservableObject {
 
     func disconnect() {
         pingTask?.cancel(); pingTask = nil
-        pollTask?.cancel(); pollTask = nil
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
         session?.invalidateAndCancel()
@@ -535,11 +505,11 @@ final class BridgeClient: NSObject, ObservableObject {
 
     @discardableResult
     private func postJSON(path: String, body: [String: Any]) async throws -> [String: Any] {
-        guard let base = baseURL() else { throw BridgeError.message("No server URL") }
+        guard let base = apiBaseURL() else { throw BridgeError.message("No server URL") }
         var request = URLRequest(url: base.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        for (k, v) in authHeaders() { request.setValue(v, forHTTPHeaderField: k) }
+        for (k, v) in apiAuthHeaders() { request.setValue(v, forHTTPHeaderField: k) }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await http.data(for: request)
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]

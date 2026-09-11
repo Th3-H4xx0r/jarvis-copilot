@@ -35,7 +35,6 @@ enum WearableKeepAlive {
     static let idleGraceSeconds: TimeInterval = 25
 }
 
-#if canImport(SwiftUI)
 import SwiftUI
 
 /// The "Connection Keep Alive" row, identical on every wearable's settings
@@ -65,4 +64,3 @@ struct WearableKeepAliveToggle: View {
         + "something needs it — a command, an automation, or this screen — which "
         + "avoids the repeated reconnects and saves battery on both sides."
 }
-#endif

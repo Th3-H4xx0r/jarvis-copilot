@@ -65,7 +65,7 @@ struct CodingLaunchSheet: View {
                 // suggestion back out so a hand-typed path is never clobbered.
                 .onChange(of: pickedProject) { previous, next in
                     let was = store.projects.first { $0.id == previous }?.repoPath ?? ""
-                    if CodingUI.trim(cwd).isEmpty || cwd == was {
+                    if jcTrim(cwd).isEmpty || cwd == was {
                         cwd = store.projects.first { $0.id == next }?.repoPath ?? ""
                     }
                 }
@@ -147,15 +147,15 @@ struct CodingLaunchSheet: View {
         if let target {
             session = await store.launchInProject(target.id,
                                                   cwd: dir.isEmpty ? nil : dir,
-                                                  title: CodingUI.trim(title), prompt: task,
-                                                  model: CodingUI.trim(model), host: host,
+                                                  title: jcTrim(title), prompt: task,
+                                                  model: jcTrim(model), host: host,
                                                   skipPermissions: skipPerms, sync: sync)
         } else {
             session = await store.launch(cwd: dir,
                                          // Send both keys so either server naming works.
                                          repoPath: dir, worktree: worktree,
-                                         title: CodingUI.trim(title), prompt: task,
-                                         model: CodingUI.trim(model), host: host,
+                                         title: jcTrim(title), prompt: task,
+                                         model: jcTrim(model), host: host,
                                          skipPermissions: skipPerms, sync: sync)
         }
         if session != nil { dismiss() }

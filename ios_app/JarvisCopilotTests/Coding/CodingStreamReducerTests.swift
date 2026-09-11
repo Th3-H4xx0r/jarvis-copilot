@@ -252,8 +252,8 @@ final class CodingStreamReducerTests: XCTestCase {
         XCTAssertEqual(CodingTerminalEvent(["event": "terminal_closed"]), .closed(reason: ""))
         XCTAssertEqual(CodingTerminalEvent(["event": "terminal_error", "error": "pty gone"]),
                        .failed(message: "pty gone"))
-        XCTAssertEqual(CodingTerminalEvent(["event": "ping"]), .other("ping"))
-        XCTAssertEqual(CodingTerminalEvent([:]), .other("message"))
+        XCTAssertEqual(CodingTerminalEvent(["event": "ping"]), .other)
+        XCTAssertEqual(CodingTerminalEvent([:]), .other)
     }
 
     func testCloseNoticesExplainWhatHappened() {

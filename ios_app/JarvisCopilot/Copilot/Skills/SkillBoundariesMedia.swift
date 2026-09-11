@@ -170,17 +170,3 @@ final class DefaultAudioPlayer: AudioPlaying {
 }
 
 // MARK: - Camera / library
-
-/// `take_photo` / `pick_photo` need a UI presenter (`UIImagePickerController` or
-/// `PHPickerViewController`), which the skills wave deliberately doesn't own.
-///
-/// TODO(ui-wave): replace with a presenter that pushes the picker from the
-/// active scene and resumes a continuation with the chosen image. The skill,
-/// its schema and its result shape are already final — only this boundary
-/// changes.
-final class UnavailablePhotoPicker: PhotoPicking {
-    func pick(_ source: PhotoSource) async throws -> CapturedImage? {
-        throw SkillError.unavailable(
-            "the camera/library picker is not wired up in this build yet")
-    }
-}

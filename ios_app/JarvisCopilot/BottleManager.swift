@@ -244,32 +244,15 @@ final class BottleManager: NSObject, ObservableObject {
     /// setting. Called on connect and whenever the user flips that toggle.
     func refreshRegistryMembership() {
         guard let device = exposedDevice else { return }
-        // Pin the identity while we have a real one, so this device keeps the
-        // same id after the link drops and can be re-registered offline.
-        WearableIdentity.remember(device.deviceID, for: WearableKeepAlive.bottle)
-        let shouldShare = BridgeClient.isExposed(device.deviceID)
-        let isShared = DeviceRegistry.shared.device(id: device.deviceID) != nil
-        guard shouldShare != isShared else { return }
-        if shouldShare {
-            DeviceRegistry.shared.register(device)
-            BridgeClient.remember(deviceID: device.deviceID, model: VsitooS1Pro.model)
-        } else {
-            DeviceRegistry.shared.remove(deviceID: device.deviceID)
-            // Opted out, as opposed to merely offline.
-            BridgeClient.forget(deviceID: device.deviceID)
-        }
-        BridgeClient.shared.sendRegistration()
+        DeviceRegistry.shared.syncMembership(of: device, identity: WearableKeepAlive.bottle,
+                                             model: VsitooS1Pro.model)
     }
 
     /// The stable id this bottle is exposed under, for the settings toggle.
     var exposedDeviceID: String? { exposedDevice?.deviceID }
 
-    /// Register this device's catalogue with no live link.
-    ///
-    /// Registration used to follow the Bluetooth connection, so between app launch
-    /// and the first successful connect the agent had no skills for this device at
-    /// all — not a failing tool, no tool. `invoke` already reconnects on demand, so
-    /// the catalogue is what needed to stop disappearing.
+    /// Register this device's catalogue with no live link: `invoke` reconnects on
+    /// demand, so Jarvis keeps the skills between launch and the first connect.
     func publishRemembered() {
         if exposedDevice == nil {
             guard WearableIdentity.remembered(WearableKeepAlive.bottle) != nil else { return }

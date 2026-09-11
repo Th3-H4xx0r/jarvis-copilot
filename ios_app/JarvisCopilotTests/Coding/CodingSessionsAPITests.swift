@@ -34,6 +34,18 @@ final class CodingSessionsAPITests: XCTestCase {
         XCTAssertEqual(sessions.map(\.id), ["a", "b"])
     }
 
+    func testGetUnwrapsOrAcceptsABareSession() async throws {
+        let (api, t) = makeAPI()
+        t.enqueue(json: ["session": ["id": "a"], "subagents": []])
+        let wrapped = try await api.get("a")
+        assertRequest(t, "GET", "/api/coding/session/a")
+        XCTAssertEqual(wrapped.id, "a")
+
+        t.enqueue(json: ["id": "b"])
+        let bare = try await api.get("b")
+        XCTAssertEqual(bare.id, "b")
+    }
+
     func testUsageEndpointHandlesNull() async throws {
         let (api, t) = makeAPI()
         t.enqueue(json: ["usage": ["five_hour_pct": 10]])
@@ -289,7 +301,7 @@ final class CodingSessionsAPITests: XCTestCase {
     func testGetSyncAndRefreshSync() async throws {
         let (api, t) = makeAPI()
         t.enqueue(json: ["session": ["id": "s1", "status": "running"]])
-        let awaited9 = try await api.get("s1").session.status
+        let awaited9 = try await api.get("s1").status
         XCTAssertEqual(awaited9, "running")
         assertRequest(t, "GET", "/api/coding/session/s1")
 
@@ -482,7 +494,6 @@ final class CodingSessionsAPITests: XCTestCase {
 
         event: terminal_closed
         data: {"reason":"ended"}
-
 
         """)
         let events = try await collect(api.terminalOutput("s1"))

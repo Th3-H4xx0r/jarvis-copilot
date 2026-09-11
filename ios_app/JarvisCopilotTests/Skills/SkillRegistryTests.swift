@@ -28,22 +28,13 @@ final class SkillRegistryTests: XCTestCase {
         XCTAssertNil(r.find("nope"))
     }
 
-    func testManifestIsTheBridgeWireShape() throws {
-        let r = SkillRegistry(store: MemoryKeyValueStore(), skills: [skill("a")])
-        let entry = try XCTUnwrap(r.manifest().first)
-        XCTAssertEqual(Set(entry.keys), ["name", "description", "input_schema"])
-        XCTAssertEqual(entry["name"] as? String, "a")
-        XCTAssertTrue(JSONSerialization.isValidJSONObject(entry))
-    }
-
     // MARK: enable / disable
 
-    func testDisablingHidesASkillFromTheManifestAndCapabilities() {
+    func testDisablingHidesASkillFromTheCapabilities() {
         let r = SkillRegistry(store: MemoryKeyValueStore(), skills: [skill("a"), skill("b")])
         r.setEnabled(false, for: "a")
         XCTAssertFalse(r.isEnabled("a"))
         XCTAssertEqual(r.enabledNames, ["b"])
-        XCTAssertEqual(r.manifest().compactMap { $0["name"] as? String }, ["b"])
         XCTAssertEqual(r.capabilities().map(\.name), ["b"])
         // …but it is still registered, so a settings screen can list it.
         XCTAssertNotNil(r.find("a"))
@@ -88,15 +79,6 @@ final class SkillRegistryTests: XCTestCase {
         XCTAssertEqual(second.enabledNames, ["a"])
     }
 
-    func testSetDisabledReplacesTheWholeSet() {
-        let store = MemoryKeyValueStore()
-        let r = SkillRegistry(store: store, skills: [skill("a"), skill("b"), skill("c")])
-        r.setDisabled(["a", "c"])
-        XCTAssertEqual(r.enabledNames, ["b"])
-        r.setDisabled([])
-        XCTAssertEqual(r.enabledNames, ["a", "b", "c"])
-    }
-
     /// The Dart original treated corrupt exactly like absent, which fails OPEN:
     /// one bad byte re-enabled every skill the user had switched off, and the
     /// next write overwrote their list with `[]`. Fail closed instead.
@@ -108,7 +90,6 @@ final class SkillRegistryTests: XCTestCase {
             XCTAssertEqual(r.disabled, ["a", "b"], junk)
             XCTAssertFalse(r.isEnabled("a"), junk)
             XCTAssertTrue(r.enabledNames.isEmpty, junk)
-            XCTAssertTrue(r.manifest().isEmpty, junk)
             // And the bad value is left alone — nothing auto-corrects it.
             XCTAssertEqual(store.string(SkillRegistry.disabledKey), junk)
         }
@@ -126,18 +107,7 @@ final class SkillRegistryTests: XCTestCase {
         XCTAssertEqual(outcome.error, "skill disabled by user")
     }
 
-    /// An explicit user choice is what replaces the unreadable value.
-    func testAnExplicitChoiceRecoversFromACorruptStoredValue() {
-        let store = MemoryKeyValueStore([SkillRegistry.disabledKey: "not json"])
-        let r = SkillRegistry(store: store, skills: [skill("a"), skill("b")])
-        r.setDisabled(["a"])
-        XCTAssertFalse(r.disabledUnreadable)
-        XCTAssertEqual(r.disabled, ["a"])
-        XCTAssertEqual(r.enabledNames, ["b"])
-        XCTAssertEqual(store.string(SkillRegistry.disabledKey), "[\"a\"]")
-    }
-
-    func testTogglingOneSkillAlsoRecoversFromACorruptStoredValue() {
+    func testTogglingOneSkillRecoversFromACorruptStoredValue() {
         let store = MemoryKeyValueStore([SkillRegistry.disabledKey: "not json"])
         let r = SkillRegistry(store: store, skills: [skill("a"), skill("b")])
         r.setEnabled(false, for: "a")

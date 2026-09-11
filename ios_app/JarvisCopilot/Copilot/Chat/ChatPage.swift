@@ -64,12 +64,10 @@ struct ChatPage: View {
             // Markdown links in a reply are model output; anything that is not
             // http/https/mailto has to be confirmed (security M5).
             .chatLinkGuard()
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             // Transparent chrome so the aurora runs behind the bar, as the
             // Flutter page does with `extendBodyBehindAppBar`.
             .toolbarBackground(.hidden, for: .navigationBar)
-            #endif
             .toolbar { toolbar }
         }
         .task {

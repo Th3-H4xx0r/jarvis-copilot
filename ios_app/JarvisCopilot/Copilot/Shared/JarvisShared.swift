@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Identifiers and paths shared by the app and the `JarvisWidget` extension.
@@ -45,6 +46,12 @@ enum JarvisShared {
         let images = dir.appendingPathComponent("images", isDirectory: true)
         try? fileManager.createDirectory(at: images, withIntermediateDirectories: true)
         return images
+    }
+
+    /// The cached file name for a remote island image: the hex SHA-256 of its
+    /// URL. The app downloads under this name and the widget reads it back.
+    static func islandImageFileName(for url: String) -> String {
+        SHA256.hash(data: Data(url.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     static func defaultContainer(_ fileManager: FileManager = .default) -> URL? {

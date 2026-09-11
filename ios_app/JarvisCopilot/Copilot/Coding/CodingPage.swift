@@ -160,14 +160,6 @@ struct CodingPage: View {
     }
 }
 
-/// Telling the Live Activity that the user is looking at Coding.
-@MainActor
-protocol CodingVisibilityReporting: AnyObject {
-    func setCodingVisible(_ visible: Bool)
-}
-
-extension LiveActivityCoordinator: CodingVisibilityReporting {}
-
 /// Everything that has to hear about the Coding tab becoming (in)visible, in one
 /// place so it can be asserted without rendering a view.
 ///
@@ -180,20 +172,12 @@ extension LiveActivityCoordinator: CodingVisibilityReporting {}
 struct CodingVisibility {
     let flag: CodingVisibilityFlag
     let store: CodingStore
-    let liveActivity: any CodingVisibilityReporting
-
-    init(flag: CodingVisibilityFlag, store: CodingStore,
-         liveActivity: (any CodingVisibilityReporting)? = nil) {
-        self.flag = flag
-        self.store = store
-        self.liveActivity = liveActivity ?? LiveActivityCoordinator.shared
-    }
 
     func set(_ visible: Bool) {
         flag.set(visible)
         store.setListPolling(visible)
         store.setDetailPolling(visible)
-        liveActivity.setCodingVisible(visible)
+        LiveActivityCoordinator.shared.setCodingVisible(visible)
     }
 }
 

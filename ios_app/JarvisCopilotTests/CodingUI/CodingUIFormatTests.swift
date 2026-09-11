@@ -152,7 +152,7 @@ final class CodingUIFormatTests: XCTestCase {
 
     func testApprovalMetaCountsTheQueue() {
         let p = PendingPermission(requestId: "r1", tool: "Bash", summary: "x",
-                                  sessionId: "s1", cwd: "/Users/me/code/jarvis")
+                                  cwd: "/Users/me/code/jarvis")
         XCTAssertEqual(CodingUI.approvalMeta(p, extra: 0), "jarvis")
         XCTAssertEqual(CodingUI.approvalMeta(p, extra: 2), "jarvis · +2")
     }

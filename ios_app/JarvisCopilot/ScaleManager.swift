@@ -80,7 +80,7 @@ final class ScaleManager: NSObject, ObservableObject {
         latestObservation = nil
         lastStable = nil
         frameAccumulator.reset()
-        print("[Scale] connecting \(scale.name) \(scale.id)")
+        JcLog.devices.debug("scale connecting \(scale.name) \(scale.id)")
         scale.peripheral.delegate = self
         central.connect(scale.peripheral)
     }
@@ -129,14 +129,13 @@ final class ScaleManager: NSObject, ObservableObject {
     /// to timestamp a stable weighing and begin its normal live-reporting session.
     private func sendTimeSync() {
         guard let peripheral, let writeCharacteristic else {
-            print("[Scale] cannot send time sync: command characteristic unavailable")
+            JcLog.devices.error("scale time sync skipped: no command characteristic")
             return
         }
         let frame = ScaleProtocol.makeTimeSyncFrame(sequence: nextSequence)
         nextSequence &+= 1
         let type: CBCharacteristicWriteType = writeCharacteristic.properties.contains(.write) ? .withResponse : .withoutResponse
-        let hex = frame.map { String(format: "%02X", $0) }.joined()
-        print("[Scale] writing time sync to \(writeCharacteristic.uuid): \(hex)")
+        JcLog.devices.debug("scale time sync to \(writeCharacteristic.uuid)")
         peripheral.writeValue(Data(frame), for: writeCharacteristic, type: type)
     }
 
@@ -149,28 +148,12 @@ final class ScaleManager: NSObject, ObservableObject {
     /// The connected scale still works locally when sharing is off.
     func refreshRegistryMembership() {
         guard let device = exposedDevice else { return }
-        // Pin the identity while we have a real one, so this device keeps the
-        // same id after the link drops and can be re-registered offline.
-        WearableIdentity.remember(device.deviceID, for: WearableKeepAlive.scale)
-        let shouldShare = BridgeClient.isExposed(device.deviceID)
-        let isShared = DeviceRegistry.shared.device(id: device.deviceID) != nil
-        guard shouldShare != isShared else { return }
-        if shouldShare {
-            DeviceRegistry.shared.register(device)
-            BridgeClient.remember(deviceID: device.deviceID, model: Esf551Scale.model)
-        } else {
-            DeviceRegistry.shared.remove(deviceID: device.deviceID)
-            BridgeClient.forget(deviceID: device.deviceID)
-        }
-        BridgeClient.shared.sendRegistration()
+        DeviceRegistry.shared.syncMembership(of: device, identity: WearableKeepAlive.scale,
+                                             model: Esf551Scale.model)
     }
 
-    /// Register this device's catalogue with no live link.
-    ///
-    /// Registration used to follow the Bluetooth connection, so between app launch
-    /// and the first successful connect the agent had no skills for this device at
-    /// all — not a failing tool, no tool. `invoke` already reconnects on demand, so
-    /// the catalogue is what needed to stop disappearing.
+    /// Register this device's catalogue with no live link: `invoke` reconnects on
+    /// demand, so Jarvis keeps the skills between launch and the first connect.
     func publishRemembered() {
         if exposedDevice == nil {
             guard WearableIdentity.remembered(WearableKeepAlive.scale) != nil else { return }
@@ -243,7 +226,7 @@ extension ScaleManager: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         Task { @MainActor in
-            print("[Scale] connected; discovering services")
+            JcLog.devices.debug("scale connected; discovering services")
             state = .discovering
             peripheral.discoverServices([ScaleProtocol.primaryService, ScaleProtocol.alternateService])
         }
@@ -256,7 +239,7 @@ extension ScaleManager: CBCentralManagerDelegate {
 extension ScaleManager: CBPeripheralDelegate {
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         Task { @MainActor in
-            print("[Scale] services \(peripheral.services?.map { $0.uuid.uuidString } ?? []) error=\(String(describing: error))")
+            JcLog.devices.debug("scale services \(peripheral.services?.map { $0.uuid.uuidString } ?? []) error=\(String(describing: error))")
             for service in peripheral.services ?? [] {
                 if service.uuid == ScaleProtocol.primaryService || service.uuid == ScaleProtocol.alternateService {
                     // The ESF551 reports FFF1 as its stream and FFF2 as its command
@@ -269,7 +252,7 @@ extension ScaleManager: CBPeripheralDelegate {
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         Task { @MainActor in
             let details = service.characteristics?.map { "\($0.uuid.uuidString):\($0.properties.rawValue)" } ?? []
-            print("[Scale] characteristics \(service.uuid): \(details) error=\(String(describing: error))")
+            JcLog.devices.debug("scale characteristics \(service.uuid): \(details) error=\(String(describing: error))")
             guard let characteristics = service.characteristics else { return }
             let stream = characteristics.first { $0.properties.contains(.notify) || $0.properties.contains(.indicate) }
                 ?? characteristics.first { $0.uuid == ScaleProtocol.primaryWrite || $0.uuid == ScaleProtocol.alternateWrite }
@@ -278,7 +261,7 @@ extension ScaleManager: CBPeripheralDelegate {
             notifyCharacteristic = stream
             writeCharacteristic = command
             guard stream.properties.contains(.notify) || stream.properties.contains(.indicate) else {
-                print("[Scale] stream \(stream.uuid) has no notify/indicate property")
+                JcLog.devices.error("scale stream \(stream.uuid) has no notify/indicate property")
                 return
             }
             peripheral.setNotifyValue(true, for: stream)
@@ -286,7 +269,7 @@ extension ScaleManager: CBPeripheralDelegate {
     }
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
         Task { @MainActor in
-            print("[Scale] notify \(characteristic.uuid) on=\(characteristic.isNotifying) error=\(String(describing: error))")
+            JcLog.devices.debug("scale notify \(characteristic.uuid) on=\(characteristic.isNotifying) error=\(String(describing: error))")
             if error == nil, characteristic.isNotifying {
                 state = .ready
                 publish()
@@ -297,14 +280,8 @@ extension ScaleManager: CBPeripheralDelegate {
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard let value = characteristic.value else { return }
         Task { @MainActor in
-            let bytes = Array(value)
-            let hex = bytes.map { String(format: "%02X", $0) }.joined()
-            let frames = frameAccumulator.append(bytes)
-            print("[Scale] notify chunk=\(hex) completeFrames=\(frames.count)")
-            for frame in frames {
-                let observation = ScaleProtocol.parse(frame)
-                print("[Scale] frame parsed=\(observation != nil)")
-                if let observation { record(observation) }
+            for frame in frameAccumulator.append(Array(value)) {
+                if let observation = ScaleProtocol.parse(frame) { record(observation) }
             }
         }
     }

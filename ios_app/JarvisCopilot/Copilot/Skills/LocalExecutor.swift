@@ -492,7 +492,5 @@ final class LocalExecutor {
 /// Debug helper — one line per classification, so a mis-route is visible in the
 /// device log without dumping the transcript.
 func debugLogLocalDecision(_ d: LocalDecision) {
-    #if DEBUG
-    print("[local-exec] \(d)")
-    #endif
+    JcLog.skills.debug("local decision: \(String(describing: d))")
 }

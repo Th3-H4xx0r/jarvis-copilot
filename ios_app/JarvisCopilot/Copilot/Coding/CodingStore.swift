@@ -20,18 +20,13 @@ final class CodingStore {
 
     let api: CodingSessionsAPI
     private let isVisible: () -> Bool
-    private let now: () -> Date
 
     init(api: CodingSessionsAPI = CodingSessionsAPI(),
          attachments: CodingAttachments? = nil,
          isVisible: @escaping () -> Bool = { true },
-         now: @escaping () -> Date = Date.init,
-         detailPollEvery: TimeInterval = CodingStore.detailPollInterval,
          listPollEvery: TimeInterval = CodingStore.listPollInterval) {
         self.api = api
         self.isVisible = isVisible
-        self.now = now
-        self.detailPollEvery = detailPollEvery
         self.listPollEvery = listPollEvery
         self.attachments = attachments ?? CodingAttachments(api: api)
     }
@@ -44,8 +39,7 @@ final class CodingStore {
 
     static let detailPollInterval: TimeInterval = 4
     static let listPollInterval: TimeInterval = 5
-    /// Injectable so the poll-loop tests don't have to sleep for real seconds.
-    private let detailPollEvery: TimeInterval
+    /// Injectable so the list-poll tests don't have to sleep for real seconds.
     private let listPollEvery: TimeInterval
 
     /// How many consecutive "transient" failures before a poll-driven blip stops
@@ -118,7 +112,7 @@ final class CodingStore {
         if let existing = sessionStores[id] { return existing }
         let store = CodingSessionStore(sessionId: id, api: api,
                                        attachments: attachments,
-                                       isVisible: isVisible, now: now)
+                                       isVisible: isVisible)
         sessionStores[id] = store
         evictStaleSessionStores()
         return store
@@ -277,10 +271,10 @@ final class CodingStore {
         guard let id = selectedId else { return }
         defer { if selectedId == id { detailLoading = false } }
         do {
-            let detail = try await api.get(id)
+            let session = try await api.get(id)
             // Guard against a late response after the user switched/cleared.
             guard selectedId == id else { return }
-            selected = detail.session
+            selected = session
             detailFailures = 0
             error = nil
         } catch {
@@ -313,9 +307,8 @@ final class CodingStore {
             return
         }
         guard selectedId == id else { return }
-        // Only adopt a MEANINGFUL change: `last_sync_at`/`healed` tick every poll
-        // and re-rendering the sync card for them was pure churn (Flutter skipped
-        // `notifyListeners` for exactly this reason).
+        // Only adopt a MEANINGFUL change: the server's timestamps tick every
+        // poll, and re-rendering the sync card for them is pure churn.
         if Self.syncChanged(sync, next) { sync = next }
     }
 
@@ -365,7 +358,7 @@ final class CodingStore {
             await self?.refreshSyncStatus()
             while !Task.isCancelled {
                 guard let self else { return }
-                try? await Task.sleep(nanoseconds: UInt64(self.detailPollEvery * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: UInt64(CodingStore.detailPollInterval * 1_000_000_000))
                 // Stop the loop once the store is gone — a `self?` no-op would
                 // keep the timer spinning for the life of the process.
                 if Task.isCancelled { return }

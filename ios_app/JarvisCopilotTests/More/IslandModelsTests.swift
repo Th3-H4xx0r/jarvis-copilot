@@ -137,4 +137,25 @@ final class IslandModelsTests: XCTestCase {
         XCTAssertEqual(IslandCatalogEntry(json: ["id": "x"]).version, 1)
         XCTAssertEqual(IslandCatalogEntry(json: ["id": "x"]).priority, 0)
     }
+
+    func testCatalogFromJSONWiresDesignsCatalogSelectionAndData() {
+        let catalog = IslandCatalog(json: [
+            "designs": [[
+                "id": "deploy", "name": "Deploy", "version": 2,
+                "presentations": ["expanded": ["type": "divider"]],
+            ]],
+            "catalog": [
+                ["id": "voice", "builtin": true, "priority": 100],
+                ["id": "deploy", "priority": 10],
+            ],
+            "selection": ["mode": "pinned", "pinnedId": "deploy"],
+            "data": ["deploy": ["pct": 62]],
+        ])
+        XCTAssertEqual(catalog.designs.count, 1)
+        XCTAssertEqual(catalog.design(id: "deploy")?.version, 2)
+        XCTAssertEqual(catalog.entries.first { $0.id == "voice" }?.builtin, true)
+        XCTAssertEqual(catalog.selection.pinnedID, "deploy")
+        XCTAssertEqual(MoreJSON.int(catalog.data(for: "deploy")["pct"]), 62)
+        XCTAssertTrue(catalog.data(for: "missing").isEmpty)
+    }
 }

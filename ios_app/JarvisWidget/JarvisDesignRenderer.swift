@@ -2,7 +2,6 @@ import Foundation
 import SwiftUI
 import WidgetKit
 
-@available(iOS 16.2, *)
 final class JCDesignRenderer {
     private var count = 0
     // Generous safety clamps (not a layout limit): the expanded island + lock
@@ -181,7 +180,7 @@ final class JCDesignRenderer {
         let sz = n.style?.size.map { CGFloat($0) } ?? 16
         let col = n.style?.color.flatMap(jcParseColor) ?? n.style?.tint.flatMap(jcParseColor) ?? .white
         let img = Image(systemName: name).font(.system(size: sz)).foregroundStyle(col)
-        if #available(iOS 17.0, *), let effect = n.string("effect") {
+        if let effect = n.string("effect") {
             switch effect {
             case "pulse": img.symbolEffect(.pulse, options: .repeating)
             case "bounce": img.symbolEffect(.bounce, options: .repeating)
@@ -600,7 +599,6 @@ struct JCAnyShape: Shape {
 /// Renders the cached design for `mode == "custom"`. Loads `design-<id>.json`
 /// from the App Group; decodes; falls back to (app name + data.title) when the
 /// design is missing/corrupt. Never crashes, never blank.
-@available(iOS 16.2, *)
 struct JCDesignView: View {
     let st: JarvisActivityAttributes.ContentState
     /// Which presentation node to render. `.lockScreen` uses lockScreen ?? expanded.
@@ -655,7 +653,6 @@ struct JCDesignView: View {
 
 /// Fallback when the design is missing/corrupt: the app name + an optional
 /// `data.title` so the activity is never blank and never crashes.
-@available(iOS 16.2, *)
 struct JCDesignFallback: View {
     let st: JarvisActivityAttributes.ContentState
     var compact: Bool = false

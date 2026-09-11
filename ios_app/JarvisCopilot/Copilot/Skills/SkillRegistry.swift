@@ -87,9 +87,6 @@ final class SkillRegistry {
 
     var enabledNames: [String] { names.filter(isEnabled) }
 
-    /// The manifest the bridge sends in its `register` frame.
-    func manifest() -> [[String: Any]] { enabled.map(\.manifest) }
-
     /// The same catalogue as `DeviceCapability` values, for `DeviceRegistry`.
     func capabilities() -> [DeviceCapability] { enabled.map(\.capability) }
 
@@ -108,14 +105,6 @@ final class SkillRegistry {
         let changed = enabled ? disabledNames.remove(name) != nil
                               : disabledNames.insert(name).inserted
         guard changed || recovered else { return }
-        persist()
-    }
-
-    /// Replace the whole disabled set (what a settings screen saves).
-    func setDisabled(_ names: Set<String>) {
-        let recovered = clearUnreadable()
-        guard names != disabledNames || recovered else { return }
-        disabledNames = names
         persist()
     }
 

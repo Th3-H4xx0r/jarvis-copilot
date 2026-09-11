@@ -1,9 +1,7 @@
 import Foundation
-#if canImport(UIKit)
 import UIKit
 import Photos
 import PhotosUI
-#endif
 
 // MARK: - Boundary: reading the library without a picker
 
@@ -26,20 +24,12 @@ protocol PhotoLibraryReading: Sendable {
     func recent(index: Int, maxPixels: Int) async throws -> LibraryPhoto?
 }
 
-struct UnavailablePhotoLibrary: PhotoLibraryReading {
-    func requestAuthorization() async throws -> Bool { false }
-    func recent(index: Int, maxPixels: Int) async throws -> LibraryPhoto? {
-        throw SkillError.unavailable("the photo library needs UIKit")
-    }
-}
-
 /// Shrink + re-encode so a photo fits a chat/voice turn: a 48 MP HEIC is
 /// tens of megabytes; ~1280 px JPEG is a few hundred KB and plenty for vision.
 enum PhotoEncoding {
     static let defaultMaxPixels = 1280
     static let jpegQuality: CGFloat = 0.82
 
-    #if canImport(UIKit)
     static func jpeg(_ image: UIImage, maxPixels: Int) -> Data? {
         let longest = max(image.size.width, image.size.height)
         let scale = longest > CGFloat(maxPixels) ? CGFloat(maxPixels) / longest : 1
@@ -52,10 +42,8 @@ enum PhotoEncoding {
         }
         return out.jpegData(compressionQuality: jpegQuality)
     }
-    #endif
 }
 
-#if canImport(UIKit)
 final class DefaultPhotoLibrary: PhotoLibraryReading {
     func requestAuthorization() async throws -> Bool {
         switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
@@ -202,4 +190,3 @@ private final class PickerDelegate: NSObject, PHPickerViewControllerDelegate,
         finish(picker, nil)
     }
 }
-#endif

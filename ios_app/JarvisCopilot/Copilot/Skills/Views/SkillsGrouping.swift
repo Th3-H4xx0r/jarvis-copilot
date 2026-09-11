@@ -10,25 +10,18 @@ struct SkillListItem: Identifiable, Equatable, Sendable {
     /// can't run silently.
     var requiresForeground: Bool
     var enabled: Bool
-    /// `LocalSkill` carries no category today, so this is always nil and the list
-    /// groups alphabetically. Kept as the seam for when skills gain one — the
-    /// grouping already switches on it.
-    var category: String?
 
     var id: String { name }
 
-    init(name: String, detail: String, requiresForeground: Bool = false,
-         enabled: Bool = true, category: String? = nil) {
+    init(name: String, detail: String, requiresForeground: Bool = false, enabled: Bool = true) {
         self.name = name
         self.detail = detail
         self.requiresForeground = requiresForeground
         self.enabled = enabled
-        self.category = category
     }
 }
 
-/// A titled run of rows: a category when the skills carry one, otherwise the
-/// initial letter.
+/// A titled run of rows sharing an initial letter.
 struct SkillSection: Identifiable, Equatable, Sendable {
     var title: String
     var items: [SkillListItem]
@@ -52,20 +45,12 @@ enum SkillsGrouping {
         items.filter { matches($0, query: query) }
     }
 
-    /// Group for display: by category when EVERY row has one, else by the
-    /// initial letter. Sections and rows are both sorted; a name that doesn't
-    /// start with a letter lands in "#".
+    /// Group for display by initial letter. Sections and rows are both sorted; a
+    /// name that doesn't start with a letter lands in "#".
     static func sections(_ items: [SkillListItem]) -> [SkillSection] {
-        guard !items.isEmpty else { return [] }
-        let byCategory = items.allSatisfy { ($0.category?.isEmpty == false) }
-        var buckets: [String: [SkillListItem]] = [:]
-        for item in items {
-            let key = byCategory ? (item.category ?? "") : initial(of: item.name)
-            buckets[key, default: []].append(item)
-        }
-        return buckets.keys.sorted().map { key in
-            SkillSection(title: key, items: buckets[key]!.sorted { $0.name < $1.name })
-        }
+        Dictionary(grouping: items) { initial(of: $0.name) }
+            .sorted { $0.key < $1.key }
+            .map { SkillSection(title: $0.key, items: $0.value.sorted { $0.name < $1.name }) }
     }
 
     /// The uppercase first letter of a name, or "#" when it doesn't start with one.

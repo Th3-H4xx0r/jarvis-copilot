@@ -1,4 +1,3 @@
-#if os(iOS)
 import ActivityKit
 import Foundation
 
@@ -7,7 +6,6 @@ import Foundation
 /// Shared between the app (which starts/ends the activity via ActivityKit)
 /// and the JarvisWidget extension (which renders it). Compiled into BOTH targets.
 /// The `ContentState` is the whole wire format between them.
-@available(iOS 16.2, *)
 struct JarvisActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
         /// Voice FSM: idle | listening | thinking | speaking | error.
@@ -79,4 +77,3 @@ struct JarvisActivityAttributes: ActivityAttributes {
     }
     var title: String = "JARVIS"
 }
-#endif

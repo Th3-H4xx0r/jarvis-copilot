@@ -108,12 +108,8 @@ struct ChatAttachmentChip: View {
     let onRemove: () -> Void
 
     private var thumbnail: Image? {
-        #if canImport(UIKit)
         guard let data = attachment.thumbnail, let image = UIImage(data: data) else { return nil }
         return Image(uiImage: image)
-        #else
-        return nil
-        #endif
     }
 
     private var glyph: String {

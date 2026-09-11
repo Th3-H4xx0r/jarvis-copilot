@@ -27,7 +27,7 @@ struct CodingChatComposer: View {
     }
 
     private var canSend: Bool {
-        enabled && !sending && (!CodingUI.trim(draft).isEmpty || !session.attachments.isEmpty)
+        enabled && !sending && (!jcTrim(draft).isEmpty || !session.attachments.isEmpty)
     }
 
     var body: some View {

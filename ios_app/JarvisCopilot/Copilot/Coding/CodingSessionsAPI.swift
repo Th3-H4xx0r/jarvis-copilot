@@ -211,9 +211,10 @@ struct CodingSessionsAPI {
         return CodingSession(json: CodingJSON.dict(reply["session"]) ?? reply)
     }
 
-    /// `GET /api/coding/session/{id}` → `{ session, … }`
-    func get(_ id: String) async throws -> CodingSessionDetail {
-        CodingSessionDetail(json: try await api.get("/api/coding/session/\(id)").object())
+    /// `GET /api/coding/session/{id}` → `{ session, … }`; a bare session is tolerated.
+    func get(_ id: String) async throws -> CodingSession {
+        let reply = try await api.get("/api/coding/session/\(id)").object()
+        return CodingSession(json: CodingJSON.dict(reply["session"]) ?? reply)
     }
 
     /// `POST /api/coding/session/{id}/resume` → `{ ok, session? }`. Relaunch a

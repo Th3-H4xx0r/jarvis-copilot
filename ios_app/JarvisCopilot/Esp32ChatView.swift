@@ -58,9 +58,7 @@ struct Esp32ChatView: View {
         }
         .background(Color.black.opacity(0.001))  // makes the whole area tappable for keyboard dismissal
         .navigationTitle(board.name)
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .toolbar {
             ToolbarItem(placement: .principal) { titleView }
             ToolbarItem(placement: .topBarTrailing) { modelMenu }
@@ -465,27 +463,6 @@ struct Esp32ChatView: View {
     }
 
 }
-
-/// Three dots rising in sequence — the "thinking" indicator.
-struct ThinkingDots: View {
-    var size: CGFloat = 7
-    @State private var phase = false
-
-    var body: some View {
-        HStack(spacing: size * 0.7) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle()
-                    .fill(Color.secondary)
-                    .frame(width: size, height: size)
-                    .offset(y: phase ? -size * 0.6 : size * 0.3)
-                    .opacity(phase ? 1 : 0.45)
-                    .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true).delay(Double(i) * 0.16), value: phase)
-            }
-        }
-        .onAppear { phase = true }
-    }
-}
-
 
 /// One conversation per board, kept for the app's lifetime so navigation never
 /// interrupts a reply. Persists the transcript per board.

@@ -117,9 +117,7 @@ struct ChatCodeBlock: View {
                 }
                 Spacer(minLength: 8)
                 Button {
-                    #if canImport(UIKit)
                     UIPasteboard.general.string = code
-                    #endif
                     withAnimation(.snappy) { copied = true }
                 } label: {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
@@ -186,12 +184,8 @@ struct ChatInlineImage: View {
     }
 
     static func image(from data: Data) -> Image? {
-        #if canImport(UIKit)
         guard let image = UIImage(data: data) else { return nil }
         return Image(uiImage: image)
-        #else
-        return nil
-        #endif
     }
 
     var body: some View {
@@ -281,16 +275,12 @@ struct ChatMarkdownTable: View {
 
     /// Single-line width of a cell's text, markdown markers stripped.
     private static func measure(_ text: String, bold: Bool) -> CGFloat {
-        #if canImport(UIKit)
         let plain = text.replacingOccurrences(of: "**", with: "")
             .replacingOccurrences(of: "`", with: "")
         let base = UIFont.preferredFont(forTextStyle: .subheadline)
         let font = bold ? UIFont.systemFont(ofSize: base.pointSize, weight: .semibold) : base
         let size = (plain as NSString).size(withAttributes: [.font: font])
         return ceil(size.width)
-        #else
-        return CGFloat(text.count) * 8
-        #endif
     }
 
     var body: some View {

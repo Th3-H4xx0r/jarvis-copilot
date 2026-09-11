@@ -25,9 +25,7 @@ struct ChatSessionsSheet: View {
         NavigationStack {
             content
                 .navigationTitle("Chats")
-                #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
-                #endif
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Button("Done") { dismiss() }

@@ -50,9 +50,7 @@ struct DeviceView: View {
             .padding(.bottom, 40)
         }
         .navigationTitle(bottle.name)
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         // Connect when this is a different bottle — OR the same bottle whose link
         // is down (dropped while we were away, or a connect that failed). The old
         // "different bottle only" test left the screen sitting on a dead link.

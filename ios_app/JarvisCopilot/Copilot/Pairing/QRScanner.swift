@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(AVFoundation)
 import AVFoundation
-#endif
 
 /// The camera boundary `PairStore` talks to. Behind a protocol so the pairing
 /// state machine can be driven from a test without a camera, a permission prompt
@@ -15,8 +13,6 @@ protocol QRScanning: AnyObject {
     /// Stop the camera. Safe to call when it was never started.
     func stop()
 }
-
-#if os(iOS)
 
 /// `AVCaptureMetadataOutput` behind `QRScanning`. No third-party scanner — the
 /// rest of the app is system-frameworks-only.
@@ -121,14 +117,3 @@ struct QRPreview: UIViewRepresentable {
     }
 }
 
-#else
-
-/// No camera off iOS — the manual code entry is the whole flow there.
-@MainActor
-final class CameraQRScanner: QRScanning {
-    private(set) var failureMessage: String? = "This device has no camera."
-    func start(onCode: @escaping (String) -> Void) {}
-    func stop() {}
-}
-
-#endif

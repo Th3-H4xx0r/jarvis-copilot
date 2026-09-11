@@ -40,9 +40,7 @@ struct Esp32DeviceView: View {
             .padding(.bottom, 40)
         }
         .navigationTitle(board.name)
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .onAppear {
             preference = Esp32Manager.linkPreference(for: deviceID)
             if manager.connected?.id != board.id { manager.connect(board) }
@@ -710,9 +708,7 @@ private struct Esp32WifiSheet: View {
                 }
             }
             .navigationTitle("Wi‑Fi network")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
             }
@@ -835,7 +831,6 @@ struct Esp32Card: View {
         }
     }
 }
-
 
 /// Icon, title and a right-aligned value on one line, with an optional secondary line
 /// beneath that wraps — long status text never collides with the title.

@@ -12,7 +12,7 @@ struct CodingToolCard: View {
     @State private var expanded = false
 
     private var isSubagent: Bool { tool.isSubagent }
-    private var hasOutput: Bool { !CodingUI.trim(tool.output).isEmpty }
+    private var hasOutput: Bool { !jcTrim(tool.output).isEmpty }
     private var tint: Color {
         if isSubagent { return tool.ok ? CodingUI.purple : JcTheme.danger }
         return tool.ok ? JcTheme.cyan : JcTheme.danger
@@ -145,7 +145,7 @@ struct CodingThinkingBubble: View {
     var body: some View {
         HStack {
             HStack(spacing: 10) {
-                CodingThinkingDots()
+                ThinkingDots(size: 6, color: CodingUI.green)
                 label
             }
             .padding(.horizontal, 14)
@@ -193,26 +193,5 @@ struct CodingThinkingBubble: View {
         a.font = .system(size: size, weight: weight, design: .monospaced)
         a.foregroundColor = color
         return a
-    }
-}
-
-/// Three dots rising in sequence. Named for this area: `ThinkingDots` already
-/// belongs to `Esp32ChatView`.
-struct CodingThinkingDots: View {
-    var size: CGFloat = 6
-    @State private var phase = false
-
-    var body: some View {
-        HStack(spacing: 5) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle()
-                    .fill(CodingUI.green.opacity(phase ? 1 : 0.35))
-                    .frame(width: size, height: size)
-                    .offset(y: phase ? -2.5 : 0)
-                    .animation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)
-                        .delay(Double(i) * 0.18), value: phase)
-            }
-        }
-        .onAppear { phase = true }
     }
 }

@@ -22,7 +22,6 @@ final class IslandPlanNotifier {
     /// pushes every ~5 s; without this the scheduler would be torn down and
     /// rebuilt on every tick.
     private var signature = ""
-    private var designID = ""
 
     init(notifier: (any Notifying)? = nil, now: (@MainActor () -> Date)? = nil) {
         self.notifier = notifier ?? DefaultNotifier()
@@ -39,7 +38,6 @@ final class IslandPlanNotifier {
         let next = "\(id)|\(IslandOffline.scheduledItemsSignature(items))"
         guard next != signature else { return }
         signature = next
-        designID = id
         guard !id.isEmpty, !items.isEmpty else {
             cancelAll()
             return

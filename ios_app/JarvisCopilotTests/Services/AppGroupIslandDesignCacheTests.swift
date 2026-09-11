@@ -136,9 +136,9 @@ final class AppGroupIslandDesignCacheTests: XCTestCase {
     }
 
     func testImageFileNamesAreAStableContentHash() {
-        let first = IslandImageCache.fileName(for: "https://x/1.png")
-        XCTAssertEqual(first, IslandImageCache.fileName(for: "https://x/1.png"))
-        XCTAssertNotEqual(first, IslandImageCache.fileName(for: "https://x/2.png"))
+        let first = JarvisShared.islandImageFileName(for: "https://x/1.png")
+        XCTAssertEqual(first, JarvisShared.islandImageFileName(for: "https://x/1.png"))
+        XCTAssertNotEqual(first, JarvisShared.islandImageFileName(for: "https://x/2.png"))
         XCTAssertEqual(first.count, 64, "sha256 hex — the widget derives the same name")
     }
 

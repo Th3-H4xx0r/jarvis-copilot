@@ -108,13 +108,12 @@ final class DefaultPhoneSkillInstaller: PhoneSkillInstalling {
 
 /// `VoiceStore` behind `VoiceLifecycle`.
 ///
-/// `main.dart` built its `VoiceController` lazily so the audio session was not
-/// configured until Voice was opened. Here the store's `init` allocates objects
-/// and installs one notification observer but configures NO audio session and
-/// starts NO mic (see `DefaultAudioSessionControlling.configureForConversation`,
-/// which is what actually claims the session), so resolving it at launch is
-/// cheap — and resolving it eagerly is what makes the live-activity attach and
-/// the background pause/resume actually reach the session.
+/// The store's `init` allocates objects and installs one notification observer
+/// but configures NO audio session and starts NO mic (see
+/// `DefaultAudioSessionControlling.configureForConversation`, which is what
+/// actually claims the session), so resolving it at launch is cheap — and
+/// resolving it eagerly is what makes the live-activity attach and the
+/// background pause/resume reach the session.
 @MainActor
 final class SharedVoiceLifecycle: VoiceLifecycle {
     private let store: VoiceStore
@@ -132,11 +131,9 @@ final class SharedVoiceLifecycle: VoiceLifecycle {
     }
 
     func ask(_ prompt: String) async {
-        // The Chat screen owns its own `ChatStore`, so there is no shared one to
-        // push into; sending through a private store still persists the turn
-        // server-side, and `ChatSyncBus` is what makes the open thread notice.
-        // Whoever lands the Chat screen should replace this by registering
-        // `ChatLaunchBus.shared.send`.
+        // Only used until the Chat screen registers `ChatLaunchBus.shared.send`. A
+        // private store still persists the turn server-side, and `ChatSyncBus` is
+        // what makes an open thread notice.
         let chat = ChatStore()
         await chat.send(prompt)
         ChatSyncBus.shared.sessionChanged(chat.sessionID)
@@ -145,9 +142,7 @@ final class SharedVoiceLifecycle: VoiceLifecycle {
 
 // MARK: - AppServices
 
-/// The app's startup sequence and its scene-phase fan-out — everything
-/// `main.dart` did before `runApp`, and everything its
-/// `didChangeAppLifecycleState` did afterwards.
+/// The app's startup sequence and its scene-phase fan-out.
 ///
 /// One place, called once, so the ordering constraints are visible: skills must
 /// be registered before the socket advertises them; the notification delegate
@@ -245,7 +240,7 @@ final class AppServices {
         // 2. The live bridge. Unpaired means there is nothing to connect to, and
         //    bridge mode off means the user asked us not to.
         if bridge.isPaired && bridge.isBridgeEnabled { bridge.connect() }
-        BridgeClient.shared.syncKeepaliveNow()
+        BridgeClient.shared.syncKeepalive()
 
         // 2b. The Bluetooth wearables (bottle, scale, ESP32) live for the whole
         //     app now, not just while the Devices tab shows them, so their
@@ -278,9 +273,7 @@ final class AppServices {
 
         // 8. Field metrics + the home-screen quick actions.
         metrics.register()
-        #if os(iOS)
         QuickAction.install()
-        #endif
 
         // 9. "Ask JARVIS" from Siri, until the Chat screen registers its own.
         if chatLaunch.send == nil {
@@ -304,7 +297,7 @@ final class AppServices {
 
     // MARK: - Scene phase
 
-    /// The whole `didChangeAppLifecycleState` fan-out.
+    /// The scene-phase fan-out.
     ///
     /// `AppLifecycle.isForeground` is set FIRST: the invoke runner reads it to
     /// decide whether a foreground-required skill can run now, and the drain

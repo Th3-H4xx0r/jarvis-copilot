@@ -2,7 +2,6 @@ import WidgetKit
 import SwiftUI
 import ActivityKit
 
-@available(iOS 16.2, *)
 func jcStateColor(_ s: String) -> Color {
     switch s {
     case "listening": return Color(red: 0.18, green: 0.72, blue: 1.0)  // cyan
@@ -13,7 +12,6 @@ func jcStateColor(_ s: String) -> Color {
     }
 }
 
-@available(iOS 16.2, *)
 func jcStateLabel(_ s: String) -> String {
     switch s {
     case "listening": return "Listening"
@@ -27,7 +25,6 @@ func jcStateLabel(_ s: String) -> String {
 /// The JARVIS orb: the real app-icon orb (circle-clipped) wrapped in a breathing
 /// glow halo tinted by the voice state. The halo pulses on iOS 17+ — symbol
 /// effects are the reliable way to get continuous motion inside a Live Activity.
-@available(iOS 16.2, *)
 struct JarvisOrb: View {
     let state: String
     var size: CGFloat = 44
@@ -60,7 +57,7 @@ struct JarvisOrb: View {
             .blur(radius: size * 0.16)
         // Only animate the halo while something is happening — a continuously
         // pulsing widget surface draws power the entire time the activity shows.
-        if #available(iOS 17.0, *), state != "idle" {
+        if state != "idle" {
             g.symbolEffect(.pulse, options: .repeating)
         } else {
             g
@@ -70,7 +67,6 @@ struct JarvisOrb: View {
 
 /// Devices strip: a CENTERED row of icons, one per ONLINE connected device
 /// (laptop / phone / desktop / watch / …), each lit with a green glow. No count.
-@available(iOS 16.2, *)
 struct JarvisDevices: View {
     let st: JarvisActivityAttributes.ContentState
     var body: some View {
@@ -103,7 +99,6 @@ func jcDeviceSymbol(_ kind: String) -> String {
 }
 
 /// Small state pill, e.g. a cyan `LISTENING`.
-@available(iOS 16.2, *)
 func jcStatePill(_ state: String) -> some View {
     let c = jcStateColor(state)
     return Text(jcStateLabel(state).uppercased())
@@ -114,7 +109,6 @@ func jcStatePill(_ state: String) -> some View {
 }
 
 /// Conversation panel: `YOU` / `JARVIS` rows in a state-tinted glass card.
-@available(iOS 16.2, *)
 struct JarvisConvo: View {
     let st: JarvisActivityAttributes.ContentState
     var body: some View {
@@ -212,7 +206,6 @@ func jcDecodeSessions(_ raw: [String]) -> [JCSession] {
 func jcSpotlight(_ raw: [String]) -> JCSession? { jcDecodeSessions(raw).first }
 
 /// Concentric dual-ring usage gauge: weekly (outer, blue) + 5-hour (inner, red).
-@available(iOS 16.2, *)
 struct JCUsageRings: View {
     let pct5: Int
     let pctWeek: Int
@@ -236,7 +229,6 @@ struct JCUsageRings: View {
 }
 
 /// The usage block: two color-matched % labels beside the dual ring.
-@available(iOS 16.2, *)
 struct JCUsageBlock: View {
     let st: JarvisActivityAttributes.ContentState
     var body: some View {
@@ -256,7 +248,6 @@ struct JCUsageBlock: View {
 
 /// Header: orb logo + "Claude Code" + "N sessions · M waiting" + usage on the
 /// right.
-@available(iOS 16.2, *)
 struct JCHeader: View {
     let st: JarvisActivityAttributes.ContentState
     var orbSize: CGFloat = 30
@@ -279,7 +270,6 @@ struct JCHeader: View {
 /// Segmented bar — one slot per project, equal-width. A project with 2+ live
 /// sessions splits its slot into per-session sub-cells (a small inner gap, the
 /// "break") colored per sub-state; a single-session slot is one solid capsule.
-@available(iOS 16.2, *)
 struct JCSegBar: View {
     let sessions: [JCSession]
     var body: some View {
@@ -304,7 +294,6 @@ struct JCSegBar: View {
 }
 
 /// Two-column legend of up to 4 sessions, with a "+N more" overflow.
-@available(iOS 16.2, *)
 struct JCLegend: View {
     let sessions: [JCSession]
     let total: Int
@@ -343,7 +332,6 @@ struct JCLegend: View {
 
 /// The full coding view: header + segmented bar + legend (lock screen + the
 /// expanded Dynamic Island share it).
-@available(iOS 16.2, *)
 struct JarvisCodingBody: View {
     let st: JarvisActivityAttributes.ContentState
     var body: some View {
@@ -359,7 +347,6 @@ struct JarvisCodingBody: View {
 /// Indeterminate circular spinner for the collapsed Dynamic Island's leading
 /// slot — a `ProgressView`, which (unlike SF-Symbol effects) actually animates
 /// inside a Live Activity. Tinted to the spotlight session's state color.
-@available(iOS 16.2, *)
 struct JCCompactSpinner: View {
     let color: Color
     var body: some View {
@@ -373,7 +360,6 @@ struct JCCompactSpinner: View {
 /// Compact fleet bar for the collapsed island's trailing slot — one small
 /// segment per spotlight session, colored by its state (green working / purple
 /// waiting / grey idle). The whole fleet at a glance.
-@available(iOS 16.2, *)
 struct JCCompactFleetBar: View {
     let sessions: [JCSession]
     var body: some View {

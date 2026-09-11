@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// What a link inside a chat reply is allowed to do on tap.
+/// What a link inside a chat reply or coding transcript is allowed to do on tap.
 ///
 /// Markdown links in the transcript are *model output* — the agent, or anything
 /// that talked it into emitting a link. SwiftUI's default `openURL` hands any
@@ -47,9 +47,7 @@ struct ChatLinkGuardModifier: ViewModifier {
                                 presenting: pending) { url in
                 Button("Open", role: .destructive) {
                     pending = nil
-                    #if canImport(UIKit)
                     UIApplication.shared.open(url)
-                    #endif
                 }
                 Button("Cancel", role: .cancel) { pending = nil }
             } message: { url in
@@ -59,6 +57,6 @@ struct ChatLinkGuardModifier: ViewModifier {
 }
 
 extension View {
-    /// Gate the links inside a chat transcript. See ``ChatLinkPolicy``.
+    /// Gate the links inside a chat or coding transcript. See ``ChatLinkPolicy``.
     func chatLinkGuard() -> some View { modifier(ChatLinkGuardModifier()) }
 }

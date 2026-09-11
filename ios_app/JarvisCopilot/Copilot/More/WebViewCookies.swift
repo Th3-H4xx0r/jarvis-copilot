@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(WebKit)
 import WebKit
-#endif
 
 /// One name/value pair from a `Cookie:` header.
 struct WebCookie: Equatable, Hashable {
@@ -50,11 +48,7 @@ enum WebViewCookies {
     /// Every website data type WebKit can hold — cookies, local/session storage,
     /// IndexedDB, the disk and memory caches, service workers.
     static var allDataTypes: Set<String> {
-        #if canImport(WebKit)
         return WKWebsiteDataStore.allWebsiteDataTypes()
-        #else
-        return []
-        #endif
     }
 
     /// Wipe everything the embedded server tabs persisted.
@@ -67,10 +61,8 @@ enum WebViewCookies {
     /// logged-in webui.
     @MainActor
     static func clearAll() {
-        #if canImport(WebKit)
         let store = WKWebsiteDataStore.default()
         store.removeData(ofTypes: allDataTypes,
                          modifiedSince: Date(timeIntervalSince1970: 0)) {}
-        #endif
     }
 }

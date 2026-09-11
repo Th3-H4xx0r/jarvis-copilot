@@ -1,8 +1,6 @@
 import AVFoundation
 import Foundation
-#if os(iOS)
 import UIKit
-#endif
 
 /// Keeps the process alive while backgrounded by holding an active audio session.
 ///
@@ -131,7 +129,6 @@ final class BackgroundKeepalive {
             Self.onMain { self?.resume() }
         })
 
-        #if os(iOS)
         // Belt and braces: re-assert on return to foreground in case an interruption
         // ended without an `.ended` notification (documented as possible).
         observers.append(center.addObserver(
@@ -139,7 +136,6 @@ final class BackgroundKeepalive {
         ) { [weak self] _ in
             Self.onMain { self?.resume() }
         })
-        #endif
     }
 
     private func removeObservers() {

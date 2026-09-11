@@ -224,13 +224,6 @@ enum CodingUI {
         return sameDay ? time : "\(two(c.month))/\(two(c.day)) \(time)"
     }
 
-    /// Whitespace-trimmed. The server treats an empty string as "set it to
-    /// empty", which is never what a blank optional form field means — every
-    /// sheet trims through here before deciding whether to send a key at all.
-    static func trim(_ s: String) -> String {
-        s.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     // MARK: - Terminal geometry
 
     /// How many rows/cols of `cell` fit in `size`, clamped to values a PTY will

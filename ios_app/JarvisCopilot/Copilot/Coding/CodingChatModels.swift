@@ -103,14 +103,6 @@ struct ChatContext: Equatable {
     let used: Int
     let window: Int
     let pct: Int
-    let model: String?
-
-    init(used: Int, window: Int, pct: Int, model: String? = nil) {
-        self.used = used
-        self.window = window
-        self.pct = pct
-        self.model = model
-    }
 
     /// Nil when there's no usage yet — a zero/missing `window` would divide by
     /// zero in the gauge.
@@ -120,8 +112,7 @@ struct ChatContext: Equatable {
         guard window > 0 else { return nil }
         return ChatContext(used: CodingJSON.int(j["used"]),
                            window: window,
-                           pct: CodingJSON.int(j["pct"]),
-                           model: CodingJSON.str(j["model"]))
+                           pct: CodingJSON.int(j["pct"]))
     }
 
     /// Compact "124k" style.
@@ -225,27 +216,25 @@ struct LiveStatus: Equatable {
 
 /// The `/messages` page payload: the (possibly partial) message tail plus the
 /// session's live state so the chat header chip stays fresh without a second
-/// poll. `source` is `live|cache` (informational).
+/// poll.
 struct CodingChatPage: Equatable {
     let messages: [CodingChatMessage]
     let total: Int
     /// working | waiting | idle | nil
     let activityState: String?
     let status: String
-    let source: String?
     /// Live spinner line while working, e.g. "✳ Zesting… (50s · ↑ 2.0k tokens)".
     let statusLine: String?
     /// Context-window gauge, or nil if the transcript has no usage yet.
     let context: ChatContext?
 
     init(messages: [CodingChatMessage] = [], total: Int = 0, activityState: String? = nil,
-         status: String = "", source: String? = nil, statusLine: String? = nil,
+         status: String = "", statusLine: String? = nil,
          context: ChatContext? = nil) {
         self.messages = messages
         self.total = total
         self.activityState = activityState
         self.status = status
-        self.source = source
         self.statusLine = statusLine
         self.context = context
     }
@@ -256,7 +245,6 @@ struct CodingChatPage: Equatable {
             total: CodingJSON.int(j["total"]),
             activityState: CodingJSON.str(j["activity_state"]),
             status: CodingJSON.text(j["status"]),
-            source: CodingJSON.str(j["source"]),
             statusLine: CodingJSON.str(j["status_line"]),
             context: ChatContext.from(j["context"]))
     }

@@ -1,5 +1,4 @@
 import Foundation
-#if canImport(UIKit)
 import UIKit
 
 /// APNs plumbing for the Jarvis bridge.
@@ -38,7 +37,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication,
                      didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        Task { @MainActor in PushService.shared.lastError = error.localizedDescription }
+        JcLog.dropped(JcLog.services, "remote notification registration", error)
     }
 
     /// Silent push: the server has work queued. Drain it and report back honestly —
@@ -55,15 +54,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 @MainActor
-final class PushService: ObservableObject {
+final class PushService {
     static let shared = PushService()
 
-    @Published private(set) var token: String?
-    @Published var lastError: String?
-
     private init() {}
-
-    var isRegistered: Bool { token != nil }
 
     /// Asks iOS for a device token. Silent pushes don't need user permission, so this
     /// shows no prompt — the app only registers for background delivery.
@@ -74,9 +68,6 @@ final class PushService: ObservableObject {
 
     /// Hands the token to JarvisCopilot so `_invoke_via_mobile_push` can reach us.
     func submit(token hex: String) async {
-        token = hex
-        lastError = nil
         await PushHandler.shared.registerToken(hex)
     }
 }
-#endif

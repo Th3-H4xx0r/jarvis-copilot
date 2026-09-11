@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(BackgroundTasks)
 import BackgroundTasks
-#endif
 
 /// Opportunistic background wake, used to drain commands Jarvis queued while the app
 /// was suspended. iOS decides when (and whether) to run these, so it complements the
@@ -10,9 +8,7 @@ let backgroundRefreshID = "com.jarviscopilot.jarviscopilotMobileAndIOS.refresh"
 
 @main
 struct JarvisCopilotApp: App {
-    #if os(iOS)
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    #endif
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -39,25 +35,20 @@ struct JarvisCopilotApp: App {
                 .task { WatchBridge.shared.activate() }
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     AppServices.shared.setForeground(phase == .active)
-                    #if os(iOS)
                     if phase == .background { scheduleBackgroundRefresh() }
                     // `Activity.request` throws while backgrounded, which is
                     // exactly where a voice-driven "start the stopwatch" runs;
                     // open the island we owe as soon as we come forward.
                     if phase == .active { StopwatchService.shared.resyncActivity() }
-                    #endif
                 }
         }
-        #if os(iOS)
         .backgroundTask(.appRefresh(backgroundRefreshID)) {
             await BridgeClient.shared.drainQueue(foreground: false)
             await scheduleBackgroundRefresh()
         }
-        #endif
     }
 }
 
-#if os(iOS)
 @MainActor
 func scheduleBackgroundRefresh() {
     guard BridgeClient.shared.enabled else { return }
@@ -65,6 +56,3 @@ func scheduleBackgroundRefresh() {
     request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
     try? BGTaskScheduler.shared.submit(request)
 }
-#else
-@MainActor func scheduleBackgroundRefresh() {}
-#endif

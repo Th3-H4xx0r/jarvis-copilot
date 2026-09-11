@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(UIKit)
 import UIKit
-#endif
 
 /// The pairing boundary — everything `PairStore` needs from `BridgeClient`, and
 /// nothing else, so the state machine is testable without a server or a Keychain.
@@ -185,9 +183,7 @@ final class PairStore {
     }
 }
 
-/// Local trim helper. Deliberately a free function rather than a `String`
-/// extension — several areas are being ported in parallel and a shared
-/// `String.trimmed` would collide.
+/// Whitespace-and-newline trimmed.
 func jcTrim(_ text: String) -> String {
     text.trimmingCharacters(in: .whitespacesAndNewlines)
 }

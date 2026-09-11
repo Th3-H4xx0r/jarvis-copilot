@@ -1,8 +1,6 @@
 import Foundation
-#if os(iOS)
 import AppIntents
 import UIKit
-#endif
 
 /// A prompt handed to the app from outside — Siri, Shortcuts, or the home-screen
 /// quick action — to be sent as a chat turn.
@@ -50,14 +48,11 @@ final class ChatLaunchBus {
     }
 }
 
-#if os(iOS)
-
 /// "Start JARVIS voice" — the discoverable Siri / Shortcuts entry point.
 ///
 /// Siri needs the app name in the phrase, so the trigger is e.g. "Hey Siri, start
 /// JarvisCopilot voice"; a true custom "Hey JARVIS" wake word is not available
 /// to third-party apps.
-@available(iOS 16.0, *)
 struct StartVoiceIntent: AppIntent {
     static let title: LocalizedStringResource = "Start JARVIS voice"
     static let description = IntentDescription("Open JARVIS and start a voice conversation.")
@@ -73,7 +68,6 @@ struct StartVoiceIntent: AppIntent {
 }
 
 /// "Ask JARVIS <something>" — one-shot chat from Siri or Shortcuts.
-@available(iOS 16.0, *)
 struct AskJarvisIntent: AppIntent {
     static let title: LocalizedStringResource = "Ask JARVIS"
     static let description = IntentDescription("Send a message to JARVIS and open the chat.")
@@ -99,7 +93,6 @@ struct AskJarvisIntent: AppIntent {
 /// The app's Siri phrases. On iOS 16+ these also populate the home-screen
 /// long-press menu, which is why there is no separate static
 /// `UIApplicationShortcutItems` list — one definition, two surfaces.
-@available(iOS 16.0, *)
 struct JarvisAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         // Avoid "Talk to …" / "Call …" / "Hey …": Siri routes those to
@@ -123,8 +116,6 @@ struct JarvisAppShortcuts: AppShortcutsProvider {
             systemImageName: "bubble.left.fill")
     }
 }
-
-#endif
 
 /// The home-screen long-press actions.
 ///
@@ -166,7 +157,6 @@ enum QuickAction: String, CaseIterable, Sendable {
     static func parse(type: String) -> QuickAction? { QuickAction(rawValue: type) }
 }
 
-#if os(iOS)
 extension QuickAction {
     static func install(on application: UIApplication = .shared) {
         application.shortcutItems = allCases.map {
@@ -176,4 +166,3 @@ extension QuickAction {
         }
     }
 }
-#endif

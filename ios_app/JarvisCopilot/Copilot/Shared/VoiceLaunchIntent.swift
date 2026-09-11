@@ -1,4 +1,3 @@
-#if os(iOS)
 import AppIntents
 import Foundation
 
@@ -14,7 +13,6 @@ import Foundation
 /// Deliberately NOT an `OpenURLIntent`: opening a custom scheme from a Control
 /// Center control proved unreliable in the Flutter build, and mirroring the
 /// proven Siri path is robust.
-@available(iOS 16.0, *)
 struct OpenJarvisVoiceIntent: AppIntent {
     static let title: LocalizedStringResource = "Talk to JARVIS"
     static let description = IntentDescription("Open JARVIS and start listening.")
@@ -31,4 +29,3 @@ struct OpenJarvisVoiceIntent: AppIntent {
         return .result()
     }
 }
-#endif

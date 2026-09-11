@@ -1,13 +1,6 @@
 import XCTest
 @testable import JarvisCopilot
 
-/// Records what the Coding tab told the Live Activity coordinator.
-@MainActor
-final class FakeCodingVisibilityReporter: CodingVisibilityReporting {
-    private(set) var reports: [Bool] = []
-    func setCodingVisible(_ visible: Bool) { reports.append(visible) }
-}
-
 /// The cross-area wiring that a screen only exercises when it is actually on
 /// screen — the kind that compiles perfectly while doing nothing.
 @MainActor
@@ -42,27 +35,16 @@ final class ProductionWiringTests: XCTestCase {
         transport.route("/api/coding/projects", json: ["projects": []])
         let flag = CodingVisibilityFlag()
         let store = CodingStore(api: CodingSessionsAPI(api: api), isVisible: { flag.isVisible })
-        let liveActivity = FakeCodingVisibilityReporter()
-        let visibility = CodingVisibility(flag: flag, store: store, liveActivity: liveActivity)
+        let visibility = CodingVisibility(flag: flag, store: store)
 
         visibility.set(true)
         XCTAssertTrue(flag.isVisible)
-        XCTAssertEqual(liveActivity.reports, [true])
+        XCTAssertTrue(LiveActivityCoordinator.shared.codingVisible)
 
         visibility.set(false)
         XCTAssertFalse(flag.isVisible)
-        XCTAssertEqual(liveActivity.reports, [true, false],
+        XCTAssertFalse(LiveActivityCoordinator.shared.codingVisible,
                        "leaving Coding must let the poll fall back to 60 s discovery")
-    }
-
-    /// The one coordinator really implements the reporting boundary — the fake
-    /// above would otherwise be testing itself.
-    func testTheLiveActivityCoordinatorIsTheProductionReporter() {
-        let reporter: any CodingVisibilityReporting = LiveActivityCoordinator.shared
-        reporter.setCodingVisible(true)
-        XCTAssertTrue(LiveActivityCoordinator.shared.codingVisible)
-        reporter.setCodingVisible(false)
-        XCTAssertFalse(LiveActivityCoordinator.shared.codingVisible)
     }
 
     // MARK: Startup cost

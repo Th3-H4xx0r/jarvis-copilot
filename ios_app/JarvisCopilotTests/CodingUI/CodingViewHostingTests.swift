@@ -273,7 +273,7 @@ final class CodingViewHostingTests: XCTestCase {
     func testApprovalCardRendersAndReportsItsVerdict() {
         let permission = PendingPermission(requestId: "r1", tool: "Bash",
                                            summary: "rm -rf build/",
-                                           sessionId: "s1", cwd: "/Users/me/code/jarvis")
+                                           cwd: "/Users/me/code/jarvis")
         var seen: (String, String?)?
         let vc = host(CodingApprovalCard(permission: permission, extra: 2) { decision, message in
             seen = (decision, message)

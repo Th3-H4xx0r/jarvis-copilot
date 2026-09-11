@@ -358,7 +358,6 @@ private struct JcNavigationTitle: ViewModifier {
         if let title {
             content
                 .navigationTitle(title)
-                #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
                 // Transparent chrome so the aurora runs behind the bar, as the
                 // Flutter screens do with `extendBodyBehindAppBar`.
@@ -377,7 +376,6 @@ private struct JcNavigationTitle: ViewModifier {
                             .lineLimit(1)
                     }
                 }
-                #endif
         } else {
             content
         }

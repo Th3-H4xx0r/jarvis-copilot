@@ -323,13 +323,6 @@ final class PhoneSkillsTests: XCTestCase {
         XCTAssertEqual(picker.requested, [.library])
     }
 
-    func testTheDefaultPickerIsAnHonestUnavailable() async {
-        await assertThrows(SkillError.unavailable(
-            "the camera/library picker is not wired up in this build yet")) {
-            try await MediaSkills.takePhoto(UnavailablePhotoPicker()).run([:])
-        }
-    }
-
     // MARK: text_to_speech
 
     func testTextToSpeechSpeaksWithADefaultLocale() async throws {
@@ -608,8 +601,9 @@ final class PhoneSkillsTests: XCTestCase {
     }
 
     func testReadHealthReportsAnUnavailableStoreWithoutThrowing() async throws {
-        let result = try await DataSkills.readHealth(UnavailableHealthReader())
-            .run(["metric": "steps"])
+        let health = MockHealthReader()
+        health.error = SkillError.unavailable("HealthKit is not enabled in this build")
+        let result = try await DataSkills.readHealth(health).run(["metric": "steps"])
         XCTAssertEqual(result["error"] as? String, "HealthKit is not enabled in this build")
     }
 
@@ -675,7 +669,7 @@ final class PhoneSkillsTests: XCTestCase {
     }
 
     func testShortcutsListIsHonestAboutTheMissingAPI() async throws {
-        let result = try await IOSSkills.shortcutsList(MockShortcutRunner()).run([:])
+        let result = try await IOSSkills.shortcutsList().run([:])
         XCTAssertEqual(result["names"] as? [String], [])
         XCTAssertNotNil(result["note"] as? String)
     }

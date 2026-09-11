@@ -29,13 +29,13 @@ struct CodingNewProjectSheet: View {
     }
 
     private func create() async {
-        let n = CodingUI.trim(name)
-        let r = CodingUI.trim(repo)
+        let n = jcTrim(name)
+        let r = jcTrim(repo)
         if n.isEmpty { validation = "A project name is required"; return }
         if r.isEmpty { validation = "A repo path is required"; return }
         validation = nil
         if await store.createProject(name: n, repoPath: r,
-                                     defaultBranch: CodingUI.trim(branch)) != nil {
+                                     defaultBranch: jcTrim(branch)) != nil {
             dismiss()
         }
     }
@@ -115,16 +115,16 @@ struct CodingProjectSettingsSheet: View {
     }
 
     private func save() async {
-        let n = CodingUI.trim(name)
+        let n = jcTrim(name)
         if n.isEmpty { validation = "A project name is required"; return }
         validation = nil
         let ok = await store.updateProject(project.id, name: n,
-                                           defaultBranch: CodingUI.trim(branch),
+                                           defaultBranch: jcTrim(branch),
                                            syncEnabled: syncOn,
-                                           syncDesktopPath: CodingUI.trim(syncPath),
+                                           syncDesktopPath: jcTrim(syncPath),
                                            // Ignore rules are line-oriented — never trimmed.
                                            ignoreRules: ignore,
-                                           deviceId: CodingUI.trim(syncDevice))
+                                           deviceId: jcTrim(syncDevice))
         if ok { dismiss() }
     }
 
@@ -193,9 +193,9 @@ struct CodingSessionSettingsSheet: View {
         saving = true
         let ok = await store.saveSettings(
             skipPermissions: skipPerms,
-            sync: CodingSync(enabled: syncOn, device: CodingUI.trim(syncDevice),
-                             remotePath: CodingUI.trim(syncPath)),
-            cwd: CodingUI.trim(cwd))
+            sync: CodingSync(enabled: syncOn, device: jcTrim(syncDevice),
+                             remotePath: jcTrim(syncPath)),
+            cwd: jcTrim(cwd))
         saving = false
         if ok { dismiss() }
     }

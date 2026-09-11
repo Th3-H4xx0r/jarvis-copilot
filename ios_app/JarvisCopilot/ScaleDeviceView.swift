@@ -42,9 +42,7 @@ struct ScaleDeviceView: View {
             .padding(.bottom, 40)
         }
         .navigationTitle(scale.name.isEmpty ? "ESF551" : scale.name)
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .toolbar {
             ToolbarItem {
                 Button {
@@ -298,9 +296,7 @@ private struct ScaleSettingsView: View {
             .padding(.bottom, 30)
         }
         .navigationTitle("Settings")
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .sheet(isPresented: $showingProfile) {
             ScaleProfileEditor(history: history)
         }

@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(UserNotifications)
 import UserNotifications
-#endif
 
 /// What the user tapped on a notification, decoded from the raw
 /// `UNNotificationResponse` before any I/O happens.
@@ -74,7 +72,6 @@ struct NotificationAction: Equatable, Sendable {
 enum NotificationCategories {
     static let permissionApproval = "PERMISSION_APPROVAL"
 
-    #if canImport(UserNotifications)
     static func all() -> Set<UNNotificationCategory> {
         let approve = UNNotificationAction(
             identifier: NotificationAction.Identifier.approve, title: "Approve", options: [])
@@ -89,7 +86,6 @@ enum NotificationCategories {
             actions: [approve, deny, reply],
             intentIdentifiers: [], options: [])]
     }
-    #endif
 }
 
 /// Posts the verdict a notification tap produced, and routes taps that are not

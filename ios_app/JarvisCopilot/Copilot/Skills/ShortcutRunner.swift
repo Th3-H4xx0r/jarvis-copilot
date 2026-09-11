@@ -6,14 +6,7 @@ import Foundation
 /// `x-success=jarviscopilot://shortcut-result/<rid>` callback. When the
 /// Shortcut finishes, iOS re-opens this app at that URL with the textual output
 /// appended as `result`; whoever handles incoming URLs forwards it here and the
-/// waiting `run` call completes.
-///
-/// TODO(app-wave): the app has to forward incoming URLs into
-/// `ShortcutResultBus.shared.deliver(_:)` — one line in the scene's
-/// `.onOpenURL { ShortcutResultBus.shared.deliver($0) }`. Until then a
-/// `run_shortcut` with `awaitResult` still launches the Shortcut and returns the
-/// same "launched but no result in time" note the Flutter client produced on a
-/// timeout, so nothing breaks; it just can't report the output.
+/// waiting `run` call completes (`AppServices.open(url:)` does the forwarding).
 @MainActor
 final class ShortcutResultBus {
     static let shared = ShortcutResultBus()
@@ -184,11 +177,6 @@ final class DefaultShortcutRunner: ShortcutRunning {
             note: "Launched but no result within \(timeoutSeconds)s — the Shortcut may "
                 + "still be running, awaiting input, or produces no output.")
     }
-
-    /// iOS exposes no API for enumerating a user's Shortcuts (the Flutter
-    /// bridge returned an empty list for the same reason), so this is nil and
-    /// the skill says so honestly rather than implying an empty library.
-    func installedNames() async -> [String]? { nil }
 
     func openEditor(importURL: String, suggestedName: String) async -> Bool {
         let url: URL?

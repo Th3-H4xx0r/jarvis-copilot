@@ -31,9 +31,7 @@ struct ChatModelPickerSheet: View {
         NavigationStack {
             content
                 .navigationTitle("Chat model")
-                #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
-                #endif
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) { Button("Done") { dismiss() } }
                 }

@@ -22,52 +22,20 @@ enum PhoneSkills {
         var haptics: any Vibrating = DefaultHaptics()
         var torch: any Torching = DefaultTorch()
         var location: any LocationFixing = DefaultLocationFixer()
-        var photos: any PhotoPicking = Self.defaultPhotoPicker()
-        var library: any PhotoLibraryReading = Self.defaultPhotoLibrary()
+        var photos: any PhotoPicking = DefaultPhotoPicker()
+        var library: any PhotoLibraryReading = DefaultPhotoLibrary()
         var speech: any SpeechSynthesizing = DefaultSpeechSynthesizer()
         var recorder: any AudioRecording = DefaultAudioRecorder()
         var player: any AudioPlaying = DefaultAudioPlayer()
         var contacts: any ContactsStore = DefaultContactsStore()
         var calendars: any CalendarAccessing = DefaultCalendarAccess()
-        var health: any HealthReading = Self.defaultHealthReader()
+        var health: any HealthReading = DefaultHealthReader()
         var shortcuts: any ShortcutRunning = DefaultShortcutRunner()
-        var sms: any SmsComposing = Self.defaultSmsComposer()
+        var sms: any SmsComposing = MainActor.assumeIsolated { DefaultSmsComposer() }
         var alarms: any AlarmScheduling = DefaultAlarmScheduler()
         var stopwatch: any Stopwatching = DefaultStopwatch()
 
         init() {}
-
-        private static func defaultPhotoPicker() -> any PhotoPicking {
-            #if canImport(UIKit)
-            return DefaultPhotoPicker()
-            #else
-            return UnavailablePhotoPicker()
-            #endif
-        }
-
-        private static func defaultPhotoLibrary() -> any PhotoLibraryReading {
-            #if canImport(UIKit)
-            return DefaultPhotoLibrary()
-            #else
-            return UnavailablePhotoLibrary()
-            #endif
-        }
-
-        private static func defaultHealthReader() -> any HealthReading {
-            #if canImport(HealthKit)
-            return DefaultHealthReader()
-            #else
-            return UnavailableHealthReader()
-            #endif
-        }
-
-        private static func defaultSmsComposer() -> any SmsComposing {
-            #if canImport(MessageUI)
-            return MainActor.assumeIsolated { DefaultSmsComposer() }
-            #else
-            return UnavailableSmsComposer()
-            #endif
-        }
     }
 
     /// The full catalogue, in the order it is advertised.
@@ -105,7 +73,7 @@ enum PhoneSkills {
             DataSkills.readHealth(b.health),
             IOSSkills.sendSMS(b.sms),
             IOSSkills.runShortcut(b.shortcuts),
-            IOSSkills.shortcutsList(b.shortcuts),
+            IOSSkills.shortcutsList(),
             IOSSkills.createShortcut(b.shortcuts),
             IOSSkills.phoneControl(b.shortcuts, contacts: b.contacts, sms: b.sms),
             IOSSkills.phoneCapabilities(),
@@ -113,11 +81,7 @@ enum PhoneSkills {
     }
 
     /// Populate the skill registry and put the phone in `DeviceRegistry` so the
-    /// existing bridge advertises it. Idempotent.
-    ///
-    /// TODO(app-wave): call this once at launch (`JarvisCopilotApp.init` or the
-    /// first `.task`), and after it call `BridgeClient.shared.sendRegistration()`
-    /// if the socket is already up so the new skills are advertised immediately.
+    /// existing bridge advertises it. Idempotent; `AppServices` calls it at launch.
     @discardableResult
     static func install(boundaries: Boundaries = Boundaries(),
                         registry: SkillRegistry = .shared,
@@ -131,13 +95,5 @@ enum PhoneSkills {
         let phone = PhoneDevice(registry: registry, runner: runner)
         devices.register(phone)
         return phone
-    }
-}
-
-/// Fallback when MessageUI isn't available (macOS / Catalyst).
-final class UnavailableSmsComposer: SmsComposing {
-    func compose(number: String, message: String,
-                 attachment: SmsAttachment?) async throws -> SmsComposeOutcome {
-        .unavailable("the Messages composer needs iOS")
     }
 }

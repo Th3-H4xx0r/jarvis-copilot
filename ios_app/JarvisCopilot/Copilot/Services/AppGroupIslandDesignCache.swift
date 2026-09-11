@@ -1,8 +1,5 @@
 import Foundation
-import CryptoKit
-#if canImport(UIKit)
 import UIKit
-#endif
 
 /// Writes Dynamic Island design trees into the shared App Group container so the
 /// `JarvisWidget` extension — a SEPARATE process, which cannot make a network
@@ -103,19 +100,12 @@ struct IslandImageCache: IslandImagePrefetching {
         self.session = session
     }
 
-    /// Deterministic filename for a URL. MUST match `JCImageCache.fileName` in
-    /// `JarvisWidget/JarvisDesignRenderer.swift` — the two processes agree on the
-    /// name and never talk.
-    static func fileName(for url: String) -> String {
-        SHA256.hash(data: Data(url.utf8)).map { String(format: "%02x", $0) }.joined()
-    }
-
     func prefetch(_ urls: [String]) {
         guard let dir = JarvisShared.islandImageDirectory(container: container,
                                                           fileManager: fileManager) else { return }
         for raw in Set(urls) {
             guard Self.isFetchable(raw), let url = URL(string: raw) else { continue }
-            let file = dir.appendingPathComponent(Self.fileName(for: raw))
+            let file = dir.appendingPathComponent(JarvisShared.islandImageFileName(for: raw))
             if fileManager.fileExists(atPath: file.path) { continue }
             session.dataTask(with: url) { data, response, error in
                 if let error {
@@ -129,9 +119,7 @@ struct IslandImageCache: IslandImagePrefetching {
                     return
                 }
                 guard let data, !data.isEmpty else { return }
-                #if canImport(UIKit)
                 guard UIImage(data: data) != nil else { return }
-                #endif
                 do { try data.write(to: file, options: .atomic) }
                 catch { JcLog.dropped(JcLog.services, "island image write", error) }
             }.resume()

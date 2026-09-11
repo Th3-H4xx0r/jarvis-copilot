@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(UIKit)
 import UIKit
-#endif
 
 /// Everything the settings screen needs from `BridgeClient`. Behind a protocol so
 /// the store can be exercised without a Keychain, a socket or an audio session.
@@ -71,12 +69,8 @@ final class SettingsStore {
 
     /// What the device calls itself when nothing was typed.
     static var defaultDeviceName: String {
-        #if canImport(UIKit)
         let name = UIDevice.current.name
         return name.isEmpty ? "iPhone" : name
-        #else
-        return "Mac"
-        #endif
     }
 
     private(set) var deviceName: String

@@ -98,19 +98,18 @@ enum IOSSkills {
 
     // MARK: shortcuts_list
 
-    static func shortcutsList(_ shortcuts: any ShortcutRunning) -> AnySkill {
+    /// iOS has no API for enumerating a user's Shortcuts, so this says so rather
+    /// than implying an empty library.
+    static func shortcutsList() -> AnySkill {
         AnySkill(
             name: "shortcuts_list",
             description: "Return names of installed user Shortcuts (best-effort)."
         ) { _ in
-            guard let names = await shortcuts.installedNames() else {
-                return [
-                    "names": [String](),
-                    "note": "iOS exposes no API for listing a user's Shortcuts — ask the user "
-                        + "for the exact name instead.",
-                ]
-            }
-            return ["names": names]
+            [
+                "names": [String](),
+                "note": "iOS exposes no API for listing a user's Shortcuts — ask the user "
+                    + "for the exact name instead.",
+            ]
         }
     }
 

@@ -1,4 +1,3 @@
-#if os(iOS)
 import ActivityKit
 import Foundation
 
@@ -6,7 +5,6 @@ import Foundation
 /// Shared between the app (which owns the stopwatch) and the widget (which
 /// renders it). iOS has no system stopwatch API, so this IS the stopwatch UI
 /// outside the app.
-@available(iOS 16.2, *)
 struct JarvisStopwatchAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
         /// True while running. The widget then counts up from `reference`.
@@ -26,4 +24,3 @@ struct JarvisStopwatchAttributes: ActivityAttributes {
 
     var label: String
 }
-#endif

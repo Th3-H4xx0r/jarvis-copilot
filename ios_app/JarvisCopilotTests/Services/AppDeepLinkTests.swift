@@ -43,14 +43,13 @@ final class AppDeepLinkTests: XCTestCase {
         XCTAssertEqual(parse("jarviscopilot://shortcut-error/sc1?errorMessage=nope"), .shortcutCallback)
     }
 
-    func testAnythingElseOnOurSchemeIsAPairingLink() {
-        let url = URL(string: "jarviscopilot://pair?server=https://x&code=123")!
-        XCTAssertEqual(AppDeepLink.parse(url), .pair(url))
+    func testAnUnknownHostOnOurSchemeIsNotRouted() {
+        XCTAssertNil(parse("jarviscopilot://pair?server=https://x&code=123"))
     }
 
     func testMalformedAndForeignURLsAreNotOurs() {
         XCTAssertNil(parse("https://example.com/voice"))
-        XCTAssertNil(parse("jarviscopilot://voice"), "the Flutter client's scheme is not ours")
+        XCTAssertNil(parse("jarvis://voice"), "another app's scheme is not ours")
         XCTAssertNil(parse("jarviscopilot:///voice"), "no host at all is malformed")
         XCTAssertNil(parse("jarviscopilot:"))
         XCTAssertNil(parse("mailto:someone@example.com"))
@@ -93,12 +92,10 @@ final class AppDeepLinkTests: XCTestCase {
         XCTAssertEqual(appRouter.selectedTab, .more)
     }
 
-    func testPairAndShortcutLinksAreLeftToTheirOwners() {
+    func testShortcutLinksAreLeftToTheirOwner() {
         let (deepLinks, appRouter, _) = router()
-        let url = URL(string: "jarviscopilot://pair?code=1")!
-        XCTAssertFalse(deepLinks.open(.pair(url)))
         XCTAssertFalse(deepLinks.open(.shortcutCallback))
-        XCTAssertEqual(appRouter.selectedTab, .chat, "neither is navigation")
+        XCTAssertEqual(appRouter.selectedTab, .chat, "a shortcut callback is not navigation")
     }
 
     func testTargetGenerationBumpsSoARepeatedIdStillFires() {

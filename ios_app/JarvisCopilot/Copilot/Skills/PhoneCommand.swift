@@ -39,13 +39,6 @@ enum PhoneCommand {
         // Messages composer `send_sms` uses, so the user still taps Send.
     ]
 
-    /// Delimiter between recipient and body in the JC Send Message shortcut
-    /// input. A pipe (URL-safe) — a newline inside the x-callback URL gets the
-    /// whole `text` param dropped by iOS, so the shortcut received no input.
-    /// Kept because `rawValue(for: "send_message", …)` still normalises the pair
-    /// the same way; nothing hands it to a Shortcut any more.
-    static let sendMessageDelimiter = "|"
-
     /// Skill args consumed by the Swift layer that must NOT be forwarded.
     private static let internalKeys: Set<String> = ["timeout_seconds"]
 
@@ -76,18 +69,6 @@ enum PhoneCommand {
     /// - open_url             → the URL, passed through unchanged.
     static func rawValue(for action: String, command: [String: Any]) -> String {
         if action == "open_url" { return SkillArgs.string(command, "url") }
-        if action == "send_message" {
-            // Strip the delimiter from each field — the JC Send Message shortcut
-            // splits the input on "|", so a "|" inside the recipient or body
-            // would corrupt the split.
-            let to = SkillArgs.text(command["to"] ?? command["recipient"])
-                .replacingOccurrences(of: sendMessageDelimiter, with: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let msg = SkillArgs.text(command["message"] ?? command["body"] ?? command["value"])
-                .replacingOccurrences(of: sendMessageDelimiter, with: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return "\(to)\(sendMessageDelimiter)\(msg)"
-        }
         let value = command["value"]
         if action == "wifi" || action == "bluetooth" || action == "focus" {
             let s = SkillArgs.text(value).lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -127,12 +108,6 @@ enum PhoneCommand {
         params.map { "\(encodeComponent($0.0))=\(encodeComponent($0.1))" }.joined(separator: "&")
     }
 
-    /// Convenience for single-entry maps; multi-key callers should pass ordered
-    /// pairs so the query string is deterministic.
-    static func encodeQueryWithPercent20(_ params: [String: String]) -> String {
-        encodeQueryWithPercent20(params.sorted { $0.key < $1.key }.map { ($0.key, $0.value) })
-    }
-
     static func encodeComponent(_ s: String) -> String {
         s.addingPercentEncoding(withAllowedCharacters: componentAllowed) ?? s
     }
@@ -161,19 +136,6 @@ enum PhoneCommand {
         default:
             return nil
         }
-    }
-
-    /// Parse a Shortcut's textual output. A JSON object is returned as-is; any
-    /// other text (or nil/empty) is wrapped as `{ok:true, result:<raw>}`.
-    static func parseOutput(_ raw: String?) -> [String: Any] {
-        let text = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.isEmpty { return ["ok": true, "result": ""] }
-        if let data = text.data(using: .utf8),
-           let decoded = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
-           let dict = decoded as? [String: Any] {
-            return dict
-        }
-        return ["ok": true, "result": text]
     }
 
     /// Description baked into the phone_control tool. Scoped to the iOS settings

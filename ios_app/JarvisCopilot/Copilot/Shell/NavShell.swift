@@ -68,14 +68,12 @@ struct NavShell: View {
         }
         .animation(.easeOut(duration: 0.2), value: keyboardVisible)
         .background(JcTheme.bg.ignoresSafeArea())
-        #if os(iOS)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardVisible = false
         }
-        #endif
     }
 
     @ViewBuilder

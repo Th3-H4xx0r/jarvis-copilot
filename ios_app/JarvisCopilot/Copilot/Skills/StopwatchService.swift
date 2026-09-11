@@ -1,7 +1,5 @@
 import Foundation
-#if os(iOS)
 import ActivityKit
-#endif
 
 /// The skill's view of the stopwatch. `StopwatchService` is the real one;
 /// tests use `MockStopwatch`.
@@ -34,9 +32,7 @@ final class StopwatchService: Stopwatching {
     private let defaults: UserDefaults
     /// A Live Activity we could not open (backgrounded); retried on `.active`.
     private var pendingActivity = false
-    #if os(iOS)
     private let queue = ActivityUpdateQueue()
-    #endif
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -66,8 +62,6 @@ final class StopwatchService: Stopwatching {
     // MARK: - Live Activity
 
     private func syncActivity(now: Date, ended: Bool) {
-        #if os(iOS)
-        guard #available(iOS 16.2, *) else { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let elapsed = core.elapsed(at: now)
         let state = JarvisStopwatchAttributes.ContentState(
@@ -100,15 +94,12 @@ final class StopwatchService: Stopwatching {
             pendingActivity = true
             JcLog.dropped(JcLog.services, "stopwatch live activity", error)
         }
-        #endif
     }
 
     /// Called when the app becomes active: opens the Live Activity that
     /// `Activity.request` refused while we were in the background.
     func resyncActivity() {
-        #if os(iOS)
         guard pendingActivity, core.isRunning || core.elapsed(at: Date()) > 0 else { return }
         syncActivity(now: Date(), ended: false)
-        #endif
     }
 }

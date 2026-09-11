@@ -22,8 +22,6 @@ struct CodingChatTranscript: View {
             }
             body(for: transcript)
         }
-        // Links here come out of a model transcript — see `CodingLinkPolicy`.
-        .codingSafeLinks()
     }
 
     // MARK: Header
@@ -244,7 +242,7 @@ struct CodingMessageTile: View {
                         }
                     }
                 }
-                if !CodingUI.trim(message.text).isEmpty {
+                if !jcTrim(message.text).isEmpty {
                     Text(CodingMarkdown.render(message.text))
                         .font(.system(size: 14.5))
                         .foregroundStyle(JcTheme.text)

@@ -2,9 +2,7 @@ import Contacts
 import CoreLocation
 import EventKit
 import Foundation
-#if canImport(HealthKit)
 import HealthKit
-#endif
 
 /// Production implementations of the personal-data boundaries: location,
 /// contacts, calendars and health.
@@ -192,7 +190,6 @@ final class DefaultCalendarAccess: CalendarAccessing {
 
 // MARK: - Health
 
-#if canImport(HealthKit)
 /// Authorization is requested lazily on the first read so the user only sees the
 /// HealthKit prompt when the agent actually needs the data.
 ///
@@ -261,14 +258,5 @@ final class DefaultHealthReader: HealthReading {
                                 start: category.startDate, end: category.endDate)
         }
         return nil
-    }
-}
-#endif
-
-/// Stand-in for a build without HealthKit (or without the entitlement), so the
-/// skill catalogue shape never depends on the framework being present.
-final class UnavailableHealthReader: HealthReading {
-    func read(metric: String, days: Int) async throws -> [HealthSample] {
-        throw SkillError.unavailable("HealthKit is not enabled in this build")
     }
 }

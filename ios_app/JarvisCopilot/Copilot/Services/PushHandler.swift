@@ -1,10 +1,6 @@
 import Foundation
-#if canImport(UIKit)
 import UIKit
-#endif
-#if canImport(UserNotifications)
 import UserNotifications
-#endif
 
 /// The body `POST /api/devices/mobile/token` carries.
 ///
@@ -148,7 +144,6 @@ final class PushHandler: NSObject, PushStarting {
     func start() {
         guard !started else { return }
         started = true
-        #if canImport(UserNotifications)
         let center = UNUserNotificationCenter.current()
         // Set the delegate before anything else: a tap that LAUNCHED the app is
         // delivered as soon as one exists, and there is no way to ask for it later.
@@ -160,19 +155,14 @@ final class PushHandler: NSObject, PushStarting {
             self?.recordNotificationAuthorization(granted)
             self?.registerForRemoteNotifications()
         }
-        #else
-        registerForRemoteNotifications()
-        #endif
     }
 
     private func registerForRemoteNotifications() {
-        #if canImport(UIKit)
         // Silent pushes need no permission, so this is deliberately not gated on
         // the authorization result — only on being paired, because an unpaired
         // app has nowhere to send the token.
         guard bridge.isPaired else { return }
         UIApplication.shared.registerForRemoteNotifications()
-        #endif
     }
 
     func drainNow() async {
@@ -234,7 +224,6 @@ final class PushHandler: NSObject, PushStarting {
     }
 }
 
-#if canImport(UserNotifications)
 extension PushHandler: UNUserNotificationCenterDelegate {
 
     /// Show server notifications while the app is open too — a permission prompt
@@ -258,4 +247,3 @@ extension PushHandler: UNUserNotificationCenterDelegate {
         await handle(action)
     }
 }
-#endif

@@ -183,14 +183,14 @@ enum CodingTerminalEvent: Equatable {
     case closed(reason: String)
     case failed(message: String)
     /// Keep-alives and anything else the server invents later.
-    case other(String)
+    case other
 
     init(_ o: [String: Any]) {
         switch CodingJSON.text(o["event"], "message") {
         case "output": self = .output(CodingJSON.text(o["text"]))
         case "terminal_closed": self = .closed(reason: CodingJSON.text(o["reason"]))
         case "terminal_error": self = .failed(message: CodingJSON.text(o["error"]))
-        case let name: self = .other(name)
+        default: self = .other
         }
     }
 

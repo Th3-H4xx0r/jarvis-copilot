@@ -2,11 +2,6 @@ import SwiftUI
 import SceneKit
 
 /// The procedural bottle rendered live in SceneKit.
-///
-/// This wraps `SCNView` directly rather than using SwiftUI's `SceneView`, because
-/// `SceneView` gives no way to reach the underlying view's `backgroundColor` /
-/// `isOpaque` — setting `scene.background.contents = .clear` still leaves it drawing
-/// on an opaque white backing.
 struct BottleSceneView: View {
     /// Slow turntable rotation. Costs a continuous render, so use it sparingly.
     var spin = false
@@ -37,7 +32,7 @@ struct BottleSceneView: View {
     var body: some View {
         Group {
             if let live {
-                SceneKitView(live: live, spin: spinning)
+                SceneCanvas(scene: live.scene, camera: live.camera, rendersContinuously: spinning)
             } else {
                 Color.clear
             }
@@ -56,55 +51,3 @@ struct BottleSceneView: View {
         .onChange(of: sterilising) { _, on in live?.setSterilising(on) }
     }
 }
-
-#if canImport(UIKit)
-private struct SceneKitView: UIViewRepresentable {
-    let live: BottleModel.Live
-    let spin: Bool
-
-    func makeUIView(context: Context) -> SCNView { configure(SCNView()) }
-    func updateUIView(_ view: SCNView, context: Context) {
-        // Changes over the view's lifetime, unlike the camera pose.
-        view.rendersContinuously = spin
-    }
-
-    private func configure(_ view: SCNView) -> SCNView {
-        view.scene = live.scene
-        view.pointOfView = live.camera
-        view.backgroundColor = .clear
-        view.isOpaque = false
-        view.antialiasingMode = .multisampling4X
-        // The pose is driven entirely by the animations — no manual orbiting.
-        view.allowsCameraControl = false
-        view.rendersContinuously = spin
-        view.autoenablesDefaultLighting = false
-        // Half rate: a slow turntable doesn't need 60fps, and these can be on screen
-        // several at a time.
-        view.preferredFramesPerSecond = 30
-        return view
-    }
-}
-#else
-private struct SceneKitView: NSViewRepresentable {
-    let live: BottleModel.Live
-    let spin: Bool
-
-    func makeNSView(context: Context) -> SCNView { configure(SCNView()) }
-    func updateNSView(_ view: SCNView, context: Context) {
-        view.rendersContinuously = spin
-    }
-
-    private func configure(_ view: SCNView) -> SCNView {
-        view.scene = live.scene
-        view.pointOfView = live.camera
-        view.backgroundColor = .clear
-        view.antialiasingMode = .multisampling4X
-        // The pose is driven entirely by the animations — no manual orbiting.
-        view.allowsCameraControl = false
-        view.rendersContinuously = spin
-        view.autoenablesDefaultLighting = false
-        view.preferredFramesPerSecond = 30
-        return view
-    }
-}
-#endif

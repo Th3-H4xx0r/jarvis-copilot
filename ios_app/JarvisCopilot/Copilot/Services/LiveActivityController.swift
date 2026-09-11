@@ -1,7 +1,5 @@
 import Foundation
-#if os(iOS)
 import ActivityKit
-#endif
 
 /// The ActivityKit half of the Live Activity: starts one when there is something
 /// to show, updates the running one, and forwards each activity's APNs push token.
@@ -32,15 +30,10 @@ final class DefaultActivityController: ActivityControlling {
     }
 
     var areActivitiesEnabled: Bool {
-        #if os(iOS)
         return ActivityAuthorizationInfo().areActivitiesEnabled
-        #else
-        return false
-        #endif
     }
 
     func update(_ state: LiveActivityState) {
-        #if os(iOS)
         guard areActivitiesEnabled else { return }
         images?.prefetch(IslandImageCache.urls(inData: state.data))
         let content = ActivityContent(state: Self.contentState(state), staleDate: nil)
@@ -75,11 +68,9 @@ final class DefaultActivityController: ActivityControlling {
                 JcLog.dropped(JcLog.services, "live activity request", error)
             }
         }
-        #endif
     }
 
     func end() {
-        #if os(iOS)
         // The token streams only finish when their activity does, so cancel them
         // here: otherwise every ended activity leaves a live `for await` behind.
         for task in tokenTasks.values { task.cancel() }
@@ -89,10 +80,8 @@ final class DefaultActivityController: ActivityControlling {
                 await activity.end(nil, dismissalPolicy: .immediate)
             }
         }
-        #endif
     }
 
-    #if os(iOS)
     static func contentState(_ s: LiveActivityState) -> JarvisActivityAttributes.ContentState {
         // Clamp both strips: the ~4 KB ContentState budget is a hard failure (iOS
         // silently drops the update), not a truncation.
@@ -140,7 +129,6 @@ final class DefaultActivityController: ActivityControlling {
             await MainActor.run { self?.tokenTasks[id] = nil }
         }
     }
-    #endif
 }
 
 /// Runs `await`-ing work strictly in the order it was submitted.

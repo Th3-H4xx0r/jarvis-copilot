@@ -1,8 +1,6 @@
 import Foundation
 import SwiftUI
-import CryptoKit
 import UIKit
-
 
 // ══════════════════════════════════════════════════════════════════════════
 // MARK: - Dynamic Island Designs — data-driven renderer (JCDesignView)
@@ -56,13 +54,9 @@ enum JCDesignCache {
 // Remote island images are downloaded by the app into
 // `<AppGroupContainer>/island/images/<sha256(url)>` by
 // `IslandImageCache` in the app). The widget extension cannot fetch at render
-// time, so it only ever READS the pre-downloaded file; the hash MUST match.
+// time, so it only ever READS the pre-downloaded file (`JarvisShared.islandImageFileName`).
 enum JCImageCache {
     static let appGroupId = JCDesignCache.appGroupId
-
-    static func fileName(for url: String) -> String {
-        SHA256.hash(data: Data(url.utf8)).map { String(format: "%02x", $0) }.joined()
-    }
 
     /// The cached file for a remote image URL, or nil if not (yet) downloaded.
     static func localFile(for source: String) -> URL? {
@@ -71,7 +65,7 @@ enum JCImageCache {
                 forSecurityApplicationGroupIdentifier: appGroupId) else { return nil }
         let file = container
             .appendingPathComponent("island/images", isDirectory: true)
-            .appendingPathComponent(fileName(for: source))
+            .appendingPathComponent(JarvisShared.islandImageFileName(for: source))
         return FileManager.default.fileExists(atPath: file.path) ? file : nil
     }
 }

@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(UIKit)
 import UIKit
-#endif
 
 /// A single conversation surface backed by the app-wide voice session.
 struct VoicePage: View {
@@ -267,9 +265,7 @@ struct VoicePage: View {
     }
 
     private func openSystemSettings() {
-        #if canImport(UIKit)
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)
-        #endif
     }
 }

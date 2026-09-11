@@ -48,7 +48,8 @@ final class ChatLinkPolicyTests: XCTestCase {
                     "App-Prefs:root=General",
                     "tel:+15550100",
                     "file:///etc/passwd",
-                    "sms:+15550100"] {
+                    "sms:+15550100",
+                    "/etc/passwd"] {
             XCTAssertFalse(ChatLinkPolicy.isAllowed(URL(string: raw)!), raw)
         }
     }

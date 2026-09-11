@@ -1,8 +1,6 @@
 import Foundation
-#if canImport(MetricKit) && os(iOS)
 import MetricKit
 import os
-#endif
 
 /// Near-zero-cost field instrument. iOS aggregates energy / CPU / background-time
 /// metrics on-device and delivers a payload roughly once every 24 h; we just log
@@ -14,7 +12,6 @@ import os
 ///
 /// Port of `ios/Runner/MetricKitReporter.swift`. It never posted to the server
 /// there and does not here — nothing to keep an endpoint for.
-#if canImport(MetricKit) && os(iOS)
 final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
     static let shared = MetricKitReporter()
     private let log = Logger(subsystem: "com.jarviscopilot.jarviscopilotMobileAndIOS.metrickit", category: "payload")
@@ -56,9 +53,3 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
         }
     }
 }
-#else
-final class MetricKitReporter {
-    static let shared = MetricKitReporter()
-    func register() {}
-}
-#endif

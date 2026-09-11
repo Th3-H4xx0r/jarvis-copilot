@@ -42,12 +42,6 @@ final class PhoneCommandTests: XCTestCase {
         XCTAssertEqual(PhoneCommand.rawValue(for: "brightness", command: ["value": -2]), "0")
     }
 
-    func testSendMessageJoinsRecipientAndBodyWithAPipe() {
-        XCTAssertEqual(
-            PhoneCommand.rawValue(for: "send_message", command: ["to": "Chahel", "message": "hi"]),
-            "Chahel|hi")
-    }
-
     func testTruthyFalsyWordsNormalizeToOneAndZero() {
         XCTAssertEqual(PhoneCommand.rawValue(for: "wifi", command: ["value": "on"]), "1")
         XCTAssertEqual(PhoneCommand.rawValue(for: "wifi", command: ["value": true]), "1")
@@ -85,7 +79,7 @@ final class PhoneCommandTests: XCTestCase {
     // MARK: encodeQueryWithPercent20
 
     func testEncodesSpacesAsPercent20NeverPlus() {
-        let qs = PhoneCommand.encodeQueryWithPercent20(["name": "JC Brightness"])
+        let qs = PhoneCommand.encodeQueryWithPercent20([("name", "JC Brightness")])
         XCTAssertEqual(qs, "name=JC%20Brightness")
         XCTAssertFalse(qs.contains("+"))
     }
@@ -100,7 +94,7 @@ final class PhoneCommandTests: XCTestCase {
     }
 
     func testRoundTripsThroughURLPreservingPercent20() throws {
-        let qs = PhoneCommand.encodeQueryWithPercent20(["name": "A B"])
+        let qs = PhoneCommand.encodeQueryWithPercent20([("name", "A B")])
         let url = try XCTUnwrap(URL(string: "shortcuts://x-callback-url/run-shortcut?\(qs)"))
         XCTAssertTrue(url.absoluteString.contains("A%20B"))
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
@@ -132,29 +126,5 @@ final class PhoneCommandTests: XCTestCase {
         XCTAssertNil(PhoneCommand.nativeRedirectSkill(["action": "brightness", "value": 0.5]))
         XCTAssertNil(PhoneCommand.nativeRedirectSkill(["action": "wifi", "value": 0]))
         XCTAssertNil(PhoneCommand.nativeRedirectSkill(["action": "open_url", "url": "x://"]))
-    }
-
-    // MARK: parsePhoneOutput
-
-    func testParsesAJSONObjectOutput() {
-        XCTAssertEqual(PhoneCommand.parseOutput(#"{"ok":true,"result":"done"}"#) as NSDictionary,
-                       ["ok": true, "result": "done"] as NSDictionary)
-    }
-
-    func testWrapsNonJSONTextAsARawResult() {
-        XCTAssertEqual(PhoneCommand.parseOutput("73%") as NSDictionary,
-                       ["ok": true, "result": "73%"] as NSDictionary)
-    }
-
-    func testEmptyOutputIsOkWithEmptyResult() {
-        XCTAssertEqual(PhoneCommand.parseOutput("") as NSDictionary,
-                       ["ok": true, "result": ""] as NSDictionary)
-        XCTAssertEqual(PhoneCommand.parseOutput(nil) as NSDictionary,
-                       ["ok": true, "result": ""] as NSDictionary)
-    }
-
-    func testAJSONNonObjectIsTreatedAsRawText() {
-        XCTAssertEqual(PhoneCommand.parseOutput("[1,2]") as NSDictionary,
-                       ["ok": true, "result": "[1,2]"] as NSDictionary)
     }
 }

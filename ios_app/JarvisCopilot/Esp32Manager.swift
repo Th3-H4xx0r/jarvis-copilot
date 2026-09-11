@@ -171,7 +171,7 @@ final class Esp32Manager: NSObject, ObservableObject {
         params.prohibitedInterfaceTypes = [.cellular]
         let b = NWBrowser(for: .bonjour(type: Esp32Protocol.bonjourType, domain: nil), using: params)
         b.stateUpdateHandler = { st in
-            if case .failed(let e) = st { print("[ESP32] bonjour failed \(e)") }
+            if case .failed(let e) = st { JcLog.devices.error("esp32 bonjour failed: \(String(describing: e))") }
         }
         b.browseResultsChangedHandler = { [weak self] results, _ in
             let names = Set(results.compactMap { r -> String? in
@@ -419,7 +419,7 @@ final class Esp32Manager: NSObject, ObservableObject {
         peripheral = p
         p.delegate = self
         state = .connecting
-        print("[ESP32] BLE connecting \(board.name)")
+        JcLog.devices.debug("esp32 BLE connecting \(board.name)")
         // No timeout on purpose: iOS keeps this pending and completes it whenever the
         // board comes back into range, which is exactly the "retain the link" behaviour.
         central.connect(p)
@@ -445,7 +445,7 @@ final class Esp32Manager: NSObject, ObservableObject {
                 guard !Task.isCancelled, let self, self.sessionWanted, self.state != .ready, self.activeLink == .bluetooth else { return }
                 for host in hosts where !Task.isCancelled {
                     if await self.openTCP(host: host, port: port) {
-                        print("[ESP32] board reachable over Wi‑Fi, switching")
+                        JcLog.devices.debug("esp32 reachable over Wi-Fi, switching")
                         if let p = self.peripheral { self.central.cancelPeripheralConnection(p) }
                         self.peripheral = nil; self.commandCharacteristic = nil; self.eventCharacteristic = nil
                         self.activeLink = .wifi
@@ -481,7 +481,7 @@ final class Esp32Manager: NSObject, ObservableObject {
             }
             guard let self, !Task.isCancelled else { return }
             if fallbackToBluetooth, let board = self.connected {
-                print("[ESP32] Wi‑Fi unreachable, falling back to Bluetooth")
+                JcLog.devices.debug("esp32 Wi-Fi unreachable, falling back to Bluetooth")
                 self.lastError = "Wi‑Fi unreachable, using Bluetooth"
                 self.connectBluetooth(board)
             } else {
@@ -501,7 +501,7 @@ final class Esp32Manager: NSObject, ObservableObject {
         let conn = NWConnection(host: host, port: port, using: params)
         tcp = conn
         tcpParser.reset()
-        print("[ESP32] TCP connecting \(host)")
+        JcLog.devices.debug("esp32 TCP connecting \(String(describing: host))")
 
         let ready: Bool = await withCheckedContinuation { cont in
             var settled = false
@@ -513,14 +513,14 @@ final class Esp32Manager: NSObject, ObservableObject {
                         if !settled { settled = true; cont.resume(returning: true) }
                         self.receiveTCP(conn)
                     case .failed(let e):
-                        print("[ESP32] TCP failed \(e)")
+                        JcLog.devices.debug("esp32 TCP failed: \(String(describing: e))")
                         if !settled { settled = true; cont.resume(returning: false) }
                         else { self.linkDropped("Wi‑Fi link dropped") }
                     case .cancelled:
                         if !settled { settled = true; cont.resume(returning: false) }
                     case .waiting(let e):
                         // No route yet (wrong network, board offline). Treat as a miss.
-                        print("[ESP32] TCP waiting \(e)")
+                        JcLog.devices.debug("esp32 TCP waiting: \(String(describing: e))")
                         if !settled { settled = true; conn.cancel(); cont.resume(returning: false) }
                     default: break
                     }
@@ -590,7 +590,7 @@ final class Esp32Manager: NSObject, ObservableObject {
                     let token = Self.mintToken()
                     _ = try await request(.claim, payload: token)
                     Self.storeToken(token, for: info.deviceID)
-                    print("[ESP32] claimed \(info.deviceID)")
+                    JcLog.devices.debug("esp32 claimed \(info.deviceID)")
                 }
             }
             guard info.protocolVersion == Esp32Protocol.version else { throw Esp32Error.protocolMismatch(info.protocolVersion) }
@@ -617,10 +617,10 @@ final class Esp32Manager: NSObject, ObservableObject {
             reconnectAttempt = 0
             publish()
             if activeLink == .wifi { startKeepalive() }
-            print("[ESP32] ready over \(activeLink?.label ?? "?") as \(info.deviceID)")
+            JcLog.devices.debug("esp32 ready over \(self.activeLink?.label ?? "?") as \(info.deviceID)")
         } catch is CancellationError {
         } catch {
-            print("[ESP32] handshake failed: \(error)")
+            JcLog.devices.error("esp32 handshake failed: \(String(describing: error))")
             let message = error.localizedDescription
             let overWifi = activeLink == .wifi
             teardownLinks()
@@ -1113,31 +1113,15 @@ final class Esp32Manager: NSObject, ObservableObject {
 
     func refreshRegistryMembership() {
         guard let device = exposedDevice else { return }
-        // Pin the identity while we have a real one, so this device keeps the
-        // same id after the link drops and can be re-registered offline.
-        WearableIdentity.remember(device.deviceID, for: WearableKeepAlive.esp32)
         // A board on its own Jarvis link registers its skills itself; advertising them
         // from the phone too would give Jarvis two copies of every command.
         let boardHoldsBridge = cloud?.cloudMode == true && (cloud?.state == .connected || cloud?.state == .connecting)
-        let shouldShare = BridgeClient.isExposed(device.deviceID) && !boardHoldsBridge
-        let isShared = DeviceRegistry.shared.device(id: device.deviceID) != nil
-        guard shouldShare != isShared else { return }
-        if shouldShare {
-            DeviceRegistry.shared.register(device)
-            BridgeClient.remember(deviceID: device.deviceID, model: Esp32Board.model)
-        } else {
-            DeviceRegistry.shared.remove(deviceID: device.deviceID)
-            BridgeClient.forget(deviceID: device.deviceID)
-        }
-        BridgeClient.shared.sendRegistration()
+        DeviceRegistry.shared.syncMembership(of: device, identity: WearableKeepAlive.esp32,
+                                             model: Esp32Board.model, advertisedElsewhere: boardHoldsBridge)
     }
 
-    /// Register this device's catalogue with no live link.
-    ///
-    /// Registration used to follow the Bluetooth connection, so between app launch
-    /// and the first successful connect the agent had no skills for this device at
-    /// all — not a failing tool, no tool. `invoke` already reconnects on demand, so
-    /// the catalogue is what needed to stop disappearing.
+    /// Register this device's catalogue with no live link: `invoke` reconnects on
+    /// demand, so Jarvis keeps the skills between launch and the first connect.
     func publishRemembered() {
         if exposedDevice == nil {
             guard WearableIdentity.remembered(WearableKeepAlive.esp32) != nil else { return }
@@ -1295,7 +1279,7 @@ extension Esp32Manager: CBPeripheralDelegate {
     nonisolated func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         guard let error else { return }
         Task { @MainActor in
-            print("[ESP32] write failed: \(error)")
+            JcLog.devices.error("esp32 write failed: \(String(describing: error))")
             finish(.failure(error))
         }
     }
@@ -1304,14 +1288,13 @@ extension Esp32Manager: CBPeripheralDelegate {
         guard let value = characteristic.value else { return }
         Task { @MainActor in
             guard let frame = Esp32Protocol.decode(Array(value)) else {
-                print("[ESP32] dropped undecodable notify \(value.map { String(format: "%02X", $0) }.joined())")
+                JcLog.devices.debug("esp32 dropped an undecodable notify (\(value.count) bytes)")
                 return
             }
             handle(frame)
         }
     }
 }
-
 
 private extension String {
     /// "jarvis-esp32-33da" → "Jarvis-ESP32-33DA": upper-case the MAC suffix only.
@@ -1320,7 +1303,6 @@ private extension String {
         return String(self[...dash]) + self[index(after: dash)...].uppercased()
     }
 }
-
 
 /// Local iPhone notifications for `jarvis.notify` from a board script. Asks for
 /// permission the first time a script needs it.
@@ -1340,7 +1322,6 @@ enum Esp32Notifier {
         try? await center.add(request)
     }
 }
-
 
 /// The app's record of the script it last installed on a board.
 struct Esp32ScriptInfo: Codable, Equatable {

@@ -1,12 +1,8 @@
 import AVFoundation
 import Foundation
-#if canImport(UIKit)
 import UIKit
-#endif
-#if canImport(MessageUI)
 import MessageUI
 import UniformTypeIdentifiers
-#endif
 
 /// Production implementations of the UIKit-shaped boundaries.
 ///
@@ -17,17 +13,11 @@ import UniformTypeIdentifiers
 
 final class DefaultClipboard: Clipboarding {
     func read() async -> String? {
-        #if canImport(UIKit)
         await MainActor.run { UIPasteboard.general.string }
-        #else
-        nil
-        #endif
     }
 
     func write(_ text: String) async {
-        #if canImport(UIKit)
         await MainActor.run { UIPasteboard.general.string = text }
-        #endif
     }
 }
 
@@ -35,19 +25,11 @@ final class DefaultClipboard: Clipboarding {
 
 final class DefaultURLOpener: URLOpening {
     func canOpen(_ url: URL) async -> Bool {
-        #if canImport(UIKit)
         await MainActor.run { UIApplication.shared.canOpenURL(url) }
-        #else
-        false
-        #endif
     }
 
     func open(_ url: URL) async -> Bool {
-        #if canImport(UIKit)
         return await UIApplication.shared.open(url)
-        #else
-        return false
-        #endif
     }
 }
 
@@ -55,7 +37,6 @@ final class DefaultURLOpener: URLOpening {
 
 final class DefaultDeviceInfo: DeviceInfoProviding {
     func info() async -> [String: String] {
-        #if canImport(UIKit)
         let device = await MainActor.run { (name: UIDevice.current.name,
                                             system: UIDevice.current.systemName,
                                             version: UIDevice.current.systemVersion) }
@@ -67,9 +48,6 @@ final class DefaultDeviceInfo: DeviceInfoProviding {
             "system_version": device.version,
             "locale": Locale.current.identifier,
         ]
-        #else
-        return ["platform": "unknown", "locale": Locale.current.identifier]
-        #endif
     }
 
     /// `utsname.machine` ("iPhone16,2") — what the Flutter client reported as
@@ -89,7 +67,6 @@ final class DefaultDeviceInfo: DeviceInfoProviding {
 
 final class DefaultBattery: BatteryReading {
     func snapshot() async -> BatterySnapshot {
-        #if canImport(UIKit)
         return await MainActor.run {
             // Monitoring has to be armed before the values mean anything; the
             // simulator still reports -1 / .unknown.
@@ -105,9 +82,6 @@ final class DefaultBattery: BatteryReading {
             }
             return BatterySnapshot(level: level, state: state)
         }
-        #else
-        return BatterySnapshot(level: -1, state: "unknown")
-        #endif
     }
 }
 
@@ -115,23 +89,17 @@ final class DefaultBattery: BatteryReading {
 
 final class DefaultHaptics: Vibrating {
     var isAvailable: Bool {
-        #if canImport(UIKit)
         // iPads and the simulator have no haptic engine; UIDevice doesn't say,
         // but the Taptic Engine only exists on iPhone.
         return UIDevice.current.userInterfaceIdiom == .phone
-        #else
-        return false
-        #endif
     }
 
     func buzz() async {
-        #if canImport(UIKit)
         await MainActor.run {
             let generator = UIImpactFeedbackGenerator(style: .heavy)
             generator.prepare()
             generator.impactOccurred()
         }
-        #endif
     }
 }
 
@@ -166,7 +134,6 @@ final class DefaultTorch: Torching {
 /// wake) this reports unavailable rather than pretending to have shared.
 final class DefaultSharePresenter: SharePresenting {
     func present(_ payload: SharePayload) async throws -> Bool {
-        #if canImport(UIKit)
         return try await MainActor.run {
             let items: [Any]
             switch payload {
@@ -189,13 +156,9 @@ final class DefaultSharePresenter: SharePresenting {
             top.present(sheet, animated: true)
             return true
         }
-        #else
-        throw SkillError.unavailable("share sheet needs UIKit")
-        #endif
     }
 }
 
-#if canImport(UIKit)
 /// Carries the optional `subject` (used by Mail) alongside the shared text —
 /// `UIActivityViewController` only exposes it through an item source.
 private final class ShareTextItem: NSObject, UIActivityItemSource {
@@ -215,11 +178,9 @@ private final class ShareTextItem: NSObject, UIActivityItemSource {
     func activityViewController(_ controller: UIActivityViewController,
                                 subjectForActivityType type: UIActivity.ActivityType?) -> String { subject }
 }
-#endif
 
 // MARK: - SMS composer
 
-#if canImport(MessageUI)
 /// iOS has no programmatic SMS API — apps that ship to the store must route
 /// through `MFMessageComposeViewController` and let the user tap Send. We
 /// pre-fill recipient + body and present the sheet from the top-most view
@@ -277,8 +238,7 @@ final class DefaultSmsComposer: NSObject, MFMessageComposeViewControllerDelegate
         case "video/quicktime": return "com.apple.quicktime-movie"
         case "application/pdf": return "com.adobe.pdf"
         default:
-            if #available(iOS 14.0, *),
-               let ext = filename.split(separator: ".").last.map(String.init),
+            if let ext = filename.split(separator: ".").last.map(String.init),
                let type = UTType(filenameExtension: ext) {
                 return type.identifier
             }
@@ -301,7 +261,6 @@ final class DefaultSmsComposer: NSObject, MFMessageComposeViewControllerDelegate
         continuation?.resume(returning: outcome)
     }
 }
-#endif
 
 // MARK: - Opening another app
 
@@ -332,7 +291,6 @@ final class DefaultAppOpener: AppOpening {
 
 // MARK: - Top view controller
 
-#if canImport(UIKit)
 /// Walk the scene graph for the visible view controller. Required because the
 /// SwiftUI hosting controller may not be the top presenter when another sheet is
 /// already up.
@@ -348,4 +306,3 @@ enum TopViewController {
         return top
     }
 }
-#endif

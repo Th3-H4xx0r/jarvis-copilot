@@ -37,7 +37,7 @@ struct CodingPromptSheet: View {
                                 action: { deliver(option.key) { await sendKey(option.key) } })
                         }
                     }
-                } else if let raw = prompt.raw, !CodingUI.trim(raw).isEmpty {
+                } else if let raw = prompt.raw, !jcTrim(raw).isEmpty {
                     rawPane(raw)
                 }
                 controls.padding(.top, 12)
@@ -66,9 +66,9 @@ struct CodingPromptSheet: View {
                     .font(.system(size: 10.5, weight: .bold))
                     .kerning(1.2)
                     .foregroundStyle(CodingUI.purple.opacity(0.9))
-                Text(CodingUI.trim(prompt.question ?? "").isEmpty
+                Text(jcTrim(prompt.question ?? "").isEmpty
                      ? "Choose how to continue"
-                     : CodingUI.trim(prompt.question!))
+                     : jcTrim(prompt.question!))
                     .font(.system(size: 15.5, weight: .bold))
                     .foregroundStyle(JcTheme.text)
             }
@@ -120,7 +120,7 @@ struct CodingPromptSheet: View {
                 .lineLimit(1...4)
                 .jcFieldStyle()
             Button {
-                let text = CodingUI.trim(reply)
+                let text = jcTrim(reply)
                 guard !text.isEmpty else { return }
                 deliver("text") { await sendText(text) }
             } label: {

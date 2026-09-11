@@ -148,7 +148,6 @@ final class NotificationActionsTests: XCTestCase {
 
     // MARK: Categories
 
-    #if canImport(UserNotifications)
     func testThePermissionCategoryCarriesAllThreeActions() {
         let categories = NotificationCategories.all()
         guard let category = categories.first(where: {
@@ -159,7 +158,6 @@ final class NotificationActionsTests: XCTestCase {
                         NotificationAction.Identifier.deny,
                         NotificationAction.Identifier.reply])
     }
-    #endif
 
     // MARK: - A verdict that never reached the server (silent-failures H9)
 

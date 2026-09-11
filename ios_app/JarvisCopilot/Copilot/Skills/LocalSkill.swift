@@ -29,11 +29,6 @@ protocol LocalSkill {
 extension LocalSkill {
     var requiresForeground: Bool { false }
 
-    /// The entry the bridge sends in its `register` frame.
-    var manifest: [String: Any] {
-        ["name": name, "description": description, "input_schema": inputSchema]
-    }
-
     /// The same skill expressed for `DeviceRegistry`, so phone skills ride the
     /// existing `allSkills()` / `invoke(skill:args:)` path untouched.
     var capability: DeviceCapability {

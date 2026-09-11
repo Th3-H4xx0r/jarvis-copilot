@@ -5,7 +5,6 @@ import ActivityKit
 /// The JARVIS stopwatch in the Dynamic Island / Lock Screen: counts up live
 /// while running (the system re-renders `Text(timerInterval:)` itself), shows
 /// the frozen time while stopped, and the last laps when expanded.
-@available(iOS 16.2, *)
 struct JarvisStopwatchActivity: Widget {
     private var tint: Color { Color(red: 0.31, green: 0.45, blue: 1.0) }
 
@@ -78,7 +77,6 @@ struct JarvisStopwatchActivity: Widget {
     }
 }
 
-@available(iOS 16.2, *)
 private struct JarvisStopwatchTime: View {
     let state: JarvisStopwatchAttributes.ContentState
     let tint: Color

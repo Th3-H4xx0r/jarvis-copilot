@@ -128,11 +128,9 @@ struct ScanView: View {
                     .font(.footnote).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 30)
-                #if os(iOS)
                 if let url = URL(string: "App-Prefs:root=Bluetooth") {
                     Link("Open Settings", destination: url).font(.subheadline)
                 }
-                #endif
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 50)
@@ -337,7 +335,6 @@ private struct SignalBars: View {
     }
 }
 
-
 // MARK: - Zoom navigation transition
 
 // The card grows into the detail screen on iOS 18+; older systems just get the standard
@@ -345,29 +342,22 @@ private struct SignalBars: View {
 extension View {
     @ViewBuilder
     func zoomSource(id: some Hashable, in namespace: Namespace.ID) -> some View {
-        if #available(iOS 18.0, macOS 15.0, *) {
+        if #available(iOS 18.0, *) {
             self.matchedTransitionSource(id: id, in: namespace)
         } else {
             self
         }
     }
 
-    // `.zoom` is iOS-only — the availability check alone isn't enough, the symbol
-    // doesn't exist on macOS at all.
     @ViewBuilder
     func zoomTransition(id: some Hashable, in namespace: Namespace.ID) -> some View {
-        #if os(iOS)
         if #available(iOS 18.0, *) {
             self.navigationTransition(.zoom(sourceID: id, in: namespace))
         } else {
             self
         }
-        #else
-        self
-        #endif
     }
 }
-
 
 /// A paired device that isn't answering right now.
 ///

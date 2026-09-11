@@ -68,7 +68,7 @@ struct ChatAssistantTurnCard: View {
             if message.streaming && !hasText
                 && message.reasoning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && !tools.contains(where: { !$0.done }) {
-                ChatThinkingDots().padding(.vertical, 2)
+                ThinkingDots().padding(.vertical, 2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -161,9 +161,7 @@ struct ChatSelectTextSheet: View {
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Button {
-                            #if canImport(UIKit)
                             UIPasteboard.general.string = text
-                            #endif
                         } label: { Image(systemName: "doc.on.doc") }
                         .accessibilityLabel("Copy all")
                     }
@@ -176,7 +174,6 @@ struct ChatSelectTextSheet: View {
     }
 }
 
-#if canImport(UIKit)
 struct SelectableTextView: UIViewRepresentable {
     let text: String
 
@@ -198,9 +195,3 @@ struct SelectableTextView: UIViewRepresentable {
         if view.text != text { view.text = text }
     }
 }
-#else
-struct SelectableTextView: View {
-    let text: String
-    var body: some View { ScrollView { Text(text).textSelection(.enabled).padding() } }
-}
-#endif

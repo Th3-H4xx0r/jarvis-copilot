@@ -247,7 +247,6 @@ final class MockShortcutRunner: ShortcutRunning, @unchecked Sendable {
 
     var calls: [Call] = []
     var outcome = ShortcutOutcome(ran: true, launched: true, result: "")
-    var names: [String]?
     var editorOpened: [(importURL: String, name: String)] = []
     var editorResult = true
 
@@ -257,8 +256,6 @@ final class MockShortcutRunner: ShortcutRunning, @unchecked Sendable {
                           awaitResult: awaitResult))
         return outcome
     }
-
-    func installedNames() async -> [String]? { names }
 
     func openEditor(importURL: String, suggestedName: String) async -> Bool {
         editorOpened.append((importURL, suggestedName))

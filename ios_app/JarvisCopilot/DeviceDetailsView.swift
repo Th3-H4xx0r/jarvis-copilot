@@ -26,9 +26,7 @@ struct DeviceDetailsView: View {
             .padding(.bottom, 30)
         }
         .navigationTitle("Settings")
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
     }
 
     /// Per-device opt-in. Server, pairing and bridge mode are app-level and live in
@@ -174,9 +172,7 @@ struct DeviceDetailsView: View {
                     TextField("e.g. 0E01", text: $rawHex)
                         .font(.body.monospaced())
                         .autocorrectionDisabled()
-                        #if os(iOS)
                         .textInputAutocapitalization(.characters)
-                        #endif
                     Button("Send") {
                         if let parsed, !parsed.isEmpty {
                             manager.send(.raw(parsed))

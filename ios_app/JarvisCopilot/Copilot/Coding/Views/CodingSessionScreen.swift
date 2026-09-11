@@ -43,7 +43,7 @@ struct CodingSessionScreen: View {
         .jcScreen(detail?.displayTitle ?? "Session")
         // Tool cards and the terminal render server text too — the whole screen
         // gets the transcript's link policy, not just the chat bubbles.
-        .codingSafeLinks()
+        .chatLinkGuard()
         .toolbar { toolbar }
         .sheet(isPresented: $settingsOpen) {
             if let detail {

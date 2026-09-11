@@ -166,15 +166,10 @@ enum ChatVideoPoster {
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 1_024, height: 1_024)
         guard let cgImage = try? generator.copyCGImage(at: .zero, actualTime: nil) else { return nil }
-        #if canImport(UIKit)
         return UIImage(cgImage: cgImage).jpegData(compressionQuality: 0.7)
-        #else
-        return nil
-        #endif
     }
 }
 
-#if canImport(UIKit)
 /// `UIImagePickerController` in camera mode. SwiftUI has no camera control of its
 /// own, and `PhotosPicker` only reads the library.
 ///
@@ -212,4 +207,3 @@ struct ChatCameraPicker: UIViewControllerRepresentable {
         }
     }
 }
-#endif

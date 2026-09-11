@@ -125,3 +125,24 @@ final class DeviceRegistry: ObservableObject {
         return try await target.invoke(skill, args: args)
     }
 }
+
+extension DeviceRegistry {
+    /// Adds or removes a wearable to match its "Share with Jarvis" setting, and pins
+    /// its identity so it keeps the same id — and can be re-registered — while its
+    /// link is down. `advertisedElsewhere` keeps it off the phone's list when
+    /// something else already registers it with Jarvis.
+    func syncMembership(of device: any WearableDevice, identity key: String, model: String,
+                        advertisedElsewhere: Bool = false) {
+        WearableIdentity.remember(device.deviceID, for: key)
+        let shouldShare = BridgeClient.isExposed(device.deviceID) && !advertisedElsewhere
+        guard shouldShare != (self.device(id: device.deviceID) != nil) else { return }
+        if shouldShare {
+            register(device)
+            BridgeClient.remember(deviceID: device.deviceID, model: model)
+        } else {
+            remove(deviceID: device.deviceID)
+            BridgeClient.forget(deviceID: device.deviceID)   // opted out, not merely offline
+        }
+        BridgeClient.shared.sendRegistration()
+    }
+}

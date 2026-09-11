@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(CoreLocation)
 import CoreLocation
-#endif
 
 /// The body `POST /api/devices/mobile/location` carries. Reuses the app's one
 /// location value (`LocationFix`, declared next to the `get_location` skill's
@@ -10,14 +8,6 @@ extension LocationFix {
     var locationJSON: [String: Any] {
         ["lat": latitude, "lng": longitude, "accuracy": accuracyMeters,
          "ts": timestamp.timeIntervalSince1970]
-    }
-
-    /// Equatable synthesis needs the declaring file, and this type lives in
-    /// `SkillBoundaries.swift` — so the comparison the location service needs is
-    /// spelled out here instead.
-    func matches(_ other: LocationFix) -> Bool {
-        latitude == other.latitude && longitude == other.longitude
-            && accuracyMeters == other.accuracyMeters && timestamp == other.timestamp
     }
 }
 
@@ -153,7 +143,6 @@ final class BackgroundLocationService: LocationTracking {
     }
 }
 
-#if canImport(CoreLocation)
 /// `CLLocationManager` significant-change monitoring.
 @MainActor
 final class DefaultLocationMonitor: NSObject, LocationMonitoring, CLLocationManagerDelegate {
@@ -282,13 +271,3 @@ final class DefaultLocationMonitor: NSObject, LocationMonitoring, CLLocationMana
         // Nothing to do: a failed fix simply means no report this time.
     }
 }
-#else
-@MainActor
-final class DefaultLocationMonitor: LocationMonitoring {
-    var onFix: ((LocationFix) -> Void)?
-    var isAvailable: Bool { false }
-    func requestAlwaysAuthorization() async -> Bool { false }
-    func startMonitoring() {}
-    func stopMonitoring() {}
-}
-#endif

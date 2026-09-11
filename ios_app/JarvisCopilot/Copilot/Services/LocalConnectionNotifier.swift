@@ -1,8 +1,6 @@
 import Combine
 import Foundation
-#if canImport(UserNotifications)
 import UserNotifications
-#endif
 
 /// Posts the connection monitor's "JARVIS disconnected / reconnected" lines as
 /// local notifications.

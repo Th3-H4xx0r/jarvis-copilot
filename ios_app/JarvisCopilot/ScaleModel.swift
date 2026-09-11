@@ -1,12 +1,5 @@
 import SceneKit
-
-#if canImport(UIKit)
 import UIKit
-private typealias ScalePlatformColor = UIColor
-#else
-import AppKit
-private typealias ScalePlatformColor = NSColor
-#endif
 
 enum ScaleVisualState: Equatable {
     case idle
@@ -35,7 +28,7 @@ enum ScaleModel {
         let displayText: SCNNode
     }
 
-    private static func material(_ color: ScalePlatformColor,
+    private static func material(_ color: UIColor,
                                  roughness: CGFloat,
                                  metalness: CGFloat = 0) -> SCNMaterial {
         let material = SCNMaterial()
@@ -47,10 +40,10 @@ enum ScaleModel {
     }
 
     private static func glassMaterial() -> SCNMaterial {
-        let material = material(ScalePlatformColor(white: 0.025, alpha: 1), roughness: 0.30)
+        let material = material(UIColor(white: 0.025, alpha: 1), roughness: 0.30)
         material.clearCoat.contents = 0.52
         material.clearCoatRoughness.contents = 0.25
-        material.reflective.contents = ScalePlatformColor(white: 0.10, alpha: 1)
+        material.reflective.contents = UIColor(white: 0.10, alpha: 1)
         return material
     }
 
@@ -62,7 +55,7 @@ enum ScaleModel {
 
         // A flattened capsule produces the rounded brushed-steel plates in the photo.
         let capsule = SCNCapsule(capRadius: 0.094, height: 0.42)
-        let steel = material(ScalePlatformColor(white: 0.34, alpha: 1), roughness: 0.48, metalness: 0.72)
+        let steel = material(UIColor(white: 0.34, alpha: 1), roughness: 0.48, metalness: 0.72)
         capsule.materials = [steel]
         capsule.radialSegmentCount = 48
         capsule.capSegmentCount = 16
@@ -73,7 +66,7 @@ enum ScaleModel {
 
         // A subtle inner highlight makes the radial brushing read at phone size.
         let highlight = SCNBox(width: 0.008, height: 0.004, length: 0.25, chamferRadius: 0.004)
-        highlight.materials = [material(ScalePlatformColor(white: 0.55, alpha: 0.32), roughness: 0.44, metalness: 0.65)]
+        highlight.materials = [material(UIColor(white: 0.55, alpha: 0.32), roughness: 0.44, metalness: 0.65)]
         let highlightNode = SCNNode(geometry: highlight)
         highlightNode.position.y = 0.018
         holder.addChildNode(highlightNode)
@@ -91,7 +84,7 @@ enum ScaleModel {
 
         let baseGeometry = SCNBox(width: 1.36, height: 0.105, length: 1.36, chamferRadius: 0.105)
         baseGeometry.chamferSegmentCount = 18
-        baseGeometry.materials = [material(ScalePlatformColor(white: 0.035, alpha: 1), roughness: 0.68)]
+        baseGeometry.materials = [material(UIColor(white: 0.035, alpha: 1), roughness: 0.68)]
         let base = SCNNode(geometry: baseGeometry)
         base.name = "polymerBase"
         base.position.y = 0.014
@@ -116,7 +109,7 @@ enum ScaleModel {
 
         let displayGeometry = SCNBox(width: 0.47, height: 0.006, length: 0.255, chamferRadius: 0.035)
         displayGeometry.chamferSegmentCount = 12
-        displayGeometry.materials = [material(ScalePlatformColor(white: 0.004, alpha: 1), roughness: 0.18)]
+        displayGeometry.materials = [material(UIColor(white: 0.004, alpha: 1), roughness: 0.18)]
         let display = SCNNode(geometry: displayGeometry)
         display.name = "displayWindow"
         display.position = SCNVector3(0, 0.109, -0.46)
@@ -124,17 +117,13 @@ enum ScaleModel {
 
         let textGeometry = SCNText(string: "0.0", extrusionDepth: 0.002)
         textGeometry.font = {
-            #if canImport(UIKit)
             UIFont.monospacedDigitSystemFont(ofSize: 0.12, weight: .medium)
-            #else
-            NSFont.monospacedDigitSystemFont(ofSize: 0.12, weight: .medium)
-            #endif
         }()
         textGeometry.flatness = 0.004
         let displayMaterial = SCNMaterial()
         displayMaterial.lightingModel = .constant
-        displayMaterial.diffuse.contents = ScalePlatformColor(red: 0.20, green: 0.48, blue: 0.72, alpha: 1)
-        displayMaterial.emission.contents = ScalePlatformColor(red: 0.04, green: 0.11, blue: 0.18, alpha: 1)
+        displayMaterial.diffuse.contents = UIColor(red: 0.20, green: 0.48, blue: 0.72, alpha: 1)
+        displayMaterial.emission.contents = UIColor(red: 0.04, green: 0.11, blue: 0.18, alpha: 1)
         textGeometry.materials = [displayMaterial]
         let text = SCNNode(geometry: textGeometry)
         text.name = "displayText"
@@ -158,7 +147,7 @@ enum ScaleModel {
 
         // Feet stay outside the moving deck group so the top visibly compresses when
         // a person steps on it, matching the side photo.
-        let footMaterial = material(ScalePlatformColor(white: 0.025, alpha: 1), roughness: 0.9)
+        let footMaterial = material(UIColor(white: 0.025, alpha: 1), roughness: 0.9)
         let footPositions: [(Float, Float)] = [(-0.48, -0.48), (0.48, -0.48), (-0.48, 0.48), (0.48, 0.48)]
         for (index, position) in footPositions.enumerated() {
             let cylinder = SCNCylinder(radius: 0.12, height: 0.05)
@@ -209,7 +198,7 @@ enum ScaleModel {
             glow = parts.glow
             displayText = parts.displayText
 
-            scene.background.contents = ScalePlatformColor.clear
+            scene.background.contents = UIColor.clear
             scene.rootNode.addChildNode(pivot)
 
             cameraTarget.position = SCNVector3Zero
@@ -227,16 +216,12 @@ enum ScaleModel {
             scene.rootNode.addChildNode(camera)
 
             addLights()
-            #if canImport(UIKit)
             pivot.eulerAngles.x = Float(uprightAngle)
-            #else
-            pivot.eulerAngles.x = uprightAngle
-            #endif
             spinner.eulerAngles.y = presentation == .card ? -0.22 : 0
         }
 
         private func addLights() {
-            func directional(intensity: CGFloat, color: ScalePlatformColor,
+            func directional(intensity: CGFloat, color: UIColor,
                              euler: SCNVector3) -> SCNNode {
                 let light = SCNLight()
                 light.type = .directional
@@ -244,7 +229,7 @@ enum ScaleModel {
                 light.color = color
                 light.castsShadow = true
                 light.shadowRadius = 7
-                light.shadowColor = ScalePlatformColor(white: 0, alpha: 0.38)
+                light.shadowColor = UIColor(white: 0, alpha: 0.38)
                 let node = SCNNode()
                 node.light = light
                 node.eulerAngles = euler
@@ -254,12 +239,12 @@ enum ScaleModel {
                                                     euler: SCNVector3(-0.75, 0.6, -0.35)))
             scene.rootNode.addChildNode(directional(
                 intensity: 220,
-                color: ScalePlatformColor(red: 0.58, green: 0.66, blue: 0.78, alpha: 1),
+                color: UIColor(red: 0.58, green: 0.66, blue: 0.78, alpha: 1),
                 euler: SCNVector3(-0.25, -1.7, 0.15)))
             let ambient = SCNLight()
             ambient.type = .ambient
             ambient.intensity = 120
-            ambient.color = ScalePlatformColor(white: 0.55, alpha: 1)
+            ambient.color = UIColor(white: 0.55, alpha: 1)
             let ambientNode = SCNNode()
             ambientNode.light = ambient
             scene.rootNode.addChildNode(ambientNode)

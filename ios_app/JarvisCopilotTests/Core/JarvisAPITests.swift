@@ -357,7 +357,6 @@ final class CoreChunkTransport: APITransport, @unchecked Sendable {
     }
 }
 
-
 private extension MockTransport {
     func enqueue(Reply r: Reply) { enqueue(r) }
 }

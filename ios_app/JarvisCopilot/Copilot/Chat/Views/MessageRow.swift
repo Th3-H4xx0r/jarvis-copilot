@@ -77,12 +77,8 @@ struct ChatSentAttachment: View {
     @State private var fullscreen = false
 
     private var preview: Image? {
-        #if canImport(UIKit)
         guard let data = attachment.thumbnail, let image = UIImage(data: data) else { return nil }
         return Image(uiImage: image)
-        #else
-        return nil
-        #endif
     }
 
     var body: some View {

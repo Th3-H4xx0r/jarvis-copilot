@@ -3,8 +3,6 @@ import SwiftUI
 import ActivityKit
 import UIKit
 
-
-@available(iOS 16.2, *)
 struct JarvisLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: JarvisActivityAttributes.self) { context in
@@ -154,7 +152,6 @@ struct JarvisLiveActivity: Widget {
 
 /// Deep-link target for a tap on the activity. Coding → coding tab; custom →
 /// the island tab; voice (and fallback) → the Voice screen.
-@available(iOS 16.2, *)
 func jcWidgetURL(_ st: JarvisActivityAttributes.ContentState) -> String {
     switch st.mode {
     case "coding": return "jarviscopilot://coding"
@@ -165,7 +162,6 @@ func jcWidgetURL(_ st: JarvisActivityAttributes.ContentState) -> String {
 
 /// The Lock Screen / banner presentation — the full layout: header (orb +
 /// JARVIS / Connected + state pill), waveform, conversation panel, devices.
-@available(iOS 16.2, *)
 struct JarvisLockScreen: View {
     let st: JarvisActivityAttributes.ContentState
     var body: some View {
@@ -209,11 +205,9 @@ struct JarvisLockScreen: View {
 struct JarvisWidgetBundle: WidgetBundle {
     var body: some Widget {
         JarvisWidget()
-        // Dynamic Island / Lock Screen Live Activity (iOS 16.2+).
-        if #available(iOS 16.2, *) {
-            JarvisLiveActivity()
-            JarvisStopwatchActivity()
-        }
+        // Dynamic Island / Lock Screen Live Activity.
+        JarvisLiveActivity()
+        JarvisStopwatchActivity()
         // AlarmKit alarm / timer countdown (iOS 26+). The type only exists
         // when the SDK has AlarmKit, so the availability check is not enough.
         #if canImport(AlarmKit)

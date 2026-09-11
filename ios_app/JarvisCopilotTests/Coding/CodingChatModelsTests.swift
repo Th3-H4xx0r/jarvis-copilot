@@ -38,7 +38,6 @@ final class CodingChatModelsTests: XCTestCase {
         XCTAssertEqual(p.total, 2)
         XCTAssertEqual(p.activityState, "working")
         XCTAssertEqual(p.status, "running")
-        XCTAssertEqual(p.source, "live")
         XCTAssertEqual(p.statusLine, "✳ Zesting… (50s · ↑ 2.0k tokens)")
         XCTAssertEqual(p.context?.used, 124500)
 
@@ -106,7 +105,6 @@ final class CodingChatModelsTests: XCTestCase {
         XCTAssertNil(ChatContext.from(obj(#"{"c":{"used":10,"window":0}}"#)["c"]))
         let c = ChatContext.from(obj(#"{"c":{"used":124500,"window":200000,"pct":62}}"#)["c"])
         XCTAssertEqual(c?.pct, 62)
-        XCTAssertNil(c?.model)
     }
 
     func testTokenFormatting() {

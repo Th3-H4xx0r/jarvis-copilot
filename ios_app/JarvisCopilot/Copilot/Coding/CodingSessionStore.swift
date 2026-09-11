@@ -21,18 +21,15 @@ final class CodingSessionStore {
     private let api: CodingSessionsAPI
     let attachments: CodingAttachments
     private let isVisible: () -> Bool
-    private let now: () -> Date
 
     init(sessionId: String,
          api: CodingSessionsAPI = CodingSessionsAPI(),
          attachments: CodingAttachments? = nil,
-         isVisible: @escaping () -> Bool = { true },
-         now: @escaping () -> Date = Date.init) {
+         isVisible: @escaping () -> Bool = { true }) {
         self.sessionId = sessionId
         self.api = api
         self.attachments = attachments ?? CodingAttachments(api: api)
         self.isVisible = isVisible
-        self.now = now
     }
 
     deinit {
@@ -82,11 +79,11 @@ final class CodingSessionStore {
         CodingStreamReducer.showThinking(activityState: transcript.activityState,
                                          messageCount: transcript.messages.count,
                                          localWorkingUntil: localWorkingUntil,
-                                         now: now())
+                                         now: Date())
     }
 
     func kickLocalWorking() {
-        localWorkingUntil = now().addingTimeInterval(CodingStreamReducer.localWorkingWindow)
+        localWorkingUntil = Date().addingTimeInterval(CodingStreamReducer.localWorkingWindow)
     }
 
     /// Fetch the transcript tail (or everything, with `full`). At most one
@@ -113,7 +110,7 @@ final class CodingSessionStore {
                     continue
                 case .applied(let hadNew, let hadNewAssistant):
                     pendingSends = CodingStreamReducer.expirePendingSends(
-                        pendingSends, page: page, messages: transcript.messages, now: now())
+                        pendingSends, page: page, messages: transcript.messages, now: Date())
                     if CodingStreamReducer.retireLocalWorking(activityState: page.activityState,
                                                               hadNewAssistant: hadNewAssistant) {
                         localWorkingUntil = nil
@@ -303,7 +300,7 @@ final class CodingSessionStore {
             return false
         }
         _ = await sendTerminalInput("\r")
-        pendingSends.append(PendingSend(text: text, ts: now()))
+        pendingSends.append(PendingSend(text: text, ts: Date()))
         appendWasReload = false
         appendTick += 1
         kickLocalWorking()
@@ -356,7 +353,8 @@ final class CodingSessionStore {
 
     /// Attach a server-side PTY to this session's tmux and stream its output.
     /// Idempotent while attached.
-    func startTerminal(rows: Int = 24, cols: Int = 80) async {
+    func startTerminal() async {
+        let rows = 24, cols = 80
         guard !terminalAttached else { return }
         terminalAttached = true
         terminalStarting = true

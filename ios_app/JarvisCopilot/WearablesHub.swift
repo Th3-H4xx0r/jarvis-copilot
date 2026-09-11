@@ -107,7 +107,6 @@ final class WearablesHub: ObservableObject {
         }
     }
 
-
     // MARK: Roster
 
     /// Every paired wearable, whether or not it is currently reachable — the single

@@ -1,12 +1,5 @@
 import SceneKit
-
-#if canImport(UIKit)
 import UIKit
-typealias PlatformColor = UIColor
-#else
-import AppKit
-typealias PlatformColor = NSColor
-#endif
 
 /// A procedural model of the VSITOO S1 Pro, built as a surface of revolution.
 ///
@@ -233,7 +226,7 @@ enum BottleModel {
     private static func voidMaterial() -> SCNMaterial {
         let m = SCNMaterial()
         m.lightingModel = .physicallyBased
-        m.diffuse.contents = PlatformColor(white: 0.02, alpha: 1)
+        m.diffuse.contents = UIColor(white: 0.02, alpha: 1)
         m.roughness.contents = 1.0
         m.metalness.contents = 0.0
         return m
@@ -244,7 +237,7 @@ enum BottleModel {
         m.lightingModel = .physicallyBased
         // Not pure black: the real bottle is matte, but a true 0.0 albedo reads as a
         // silhouette with no form at icon size.
-        m.diffuse.contents = PlatformColor(white: 0.085, alpha: 1)
+        m.diffuse.contents = UIColor(white: 0.085, alpha: 1)
         m.roughness.contents = 0.58
         m.metalness.contents = 0.0
         m.isDoubleSided = false
@@ -255,8 +248,8 @@ enum BottleModel {
     private static func uvGlow() -> SCNMaterial {
         let m = SCNMaterial()
         m.lightingModel = .constant
-        m.diffuse.contents = PlatformColor.black
-        m.emission.contents = PlatformColor(red: 0.62, green: 0.34, blue: 1.0, alpha: 1)
+        m.diffuse.contents = UIColor.black
+        m.emission.contents = UIColor(red: 0.62, green: 0.34, blue: 1.0, alpha: 1)
         m.blendMode = .add
         m.writesToDepthBuffer = false
         m.isDoubleSided = false
@@ -305,7 +298,7 @@ enum BottleModel {
                             pipeRadius: bodyRadius * 0.010)
         let seamMat = SCNMaterial()
         seamMat.lightingModel = .physicallyBased
-        seamMat.diffuse.contents = PlatformColor(white: 0.035, alpha: 1)
+        seamMat.diffuse.contents = UIColor(white: 0.035, alpha: 1)
         seamMat.roughness.contents = 0.85
         seam.materials = [seamMat]
         let seamNode = SCNNode(geometry: seam)
@@ -316,7 +309,7 @@ enum BottleModel {
         let loopGeo = loopGeometry.copy() as! SCNGeometry
         let loopMat = SCNMaterial()
         loopMat.lightingModel = .physicallyBased
-        loopMat.diffuse.contents = PlatformColor(white: 0.05, alpha: 1)
+        loopMat.diffuse.contents = UIColor(white: 0.05, alpha: 1)
         loopMat.roughness.contents = 0.85
         loopGeo.materials = [loopMat]
         let loopNode = SCNNode(geometry: loopGeo)
@@ -339,7 +332,7 @@ enum BottleModel {
 
         let lamp = SCNLight()
         lamp.type = .omni
-        lamp.color = PlatformColor(red: 0.62, green: 0.34, blue: 1.0, alpha: 1)
+        lamp.color = UIColor(red: 0.62, green: 0.34, blue: 1.0, alpha: 1)
         lamp.intensity = 0
         lamp.attenuationStartDistance = 0.0
         lamp.attenuationEndDistance = 0.65
@@ -401,7 +394,7 @@ enum BottleModel {
             beam = parts.beam
             lamp = parts.beam.childNode(withName: "uvLamp", recursively: true)
 
-            scene.background.contents = PlatformColor.clear
+            scene.background.contents = UIColor.clear
             scene.rootNode.addChildNode(pivot)
             if spin {
                 spinner.runAction(.repeatForever(
@@ -411,7 +404,7 @@ enum BottleModel {
             }
 
             // Three-point lighting: matte black needs rim light to show its silhouette.
-            func light(_ intensity: CGFloat, _ color: PlatformColor,
+            func light(_ intensity: CGFloat, _ color: UIColor,
                        _ euler: SCNVector3) -> SCNNode {
                 let l = SCNLight()
                 l.type = .directional
@@ -424,10 +417,10 @@ enum BottleModel {
             }
             scene.rootNode.addChildNode(light(900, .white, SCNVector3(-0.5, 0.7, 0)))
             scene.rootNode.addChildNode(
-                light(320, PlatformColor(red: 0.75, green: 0.83, blue: 1, alpha: 1),
+                light(320, UIColor(red: 0.75, green: 0.83, blue: 1, alpha: 1),
                       SCNVector3(-0.2, -1.1, 0)))
             scene.rootNode.addChildNode(
-                light(700, PlatformColor(red: 0.6, green: 0.78, blue: 1, alpha: 1),
+                light(700, UIColor(red: 0.6, green: 0.78, blue: 1, alpha: 1),
                       SCNVector3(0.35, 2.5, 0)))
             let ambient = SCNLight()
             ambient.type = .ambient
@@ -441,7 +434,6 @@ enum BottleModel {
             camera = SCNNode()
             camera.name = "camera"
             camera.camera = cam
-            // SCNVector3 takes CGFloat on macOS and Float on iOS, so normalise both.
             camera.position = SCNVector3(cameraX,
                                          cameraY.isNaN ? Float(Live.restCamera.y) : cameraY,
                                          cameraZ == 0 ? Float(Live.restCamera.z) : cameraZ)

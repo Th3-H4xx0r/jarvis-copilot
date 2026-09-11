@@ -160,4 +160,12 @@ final class CodeMasterSettingsStoreTests: XCTestCase {
         XCTAssertNil(store.savedAt)
         XCTAssertFalse(store.saving)
     }
+
+    func testEditingTheMatrix() {
+        let (store, _) = makeStore()
+        store.set(event: "finished", channel: "telegram", true)
+        XCTAssertTrue(store.value(event: "finished", channel: "telegram"))
+        store.set(event: "finished", channel: "telegram", false)
+        XCTAssertFalse(store.value(event: "finished", channel: "telegram"))
+    }
 }

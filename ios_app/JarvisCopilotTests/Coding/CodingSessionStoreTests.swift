@@ -277,13 +277,12 @@ final class CodingSessionStoreTests: XCTestCase {
         event: output
         data: {"text":"Compiling\\u001b[0m done\\r\\n"}
 
-
         """)
-        await store.startTerminal(rows: 30, cols: 100)
+        await store.startTerminal()
         XCTAssertTrue(store.terminalAttached)
         XCTAssertNil(store.terminalError)
-        XCTAssertEqual(store.terminal.rows, 30)
-        XCTAssertEqual(store.terminal.cols, 100)
+        XCTAssertEqual(store.terminal.rows, 24)
+        XCTAssertEqual(store.terminal.cols, 80)
         await codingWaitUntil("the second frame to arrive") { store.terminal.text.contains("done") }
         XCTAssertEqual(store.terminal.lines, ["$ swift build", "Compiling done", ""])
         XCTAssertGreaterThan(store.outputTick, 1)
@@ -298,7 +297,6 @@ final class CodingSessionStoreTests: XCTestCase {
 
         event: terminal_closed
         data: {"reason":"ended"}
-
 
         """)
         await store.startTerminal()
@@ -318,7 +316,6 @@ final class CodingSessionStoreTests: XCTestCase {
         t.enqueueSSE("""
         event: terminal_error
         data: {"error":"pty vanished"}
-
 
         """)
         await store.startTerminal()
