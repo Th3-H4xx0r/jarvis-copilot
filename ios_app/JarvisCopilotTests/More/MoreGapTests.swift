@@ -251,23 +251,6 @@ final class MoreGapTests: XCTestCase {
 
     // MARK: - Partial loads keep the required data (silent-failures M13)
 
-    /// The device list is the only required fetch; the skill catalogue only
-    /// labels the per-device chips.
-    func testASkillCatalogueOutageDoesNotSinkTheDeviceList() async {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.route("/api/devices/skills", json: ["error": "off"], status: 500)
-        transport.route("/api/devices", json: ["devices": [["id": "d1", "name": "Mac"]]])
-        transport.route("/api/system/health", json: JSONObject())
-        transport.route("/api/wiki/status", json: JSONObject())
-
-        let store = DevicesStore(api: DevicesAPI(api: api), insights: InsightsAPI(api: api))
-        await store.refresh()
-
-        XCTAssertNil(store.errorMessage)
-        XCTAssertEqual(store.devices.count, 1)
-        XCTAssertTrue(store.catalogue.isEmpty)
-    }
-
     /// Code-memory totals fall back to summing the projects when stats is down.
     func testACodeMemoryStatsOutageStillShowsTheProjects() async {
         let (api, transport) = JarvisAPI.mocked()

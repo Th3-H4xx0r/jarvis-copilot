@@ -70,9 +70,11 @@ struct CodingSessionScreen: View {
         }
         .onDisappear { session.stop() }
         .onChange(of: scenePhase) { _, phase in
-            // The poll loop stops itself while backgrounded; this is the only
-            // path that revives it, so it must be unconditional.
-            if phase == .active { Task { await session.resume() } }
+            switch phase {
+            case .background: session.suspend()
+            case .active: Task { await session.resume() }
+            default: break
+            }
         }
         .onChange(of: session.shouldPresentPrompt) { _, present in
             guard present, let p = session.prompt else { return }

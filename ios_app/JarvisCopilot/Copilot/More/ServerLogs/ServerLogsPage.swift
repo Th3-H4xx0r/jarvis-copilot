@@ -37,7 +37,9 @@ struct ServerLogsPage: View {
             }
         }
         .task { if !store.hasLoaded { store.load() } }
-        .onDisappear { store.onDisappear() }
+        .onTabVisibilityChange(.more) { visible in
+            if visible { store.onAppear() } else { store.onDisappear() }
+        }
         .moreToast($toast, seconds: 1.2)
     }
 

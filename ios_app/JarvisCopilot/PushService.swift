@@ -76,11 +76,6 @@ final class PushService: ObservableObject {
     func submit(token hex: String) async {
         token = hex
         lastError = nil
-        await BridgeClient.shared.registerPush(token: hex)
-        // Wave 2: the Flutter client also sent the device's NAME and stored the
-        // `device_id` the server hands back (which the Live Activity push-token
-        // registration needs). `PushHandler` owns that half; it upserts the same
-        // row, so the two calls agree.
         await PushHandler.shared.registerToken(hex)
     }
 }

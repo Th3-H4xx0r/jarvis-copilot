@@ -7,12 +7,8 @@ final class MockSettingsBridge: SettingsBridging {
     var isPaired = true
     var keepaliveEnabled = true
     private(set) var unpairCount = 0
-    private(set) var connectCount = 0
-    private(set) var disconnectCount = 0
 
     func unpair() { unpairCount += 1; isPaired = false; keepaliveEnabled = false }
-    func connect() { connectCount += 1 }
-    func disconnect() { disconnectCount += 1 }
 }
 
 @MainActor
@@ -160,23 +156,21 @@ final class SettingsStoreTests: XCTestCase {
 
     // MARK: Keepalive → the bridge
 
-    func testKeepaliveWritesThroughToTheBridgeAndReconnects() {
-        let (store, bridge, _, prefs) = makeStore()
+    /// The switch only governs the background keepalive; the socket stays up.
+    func testKeepaliveWritesThroughToTheBridge() {
+        let (store, bridge, _, _) = makeStore()
         store.setKeepalive(false)
         XCTAssertFalse(store.keepalive)
         XCTAssertFalse(bridge.keepaliveEnabled)
-        XCTAssertEqual(bridge.disconnectCount, 1)
-        XCTAssertEqual(prefs.bool(SettingsStore.Keys.keepalive), false)
 
         store.setKeepalive(true)
+        XCTAssertTrue(store.keepalive)
         XCTAssertTrue(bridge.keepaliveEnabled)
-        XCTAssertEqual(bridge.connectCount, 1)
     }
 
-    /// The bridge owns the live value (it lives in the Keychain); the mirror in
-    /// preferences is only there so a fresh store starts in the right place.
+    /// The bridge owns the live value; it lives in the Keychain.
     func testKeepaliveFollowsTheBridgeNotThePreferences() {
-        let prefs = MemoryKeyValueStore([SettingsStore.Keys.keepalive: false])
+        let prefs = MemoryKeyValueStore()
         let bridge = MockSettingsBridge()
         bridge.keepaliveEnabled = true
         let store = SettingsStore(preferences: prefs, bridge: bridge,

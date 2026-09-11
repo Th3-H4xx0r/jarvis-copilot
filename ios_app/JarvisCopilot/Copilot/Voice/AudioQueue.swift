@@ -287,6 +287,12 @@ final class AudioQueue {
                     }
                     return
                 }
+                // A stop that landed while the stream was opening bumped the epoch;
+                // don't leave the player (and its level meter) running.
+                guard ep == self.epoch else {
+                    await self.output.stopStream()
+                    return
+                }
                 self.nativeActive = true
                 self.nativeEnded = false
                 self.playing = true

@@ -83,10 +83,8 @@ final class PushHandlerTests: XCTestCase {
 
     // MARK: One registration per token per launch
 
-    /// `PushService.submit` posts the token twice — once through
-    /// `BridgeClient.registerPush` and once here — and iOS re-delivers the same
-    /// token on every launch. The row is an upsert, so the duplicate is harmless
-    /// but wasted; drop it.
+    /// iOS re-delivers the same token on every launch. The row is an upsert, so
+    /// the repeat is harmless but wasted; drop it.
     func testTheSameTokenIsOnlyRegisteredOnce() async {
         let (api, transport) = JarvisAPI.mocked()
         transport.enqueue(json: ["ok": true, "device_id": "dev-1"])

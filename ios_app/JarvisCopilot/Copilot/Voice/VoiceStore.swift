@@ -400,7 +400,7 @@ final class VoiceStore {
     func pauseForBackground() {
         foreground = false
         cancelThinkingWatchdog() // don't fire reassurance timers while backgrounded
-        guard machine.mode == .realtime, machine.state.isActive else { return }
+        guard machine.state.isActive else { return }
         armBgIdleTimeout()
     }
 
@@ -558,6 +558,9 @@ final class VoiceStore {
         }
         watchTurnActive = true
         watchReply = ""
+        // A watch turn that has to open the session also closes it; left open,
+        // the phone holds the realtime socket and the voice audio session.
+        watchOpenedSession = !machine.state.isActive
         if machine.state == .listening {
             submitWatchText(trimmed)
             return
@@ -570,6 +573,7 @@ final class VoiceStore {
     /// Set aside until the session reaches `listening`.
     private var pendingWatchText: String?
     private var watchReply = ""
+    private var watchOpenedSession = false
 
     /// Called by the transport when the machine settles into `listening`.
     func deliverPendingWatchTurnIfReady() {
@@ -604,6 +608,10 @@ final class VoiceStore {
         if let error { onWatchFinished?(.failed(error)) }
         else { onWatchFinished?(.answered(watchReply)) }
         watchReply = ""
+        if watchOpenedSession {
+            watchOpenedSession = false
+            Task { await stopAll() }
+        }
     }
 
     func retryLastOnServer() {

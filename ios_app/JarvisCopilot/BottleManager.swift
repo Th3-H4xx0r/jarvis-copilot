@@ -592,9 +592,10 @@ extension BottleManager: CBPeripheralDelegate {
         guard let data = ch.value, !data.isEmpty else { return }
         Task { @MainActor in
             self.handleNotify(data)
-            // Being woken for a BLE event is the one reliable slice of background
-            // runtime we get without a push entitlement — spend it on the queue.
-            if self.isBackgrounded, BridgeClient.shared.enabled {
+            // A BLE wake is a reliable slice of background runtime: when the bridge
+            // socket is down, spend it on the server's command queue.
+            if self.isBackgrounded, BridgeClient.shared.enabled,
+               BridgeClient.shared.status != .online {
                 await BridgeClient.shared.drainQueue(foreground: false)
             }
         }

@@ -54,16 +54,6 @@ final class DevicesTests: XCTestCase {
         XCTAssertEqual(devices.map(\.id), ["d1", "d2"])
     }
 
-    func testAllSkillsReadsTheSkillsEnvelope() async throws {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.enqueue(json: ["skills": [["name": "notify"], ["name": "run_code"]]])
-        let skills = try await DevicesAPI(api: api).allSkills()
-
-        XCTAssertEqual(transport.lastMethod, "GET")
-        XCTAssertEqual(transport.lastPath, "/api/devices/skills")
-        XCTAssertEqual(skills.map(\.name), ["notify", "run_code"])
-    }
-
     func testRevokeDeletesTheDeviceByID() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.enqueue(json: ["ok": true])
@@ -114,11 +104,8 @@ final class DevicesTests: XCTestCase {
     // MARK: Store
 
     @MainActor
-    func testStoreLoadsDevicesCatalogueAndTheHealthStrip() async {
+    func testStoreLoadsDevicesAndTheHealthStrip() async {
         let (api, transport) = JarvisAPI.mocked()
-        transport.route("/api/devices/skills", json: ["skills": [
-            ["name": "notify"], ["name": "run_code"], ["name": "camera"],
-        ]])
         transport.route("/api/devices", json: ["devices": [
             ["id": "d1", "label": "Phone", "online": true,
              "skills": [["name": "notify"], ["name": "camera", "allowed": false]]],
@@ -134,34 +121,12 @@ final class DevicesTests: XCTestCase {
         XCTAssertEqual(store.health.cpuPercent, 12)
         XCTAssertEqual(store.wiki.entryCount, 3)
 
-        // The ACL is expressed against the whole catalogue.
-        let acl = store.skills(for: store.devices[0])
-        XCTAssertEqual(acl.count, 3)
-        XCTAssertEqual(Set(acl.filter(\.allowed).map(\.name)), ["notify"])
         XCTAssertEqual(store.grantedSkills(for: store.devices[0]).map(\.name), ["notify"])
-    }
-
-    @MainActor
-    func testStoreFallsBackToTheDevicesOwnSkillsWithoutACatalogue() async {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.route("/api/devices/skills", json: ["error": "off"], status: 500)
-        transport.route("/api/devices", json: ["devices": [
-            ["id": "d1", "skills": [["name": "notify"]]],
-        ]])
-        transport.route("/api/system/health", json: JSONObject())
-        transport.route("/api/wiki/status", json: JSONObject())
-
-        let store = DevicesStore(api: DevicesAPI(api: api), insights: InsightsAPI(api: api))
-        await store.refresh()
-
-        XCTAssertTrue(store.catalogue.isEmpty)
-        XCTAssertEqual(store.skills(for: store.devices[0]).map(\.name), ["notify"])
     }
 
     @MainActor
     func testStoreSurfacesAListFailure() async {
         let (api, transport) = JarvisAPI.mocked()
-        transport.route("/api/devices/skills", json: ["skills": []])
         transport.route("/api/devices", json: ["error": "not paired"], status: 401)
         transport.route("/api/system/health", json: JSONObject())
         transport.route("/api/wiki/status", json: JSONObject())
@@ -171,14 +136,12 @@ final class DevicesTests: XCTestCase {
 
         XCTAssertEqual(store.errorMessage, "not paired")
         XCTAssertTrue(store.isEmpty)
-        XCTAssertEqual(store.emptyText, "No devices found")
     }
 
     @MainActor
     func testStoreRevokeAndLogoutRefreshAfterwards() async {
         let (api, transport) = JarvisAPI.mocked()
         transport.route("/api/devices/d1/logout", json: ["ok": true])
-        transport.route("/api/devices/skills", json: ["skills": []])
         transport.route("/api/devices/d1", json: ["ok": true])
         transport.route("/api/devices", json: ["devices": []])
         transport.route("/api/system/health", json: JSONObject())

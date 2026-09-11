@@ -192,6 +192,7 @@ struct CodingVisibility {
     func set(_ visible: Bool) {
         flag.set(visible)
         store.setListPolling(visible)
+        store.setDetailPolling(visible)
         liveActivity.setCodingVisible(visible)
     }
 }

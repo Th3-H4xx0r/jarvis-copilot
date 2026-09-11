@@ -30,8 +30,9 @@ struct KanbanPage: View {
                 }
             }
         }
-        .onAppear { store.onAppear() }
-        .onDisappear { store.onDisappear() }
+        .onTabVisibilityChange(.more) { visible in
+            if visible { store.onAppear() } else { store.onDisappear() }
+        }
         .moreToast($store.toast)
         .sheet(item: $route) { sheet(for: $0) }
         .alert(Text(confirm?.title ?? ""),

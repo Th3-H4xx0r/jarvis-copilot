@@ -31,6 +31,7 @@ final class ScaleManager: NSObject, ObservableObject {
     private var frameAccumulator = VsV2FrameAccumulator()
     private let lastScaleIdentifierKey = "lastESF551PeripheralIdentifier"
     private var nextSequence: UInt8 = 0
+    private var scanTimeoutTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -44,6 +45,15 @@ final class ScaleManager: NSObject, ObservableObject {
         state = .scanning
         restoreKnownPeripheral()
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        // An unfiltered scan is CoreBluetooth's most power-hungry mode; bound it
+        // like the bottle's.
+        scanTimeoutTask?.cancel()
+        scanTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.central.stopScan()
+            if self.state == .scanning { self.state = .idle }
+        }
     }
 
     /// An awake scale may already be connected/restored and therefore not emit a fresh

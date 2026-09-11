@@ -80,6 +80,9 @@ final class ServerLogsStore {
         hasLoaded = true
     }
 
+    /// Re-arm the live tail when the page is back on screen.
+    func onAppear() { syncTimer() }
+
     func onDisappear() {
         timerHandle.cancel()
         loadHandle.cancel()

@@ -119,6 +119,7 @@ final class Esp32Manager: NSObject, ObservableObject {
 
     // Wi‑Fi
     private var browser: NWBrowser?
+    private var scanTimeoutTask: Task<Void, Never>?
     private var bonjourHosts: Set<String> = []
     private var tcp: NWConnection?
     private var tcpParser = Esp32Protocol.StreamParser()
@@ -156,14 +157,15 @@ final class Esp32Manager: NSObject, ObservableObject {
         super.init()
         central = CBCentralManager(delegate: self, queue: .main,
             options: [CBCentralManagerOptionRestoreIdentifierKey: "com.jarviscopilot.jarviscopilotMobileAndIOS.esp32Central"])
-        startBonjour()
+        // Browse the LAN only once there is a board to look for.
+        if !Self.knownBoards.isEmpty { startBonjour() }
     }
 
     // MARK: - Wi‑Fi discovery
 
     /// Boards on the LAN announce `_jarvis-esp32._tcp` with their host name as the
     /// instance name, so they show up in the list even with Bluetooth off or out of
-    /// range. The browser runs for the life of the manager.
+    /// range. The browser runs from the first remembered board on.
     private func startBonjour() {
         let params = NWParameters.tcp
         params.prohibitedInterfaceTypes = [.cellular]
@@ -267,6 +269,7 @@ final class Esp32Manager: NSObject, ObservableObject {
         boards.removeAll { $0.deviceID == deviceID }
         boards.append(record)
         Self.knownBoards = boards
+        if browser == nil { startBonjour() }
         if let c = connected, c.id == deviceID || c.record?.deviceID == deviceID || c.id == record.peripheralID {
             connected = DiscoveredEsp32(id: deviceID, name: name, rssi: c.rssi, peripheral: c.peripheral, record: record)
         }
@@ -281,6 +284,15 @@ final class Esp32Manager: NSObject, ObservableObject {
         surfaceKnownBoards()
         mergeBonjourIntoDiscovered()
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        // An unfiltered scan is CoreBluetooth's most power-hungry mode; bound it
+        // like the bottle's.
+        scanTimeoutTask?.cancel()
+        scanTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.central.stopScan()
+            if self.state == .scanning { self.state = .idle }
+        }
     }
 
     /// Boards we've handshaken with show even when they aren't advertising — a board

@@ -12,9 +12,8 @@ import UserNotifications
 /// row off `push_token` + `bundle_id`, and gets everything else it needs to pick
 /// an APNs host and label the device in the Devices tab from here.
 ///
-/// Port of `PushHandler._registerToken` in `services/push_handler.dart`, plus the
-/// `bundle_id` / `push_env` fields this app's own `BridgeClient.registerPush`
-/// added (the Flutter client only ever ran against one bundle id).
+/// Carries `bundle_id` / `push_env` so the server pushes to this app's own topic
+/// on the right APNs host.
 struct PushTokenRegistration: Equatable, Sendable {
     var token: String
     var deviceName: String
@@ -87,12 +86,10 @@ final class PushHandler: NSObject, PushStarting {
     private(set) var lastRegistration: PushTokenRegistration?
     /// The token this launch has already registered successfully.
     ///
-    /// `PushService.submit` posts the token TWICE — once through
-    /// `BridgeClient.registerPush` and once here — and iOS re-delivers the same
-    /// token on every launch (and sometimes more than once per launch). The rows
-    /// are an upsert so a duplicate is harmless, but it is a wasted round trip on
-    /// a cold start, so the second one is dropped. Only a SUCCESSFUL post counts:
-    /// a failed one has to stay retryable.
+    /// iOS re-delivers the same token on every launch (and sometimes more than
+    /// once per launch). The row is an upsert, so a repeat is harmless but a
+    /// wasted round trip; it is dropped. Only a SUCCESSFUL post counts: a failed
+    /// one has to stay retryable.
     private(set) var lastSentToken: String?
     /// What iOS answered when we asked for visible notifications. nil until we
     /// have asked. Mirrored into preferences so Settings can render the

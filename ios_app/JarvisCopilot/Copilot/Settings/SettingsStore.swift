@@ -9,22 +9,16 @@ import UIKit
 protocol SettingsBridging: AnyObject {
     var serverURL: String { get }
     var isPaired: Bool { get }
-    /// The "stay connected in the background" switch. In this app that is bridge
-    /// mode: `BridgeClient` gates the silent-audio keepalive
-    /// (`BackgroundKeepalive.shared.sync(active: enabled && isPaired)`) on it, so
-    /// flipping this is what starts and stops the keepalive.
+    /// The "stay connected in the background" switch: whether `BridgeClient`
+    /// holds the silent-audio keepalive. The bridge socket is not affected.
     var keepaliveEnabled: Bool { get set }
     func unpair()
-    func connect()
-    func disconnect()
 }
 
 extension BridgeClient: SettingsBridging {
-    /// `enabled` under the boundary's name. Add-only — the setter is
-    /// `BridgeClient`'s own, keepalive sync and all.
     var keepaliveEnabled: Bool {
-        get { enabled }
-        set { enabled = newValue }
+        get { backgroundKeepalive }
+        set { backgroundKeepalive = newValue }
     }
 }
 
@@ -89,7 +83,6 @@ final class SettingsStore {
         static let deviceName = "jc.device_name"
         static let trackLocation = "jc.track_location"
         static let liveActivities = "jc.live_activities"
-        static let keepalive = "jc.keepalive"
         /// What iOS last said about the *visible* notification permission.
         /// Written by whoever learned it — `PushHandler` when it asks at launch,
         /// `LocalConnectionNotifier` when a post is refused — so this screen can
@@ -158,9 +151,7 @@ final class SettingsStore {
         self.trackLocation = preferences.bool(Keys.trackLocation) ?? false
         // `credentials.dart` reads this as `!= '0'` — on unless explicitly off.
         self.liveActivities = preferences.bool(Keys.liveActivities) ?? true
-        // The bridge owns the live value (it lives in the Keychain and the
-        // keepalive is already running or not); the mirrored preference is only
-        // here so the screen can show the last state before the bridge answers.
+        // The bridge owns the live value; it lives in the Keychain.
         self.keepalive = bridge.keepaliveEnabled
         self.notificationsGranted = preferences.bool(Keys.notificationsGranted)
     }
@@ -208,14 +199,12 @@ final class SettingsStore {
         liveActivity.setEnabled(on)
     }
 
-    /// "Stay connected in the background": the silent-audio keepalive plus the
-    /// live bridge socket. Reconnecting here (rather than waiting for the next
-    /// foreground) is what makes the switch feel immediate.
+    /// "Stay connected in the background": the silent-audio keepalive that keeps
+    /// the bridge socket and BLE links alive while the app is backgrounded. The
+    /// socket itself stays governed by bridge mode.
     func setKeepalive(_ on: Bool) {
         keepalive = on
         bridge.keepaliveEnabled = on
-        preferences.set(on, forKey: Keys.keepalive)
-        if on { bridge.connect() } else { bridge.disconnect() }
     }
 
     // MARK: Unpair

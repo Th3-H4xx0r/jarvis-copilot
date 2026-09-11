@@ -34,7 +34,10 @@ struct TasksPage: View {
             }
         }
         .task { if !store.hasLoaded { store.load() } }
-        .onDisappear { store.onDisappear() }
+        .onTabVisibilityChange(.more) { visible in
+            if !visible { store.onDisappear() }
+            else if store.hasLoaded { Task { await store.refresh() } }
+        }
         .moreToast($store.toast)
         .sheet(item: $route) { sheet(for: $0) }
         .alert("Delete task?",

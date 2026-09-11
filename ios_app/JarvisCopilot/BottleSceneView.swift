@@ -24,11 +24,20 @@ struct BottleSceneView: View {
     var cameraZ: Float = 0
 
     @State private var live: BottleModel.Live?
+    /// Optional so previews and tests without the shell still render.
+    @Environment(AppRouter.self) private var router: AppRouter?
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// Render the turntable only while the Devices tab is on screen: every tab
+    /// stays mounted, so an ungated 30 fps render never stopped.
+    private var spinning: Bool {
+        spin && scenePhase == .active && (router.map { $0.selectedTab == .devices } ?? true)
+    }
 
     var body: some View {
         Group {
             if let live {
-                SceneKitView(live: live, spin: spin)
+                SceneKitView(live: live, spin: spinning)
             } else {
                 Color.clear
             }

@@ -391,6 +391,12 @@ final class CodingStore {
         return true
     }
 
+    /// Park the detail poll while the tab is hidden or backgrounded, and re-arm it
+    /// for the open session when the tab shows again.
+    func setDetailPolling(_ on: Bool) {
+        if on, selectedId != nil { startDetailPolling() } else { stopDetailPolling() }
+    }
+
     /// Start/stop the quiet periodic refresh of the whole sessions list (plus the
     /// approval queue) so the dots stay live while the tab is open.
     func setListPolling(_ on: Bool) {

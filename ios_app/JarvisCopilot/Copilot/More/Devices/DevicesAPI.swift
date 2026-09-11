@@ -13,13 +13,6 @@ struct DevicesAPI {
         return MoreJSON.mapList(MoreJSON.envelopeList(body, "devices")).map(Device.init(json:))
     }
 
-    /// `GET /api/devices/skills` → `{skills: [...]}` — every skill a device may
-    /// be granted, i.e. the ACL vocabulary.
-    func allSkills() async throws -> [DeviceSkill] {
-        let body = try await api.get("/api/devices/skills").object()
-        return MoreJSON.mapList(MoreJSON.envelopeList(body, "skills")).map(DeviceSkill.init(json:))
-    }
-
     /// Remove the device and log it out.
     func revoke(_ id: String) async throws {
         _ = try await api.delete("/api/devices/\(id)")

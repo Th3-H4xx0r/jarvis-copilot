@@ -43,11 +43,6 @@ final class DevicesUITests: XCTestCase {
         let store = await loadedStore()
         let phone = store.devices[0]
         XCTAssertEqual(store.grantedSkills(for: phone).map(\.name), ["copy_text"])
-        // Against the full catalogue, the denied skill still appears — marked off.
-        let all = store.skills(for: phone)
-        XCTAssertEqual(all.count, 2)
-        XCTAssertEqual(all.filter(\.allowed).map(\.name), ["copy_text"])
-        XCTAssertEqual(all.first(where: { $0.name == "copy_text" })?.displayName, "Copy text")
     }
 
     func testStatusAndLastSeenLabels() async {

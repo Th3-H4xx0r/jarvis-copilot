@@ -46,8 +46,9 @@ struct KanbanTaskDetailView: View {
                 dismiss(); onAction(.delete)
             }
         }
-        .onAppear { store.onAppear() }
-        .onDisappear { store.onDisappear() }
+        .onTabVisibilityChange(.more) { visible in
+            if visible { store.onAppear() } else { store.onDisappear() }
+        }
         .moreToast($store.toast)
     }
 

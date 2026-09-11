@@ -141,6 +141,8 @@ final class CodingSessionStore {
     /// it re-armed the poll loop *after* `stop()` and the session kept polling
     /// forever.
     private var started = false
+    /// Set by `suspend()`, so `resume()` re-attaches instead of only catching up.
+    private var suspended = false
 
     /// The live transcript-poll task, or nil when disarmed. Internal so the tests
     /// can prove `stop()` really disarms it.
@@ -151,6 +153,7 @@ final class CodingSessionStore {
     func start() {
         guard !started else { return }
         started = true
+        suspended = false
         attachHandle.replace(Task { [weak self] in await self?.startTerminal() })
         bootstrapHandle.replace(Task { [weak self] in
             await self?.fetch(full: true)
@@ -166,11 +169,25 @@ final class CodingSessionStore {
         echoHandle.cancel()
     }
 
-    /// Catch up and re-arm after the app comes back to the foreground.
+    /// The app went to the background: release the terminal stream and the
+    /// transcript poll rather than hold them under the audio keepalive.
+    func suspend() {
+        guard started else { return }
+        stop()
+        detachTerminal()
+        suspended = true
+    }
+
+    /// Back in the foreground: re-attach after a `suspend()`, otherwise catch up
+    /// and re-arm the poll.
     func resume() async {
+        if suspended {
+            suspended = false
+            start()
+            return
+        }
         await fetch()
-        // Backgrounding doesn't `stop()` us, but a resume that races a teardown
-        // must not resurrect the loop.
+        // A resume that races a teardown must not resurrect the loop.
         guard started else { return }
         schedulePoll()
     }

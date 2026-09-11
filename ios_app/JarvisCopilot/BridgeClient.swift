@@ -55,10 +55,8 @@ final class BridgeClient: NSObject, ObservableObject {
         get { Keychain.read("bridgeServerURL") ?? "" }
         set { Keychain.write("bridgeServerURL", newValue); objectWillChange.send() }
     }
-    /// Keeps the BLE link (and this socket) alive when the app backgrounds.
-    /// ON by default: Jarvis has to reach the phone and its wearables whenever
-    /// they are around, not only while the app is open. The Settings switch
-    /// ("Stay connected in background") turns it off explicitly.
+    /// Bridge mode: connect the device bridge at all. ON by default — Jarvis has
+    /// to reach the phone and its wearables whenever they are around.
     var enabled: Bool {
         get { Keychain.read("bridgeEnabled") != "0" }
         set {
@@ -68,11 +66,24 @@ final class BridgeClient: NSObject, ObservableObject {
         }
     }
 
-    /// The silent-audio keepalive runs exactly when bridge mode could deliver
-    /// something: on, and paired. Without it the app is suspended on background and
-    /// every invoke has to go through the silent push.
+    /// "Stay connected in background": hold the silent-audio keepalive so the
+    /// socket and BLE links survive backgrounding. Separate from `enabled` — off,
+    /// iOS suspends the app in the background and invokes arrive by silent push.
+    /// On by default.
+    var backgroundKeepalive: Bool {
+        get { Keychain.read("bridgeBackgroundKeepalive") != "0" }
+        set {
+            Keychain.write("bridgeBackgroundKeepalive", newValue ? "1" : "0")
+            syncKeepalive()
+            objectWillChange.send()
+        }
+    }
+
+    /// The keepalive runs when bridge mode could deliver something (on, and
+    /// paired) and background delivery is wanted. Without it the app is suspended
+    /// on background and every invoke goes through the silent push.
     private func syncKeepalive() {
-        BackgroundKeepalive.shared.sync(active: enabled && isPaired)
+        BackgroundKeepalive.shared.sync(active: enabled && backgroundKeepalive && isPaired)
     }
 
     /// Start the keepalive at launch when bridge mode is on — the setter only
@@ -316,26 +327,6 @@ final class BridgeClient: NSObject, ObservableObject {
         return env
     }
 
-    /// Registers the APNs token so the server can wake us with a silent push when it
-    /// has a command queued. `push_kind: "apns"` is what flips `_invoke_via_mobile_push`
-    /// from "no push token" to actually sending one.
-    func registerPush(token: String) async {
-        guard isPaired else { return }
-        _ = try? await postJSON(path: "api/devices/mobile/token", body: [
-            "platform": "ios",
-            "push_kind": "apns",
-            "push_token": token,
-            // The APNs topic is the bundle ID. Without this the server would push
-            // with its configured default (the Flutter client's) and we'd never
-            // receive anything.
-            "bundle_id": Bundle.main.bundleIdentifier ?? "com.jarviscopilot.jarviscopilotMobileAndIOS",
-            // Lets the server pick the APNs host per device, so it can stay on
-            // production for other clients regardless of how this build is signed.
-            "push_env": Self.apsEnvironment,
-            "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0",
-        ])
-    }
-
     private func announcePlatform() async throws {
         _ = try await postJSON(path: "api/devices/mobile/token", body: [
             "platform": "ios",
@@ -417,6 +408,9 @@ final class BridgeClient: NSObject, ObservableObject {
     private func handleDrop(_ reason: String) {
         socket = nil
         pingTask?.cancel(); pingTask = nil
+        // Every connect() builds a fresh URLSession; release the dead one.
+        session?.invalidateAndCancel()
+        session = nil
         guard enabled, isPaired else { status = .off; return }
         status = .failed(reason)
         reconnectAttempt = min(reconnectAttempt + 1, 6)
