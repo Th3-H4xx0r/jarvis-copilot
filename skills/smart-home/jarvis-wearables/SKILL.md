@@ -82,7 +82,7 @@ Invoke one:
 
 ```bash
 python3 ~/.jarviscopilot/skills/jarviscopilot/devices/scripts/devices.py \
-  invoke <device_id> bottle_sterilise '{"on": true, "confirm": true}'
+  invoke <device_id> bottle_sterilise --json-args '{"on": true, "confirm": true}'
 ```
 
 ## What the status snapshot contains
@@ -164,3 +164,10 @@ a slow response usually means "the phone will get to it", not "it failed".
 The full byte-level protocol, reverse-engineered from the stock VSITOO app, lives in
 `PROTOCOL.md` in the JarvisWearables repo: GATT UUIDs, every opcode, and the layout of the
 18-byte status frame. Needed only for `bottle_raw_command`.
+
+## Smart ring
+
+The Colmi R12 smart ring has its own skill, **`jarvis-ring`** — its `ring_*` commands,
+data model, recipes and Python SDK are documented there. `wearables_list`,
+`wearables_scan` and `wearables_connect` cover the ring as well: when a `ring_*` command
+reports the ring isn't connected, use the same scan → connect → retry path.
