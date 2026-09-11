@@ -14,6 +14,10 @@ struct RingInputsSection: View {
     let onMode: (RingInputMode) -> Void
     let onSensitivity: (Int) -> Void
 
+    /// What the stepper shows. Kept locally so the buttons always move, and reconciled with
+    /// what the ring reports underneath.
+    @State private var wantedSensitivity = 1
+
     var body: some View {
         CardGroup("Ring inputs",
                   footer: inputs.count <= 3
@@ -87,15 +91,40 @@ struct RingInputsSection: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            if let sensitivity {
+            if sensitivity != nil {
                 RowDivider()
                 Row {
-                    Stepper("Gesture sensitivity \(sensitivity)",
-                            value: Binding(get: { sensitivity }, set: onSensitivity), in: 0...10)
+                    VStack(alignment: .leading, spacing: 4) {
+                        // Driven from local state: the value shown used to come straight from the
+                        // parent, so it never moved unless the ring's read-back landed — which
+                        // made the buttons look dead even when the write went out.
+                        Stepper("Gesture sensitivity \(wantedSensitivity)",
+                                value: Binding(get: { wantedSensitivity },
+                                               set: { value in
+                                                   wantedSensitivity = value
+                                                   onSensitivity(value)
+                                               }),
+                                in: 1...10)
+                        Text(sensitivityNote)
+                            .font(.caption2)
+                            .foregroundStyle(sensitivity == wantedSensitivity ? AnyShapeStyle(.secondary)
+                                                                              : AnyShapeStyle(Color.orange))
+                    }
                 }
                 .disabled(!ready)
             }
         }
+        .onAppear { wantedSensitivity = sensitivity ?? 1 }
+        .onChange(of: sensitivity) { _, value in wantedSensitivity = value ?? wantedSensitivity }
+    }
+
+    /// Says whether the ring took the change, rather than leaving a number that never moves.
+    private var sensitivityNote: String {
+        guard let sensitivity else { return "The ring hasn't reported this yet." }
+        if sensitivity == wantedSensitivity {
+            return "Higher needs a firmer tap, which cuts out stray triggers from ordinary hand movement."
+        }
+        return "The ring still reports \(sensitivity) — it may not have taken the change."
     }
 
     /// "just seen" on the row the ring last sent, so the right one is obvious.
