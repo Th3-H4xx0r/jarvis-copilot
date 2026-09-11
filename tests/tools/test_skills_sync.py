@@ -97,6 +97,15 @@ class TestDirHash:
         (dir_b / "SKILL.md").write_text("# Version 2")
         assert _dir_hash(dir_a) != _dir_hash(dir_b)
 
+    def test_bytecode_caches_are_not_changes(self, tmp_path):
+        d = tmp_path / "skill"
+        (d / "scripts").mkdir(parents=True)
+        (d / "scripts" / "tool.py").write_text("print(1)")
+        before = _dir_hash(d)
+        (d / "scripts" / "__pycache__").mkdir()
+        (d / "scripts" / "__pycache__" / "tool.cpython-311.pyc").write_bytes(b"\x00bytecode")
+        assert _dir_hash(d) == before
+
     def test_empty_dir(self, tmp_path):
         d = tmp_path / "empty"
         d.mkdir()

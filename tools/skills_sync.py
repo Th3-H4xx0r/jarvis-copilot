@@ -163,8 +163,9 @@ def _dir_hash(directory: Path) -> str:
     hasher = hashlib.md5()
     try:
         for fpath in sorted(directory.rglob("*")):
-            if fpath.is_file():
-                rel = fpath.relative_to(directory)
+            rel = fpath.relative_to(directory)
+            # Running a skill's scripts leaves bytecode behind; that isn't a user edit.
+            if fpath.is_file() and "__pycache__" not in rel.parts:
                 hasher.update(str(rel).encode("utf-8"))
                 hasher.update(fpath.read_bytes())
     except (OSError, IOError):
