@@ -52,6 +52,12 @@ enum RingInput: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+/// The last input the ring sent, so the settings screen can show which row it lands on.
+struct RingInputEvent: Equatable {
+    let input: RingInput
+    let date: Date
+}
+
 /// What Jarvis does when a ring input fires.
 enum RingAction: Codable, Equatable {
     case none

@@ -74,6 +74,10 @@ final class RingSession: ObservableObject {
     @Published private(set) var liveTemperature: RingLiveReading?
     /// `value` is the key code: 1 swipe down, 2 swipe up, 3 click, 4 long press.
     @Published private(set) var lastTouchKey: RingLiveReading?
+    /// The last tap or swipe, whichever channel it arrived on.
+    @Published private(set) var lastInput: RingInputEvent?
+    /// Whether the ring is in the mode where it reports taps and swipes to the phone.
+    @Published private(set) var inputReportingOn = false
     @Published private(set) var measurement: RingMeasurementState?
     @Published private(set) var calibration: RingCalibrationState?
     /// Every command and input, decoded. Its own object, so a busy link redraws the log
@@ -316,15 +320,21 @@ final class RingSession: ObservableObject {
     /// Puts the ring where it reports taps and swipes to the phone: its music mode, with the
     /// reporting channel on. Jarvis runs the user's own action for each one.
     func enableInputReporting() async {
+        guard transport.link?.isLinkReady == true else { return }
         _ = try? await transport.perform(.inputReporting(true), until: .single)
-        if capabilities.touch || !capabilities.isKnown {
-            try? await write(.writeTouch(appType: RingTouchMode.music.rawValue,
-                                         sleepTime: settings.touch?.sleepTime ?? 0))
-        }
-        if capabilities.gesture || !capabilities.isKnown {
-            try? await write(.writeGesture(appType: RingTouchMode.music.rawValue,
-                                           strength: settings.gesture?.strength ?? 1))
-        }
+        // Both controls, whatever the flags claim: this firmware under-reports what it has,
+        // and a ring that ignores one still reports through the other.
+        try? await write(.writeTouch(appType: RingTouchMode.music.rawValue,
+                                     sleepTime: settings.touch?.sleepTime ?? 0))
+        try? await write(.writeGesture(appType: RingTouchMode.music.rawValue,
+                                       strength: settings.gesture?.strength ?? 1))
+        if let touch = await read(.readTouch, RingDecode.touch, accept: \.isTouch) { settings.touch = touch }
+        if let gesture = await read(.readGesture, RingDecode.touch, accept: { !$0.isTouch }) { settings.gesture = gesture }
+        let music = RingTouchMode.music.rawValue
+        inputReportingOn = settings.touch?.mode == music || settings.gesture?.mode == music
+        log.note("Ring input reporting", inputReportingOn
+                 ? "on — taps and swipes now reach Jarvis"
+                 : "the ring kept touch mode \(settings.touch?.mode ?? 0) and gesture mode \(settings.gesture?.mode ?? 0)")
     }
 
     func syncClock() async throws {
@@ -514,10 +524,15 @@ final class RingSession: ObservableObject {
             livePPG = (livePPG + inbound.payload.map(Int.init)).suffix(180)
         case RingOp.musicCommand:
             // In the ring's music mode every tap and swipe arrives as one of these.
-            if let input = RingInput(musicAction: Int(inbound.payload.first ?? 0)) { onInput?(input) }
+            if let input = RingInput(musicAction: Int(inbound.payload.first ?? 0)) { noteInput(input) }
         default:
             break
         }
+    }
+
+    private func noteInput(_ input: RingInput) {
+        lastInput = RingInputEvent(input: input, date: Date())
+        onInput?(input)
     }
 
     private func handle(_ event: RingDeviceEvent) {
@@ -545,7 +560,7 @@ final class RingSession: ObservableObject {
             settings.touch?.touchSleep = on
         case .touchKey(let key):
             lastTouchKey = RingLiveReading(value: Double(key), date: Date())
-            if let input = RingInput(touchKey: key) { onInput?(input) }
+            if let input = RingInput(touchKey: key) { noteInput(input) }
         case .instantHeartRate(let bpm):
             guard bpm > 0 else { return }
             let reading = RingLiveReading(value: Double(bpm), date: Date())

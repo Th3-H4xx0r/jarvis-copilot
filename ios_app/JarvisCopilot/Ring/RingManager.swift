@@ -292,8 +292,9 @@ final class RingManager: NSObject, ObservableObject {
             self.setupTask = nil
             guard self.state == .ready else { return }
             if let id = self.deviceID { self.session.saveCache(deviceID: id) }
-            // Only ask the ring to report taps and swipes when something is set to run.
-            if self.inputs?.isConfigured == true { await self.session.enableInputReporting() }
+            // Always: an action set later would otherwise never fire, because the ring only
+            // reports taps and swipes once it has been put in this mode.
+            await self.session.enableInputReporting()
             // Find out what this ring actually answers; its own flags under-report.
             await self.session.runProbe()
             self.sync.syncIfStale()

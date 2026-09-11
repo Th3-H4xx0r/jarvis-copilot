@@ -56,10 +56,13 @@ struct RingSettingsView: View {
                 sharing
                 monitoring
                 if let inputs = manager.inputs {
-                    RingInputsSection(store: inputs, ready: ready,
-                                      sensitivity: caps.gesture ? session.settings.gesture?.strength ?? 1 : nil) { value in
-                        apply { try await session.setGestureMode(.music, strength: value) }
-                    }
+                    RingInputsSection(store: inputs, ready: ready, lastInput: session.lastInput,
+                                      reporting: session.inputReportingOn,
+                                      sensitivity: caps.gesture ? session.settings.gesture?.strength ?? 1 : nil,
+                                      onEnable: { Task { await session.enableInputReporting() } },
+                                      onSensitivity: { value in
+                                          apply { try await session.setGestureMode(.music, strength: value) }
+                                      })
                 }
                 goalsSection
                 profileSection
@@ -75,7 +78,11 @@ struct RingSettingsView: View {
         }
         .navigationTitle("Ring settings")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear(perform: loadDrafts)
+        .onAppear {
+            loadDrafts()
+            // Arms a ring that connected before any action was set, without waiting for a reconnect.
+            if ready, !session.inputReportingOn { Task { await session.enableInputReporting() } }
+        }
         .confirmationDialog("Power the ring off?", isPresented: $confirmPowerOff, titleVisibility: .visible) {
             Button("Power off", role: .destructive) { apply { try await session.powerOff() } }
         } message: {

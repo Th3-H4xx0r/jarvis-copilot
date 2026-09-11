@@ -5,21 +5,45 @@ import SwiftUI
 struct RingInputsSection: View {
     @ObservedObject var store: RingInputStore
     let ready: Bool
+    let lastInput: RingInputEvent?
+    let reporting: Bool
     let sensitivity: Int?
+    let onEnable: () -> Void
     let onSensitivity: (Int) -> Void
 
     var body: some View {
         CardGroup("Ring inputs",
-                  footer: "Every tap or swipe the ring sends runs what you set here. Watch the log below to "
-                      + "see which one your ring sends for a given gesture.") {
+                  footer: "Names are the ring's own: it reports every gesture as a music control, so a "
+                      + "double-tap usually arrives as \"Swipe forward\". Do the gesture and watch which "
+                      + "row says it was just seen, then set that one.") {
+            Row {
+                HStack {
+                    Image(systemName: reporting ? "dot.radiowaves.left.and.right" : "exclamationmark.triangle")
+                        .foregroundStyle(reporting ? .green : .orange)
+                    Text(reporting ? "The ring is reporting its inputs"
+                                   : "The ring is not reporting its inputs yet")
+                        .font(.caption)
+                    Spacer(minLength: 0)
+                    if !reporting {
+                        Button("Turn on", action: onEnable).font(.caption).disabled(!ready)
+                    }
+                }
+            }
             ForEach(Array(RingInput.allCases.enumerated()), id: \.element.id) { index, input in
-                if index > 0 { RowDivider() }
+                RowDivider()
                 NavigationLink {
                     RingActionPicker(store: store, input: input)
                 } label: {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(input.label).font(.subheadline)
+                            HStack(spacing: 6) {
+                                Text(input.label).font(.subheadline)
+                                if let seen = seenLabel(input) {
+                                    Text(seen)
+                                        .font(.caption2)
+                                        .foregroundStyle(.green)
+                                }
+                            }
                             Text(store.action(for: input).summary)
                                 .font(.caption)
                                 .foregroundStyle(store.action(for: input).isSet ? AnyShapeStyle(.secondary)
@@ -44,6 +68,16 @@ struct RingInputsSection: View {
                 .disabled(!ready)
             }
         }
+    }
+
+    /// "just seen" on the row the ring last sent, so the right one is obvious.
+    private func seenLabel(_ input: RingInput) -> String? {
+        guard let lastInput, lastInput.input == input else { return nil }
+        let seconds = Int(Date().timeIntervalSince(lastInput.date))
+        if seconds < 5 { return "just seen" }
+        if seconds < 60 { return "seen \(seconds)s ago" }
+        if seconds < 3600 { return "seen \(seconds / 60)m ago" }
+        return nil
     }
 }
 
