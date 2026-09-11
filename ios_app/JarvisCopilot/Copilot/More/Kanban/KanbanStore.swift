@@ -5,15 +5,14 @@ import Observation
 /// filter, every task mutation, and the live-update subscription.
 ///
 /// Live updates come from `/api/kanban/events/stream`. If that stream errors or
-/// ends we fall back to a 30 s poll, exactly as the Flutter page did — a board
-/// that stops updating silently is worse than a polling one.
+/// ends we fall back to a 30 s poll — a board that stops updating silently is
+/// worse than a polling one.
 @Observable
 @MainActor
 final class KanbanStore {
     private let api: KanbanAPI
-    private let pollInterval: TimeInterval
     /// Injected so tests drive the poll without wall-clock waits.
-    private let sleeper: @Sendable (TimeInterval) async throws -> Void
+    private let sleeper: Sleeper
 
     private let loadTask = TaskHandle()
     private let eventsTask = TaskHandle()
@@ -35,14 +34,10 @@ final class KanbanStore {
     var toast: String?
     /// True once the SSE stream gave up and the 30 s poll took over.
     private(set) var isPolling = false
-    /// Bumped on every applied live event — lets a view animate on change.
 
-    init(api: KanbanAPI = KanbanAPI(),
-         pollInterval: TimeInterval = 30,
-         sleeper: (@Sendable (TimeInterval) async throws -> Void)? = nil) {
+    init(api: KanbanAPI = KanbanAPI(), sleeper: @escaping Sleeper = wallClockSleeper) {
         self.api = api
-        self.pollInterval = pollInterval
-        self.sleeper = sleeper ?? { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
+        self.sleeper = sleeper
     }
 
     deinit {
@@ -60,7 +55,7 @@ final class KanbanStore {
     }
 
     /// Non-empty visible columns with their tasks, in board order. Empty groups
-    /// are hidden (matching the Flutter list).
+    /// are hidden.
     var sections: [(column: String, tasks: [KanbanTask])] {
         visibleColumns.compactMap { column in
             let tasks = grouped[column] ?? []
@@ -69,8 +64,6 @@ final class KanbanStore {
     }
 
     var allTasks: [KanbanTask] { Kanban.columns.flatMap { grouped[$0] ?? [] } }
-    /// The filter picked a column with no tasks in it.
-    var filteredToEmptyColumn: Bool { hasLoaded && sections.isEmpty && !allTasks.isEmpty }
     var isEmpty: Bool { hasLoaded && allTasks.isEmpty }
 
     func board(for slug: String) -> KanbanBoard? { boards.first { $0.slug == slug } }
@@ -79,8 +72,6 @@ final class KanbanStore {
         if let currentSlug { return board(for: currentSlug) }
         return boards.first { $0.isCurrent }
     }
-
-    func count(in column: String) -> Int { grouped[column]?.count ?? 0 }
 
     // MARK: Lifecycle
 
@@ -146,16 +137,7 @@ final class KanbanStore {
     private func startPolling() {
         guard !pollTask.isActive else { return }
         isPolling = true
-        pollTask.replace(Task { [weak self] in
-            // Re-resolved every tick: hoisting the guard above the loop would
-            // keep the store alive for as long as the poll runs.
-            while !Task.isCancelled {
-                guard let self else { return }
-                try? await self.sleeper(self.pollInterval)
-                if Task.isCancelled { return }
-                await self.refresh()
-            }
-        })
+        pollTask.poll(self, every: 30, sleeper: sleeper) { await $0.refresh() }
     }
 
     // MARK: Board mutations
@@ -313,9 +295,9 @@ final class KanbanStore {
     // MARK: Dispatcher
 
     /// Claim ready+assigned tasks and spawn workers.
-    func runDispatcher(dryRun: Bool = false, max: Int = 8) async {
+    func runDispatcher() async {
         do {
-            let result = try await api.dispatch(slug: boardSlug, dryRun: dryRun, max: max)
+            let result = try await api.dispatch(slug: boardSlug)
             toast = Kanban.dispatchMessage(result)
             await refresh()
         } catch {
@@ -348,8 +330,7 @@ final class KanbanStore {
 final class KanbanTaskDetailStore {
     private let api: KanbanAPI
     private let board: String?
-    private let pollInterval: TimeInterval
-    private let sleeper: @Sendable (TimeInterval) async throws -> Void
+    private let sleeper: Sleeper
     private let pollTask = TaskHandle()
 
     /// The board task, used until the first detail fetch lands.
@@ -365,13 +346,11 @@ final class KanbanTaskDetailStore {
     var toast: String?
 
     init(api: KanbanAPI = KanbanAPI(), task: KanbanTask, board: String?,
-         pollInterval: TimeInterval = 2.5,
-         sleeper: (@Sendable (TimeInterval) async throws -> Void)? = nil) {
+         sleeper: @escaping Sleeper = wallClockSleeper) {
         self.api = api
         self.seed = task
         self.board = board
-        self.pollInterval = pollInterval
-        self.sleeper = sleeper ?? { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
+        self.sleeper = sleeper
     }
 
     deinit { pollTask.cancel() }
@@ -455,22 +434,13 @@ final class KanbanTaskDetailStore {
     }
 
     private func syncPoll() {
-        let shouldPoll = isRunning || log != nil
-        if shouldPoll {
-            guard !pollTask.isActive else { return }
-            pollTask.replace(Task { [weak self] in
-                // Guard inside the loop: hoisted, it would pin the detail store
-                // for as long as the sheet's poll runs (i.e. forever).
-                while !Task.isCancelled {
-                    guard let self else { return }
-                    try? await self.sleeper(self.pollInterval)
-                    if Task.isCancelled { return }
-                    await self.loadDetail(silent: true)
-                    if self.log != nil || self.isRunning { await self.loadLog(silent: true) }
-                }
-            })
-        } else {
+        guard isRunning || log != nil else {
             pollTask.cancel()
+            return
+        }
+        pollTask.poll(self, every: 2.5, sleeper: sleeper) { store in
+            await store.loadDetail(silent: true)
+            if store.log != nil || store.isRunning { await store.loadLog(silent: true) }
         }
     }
 }

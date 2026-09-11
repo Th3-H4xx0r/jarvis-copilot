@@ -200,13 +200,8 @@ struct OnDeviceAISettingsPage: View {
             }
             OnDeviceSwitchRow(symbol: "bolt",
                               title: "Device commands short-circuit",
-                              isOn: store.settings.commandShortCircuit) {
-                store.setCommandShortCircuit($0)
-            }
-            OnDeviceSwitchRow(symbol: "seal",
-                              title: "Show \"on-device\" badge",
-                              isOn: store.settings.showBadge,
-                              last: true) { store.setShowBadge($0) }
+                              isOn: store.settings.commandShortCircuit,
+                              last: true) { store.setCommandShortCircuit($0) }
         }
     }
 }

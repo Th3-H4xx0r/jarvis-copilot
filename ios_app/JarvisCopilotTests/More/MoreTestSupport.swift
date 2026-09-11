@@ -58,7 +58,7 @@ final class RecordingNotifier: ConnectionNotifier, @unchecked Sendable {
 }
 
 /// Resumes immediately so debounce/poll logic runs without wall-clock waits.
-let instantSleeper: @Sendable (TimeInterval) async throws -> Void = { _ in
+let instantSleeper: Sleeper = { _ in
     await Task.yield()
 }
 

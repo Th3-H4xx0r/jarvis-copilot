@@ -18,7 +18,7 @@ final class MoreUIARouteTests: XCTestCase {
         let routes: [KanbanRoute] = [
             .createTask, .editTask(a), .taskDetail(a), .move(a), .block(a), .comment(a),
             .boardPicker, .boardActions, .createBoard,
-            .renameBoard(KanbanBoard(slug: "ops")),
+            .renameBoard(KanbanBoard(json: ["slug": "ops"])),
             .editTask(b),
         ]
         XCTAssertEqual(Set(routes.map(\.id)).count, routes.count)
@@ -46,7 +46,7 @@ final class MoreUIARouteTests: XCTestCase {
     }
 
     func testArchiveBoardConfirmUsesTheBoardDisplayName() {
-        let confirm = KanbanConfirm.archiveBoard(KanbanBoard(slug: "ops", name: "Operations"))
+        let confirm = KanbanConfirm.archiveBoard(KanbanBoard(json: ["slug": "ops", "name": "Operations"]))
         XCTAssertEqual(confirm.title, "Archive board?")
         XCTAssertEqual(confirm.actionLabel, "Archive")
         XCTAssertTrue(confirm.message.contains("Operations"), confirm.message)
@@ -54,7 +54,7 @@ final class MoreUIARouteTests: XCTestCase {
 
     func testConfirmIDsAreDistinct() {
         let a = KanbanConfirm.deleteTask(task("t1"))
-        let b = KanbanConfirm.archiveBoard(KanbanBoard(slug: "t1"))
+        let b = KanbanConfirm.archiveBoard(KanbanBoard(json: ["slug": "t1"]))
         XCTAssertNotEqual(a.id, b.id)
     }
 

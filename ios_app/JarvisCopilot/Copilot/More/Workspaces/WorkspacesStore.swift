@@ -7,11 +7,13 @@ import Observation
 @Observable
 @MainActor
 final class WorkspacesStore {
+    private static let suggestDebounce: TimeInterval = 0.2
+
     private let api: WorkspacesAPI
     private let task = TaskHandle()
     private let suggestTask = TaskHandle()
-    private let suggestDebounce: TimeInterval
-    private let sleeper: @Sendable (TimeInterval) async throws -> Void
+    /// Injected so tests don't wait out the suggestion debounce.
+    private let sleeper: Sleeper
     /// Monotonic id so a slow suggestion response can't replace a newer one.
     private var suggestRequestID = 0
 
@@ -23,12 +25,9 @@ final class WorkspacesStore {
 
     private(set) var suggestions: [String] = []
 
-    init(api: WorkspacesAPI = WorkspacesAPI(),
-         suggestDebounce: TimeInterval = 0.2,
-         sleeper: (@Sendable (TimeInterval) async throws -> Void)? = nil) {
+    init(api: WorkspacesAPI = WorkspacesAPI(), sleeper: @escaping Sleeper = wallClockSleeper) {
         self.api = api
-        self.suggestDebounce = suggestDebounce
-        self.sleeper = sleeper ?? { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
+        self.sleeper = sleeper
     }
 
     deinit {
@@ -139,7 +138,7 @@ final class WorkspacesStore {
         }
         suggestTask.replace(Task { [weak self] in
             guard let self else { return }
-            try? await self.sleeper(self.suggestDebounce)
+            try? await self.sleeper(Self.suggestDebounce)
             if Task.isCancelled { return }
             await self.fetchSuggestions(trimmed)
         })

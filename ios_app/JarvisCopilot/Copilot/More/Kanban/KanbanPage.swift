@@ -228,7 +228,7 @@ struct KanbanPage: View {
         case .unblock: route = nil; Task { await store.unblock(task.id) }
         case .comment: replace(with: .comment(task))
         case .edit:    replace(with: .editTask(task))
-        case .delete:  route = nil; confirmAfterDismiss(.deleteTask(task))
+        case .delete:  route = nil; afterSheetDismissal { confirm = .deleteTask(task) }
         }
     }
 
@@ -240,24 +240,14 @@ struct KanbanPage: View {
         switch action {
         case "create":  replace(with: .createBoard)
         case "rename":  replace(with: .renameBoard(board))
-        case "archive": route = nil; confirmAfterDismiss(.archiveBoard(board))
+        case "archive": route = nil; afterSheetDismissal { confirm = .archiveBoard(board) }
         default: break
         }
     }
 
     private func replace(with new: KanbanRoute) {
         route = nil
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            route = new
-        }
-    }
-
-    private func confirmAfterDismiss(_ item: KanbanConfirm) {
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            confirm = item
-        }
+        afterSheetDismissal { route = new }
     }
 
     private func perform(_ item: KanbanConfirm) {

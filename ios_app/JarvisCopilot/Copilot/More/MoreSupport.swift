@@ -113,13 +113,11 @@ enum MoreJSON {
 
 // MARK: - Semantic colour tokens
 
-/// A palette slot, not a colour. This layer must not import SwiftUI or depend on
-/// `JcTheme` (wave-2 owns that), so anything the Flutter code expressed as a
-/// `JcTheme.*` constant is expressed here as the token name and mapped to a real
-/// colour in the view.
+/// A palette slot, not a colour. The model layer doesn't import SwiftUI, so a
+/// store names the slot and `Color(tone:)` maps it to a `JcTheme` colour.
 enum MoreTone: String, Equatable, Sendable, CaseIterable {
-    case text, muted, accent, accentAlt, cyan, blue, primaryBlue
-    case success, amber, slate, danger
+    case muted, accent, accentAlt, cyan, blue, primaryBlue
+    case success, amber, danger
 }
 
 // MARK: - Timestamps
@@ -274,4 +272,43 @@ final class TaskHandle: @unchecked Sendable {
 
     /// Await the in-flight task, if any (tests, and scene-phase handoffs).
     func wait() async { await current?.value }
+}
+
+// MARK: - Sleeping and polling
+
+/// Sleeps for a number of seconds. Stores that poll or debounce take one so
+/// tests can resume it instantly.
+typealias Sleeper = @Sendable (TimeInterval) async throws -> Void
+
+let wallClockSleeper: Sleeper = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
+
+extension TaskHandle {
+    /// Runs `tick` every `interval` seconds until cancelled or `owner` is gone;
+    /// a no-op while a poll is already running. The owner is held weakly and
+    /// re-resolved each tick — holding it strongly would pin it for as long as
+    /// the poll runs, so the `deinit` that cancels the poll would never run.
+    @MainActor
+    func poll<Owner: AnyObject>(_ owner: Owner, every interval: TimeInterval, sleeper: @escaping Sleeper,
+                                _ tick: @escaping @Sendable @MainActor (Owner) async -> Void) {
+        guard !isActive else { return }
+        replace(Task { @MainActor [weak owner] in
+            while !Task.isCancelled, owner != nil {
+                try? await sleeper(interval)
+                guard !Task.isCancelled, let owner else { return }
+                await tick(owner)
+            }
+        })
+    }
+}
+
+// MARK: - Sheet hand-off
+
+/// Runs `work` once a dismissing sheet has animated away — presenting the next
+/// sheet or dialog any sooner gets it dropped mid-dismissal.
+@MainActor
+func afterSheetDismissal(_ work: @escaping @MainActor () -> Void) {
+    Task { @MainActor in
+        try? await Task.sleep(nanoseconds: 350_000_000)
+        work()
+    }
 }

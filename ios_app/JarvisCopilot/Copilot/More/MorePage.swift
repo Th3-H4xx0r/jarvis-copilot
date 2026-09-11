@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The More tab: a grid of launchers, ported from `pages/more_page.dart`.
+/// The More tab: a grid of launchers.
 ///
 /// Every tile pushes through `destination(for:)` — the one place that maps a
 /// `MoreDestination` to a screen. To land a real page, add its file in the area
@@ -10,23 +10,19 @@ struct MorePage: View {
                            GridItem(.flexible(), spacing: 10),
                            GridItem(.flexible(), spacing: 10)]
 
-    /// The grid owns its stack. `path:` exists so a test (or a future deep link)
-    /// can open a screen without a tap — SwiftUI's tiles are not `UIView`s, so
-    /// there is nothing for a test to activate.
-    @State private var ownPath: [MoreDestination] = []
-    private let injectedPath: Binding<[MoreDestination]>?
+    /// The grid owns its stack. `initialPath` lets a test open a screen without a
+    /// tap — SwiftUI's tiles are not `UIView`s, so there is nothing to activate.
+    @State private var path: [MoreDestination]
 
-    init(path: Binding<[MoreDestination]>? = nil) {
-        self.injectedPath = path
+    init(initialPath: [MoreDestination] = []) {
+        _path = State(initialValue: initialPath)
     }
 
-    private var path: Binding<[MoreDestination]> { injectedPath ?? $ownPath }
-
     var body: some View {
-        NavigationStack(path: path) {
+        NavigationStack(path: $path) {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(MoreDestination.grid) { item in
+                    ForEach(MoreDestination.allCases) { item in
                         NavigationLink(value: item) { Tile(item: item) }
                             .buttonStyle(.plain)
                     }

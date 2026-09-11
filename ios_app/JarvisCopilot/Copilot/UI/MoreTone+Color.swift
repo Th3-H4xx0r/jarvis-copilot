@@ -9,7 +9,6 @@ extension Color {
     /// every More screen renders the same token the same way.
     init(tone: MoreTone) {
         switch tone {
-        case .text: self = JcTheme.text
         case .muted: self = JcTheme.muted
         case .accent: self = JcTheme.accent
         case .accentAlt: self = JcTheme.accentAlt
@@ -18,7 +17,6 @@ extension Color {
         case .primaryBlue: self = JcTheme.primaryBlue
         case .success: self = JcTheme.success
         case .amber: self = JcTheme.amber
-        case .slate: self = JcTheme.slate
         case .danger: self = JcTheme.danger
         }
     }

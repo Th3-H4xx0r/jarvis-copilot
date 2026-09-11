@@ -4,15 +4,16 @@ import Observation
 /// Page state for the Long-term memory screen.
 ///
 /// The header (stats + namespaces + reflections) and the search results are two
-/// independent lifecycles, exactly as in Flutter: typing must not reload the
-/// header, and a stale search response must not overwrite a newer one.
+/// independent lifecycles: typing must not reload the header, and a stale search
+/// response must not overwrite a newer one.
 @Observable
 @MainActor
 final class JarvisMemoryStore {
+    private static let searchDebounce: TimeInterval = 0.22
+
     private let api: JarvisMemoryAPI
-    /// Debounce for the search box. Injected so tests don't sleep.
-    private let searchDebounce: TimeInterval
-    private let sleeper: @Sendable (TimeInterval) async throws -> Void
+    /// Injected so tests don't wait out the search debounce.
+    private let sleeper: Sleeper
 
     private let headerTask = TaskHandle()
     private let searchTask = TaskHandle()
@@ -31,12 +32,9 @@ final class JarvisMemoryStore {
     /// One-shot user-facing message (delete failed, reflection started, …).
     var toast: String?
 
-    init(api: JarvisMemoryAPI = JarvisMemoryAPI(),
-         searchDebounce: TimeInterval = 0.22,
-         sleeper: (@Sendable (TimeInterval) async throws -> Void)? = nil) {
+    init(api: JarvisMemoryAPI = JarvisMemoryAPI(), sleeper: @escaping Sleeper = wallClockSleeper) {
         self.api = api
-        self.searchDebounce = searchDebounce
-        self.sleeper = sleeper ?? { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
+        self.sleeper = sleeper
     }
 
     deinit {
@@ -100,7 +98,7 @@ final class JarvisMemoryStore {
         query = value
         searchTask.replace(Task { [weak self] in
             guard let self else { return }
-            try? await self.sleeper(self.searchDebounce)
+            try? await self.sleeper(Self.searchDebounce)
             if Task.isCancelled { return }
             await self.performSearch(value)
         })

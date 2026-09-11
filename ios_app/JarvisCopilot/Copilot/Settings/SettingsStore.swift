@@ -44,21 +44,7 @@ protocol LiveActivityToggling: AnyObject {
 
 extension LiveActivityCoordinator: LiveActivityToggling {}
 
-/// Wiping what the embedded server tabs left in WebKit's own storage. Behind a
-/// protocol so `unpair()` can be asserted without WebKit (there is no way to
-/// observe `WKWebsiteDataStore` from a unit test).
-@MainActor
-protocol WebsiteDataClearing: AnyObject {
-    func clearWebsiteData()
-}
-
-/// Production: `WebViewCookies.clearAll()`.
-@MainActor
-final class DefaultWebsiteDataCleaner: WebsiteDataClearing {
-    func clearWebsiteData() { WebViewCookies.clearAll() }
-}
-
-/// The settings screen's state, ported from `pages/settings_page.dart`.
+/// The settings screen's state.
 ///
 /// Preferences go through `KeyValueStore` (so tests use `MemoryKeyValueStore`);
 /// credentials stay in `BridgeClient`'s Keychain, reached through
@@ -70,7 +56,7 @@ final class DefaultWebsiteDataCleaner: WebsiteDataClearing {
 final class SettingsStore {
 
     /// Preference keys. Namespaced so they can't collide with the app's older
-    /// `UserDefaults` entries; the suffixes match `credentials.dart`.
+    /// `UserDefaults` entries.
     enum Keys {
         static let deviceName = "jc.device_name"
         static let trackLocation = "jc.track_location"
@@ -118,7 +104,9 @@ final class SettingsStore {
     // whole failure mode here is a switch that quietly toggles nothing.
     let location: any LocationTracking
     let liveActivity: any LiveActivityToggling
-    let website: any WebsiteDataClearing
+    /// Wipes what the embedded server tabs left in WebKit's own storage.
+    /// Injectable because `WKWebsiteDataStore` can't be observed from a test.
+    private let clearWebsiteData: () -> Void
     /// Fires when this phone stops talking to the server it was paired with.
     /// Production forgets `ChatAPI`'s process-wide feature probe; injectable so
     /// the call can be asserted without reaching into that global.
@@ -131,17 +119,17 @@ final class SettingsStore {
          bridge: SettingsBridging = BridgeClient.shared,
          location: (any LocationTracking)? = nil,
          liveActivity: (any LiveActivityToggling)? = nil,
-         website: (any WebsiteDataClearing)? = nil,
+         clearWebsiteData: (() -> Void)? = nil,
          onServerChanged: (() -> Void)? = nil) {
         self.preferences = preferences
         self.bridge = bridge
         self.onServerChanged = onServerChanged ?? { ChatAPI.resetFeatureDetection() }
         self.location = location ?? BackgroundLocationService.shared
         self.liveActivity = liveActivity ?? LiveActivityCoordinator.shared
-        self.website = website ?? DefaultWebsiteDataCleaner()
+        self.clearWebsiteData = clearWebsiteData ?? { WebViewCookies.clearAll() }
         self.deviceName = preferences.string(Keys.deviceName) ?? Self.defaultDeviceName
         self.trackLocation = preferences.bool(Keys.trackLocation) ?? false
-        // `credentials.dart` reads this as `!= '0'` — on unless explicitly off.
+        // On unless explicitly switched off.
         self.liveActivities = preferences.bool(Keys.liveActivities) ?? true
         // The bridge owns the live value; it lives in the Keychain.
         self.keepalive = bridge.keepaliveEnabled
@@ -215,7 +203,7 @@ final class SettingsStore {
         // (the `hermes_session` cookie above all) lives in WebKit's own store —
         // NOT the Keychain the bridge just wiped. Leaving it behind would hand
         // the next person to pair this phone a logged-in webui.
-        website.clearWebsiteData()
+        clearWebsiteData()
         // …and what we learned about the server we just left. The probe is
         // process-wide, so without this the next pairing inherits the previous
         // server's verdict for the rest of the launch.

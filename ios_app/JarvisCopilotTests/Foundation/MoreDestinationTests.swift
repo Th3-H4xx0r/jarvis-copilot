@@ -27,12 +27,4 @@ final class MoreDestinationTests: XCTestCase {
         let ids = MoreDestination.allCases.map(\.id)
         XCTAssertEqual(Set(ids).count, ids.count)
     }
-
-    /// The whole point of the enum: landing a screen only has to touch the one
-    /// `switch`. If a case ever stops being routed the compiler refuses to build,
-    /// so all we assert here is that the table the UI iterates is the same one
-    /// the enum declares — every destination now has a real page behind it.
-    func testTheGridShowsEveryDestination() {
-        XCTAssertEqual(MoreDestination.grid, MoreDestination.allCases)
-    }
 }

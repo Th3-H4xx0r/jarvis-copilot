@@ -302,7 +302,7 @@ final class ShellSnapshotTests: XCTestCase {
         XCTAssertEqual(navigationBars(in: grid).count, 1, "the More grid should show one bar")
         XCTAssertTrue(backButtonMarkers(in: grid).isEmpty, "a tab root has nothing to go back to")
 
-        let harness = Harness(MorePage(path: .constant([.settings])).environment(AppRouter()))
+        let harness = Harness(MorePage(initialPath: [.settings]).environment(AppRouter()))
         harness.settle(0.6)
         harness.snapshot("more-settings")
 

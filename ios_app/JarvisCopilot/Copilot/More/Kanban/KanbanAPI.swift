@@ -8,7 +8,7 @@ import Foundation
 ///   * the board is grouped server-side into `board['columns']`, a list of
 ///     `{name, tasks: [...]}`; a task's column lives in its `status` field;
 ///   * moving a task is `PATCH /tasks/:id` with `{status: <col>}` (NOT
-///     `column`) — `patchTask` normalises a `column` key to `status`;
+///     `column`);
 ///   * there is NO `DELETE /api/kanban/tasks/:id` route, so "delete" is
 ///     `PATCH {status: 'archived'}` (which is also what the web does);
 ///   * `createBoard` requires a `slug` — the bridge derives nothing from the
@@ -72,32 +72,20 @@ struct KanbanAPI {
         return KanbanTaskDetail(json: body)
     }
 
-    /// The worker log text. The bridge returns `{content, …}`; older shapes used
-    /// `log`. Both are tolerated; "" when neither is present.
+    /// The worker log text from the bridge's `{content, …}`; "" when absent.
     func taskLog(_ id: String, board: String? = nil) async throws -> String {
         let response = try await api.get("/api/kanban/tasks/\(id)/log", query: boardQuery(board))
         guard let body = try? response.object() else { return response.text }
-        if let value = body["log"] ?? body["content"], !(value is NSNull) {
-            return MoreJSON.text(value)
-        }
-        return ""
+        return MoreJSON.text(body["content"])
     }
 
     func createTask(_ body: JSONObject, board: String? = nil) async throws -> JSONObject {
         try await api.post("/api/kanban/tasks", json: body, query: boardQuery(board)).object()
     }
 
-    /// Pass `{status: 'done'}` (or the `column` alias, normalised to `status`) to
-    /// MOVE a task; other fields edit in place.
+    /// Pass `{status: 'done'}` to MOVE a task; other fields edit in place.
     func patchTask(_ id: String, _ body: JSONObject, board: String? = nil) async throws -> JSONObject {
-        var normalised = body
-        if normalised["column"] != nil, normalised["status"] == nil {
-            normalised["status"] = normalised.removeValue(forKey: "column")
-        } else {
-            normalised.removeValue(forKey: "column")
-        }
-        return try await api.patch("/api/kanban/tasks/\(id)", json: normalised,
-                                   query: boardQuery(board)).object()
+        try await api.patch("/api/kanban/tasks/\(id)", json: body, query: boardQuery(board)).object()
     }
 
     /// Delete a task = ARCHIVE it (matches the web). The bridge has no
@@ -107,10 +95,10 @@ struct KanbanAPI {
         try await patchTask(id, ["status": "archived"], board: board)
     }
 
-    /// The bridge reads the comment text from `body` (not `text`); both are sent.
+    /// The bridge reads the comment text from `body`.
     func comment(_ id: String, text: String, board: String? = nil) async throws -> JSONObject {
         try await api.post("/api/kanban/tasks/\(id)/comments",
-                           json: ["body": text, "text": text],
+                           json: ["body": text],
                            query: boardQuery(board)).object()
     }
 
@@ -126,12 +114,11 @@ struct KanbanAPI {
                            query: boardQuery(board)).object()
     }
 
-    /// Run the dispatcher once: claim ready+assigned tasks and spawn workers.
-    /// `dryRun` previews without spawning.
-    func dispatch(slug: String? = nil, dryRun: Bool = false, max: Int = 8) async throws -> JSONObject {
-        var query = ["dry_run": dryRun ? "true" : "false", "max": "\(max)"]
-        if let slug, !slug.isEmpty { query["board"] = slug }
-        return try await api.post("/api/kanban/dispatch", json: JSONObject(), query: query).object()
+    /// Run the dispatcher once: claim ready+assigned tasks and spawn workers
+    /// (the server defaults to a real run of at most 8).
+    func dispatch(slug: String? = nil) async throws -> JSONObject {
+        try await api.post("/api/kanban/dispatch", json: JSONObject(),
+                           query: boardQuery(slug)).object()
     }
 
     // MARK: Live updates

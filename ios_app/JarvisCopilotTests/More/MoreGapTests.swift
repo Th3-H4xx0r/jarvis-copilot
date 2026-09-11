@@ -27,21 +27,6 @@ final class MoreGapTests: XCTestCase {
         XCTAssertEqual(store.allTasks.count, 1)
     }
 
-    func testRunDispatcherPassesTheDryRunAndMaxThrough() async {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.route("/api/kanban/dispatch", json: ["spawned": 0])
-        transport.route("/api/kanban/boards", json: ["boards": []])
-        transport.route("/api/kanban/board", json: ["tasks": []])
-
-        let store = KanbanStore(api: KanbanAPI(api: api), sleeper: { _ in })
-        await store.runDispatcher(dryRun: true, max: 3)
-
-        // The dispatcher takes its flags as QUERY, not body — the POST body is
-        // empty, which is what the bridge expects.
-        XCTAssertEqual(transport.query(0)["dry_run"], "true")
-        XCTAssertEqual(transport.query(0)["max"], "3")
-    }
-
     /// A dispatcher failure is a toast, not a wiped board — the tasks on screen
     /// are still real.
     func testRunDispatcherSurfacesAFailureWithoutClearingTheBoard() async {

@@ -177,8 +177,7 @@ final class PushHandlerTests: XCTestCase {
 
         let store = SettingsStore(preferences: preferences, bridge: MockSettingsBridge(),
                                   location: MockLocationTracking(),
-                                  liveActivity: MockLiveActivityToggling(),
-                                  website: MockWebsiteCleaner())
+                                  liveActivity: MockLiveActivityToggling())
         XCTAssertTrue(store.notificationsAreOff, "Settings shows the row off the same flag")
     }
 
@@ -192,8 +191,7 @@ final class PushHandlerTests: XCTestCase {
         XCTAssertEqual(preferences.bool(SettingsStore.Keys.notificationsGranted), true)
         XCTAssertFalse(SettingsStore(preferences: preferences, bridge: MockSettingsBridge(),
                                      location: MockLocationTracking(),
-                                     liveActivity: MockLiveActivityToggling(),
-                                     website: MockWebsiteCleaner()).notificationsAreOff)
+                                     liveActivity: MockLiveActivityToggling()).notificationsAreOff)
     }
 
     /// nil, not false: nobody has asked yet, so Settings must not claim they are off.

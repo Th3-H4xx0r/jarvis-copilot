@@ -9,8 +9,7 @@ import Observation
 @MainActor
 final class CronsStore {
     private let api: CronsAPI
-    private let pollInterval: TimeInterval
-    private let sleeper: @Sendable (TimeInterval) async throws -> Void
+    private let sleeper: Sleeper
 
     private let loadTask = TaskHandle()
     private let pollTask = TaskHandle()
@@ -29,12 +28,9 @@ final class CronsStore {
     /// own skills selectable in the chip picker.
     private(set) var knownSkills: Set<String> = []
 
-    init(api: CronsAPI = CronsAPI(),
-         pollInterval: TimeInterval = 4,
-         sleeper: (@Sendable (TimeInterval) async throws -> Void)? = nil) {
+    init(api: CronsAPI = CronsAPI(), sleeper: @escaping Sleeper = wallClockSleeper) {
         self.api = api
-        self.pollInterval = pollInterval
-        self.sleeper = sleeper ?? { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
+        self.sleeper = sleeper
     }
 
     deinit {
@@ -86,21 +82,11 @@ final class CronsStore {
     }
 
     private func syncPoll() {
-        if anyRunning {
-            guard !pollTask.isActive else { return }
-            pollTask.replace(Task { [weak self] in
-                // Guard inside the loop: hoisted, the strong `self` lives as
-                // long as the poll and the store's `deinit` never runs.
-                while !Task.isCancelled {
-                    guard let self else { return }
-                    try? await self.sleeper(self.pollInterval)
-                    if Task.isCancelled { return }
-                    await self.refresh()
-                }
-            })
-        } else {
+        guard anyRunning else {
             pollTask.cancel()
+            return
         }
+        pollTask.poll(self, every: 4, sleeper: sleeper) { await $0.refresh() }
     }
 
     // MARK: Mutations

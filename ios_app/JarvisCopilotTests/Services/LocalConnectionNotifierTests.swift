@@ -73,8 +73,7 @@ final class LocalConnectionNotifierTests: XCTestCase {
 
         let store = SettingsStore(preferences: prefs, bridge: MockSettingsBridge(),
                                   location: MockLocationTracking(),
-                                  liveActivity: MockLiveActivityToggling(),
-                                  website: MockWebsiteCleaner())
+                                  liveActivity: MockLiveActivityToggling())
         XCTAssertTrue(store.notificationsAreOff)
     }
 
@@ -93,7 +92,7 @@ final class LocalConnectionNotifierTests: XCTestCase {
     /// banner would ever settle.
     func testTheFeedOnlyReportsEdges() async {
         let notifier = RecordingNotifier()
-        let monitor = ConnectionMonitor(notifier: notifier, debounce: 0, sleeper: { _ in })
+        let monitor = ConnectionMonitor(notifier: notifier, sleeper: { _ in })
         let status = PassthroughSubject<Bool, Never>()
         let feed = BridgeConnectionFeed(monitor: monitor, connected: status.eraseToAnyPublisher())
 
@@ -115,7 +114,7 @@ final class LocalConnectionNotifierTests: XCTestCase {
 
     func testStoppingTheFeedEndsTheSubscription() async {
         let notifier = RecordingNotifier()
-        let monitor = ConnectionMonitor(notifier: notifier, debounce: 0, sleeper: { _ in })
+        let monitor = ConnectionMonitor(notifier: notifier, sleeper: { _ in })
         let status = PassthroughSubject<Bool, Never>()
         let feed = BridgeConnectionFeed(monitor: monitor, connected: status.eraseToAnyPublisher())
 

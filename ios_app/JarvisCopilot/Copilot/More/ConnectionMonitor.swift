@@ -28,14 +28,12 @@ enum ConnectionNotice: Equatable, Sendable {
 
 /// The whole announce/stay-quiet decision, with no timers and no I/O.
 ///
-/// Two rules, both from the Flutter monitor: the very first settle after launch
+/// Two rules: the very first settle after launch
 /// only establishes a baseline (we never announce the initial connect), and a
 /// settle that matches the last announced state is a no-op.
 struct ConnectionMonitorPolicy: Equatable, Sendable {
     /// The last state we actually announced; nil until the first settle.
     private(set) var lastNotified: Bool?
-
-    init(lastNotified: Bool? = nil) { self.lastNotified = lastNotified }
 
     mutating func settled(_ connected: Bool) -> ConnectionNotice? {
         guard let last = lastNotified else {
@@ -51,31 +49,24 @@ struct ConnectionMonitorPolicy: Equatable, Sendable {
 /// Watches the bridge connection flag and posts a local notification when the
 /// link to the JARVIS server drops, and again when it comes back.
 ///
-/// Debounced (4 s by default) so a reconnect flap doesn't spam: a change that
-/// reverts before the delay elapses is dropped entirely. The delay is injected
-/// so tests don't wait on wall-clock time.
+/// Debounced by 4 s so a reconnect flap doesn't spam: a change that reverts
+/// before the delay elapses is dropped entirely.
 @MainActor
 final class ConnectionMonitor {
-    /// Sleeps for the debounce window. Injected so tests can resume it instantly.
-    typealias Sleeper = @Sendable (TimeInterval) async throws -> Void
+    private static let debounce: TimeInterval = 4
 
     private let notifier: ConnectionNotifier
-    private let debounce: TimeInterval
+    /// Injected so tests can resume the debounce instantly.
     private let sleeper: Sleeper
     private var policy = ConnectionMonitorPolicy()
     private let pending = TaskHandle()
 
     /// The current state as last reported, before debouncing.
-    private(set) var connected: Bool
+    private var connected = false
 
-    init(connected: Bool = false,
-         notifier: ConnectionNotifier,
-         debounce: TimeInterval = 4,
-         sleeper: Sleeper? = nil) {
-        self.connected = connected
+    init(notifier: ConnectionNotifier, sleeper: @escaping Sleeper = wallClockSleeper) {
         self.notifier = notifier
-        self.debounce = debounce
-        self.sleeper = sleeper ?? { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
+        self.sleeper = sleeper
     }
 
     deinit { pending.cancel() }
@@ -86,18 +77,16 @@ final class ConnectionMonitor {
         let target = value
         pending.replace(Task { [weak self] in
             guard let self else { return }
-            try? await self.sleeper(self.debounce)
+            try? await self.sleeper(Self.debounce)
             if Task.isCancelled { return }
             self.settle(target)
         })
     }
 
-    /// Await the in-flight debounce (tests; also handy on `scenePhase` changes).
+    /// Await the in-flight debounce (tests).
     func waitForPending() async {
         await pending.wait()
     }
-
-    func cancel() { pending.cancel() }
 
     private func settle(_ target: Bool) {
         // Flapped back while we waited — the state we were about to announce is

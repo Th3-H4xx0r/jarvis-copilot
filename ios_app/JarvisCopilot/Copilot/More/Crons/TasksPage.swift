@@ -105,15 +105,8 @@ struct TasksPage: View {
         switch action {
         case .run:         Task { await store.run(job) }
         case .pauseResume: Task { await store.togglePause(job) }
-        case .edit:        after { route = .edit(job) }
-        case .delete:      after { pendingDelete = job }
-        }
-    }
-
-    private func after(_ work: @escaping () -> Void) {
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            work()
+        case .edit:        afterSheetDismissal { route = .edit(job) }
+        case .delete:      afterSheetDismissal { pendingDelete = job }
         }
     }
 }

@@ -4,14 +4,13 @@ import Observation
 /// Page state for the Server logs screen: file + tail-size + severity filter,
 /// line wrap, 5 s auto-refresh, and the copy-all payload.
 ///
-/// Lines are rendered NEWEST FIRST (latest at the top), which is what the
-/// Flutter page did — so `displayLines` reverses the server's chronological tail.
+/// Lines are rendered NEWEST FIRST (latest at the top), so `displayLines`
+/// reverses the server's chronological tail.
 @Observable
 @MainActor
 final class ServerLogsStore {
     private let api: ServerLogsAPI
-    private let refreshInterval: TimeInterval
-    private let sleeper: @Sendable (TimeInterval) async throws -> Void
+    private let sleeper: Sleeper
     private let loadHandle = TaskHandle()
     private let timerHandle = TaskHandle()
 
@@ -29,12 +28,9 @@ final class ServerLogsStore {
     var wrapLines = true
     var autoRefresh = false { didSet { syncTimer() } }
 
-    init(api: ServerLogsAPI = ServerLogsAPI(),
-         refreshInterval: TimeInterval = 5,
-         sleeper: (@Sendable (TimeInterval) async throws -> Void)? = nil) {
+    init(api: ServerLogsAPI = ServerLogsAPI(), sleeper: @escaping Sleeper = wallClockSleeper) {
         self.api = api
-        self.refreshInterval = refreshInterval
-        self.sleeper = sleeper ?? { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
+        self.sleeper = sleeper
     }
 
     deinit {
@@ -93,19 +89,10 @@ final class ServerLogsStore {
             timerHandle.cancel()
             return
         }
-        guard !timerHandle.isActive else { return }
-        timerHandle.replace(Task { [weak self] in
-            // Guard inside the loop: hoisted, the auto-refresh ticker pins the
-            // store and `deinit` never runs.
-            while !Task.isCancelled {
-                guard let self else { return }
-                try? await self.sleeper(self.refreshInterval)
-                if Task.isCancelled { return }
-                // Skip this tick if a load is still in flight, so requests can't
-                // stack up when a fetch takes longer than the interval.
-                if self.isLoading { continue }
-                await self.refresh()
-            }
-        })
+        // A tick is skipped while a load is still in flight, so requests can't
+        // stack up when a fetch takes longer than the interval.
+        timerHandle.poll(self, every: 5, sleeper: sleeper) { store in
+            if !store.isLoading { await store.refresh() }
+        }
     }
 }

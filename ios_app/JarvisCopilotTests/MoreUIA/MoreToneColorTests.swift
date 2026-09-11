@@ -11,7 +11,6 @@ final class MoreToneColorTests: XCTestCase {
     /// extension so a wrong retarget shows up as a failure rather than passing
     /// by construction.
     private let expected: [MoreTone: Color] = [
-        .text: JcTheme.text,
         .muted: JcTheme.muted,
         .accent: JcTheme.accent,
         .accentAlt: JcTheme.accentAlt,
@@ -20,7 +19,6 @@ final class MoreToneColorTests: XCTestCase {
         .primaryBlue: JcTheme.primaryBlue,
         .success: JcTheme.success,
         .amber: JcTheme.amber,
-        .slate: JcTheme.slate,
         .danger: JcTheme.danger,
     ]
 
@@ -49,7 +47,7 @@ final class MoreToneColorTests: XCTestCase {
     /// Guards the enum itself: the wire-facing raw values are what stores emit.
     func testToneRawValuesAreStable() {
         XCTAssertEqual(MoreTone.allCases.map(\.rawValue),
-                       ["text", "muted", "accent", "accentAlt", "cyan", "blue",
-                        "primaryBlue", "success", "amber", "slate", "danger"])
+                       ["muted", "accent", "accentAlt", "cyan", "blue",
+                        "primaryBlue", "success", "amber", "danger"])
     }
 }

@@ -132,7 +132,7 @@ final class ServerLogsTests: XCTestCase {
         ]])
 
         let store = ServerLogsStore(api: ServerLogsAPI(api: api),
-                                    refreshInterval: 0.01, sleeper: instantSleeper)
+                                    sleeper: instantSleeper)
         await store.refresh()
 
         XCTAssertEqual(store.displayLines, ["ERROR blew up", "WARNING low disk", "INFO started"])
@@ -154,7 +154,7 @@ final class ServerLogsTests: XCTestCase {
         transport.route("/api/logs", json: ["lines": ["INFO fine"]])
 
         let store = ServerLogsStore(api: ServerLogsAPI(api: api),
-                                    refreshInterval: 0.01, sleeper: instantSleeper)
+                                    sleeper: instantSleeper)
         await store.refresh()
         store.filter = .errors
         XCTAssertTrue(store.isEmpty)
@@ -167,7 +167,7 @@ final class ServerLogsTests: XCTestCase {
         transport.route("/api/logs", json: ["lines": ["x"]])
 
         let store = ServerLogsStore(api: ServerLogsAPI(api: api),
-                                    refreshInterval: 0.01, sleeper: instantSleeper)
+                                    sleeper: instantSleeper)
         store.file = "gateway"
         store.tailSize = 500
         await store.refresh()
@@ -182,7 +182,7 @@ final class ServerLogsTests: XCTestCase {
         transport.route("/api/logs", json: ["lines": ["x"]])
 
         let store = ServerLogsStore(api: ServerLogsAPI(api: api),
-                                    refreshInterval: 0.01, sleeper: instantSleeper)
+                                    sleeper: instantSleeper)
         await store.refresh()
         let before = transport.requests.count
 
@@ -200,7 +200,7 @@ final class ServerLogsTests: XCTestCase {
         transport.route("/api/logs", json: ["error": "no such file"], status: 400)
 
         let store = ServerLogsStore(api: ServerLogsAPI(api: api),
-                                    refreshInterval: 0.01, sleeper: instantSleeper)
+                                    sleeper: instantSleeper)
         await store.refresh()
         XCTAssertEqual(store.errorMessage, "no such file")
     }

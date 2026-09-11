@@ -47,7 +47,7 @@ final class ConnectionMonitorTests: XCTestCase {
     @MainActor
     func testInitialConnectIsNeverAnnounced() async {
         let notifier = RecordingNotifier()
-        let monitor = ConnectionMonitor(notifier: notifier, debounce: 0, sleeper: instantSleeper)
+        let monitor = ConnectionMonitor(notifier: notifier, sleeper: instantSleeper)
         monitor.connectionChanged(true)
         await monitor.waitForPending()
         XCTAssertTrue(notifier.posted.isEmpty)
@@ -56,7 +56,7 @@ final class ConnectionMonitorTests: XCTestCase {
     @MainActor
     func testADropAfterTheBaselineIsAnnouncedOnce() async {
         let notifier = RecordingNotifier()
-        let monitor = ConnectionMonitor(notifier: notifier, debounce: 0, sleeper: instantSleeper)
+        let monitor = ConnectionMonitor(notifier: notifier, sleeper: instantSleeper)
         monitor.connectionChanged(true)
         await monitor.waitForPending()
         monitor.connectionChanged(false)
@@ -69,7 +69,7 @@ final class ConnectionMonitorTests: XCTestCase {
     @MainActor
     func testReconnectIsAnnouncedAfterADrop() async {
         let notifier = RecordingNotifier()
-        let monitor = ConnectionMonitor(notifier: notifier, debounce: 0, sleeper: instantSleeper)
+        let monitor = ConnectionMonitor(notifier: notifier, sleeper: instantSleeper)
         for value in [true, false, true] {
             monitor.connectionChanged(value)
             await monitor.waitForPending()
@@ -80,7 +80,7 @@ final class ConnectionMonitorTests: XCTestCase {
     @MainActor
     func testAFlapWithinTheDebounceWindowIsDroppedEntirely() async {
         let notifier = RecordingNotifier()
-        let monitor = ConnectionMonitor(notifier: notifier, debounce: 0, sleeper: instantSleeper)
+        let monitor = ConnectionMonitor(notifier: notifier, sleeper: instantSleeper)
         monitor.connectionChanged(true)
         await monitor.waitForPending()
 
@@ -92,28 +92,5 @@ final class ConnectionMonitorTests: XCTestCase {
         await monitor.waitForPending()
 
         XCTAssertTrue(notifier.posted.isEmpty, "\(notifier.titles)")
-    }
-
-    @MainActor
-    func testCancelStopsAPendingAnnouncement() async {
-        let notifier = RecordingNotifier()
-        let monitor = ConnectionMonitor(notifier: notifier, debounce: 0, sleeper: instantSleeper)
-        monitor.connectionChanged(true)
-        await monitor.waitForPending()
-
-        monitor.connectionChanged(false)
-        monitor.cancel()
-        await monitor.waitForPending()
-        XCTAssertTrue(notifier.posted.isEmpty)
-    }
-
-    @MainActor
-    func testConnectedTracksTheLatestReportedValueImmediately() {
-        let notifier = RecordingNotifier()
-        let monitor = ConnectionMonitor(connected: true, notifier: notifier,
-                                        debounce: 0, sleeper: instantSleeper)
-        XCTAssertTrue(monitor.connected)
-        monitor.connectionChanged(false)
-        XCTAssertFalse(monitor.connected)
     }
 }

@@ -7,7 +7,7 @@ final class ServerLogsUITests: XCTestCase {
 
     private func makeStore(_ api: JarvisAPI) -> ServerLogsStore {
         ServerLogsStore(api: ServerLogsAPI(api: api),
-                        refreshInterval: 0.001, sleeper: instantSleeper)
+                        sleeper: instantSleeper)
     }
 
     private func loadedStore() async -> ServerLogsStore {

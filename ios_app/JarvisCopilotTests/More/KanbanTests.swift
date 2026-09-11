@@ -249,23 +249,6 @@ final class KanbanTests: XCTestCase {
         assertJSONEqual(transport.lastBody(), ["title": "A", "status": "todo"])
     }
 
-    func testPatchTaskNormalisesColumnToStatus() async throws {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.enqueue(json: ["task": [:]])
-        _ = try await KanbanAPI(api: api).patchTask("t1", ["column": "done"])
-
-        XCTAssertEqual(transport.lastMethod, "PATCH")
-        XCTAssertEqual(transport.lastPath, "/api/kanban/tasks/t1")
-        assertJSONEqual(transport.lastBody(), ["status": "done"])
-    }
-
-    func testPatchTaskDropsColumnWhenStatusIsAlreadyPresent() async throws {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.enqueue(json: ["task": [:]])
-        _ = try await KanbanAPI(api: api).patchTask("t1", ["column": "todo", "status": "ready"])
-        assertJSONEqual(transport.lastBody(), ["status": "ready"])
-    }
-
     func testDeleteTaskArchivesBecauseTheBridgeHasNoDeleteRoute() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.enqueue(json: ["task": [:]])
@@ -277,14 +260,14 @@ final class KanbanTests: XCTestCase {
         assertJSONEqual(transport.lastBody(), ["status": "archived"])
     }
 
-    func testCommentSendsBothBodyAndText() async throws {
+    func testCommentSendsTheBody() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.enqueue(json: ["ok": true])
         _ = try await KanbanAPI(api: api).comment("t1", text: "looks good")
 
         XCTAssertEqual(transport.lastMethod, "POST")
         XCTAssertEqual(transport.lastPath, "/api/kanban/tasks/t1/comments")
-        assertJSONEqual(transport.lastBody(), ["body": "looks good", "text": "looks good"])
+        assertJSONEqual(transport.lastBody(), ["body": "looks good"])
     }
 
     func testBlockAndUnblock() async throws {
@@ -300,7 +283,7 @@ final class KanbanTests: XCTestCase {
         XCTAssertTrue(transport.lastBody().isEmpty)
     }
 
-    func testTaskLogPrefersLogThenContent() async throws {
+    func testTaskLogReadsTheContent() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.enqueue(json: ["content": "from content"])
         var log = try await KanbanAPI(api: api).taskLog("t1", board: "main")
@@ -309,47 +292,39 @@ final class KanbanTests: XCTestCase {
         XCTAssertEqual(transport.lastQuery, ["board": "main"])
         XCTAssertEqual(log, "from content")
 
-        transport.enqueue(json: ["log": "from log", "content": "ignored"])
-        log = try await KanbanAPI(api: api).taskLog("t1")
-        XCTAssertEqual(log, "from log")
-
         transport.enqueue(json: ["other": 1])
         log = try await KanbanAPI(api: api).taskLog("t1")
         XCTAssertEqual(log, "")
     }
 
-    func testTaskDetailParsesCommentsLinksEventsAndRuns() async throws {
+    func testTaskDetailParsesCommentsAndLinks() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.enqueue(json: [
             "task": ["id": "t1", "status": "running", "title": "Ship"],
             "comments": [["id": "c1", "body": "hi", "author": "alice"]],
             "links": ["parents": ["p1"]],
-            "events": [["kind": "claimed"]],
-            "runs": [["id": "r1"]],
         ])
         let detail = try await KanbanAPI(api: api).taskDetail("t1")
 
         XCTAssertEqual(transport.lastPath, "/api/kanban/tasks/t1")
         XCTAssertEqual(detail.task?.status, "running")
         XCTAssertEqual(detail.comments.map(\.body), ["hi"])
-        XCTAssertEqual(detail.events.count, 1)
-        XCTAssertEqual(detail.runs.count, 1)
         XCTAssertNotNil(detail.links["parents"])
     }
 
-    func testDispatchSendsDryRunMaxAndBoardAsQuery() async throws {
+    func testDispatchSendsOnlyTheBoardAsQuery() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.enqueue(json: ["spawned": 1])
-        _ = try await KanbanAPI(api: api).dispatch(slug: "main", dryRun: true, max: 3)
+        _ = try await KanbanAPI(api: api).dispatch(slug: "main")
 
         XCTAssertEqual(transport.lastMethod, "POST")
         XCTAssertEqual(transport.lastPath, "/api/kanban/dispatch")
-        XCTAssertEqual(transport.lastQuery, ["dry_run": "true", "max": "3", "board": "main"])
+        XCTAssertEqual(transport.lastQuery, ["board": "main"])
         XCTAssertTrue(transport.lastBody().isEmpty)
 
         transport.enqueue(json: ["spawned": 0])
         _ = try await KanbanAPI(api: api).dispatch()
-        XCTAssertEqual(transport.lastQuery, ["dry_run": "false", "max": "8"])
+        XCTAssertEqual(transport.lastQuery, [:])
     }
 
     func testEventsStreamsSSE() async throws {
@@ -373,7 +348,7 @@ final class KanbanTests: XCTestCase {
 
     @MainActor
     private func makeStore(_ transport: MockTransport, api: JarvisAPI) -> KanbanStore {
-        KanbanStore(api: KanbanAPI(api: api), pollInterval: 0.01, sleeper: instantSleeper)
+        KanbanStore(api: KanbanAPI(api: api), sleeper: instantSleeper)
     }
 
     @MainActor
@@ -391,7 +366,6 @@ final class KanbanTests: XCTestCase {
 
         XCTAssertEqual(store.currentSlug, "main")
         XCTAssertEqual(store.sections.map(\.column), ["todo", "done"])
-        XCTAssertEqual(store.count(in: "ready"), 0)
         XCTAssertFalse(store.isEmpty)
     }
 
@@ -411,7 +385,6 @@ final class KanbanTests: XCTestCase {
         XCTAssertEqual(store.sections.map(\.column), ["done"])
         store.columnFilter = "ready"
         XCTAssertTrue(store.sections.isEmpty)
-        XCTAssertTrue(store.filteredToEmptyColumn)
     }
 
     @MainActor
@@ -517,7 +490,7 @@ final class KanbanTests: XCTestCase {
         let detail = KanbanTaskDetailStore(
             api: KanbanAPI(api: api),
             task: KanbanTask(json: ["id": "t1", "status": "running"]),
-            board: "main", pollInterval: 0.01, sleeper: instantSleeper)
+            board: "main", sleeper: instantSleeper)
         await detail.stop()
 
         XCTAssertEqual(transport.method(0), "PATCH")
@@ -534,7 +507,7 @@ final class KanbanTests: XCTestCase {
         let detail = KanbanTaskDetailStore(
             api: KanbanAPI(api: api),
             task: KanbanTask(json: ["id": "t1", "status": "todo"]),
-            board: nil, pollInterval: 0.01, sleeper: instantSleeper)
+            board: nil, sleeper: instantSleeper)
         let ok = await detail.postComment("   ")
         XCTAssertFalse(ok)
         XCTAssertTrue(transport.requests.isEmpty)

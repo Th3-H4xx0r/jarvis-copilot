@@ -1,12 +1,7 @@
 import Foundation
 
-/// Everything the More grid can open, ported from `pages/more_page.dart`'s tile
-/// list (plus the two launchers that live in the Flutter Settings page,
-/// Dynamic Island designs and Photon).
-///
-/// The grid iterates `grid`; `MorePage` turns a case into a screen in a single
-/// `switch`. A second-wave agent landing, say, `TodosPage` changes exactly one
-/// line there and nothing else in the shell.
+/// Everything the More grid can open, in tile order. `MorePage` turns a case
+/// into a screen in a single `switch`.
 enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
     case tasks
     case kanban
@@ -25,9 +20,6 @@ enum MoreDestination: String, CaseIterable, Identifiable, Hashable {
     case settings
 
     var id: String { rawValue }
-
-    /// Tile order, matching the Flutter grid.
-    static let grid: [MoreDestination] = allCases
 
     var title: String {
         switch self {

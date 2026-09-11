@@ -1,8 +1,6 @@
 import Foundation
 
-/// One task on the board. The bridge sends a lot of optional metadata, so the
-/// decoded `raw` dictionary is kept for anything the UI needs but this struct
-/// doesn't name.
+/// One task on the board.
 struct KanbanTask: Identifiable, Equatable, Sendable {
     var id: String
     var title: String
@@ -11,14 +9,6 @@ struct KanbanTask: Identifiable, Equatable, Sendable {
     var assignee: String
     var priority: String
     var due: String
-    var commentCount: Int
-    var raw: JSONObject
-
-    static func == (l: KanbanTask, r: KanbanTask) -> Bool {
-        l.id == r.id && l.title == r.title && l.body == r.body && l.status == r.status
-            && l.assignee == r.assignee && l.priority == r.priority && l.due == r.due
-            && l.commentCount == r.commentCount
-    }
 
     init(json: JSONObject) {
         id = Kanban.taskID(json)
@@ -28,8 +18,6 @@ struct KanbanTask: Identifiable, Equatable, Sendable {
         assignee = MoreJSON.text(json["assignee"]).trimmingCharacters(in: .whitespaces)
         priority = MoreJSON.text(json["priority"])
         due = MoreJSON.text(json["due"] ?? json["due_date"]).trimmingCharacters(in: .whitespaces)
-        commentCount = MoreJSON.int(json["comment_count"])
-        raw = json
     }
 
     var isRunning: Bool { status == "running" }
@@ -58,15 +46,6 @@ struct KanbanBoard: Identifiable, Equatable, Sendable {
     /// "12 task(s)" subtitle for the switcher, or nil when the count is absent.
     var totalLabel: String? { total.map { "\($0) task(s)" } }
 
-    init(slug: String, name: String = "", description: String = "",
-         isCurrent: Bool = false, total: Int? = nil) {
-        self.slug = slug
-        self.name = name
-        self.description = description
-        self.isCurrent = isCurrent
-        self.total = total
-    }
-
     init(json: JSONObject) {
         slug = MoreJSON.text(json["slug"])
         name = MoreJSON.text(json["name"] ?? json["title"])
@@ -92,17 +71,14 @@ struct KanbanComment: Identifiable, Equatable, Sendable {
 }
 
 /// Full task detail — the board payload carries only counts, so the detail sheet
-/// has to fetch this for `comments[]` / `links{}` / `events[]` / `runs[]`.
+/// has to fetch this for `comments[]` / `links{}`.
 struct KanbanTaskDetail: Equatable, Sendable {
     var task: KanbanTask?
     var comments: [KanbanComment] = []
     var links: JSONObject = [:]
-    var events: [JSONObject] = []
-    var runs: [JSONObject] = []
 
     static func == (l: KanbanTaskDetail, r: KanbanTaskDetail) -> Bool {
         l.task == r.task && l.comments == r.comments
-            && l.events.count == r.events.count && l.runs.count == r.runs.count
     }
 
     init() {}
@@ -111,8 +87,6 @@ struct KanbanTaskDetail: Equatable, Sendable {
         if let t = json["task"] as? JSONObject { task = KanbanTask(json: t) }
         comments = MoreJSON.mapList(json["comments"]).map(KanbanComment.init(json:))
         links = MoreJSON.map(json["links"])
-        events = MoreJSON.mapList(json["events"])
-        runs = MoreJSON.mapList(json["runs"])
     }
 }
 

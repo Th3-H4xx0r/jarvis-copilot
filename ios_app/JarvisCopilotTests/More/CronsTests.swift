@@ -290,7 +290,7 @@ final class CronsTests: XCTestCase {
             ["id": "j2", "state": "scheduled", "enabled": true, "skills": ["notify"]],
         ]])
 
-        let store = CronsStore(api: CronsAPI(api: api), pollInterval: 0.01, sleeper: instantSleeper)
+        let store = CronsStore(api: CronsAPI(api: api), sleeper: instantSleeper)
         await store.refresh()
 
         XCTAssertEqual(store.jobs.count, 2)
@@ -307,7 +307,7 @@ final class CronsTests: XCTestCase {
         let (api, transport) = JarvisAPI.mocked()
         transport.route("/api/crons", json: ["jobs": [["id": "j1", "state": "scheduled",
                                                        "enabled": true]]])
-        let store = CronsStore(api: CronsAPI(api: api), pollInterval: 0.01, sleeper: instantSleeper)
+        let store = CronsStore(api: CronsAPI(api: api), sleeper: instantSleeper)
         await store.refresh()
         XCTAssertFalse(store.anyRunning)
         XCTAssertFalse(store.isPolling)
@@ -319,7 +319,7 @@ final class CronsTests: XCTestCase {
         transport.route("/api/crons/create", json: ["ok": true])
         transport.route("/api/crons", json: ["jobs": []])
 
-        let store = CronsStore(api: CronsAPI(api: api), pollInterval: 0.01, sleeper: instantSleeper)
+        let store = CronsStore(api: CronsAPI(api: api), sleeper: instantSleeper)
         let ok = await store.save(prompt: " do it ", schedule: " every day ", name: "   ",
                                   deliver: "local", skills: ["notify"], model: "  ",
                                   profile: "coder", toastNotifications: false)
@@ -337,7 +337,7 @@ final class CronsTests: XCTestCase {
         transport.route("/api/crons/update", json: ["ok": true])
         transport.route("/api/crons", json: ["jobs": []])
 
-        let store = CronsStore(api: CronsAPI(api: api), pollInterval: 0.01, sleeper: instantSleeper)
+        let store = CronsStore(api: CronsAPI(api: api), sleeper: instantSleeper)
         let existing = CronJob(json: ["id": "j9", "prompt": "old"])
         let ok = await store.save(prompt: "new", schedule: "s", name: "N", deliver: "slack",
                                   skills: [], model: "", profile: "",
@@ -357,7 +357,7 @@ final class CronsTests: XCTestCase {
         transport.route("/api/crons/run", json: ["ok": true])
         transport.route("/api/crons", json: ["jobs": []])
 
-        let store = CronsStore(api: CronsAPI(api: api), pollInterval: 0.01, sleeper: instantSleeper)
+        let store = CronsStore(api: CronsAPI(api: api), sleeper: instantSleeper)
         let job = CronJob(json: ["id": "j1"])
         await store.run(job)
 
@@ -373,7 +373,7 @@ final class CronsTests: XCTestCase {
         transport.route("/api/crons/resume", json: ["ok": true])
         transport.route("/api/crons", json: ["jobs": []])
 
-        let store = CronsStore(api: CronsAPI(api: api), pollInterval: 0.01, sleeper: instantSleeper)
+        let store = CronsStore(api: CronsAPI(api: api), sleeper: instantSleeper)
         await store.togglePause(CronJob(json: ["id": "j1", "state": "paused"]))
 
         XCTAssertEqual(transport.path(0), "/api/crons/resume")

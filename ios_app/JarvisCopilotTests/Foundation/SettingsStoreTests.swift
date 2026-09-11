@@ -27,15 +27,6 @@ final class MockLiveActivityToggling: LiveActivityToggling {
     func setEnabled(_ on: Bool) { calls.append(on) }
 }
 
-/// Stands in for WebKit: there is no way to observe `WKWebsiteDataStore` from a
-/// unit test, and touching the real one from the test host would clear the
-/// simulator's shared store.
-@MainActor
-final class MockWebsiteCleaner: WebsiteDataClearing {
-    private(set) var clears = 0
-    func clearWebsiteData() { clears += 1 }
-}
-
 @MainActor
 final class SettingsStoreTests: XCTestCase {
 
@@ -44,10 +35,12 @@ final class SettingsStoreTests: XCTestCase {
     override func setUp() {
         super.setUp()
         liveActivity = MockLiveActivityToggling()
-        website = MockWebsiteCleaner()
+        websiteClears = 0
     }
 
-    private var website = MockWebsiteCleaner()
+    /// Stands in for WebKit: touching the real store from the test host would
+    /// clear the simulator's shared one.
+    private var websiteClears = 0
 
     private func makeStore(
         _ prefs: MemoryKeyValueStore = MemoryKeyValueStore()
@@ -55,7 +48,8 @@ final class SettingsStoreTests: XCTestCase {
         let bridge = MockSettingsBridge()
         let location = MockLocationTracking()
         let store = SettingsStore(preferences: prefs, bridge: bridge, location: location,
-                                  liveActivity: liveActivity, website: website)
+                                  liveActivity: liveActivity,
+                                  clearWebsiteData: { [unowned self] in self.websiteClears += 1 })
         return (store, bridge, location, prefs)
     }
 
@@ -174,8 +168,7 @@ final class SettingsStoreTests: XCTestCase {
         let bridge = MockSettingsBridge()
         bridge.keepaliveEnabled = true
         let store = SettingsStore(preferences: prefs, bridge: bridge,
-                                  location: MockLocationTracking(),
-                                  website: MockWebsiteCleaner())
+                                  location: MockLocationTracking())
         XCTAssertTrue(store.keepalive)
     }
 
@@ -201,9 +194,9 @@ final class SettingsStoreTests: XCTestCase {
     /// a logged-in webui.
     func testUnpairClearsTheWebviewsWebsiteData() {
         let (store, _, _, _) = makeStore()
-        XCTAssertEqual(website.clears, 0)
+        XCTAssertEqual(websiteClears, 0)
         store.unpair()
-        XCTAssertEqual(website.clears, 1)
+        XCTAssertEqual(websiteClears, 1)
     }
 
     // MARK: - Unpair forgets what we learned about that server
@@ -216,7 +209,7 @@ final class SettingsStoreTests: XCTestCase {
         let store = SettingsStore(preferences: MemoryKeyValueStore(),
                                   bridge: MockSettingsBridge(),
                                   location: MockLocationTracking(),
-                                  liveActivity: liveActivity, website: website,
+                                  liveActivity: liveActivity, clearWebsiteData: {},
                                   onServerChanged: { resets += 1 })
         XCTAssertEqual(resets, 0)
         store.unpair()

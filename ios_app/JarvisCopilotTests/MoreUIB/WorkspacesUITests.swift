@@ -7,7 +7,7 @@ final class WorkspacesUITests: XCTestCase {
 
     private func makeStore(_ api: JarvisAPI) -> WorkspacesStore {
         WorkspacesStore(api: WorkspacesAPI(api: api),
-                        suggestDebounce: 0, sleeper: instantSleeper)
+                        sleeper: instantSleeper)
     }
 
     private func loadedStore() async -> WorkspacesStore {

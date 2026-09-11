@@ -65,7 +65,6 @@ final class OnDeviceAISettingsStore {
     func setVoiceEnabled(_ on: Bool) { settings.voiceEnabled = on; settings.save() }
     func setConfirmLocalActions(_ on: Bool) { settings.confirmLocalActions = on; settings.save() }
     func setCommandShortCircuit(_ on: Bool) { settings.commandShortCircuit = on; settings.save() }
-    func setShowBadge(_ on: Bool) { settings.showBadge = on; settings.save() }
 
     /// Only an installed model can be selected — picking one that isn't there
     /// would leave the router pointing at an engine that always fails.

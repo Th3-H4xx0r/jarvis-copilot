@@ -118,9 +118,6 @@ protocol OnDeviceModel: Sendable {
 /// handle durability. `@Observable` so the settings screen re-renders the
 /// moment a tier, toggle or model changes — without it every tap needed a
 /// manual refresh to show.
-///
-/// Port of `mobile_client/lib/services/local_ai_settings.dart`, minus the
-/// Android-only STT flag.
 @MainActor
 @Observable
 final class LocalAiSettings {
@@ -134,18 +131,11 @@ final class LocalAiSettings {
     var voiceEnabled = false
     var activeLocalModelID = "apple-fm"
 
-    /// Minimum self-reported confidence to accept a local decision. Default 0 —
-    /// the model decides; confidence never forces escalation unless raised.
-    var confidenceFloor = 0.0
-
     /// Confirm destructive/outward actions before running them locally.
     var confirmLocalActions = true
 
     /// Let device commands short-circuit even when a server model is picked.
     var commandShortCircuit = true
-
-    /// Show the "on-device" badge on locally-handled replies.
-    var showBadge = true
 
     init(store: any KeyValueStore = UserDefaults.standard) {
         self.store = store
@@ -162,21 +152,17 @@ final class LocalAiSettings {
     private static let kChat = "lai_chat"
     private static let kVoice = "lai_voice"
     private static let kModel = "lai_model"
-    private static let kConfidence = "lai_conf"
     private static let kConfirm = "lai_confirm"
     private static let kShort = "lai_short"
-    private static let kBadge = "lai_badge"
 
     func load() {
         tier = LocalAiTier.parse(store.string(Self.kTier))
         chatEnabled = store.string(Self.kChat) == "1"
         voiceEnabled = store.string(Self.kVoice) == "1"
         activeLocalModelID = store.string(Self.kModel) ?? "apple-fm"
-        confidenceFloor = Double(store.string(Self.kConfidence) ?? "") ?? 0
         // Default true unless explicitly stored "0".
         confirmLocalActions = store.string(Self.kConfirm) != "0"
         commandShortCircuit = store.string(Self.kShort) != "0"
-        showBadge = store.string(Self.kBadge) != "0"
     }
 
     func save() {
@@ -184,9 +170,7 @@ final class LocalAiSettings {
         store.set(chatEnabled ? "1" : "0", forKey: Self.kChat)
         store.set(voiceEnabled ? "1" : "0", forKey: Self.kVoice)
         store.set(activeLocalModelID, forKey: Self.kModel)
-        store.set("\(confidenceFloor)", forKey: Self.kConfidence)
         store.set(confirmLocalActions ? "1" : "0", forKey: Self.kConfirm)
         store.set(commandShortCircuit ? "1" : "0", forKey: Self.kShort)
-        store.set(showBadge ? "1" : "0", forKey: Self.kBadge)
     }
 }

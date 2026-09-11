@@ -29,7 +29,6 @@ final class OnDeviceAISettingsStoreTests: XCTestCase {
         screen.setVoiceEnabled(true)
         screen.setConfirmLocalActions(false)
         screen.setCommandShortCircuit(false)
-        screen.setShowBadge(false)
 
         // A completely fresh settings object over the same store — i.e. the next
         // launch — must see all of it.
@@ -40,7 +39,6 @@ final class OnDeviceAISettingsStoreTests: XCTestCase {
         XCTAssertTrue(reloaded.voiceEnabled)
         XCTAssertFalse(reloaded.confirmLocalActions)
         XCTAssertFalse(reloaded.commandShortCircuit)
-        XCTAssertFalse(reloaded.showBadge)
     }
 
     func testLoadReadsPersistedPreferences() async {

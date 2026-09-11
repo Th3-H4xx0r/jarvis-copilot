@@ -125,7 +125,7 @@ final class MoreUIAHostingTests: XCTestCase {
             ["id": 3, "kind": "habit", "title": "You work late", "body": "Most turns after 10pm"],
         ]])
         let store = JarvisMemoryStore(api: JarvisMemoryAPI(api: api),
-                                      searchDebounce: 0, sleeper: instantSleeper)
+                                      sleeper: instantSleeper)
         await store.refresh()
 
         XCTAssertTrue(store.available)
@@ -146,7 +146,7 @@ final class MoreUIAHostingTests: XCTestCase {
         t.route("/api/jarvis-memory/search", json: ["entries": []])
         t.route("/api/jarvis-memory/reflections", json: ["reflections": []])
         let store = JarvisMemoryStore(api: JarvisMemoryAPI(api: api),
-                                      searchDebounce: 0, sleeper: instantSleeper)
+                                      sleeper: instantSleeper)
         await store.refresh()
 
         XCTAssertFalse(store.available)
@@ -160,7 +160,7 @@ final class MoreUIAHostingTests: XCTestCase {
     func testLongTermMemoryPageRendersTheErrorState() async {
         let (api, _) = JarvisAPI.mocked()
         let store = JarvisMemoryStore(api: JarvisMemoryAPI(api: api),
-                                      searchDebounce: 0, sleeper: instantSleeper)
+                                      sleeper: instantSleeper)
         await store.refresh()
 
         XCTAssertNotNil(store.errorMessage)
