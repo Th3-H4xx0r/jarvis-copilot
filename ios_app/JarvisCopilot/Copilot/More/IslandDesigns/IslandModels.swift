@@ -205,7 +205,6 @@ struct IslandCatalog: Equatable, Sendable {
     }
 
     func design(id: String) -> IslandDesign? { designs.first { $0.id == id } }
-    func entry(id: String) -> IslandCatalogEntry? { entries.first { $0.id == id } }
     func data(for id: String) -> JSONObject { data[id] ?? [:] }
 
     /// Custom (non-built-in) entries — the ones the user can delete.

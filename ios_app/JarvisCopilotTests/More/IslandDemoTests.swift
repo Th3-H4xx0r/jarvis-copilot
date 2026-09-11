@@ -113,16 +113,6 @@ final class IslandDemoTests: XCTestCase {
         XCTAssertEqual(MoreJSON.int(catalog.data(for: "deploy")["pct"]), 62)
     }
 
-    func testUpsertPostsTheWholeDesign() async throws {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.enqueue(json: ["ok": true])
-        try await IslandDesignsAPI(api: api).upsert(["id": "d", "version": 3])
-
-        XCTAssertEqual(transport.lastMethod, "POST")
-        XCTAssertEqual(transport.lastPath, "/api/island/designs")
-        assertJSONEqual(transport.lastBody(), ["id": "d", "version": 3])
-    }
-
     func testDeleteDesignUsesDELETE() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.enqueue(json: ["ok": true])
@@ -163,14 +153,6 @@ final class IslandDemoTests: XCTestCase {
             "conditions": ["op": "exists", "a": ["src": "x"]],
             "schedule": ["from": "09:00", "to": "17:00"],
         ])
-    }
-
-    func testSetDataPostsTheValues() async throws {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.enqueue(json: ["ok": true])
-        try await IslandDesignsAPI(api: api).setData("d", data: ["pct": 62])
-        XCTAssertEqual(transport.lastPath, "/api/island/designs/d/data")
-        assertJSONEqual(transport.lastBody(), ["pct": 62])
     }
 
     // MARK: Store

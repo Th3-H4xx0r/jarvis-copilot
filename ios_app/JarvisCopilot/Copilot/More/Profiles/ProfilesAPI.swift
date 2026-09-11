@@ -20,16 +20,6 @@ struct ProfilesAPI {
         return (parseProfiles(body), activeProfileName(body))
     }
 
-    /// The raw list body, for callers that need the extra keys.
-    func listRaw() async throws -> JSONObject {
-        try await api.get("/api/profiles").object()
-    }
-
-    /// The currently active profile: `{name, path}`.
-    func active() async throws -> JSONObject {
-        try await api.get("/api/profile/active").object()
-    }
-
     /// Switch the active profile. The server reports the new active profile via
     /// its `active` key — callers must VERIFY it matches rather than assuming
     /// success, which is why the raw body comes back.

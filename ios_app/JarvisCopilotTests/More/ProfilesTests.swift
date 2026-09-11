@@ -117,14 +117,6 @@ final class ProfilesTests: XCTestCase {
         XCTAssertEqual(result.active, "coder")
     }
 
-    func testActiveHitsTheProfileActiveEndpoint() async throws {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.enqueue(json: ["name": "coder", "path": "/x"])
-        let body = try await ProfilesAPI(api: api).active()
-        XCTAssertEqual(transport.lastPath, "/api/profile/active")
-        XCTAssertEqual(activeProfileName(body), "coder")
-    }
-
     func testSwitchPostsTheName() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.enqueue(json: ["active": "coder"])

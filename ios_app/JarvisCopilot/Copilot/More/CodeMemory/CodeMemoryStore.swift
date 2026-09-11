@@ -57,8 +57,6 @@ final class CodeMemoryStore {
         hasLoaded = true
     }
 
-    func clearFilter() { filter = "" }
-
     /// A child store for one project's Knowledge / Handoffs tab.
     func entriesStore(slug: String, kind: CodeMemoryKind) -> CodeMemoryEntriesStore {
         CodeMemoryEntriesStore(api: api, slug: slug, kind: kind)
@@ -82,7 +80,6 @@ final class CodeMemoryEntriesStore {
     /// One-shot message for the toast (delete confirmed, edit failed, …).
     var toast: String?
     /// Bumped after every successful mutation so the parent can re-read counts.
-    private(set) var mutationCount = 0
 
     init(api: CodeMemoryAPI = CodeMemoryAPI(), slug: String, kind: CodeMemoryKind) {
         self.api = api
@@ -136,7 +133,6 @@ final class CodeMemoryEntriesStore {
         do {
             try await api.update(id: entry.id, content: content)
             await refresh()
-            mutationCount += 1
             return true
         } catch {
             toast = apiErrorMessage(error)
@@ -156,7 +152,6 @@ final class CodeMemoryEntriesStore {
                                           ts: entry.ts)
             }
             await refresh()
-            mutationCount += 1
             toast = "Entry deleted."
             return true
         } catch {

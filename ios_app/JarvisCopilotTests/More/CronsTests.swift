@@ -236,35 +236,6 @@ final class CronsTests: XCTestCase {
         XCTAssertEqual(transport.lastQuery, ["job_id": "j1", "limit": "50"])
     }
 
-    func testOutputJoinsTheOutputsListWithFilenameHeaders() async throws {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.enqueue(json: ["outputs": [
-            ["filename": "a.md", "content": "first"],
-            ["content": "second"],
-            ["filename": "empty.md", "content": "   "],
-        ]])
-        let out = try await CronsAPI(api: api).output("j1", tail: 50)
-
-        XCTAssertEqual(transport.lastPath, "/api/crons/output")
-        XCTAssertEqual(transport.lastQuery, ["job_id": "j1", "tail": "50"])
-        XCTAssertEqual(out, "— a.md —\nfirst\n\nsecond")
-    }
-
-    func testOutputPrefersAPlainOutputStringAndToleratesLines() async throws {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.enqueue(json: ["output": "plain text"])
-        var out = try await CronsAPI(api: api).output("j1")
-        XCTAssertEqual(out, "plain text")
-
-        transport.enqueue(json: ["lines": ["a", "b"]])
-        out = try await CronsAPI(api: api).output("j1")
-        XCTAssertEqual(out, "a\nb")
-
-        transport.enqueue(json: ["other": 1])
-        out = try await CronsAPI(api: api).output("j1")
-        XCTAssertEqual(out, "")
-    }
-
     func testRunOutputReadsContentThenOutputThenLines() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.enqueue(json: ["content": "run body"])

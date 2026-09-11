@@ -37,14 +37,6 @@ struct CodingSessionsAPI {
         return CodingJSON.maps(body["sessions"]).map(CodingSession.init(json:))
     }
 
-    /// The sessions plus the account `usage` block used by the Live Activity
-    /// rings. `usage` is nil when the server can't compute it.
-    func listSessionsWithUsage() async throws -> (sessions: [CodingSession], usage: CodingUsage?) {
-        let body = try await api.get("/api/coding/sessions").object()
-        return (CodingJSON.maps(body["sessions"]).map(CodingSession.init(json:)),
-                CodingUsage.from(body["usage"]))
-    }
-
     /// `GET /api/coding/usage` → `{usage: {five_hour_pct, weekly_pct, …}|null}`.
     func usage() async throws -> CodingUsage? {
         CodingUsage.from(try await api.get("/api/coding/usage").object()["usage"])
@@ -98,12 +90,6 @@ struct CodingSessionsAPI {
     }
 
     // MARK: - Projects
-
-    /// `GET /api/coding/projects` → `{ projects: [...] }`
-    func listProjects() async throws -> [CodingProject] {
-        let body = try await api.get("/api/coding/projects").object()
-        return CodingJSON.maps(body["projects"]).map(CodingProject.init(json:))
-    }
 
     /// `GET /api/coding/projects?expand=sessions` →
     /// `{ projects: [{…, sessions:[…]}], ungrouped: [...] }`.

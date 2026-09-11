@@ -81,9 +81,6 @@ final class CronsStore {
 
     func onDisappear() { pollTask.cancel() }
 
-    /// Await the in-flight poll tick (tests).
-    func waitForPoll() async { await pollTask.wait() }
-
     private func harvestSkills(_ jobs: [CronJob]) {
         for job in jobs { knownSkills.formUnion(job.skills) }
     }

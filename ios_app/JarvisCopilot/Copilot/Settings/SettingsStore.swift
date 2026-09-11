@@ -32,14 +32,6 @@ protocol LocationTracking: AnyObject {
     func setEnabled(_ on: Bool) async -> Bool
 }
 
-/// Inert tracker: accepts the preference, tracks nothing. For previews and for
-/// any context without CoreLocation — the app itself injects
-/// `BackgroundLocationService.shared`.
-@MainActor
-final class UntrackedLocation: LocationTracking {
-    func setEnabled(_ on: Bool) async -> Bool { true }
-}
-
 /// The Live Activity master switch, as the settings screen uses it.
 ///
 /// Behind a protocol so the toggle can be asserted without ActivityKit: turning

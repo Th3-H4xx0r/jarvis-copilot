@@ -87,20 +87,6 @@ final class DevicesTests: XCTestCase {
         assertJSONEqual(transport.lastBody(), ["ttl": 120, "label": "Watch"])
     }
 
-    func testInvokeSendsDeviceSkillArgsAndTimeout() async throws {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.enqueue(json: ["ok": true, "result": "done"])
-        _ = try await DevicesAPI(api: api).invoke(deviceID: "d1", skill: "notify",
-                                                  args: ["title": "hi"], timeout: 5)
-
-        XCTAssertEqual(transport.lastMethod, "POST")
-        XCTAssertEqual(transport.lastPath, "/api/devices/skills/invoke")
-        assertJSONEqual(transport.lastBody(), [
-            "device_id": "d1", "skill": "notify",
-            "args": ["title": "hi"], "timeout": 5,
-        ])
-    }
-
     // MARK: Store
 
     @MainActor

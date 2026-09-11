@@ -79,12 +79,6 @@ enum OnDeviceModelCatalog {
         specs.first { $0.id == modelID }?.engine ?? .mlx
     }
 
-    /// Render the catalogue against a live Apple-FM availability probe. MLX rows
-    /// count as unavailable — see the two-argument overload for the real check.
-    static func list(appleFM: OnDeviceEngineAvailability) -> [LocalModelInfo] {
-        list(appleFM: appleFM, mlxInstalled: { _ in false })
-    }
-
     /// `mlxInstalled` answers whether a downloadable model's weights are on disk.
     static func list(appleFM: OnDeviceEngineAvailability,
                      mlxInstalled: (String) -> Bool) -> [LocalModelInfo] {

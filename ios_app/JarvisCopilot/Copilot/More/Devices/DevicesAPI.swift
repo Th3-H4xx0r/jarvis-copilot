@@ -30,14 +30,4 @@ struct DevicesAPI {
         return try await api.post("/api/devices/pair/start", json: body).object()
     }
 
-    /// Run one of a device's skills remotely.
-    func invoke(deviceID: String, skill: String, args: JSONObject,
-                timeout: Double = 30) async throws -> JSONObject {
-        try await api.post("/api/devices/skills/invoke", json: [
-            "device_id": deviceID,
-            "skill": skill,
-            "args": args,
-            "timeout": timeout,
-        ]).object()
-    }
 }

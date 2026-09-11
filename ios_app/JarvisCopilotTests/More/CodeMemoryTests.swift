@@ -276,27 +276,6 @@ final class CodeMemoryTests: XCTestCase {
     }
 
     @MainActor
-    func testOverviewStoreFilterIsClientSide() async {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.route("/api/code-memory/stats", json: JSONObject())
-        transport.route("/api/code-memory/projects",
-                        json: ["projects": ["alpha": ["name": "Alpha"], "beta": ["name": "Beta"]]])
-
-        let store = CodeMemoryStore(api: CodeMemoryAPI(api: api))
-        await store.refresh()
-        let before = transport.requests.count
-
-        store.filter = "alph"
-        XCTAssertEqual(store.visibleProjects.map(\.slug), ["alpha"])
-        XCTAssertEqual(transport.requests.count, before, "filtering must not refetch")
-
-        store.filter = "zzz"
-        XCTAssertTrue(store.filterMatchedNothing)
-        store.clearFilter()
-        XCTAssertEqual(store.visibleProjects.count, 2)
-    }
-
-    @MainActor
     func testEntriesStoreSearchHydratesBodiesByID() async {
         let (api, transport) = JarvisAPI.mocked()
         transport.route("/api/code-memory/search",
@@ -344,19 +323,4 @@ final class CodeMemoryTests: XCTestCase {
         XCTAssertTrue(transport.requests.isEmpty)
     }
 
-    @MainActor
-    func testEntriesStoreDeleteFallsBackToSlugKindTSWithoutAnID() async {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.route("/api/code-memory/delete-entry", json: ["ok": true])
-        transport.route("/api/code-memory", json: ["entries": []])
-
-        let store = CodeMemoryEntriesStore(api: CodeMemoryAPI(api: api), slug: "a", kind: .sessions)
-        let entry = CodeMemoryEntry(json: ["ts": "99"])
-        let ok = await store.delete(entry)
-
-        XCTAssertTrue(ok)
-        assertJSONEqual(transport.body(0), ["slug": "a", "kind": "sessions", "ts": "99"])
-        XCTAssertEqual(store.toast, "Entry deleted.")
-        XCTAssertEqual(store.mutationCount, 1)
-    }
 }

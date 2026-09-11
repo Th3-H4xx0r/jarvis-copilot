@@ -27,8 +27,6 @@ final class OnDeviceAI {
 
     // MARK: - Persona
 
-    var persona: String { personaBox.text }
-
     /// Called once the server's active personality is known, so local replies
     /// sound like the same assistant.
     func setPersona(_ text: String) { personaBox.text = text }
@@ -45,12 +43,6 @@ final class OnDeviceAI {
     func listModels() async -> [LocalModelInfo] {
         OnDeviceModelCatalog.list(appleFM: await AppleFMEngine.shared.availability(),
                                   mlxInstalled: LocalLLM.isInstalled)
-    }
-
-    /// Warm the engine for the selected model. Best-effort — a failure just means
-    /// the first token is cold.
-    func warmUp() async {
-        try? await engine.load(modelID: settings.activeLocalModelID)
     }
 
     func cancel() async { await engine.cancel() }

@@ -26,40 +26,6 @@ struct CronsAPI {
         return rows.enumerated().map { CronRun(json: $0.element, index: $0.offset) }
     }
 
-    /// `GET /api/crons/output` → `{outputs: [{filename, content}]}`, joined into
-    /// one string. A plain `output` string or a `lines` list also work.
-    func output(_ jobID: String, tail: Int = 200) async throws -> String {
-        let response = try await api.get("/api/crons/output",
-                                         query: ["job_id": jobID, "tail": "\(tail)"])
-        let body = try response.object()
-
-        if let direct = body["output"] as? String, !direct.isEmpty { return direct }
-
-        let outputs = MoreJSON.list(body["outputs"])
-        if !outputs.isEmpty {
-            var chunks: [String] = []
-            for item in outputs {
-                if let m = item as? JSONObject {
-                    let content = MoreJSON.text(m["content"] ?? m["snippet"])
-                    if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
-                    let filename = MoreJSON.text(m["filename"])
-                    chunks.append(filename.isEmpty ? content : "— \(filename) —\n\(content)")
-                } else {
-                    chunks.append(MoreJSON.text(item))
-                }
-            }
-            if !chunks.isEmpty { return chunks.joined(separator: "\n\n") }
-        }
-
-        if let lines = body["lines"] as? [Any] {
-            return lines.map { MoreJSON.text($0) }.joined(separator: "\n")
-        }
-        if let data = body["data"] as? [Any] {
-            return data.map { MoreJSON.text($0) }.joined(separator: "\n")
-        }
-        return ""
-    }
-
     /// The captured output of one specific run, by its history filename.
     func runOutput(_ jobID: String, filename: String) async throws -> String {
         let response = try await api.get("/api/crons/run",

@@ -23,7 +23,6 @@ final class KanbanStore {
     private(set) var boardSlug: String?
     private(set) var boards: [KanbanBoard] = []
     private(set) var currentSlug: String?
-    private(set) var board: JSONObject = [:]
     private(set) var grouped: [String: [KanbanTask]] = [:]
 
     /// nil ⇒ "All"; otherwise a single column.
@@ -37,7 +36,6 @@ final class KanbanStore {
     /// True once the SSE stream gave up and the 30 s poll took over.
     private(set) var isPolling = false
     /// Bumped on every applied live event — lets a view animate on change.
-    private(set) var liveEventCount = 0
 
     init(api: KanbanAPI = KanbanAPI(),
          pollInterval: TimeInterval = 30,
@@ -112,7 +110,6 @@ final class KanbanStore {
         }
         do {
             let payload = try await api.board(slug: boardSlug)
-            board = payload
             grouped = Kanban.groupTasksByColumn(Kanban.flattenTasks(payload), Kanban.columns)
             errorMessage = nil
         } catch {
@@ -135,7 +132,6 @@ final class KanbanStore {
                 for try await _ in api.events() {
                     if Task.isCancelled { return }
                     guard let self else { return }
-                    self.liveEventCount += 1
                     await self.refresh()
                 }
                 // Stream ended cleanly — the server closed it; keep the board
@@ -160,12 +156,6 @@ final class KanbanStore {
                 await self.refresh()
             }
         })
-    }
-
-    /// Await the in-flight event/poll work (tests).
-    func waitForLiveUpdates() async {
-        await eventsTask.wait()
-        await pollTask.wait()
     }
 
     // MARK: Board mutations

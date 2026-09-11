@@ -39,16 +39,6 @@ struct KanbanAPI {
         return body
     }
 
-    /// `{by_status, by_assignee}` — passed through untouched.
-    func stats(slug: String? = nil) async throws -> JSONObject {
-        try await api.get("/api/kanban/stats", query: boardQuery(slug)).object()
-    }
-
-    func assignees(slug: String? = nil) async throws -> [String] {
-        let body = try await api.get("/api/kanban/assignees", query: boardQuery(slug)).object()
-        return MoreJSON.stringList(MoreJSON.envelopeList(body, "assignees"))
-    }
-
     /// The bridge requires a `slug`; derive one from the title, send the title
     /// as `name`, and switch to the new board.
     func createBoard(title: String, description: String) async throws -> JSONObject {

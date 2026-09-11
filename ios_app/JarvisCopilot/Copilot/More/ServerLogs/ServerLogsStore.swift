@@ -88,9 +88,6 @@ final class ServerLogsStore {
         loadHandle.cancel()
     }
 
-    /// Await the in-flight auto-refresh tick (tests).
-    func waitForAutoRefresh() async { await timerHandle.wait() }
-
     private func syncTimer() {
         guard autoRefresh else {
             timerHandle.cancel()

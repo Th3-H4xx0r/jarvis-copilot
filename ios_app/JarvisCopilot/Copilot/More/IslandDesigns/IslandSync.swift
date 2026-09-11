@@ -44,13 +44,4 @@ actor IslandSync {
 
     func reset() { cached.removeAll() }
 
-    /// Signatures currently believed to be on device (tests / diagnostics).
-    var cachedSignatures: [String: Int] { cached }
-}
-
-/// A cache that drops everything on the floor — the default until the native
-/// App Group writer lands, and what non-iOS contexts get.
-struct NoopIslandDesignCache: IslandDesignCache {
-    func cacheDesigns(_ payloads: [JSONObject]) async {}
-    func clearCache() async {}
 }

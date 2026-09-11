@@ -55,16 +55,9 @@ struct OnDeviceGenRequest: Sendable {
 
 /// Which inference stack backs a local model. Kept as an enum (rather than a
 /// bare string) so the settings UI and the catalogue can't disagree.
-enum OnDeviceEngineKind: String, Sendable, CaseIterable {
+enum OnDeviceEngineKind: String, Sendable {
     case appleFM = "apple-fm"
     case mlx
-
-    var label: String {
-        switch self {
-        case .appleFM: return "Apple Intelligence"
-        case .mlx: return "MLX"
-        }
-    }
 
     /// SF Symbol for the settings list.
     var symbol: String {
@@ -107,28 +100,4 @@ struct OnDeviceEngineError: LocalizedError, Equatable {
     let reason: String
     init(_ reason: String) { self.reason = reason }
     var errorDescription: String? { "On-device engine unavailable: \(reason)" }
-}
-
-/// The MLX slot. Present so model ids, the engine enum and the settings screen
-/// keep the shape they have in the Flutter app; permanently unavailable because
-/// MLX-Swift is a third-party package this target does not link.
-struct MLXEngineSlot: OnDeviceInferenceEngine {
-    static let unavailableReason = "mlx-not-built"
-
-    nonisolated var id: String { OnDeviceEngineKind.mlx.rawValue }
-
-    func availability() async -> OnDeviceEngineAvailability {
-        .unavailable(Self.unavailableReason)
-    }
-
-    func load(modelID: String) async throws {
-        throw OnDeviceEngineError(Self.unavailableReason)
-    }
-
-    func generate(_ request: OnDeviceGenRequest,
-                  onToken: @escaping @Sendable (String) -> Void) async throws -> String {
-        throw OnDeviceEngineError(Self.unavailableReason)
-    }
-
-    func cancel() async {}
 }

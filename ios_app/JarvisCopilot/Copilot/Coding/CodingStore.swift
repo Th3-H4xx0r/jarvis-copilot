@@ -88,8 +88,6 @@ final class CodingStore {
     /// isn't available). Render the Sync card only when `sync.enabled`.
     var sync: CodingSyncStatus?
 
-    var hasSelection: Bool { !(selectedId ?? "").isEmpty }
-
     // MARK: - Action state
 
     var launching = false

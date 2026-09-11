@@ -77,10 +77,6 @@ final class CodeMasterSettingsStore {
         events[event, default: [:]][channel] = value
     }
 
-    func toggle(event: String, channel: String) {
-        set(event: event, channel: channel, !value(event: event, channel: channel))
-    }
-
     func load() async {
         loading = true
         error = nil

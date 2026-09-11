@@ -99,14 +99,6 @@ final class CodeMasterSettingsStoreTests: XCTestCase {
         XCTAssertFalse(store.loading)
     }
 
-    func testEditingTheMatrix() {
-        let (store, _) = makeStore()
-        store.set(event: "finished", channel: "telegram", true)
-        XCTAssertTrue(store.value(event: "finished", channel: "telegram"))
-        store.toggle(event: "finished", channel: "telegram")
-        XCTAssertFalse(store.value(event: "finished", channel: "telegram"))
-    }
-
     func testPayloadIsTheFullDocument() {
         let (store, _) = makeStore()
         store.set(event: "error", channel: "photon", true)

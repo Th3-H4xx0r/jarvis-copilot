@@ -206,19 +206,6 @@ final class KanbanTests: XCTestCase {
         XCTAssertEqual(Kanban.flattenTasks(board).count, 1)
     }
 
-    func testStatsAndAssignees() async throws {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.enqueue(json: ["by_status": ["todo": 2]])
-        _ = try await KanbanAPI(api: api).stats(slug: "main")
-        XCTAssertEqual(transport.lastPath, "/api/kanban/stats")
-        XCTAssertEqual(transport.lastQuery, ["board": "main"])
-
-        transport.enqueue(json: ["assignees": ["alice", "", "bob"]])
-        let assignees = try await KanbanAPI(api: api).assignees()
-        XCTAssertEqual(transport.lastPath, "/api/kanban/assignees")
-        XCTAssertEqual(assignees, ["alice", "bob"])
-    }
-
     func testCreateBoardSlugifiesTheTitleAndSwitches() async throws {
         let (api, transport) = JarvisAPI.mocked()
         transport.enqueue(json: ["ok": true])

@@ -34,17 +34,6 @@ final class CodingSessionsAPITests: XCTestCase {
         XCTAssertEqual(sessions.map(\.id), ["a", "b"])
     }
 
-    func testListSessionsWithUsage() async throws {
-        let (api, t) = makeAPI()
-        t.enqueue(json: ["sessions": [["id": "a"]],
-                         "usage": ["five_hour_pct": 42, "weekly_pct": 7,
-                                   "five_hour_resets": "in 2h", "weekly_resets": "Mon"]])
-        let r = try await api.listSessionsWithUsage()
-        XCTAssertEqual(r.sessions.count, 1)
-        XCTAssertEqual(r.usage, CodingUsage(fiveHourPct: 42, weeklyPct: 7,
-                                            fiveHourResets: "in 2h", weeklyResets: "Mon"))
-    }
-
     func testUsageEndpointHandlesNull() async throws {
         let (api, t) = makeAPI()
         t.enqueue(json: ["usage": ["five_hour_pct": 10]])
@@ -115,15 +104,6 @@ final class CodingSessionsAPITests: XCTestCase {
     }
 
     // MARK: - Projects
-
-    func testListProjects() async throws {
-        let (api, t) = makeAPI()
-        t.enqueue(json: ["projects": [["id": "p1", "name": "jc"]]])
-        let awaited4 = try await api.listProjects().map(\.name)
-        XCTAssertEqual(awaited4, ["jc"])
-        assertRequest(t, "GET", "/api/coding/projects")
-        XCTAssertTrue(query(t.lastRequest).isEmpty)
-    }
 
     func testListProjectsExpanded() async throws {
         let (api, t) = makeAPI()

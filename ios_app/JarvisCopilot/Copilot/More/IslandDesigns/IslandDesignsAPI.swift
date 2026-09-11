@@ -18,11 +18,6 @@ struct IslandDesignsAPI {
         return IslandCatalog(json: body)
     }
 
-    /// Create or update a design (the server validates the tree).
-    func upsert(_ design: JSONObject) async throws {
-        _ = try await api.post("/api/island/designs", json: design)
-    }
-
     func deleteDesign(_ id: String) async throws {
         _ = try await api.delete("/api/island/designs/\(id)")
     }
@@ -48,8 +43,4 @@ struct IslandDesignsAPI {
         _ = try await api.post("/api/island/designs/\(id)/rules", json: body)
     }
 
-    /// Push resolved values for one design.
-    func setData(_ id: String, data: JSONObject) async throws {
-        _ = try await api.post("/api/island/designs/\(id)/data", json: data)
-    }
 }

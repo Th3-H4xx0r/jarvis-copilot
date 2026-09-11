@@ -33,14 +33,6 @@ final class AppleFoundationModelTests: XCTestCase {
         }
     }
 
-    func testMLXSlotIsPermanentlyUnavailable() async {
-        let model = AppleFoundationModel(engine: MLXEngineSlot())
-        let availability = await model.availability()
-        XCTAssertFalse(availability.available)
-        XCTAssertEqual(availability.engine, "mlx")
-        XCTAssertEqual(availability.reason, MLXEngineSlot.unavailableReason)
-    }
-
     /// The whole point of the wiring: an unavailable engine makes the router
     /// escalate, which is byte-for-byte the behaviour before this port landed.
     func testRouterEscalatesWhenTheEngineIsUnavailable() async {
@@ -105,27 +97,6 @@ final class AppleFoundationModelTests: XCTestCase {
     }
 
     // MARK: - Catalogue
-
-    func testCatalogueMarksAppleFMInstalledOnlyWhenAvailable() {
-        let ready = OnDeviceModelCatalog.list(appleFM: .available)
-        XCTAssertEqual(ready.first?.id, "apple-fm")
-        XCTAssertTrue(ready.first?.installed ?? false)
-
-        let blocked = OnDeviceModelCatalog.list(appleFM: .unavailable("deviceNotEligible"))
-        XCTAssertFalse(blocked.first?.installed ?? true)
-        XCTAssertEqual(blocked.first?.detail, "deviceNotEligible")
-    }
-
-    /// The MLX entries keep their ids so a user upgrading from the Flutter build
-    /// still sees the model they had selected — but they can never be picked.
-    func testMLXEntriesAreListedButNeverInstalled() {
-        let models = OnDeviceModelCatalog.list(appleFM: .available)
-        let mlx = models.filter { $0.engine == .mlx }
-        XCTAssertFalse(mlx.isEmpty)
-        XCTAssertTrue(mlx.allSatisfy { !$0.installed })
-        XCTAssertEqual(OnDeviceModelCatalog.engine(for: "apple-fm"), .appleFM)
-        XCTAssertEqual(OnDeviceModelCatalog.engine(for: "mlx-community/Qwen2.5-1.5B-Instruct-4bit"), .mlx)
-    }
 
     // MARK: - Helpers
 
