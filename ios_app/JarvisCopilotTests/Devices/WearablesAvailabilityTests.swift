@@ -143,8 +143,7 @@ final class WearablesAvailabilityTests: XCTestCase {
 
         let names = Set(registry.allSkills().compactMap { $0["name"] as? String })
         XCTAssertTrue(names.contains("bottle_get_status"))
-        XCTAssertFalse(bottle.descriptor()["connected"] as? Bool ?? true,
-                       "it advertises, but it must not claim to be connected")
+        XCTAssertFalse(bottle.isConnected, "it advertises, but it must not claim to be connected")
     }
 
     // MARK: Card status

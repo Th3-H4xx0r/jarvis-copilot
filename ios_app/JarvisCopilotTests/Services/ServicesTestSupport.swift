@@ -137,7 +137,6 @@ final class FakeMetrics: MetricsRegistering {
 @MainActor
 final class FakeActivityController: ActivityControlling {
     var onPushToken: ((String) -> Void)?
-    var areActivitiesEnabled = true
     private(set) var updates: [LiveActivityState] = []
     private(set) var ends = 0
 

@@ -38,7 +38,7 @@ struct JarvisWidgetView: View {
                     .font(.system(size: 22, weight: .semibold))
             }
             .widgetAccentable()
-            .jcContainerBackground(Color.clear)
+            .containerBackground(Color.clear, for: .widget)
             .widgetURL(URL(string: "jarviscopilot://voice"))
         default:
             // Home Screen systemSmall: gradient tile with the mic, on-brand.
@@ -57,22 +57,8 @@ struct JarvisWidgetView: View {
                         .foregroundStyle(.white.opacity(0.95))
                 }
             }
-            .jcContainerBackground(Color.black)
+            .containerBackground(Color.black, for: .widget)
             .widgetURL(URL(string: "jarviscopilot://voice"))
-        }
-    }
-}
-
-extension View {
-    /// `containerBackground(for: .widget)` is iOS 17+. On 16 it's a no-op (the
-    /// widget still renders), so gate it on availability to keep the iOS-16
-    /// deployment target building.
-    @ViewBuilder
-    func jcContainerBackground<S: ShapeStyle>(_ style: S) -> some View {
-        if #available(iOS 17.0, *) {
-            self.containerBackground(style, for: .widget)
-        } else {
-            self
         }
     }
 }
@@ -115,12 +101,3 @@ struct JarvisVoiceControl: ControlWidget {
         .description("Quick-launch JARVIS into voice and start listening.")
     }
 }
-
-// ── Dynamic Island + Lock Screen Live Activity (iOS 16.2+) ───────────────────
-//
-// JARVIS's live voice status: a state-styled glowing orb, the current state, a
-// one-line activity (your phrase / reply snippet / "Searching the web…"), and a
-// Connected/Offline footer. Tapping anywhere opens the Voice screen. Persists
-// (resting at Idle) after a session until dismissed. App-driven via
-// LiveActivityManager (AppDelegate). Uses JarvisActivityAttributes (shared).
-

@@ -40,8 +40,6 @@ let kLocalActionAllowList: Set<String> = [
     "open_url",
     "flashlight_on",
     "flashlight_off",
-    "set_volume",
-    "adjust_volume",
     "phone_control",   // iOS volume/brightness only — the executor never emits other verbs
     "vibrate",
     "set_alarm",

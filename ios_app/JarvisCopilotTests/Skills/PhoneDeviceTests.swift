@@ -104,15 +104,14 @@ final class PhoneDeviceTests: XCTestCase {
         }
     }
 
-    func testDescriptorAndSnapshotDescribeThePhone() throws {
+    func testThePhoneDescribesItselfAndItsSnapshot() throws {
         registry.setEnabled(false, for: "record_audio")
         let phone = try XCTUnwrap(devices.device(id: "phone"))
 
-        let descriptor = phone.descriptor()
-        XCTAssertEqual(descriptor["device_id"] as? String, "phone")
-        XCTAssertEqual(descriptor["model"] as? String, "iPhone")
-        XCTAssertEqual(descriptor["connected"] as? Bool, true)
-        XCTAssertFalse((descriptor["commands"] as? [String] ?? []).contains("record_audio"))
+        XCTAssertEqual(phone.deviceID, "phone")
+        XCTAssertEqual(type(of: phone).model, "iPhone")
+        XCTAssertTrue(phone.isConnected)
+        XCTAssertFalse(phone.capabilities.map(\.name).contains("record_audio"))
 
         let snapshot = phone.snapshot()
         XCTAssertEqual(snapshot["disabled"] as? [String], ["record_audio"])

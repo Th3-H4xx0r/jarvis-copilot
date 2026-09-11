@@ -96,27 +96,4 @@ final class PairPayloadTests: XCTestCase {
 
     // MARK: the confirmation the legacy settings screen shows
 
-    /// Scanning used to pair outright. The prompt has to name the host, because
-    /// that is the whole thing the user is being asked to trust.
-    func testTheConfirmationNamesTheHost() throws {
-        let payload = try XCTUnwrap(
-            PairingPayload(raw: "jarviscopilot://pair?server=https://jarvis.test:8787&code=ABC"))
-        let confirm = BridgePairConfirmation(payload)
-        XCTAssertEqual(confirm.title, "Pair with jarvis.test?")
-        XCTAssertTrue(confirm.message.contains("jarvis.test"), confirm.message)
-        XCTAssertTrue(confirm.message.contains("pairing code came from the QR"), confirm.message)
-        XCTAssertFalse(confirm.message.contains("Cloudflare"), confirm.message)
-    }
-
-    func testTheConfirmationCallsOutAStoredCloudflareToken() throws {
-        let payload = try XCTUnwrap(PairingPayload(
-            raw: "jarviscopilot://pair?server=https://jarvis.test&code=A&cf_id=x.access&cf_secret=s"))
-        let confirm = BridgePairConfirmation(payload)
-        XCTAssertTrue(confirm.message.contains("Cloudflare Access token"), confirm.message)
-    }
-
-    func testTheConfirmationFallsBackWhenThereIsNoServer() throws {
-        let payload = try XCTUnwrap(PairingPayload(raw: "jarviscopilot://pair?code=ABC123"))
-        XCTAssertEqual(BridgePairConfirmation(payload).title, "Pair with this server?")
-    }
 }

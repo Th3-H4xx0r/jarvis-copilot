@@ -15,7 +15,7 @@ import SwiftUI
 /// This page owns the tab's single `NavigationStack`. `ScanView` used to bring
 /// one of its own, which drew a SECOND navigation bar under the segmented picker
 /// and painted its opaque system background over the aurora; embedded it now
-/// lends its toolbar (gear + Rescan) to this bar instead (`ScanView(embedded:)`).
+/// lends its toolbar (gear + Rescan) to this bar instead (`ScanView`).
 struct DevicesPage: View {
     /// Wearables first: the BLE scanner is what this app was before the port and
     /// what the user reaches for most.
@@ -51,7 +51,7 @@ struct DevicesPage: View {
                         .loadErrorBanner(store.errorMessage, hasContent: !store.devices.isEmpty)
                 case .wearables:
                     // Chrome-less: this page's stack and bar host it.
-                    ScanView(embedded: true)
+                    ScanView()
                 }
             }
             // Behind the WHOLE page, not just the server half: an `ignoresSafeArea`

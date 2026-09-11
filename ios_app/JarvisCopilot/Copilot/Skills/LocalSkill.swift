@@ -82,9 +82,6 @@ enum SkillError: LocalizedError, Equatable {
     case unavailable(String)
     /// Ran but failed.
     case failed(String)
-    /// Not in the catalogue, or switched off in Settings.
-    case unknownSkill(String)
-    case disabled(String)
 
     var errorDescription: String? {
         switch self {
@@ -92,8 +89,6 @@ enum SkillError: LocalizedError, Equatable {
         case .permissionDenied(let m): return "\(m) permission denied"
         case .unavailable(let m):      return m
         case .failed(let m):           return m
-        case .unknownSkill(let n):     return "unknown skill: \(n)"
-        case .disabled(let n):         return "skill disabled by user: \(n)"
         }
     }
 }

@@ -1,13 +1,8 @@
 import Foundation
 import Observation
 
-/// Shared types for the on-device AI layer. These are the interfaces the router,
-/// the tool catalogue and (later) the chat/voice surfaces all speak in.
-///
-/// Port of `mobile_client/lib/services/on_device_ai_types.dart` — the MLX /
-/// Apple-Foundation-Models engines are deliberately NOT ported in this wave;
-/// only the protocol and an unavailable default, so the router's behaviour is
-/// exercised without an inference stack.
+/// Shared types for the on-device AI layer: the interfaces the router, the tool
+/// catalogue and the chat/voice surfaces speak in.
 
 /// How aggressively the on-device layer handles a turn before escalating.
 enum LocalAiTier: String, Sendable, CaseIterable {
@@ -111,28 +106,11 @@ enum RouteResult {
     }
 }
 
-/// The on-device inference boundary.
-///
-/// TODO(local-ai wave): implement over Apple Foundation Models / MLX. Nothing
-/// else in this area needs to change — the router already treats an unavailable
-/// engine as "escalate", which is exactly today's behaviour.
+/// The on-device inference boundary. The router treats an unavailable engine as
+/// "escalate".
 protocol OnDeviceModel: Sendable {
     func availability() async -> OnDeviceAvailability
     func generate(_ request: LocalRequest) -> AsyncThrowingStream<String, Error>
-}
-
-/// The default: no engine. Every turn escalates, so wiring the router in ahead
-/// of an engine is a no-op rather than a regression.
-struct UnavailableOnDeviceModel: OnDeviceModel {
-    let reason: String
-
-    init(reason: String = "no on-device engine in this build") { self.reason = reason }
-
-    func availability() async -> OnDeviceAvailability { .unavailable(reason) }
-
-    func generate(_ request: LocalRequest) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { $0.finish(throwing: SkillError.unavailable(reason)) }
-    }
 }
 
 /// Persisted configuration for the on-device AI layer. Plain mutable fields so

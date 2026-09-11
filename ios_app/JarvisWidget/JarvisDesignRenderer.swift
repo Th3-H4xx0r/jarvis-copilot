@@ -606,7 +606,7 @@ struct JCDesignView: View {
     /// Which presentation node to render. `.lockScreen` uses lockScreen ?? expanded.
     var presentation: JCPresentation = .lockScreen
 
-    enum JCPresentation { case lockScreen, expanded, compactLeading, compactTrailing, minimal }
+    enum JCPresentation { case lockScreen, compactLeading, compactTrailing, minimal }
 
     /// Compact / minimal slots are tiny — their fallback is just the orb.
     private var isCompact: Bool {
@@ -634,7 +634,7 @@ struct JCDesignView: View {
             JCDesignFallback(st: st, compact: isCompact)
         } else {
             switch presentation {
-            case .lockScreen, .expanded:
+            case .lockScreen:
                 r.render(node, ctx)
                     .padding(.horizontal, 16).padding(.vertical, 13)
             default:
@@ -646,7 +646,6 @@ struct JCDesignView: View {
     private func pickNode(_ d: JCDesign) -> JCNode? {
         switch presentation {
         case .lockScreen: return d.presentations.lockScreen ?? d.presentations.expanded
-        case .expanded: return d.presentations.expanded
         case .compactLeading: return d.presentations.compactLeading
         case .compactTrailing: return d.presentations.compactTrailing
         case .minimal: return d.presentations.minimal

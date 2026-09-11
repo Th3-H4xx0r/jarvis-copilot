@@ -171,29 +171,10 @@ final class LocalExecutor {
         if volumeWord.hasMatch(lower) {
             if let abs = volumeLevel.firstMatch(lower), let digits = abs.group(1) {
                 let pct = min(max(Int(digits) ?? 50, 0), 100)
-                // Android exposes a real set_volume skill; iOS can only do it
-                // through the "JC Volume" Shortcut behind phone_control.
-                if available.contains("set_volume") {
-                    return LocalRun(skill: "set_volume", args: ["level": pct],
-                                    ack: "Volume at \(pct)%, sir.")
-                }
+                // iOS sets the volume through the "JC Volume" Shortcut behind phone_control.
                 return LocalRun(skill: "phone_control",
                                 args: ["action": "volume", "value": "\(pct)"],
                                 ack: "Volume at \(pct)%, sir.")
-            }
-            // The second alternative of `volumeDirection` ("louder … volume")
-            // fills group 2 instead of group 1.
-            if let dir = volumeDirection.firstMatch(lower),
-               let word = dir.group(1) ?? dir.group(2),
-               available.contains("adjust_volume") {
-                let direction: String
-                switch word {
-                case "louder": direction = "up"
-                case "quieter", "softer": direction = "down"
-                default: direction = word
-                }
-                return LocalRun(skill: "adjust_volume", args: ["direction": direction],
-                                ack: direction == "up" ? "Turning it up, sir." : "Turning it down, sir.")
             }
             // "set the volume" with no level and no direction — don't guess.
             return nil
@@ -335,9 +316,6 @@ final class LocalExecutor {
         + #"(?:set|turn|change|adjust|make|put|increase|decrease|raise|lower|crank|bump)\b"#
         + #"[^.?!]*\bvolume\b"#)
     private static let volumeLevel = Rx(#"\bvolume\b[^0-9]{0,20}(\d{1,3})\s*%?"#)
-    private static let volumeDirection = Rx(
-        #"\bvolume\b[^.]{0,20}?\b(up|down|louder|quieter|softer|mute|unmute)\b"#
-        + #"|\b(louder|quieter)\b[^.]{0,20}\bvolume\b"#)
 
     private static let alarmWord = Rx(
         "^" + politePrefix + #"(?:set|create|start|schedule)\b[^.?!]*\b(?:alarm|timer)\b"#

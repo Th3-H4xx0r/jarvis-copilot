@@ -288,20 +288,4 @@ final class ShellPolishSnapshotTests: XCTestCase {
         }
     }
 
-    /// The scanner keeps its own chrome when it is the whole screen — `embedded`
-    /// is additive and must not change the standalone look.
-    func testStandaloneScanViewKeepsItsOwnNavigationStack() {
-        let embedded = PolishHarness(
-            NavigationStack { ScanView(embedded: true) }.environment(AppRouter()))
-        embedded.settle(0.4)
-        let inner = polishAllViews(embedded.window).compactMap { $0 as? UINavigationBar }
-        XCTAssertEqual(inner.count, 1, "an embedded scanner must not add a stack of its own")
-
-        let standalone = PolishHarness(ScanView().environment(AppRouter()))
-        standalone.settle(0.4)
-        standalone.snapshot("devices-wearables-standalone")
-        XCTAssertEqual(polishAllViews(standalone.window)
-            .compactMap { $0 as? UINavigationBar }.filter { polishIsVisible($0) }.count, 1,
-            "the standalone scanner still owns its bar")
-    }
 }

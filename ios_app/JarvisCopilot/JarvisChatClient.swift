@@ -31,7 +31,6 @@ final class JarvisChatClient {
     struct SessionSnapshot {
         let activeStreamID: String?
         let lastAssistantText: String?
-        let lastToolNames: [String]
     }
 
     func snapshot(sessionID: String) async throws -> SessionSnapshot {
@@ -46,12 +45,8 @@ final class JarvisChatClient {
         let active = (session["active_stream_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let messages = session["messages"] as? [[String: Any]] ?? []
         var lastText: String?
-        var tools: [String] = []
         for m in messages.reversed() {
             guard (m["role"] as? String) == "assistant" else { if lastText == nil { continue } else { break } }
-            if let calls = m["tool_calls"] as? [[String: Any]] {
-                tools = calls.compactMap { ($0["function"] as? [String: Any])?["name"] as? String ?? $0["name"] as? String } + tools
-            }
             if lastText == nil {
                 if let c = m["content"] as? String, !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { lastText = c }
                 else if let parts = m["content"] as? [[String: Any]] {
@@ -61,7 +56,7 @@ final class JarvisChatClient {
                 if lastText == nil { continue }  // a tool-call-only assistant record; keep walking
             } else { break }
         }
-        return SessionSnapshot(activeStreamID: active, lastAssistantText: lastText, lastToolNames: tools)
+        return SessionSnapshot(activeStreamID: active, lastAssistantText: lastText)
     }
 
     /// Attaches to a stream already running on the server (after a 409, or when the
@@ -125,14 +120,6 @@ final class JarvisChatClient {
         return result
     }
 
-    /// Sends a user turn and streams the reply. `onToken` receives each delta on the
-    /// main actor; the full reply is returned when the stream ends.
-    func send(sessionID: String, message: String, model: Model? = nil, onToken: @escaping (String) -> Void) async throws -> String {
-        try await send(sessionID: sessionID, message: message, model: model) { event in
-            if case .token(let t) = event { onToken(t) }
-        }
-    }
-
     func send(sessionID: String, message: String, model: Model? = nil, onEvent: @escaping (StreamEvent) -> Void) async throws -> String {
         guard BridgeClient.shared.isPaired else { throw ChatError.notPaired }
         guard var request = BridgeClient.shared.authorizedRequest(
@@ -163,15 +150,6 @@ final class JarvisChatClient {
         return try await stream(id: streamID, onEvent: onEvent)
     }
 
-    /// A hidden one-shot turn: the agent runs with its tools and we return its final
-    /// text. Used to relay `jarvis.invoke` requests from board scripts.
-    func background(parentSession: String, prompt: String) async throws -> String {
-        guard BridgeClient.shared.isPaired else { throw ChatError.notPaired }
-        let obj = try await postJSON(path: "api/background", body: ["session_id": parentSession, "prompt": prompt])
-        guard let streamID = obj["stream_id"] as? String, !streamID.isEmpty else { throw ChatError.badReply }
-        return try await stream(id: streamID, onEvent: { _ in })
-    }
-
     // MARK: - Plumbing
 
     private func stream(id: String, onEvent: @escaping (StreamEvent) -> Void) async throws -> String {
@@ -196,16 +174,9 @@ final class JarvisChatClient {
     private func consumeSSE(_ bytes: URLSession.AsyncBytes, onEvent: @escaping (StreamEvent) -> Void) async throws -> String {
         var full = ""
         var event = ""
-        let lastEvent = IdleClock()
-        let watchdog = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                if lastEvent.idle > Self.idleLimit { return }
-            }
-        }
-        defer { watchdog.cancel() }
+        var lastEvent = Date()
         for try await line in bytes.lines {
-            if watchdog.isCancelled == false, lastEvent.idle > Self.idleLimit { throw ChatError.stalled }
+            if Date().timeIntervalSince(lastEvent) > Self.idleLimit { throw ChatError.stalled }
             if line.hasPrefix(":") { continue }
             if line.hasPrefix("event:") {
                 event = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
@@ -213,7 +184,7 @@ final class JarvisChatClient {
                 let json = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
                 guard let d = json.data(using: .utf8),
                       let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
-                lastEvent.touch()
+                lastEvent = Date()
                 switch event {
                 case "token":
                     if let t = obj["text"] as? String { full += t; onEvent(.token(t)) }
@@ -290,14 +261,6 @@ final class JarvisChatClient {
             return "\(key): \(text)"
         }
         return parts.joined(separator: " · ")
-    }
-
-    /// Timestamp of the last real stream event, shared with the watchdog.
-    private final class IdleClock: @unchecked Sendable {
-        private var last = Date()
-        private let lock = NSLock()
-        func touch() { lock.lock(); last = Date(); lock.unlock() }
-        var idle: TimeInterval { lock.lock(); defer { lock.unlock() }; return Date().timeIntervalSince(last) }
     }
 
     private static func extractSessionID(_ obj: [String: Any]) -> String? {

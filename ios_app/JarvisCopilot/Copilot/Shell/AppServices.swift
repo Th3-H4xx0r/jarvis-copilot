@@ -329,6 +329,14 @@ final class AppServices {
         } else {
             voice.pauseForBackground()
             WearablesHub.shared.appDidEnterBackground()
+            // Without the keepalive iOS suspends the app but leaves the socket
+            // half-open, and the server keeps routing invokes into it instead of
+            // pushing. Close it, and drain what is already queued while there is
+            // still runtime.
+            if !BackgroundKeepalive.shared.isRunning {
+                BridgeClient.shared.disconnect()
+                Task { await BridgeClient.shared.drainQueue(foreground: false) }
+            }
         }
     }
 

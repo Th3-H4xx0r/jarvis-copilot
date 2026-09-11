@@ -59,18 +59,6 @@ protocol WearableDevice: AnyObject {
     func invoke(_ name: String, args: [String: Any]) async throws -> [String: Any]
 }
 
-extension WearableDevice {
-    /// The device's entry in a `list_devices` response.
-    func descriptor() -> [String: Any] {
-        [
-            "device_id": deviceID,
-            "model": Self.model,
-            "connected": isConnected,
-            "commands": capabilities.map(\.name),
-        ]
-    }
-}
-
 /// Everything the app can currently drive. The bridge asks this for skills and state;
 /// the UI keeps it populated.
 @MainActor
@@ -79,21 +67,16 @@ final class DeviceRegistry: ObservableObject {
 
     @Published private(set) var devices: [any WearableDevice] = []
 
-    /// Bumped whenever the catalogue changes, so the bridge knows to re-register.
-    @Published private(set) var generation = 0
-
     private init() {}
 
     func register(_ device: any WearableDevice) {
         guard !devices.contains(where: { $0.deviceID == device.deviceID }) else { return }
         devices.append(device)
-        generation += 1
     }
 
     func remove(deviceID: String) {
         guard devices.contains(where: { $0.deviceID == deviceID }) else { return }
         devices.removeAll { $0.deviceID == deviceID }
-        generation += 1
     }
 
     func device(id: String) -> (any WearableDevice)? {

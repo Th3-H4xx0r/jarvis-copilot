@@ -179,9 +179,6 @@ struct LiveFleet: Equatable, Sendable {
 /// 16.2+), so every policy decision above it is asserted against a fake instead.
 @MainActor
 protocol ActivityControlling: AnyObject {
-    /// False when the user has Live Activities switched off system-wide, or the
-    /// OS is too old. The coordinator still tracks state; it just never pushes.
-    var areActivitiesEnabled: Bool { get }
     /// Create the activity on the first state worth showing, else update the
     /// running one. Never ends it — the island lingers as a tap-to-talk launcher
     /// (the Flutter client pushes an explicit "idle" on stop).

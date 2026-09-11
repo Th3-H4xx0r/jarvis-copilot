@@ -254,13 +254,12 @@ struct JCUsageBlock: View {
     }
 }
 
-/// Header: orb logo + "Claude Code" + "N sessions · M waiting" (+ usage on the
-/// right when `showUsage`).
+/// Header: orb logo + "Claude Code" + "N sessions · M waiting" + usage on the
+/// right.
 @available(iOS 16.2, *)
 struct JCHeader: View {
     let st: JarvisActivityAttributes.ContentState
     var orbSize: CGFloat = 30
-    var showUsage: Bool = true
     var body: some View {
         HStack(spacing: 11) {
             JarvisOrb(state: "idle", size: orbSize)
@@ -271,10 +270,8 @@ struct JCHeader: View {
                     .foregroundColor(jcCodingColor("waiting")))
                     .font(.system(size: 11, weight: .semibold))
             }
-            if showUsage {
-                Spacer(minLength: 6)
-                JCUsageBlock(st: st)
-            }
+            Spacer(minLength: 6)
+            JCUsageBlock(st: st)
         }
     }
 }

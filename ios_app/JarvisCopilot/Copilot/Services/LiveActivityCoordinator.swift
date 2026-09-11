@@ -122,8 +122,6 @@ final class LiveActivityCoordinator {
         Task { await refreshCoding() }
     }
 
-    func stop() { pollHandle.cancel() }
-
     func setCodingVisible(_ visible: Bool) { codingVisible = visible }
 
     /// `VoiceStore` reports here (through `VoiceLiveActivityThrottle.onPush`)
@@ -312,6 +310,4 @@ final class LiveActivityCoordinator {
         controller.update(state)
     }
 
-    /// The state most recently handed to the controller (tests, diagnostics).
-    var pushedState: LiveActivityState? { lastPushed }
 }

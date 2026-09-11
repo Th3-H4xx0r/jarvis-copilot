@@ -53,9 +53,8 @@ struct ScheduledAlarm: Equatable, Sendable {
 }
 
 /// The system alarm clock behind `set_alarm` / `set_timer` / `list_alarms` /
-/// `cancel_alarm`. `DefaultAlarmScheduler` is AlarmKit (iOS 26+);
-/// `UnavailableAlarmScheduler` is what older systems get, and the skills then
-/// fall back to a notification alarm.
+/// `cancel_alarm`. `DefaultAlarmScheduler` is AlarmKit (iOS 26+); below that it
+/// reports unavailable and the skills fall back to a notification alarm.
 protocol AlarmScheduling: Sendable {
     /// False when the framework is missing (pre-iOS 26). Skills skip straight to
     /// the fallback without asking for permission.
@@ -68,17 +67,6 @@ protocol AlarmScheduling: Sendable {
     func cancel(id: String) async throws
     /// Silence an alarm that is ringing right now.
     func stop(id: String) async throws
-}
-
-struct UnavailableAlarmScheduler: AlarmScheduling {
-    var isAvailable: Bool { false }
-    func requestAuthorization() async throws -> Bool { false }
-    func schedule(_ spec: AlarmSpec) async throws -> ScheduledAlarm {
-        throw SkillError.unavailable("system alarms need iOS 26")
-    }
-    func list() async throws -> [ScheduledAlarm] { [] }
-    func cancel(id: String) async throws {}
-    func stop(id: String) async throws {}
 }
 
 /// "mon", "Monday", "weekdays", "weekends", "daily" → Calendar weekday numbers.

@@ -23,8 +23,6 @@ final class DefaultActivityController: ActivityControlling {
     private var observing = false
     /// Serialises the `await`-ing ActivityKit calls (see `ActivityUpdateQueue`).
     private let queue = ActivityUpdateQueue()
-    /// The last ActivityKit failure, for diagnostics and the tests.
-    private(set) var lastActivityError: String?
 
     /// Await whatever ActivityKit work is in flight (tests, scene handoffs).
     func drain() async { await queue.drain() }
@@ -64,19 +62,17 @@ final class DefaultActivityController: ActivityControlling {
                 attributes: JarvisActivityAttributes(title: "JARVIS"),
                 content: content, pushType: .token)
             observe(activity)
-            lastActivityError = nil
         } catch {
             JcLog.dropped(JcLog.services, "live activity request (push token)", error)
             do {
                 let activity = try Activity.request(
                     attributes: JarvisActivityAttributes(title: "JARVIS"), content: content)
                 observe(activity)
-                lastActivityError = nil
             } catch {
                 // Both attempts failed — Live Activities are off for this app,
                 // the budget is spent, or the target has no entitlement. Nothing
                 // appears and nothing throws, so record why.
-                lastActivityError = JcLog.report(JcLog.services, "live activity request", error)
+                JcLog.dropped(JcLog.services, "live activity request", error)
             }
         }
         #endif
@@ -166,16 +162,4 @@ final class ActivityUpdateQueue {
 
     /// Await everything currently queued (tests, and scene-phase handoffs).
     func drain() async { await tail?.value }
-}
-
-/// Records instead of pushing — used on macOS, in previews, and whenever
-/// ActivityKit is unavailable.
-@MainActor
-final class NoopActivityController: ActivityControlling {
-    var onPushToken: ((String) -> Void)?
-    var areActivitiesEnabled: Bool { false }
-    private(set) var updates: [LiveActivityState] = []
-    private(set) var ends = 0
-    func update(_ state: LiveActivityState) { updates.append(state) }
-    func end() { ends += 1 }
 }

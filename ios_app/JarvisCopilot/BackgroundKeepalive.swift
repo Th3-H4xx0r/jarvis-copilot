@@ -45,25 +45,6 @@ final class BackgroundKeepalive {
         self.center = center
     }
 
-    /// The arming rule, as a pure function — `BridgeClient.syncKeepalive()` is the only
-    /// caller of `sync(active:)` and passes exactly this expression.
-    ///
-    /// Port of `computeKeepaliveArmed` in `services/background_keepalive.dart`, minus
-    /// its `background` and `voiceActive` terms:
-    ///
-    ///  * **background** — Flutter armed the session only once the app had backgrounded.
-    ///    iOS cannot: an app that is already suspended can no longer start an audio
-    ///    session, so the session has to be held from the moment bridge mode is on, or
-    ///    the very first background is the one that kills the socket.
-    ///  * **voiceActive** — the keepalive no longer competes for the session: while a
-    ///    turn is live the arbiter keeps the union (`.playAndRecord`), which earns
-    ///    background execution just as well, so there is nothing to stand down for.
-    ///    (Before the arbiter this was merely *claimed*, via `.mixWithOthers` — and it
-    ///    was false: `.playback` cannot record, and it won every race it entered.)
-    nonisolated static func shouldRun(bridgeEnabled: Bool, isPaired: Bool) -> Bool {
-        bridgeEnabled && isPaired
-    }
-
     /// Brings the keepalive in line with whether it should be running. Idempotent, so
     /// callers can invoke it on every state change without tracking transitions.
     func sync(active: Bool) {

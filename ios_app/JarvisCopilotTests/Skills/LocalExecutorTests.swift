@@ -1,29 +1,25 @@
 import XCTest
 @testable import JarvisCopilot
 
-/// Port of `mobile_client/test/services/local_executor_test.dart`.
-///
 /// The two skill sets mirror what a real build registers, so classification is
 /// checked against a real device's capability set rather than an imaginary one.
 final class LocalExecutorTests: XCTestCase {
 
-    /// What a typical Android build registers (kept for parity with the Flutter
-    /// suite: `set_volume`/`adjust_volume` exist there and exercise the branch
-    /// iOS reaches through `phone_control`).
-    private static let androidSkills: Set<String> = [
+    /// A capability set without `phone_control`.
+    private static let baseSkills: Set<String> = [
         "open_app", "open_url", "notify", "clipboard_read", "clipboard_write",
         "vibrate", "take_photo", "play_audio", "set_alarm", "set_timer", "flashlight_on",
-        "flashlight_off", "set_volume", "adjust_volume", "send_sms", "make_call",
+        "flashlight_off", "send_sms", "make_call",
     ]
 
-    /// iOS has no set_volume/adjust_volume — volume goes through phone_control.
+    /// What an iOS build registers; volume goes through `phone_control`.
     private static let iosSkills: Set<String> = [
         "open_app", "open_url", "notify", "clipboard_read", "clipboard_write",
         "vibrate", "take_photo", "play_audio", "set_alarm", "set_timer", "flashlight_on",
         "flashlight_off", "phone_control", "send_sms", "make_call",
     ]
 
-    private func cls(_ text: String, skills: Set<String> = androidSkills) -> LocalDecision {
+    private func cls(_ text: String, skills: Set<String> = baseSkills) -> LocalDecision {
         LocalExecutor.classify(text, skills: skills)
     }
 
@@ -32,14 +28,14 @@ final class LocalExecutorTests: XCTestCase {
         return nil
     }
 
-    private func run(_ text: String, skills: Set<String> = androidSkills,
+    private func run(_ text: String, skills: Set<String> = baseSkills,
                      file: StaticString = #filePath, line: UInt = #line) throws -> LocalRun {
         try XCTUnwrap(plan(text, skills: skills),
                       "expected a local action for \"\(text)\", got \(cls(text, skills: skills))",
                       file: file, line: line)
     }
 
-    private func escalates(_ text: String, skills: Set<String> = androidSkills,
+    private func escalates(_ text: String, skills: Set<String> = baseSkills,
                            file: StaticString = #filePath, line: UInt = #line) {
         let d = cls(text, skills: skills)
         if case .run(let plan) = d {
@@ -84,12 +80,6 @@ final class LocalExecutorTests: XCTestCase {
         XCTAssertEqual(try run("turn off the flashlight").skill, "flashlight_off")
     }
 
-    func testSetAnAbsoluteVolumeLevelOnAndroid() throws {
-        let r = try run("set the volume to 40")
-        XCTAssertEqual(r.skill, "set_volume")
-        XCTAssertEqual(r.args["level"] as? Int, 40)
-    }
-
     func testSetAnAbsoluteVolumeLevelOnIOSGoesThroughPhoneControl() throws {
         let r = try run("set the volume to 40%", skills: Self.iosSkills)
         XCTAssertEqual(r.skill, "phone_control")
@@ -97,14 +87,8 @@ final class LocalExecutorTests: XCTestCase {
         XCTAssertEqual(r.args["value"] as? String, "40")
     }
 
-    func testRelativeVolumeChange() throws {
-        let r = try run("turn the volume up")
-        XCTAssertEqual(r.skill, "adjust_volume")
-        XCTAssertEqual(r.args["direction"] as? String, "up")
-    }
-
     func testVolumeLevelIsClampedTo0To100() throws {
-        XCTAssertEqual(try run("set the volume to 480").args["level"] as? Int, 100)
+        XCTAssertEqual(try run("set the volume to 480", skills: Self.iosSkills).args["value"] as? String, "100")
     }
 
     func testVibrate() throws {
@@ -277,7 +261,7 @@ final class LocalExecutorTests: XCTestCase {
             "notify me that dinner is ready",
         ]
         for u in utterances {
-            if case .run(let plan) = LocalExecutor.classify(u, skills: Self.androidSkills) {
+            if case .run(let plan) = LocalExecutor.classify(u, skills: Self.baseSkills) {
                 XCTAssertTrue(isLocallyAllowed(plan.skill),
                               "\"\(u)\" produced non-allow-listed skill \(plan.skill)")
             }

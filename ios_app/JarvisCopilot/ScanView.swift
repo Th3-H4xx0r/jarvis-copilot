@@ -12,69 +12,10 @@ struct ScanView: View {
     @State private var connecting: String?
     @Namespace private var cardNamespace
 
-    /// `true` when the Wearables half of `DevicesPage` hosts this inside the tab's
-    /// own `NavigationStack`.
-    ///
-    /// Standalone, this view is a screen: its own stack, its own "Devices" title,
-    /// its own toolbar. Embedded, all three are the PARENT's — a second stack
-    /// drew a second navigation bar under the segmented picker (the stacked
-    /// chrome row) and painted its opaque system background over the tab's
-    /// aurora. Nothing else differs: the scan, the BLE managers and the cards are
-    /// the same code either way.
-    private let embedded: Bool
-
-    init(embedded: Bool = false) { self.embedded = embedded }
-
     var body: some View {
-        chrome
-        // Don't hold a link (or a scan) open in your pocket — the stock app drops the
-        // connection on hide too.
-        .onChange(of: scenePhase) { _, phase in
-            switch phase {
-            // Only .background — .inactive also fires for Control Centre and the app
-            // switcher, and dropping the link for those would be needlessly disruptive.
-            case .background:
-                // Manager lifecycle is the hub's job now (it runs whether or not
-                // this view exists); the socket handling below is unchanged.
-                // With the keepalive running we are not going to be suspended, so the
-                // socket stays up and invokes take the live path. Otherwise close it
-                // explicitly: iOS suspends us without tearing the TCP connection down,
-                // so the server keeps a half-open WS registered and routes invokes
-                // into it — `invoke_skill` prefers a live WS and never falls back to
-                // push, so every command times out.
-                if !BackgroundKeepalive.shared.isRunning {
-                    BridgeClient.shared.disconnect()
-                    // Drain anything already queued while we still have runtime.
-                    Task { await BridgeClient.shared.drainQueue(foreground: false) }
-                }
-                scheduleBackgroundRefresh()
-            case .active:
-                BridgeClient.shared.connect()
-                Task { await BridgeClient.shared.drainQueue(foreground: true) }
-            default:          break
-            }
-        }
-    }
-
-    /// The scroller plus whichever chrome this instance owns.
-    @ViewBuilder private var chrome: some View {
-        if embedded {
-            // No stack and no background: the parent's `NavigationStack` carries
-            // the bar (so `.toolbar` lands there) and the parent's aurora shows
-            // through.
-            scroller.toolbar { scanToolbar }
-        } else {
-            NavigationStack {
-                scroller
-                    // Inline and named for its tab — this is the Devices tab inside
-                    // the Copilot shell now, not a standalone app root.
-                    .navigationTitle("Devices")
-                    #if os(iOS)
-                    .navigationBarTitleDisplayMode(.inline)
-                    #endif
-                    .toolbar { scanToolbar }
-            }
-        }
+        // The Devices tab's NavigationStack carries the bar (so `.toolbar` lands
+        // there) and its aurora shows through.
+        scroller.toolbar { scanToolbar }
     }
 
     private var scroller: some View {
@@ -101,11 +42,7 @@ struct ScanView: View {
             } label: {
                 Image(systemName: "gearshape")
             }
-            Button("Rescan", systemImage: "arrow.clockwise") {
-                manager.startScan()
-                scaleManager.startScan()
-                esp32Manager.startScan()
-            }
+            Button("Rescan", systemImage: "arrow.clockwise") { WearablesHub.shared.rescanAll() }
                 .disabled(!manager.bluetoothReady)
         }
     }

@@ -255,10 +255,8 @@ final class BottleManager: NSObject, ObservableObject {
             BridgeClient.remember(deviceID: device.deviceID, model: VsitooS1Pro.model)
         } else {
             DeviceRegistry.shared.remove(deviceID: device.deviceID)
-            if !BridgeClient.isExposed(device.deviceID) {
-                // Opted out, as opposed to merely offline.
-                BridgeClient.forget(deviceID: device.deviceID)
-            }
+            // Opted out, as opposed to merely offline.
+            BridgeClient.forget(deviceID: device.deviceID)
         }
         BridgeClient.shared.sendRegistration()
     }
@@ -278,13 +276,6 @@ final class BottleManager: NSObject, ObservableObject {
             exposedDevice = VsitooS1Pro(manager: self)
         }
         refreshRegistryMembership()
-    }
-
-    private func unpublishFromRegistry() {
-        guard let device = exposedDevice else { return }
-        DeviceRegistry.shared.remove(deviceID: device.deviceID)
-        exposedDevice = nil
-        BridgeClient.shared.sendRegistration()
     }
 
     private func resetDeviceState() {

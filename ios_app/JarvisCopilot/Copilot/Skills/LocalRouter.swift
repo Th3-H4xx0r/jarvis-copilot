@@ -23,8 +23,7 @@ final class LocalRouter {
     /// The default engine is now real: ``AppleFoundationModel`` over Apple's
     /// on-device FoundationModels (`Copilot/OnDeviceAI`). It still reports
     /// unavailable — and so still escalates every turn — on anything below
-    /// iOS 26 or without Apple Intelligence, which is exactly what
-    /// `UnavailableOnDeviceModel` did before it.
+    /// iOS 26 or without Apple Intelligence.
     init(model: any OnDeviceModel = AppleFoundationModel(),
          settings: LocalAiSettings = .shared,
          availableSkills: (@MainActor () -> Set<String>)? = nil) {
