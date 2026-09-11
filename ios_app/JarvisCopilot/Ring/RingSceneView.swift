@@ -12,6 +12,8 @@ struct RingSceneView: View {
     var flashToken = 0
     var tilt: Float = RingModel.defaultTilt
     var cameraDistance: Float = 4.2
+    /// Seconds for one turn.
+    var spinSeconds: Double = 34
 
     @State private var live: RingModel.Live?
     /// Optional so previews and tests without the shell still render.
@@ -32,7 +34,8 @@ struct RingSceneView: View {
         }
         .onAppear {
             guard live == nil else { return }
-            let scene = RingModel.Live(spin: spin, tilt: tilt, cameraDistance: cameraDistance)
+            let scene = RingModel.Live(spin: spin, tilt: tilt, cameraDistance: cameraDistance,
+                                       spinSeconds: spinSeconds)
             if entrance { scene.playEntrance() }
             if pulsing { scene.setPulsing(true) }
             live = scene

@@ -76,11 +76,18 @@ final class RingSession: ObservableObject {
     @Published private(set) var lastTouchKey: RingLiveReading?
     @Published private(set) var measurement: RingMeasurementState?
     @Published private(set) var calibration: RingCalibrationState?
-    /// Its own object, so a busy link redraws Diagnostics and not every ring screen.
-    let traffic = RingTrafficLog()
+    /// Every command and input, decoded. Its own object, so a busy link redraws the log
+    /// and not every ring screen.
+    let log = RingLog()
     @Published private(set) var chunkSize = RingProtocol.minimumChunk
     @Published private(set) var findPhoneActive = false
+    /// Raw optical-sensor samples while a reading runs, newest last (byte values; the
+    /// packing isn't documented, so Diagnostics shows them as they arrive).
+    @Published private(set) var livePPG: [Int] = []
     @Published private(set) var setupCompletedAt: Date?
+    /// What the ring answered when asked, which beats its own feature flags.
+    @Published private(set) var probe = RingProbe()
+    @Published private(set) var isProbing = false
 
     let transport: RingTransport
 
@@ -89,6 +96,8 @@ final class RingSession: ObservableObject {
     var onLiveActivity: ((RingActivity) -> Void)?
     var onMeasurementFinished: ((RingMeasurementState) -> Void)?
     var onFindPhone: ((Bool) -> Void)?
+    /// A tap, swipe or press on the ring, for whatever the user set it to run.
+    var onInput: ((RingInput) -> Void)?
     /// Whether the phone is in use, for the ring's sleep-detection query (`0x73`/62).
     var appIsActive: () -> Bool = { true }
 
@@ -105,7 +114,7 @@ final class RingSession: ObservableObject {
         let transport = transport ?? RingTransport()
         self.transport = transport
         transport.onUnsolicited = { [weak self] inbound in self?.handleUnsolicited(inbound) }
-        transport.onTraffic = { [traffic] entry in traffic.record(entry) }
+        transport.onFrame = { [log] frame in log.record(frame) }
     }
 
     func attach(_ link: RingLink) {
@@ -145,6 +154,26 @@ final class RingSession: ObservableObject {
         await refreshBattery()
         await refreshSettings()
         setupCompletedAt = Date()
+    }
+
+    /// Whether this ring does a metric: what it answered when asked, else what it advertises.
+    func supports(_ metric: RingMetric) -> Bool {
+        probe.supports(metric) ?? capabilities.supports(metric)
+    }
+
+    /// Asks the ring for one of everything and remembers what came back. The flags this
+    /// firmware advertises miss features it actually has, so the answer decides.
+    func runProbe(force: Bool = false) async {
+        guard !isProbing, force || probe.isStale(firmware: firmware) else { return }
+        isProbing = true
+        defer { isProbing = false }
+        var result = RingProbe(firmware: firmware, checkedAt: Date())
+        for feature in RingFeature.allCases {
+            let frames = try? await transport.perform(feature.request, until: feature.until)
+            result.record(feature, works: !(frames ?? []).isEmpty)
+        }
+        probe = result
+        persistCache()
     }
 
     func refreshBattery() async {
@@ -282,6 +311,20 @@ final class RingSession: ObservableObject {
         try require(capabilities.sedentary, "sedentary reminders")
         try await write(.writeSedentary(sedentary))
         settings.sedentary = await read(.readSedentary, RingDecode.sedentary) ?? sedentary
+    }
+
+    /// Puts the ring where it reports taps and swipes to the phone: its music mode, with the
+    /// reporting channel on. Jarvis runs the user's own action for each one.
+    func enableInputReporting() async {
+        _ = try? await transport.perform(.inputReporting(true), until: .single)
+        if capabilities.touch || !capabilities.isKnown {
+            try? await write(.writeTouch(appType: RingTouchMode.music.rawValue,
+                                         sleepTime: settings.touch?.sleepTime ?? 0))
+        }
+        if capabilities.gesture || !capabilities.isKnown {
+            try? await write(.writeGesture(appType: RingTouchMode.music.rawValue,
+                                           strength: settings.gesture?.strength ?? 1))
+        }
     }
 
     func syncClock() async throws {
@@ -467,6 +510,11 @@ final class RingSession: ObservableObject {
             let active = inbound.payload.first == 1
             findPhoneActive = active
             onFindPhone?(active)
+        case RingOp.ppgData:
+            livePPG = (livePPG + inbound.payload.map(Int.init)).suffix(180)
+        case RingOp.musicCommand:
+            // In the ring's music mode every tap and swipe arrives as one of these.
+            if let input = RingInput(musicAction: Int(inbound.payload.first ?? 0)) { onInput?(input) }
         default:
             break
         }
@@ -497,6 +545,7 @@ final class RingSession: ObservableObject {
             settings.touch?.touchSleep = on
         case .touchKey(let key):
             lastTouchKey = RingLiveReading(value: Double(key), date: Date())
+            if let input = RingInput(touchKey: key) { onInput?(input) }
         case .instantHeartRate(let bpm):
             guard bpm > 0 else { return }
             let reading = RingLiveReading(value: Double(bpm), date: Date())
@@ -530,6 +579,7 @@ final class RingSession: ObservableObject {
         var firmware: String?
         var hardware: String?
         var battery: RingBattery?
+        var probe: RingProbe?
     }
 
     private static func cacheKey(_ deviceID: String) -> String { "jc.ring.cache.\(deviceID)" }
@@ -545,11 +595,12 @@ final class RingSession: ObservableObject {
         firmware = firmware ?? cache.firmware
         hardware = hardware ?? cache.hardware
         battery = battery ?? cache.battery
+        if probe.isEmpty, let cached = cache.probe { probe = cached }
     }
 
     func saveCache(deviceID: String, defaults: UserDefaults = .standard) {
         let cache = Cache(capabilities: capabilities, settings: settings, firmware: firmware,
-                          hardware: hardware, battery: battery)
+                          hardware: hardware, battery: battery, probe: probe)
         if let data = try? JSONEncoder().encode(cache) { defaults.set(data, forKey: Self.cacheKey(deviceID)) }
         cacheOwner = (deviceID, defaults)
     }

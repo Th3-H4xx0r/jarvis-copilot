@@ -78,8 +78,8 @@ struct RingDeviceView: View {
     private var hero: some View {
         VStack(spacing: 12) {
             RingSceneView(spin: true, entrance: true,
-                          pulsing: session.measurement?.isActive == true, flashToken: findToken)
-                .frame(height: 300)
+                          pulsing: session.measurement?.isActive == true, flashToken: findToken, cameraDistance: 5.6)
+                .frame(height: 200)
                 .frame(maxWidth: .infinity)
             HStack(spacing: 7) {
                 MetricPill(icon: session.battery?.charging == true ? "bolt.fill" : "battery.75",
@@ -313,11 +313,12 @@ struct RingCard: View {
         ZStack(alignment: .topLeading) {
             HStack {
                 Spacer()
-                RingSceneView(spin: true, tilt: 1.0, cameraDistance: 3.4)
-                    .frame(width: 220, height: 190)
-                    .offset(x: 36)
+                RingSceneView(spin: true, tilt: 1.0, cameraDistance: 5.6, spinSeconds: 44)
+                    .frame(width: 124, height: 124)
+                    .padding(.trailing, 12)
                     .allowsHitTesting(false)
             }
+            .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
                 Text(ring.name.isEmpty ? "Smart ring" : ring.name)
                     .font(.title3.weight(.semibold))

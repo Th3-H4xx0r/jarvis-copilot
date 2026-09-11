@@ -181,7 +181,7 @@ final class RingSync: ObservableObject {
         currentStep = "battery"
         await session.refreshBattery()
         let historyWanted = (0...days).filter { needsHistory(store, daysAgo: $0, now: today) }
-        for metric in RingMetric.allCases where session.capabilities.supports(metric) {
+        for metric in RingMetric.allCases where session.supports(metric) {
             currentStep = metric.rawValue
             do {
                 try await run(metric, store: store, days: days, now: today)
@@ -227,16 +227,22 @@ final class RingSync: ObservableObject {
         case .heartRate:
             try await syncHeartRate(store, days: days, now: now)
             // QRing also takes 0x3C's heart bit as manual heart-rate support.
-            if caps.manualHeartRate || caps.heart { try await syncManual(store, spo2: false, all: days > 0, now: now) }
+            if session.probe.works(.manualHeartRate) ?? (caps.manualHeartRate || caps.heart) {
+                try await syncManual(store, spo2: false, all: days > 0, now: now)
+            }
         case .spo2:
-            if caps.bloodOxygen { try await syncHourly(store, request: .bigSpO2, spo2: true, now: now) }
-            if caps.manualBloodOxygen { try await syncManual(store, spo2: true, all: days > 0, now: now) }
+            if session.probe.works(.spo2) ?? caps.bloodOxygen {
+                try await syncHourly(store, request: .bigSpO2, spo2: true, now: now)
+            }
+            if session.probe.works(.manualSpO2) ?? caps.manualBloodOxygen {
+                try await syncManual(store, spo2: true, all: days > 0, now: now)
+            }
         case .hrv:
             try await syncDaySeries(store, hrv: true, days: days, now: now)
         case .stress:
             try await syncDaySeries(store, hrv: false, days: days, now: now)
         case .temperature:
-            guard caps.intervalTemperature else { return }
+            guard session.probe.works(.temperature) ?? caps.intervalTemperature else { return }
             for daysAgo in 0...days where needsHistory(store, daysAgo: daysAgo, now: now) {
                 if let series = try await intervalSeries(RingRequest.bigIntervalTemperature(dayOffset:packet:),
                                                          dayOffset: daysAgo, wide: true),
@@ -271,7 +277,8 @@ final class RingSync: ObservableObject {
 
     private func syncSleep(_ store: RingHistoryStore, days: Int, now: Date) async throws {
         let caps = session.capabilities
-        if caps.newSleepProtocol || !caps.isKnown {
+        // The R12 answers large-data sleep without advertising it, so what it answered wins.
+        if session.probe.works(.sleep) ?? (caps.newSleepProtocol || !caps.isKnown) {
             let frames = try await session.transport.perform(.bigSleep(all: days > 0),
                                                              accepting: [RingOp.bigSleep, RingOp.bigNaps], until: .idle)
             for frame in frames {
@@ -302,7 +309,7 @@ final class RingSync: ObservableObject {
     private func syncHeartRate(_ store: RingHistoryStore, days: Int, now: Date) async throws {
         for daysAgo in 0...days where needsHistory(store, daysAgo: daysAgo, now: now) {
             let series: RingSeries?
-            if session.capabilities.realTimeHeartRate {
+            if session.probe.works(.heartRateSeries) ?? session.capabilities.realTimeHeartRate {
                 series = try await intervalSeries(RingRequest.bigIntervalHeartRate(dayOffset:packet:),
                                                   dayOffset: daysAgo, wide: false)
             } else {

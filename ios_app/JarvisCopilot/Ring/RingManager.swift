@@ -49,6 +49,8 @@ final class RingManager: NSObject, ObservableObject {
     }
 
     var store: RingHistoryStore? { deviceID.map { RingHistoryStore.shared(for: $0) } }
+    /// What each tap, swipe or press on the ring runs.
+    var inputs: RingInputStore? { deviceID.map { RingInputStore.shared(for: $0) } }
     var exposedDeviceID: String? { exposedDevice?.deviceID }
 
     var linkIsUp: Bool {
@@ -87,6 +89,7 @@ final class RingManager: NSObject, ObservableObject {
             // The ring's "find my phone" gesture.
             if active { AudioServicesPlayAlertSound(SystemSoundID(1005)) }
         }
+        session.onInput = { [weak self] input in self?.runAction(for: input) }
     }
 
     // MARK: Scanning
@@ -219,6 +222,20 @@ final class RingManager: NSObject, ObservableObject {
         }
     }
 
+    /// A tap or swipe on the ring: run whatever it is set to, and say so in the log.
+    private func runAction(for input: RingInput) {
+        let action = inputs?.action(for: input) ?? .none
+        guard action.isSet else {
+            session.log.note("Ring input: \(input.label)", "no action set")
+            return
+        }
+        session.log.note("Ring input: \(input.label)", action.summary)
+        Task { [weak self] in
+            let outcome = await RingActionRunner.run(action)
+            self?.session.log.note("Ran \(input.label)", outcome)
+        }
+    }
+
     private var ringIsWorking: Bool {
         setupTask != nil || session.transport.isBusy || session.measurement?.isActive == true || sync.isSyncing
     }
@@ -236,6 +253,10 @@ final class RingManager: NSObject, ObservableObject {
             self.setupTask = nil
             guard self.state == .ready else { return }
             if let id = self.deviceID { self.session.saveCache(deviceID: id) }
+            // Only ask the ring to report taps and swipes when something is set to run.
+            if self.inputs?.isConfigured == true { await self.session.enableInputReporting() }
+            // Find out what this ring actually answers; its own flags under-report.
+            await self.session.runProbe()
             self.sync.syncIfStale()
         }
     }

@@ -39,26 +39,6 @@ enum RingUntil {
     case idle
 }
 
-struct RingTrafficEntry: Identifiable, Equatable {
-    let id = UUID()
-    let date: Date
-    let outbound: Bool
-    let channel: RingChannel
-    let hex: String
-    let note: String
-}
-
-/// The latest frames on the wire, newest first, for Diagnostics.
-@MainActor
-final class RingTrafficLog: ObservableObject {
-    @Published private(set) var entries: [RingTrafficEntry] = []
-    private let limit = 80
-
-    func record(_ entry: RingTrafficEntry) {
-        entries.insert(entry, at: 0)
-        if entries.count > limit { entries.removeLast(entries.count - limit) }
-    }
-}
 
 /// Serialises request/reply transactions over both ring channels.
 ///
@@ -78,7 +58,8 @@ final class RingTransport {
     weak var link: RingLink?
     var timing: Timing
     var onUnsolicited: ((RingInbound) -> Void)?
-    var onTraffic: ((RingTrafficEntry) -> Void)?
+    /// Every frame in either direction, decoded meaning left to `RingLog`.
+    var onFrame: ((RingFrame) -> Void)?
 
     private final class Pending {
         let request: RingRequest
@@ -126,16 +107,19 @@ final class RingTransport {
         switch channel {
         case .command:
             guard let parsed = RingProtocol.parseCommand(data) else { return }
-            log(outbound: false, channel: .command, bytes: data, note: parsed.checksumValid ? "" : "bad checksum, dropped")
+            onFrame?(RingFrame(outbound: false, channel: .command, cmd: parsed.inbound.cmd,
+                               payload: parsed.inbound.payload, isError: parsed.inbound.isError,
+                               note: parsed.checksumValid ? "" : "bad checksum, dropped"))
             // A corrupt settings reply would otherwise be written back by the next change.
             guard parsed.checksumValid else { return }
             route(parsed.inbound)
         case .bigData:
-            log(outbound: false, channel: .bigData, bytes: data, note: "")
             for frame in assembler.append(data) {
                 if !frame.crcValid {
                     JcLog.devices.notice("ring: large-data CRC mismatch on 0x\(String(format: "%02X", frame.inbound.cmd), privacy: .public)")
                 }
+                onFrame?(RingFrame(outbound: false, channel: .bigData, cmd: frame.inbound.cmd,
+                                   payload: frame.inbound.payload, note: frame.crcValid ? "" : "CRC mismatch"))
                 route(frame.inbound)
             }
         }
@@ -157,9 +141,9 @@ final class RingTransport {
         }
         let next = queue.removeFirst()
         current = next
-        let bytes = next.request.bytes
-        log(outbound: true, channel: next.request.channel, bytes: bytes, note: "")
-        link.send(bytes, on: next.request.channel)
+        onFrame?(RingFrame(outbound: true, channel: next.request.channel, cmd: next.request.cmd,
+                           payload: next.request.payload))
+        link.send(next.request.bytes, on: next.request.channel)
         if case .none = next.until {
             finish(.success([]))
         } else {
@@ -246,9 +230,4 @@ final class RingTransport {
         pending.forEach { $0.continuation.resume(throwing: error) }
     }
 
-    private func log(outbound: Bool, channel: RingChannel, bytes: Data, note: String) {
-        guard let onTraffic else { return }
-        let shown = bytes.prefix(48).hexString + (bytes.count > 48 ? "…" : "")
-        onTraffic(RingTrafficEntry(date: Date(), outbound: outbound, channel: channel, hex: shown, note: note))
-    }
 }

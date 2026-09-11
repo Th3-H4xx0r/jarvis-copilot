@@ -16,6 +16,7 @@ struct RingSettingsView: View {
     @State private var rawReplies: [String] = []
     @State private var confirmPowerOff = false
     @State private var confirmReset = false
+    @State private var showRawBytes = false
 
     private struct GoalsDraft: Equatable {
         var steps = 8000
@@ -54,11 +55,18 @@ struct RingSettingsView: View {
                 }
                 sharing
                 monitoring
-                if caps.touch || caps.gesture || !caps.isKnown { controls }
+                if let inputs = manager.inputs {
+                    RingInputsSection(store: inputs, ready: ready,
+                                      sensitivity: caps.gesture ? session.settings.gesture?.strength ?? 1 : nil) { value in
+                        apply { try await session.setGestureMode(.music, strength: value) }
+                    }
+                }
                 goalsSection
                 profileSection
                 preferences
                 maintenance
+                whatItDoes
+                liveSensors
                 deviceInfo
                 diagnostics
             }
@@ -188,50 +196,6 @@ struct RingSettingsView: View {
                 Text(minutes == 0 ? "—" : "\(minutes) min").tag(minutes)
             }
         }
-    }
-
-    // MARK: Touch
-
-    private var controls: some View {
-        let s = session.settings
-        var modes = caps.touchModes
-        for current in [s.touch?.touchMode, s.gesture?.touchMode].compactMap({ $0 }) where !modes.contains(current) {
-            modes.append(current)
-        }
-        return CardGroup("Touch & gestures", footer: "Touch is a tap or swipe on the ring; a gesture is a double-tap.") {
-            if caps.touch || !caps.isKnown {
-                Row {
-                    Picker("Touch controls", selection: Binding(
-                        get: { s.touch?.touchMode ?? .off },
-                        set: { mode in apply { try await session.setTouchMode(mode) } })) {
-                        ForEach(modes, id: \.self) { Text($0.label).tag($0) }
-                    }
-                }
-            }
-            if caps.gesture || !caps.isKnown {
-                RowDivider()
-                Row {
-                    Picker("Gesture controls", selection: Binding(
-                        get: { s.gesture?.touchMode ?? .off },
-                        set: { mode in apply { try await session.setGestureMode(mode, strength: nil) } })) {
-                        ForEach(modes, id: \.self) { Text($0.label).tag($0) }
-                    }
-                }
-                RowDivider()
-                Row {
-                    Stepper("Gesture sensitivity \(s.gesture?.strength ?? 0)", value: Binding(
-                        get: { s.gesture?.strength ?? 0 },
-                        set: { value in
-                            guard let mode = s.gesture?.touchMode else { return }
-                            apply { try await session.setGestureMode(mode, strength: value) }
-                        }),
-                            in: 0...10)
-                    // Until the gesture setting is read there is no mode to keep.
-                    .disabled(s.gesture == nil)
-                }
-            }
-        }
-        .disabled(!ready || working)
     }
 
     // MARK: Goals & profile
@@ -434,9 +398,76 @@ struct RingSettingsView: View {
 
     // MARK: Device
 
+    /// What the ring answered when asked — this is what Jarvis gates on, not the firmware's
+    /// own flags, which under-report on this model.
+    private var whatItDoes: some View {
+        CardGroup("What this ring does",
+                  footer: "Found by asking the ring for each kind of data, because its advertised "
+                      + "feature flags miss things it can actually do.") {
+            ForEach(RingFeature.allCases) { feature in
+                Row(minHeight: 38) {
+                    HStack {
+                        Text(feature.label).font(.subheadline)
+                        Spacer()
+                        switch session.probe.works(feature) {
+                        case true?:
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        case false?:
+                            Image(systemName: "minus.circle").foregroundStyle(.secondary)
+                        case nil:
+                            Text("—").font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                RowDivider()
+            }
+            Row {
+                Button(session.isProbing ? "Checking…" : "Check again") {
+                    Task { await session.runProbe(force: true) }
+                }
+                .disabled(!ready || session.isProbing)
+            }
+        }
+    }
+
+    /// What the ring is streaming right now. It has no accelerometer or gyroscope feed —
+    /// the protocol carries motion only as steps and sleep — so this is the live sensor set.
+    private var liveSensors: some View {
+        CardGroup("Live sensors",
+                  footer: "Pushed by the ring as they happen. Start a measurement to see the optical "
+                      + "sensor working; the ring sends no raw accelerometer or gyroscope data.") {
+            infoRow("Heart rate", session.liveHeartRate.map { "\(Int($0.value)) bpm · \(ago($0.date))" } ?? "—")
+            RowDivider()
+            infoRow("Blood oxygen", session.liveSpO2.map { "\(Int($0.value))% · \(ago($0.date))" } ?? "—")
+            RowDivider()
+            infoRow("Temperature", session.liveTemperature.map { String(format: "%.1f °C · ", $0.value) + ago($0.date) } ?? "—")
+            RowDivider()
+            infoRow("Steps", session.liveActivity.map { "\($0.steps) · \($0.distanceMeters) m" } ?? "—")
+            RowDivider()
+            infoRow("Last input", session.lastTouchKey.map {
+                (RingInput(touchKey: Int($0.value))?.label ?? "key \(Int($0.value))") + " · " + ago($0.date)
+            } ?? "—")
+            RowDivider()
+            infoRow("Optical samples", session.livePPG.isEmpty
+                    ? "—" : "\(session.livePPG.count) · latest \(session.livePPG.suffix(6).map(String.init).joined(separator: " "))")
+            if session.measurement?.isActive == true {
+                RowDivider()
+                Row { Text("Measuring now").font(.caption).foregroundStyle(.green) }
+            }
+        }
+    }
+
+    private func ago(_ date: Date) -> String {
+        let seconds = Int(Date().timeIntervalSince(date))
+        if seconds < 60 { return "\(max(0, seconds))s ago" }
+        if seconds < 3600 { return "\(seconds / 60)m ago" }
+        return date.formatted(date: .omitted, time: .shortened)
+    }
+
     private var deviceInfo: some View {
         let flags = caps.allFlags
-        return CardGroup("Device") {
+        return CardGroup("Device", footer: "The flags below are what the firmware advertises — "
+                         + "\"What this ring does\" above is what it actually answered.") {
             infoRow("Connection", manager.state.text)
             if let name = manager.connected?.name { RowDivider(); infoRow("Name", name) }
             if let firmware = session.firmware { RowDivider(); infoRow("Firmware", firmware) }
@@ -514,33 +545,51 @@ struct RingSettingsView: View {
                     Text(rawReplies[index]).font(.caption.monospaced()).textSelection(.enabled)
                 }
             }
-            TrafficRows(log: session.traffic)
+            RowDivider()
+            Row {
+                Toggle("Show raw bytes", isOn: $showRawBytes)
+            }
+            LogRows(log: session.log, showRaw: showRawBytes)
         }
     }
 
-    /// The wire log, observed on its own so traffic redraws these rows and nothing else.
-    private struct TrafficRows: View {
-        @ObservedObject var log: RingTrafficLog
+    /// The decoded command and input log, observed on its own so a busy link redraws
+    /// these rows and nothing else.
+    private struct LogRows: View {
+        @ObservedObject var log: RingLog
+        let showRaw: Bool
 
         var body: some View {
-            ForEach(Array(log.entries.prefix(40))) { entry in
+            ForEach(Array(log.entries.prefix(60))) { entry in
                 RowDivider()
                 Row(minHeight: 44) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Image(systemName: entry.outbound ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
-                            .foregroundStyle(entry.outbound ? Color.orange : Color.green)
+                        Image(systemName: entry.frame.cmd == 0 ? "sparkles"
+                                : entry.frame.outbound ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                            .foregroundStyle(tint(entry))
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.hex).font(.caption.monospaced()).lineLimit(2)
-                            Text((entry.channel == .bigData ? "large data" : "command") + " · "
-                                 + entry.date.formatted(date: .omitted, time: .standard)
-                                 + (entry.note.isEmpty ? "" : " · \(entry.note)"))
+                            Text(entry.title).font(.subheadline)
+                            if !entry.detail.isEmpty {
+                                Text(entry.detail).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Text(entry.date.formatted(date: .omitted, time: .standard)
+                                 + (entry.frame.channel == .bigData ? " · large data" : ""))
                                 .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.tertiary)
+                            if showRaw, entry.frame.cmd != 0 {
+                                Text(entry.hex).font(.caption2.monospaced()).foregroundStyle(.tertiary)
+                            }
                         }
                         Spacer(minLength: 0)
                     }
                 }
             }
+        }
+
+        private func tint(_ entry: RingLogEntry) -> Color {
+            if entry.frame.isError { return .red }
+            if entry.frame.cmd == 0 { return Color(red: 0.6, green: 0.55, blue: 1) }
+            return entry.frame.outbound ? .orange : .green
         }
     }
 

@@ -127,7 +127,9 @@ enum RingOp {
     static let heartRateHistory: UInt8 = 0x15
     static let heartRateMonitor: UInt8 = 0x16
     static let temperatureUnit: UInt8 = 0x19
-    static let musicControl: UInt8 = 0x1D
+    /// Turns the ring's input reporting on; it then sends `musicCommand` for every tap and swipe.
+    static let musicSwitch: UInt8 = 0x1C
+    static let musicCommand: UInt8 = 0x1D
     static let heartRateKeepAlive: UInt8 = 0x1E
     static let goals: UInt8 = 0x21
     static let findPhone: UInt8 = 0x22
@@ -148,6 +150,10 @@ enum RingOp {
     static let findRing: UInt8 = 0x50
     static let measure: UInt8 = 0x69
     static let stopMeasure: UInt8 = 0x6A
+    static let ecgData: UInt8 = 0x6D
+    /// Raw optical-sensor samples, pushed while a reading runs. The ring has no
+    /// accelerometer or gyroscope stream — motion only reaches the phone as steps and sleep.
+    static let ppgData: UInt8 = 0x6E
     static let deviceEvent: UInt8 = 0x73
     static let sportEvent: UInt8 = 0x78
     static let phoneStillTime: UInt8 = 0x7E
@@ -408,6 +414,11 @@ extension RingRequest {
     }
 
     // Actions
+
+    /// Ask the ring to report taps and swipes to the phone (its "music control" channel).
+    static func inputReporting(_ on: Bool) -> RingRequest {
+        .command(RingOp.musicSwitch, [2, on ? 1 : 2])
+    }
 
     static let findRing = RingRequest.command(RingOp.findRing, [0x55, 0xAA])
     static let heartRateKeepAlive = RingRequest.command(RingOp.heartRateKeepAlive, [3])
