@@ -68,6 +68,25 @@ struct RingInputsSection: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
             }
+            if store.usesMultiPress {
+                RowDivider()
+                Row {
+                    Picker("Wait for a second press",
+                           selection: Binding(get: { store.pressWindow }, set: store.setPressWindow)) {
+                        ForEach(RingInputStore.pressWindows, id: \.self) { seconds in
+                            Text(String(format: "%.1fs", seconds)).tag(seconds)
+                        }
+                    }
+                }
+                RowDivider()
+                Row {
+                    Text("A single press waits this long before running. The log prints the gap between "
+                         + "presses — set this a little above it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
             if let sensitivity {
                 RowDivider()
                 Row {

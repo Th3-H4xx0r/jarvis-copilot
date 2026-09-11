@@ -62,7 +62,7 @@ final class RingFeatureTests: XCTestCase {
     }
 
     func testEveryChannelTheRingPressesOnBecomesAnInput() async throws {
-        session.pressWindow = 0.05
+        session.pressWindow = { 0.05 }
         session.wantsMultiPress = { true }
         var seen: [RingInput] = []
         session.onInput = { seen.append($0) }
@@ -81,7 +81,7 @@ final class RingFeatureTests: XCTestCase {
     }
 
     func testPressesInQuickSuccessionMakeThreeInputsFromOneGesture() async throws {
-        session.pressWindow = 0.05
+        session.pressWindow = { 0.05 }
         session.wantsMultiPress = { true }
         var seen: [RingInput] = []
         session.onInput = { seen.append($0) }
@@ -95,7 +95,7 @@ final class RingFeatureTests: XCTestCase {
     }
 
     func testASinglePressRunsAtOnceWhenNothingUsesMultiPress() async throws {
-        session.pressWindow = 1.4
+        session.pressWindow = { 1.4 }
         session.wantsMultiPress = { false }
         var seen: [RingInput] = []
         session.onInput = { seen.append($0) }

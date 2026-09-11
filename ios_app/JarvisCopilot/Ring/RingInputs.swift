@@ -240,15 +240,21 @@ final class RingInputStore: ObservableObject {
     /// What the user chose the ring's presses should do; nil until they choose.
     @Published private(set) var mode: RingInputMode?
 
+    /// The chosen wait for a second press.
+    @Published private(set) var pressWindow: TimeInterval = 2.5
+
     private let key: String
     private let modeKey: String
+    private let windowKey: String
     private let defaults: UserDefaults
 
     init(deviceID: String, defaults: UserDefaults = .standard) {
         self.key = "jc.ring.inputs.\(deviceID)"
         self.modeKey = "jc.ring.inputs.\(deviceID).mode"
+        self.windowKey = "jc.ring.inputs.\(deviceID).window"
         self.defaults = defaults
         mode = defaults.string(forKey: modeKey).flatMap(RingInputMode.init(rawValue:))
+        if let stored = defaults.object(forKey: windowKey) as? Double, stored > 0 { pressWindow = stored }
         if let data = defaults.data(forKey: key),
            let stored = try? JSONDecoder().decode([String: RingAction].self, from: data) {
             actions = stored.reduce(into: [:]) { out, pair in
@@ -258,6 +264,11 @@ final class RingInputStore: ObservableObject {
     }
 
     func action(for input: RingInput) -> RingAction { actions[input] ?? .none }
+
+    /// How long to wait for a second press. The ring needs a moment to detect and report each
+    /// double-tap, so the gap between two of them is longer than it feels — the log prints the
+    /// measured gap so this can be set to match the ring.
+    static let pressWindows: [TimeInterval] = [1.2, 1.8, 2.5, 3.5]
 
     /// True once anything is set, which is when the ring is asked to report its inputs.
     var isConfigured: Bool { actions.values.contains(where: \.isSet) }
@@ -275,6 +286,11 @@ final class RingInputStore: ObservableObject {
     func setMode(_ mode: RingInputMode) {
         self.mode = mode
         defaults.set(mode.rawValue, forKey: modeKey)
+    }
+
+    func setPressWindow(_ seconds: TimeInterval) {
+        pressWindow = seconds
+        defaults.set(seconds, forKey: windowKey)
     }
 
     func set(_ action: RingAction, for input: RingInput) {

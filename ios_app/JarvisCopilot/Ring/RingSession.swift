@@ -533,9 +533,11 @@ final class RingSession: ObservableObject {
         }
     }
 
-    /// How long to wait for another press before deciding what the gesture was. The ring's own
-    /// double-tap takes about a second to detect and report, so two of them need a window this wide.
-    var pressWindow: TimeInterval = 1.4
+    /// How long to wait for another press before deciding what the gesture was. The ring needs
+    /// a moment to detect and report each double-tap, so two of them arrive further apart than
+    /// they feel; the log prints the measured gap and this is settable per ring.
+    var pressWindow: () -> TimeInterval = { 2.5 }
+    private var lastPressAt: Date?
     /// Whether anything is bound to a double or triple press. When nothing is, there is nothing
     /// to disambiguate and a press runs the moment it lands instead of waiting out the window.
     var wantsMultiPress: () -> Bool = { false }
@@ -549,15 +551,23 @@ final class RingSession: ObservableObject {
             deliver(input)
             return
         }
+        // The measured gap is the only way to tell "the ring dropped the second press" from
+        // "the window was too short", so it goes in the log either way.
+        let now = Date()
+        let gap = lastPressAt.map { now.timeIntervalSince($0) }
+        lastPressAt = now
+        log.note("Ring press", gap.map { String(format: "%.1fs after the last", $0) } ?? "first")
+
         pressCount += 1
         pressTask?.cancel()
-        guard pressWindow > 0, wantsMultiPress() else {
+        let window = pressWindow()
+        guard window > 0, wantsMultiPress() else {
             pressCount = 0
             deliver(.tap)
             return
         }
         pressTask = Task { [weak self] in
-            guard let window = self?.pressWindow else { return }
+            guard self != nil else { return }
             try? await Task.sleep(for: .seconds(window))
             guard !Task.isCancelled, let self else { return }
             let count = self.pressCount
