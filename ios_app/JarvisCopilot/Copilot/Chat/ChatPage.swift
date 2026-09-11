@@ -85,14 +85,18 @@ struct ChatPage: View {
         .onChange(of: targets.generation, initial: true) { _, _ in
             Task { await store.openDeepLinkTarget(targets) }
         }
+        // The list poll runs only while Chat is on screen in a foregrounded app:
+        // the background keepalive keeps the process running, so a poll gated on
+        // the tab alone would keep the radio awake all night.
         .onChange(of: router.selectedTab, initial: true) { _, tab in
             let visible = tab == .chat
-            store.setListPolling(visible)
+            store.setListPolling(visible && scenePhase == .active)
             if visible { Task { await store.refreshOnFocus() } }
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active, router.selectedTab == .chat else { return }
-            Task { await store.refreshOnFocus() }
+            let visible = phase == .active && router.selectedTab == .chat
+            store.setListPolling(visible)
+            if visible { Task { await store.refreshOnFocus() } }
         }
         .sheet(isPresented: $showSessions) { ChatSessionsSheet(store: store) }
         .sheet(isPresented: $showModels) { ChatModelPickerSheet(store: store) }

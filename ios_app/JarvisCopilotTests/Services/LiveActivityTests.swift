@@ -272,7 +272,7 @@ final class LiveActivityTests: XCTestCase {
         XCTAssertTrue(transport.requests.isEmpty)
     }
 
-    func testABackgroundTickIsThrottledToTheSlowInterval() async {
+    func testABackgroundTickNeverFetches() async {
         let controller = FakeActivityController()
         let (api, transport) = JarvisAPI.mocked()
         transport.route("/api/coding/projects", json: ["projects": [], "ungrouped": []])
@@ -289,12 +289,10 @@ final class LiveActivityTests: XCTestCase {
             sleeper: instantSleeper)
 
         await coordinator.tick()
-        let afterFirst = transport.requests.count
         await coordinator.tick()
 
-        XCTAssertGreaterThan(afterFirst, 0, "a backgrounded but living app still refreshes")
-        XCTAssertEqual(transport.requests.count, afterFirst,
-                       "the second tick is inside the 30 s background window")
+        XCTAssertTrue(transport.requests.isEmpty,
+                      "backgrounded, the server keeps the activity fresh over APNs")
     }
 
     func testActivityPushTokensAreRegisteredOnceEach() async {

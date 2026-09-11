@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import XCTest
 @testable import JarvisCopilot
@@ -87,49 +88,43 @@ final class LocalConnectionNotifierTests: XCTestCase {
 
     // MARK: BridgeConnectionFeed
 
-    /// Edge-triggered: the monitor is told only when the sampled state actually
-    /// changes, otherwise every 1 s tick would restart the 4 s debounce and no
+    /// Edge-triggered: the monitor is told only when the connection actually
+    /// changes, otherwise every repeat would restart the 4 s debounce and no
     /// banner would ever settle.
     func testTheFeedOnlyReportsEdges() async {
         let notifier = RecordingNotifier()
-        let monitor = ConnectionMonitor(notifier: notifier, debounce: 0,
-                                        sleeper: { _ in })
-        let samples = [false, false, true, true, false]
-        var index = 0
-        let feed = BridgeConnectionFeed(
-            monitor: monitor,
-            isConnected: {
-                defer { index = min(index + 1, samples.count - 1) }
-                return samples[index]
-            },
-            sleeper: { _ in try await Task.sleep(nanoseconds: 1_000_000) })
+        let monitor = ConnectionMonitor(notifier: notifier, debounce: 0, sleeper: { _ in })
+        let status = PassthroughSubject<Bool, Never>()
+        let feed = BridgeConnectionFeed(monitor: monitor, connected: status.eraseToAnyPublisher())
 
         feed.start()
+        for value in [false, false, true, true, false] {
+            status.send(value)
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
         let deadline = Date().addingTimeInterval(2)
         while notifier.titles.count < 2 && Date() < deadline {
             try? await Task.sleep(nanoseconds: 2_000_000)
         }
         feed.stop()
 
-        // The first sample is the monitor's silent baseline; only the two real
+        // The first value is the monitor's silent baseline; only the two real
         // flips reach the notifier.
         XCTAssertEqual(notifier.titles, ["JARVIS reconnected", "JARVIS disconnected"])
     }
 
-    func testStoppingTheFeedEndsTheSampling() async {
+    func testStoppingTheFeedEndsTheSubscription() async {
         let notifier = RecordingNotifier()
         let monitor = ConnectionMonitor(notifier: notifier, debounce: 0, sleeper: { _ in })
-        var polls = 0
-        let feed = BridgeConnectionFeed(
-            monitor: monitor,
-            isConnected: { polls += 1; return false },
-            sleeper: { _ in try await Task.sleep(nanoseconds: 1_000_000) })
+        let status = PassthroughSubject<Bool, Never>()
+        let feed = BridgeConnectionFeed(monitor: monitor, connected: status.eraseToAnyPublisher())
 
         feed.start()
-        try? await Task.sleep(nanoseconds: 20_000_000)
+        status.send(false)
+        try? await Task.sleep(nanoseconds: 5_000_000)
         feed.stop()
-        let settled = polls
+        status.send(true)
         try? await Task.sleep(nanoseconds: 20_000_000)
-        XCTAssertEqual(polls, settled, "stop() must cancel the sampler")
+        XCTAssertTrue(notifier.titles.isEmpty, "stop() must cancel the subscription")
     }
 }

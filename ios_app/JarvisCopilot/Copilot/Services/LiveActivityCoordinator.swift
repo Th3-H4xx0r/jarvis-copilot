@@ -19,8 +19,8 @@ final class LiveActivityCoordinator {
     /// The timer's own cadence. Each tick then decides whether enough time has
     /// passed for a fetch, per `LivePollPolicy`.
     static let tickInterval: TimeInterval = 5
-    /// While backgrounded (and still alive, thanks to the audio/BLE modes) poll
-    /// much less often — the activity stays fresh enough and the battery survives.
+    /// The timer's cadence while backgrounded, where it never fetches: the server
+    /// keeps a running activity fresh over APNs push-to-update.
     static let backgroundInterval: TimeInterval = 30
     /// The island catalog changes rarely, and on its OWN cadence so a layout edit
     /// applies live even when the coding poll is throttled to 60 s.
@@ -55,7 +55,6 @@ final class LiveActivityCoordinator {
     private var lastPushed: LiveActivityState?
     private var lastFetch = Date(timeIntervalSince1970: 0)
     private var lastUsageFetch = Date(timeIntervalSince1970: 0)
-    private var lastBackgroundPoll = Date(timeIntervalSince1970: 0)
     private var lastIslandFetch = Date(timeIntervalSince1970: 0)
     private var lastToken = ""
 
@@ -140,7 +139,7 @@ final class LiveActivityCoordinator {
         pollHandle.replace(Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                try? await self.sleeper(Self.tickInterval)
+                try? await self.sleeper(self.lifecycle.isForeground ? Self.tickInterval : Self.backgroundInterval)
                 if Task.isCancelled { return }
                 await self.tick()
             }
@@ -150,18 +149,12 @@ final class LiveActivityCoordinator {
     /// One poll tick. Exposed so a test can drive the cadence without a clock.
     func tick() async {
         guard enabled else { return }
-        guard lifecycle.isForeground else {
-            // Backgrounded but still alive (audio / bluetooth-central keep the
-            // process running). Poll slowly so the activity keeps updating; a
-            // fully suspended app relies on the server's APNs push-to-update.
-            let moment = now()
-            guard moment.timeIntervalSince(lastBackgroundPoll) >= Self.backgroundInterval else { return }
-            lastBackgroundPoll = moment
-            await refreshCoding()
-            return
-        }
+        // Backgrounded (the keepalive keeps the process running): no fetches.
+        // The server keeps a running activity fresh over APNs push-to-update,
+        // just as it does for a suspended app.
+        guard lifecycle.isForeground else { return }
         await refreshIslandIfDue()
-        let want = LivePollPolicy.pollInterval(voiceActive: voice.state != "idle",
+        let want = LivePollPolicy.pollInterval(voiceActive: voice.state != "idle" && voice.state != "error",
                                                codingVisible: codingVisible,
                                                sessionTotal: fleet.sessionTotal)
         guard now().timeIntervalSince(lastFetch) >= want else { return }

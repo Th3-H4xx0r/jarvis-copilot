@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 #if canImport(UserNotifications)
 import UserNotifications
@@ -72,47 +73,28 @@ final class LocalConnectionNotifier: ConnectionNotifier, @unchecked Sendable {
 
 /// Feeds `ConnectionMonitor` from `BridgeClient`'s status.
 ///
-/// `BridgeClient` is still an `ObservableObject`, so there is no `AsyncSequence`
-/// to await — this polls its `status` on a slow timer instead. A poll is enough
-/// because the monitor debounces anyway (4 s), so a sub-second latency on the
-/// edge would be thrown away regardless.
+/// Subscribes to the published `status` and reports edges only, so the
+/// monitor's 4 s debounce can settle.
 @MainActor
 final class BridgeConnectionFeed {
-    /// How often the bridge status is sampled. Well under the monitor's debounce
-    /// window, so a real transition is never missed by more than one tick.
-    static let intervalSeconds: TimeInterval = 1
-
     private let monitor: ConnectionMonitor
-    private let isConnected: @MainActor () -> Bool
-    private let sleeper: @Sendable (TimeInterval) async throws -> Void
-    private let handle = TaskHandle()
+    private let connected: AnyPublisher<Bool, Never>
+    private var subscription: AnyCancellable?
 
-    init(monitor: ConnectionMonitor,
-         isConnected: @escaping @MainActor () -> Bool = { BridgeClient.shared.status == .online },
-         sleeper: (@Sendable (TimeInterval) async throws -> Void)? = nil) {
+    init(monitor: ConnectionMonitor, connected: AnyPublisher<Bool, Never>? = nil) {
         self.monitor = monitor
-        self.isConnected = isConnected
-        self.sleeper = sleeper ?? { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
+        self.connected = connected
+            ?? BridgeClient.shared.$status.map { $0 == .online }.eraseToAnyPublisher()
     }
-
-    deinit { handle.cancel() }
 
     func start() {
-        handle.replace(Task { [weak self] in
-            var last: Bool?
-            // Guard inside the loop: hoisted, the 1 s sampler pins the feed for
-            // the life of the app and `deinit` (which cancels it) never runs.
-            while !Task.isCancelled {
-                guard let self else { return }
-                let now = self.isConnected()
-                if now != last {
-                    last = now
-                    self.monitor.connectionChanged(now)
-                }
-                try? await self.sleeper(Self.intervalSeconds)
+        subscription = connected
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isConnected in
+                MainActor.assumeIsolated { self?.monitor.connectionChanged(isConnected) }
             }
-        })
     }
 
-    func stop() { handle.cancel() }
+    func stop() { subscription = nil }
 }
