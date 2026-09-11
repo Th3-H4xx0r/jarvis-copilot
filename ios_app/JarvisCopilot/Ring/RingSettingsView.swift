@@ -57,6 +57,7 @@ struct RingSettingsView: View {
                 monitoring
                 if let inputs = manager.inputs {
                     RingInputsSection(store: inputs, ready: ready, lastInput: session.lastInput,
+                                      inputs: RingInput.available(touchSurface: caps.touch),
                                       ringMode: session.inputMode,
                                       sensitivity: caps.gesture ? session.settings.gesture?.strength ?? 1 : nil,
                                       onMode: { mode in

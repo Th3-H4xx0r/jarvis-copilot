@@ -61,18 +61,40 @@ final class RingFeatureTests: XCTestCase {
         XCTAssertEqual(RingInput(touchKey: 3), .tap)
     }
 
-    func testEveryChannelTheRingPressesOnBecomesAnInput() {
+    func testEveryChannelTheRingPressesOnBecomesAnInput() async throws {
+        session.pressWindow = 0.05
         var seen: [RingInput] = []
         session.onInput = { seen.append($0) }
 
         link.deliver(RingProtocol.frame(0x1D, [3]))       // music mode (Android only)
         link.deliver(RingProtocol.frame(0x73, [45, 4]))   // key event
-        link.deliver(RingProtocol.frame(0x73, [41]))      // game click
-        link.deliver(RingProtocol.frame(0x73, [37, 0, 0, 0, 5]))  // tasbih counter
         link.deliver(RingProtocol.frame(0x73, [48]))      // couple double-tap
+        link.deliver(RingProtocol.frame(0x73, [41]))      // game click
+        try await Task.sleep(nanoseconds: 120_000_000)
+        link.deliver(RingProtocol.frame(0x73, [37, 0, 0, 0, 5]))  // tasbih counter
         link.deliver(RingProtocol.frame(0x02, [1]))       // camera shutter
+        try await Task.sleep(nanoseconds: 120_000_000)
 
-        XCTAssertEqual(seen, [.swipeForward, .longPress, .tap, .tap, .doubleTap, .tap])
+        // Presses are grouped, so the two that land together are one double press.
+        XCTAssertEqual(seen, [.swipeForward, .longPress, .doubleTap, .tap, .doublePress])
+    }
+
+    func testPressesInQuickSuccessionMakeThreeInputsFromOneGesture() async throws {
+        session.pressWindow = 0.05
+        var seen: [RingInput] = []
+        session.onInput = { seen.append($0) }
+
+        for _ in 0..<3 { link.deliver(RingProtocol.frame(0x73, [41])) }
+        try await Task.sleep(nanoseconds: 120_000_000)
+        link.deliver(RingProtocol.frame(0x73, [41]))
+        try await Task.sleep(nanoseconds: 120_000_000)
+
+        XCTAssertEqual(seen, [.triplePress, .tap])
+    }
+
+    func testOnlyTheGesturesTheRingHasAreOffered() {
+        XCTAssertEqual(RingInput.available(touchSurface: false), [.tap, .doublePress, .triplePress])
+        XCTAssertTrue(RingInput.available(touchSurface: true).contains(.swipeForward))
     }
 
     func testActionsSurviveARelaunchAndOnlyCountWhenSet() {

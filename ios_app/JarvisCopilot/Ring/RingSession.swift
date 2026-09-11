@@ -533,7 +533,31 @@ final class RingSession: ObservableObject {
         }
     }
 
+    /// How long to wait for another press before deciding what the gesture was.
+    var pressWindow: TimeInterval = 0.55
+    private var pressCount = 0
+    private var pressTask: Task<Void, Never>?
+
+    /// A ring with no touch surface sends one kind of press, so presses in quick succession
+    /// become single, double and triple — three inputs out of one gesture.
     private func noteInput(_ input: RingInput) {
+        guard input == .tap else {
+            deliver(input)
+            return
+        }
+        pressCount += 1
+        pressTask?.cancel()
+        pressTask = Task { [weak self] in
+            guard let window = self?.pressWindow else { return }
+            try? await Task.sleep(for: .seconds(window))
+            guard !Task.isCancelled, let self else { return }
+            let count = self.pressCount
+            self.pressCount = 0
+            self.deliver(count >= 3 ? .triplePress : count == 2 ? .doublePress : .tap)
+        }
+    }
+
+    private func deliver(_ input: RingInput) {
         lastInput = RingInputEvent(input: input, date: Date())
         onInput?(input)
     }

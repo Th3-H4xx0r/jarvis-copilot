@@ -7,6 +7,8 @@ import Foundation
 /// action instead of controlling music, so these names are what the ring calls them.
 enum RingInput: String, CaseIterable, Codable, Identifiable {
     case tap
+    case doublePress = "double_press"
+    case triplePress = "triple_press"
     case swipeForward = "swipe_forward"
     case swipeBack = "swipe_back"
     case volumeUp = "volume_up"
@@ -19,6 +21,8 @@ enum RingInput: String, CaseIterable, Codable, Identifiable {
     var label: String {
         switch self {
         case .tap: return "Tap"
+        case .doublePress: return "Double press"
+        case .triplePress: return "Triple press"
         case .swipeForward: return "Swipe forward"
         case .swipeBack: return "Swipe back"
         case .volumeUp: return "Volume-up gesture"
@@ -26,6 +30,13 @@ enum RingInput: String, CaseIterable, Codable, Identifiable {
         case .longPress: return "Long press"
         case .doubleTap: return "Double tap"
         }
+    }
+
+    /// What a ring can actually produce. Without a touch surface there is one gesture — the
+    /// ring's own double-tap — so Jarvis counts presses to make three inputs out of it, the
+    /// way a one-button remote does. Swipes and long press need a touch strip.
+    static func available(touchSurface: Bool) -> [RingInput] {
+        touchSurface ? allCases : [.tap, .doublePress, .triplePress]
     }
 
     /// `0x1D` music actions: 1 play/pause · 2 previous · 3 next · 4 volume up · 5 volume down.

@@ -6,6 +6,8 @@ struct RingInputsSection: View {
     @ObservedObject var store: RingInputStore
     let ready: Bool
     let lastInput: RingInputEvent?
+    /// Only the inputs this ring can produce.
+    let inputs: [RingInput]
     /// What the ring actually took, read back from it.
     let ringMode: RingInputMode
     let sensitivity: Int?
@@ -14,9 +16,10 @@ struct RingInputsSection: View {
 
     var body: some View {
         CardGroup("Ring inputs",
-                  footer: "Names are the ring's own: it reports every gesture as a music control, so a "
-                      + "double-tap usually arrives as \"Swipe forward\". Do the gesture and watch which "
-                      + "row says it was just seen, then set that one.") {
+                  footer: inputs.count <= 3
+                      ? "This ring has one gesture — the double-tap it feels on its own. Do it twice or "
+                        + "three times quickly for the other two, the way a one-button remote works."
+                      : "Do a gesture and watch which row says it was just seen, then set that one.") {
             Row {
                 Picker("Gestures", selection: Binding(get: { store.wantedMode }, set: onMode)) {
                     ForEach(RingInputMode.allCases) { Text($0.label).tag($0) }
@@ -35,7 +38,7 @@ struct RingInputsSection: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            ForEach(Array(RingInput.allCases.enumerated()), id: \.element.id) { index, input in
+            ForEach(Array(inputs.enumerated()), id: \.element.id) { _, input in
                 RowDivider()
                 NavigationLink {
                     RingActionPicker(store: store, input: input)
