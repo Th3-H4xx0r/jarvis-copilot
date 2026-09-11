@@ -42,6 +42,10 @@ final class RingManager: NSObject, ObservableObject {
 
     var keepAliveEnabled: Bool { WearableKeepAlive.isOn(WearableKeepAlive.ring) }
 
+    /// Ring gestures need the link up: an action set on the ring is useless if the link goes
+    /// when the app leaves the screen, so choosing "Jarvis actions" holds it like Keep Alive.
+    var holdsLinkForInputs: Bool { inputs?.wantedMode == .jarvis }
+
     /// The ring hides its MAC from iOS, so identity is the remembered id, else this install's
     /// CoreBluetooth identifier.
     var deviceID: String? {
@@ -214,7 +218,7 @@ final class RingManager: NSObject, ObservableObject {
 
     /// Releases an on-demand link once the work is done (Keep Alive off, no screen open).
     func releaseIfIdle() {
-        guard !keepAliveEnabled, !screenIsOpen else { return }
+        guard !keepAliveEnabled, !screenIsOpen, !holdsLinkForInputs else { return }
         idleDropTask?.cancel()
         idleDropTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(WearableKeepAlive.idleGraceSeconds))
@@ -329,8 +333,9 @@ final class RingManager: NSObject, ObservableObject {
     func enterBackground() {
         isBackgrounded = true
         stopScan()
-        // Bridge mode + Keep Alive holds the link so Jarvis can reach the ring; otherwise
-        // the link is reopened on demand.
+        // Gestures need the link in the background — that is the whole point of them. Bridge
+        // mode + Keep Alive holds it too; otherwise the link is reopened on demand.
+        guard !holdsLinkForInputs else { return }
         guard !BridgeClient.shared.enabled || !keepAliveEnabled else { return }
         if connected != nil {
             wasConnectedBeforeBackground = connected
@@ -464,7 +469,7 @@ extension RingManager: CBCentralManagerDelegate {
             self.setupTask?.cancel()
             self.setupTask = nil
             self.resetLink()
-            guard self.keepAliveEnabled || self.screenIsOpen else {
+            guard self.keepAliveEnabled || self.screenIsOpen || self.holdsLinkForInputs else {
                 JcLog.devices.notice("ring: link dropped (\(reason, privacy: .public)); keep-alive off")
                 self.connected = nil
                 self.state = .idle

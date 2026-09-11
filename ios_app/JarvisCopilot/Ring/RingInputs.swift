@@ -85,7 +85,8 @@ enum RingInputMode: String, CaseIterable, Codable, Identifiable {
 
     var detail: String {
         switch self {
-        case .jarvis: return "The ring reports every press to Jarvis, which runs what you set below."
+        case .jarvis: return "The ring reports every press to Jarvis, which runs what you set below. "
+            + "Keeps the ring connected, including while the app is in the background."
         case .music: return "The ring acts as a media remote to iOS. Jarvis never sees these presses."
         case .off: return "The ring ignores taps and swipes."
         }

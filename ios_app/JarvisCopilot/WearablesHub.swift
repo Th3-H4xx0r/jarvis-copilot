@@ -108,8 +108,11 @@ final class WearablesHub: ObservableObject {
             }
             if WearableKeepAlive.isOn(WearableKeepAlive.scale) { self.scale.startScan() }
             // The ring has its own central, which reports power separately.
-            if WearableKeepAlive.isOn(WearableKeepAlive.ring),
-               WearableIdentity.remembered(WearableKeepAlive.ring) != nil {
+            // Keep Alive, or a ring whose gestures are set: both need the link back at launch,
+            // since a gesture can only reach Jarvis while the ring is connected.
+            if let ringID = WearableIdentity.remembered(WearableKeepAlive.ring),
+               WearableKeepAlive.isOn(WearableKeepAlive.ring)
+                   || RingInputStore.shared(for: ringID).wantedMode == .jarvis {
                 for _ in 0..<20 where !self.ring.bluetoothReady {
                     try? await Task.sleep(for: .milliseconds(250))
                     if Task.isCancelled { return }
