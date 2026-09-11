@@ -25,7 +25,8 @@ final class RingSync: ObservableObject {
     let historyDays = 6
     var todayStaleness: TimeInterval = 15 * 60
     var now: () -> Date = { Date() }
-    var calendar = Calendar.current
+    /// Follows the phone's time zone as it changes; day keys and minutes are local.
+    var calendar = Calendar.autoupdatingCurrent
 
     private let session: RingSession
     private let storeProvider: () -> RingHistoryStore?
@@ -197,6 +198,9 @@ final class RingSync: ObservableObject {
         if !report.updated.isEmpty {
             lastTodaySync = finished
             if days >= historyDays { lastFullSync = finished }
+        }
+        // A past day is done only once every metric has read it; until then each sync retries it.
+        if !report.updated.isEmpty, report.failed.isEmpty {
             for daysAgo in historyWanted {
                 store.update(dayKey(daysAgo, today)) { $0.syncedAt = finished }
             }
@@ -222,7 +226,8 @@ final class RingSync: ObservableObject {
             try await syncSleep(store, days: days, now: now)
         case .heartRate:
             try await syncHeartRate(store, days: days, now: now)
-            if caps.manualHeartRate { try await syncManual(store, spo2: false, all: days > 0, now: now) }
+            // QRing also takes 0x3C's heart bit as manual heart-rate support.
+            if caps.manualHeartRate || caps.heart { try await syncManual(store, spo2: false, all: days > 0, now: now) }
         case .spo2:
             if caps.bloodOxygen { try await syncHourly(store, request: .bigSpO2, spo2: true, now: now) }
             if caps.manualBloodOxygen { try await syncManual(store, spo2: true, all: days > 0, now: now) }

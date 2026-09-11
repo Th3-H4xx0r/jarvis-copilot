@@ -158,6 +158,46 @@ final class RingSessionTests: XCTestCase {
         XCTAssertEqual(session.liveHeartRate?.value, 66)
     }
 
+    private let goalsReply: [UInt8] = [1, 0x10, 0x27, 0, 0x20, 0xA1, 0x07, 0x88, 0x13, 0, 60, 0, 0xE0, 0x01]
+    private let someGoals = RingGoals(steps: 9000, calories: 300_000, distanceMeters: 5000, sportMinutes: 60, sleepMinutes: 480)
+
+    func testALateWriteAckIsNotTakenForTheReRead() async throws {
+        link.script(0x21, [])
+        link.script(0x21, [RingProtocol.frame(0x21, [2]), RingProtocol.frame(0x21, goalsReply)])
+
+        try await session.setGoals(someGoals)
+
+        XCTAssertEqual(session.settings.goals?.steps, 10000, "the ring's reply, not the requested value")
+    }
+
+    func testATouchReadSkipsALateGestureReply() async throws {
+        var b = [UInt8](repeating: 0, count: 14)
+        b[1] = 0b1000_0001
+        session.setCapabilities(RingCapabilities(blockA: blockA(), blockB: b))
+        link.script(0x3B, [])
+        link.script(0x3B, [RingProtocol.frame(0x3B, [1, 1, 5, 0, 3]), RingProtocol.frame(0x3B, [1, 0, 1, 10])])
+
+        await session.refreshSettings()
+
+        XCTAssertNil(session.settings.gesture)
+        XCTAssertEqual(session.settings.touch?.isTouch, true)
+        XCTAssertEqual(session.settings.touch?.mode, 1)
+    }
+
+    func testASettingChangedAfterSetupIsCached() async throws {
+        let defaults = UserDefaults(suiteName: "RingSessionTests.cacheWrites")!
+        defaults.removePersistentDomain(forName: "RingSessionTests.cacheWrites")
+        session.loadCache(deviceID: "ring-2", defaults: defaults)
+        link.script(0x21, [RingProtocol.frame(0x21, [2])])
+        link.script(0x21, [RingProtocol.frame(0x21, goalsReply)])
+
+        try await session.setGoals(someGoals)
+
+        let restored = RingSession(transport: makeRingTransport(FakeRingLink()))
+        restored.loadCache(deviceID: "ring-2", defaults: defaults)
+        XCTAssertEqual(restored.settings.goals?.steps, 10000)
+    }
+
     func testTheCacheRestoresCapabilitiesAndSettings() {
         let defaults = UserDefaults(suiteName: "RingSessionTests.cache")!
         defaults.removePersistentDomain(forName: "RingSessionTests.cache")

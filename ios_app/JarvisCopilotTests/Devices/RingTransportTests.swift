@@ -6,6 +6,7 @@ import XCTest
 @MainActor
 final class FakeRingLink: RingLink {
     var isLinkReady = true
+    var hasBigDataChannel = true
     weak var transport: RingTransport?
     var replyDelay: TimeInterval = 0
     private(set) var sent: [(channel: RingChannel, bytes: [UInt8])] = []
@@ -166,6 +167,25 @@ final class RingTransportTests: XCTestCase {
         let reply = try await transport.perform(.findRing, until: .none)
         XCTAssertTrue(reply.isEmpty)
         XCTAssertEqual(link.payloads(0x50).first?.prefix(2), [0x55, 0xAA])
+    }
+
+    func testALargeDataRequestFailsAtOnceWithoutTheChannel() async {
+        link.hasBigDataChannel = false
+        do {
+            _ = try await transport.perform(.bigManualHeartRate(all: true), until: .idle)
+            XCTFail("expected unsupported")
+        } catch {
+            XCTAssertEqual(error as? RingError, .unsupported("the large-data channel"))
+        }
+        XCTAssertTrue(link.sent.isEmpty)
+    }
+
+    func testAFrameWithABadChecksumIsDropped() async throws {
+        var corrupt = [UInt8](RingProtocol.frame(0x03, [80, 0]))
+        corrupt[15] &+= 1
+        link.script(0x03, [Data(corrupt), RingProtocol.frame(0x03, [81, 0])])
+        let reply = try await transport.perform(.battery, until: .single)
+        XCTAssertEqual(reply.first?.payload.prefix(2), [81, 0])
     }
 
     func testNothingIsSentWithoutALink() async {

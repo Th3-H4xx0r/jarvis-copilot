@@ -350,6 +350,9 @@ enum RingModel {
             scene.rootNode.addChildNode(camera)
         }
 
+        /// Whether a measurement wants the LEDs pulsing, so a find flash can hand back to it.
+        private var measuring = false
+
         func playEntrance() {
             pivot.scale = SCNVector3(0.6, 0.6, 0.6)
             pivot.opacity = 0
@@ -360,6 +363,11 @@ enum RingModel {
 
         /// The LEDs breathe and cast a green glow while a measurement runs.
         func setPulsing(_ on: Bool) {
+            measuring = on
+            pulse(on)
+        }
+
+        private func pulse(_ on: Bool) {
             leds.forEach { $0.removeAction(forKey: "pulse") }
             glow.removeAction(forKey: "pulse")
             guard on else {
@@ -384,9 +392,12 @@ enum RingModel {
         func flash() {
             let hop = SCNAction.sequence([.scale(to: 1.08, duration: 0.12), .scale(to: 1.0, duration: 0.18)])
             pivot.runAction(.repeat(hop, count: 3), forKey: "hop")
-            setPulsing(true)
-            pivot.runAction(.sequence([.wait(duration: 2.0), .run { [weak self] _ in self?.setPulsing(false) }]),
-                            forKey: "flash")
+            pulse(true)
+            // Back to whatever a running measurement wants, not simply off.
+            pivot.runAction(.sequence([.wait(duration: 2.0), .run { [weak self] _ in
+                guard let self else { return }
+                self.pulse(self.measuring)
+            }]), forKey: "flash")
         }
     }
 }

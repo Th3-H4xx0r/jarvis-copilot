@@ -171,6 +171,15 @@ struct RingDay: Codable, Equatable {
             s.temperatureAvg = (values.reduce(0, +) / Double(values.count) * 100).rounded() / 100
             s.temperatureLatest = temps.max(by: { $0.minute < $1.minute })?.value
         }
+
+        if let latest = bloodPressure.last {
+            s.bloodPressureSystolic = latest.systolic
+            s.bloodPressureDiastolic = latest.diastolic
+        }
+        if let bloodSugar {
+            s.bloodSugarMin = (bloodSugar.min + bloodSugar.max).filter { $0 > 0 }.min()
+            s.bloodSugarMax = bloodSugar.max.filter { $0 > 0 }.max()
+        }
         return s
     }
 }
@@ -198,6 +207,12 @@ struct RingDaySummary: Codable, Equatable {
     var stressLatest: Int?
     var temperatureAvg: Double?
     var temperatureLatest: Double?
+    /// The day's latest reading, mmHg.
+    var bloodPressureSystolic: Int?
+    var bloodPressureDiastolic: Int?
+    /// The ring's raw values.
+    var bloodSugarMin: Int?
+    var bloodSugarMax: Int?
 }
 
 /// Per-ring history, one JSON file per local day under Application Support.

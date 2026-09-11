@@ -78,6 +78,26 @@ final class RingSyncTests: XCTestCase {
         XCTAssertFalse(link.sent.contains { $0.channel == .bigData }, "legacy sleep and heart rate stay on the command channel")
     }
 
+    func testAPastDayStaysUnsyncedWhileAMetricFailed() async throws {
+        var a = [UInt8](repeating: 0, count: 14)
+        a[13] = 0b10_0000
+        session.setCapabilities(RingCapabilities(blockA: a, blockB: [UInt8](repeating: 0, count: 14)))
+        link.script(0x03, [RingProtocol.frame(0x03, [50, 0])])
+        link.script(0x48, [RingProtocol.frame(0x48, [UInt8](repeating: 0, count: 14))])
+        for _ in 0...1 {
+            link.script(0x43, [RingProtocol.frame(0x43, [0xFF])])
+            link.script(0x44, [RingProtocol.frame(0x44, [0xFF])])
+            link.script(0x15, [RingProtocol.frame(0x15, [0xFF])])
+        }
+        // HRV (0x39) gets no reply and times out.
+
+        let report = await sync.sync(days: 1)
+
+        XCTAssertNotNil(report.failed["hrv"])
+        XCTAssertFalse(report.updated.isEmpty)
+        XCTAssertNil(store.day("2026-09-10").syncedAt, "yesterday is read again next sync")
+    }
+
     func testSyncWithoutALinkSaysSoAndSendsNothing() async {
         link.isLinkReady = false
         let report = await sync.sync(days: 6)

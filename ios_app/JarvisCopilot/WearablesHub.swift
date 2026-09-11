@@ -235,8 +235,10 @@ final class WearablesHub: ObservableObject {
             // A known peripheral reopens by identifier; otherwise find it by scanning.
             if await ring.ensureConnected(timeout: 3) { return true }
             ring.startScan()
+            // Only this ring: any R-series ring nearby answers a scan, and whichever connects
+            // gets its clock set and its data filed as this user's.
             guard let found = await waitFor(timeout: timeout, {
-                self.ring.discovered.first { $0.id.uuidString == deviceID } ?? self.ring.discovered.first
+                self.ring.discovered.first { $0.id.uuidString == deviceID }
             }) else { return false }
             if ring.connected?.id != found.id || !ring.linkIsUp { ring.connect(found) }
             return await waitUntil(timeout: timeout) { self.ring.state == .ready }

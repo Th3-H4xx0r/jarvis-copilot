@@ -69,6 +69,7 @@ final class RingManager: NSObject, ObservableObject {
     private var setupTask: Task<Void, Never>?
     private var wasConnectedBeforeBackground: DiscoveredRing?
     private var isBackgrounded = false
+    private var lastBackgroundDrain = Date.distantPast
     private static let lastPeripheralKey = "lastConnectedRingPeripheral"
 
     override init() {
@@ -79,6 +80,8 @@ final class RingManager: NSObject, ObservableObject {
             options: [CBCentralManagerOptionRestoreIdentifierKey:
                         "com.jarviscopilot.jarviscopilotMobileAndIOS.ringCentral"])
         session.attach(self)
+        // Wires the session's push and measurement hooks before a restored link delivers any.
+        _ = sync
         session.appIsActive = { UIApplication.shared.applicationState == .active }
         session.onFindPhone = { active in
             // The ring's "find my phone" gesture.
@@ -206,12 +209,18 @@ final class RingManager: NSObject, ObservableObject {
         idleDropTask?.cancel()
         idleDropTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(WearableKeepAlive.idleGraceSeconds))
+            // A first sync after launch easily outlasts the grace; the link goes when the work does.
+            while !Task.isCancelled, self?.ringIsWorking == true {
+                try? await Task.sleep(for: .seconds(5))
+            }
             guard let self, !Task.isCancelled, !self.keepAliveEnabled, !self.screenIsOpen else { return }
-            guard !self.session.transport.isBusy, self.session.measurement?.isActive != true,
-                  !self.sync.isSyncing else { return }
             JcLog.devices.notice("ring: idle after on-demand use; dropping the link")
             self.disconnect()
         }
+    }
+
+    private var ringIsWorking: Bool {
+        setupTask != nil || session.transport.isBusy || session.measurement?.isActive == true || sync.isSyncing
     }
 
     private func becomeReady(_ p: CBPeripheral) {
@@ -285,6 +294,7 @@ final class RingManager: NSObject, ObservableObject {
 
 extension RingManager: RingLink {
     var isLinkReady: Bool { state == .ready && peripheral != nil && commandWrite != nil }
+    var hasBigDataChannel: Bool { bigDataWrite != nil }
 
     func send(_ data: Data, on channel: RingChannel) {
         guard let peripheral else { return }
@@ -475,8 +485,11 @@ extension RingManager: CBPeripheralDelegate {
             default:
                 return
             }
-            // A BLE wake is a reliable slice of background time: spend it on Jarvis's queue.
-            if self.isBackgrounded, BridgeClient.shared.enabled, BridgeClient.shared.status != .online {
+            // A BLE wake is a reliable slice of background time: spend it on Jarvis's queue —
+            // once per burst, since a sync delivers hundreds of notifications.
+            if self.isBackgrounded, BridgeClient.shared.enabled, BridgeClient.shared.status != .online,
+               Date().timeIntervalSince(self.lastBackgroundDrain) > 10 {
+                self.lastBackgroundDrain = Date()
                 await BridgeClient.shared.drainQueue(foreground: false)
             }
         }

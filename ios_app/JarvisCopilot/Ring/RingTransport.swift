@@ -4,6 +4,8 @@ import Foundation
 @MainActor
 protocol RingLink: AnyObject {
     var isLinkReady: Bool { get }
+    /// Whether the ring exposes the large-data service.
+    var hasBigDataChannel: Bool { get }
     func send(_ data: Data, on channel: RingChannel)
 }
 
@@ -44,6 +46,18 @@ struct RingTrafficEntry: Identifiable, Equatable {
     let channel: RingChannel
     let hex: String
     let note: String
+}
+
+/// The latest frames on the wire, newest first, for Diagnostics.
+@MainActor
+final class RingTrafficLog: ObservableObject {
+    @Published private(set) var entries: [RingTrafficEntry] = []
+    private let limit = 80
+
+    func record(_ entry: RingTrafficEntry) {
+        entries.insert(entry, at: 0)
+        if entries.count > limit { entries.removeLast(entries.count - limit) }
+    }
 }
 
 /// Serialises request/reply transactions over both ring channels.
@@ -96,7 +110,11 @@ final class RingTransport {
     /// Sends `request` and waits for its reply. `accepting` lists the opcodes that belong to
     /// this transaction (defaults to the request's own).
     func perform(_ request: RingRequest, accepting: Set<UInt8>? = nil, until: RingUntil) async throws -> [RingInbound] {
-        guard link?.isLinkReady == true else { throw RingError.notConnected }
+        guard let link, link.isLinkReady else { throw RingError.notConnected }
+        // Without the service a large-data request would only sit out its timeout.
+        if request.channel == .bigData, !link.hasBigDataChannel {
+            throw RingError.unsupported("the large-data channel")
+        }
         return try await withCheckedThrowingContinuation { continuation in
             queue.append(Pending(request: request, accepting: accepting ?? [request.cmd],
                                  until: until, continuation: continuation))
@@ -108,7 +126,9 @@ final class RingTransport {
         switch channel {
         case .command:
             guard let parsed = RingProtocol.parseCommand(data) else { return }
-            log(outbound: false, channel: .command, bytes: data, note: parsed.checksumValid ? "" : "bad checksum")
+            log(outbound: false, channel: .command, bytes: data, note: parsed.checksumValid ? "" : "bad checksum, dropped")
+            // A corrupt settings reply would otherwise be written back by the next change.
+            guard parsed.checksumValid else { return }
             route(parsed.inbound)
         case .bigData:
             log(outbound: false, channel: .bigData, bytes: data, note: "")

@@ -115,7 +115,7 @@ final class ColmiR12: WearableDevice {
                     + "ring_get_status.touch_modes lists what this ring offers.",
                 inputSchema: DeviceCapability.schema([
                     "control": ["type": "string", "enum": ["touch", "gesture"]],
-                    "mode": ["type": "string", "enum": RingTouchMode.allCases.map(\.name)],
+                    "mode": ["type": "string", "enum": RingTouchMode.offerable.map(\.name)],
                     "strength": ["type": "integer", "description": "Gesture sensitivity, 0–10."],
                 ], required: ["control", "mode"])),
             DeviceCapability(
@@ -191,7 +191,7 @@ final class ColmiR12: WearableDevice {
         case "ring_sync": return try await syncNow(args)
         case "ring_measure": return try await measure(args)
         case "ring_find":
-            return try await live {
+            return try await live { _ in
                 try await self.session.findRing()
                 return ["ok": true]
             }
@@ -207,11 +207,14 @@ final class ColmiR12: WearableDevice {
     }
 
     /// Runs `body` on a live link: reconnect on demand, wait for setup, release afterwards.
-    private func live<T>(_ body: () async throws -> T) async throws -> T {
-        guard await backend.ensureConnected(timeout: 15) else { throw DeviceError.notConnected }
+    /// The bridge gives an invoke 30 s, so connecting and setup come out of one 25 s budget and
+    /// `body` gets the seconds left — at least 10 once the ring is connected.
+    private func live<T>(_ body: (_ secondsLeft: TimeInterval) async throws -> T) async throws -> T {
+        let deadline = Date().addingTimeInterval(25)
+        guard await backend.ensureConnected(timeout: 10) else { throw DeviceError.notConnected }
         defer { backend.releaseIfIdle() }
-        await backend.waitForSetup(timeout: 8)
-        return try await body()
+        await backend.waitForSetup(timeout: max(0, min(8, deadline.timeIntervalSinceNow - 10)))
+        return try await body(max(0, deadline.timeIntervalSinceNow))
     }
 
     /// Starts `work` and waits at most `seconds`; the work carries on if it takes longer.
@@ -239,7 +242,7 @@ final class ColmiR12: WearableDevice {
             "supported_metrics": RingMetric.allCases.filter { caps.supports($0) }.map(\.rawValue),
             "supported_measurements": caps.supportedMeasurements.map(\.name),
             "touch_modes": caps.touchModes.map(\.name),
-            "settings": json(session.settings),
+            "settings": settingsJSON(),
         ]
         if let name = backend.displayName { out["name"] = name }
         if let battery = session.battery {
@@ -294,9 +297,11 @@ final class ColmiR12: WearableDevice {
     private func syncNow(_ args: [String: Any]) async throws -> [String: Any] {
         let days = args["days"] as? Int ?? 0
         guard (0...6).contains(days) else { throw DeviceError.badArgument("'days' must be 0–6") }
-        return try await live {
+        return try await live { secondsLeft in
             var report: RingSyncReport?
-            let finished = await runBounded(20) { [backend] in report = await backend.sync.sync(days: days) }
+            let finished = await runBounded(max(2, secondsLeft)) { [backend] in
+                report = await backend.sync.sync(days: days)
+            }
             guard finished, let report else {
                 return ["finished": false, "note": "still syncing in the background — check ring_get_status.last_sync"]
             }
@@ -314,11 +319,10 @@ final class ColmiR12: WearableDevice {
             throw DeviceError.badArgument("this ring can't measure \(type.label.lowercased())")
         }
         let wait = TimeInterval(max(0, min(25, args["wait_seconds"] as? Int ?? 25)))
-        let started = Date()
-        return try await live {
+        return try await live { secondsLeft in
+            let deadline = Date().addingTimeInterval(secondsLeft)
             try await self.session.startMeasurement(type)
-            // Keep the whole invoke inside the bridge's 30 s budget.
-            let remaining = max(0, min(wait, 25 - Date().timeIntervalSince(started)))
+            let remaining = max(0, min(wait, deadline.timeIntervalSinceNow))
             let state = await self.session.awaitMeasurement(timeout: remaining)
             return state.map(measurementJSON) ?? ["metric": type.name, "status": "measuring"]
         }
@@ -347,7 +351,7 @@ final class ColmiR12: WearableDevice {
         if metric == "temperature", let interval, ![10, 30, 60, 120].contains(interval) {
             throw DeviceError.badArgument("temperature interval must be 10, 30, 60 or 120 minutes")
         }
-        return try await live {
+        return try await live { _ in
             switch metric {
             case "heart_rate": try await self.session.setHeartRateMonitoring(enabled: enabled, intervalMinutes: interval)
             case "spo2": try await self.session.setSpO2Monitoring(enabled: enabled)
@@ -355,7 +359,7 @@ final class ColmiR12: WearableDevice {
             case "stress": try await self.session.setStressMonitoring(enabled: enabled)
             default: try await self.session.setTemperatureMonitoring(enabled: enabled, intervalMinutes: interval)
             }
-            return ["settings": self.json(self.session.settings)]
+            return ["settings": self.settingsJSON()]
         }
     }
 
@@ -363,8 +367,9 @@ final class ColmiR12: WearableDevice {
         guard let control = args["control"] as? String, ["touch", "gesture"].contains(control) else {
             throw DeviceError.badArgument("'control' must be touch or gesture")
         }
-        guard let name = args["mode"] as? String, let mode = RingTouchMode(name: name) else {
-            throw DeviceError.badArgument("'mode' must be one of: " + RingTouchMode.allCases.map(\.name).joined(separator: ", "))
+        guard let name = args["mode"] as? String, let mode = RingTouchMode(name: name),
+              RingTouchMode.offerable.contains(mode) else {
+            throw DeviceError.badArgument("'mode' must be one of: " + RingTouchMode.offerable.map(\.name).joined(separator: ", "))
         }
         let strength = args["strength"] as? Int
         if let strength, !(0...10).contains(strength) {
@@ -374,13 +379,13 @@ final class ColmiR12: WearableDevice {
         if caps.isKnown, !caps.touchModes.contains(mode) {
             throw DeviceError.badArgument("this ring offers: " + caps.touchModes.map(\.name).joined(separator: ", "))
         }
-        return try await live {
+        return try await live { _ in
             if control == "touch" {
                 try await self.session.setTouchMode(mode)
             } else {
                 try await self.session.setGestureMode(mode, strength: strength)
             }
-            return ["settings": self.json(self.session.settings)]
+            return ["settings": self.settingsJSON()]
         }
     }
 
@@ -391,7 +396,7 @@ final class ColmiR12: WearableDevice {
         for (key, value) in given where value < 0 || value > 1_000_000 {
             throw DeviceError.badArgument("'\(key)' is out of range")
         }
-        return try await live {
+        return try await live { _ in
             var goals = self.session.settings.goals
                 ?? RingGoals(steps: 8000, calories: 300_000, distanceMeters: 5000, sportMinutes: 60, sleepMinutes: 480)
             for (key, value) in given {
@@ -404,7 +409,7 @@ final class ColmiR12: WearableDevice {
                 }
             }
             try await self.session.setGoals(goals)
-            return ["settings": self.json(self.session.settings)]
+            return ["settings": self.settingsJSON()]
         }
     }
 
@@ -423,7 +428,7 @@ final class ColmiR12: WearableDevice {
                 throw DeviceError.badArgument("'\(key)' must be \(range.lowerBound)–\(range.upperBound)")
             }
         }
-        return try await live {
+        return try await live { _ in
             var profile = self.session.settings.profile
                 ?? RingProfile(use24Hour: true, metric: true, sex: 0, age: 30, heightCm: 170, weightKg: 70,
                                systolic: 120, diastolic: 90, heartRateWarning: 0, open: 0)
@@ -434,7 +439,7 @@ final class ColmiR12: WearableDevice {
             if let use24 = args["use_24h"] as? Bool { profile.use24Hour = use24 }
             if let metric = args["metric_units"] as? Bool { profile.metric = metric }
             try await self.session.setProfile(profile)
-            return ["settings": self.json(self.session.settings)]
+            return ["settings": self.settingsJSON()]
         }
     }
 
@@ -471,11 +476,11 @@ final class ColmiR12: WearableDevice {
         guard celsius != nil || dnd != nil || sedentary != nil else {
             throw DeviceError.badArgument("give temperature_unit, dnd or sedentary")
         }
-        return try await live {
+        return try await live { _ in
             if let celsius { try await self.session.setTemperatureUnit(celsius: celsius) }
             if let dnd { try await self.session.setDND(dnd) }
             if let sedentary { try await self.session.setSedentary(sedentary) }
-            return ["settings": self.json(self.session.settings)]
+            return ["settings": self.settingsJSON()]
         }
     }
 
@@ -488,7 +493,7 @@ final class ColmiR12: WearableDevice {
                 ? "'confirm' must be true — a factory reset erases the ring's data and settings"
                 : "'confirm' must be true — the ring turns off until it is put on its charger")
         }
-        return try await live {
+        return try await live { _ in
             if action == "factory_reset" {
                 try await self.session.factoryReset()
             } else {
@@ -506,7 +511,7 @@ final class ColmiR12: WearableDevice {
             guard let bytes = Data(hexString: hex).map({ [UInt8]($0) }), !bytes.isEmpty else {
                 throw DeviceError.badArgument("'hex' must be an even-length hex string")
             }
-            return try await live {
+            return try await live { _ in
                 let replies = try await self.session.sendRaw(bytes)
                 return ["replies": replies.map(self.inboundJSON)]
             }
@@ -518,7 +523,7 @@ final class ColmiR12: WearableDevice {
         guard let payload = Data(hexString: payloadHex) else {
             throw DeviceError.badArgument("'payload_hex' must be an even-length hex string")
         }
-        return try await live {
+        return try await live { _ in
             let replies = try await self.session.sendRawBigData(cmd: UInt8(cmd), payload: [UInt8](payload))
             return ["replies": replies.map(self.inboundJSON)]
         }
@@ -537,6 +542,17 @@ final class ColmiR12: WearableDevice {
         guard let data = try? encoder.encode(value),
               let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return [:] }
         return object
+    }
+
+    /// The ring's settings, with the goal's small calories as kcal like every other energy value
+    /// a caller sees — and like `ring_set_goals` takes them.
+    private func settingsJSON() -> Any {
+        guard var dict = json(session.settings) as? [String: Any] else { return [:] }
+        if var goals = dict["goals"] as? [String: Any], let small = goals.removeValue(forKey: "calories") as? Int {
+            goals["kilocalories"] = small / 1000
+            dict["goals"] = goals
+        }
+        return dict
     }
 
     private func iso(_ date: Date) -> String {
@@ -572,6 +588,8 @@ final class ColmiR12: WearableDevice {
         .hrv: ["hrv_avg", "hrv_latest"],
         .stress: ["stress_avg", "stress_latest"],
         .temperature: ["temperature_avg", "temperature_latest"],
+        .bloodPressure: ["blood_pressure_systolic", "blood_pressure_diastolic"],
+        .bloodSugar: ["blood_sugar_min", "blood_sugar_max"],
     ]
 
     private func summaryJSON(_ summary: RingDaySummary, metrics: Set<RingMetric>?) -> [String: Any] {

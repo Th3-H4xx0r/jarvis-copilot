@@ -127,6 +127,39 @@ final class ColmiR12Tests: XCTestCase {
         XCTAssertEqual((history["days"] as? [[String: Any]])?.count, 30)
     }
 
+    func testTasbihAndCoupleAreNeverSent() async {
+        await assertBadArgument("ring_set_touch_mode", ["control": "touch", "mode": "tasbih"])
+        await assertBadArgument("ring_set_touch_mode", ["control": "gesture", "mode": "couple"])
+        XCTAssertEqual(backend.connectAttempts, 0)
+    }
+
+    func testGoalCaloriesReadBackInKilocalories() async throws {
+        backend.connectable = true
+        backend.link.script(0x21, [RingProtocol.frame(0x21, [2])])
+        backend.link.script(0x21, [RingProtocol.frame(0x21, [1, 0x10, 0x27, 0, 0x20, 0xA1, 0x07, 0x88, 0x13, 0, 60, 0, 0xE0, 0x01])])
+
+        let result = try await ring.invoke("ring_set_goals", args: ["calories": 500])
+
+        let goals = (result["settings"] as? [String: Any])?["goals"] as? [String: Any]
+        XCTAssertEqual(goals?["kilocalories"] as? Int, 500)
+        XCTAssertNil(goals?["calories"])
+    }
+
+    func testBloodPressureAndSugarHaveSummaryKeys() async throws {
+        backend.store?.update(RingDates.dayKey(Date())) { day in
+            day.mergeBloodPressure([RingBloodPressureReading(time: Date(), systolic: 118, diastolic: 76)])
+            day.bloodSugar = RingMinMax(min: [0, 52] + [Int](repeating: 0, count: 22),
+                                        max: [0, 61] + [Int](repeating: 0, count: 22))
+        }
+        let result = try await ring.invoke("ring_get_day", args: ["metrics": ["blood_pressure", "blood_sugar"]])
+        let summary = result["summary"] as? [String: Any]
+        XCTAssertEqual(summary?["blood_pressure_systolic"] as? Int, 118)
+        XCTAssertEqual(summary?["blood_pressure_diastolic"] as? Int, 76)
+        XCTAssertEqual(summary?["blood_sugar_min"] as? Int, 52)
+        XCTAssertEqual(summary?["blood_sugar_max"] as? Int, 61)
+        XCTAssertNil(summary?["steps"])
+    }
+
     func testDayReturnsTheStoredSummaryFilteredByMetric() async throws {
         let today = RingDates.dayKey(Date())
         backend.store?.update(today) { day in

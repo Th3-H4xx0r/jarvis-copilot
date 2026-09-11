@@ -96,6 +96,10 @@ enum RingTouchMode: UInt8, CaseIterable, Codable {
         guard let match = Self.allCases.first(where: { $0.name == name.lowercased() }) else { return nil }
         self = match
     }
+
+    /// The modes a ring can advertise. Tasbih and couple have no capability bit, so they only
+    /// ever come back from a ring's settings — they are never offered.
+    static let offerable: [RingTouchMode] = [.off, .music, .video, .pageTurn, .photo, .game, .heartRate]
 }
 
 // MARK: - Capabilities

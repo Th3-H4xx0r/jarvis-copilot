@@ -221,8 +221,13 @@ struct RingSettingsView: View {
                 Row {
                     Stepper("Gesture sensitivity \(s.gesture?.strength ?? 0)", value: Binding(
                         get: { s.gesture?.strength ?? 0 },
-                        set: { value in apply { try await session.setGestureMode(s.gesture?.touchMode ?? .music, strength: value) } }),
+                        set: { value in
+                            guard let mode = s.gesture?.touchMode else { return }
+                            apply { try await session.setGestureMode(mode, strength: value) }
+                        }),
                             in: 0...10)
+                    // Until the gesture setting is read there is no mode to keep.
+                    .disabled(s.gesture == nil)
                 }
             }
         }
@@ -509,7 +514,16 @@ struct RingSettingsView: View {
                     Text(rawReplies[index]).font(.caption.monospaced()).textSelection(.enabled)
                 }
             }
-            ForEach(Array(session.traffic.prefix(40))) { entry in
+            TrafficRows(log: session.traffic)
+        }
+    }
+
+    /// The wire log, observed on its own so traffic redraws these rows and nothing else.
+    private struct TrafficRows: View {
+        @ObservedObject var log: RingTrafficLog
+
+        var body: some View {
+            ForEach(Array(log.entries.prefix(40))) { entry in
                 RowDivider()
                 Row(minHeight: 44) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {

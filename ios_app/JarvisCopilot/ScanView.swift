@@ -114,7 +114,11 @@ struct ScanView: View {
     /// out of range vanished from the Devices tab entirely — indistinguishable from
     /// one that was never paired. They keep their card and say what's wrong instead.
     private var absent: [WearableEntry] {
-        WearablesHub.shared.roster().filter { !$0.connected && !$0.seenInLastScan }
+        // A remembered ring surfaced from iOS's own link has no signal reading but already has a card.
+        let listedRings = Set(ringManager.discovered.map(\.id.uuidString))
+        return WearablesHub.shared.roster().filter {
+            !$0.connected && !$0.seenInLastScan && !listedRings.contains($0.deviceID)
+        }
     }
 
     // MARK: Chrome

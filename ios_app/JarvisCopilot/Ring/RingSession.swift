@@ -64,7 +64,10 @@ final class RingSession: ObservableObject {
     @Published private(set) var battery: RingBattery?
     @Published private(set) var firmware: String?
     @Published private(set) var hardware: String?
-    @Published private(set) var settings = RingSettings()
+    @Published private(set) var settings = RingSettings() {
+        // A change made from the app or by Jarvis survives a relaunch while the ring is away.
+        didSet { if settings != oldValue { persistCache() } }
+    }
     @Published private(set) var liveActivity: RingActivity?
     @Published private(set) var liveHeartRate: RingLiveReading?
     @Published private(set) var liveSpO2: RingLiveReading?
@@ -73,7 +76,8 @@ final class RingSession: ObservableObject {
     @Published private(set) var lastTouchKey: RingLiveReading?
     @Published private(set) var measurement: RingMeasurementState?
     @Published private(set) var calibration: RingCalibrationState?
-    @Published private(set) var traffic: [RingTrafficEntry] = []
+    /// Its own object, so a busy link redraws Diagnostics and not every ring screen.
+    let traffic = RingTrafficLog()
     @Published private(set) var chunkSize = RingProtocol.minimumChunk
     @Published private(set) var findPhoneActive = false
     @Published private(set) var setupCompletedAt: Date?
@@ -95,13 +99,13 @@ final class RingSession: ObservableObject {
     private var keepAliveTask: Task<Void, Never>?
     private var calibrationTimer: Task<Void, Never>?
     private var stillTimeCounter = 0
-    private static let trafficLimit = 80
+    private var cacheOwner: (deviceID: String, defaults: UserDefaults)?
 
     init(transport: RingTransport? = nil) {
         let transport = transport ?? RingTransport()
         self.transport = transport
         transport.onUnsolicited = { [weak self] inbound in self?.handleUnsolicited(inbound) }
-        transport.onTraffic = { [weak self] entry in self?.record(entry) }
+        transport.onTraffic = { [traffic] entry in traffic.record(entry) }
     }
 
     func attach(_ link: RingLink) {
@@ -153,8 +157,8 @@ final class RingSession: ObservableObject {
         if caps.hrv, let v = await read(.readHRVMonitor, RingDecode.hrvMonitor) { settings.hrv = v }
         if caps.bloodOxygen, let v = await read(.readSpO2Monitor, RingDecode.spo2Monitor) { settings.spo2 = v }
         if caps.stress, let v = await read(.readStressMonitor, RingDecode.stressMonitor) { settings.stress = v }
-        if caps.gesture, let v = await read(.readGesture, RingDecode.touch) { settings.gesture = v }
-        if caps.touch, let v = await read(.readTouch, RingDecode.touch) { settings.touch = v }
+        if caps.gesture, let v = await read(.readGesture, RingDecode.touch, accept: { !$0.isTouch }) { settings.gesture = v }
+        if caps.touch, let v = await read(.readTouch, RingDecode.touch, accept: \.isTouch) { settings.touch = v }
         if caps.doNotDisturb, let v = await read(.readDND, RingDecode.dnd) { settings.dnd = v }
         if caps.anyTemperature {
             if let v = await read(.readTemperatureUnit, RingDecode.temperatureUnit) { settings.temperatureUnit = v }
@@ -166,9 +170,13 @@ final class RingSession: ObservableObject {
         if caps.sedentary, let v = await read(.readSedentary, RingDecode.sedentary) { settings.sedentary = v }
     }
 
-    private func read<T>(_ request: RingRequest, _ decode: ([UInt8]) -> T?) async -> T? {
-        guard let reply = try? await transport.perform(request, until: .single).first else { return nil }
-        return decode(reply.payload)
+    /// Waits for the reply that decodes and passes `accept`: a late ack for an earlier write, or
+    /// a touch reply arriving during a gesture read, shares the opcode.
+    private func read<T>(_ request: RingRequest, _ decode: @escaping ([UInt8]) -> T?,
+                         accept: @escaping (T) -> Bool = { _ in true }) async -> T? {
+        let wanted: ([UInt8]) -> T? = { payload in decode(payload).flatMap { accept($0) ? $0 : nil } }
+        let frames = try? await transport.perform(request, until: .packets { wanted($0.payload) != nil })
+        return frames?.lazy.compactMap { wanted($0.payload) }.first
     }
 
     /// Settings writes. Many are not acknowledged, so a missing reply is not an error — the
@@ -234,7 +242,7 @@ final class RingSession: ObservableObject {
         try require(capabilities.touch, "touch control")
         let sleepTime = settings.touch?.sleepTime ?? 0
         try await write(.writeTouch(appType: mode.rawValue, sleepTime: sleepTime))
-        settings.touch = await read(.readTouch, RingDecode.touch)
+        settings.touch = await read(.readTouch, RingDecode.touch, accept: \.isTouch)
             ?? RingTouchSettings(isTouch: true, mode: mode.rawValue, sleepTime: sleepTime,
                                  touchSleep: settings.touch?.touchSleep ?? false, strength: 0)
     }
@@ -243,7 +251,7 @@ final class RingSession: ObservableObject {
         try require(capabilities.gesture, "gesture control")
         let value = strength ?? settings.gesture?.strength ?? 1
         try await write(.writeGesture(appType: mode.rawValue, strength: value))
-        settings.gesture = await read(.readGesture, RingDecode.touch)
+        settings.gesture = await read(.readGesture, RingDecode.touch, accept: { !$0.isTouch })
             ?? RingTouchSettings(isTouch: false, mode: mode.rawValue, sleepTime: 0, touchSleep: false, strength: value)
     }
 
@@ -514,11 +522,6 @@ final class RingSession: ObservableObject {
         }
     }
 
-    private func record(_ entry: RingTrafficEntry) {
-        traffic.insert(entry, at: 0)
-        if traffic.count > Self.trafficLimit { traffic.removeLast(traffic.count - Self.trafficLimit) }
-    }
-
     // MARK: Cache
 
     private struct Cache: Codable {
@@ -533,6 +536,8 @@ final class RingSession: ObservableObject {
 
     /// Restores what the ring last reported, so screens and skills stay gated while it's away.
     func loadCache(deviceID: String, defaults: UserDefaults = .standard) {
+        // Only after restoring: saving midway would drop the fields not restored yet.
+        defer { cacheOwner = (deviceID, defaults) }
         guard let data = defaults.data(forKey: Self.cacheKey(deviceID)),
               let cache = try? JSONDecoder().decode(Cache.self, from: data) else { return }
         if !capabilities.isKnown { capabilities = cache.capabilities }
@@ -546,5 +551,11 @@ final class RingSession: ObservableObject {
         let cache = Cache(capabilities: capabilities, settings: settings, firmware: firmware,
                           hardware: hardware, battery: battery)
         if let data = try? JSONEncoder().encode(cache) { defaults.set(data, forKey: Self.cacheKey(deviceID)) }
+        cacheOwner = (deviceID, defaults)
+    }
+
+    private func persistCache() {
+        guard let cacheOwner else { return }
+        saveCache(deviceID: cacheOwner.deviceID, defaults: cacheOwner.defaults)
     }
 }
