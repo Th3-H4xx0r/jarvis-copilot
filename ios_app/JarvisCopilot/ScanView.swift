@@ -5,6 +5,7 @@ struct ScanView: View {
     @ObservedObject private var manager = WearablesHub.shared.bottle
     @ObservedObject private var scaleManager = WearablesHub.shared.scale
     @ObservedObject private var esp32Manager = WearablesHub.shared.esp32
+    @ObservedObject private var ringManager = WearablesHub.shared.ring
     @Environment(\.scenePhase) private var scenePhase
 
     private let spacing: CGFloat = 14
@@ -22,7 +23,7 @@ struct ScanView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if manager.discovered.isEmpty && scaleManager.discovered.isEmpty
-                    && esp32Manager.discovered.isEmpty && absent.isEmpty {
+                    && esp32Manager.discovered.isEmpty && ringManager.discovered.isEmpty && absent.isEmpty {
                     emptyState
                 } else {
                     grid
@@ -82,6 +83,18 @@ struct ScanView: View {
                 }
                 .buttonStyle(.plain)
                 .zoomSource(id: board.id, in: cardNamespace)
+            }
+            ForEach(ringManager.discovered) { ring in
+                NavigationLink {
+                    RingDeviceView(manager: ringManager, ring: ring)
+                        .zoomTransition(id: ring.id, in: cardNamespace)
+                } label: {
+                    RingCard(ring: ring,
+                             battery: ringManager.connected?.id == ring.id ? ringManager.session.battery : nil,
+                             connected: ringManager.connected?.id == ring.id && ringManager.state == .ready)
+                }
+                .buttonStyle(.plain)
+                .zoomSource(id: ring.id, in: cardNamespace)
             }
             ForEach(absent) { entry in
                 AbsentDeviceCard(entry: entry, busy: connecting == entry.deviceID) {
@@ -161,11 +174,15 @@ struct ScanView: View {
 
     private var scannerFooter: some View {
         Toggle("Only Jarvis devices", isOn: Binding(
-            get: { manager.strictNameMatch && scaleManager.strictNameMatch && esp32Manager.strictNameMatch },
+            get: {
+                manager.strictNameMatch && scaleManager.strictNameMatch
+                    && esp32Manager.strictNameMatch && ringManager.strictNameMatch
+            },
             set: { enabled in
                 manager.strictNameMatch = enabled
                 scaleManager.strictNameMatch = enabled
                 esp32Manager.strictNameMatch = enabled
+                ringManager.strictNameMatch = enabled
             }
         ))
         .padding(14)
