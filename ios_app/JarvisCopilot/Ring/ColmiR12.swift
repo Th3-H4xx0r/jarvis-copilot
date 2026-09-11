@@ -162,6 +162,15 @@ final class ColmiR12: WearableDevice {
                     "confirm": ["type": "boolean"],
                 ], required: ["action", "confirm"])),
             DeviceCapability(
+                name: "ring_get_log",
+                description: "The ring's recent command and input log, decoded: what the phone sent, what "
+                    + "the ring answered, and every tap it reported with the gap since the one before. "
+                    + "Read this to diagnose gestures — whether a press reached the phone at all, and how "
+                    + "far apart two of them landed.",
+                inputSchema: DeviceCapability.schema([
+                    "limit": ["type": "integer", "description": "Entries, newest first. 1–200, default 60."],
+                ])),
+            DeviceCapability(
                 name: "ring_raw_command",
                 description: "Protocol work only: send raw bytes and get the ring's replies as hex. hex = a command "
                     + "frame (opcode + payload; checksum added), or big_data_cmd + payload_hex for the large-data "
@@ -201,6 +210,7 @@ final class ColmiR12: WearableDevice {
         case "ring_set_profile": return try await setProfile(args)
         case "ring_set_preferences": return try await setPreferences(args)
         case "ring_power": return try await power(args)
+        case "ring_get_log": return recentLog(args)
         case "ring_raw_command": return try await raw(args)
         default: throw DeviceError.unknownCommand(name)
         }
@@ -280,6 +290,23 @@ final class ColmiR12: WearableDevice {
         if let synced = value.syncedAt { out["synced_at"] = iso(synced) }
         if detail { out["detail"] = detailJSON(value, metrics: metrics) }
         return out
+    }
+
+    /// The decoded log, so gesture behaviour can be read from here rather than relayed by hand.
+    private func recentLog(_ args: [String: Any]) -> [String: Any] {
+        let limit = max(1, min(200, args["limit"] as? Int ?? 60))
+        let rows = session.log.entries.prefix(limit).map { entry -> [String: Any] in
+            var row: [String: Any] = [
+                "at": iso(entry.date),
+                "what": entry.title,
+                "direction": entry.frame.cmd == 0 ? "note" : (entry.frame.outbound ? "out" : "in"),
+            ]
+            if !entry.detail.isEmpty { row["detail"] = entry.detail }
+            if entry.frame.cmd != 0 { row["hex"] = entry.hex }
+            return row
+        }
+        return ["entries": Array(rows), "connected": isConnected,
+                "gesture_mode": session.inputMode.rawValue]
     }
 
     private func history(_ args: [String: Any]) throws -> [String: Any] {
