@@ -44,12 +44,10 @@ struct JarvisMemoryAPI {
     }
 
     /// Dismiss one insight. Reflection ids are integers, so a numeric string is
-    /// coerced (the web UI sends `Number(id)`). `reflection_id` rides along for
-    /// forward-compat but `id` is the key the backend reads.
+    /// coerced (the web UI sends `Number(id)`).
     func dismissReflection(_ id: String) async throws {
         let numeric: Any = Int(id) ?? id
-        _ = try await api.post("/api/jarvis-memory/reflections/dismiss",
-                               json: ["id": numeric, "reflection_id": numeric])
+        _ = try await api.post("/api/jarvis-memory/reflections/dismiss", json: ["id": numeric])
     }
 
     /// Kick a reflection tick. The server answers `{ok, new}`; we don't surface it.

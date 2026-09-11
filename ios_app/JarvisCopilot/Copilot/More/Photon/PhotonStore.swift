@@ -24,7 +24,6 @@ final class PhotonStore {
     var allowedUsers = ""
     var allowAll = false
 
-    private(set) var fields: [PhotonField] = []
     private(set) var projectSecretSet = false
     private(set) var sidecarTokenSet = false
     private(set) var configured = false
@@ -111,7 +110,6 @@ final class PhotonStore {
             sidecarToken = ""
             configured = config.configured
             sidecar = config.sidecar
-            if !config.fields.isEmpty { fields = config.fields }
             toast = config.configured
                 ? "Photon connected — iMessage is set up."
                 : "Saved."
@@ -123,7 +121,6 @@ final class PhotonStore {
     }
 
     private func apply(_ config: PhotonConfig) {
-        fields = config.fields
         projectSecretSet = config.projectSecretSet
         sidecarTokenSet = config.sidecarTokenSet
         configured = config.configured

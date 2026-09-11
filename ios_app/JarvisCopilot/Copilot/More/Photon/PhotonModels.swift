@@ -6,7 +6,6 @@ struct PhotonSidecar: Equatable, Sendable {
     var reachable = false
     var ok = false
     var mock = false
-    var connected = false
     var error = ""
 
     init() {}
@@ -15,37 +14,13 @@ struct PhotonSidecar: Equatable, Sendable {
         reachable = MoreJSON.isTrue(json["reachable"])
         ok = MoreJSON.isTrue(json["ok"])
         mock = MoreJSON.isTrue(json["mock"])
-        connected = MoreJSON.isTrue(json["connected"])
         error = MoreJSON.text(json["error"])
-    }
-}
-
-/// One entry in the server-described form (`fields[]`). `kind` is the newer
-/// per-field type hint ("text" | "password" | "bool"); `secret` is kept for
-/// back-compat and is true whenever `kind == "password"`.
-struct PhotonField: Identifiable, Equatable, Sendable {
-    var key: String
-    var label: String
-    var secret: Bool
-    var required: Bool
-    var kind: String
-
-    var id: String { key }
-
-    init(json: JSONObject) {
-        let kind = MoreJSON.text(json["kind"])
-        self.kind = kind.isEmpty ? "text" : kind
-        key = MoreJSON.text(json["key"])
-        label = MoreJSON.text(json["label"])
-        secret = MoreJSON.isTrue(json["secret"]) || kind == "password"
-        required = MoreJSON.isTrue(json["required"])
     }
 }
 
 /// The current Photon config as returned by the GET. Secret VALUES are never
 /// present — only the `*Set` flags saying whether one is stored.
 struct PhotonConfig: Equatable, Sendable {
-    var fields: [PhotonField] = []
     var configured = false
     var projectID = ""
     var projectSecretSet = false
@@ -56,10 +31,7 @@ struct PhotonConfig: Equatable, Sendable {
     var allowAll = false
     var sidecar = PhotonSidecar()
 
-    init() {}
-
     init(json: JSONObject) {
-        fields = MoreJSON.mapList(json["fields"]).map(PhotonField.init(json:))
         configured = MoreJSON.isTrue(json["configured"])
         projectID = MoreJSON.text(json["project_id"])
         projectSecretSet = MoreJSON.isTrue(json["project_secret_set"])

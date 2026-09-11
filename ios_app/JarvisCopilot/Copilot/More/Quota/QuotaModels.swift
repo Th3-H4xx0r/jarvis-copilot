@@ -23,15 +23,10 @@ struct QuotaWindow: Identifiable, Equatable, Sendable {
 
     init(json: JSONObject) {
         label = MoreJSON.text(json["label"])
-        usedPercent = QuotaWindow.parseNumber(json["used_percent"])
-        remainingPercent = QuotaWindow.parseNumber(json["remaining_percent"])
+        usedPercent = MoreJSON.double(json["used_percent"])
+        remainingPercent = MoreJSON.double(json["remaining_percent"])
         resetAt = QuotaWindow.parseDate(json["reset_at"])
         detail = MoreJSON.nonEmpty(json["detail"])
-    }
-
-    static func parseNumber(_ value: Any?) -> Double? {
-        guard let value, !(value is NSNull) else { return nil }
-        return MoreJSON.double(value)
     }
 
     static func parseDate(_ value: Any?) -> Date? {
@@ -88,9 +83,8 @@ struct QuotaWindow: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Bar colour tier. Concrete colours live in the view; `critical`/`warning` are
-/// the hard-coded red/amber gradients of the Flutter card, `normal` is the
-/// cyan→accent brand gradient.
+/// Bar colour tier. Concrete colours live in the view: `critical`/`warning` are
+/// red/amber gradients, `normal` is the cyan→accent brand gradient.
 enum QuotaBarTone: String, Equatable, Sendable {
     case normal, warning, critical, unknown
 }
@@ -103,19 +97,8 @@ struct QuotaProvider: Identifiable, Equatable, Sendable {
     var windows: [QuotaWindow]
     var plan: String?
     var details: [String]
-    var fetchedAt: Date?
 
     var id: String { provider }
-
-    init(provider: String, displayName: String, windows: [QuotaWindow],
-         plan: String? = nil, details: [String] = [], fetchedAt: Date? = nil) {
-        self.provider = provider
-        self.displayName = displayName
-        self.windows = windows
-        self.plan = plan
-        self.details = details
-        self.fetchedAt = fetchedAt
-    }
 
     init(json: JSONObject) {
         provider = MoreJSON.text(json["provider"])
@@ -129,7 +112,6 @@ struct QuotaProvider: Identifiable, Equatable, Sendable {
         details = MoreJSON.list(json["details"])
             .map { MoreJSON.text($0) }
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        fetchedAt = QuotaWindow.parseDate(json["fetched_at"])
     }
 
     /// "Claude Code · Max" when a plan is known, else just the name.
@@ -147,6 +129,4 @@ struct QuotaProvider: Identifiable, Equatable, Sendable {
         default: return "speedometer"
         }
     }
-
-    var hasLimits: Bool { !windows.isEmpty }
 }

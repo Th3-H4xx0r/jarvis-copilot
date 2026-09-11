@@ -1,11 +1,9 @@
 import SwiftUI
 
-/// The "Quota & Usage" card, ported from `widgets/quota_card.dart`.
+/// The "Quota & Usage" card at the top of Insights.
 ///
 /// One block per configured quota-capable provider (Claude Code, Codex, …), each
-/// limit window drawn as a bar + percentage + reset countdown. It sits at the top
-/// of Insights; the Flutter client also showed it in Settings, which here is
-/// another area's screen — drop this view in when that screen wants it.
+/// limit window drawn as a bar + percentage + reset countdown.
 struct QuotaCard: View {
     @State private var store: QuotaStore
 

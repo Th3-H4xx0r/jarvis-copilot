@@ -89,13 +89,7 @@ final class JarvisMemoryTests: XCTestCase {
         XCTAssertEqual(out[0].score, 0.9)
     }
 
-    func testToleratesResultsAndABareList() {
-        let fromResults = JarvisMemoryParse.entries([
-            "results": [["id": "r1", "body": "x"]],
-        ] as JSONObject)
-        XCTAssertEqual(fromResults.count, 1)
-        XCTAssertEqual(fromResults[0].id, "r1")
-
+    func testToleratesABareList() {
         let bare = JarvisMemoryParse.entries([["id": "b1", "body": "y"]])
         XCTAssertEqual(bare.count, 1)
         XCTAssertEqual(bare[0].id, "b1")
@@ -107,17 +101,6 @@ final class JarvisMemoryTests: XCTestCase {
         ] as JSONObject).isEmpty)
         XCTAssertTrue(JarvisMemoryParse.entries(nil).isEmpty)
         XCTAssertTrue(JarvisMemoryParse.entries("nope").isEmpty)
-    }
-
-    // MARK: asInt
-
-    func testAsIntHandlesIntNumNumericStringNilAndJunk() {
-        XCTAssertEqual(JarvisMemoryParse.asInt(3), 3)
-        XCTAssertEqual(JarvisMemoryParse.asInt(3.9), 3)
-        XCTAssertEqual(JarvisMemoryParse.asInt(" 42 "), 42)
-        XCTAssertEqual(JarvisMemoryParse.asInt(nil), 0)
-        XCTAssertEqual(JarvisMemoryParse.asInt("abc"), 0)
-        XCTAssertEqual(JarvisMemoryParse.asInt([Int]()), 0)
     }
 
     // MARK: Availability (long_term_memory_page's _MemoryData)
@@ -146,11 +129,9 @@ final class JarvisMemoryTests: XCTestCase {
         let data = JarvisMemoryData(
             stats: ["count": "12", "namespaces": [["namespace": "global", "count": 12]]],
             status: ["embed_model": "nomic", "ollama_running": true],
-            reflections: [MemoryReflection(id: "1", title: "hi")])
+            reflections: [MemoryReflection(json: ["id": "1", "title": "hi"])])
         XCTAssertEqual(data.count, 12)
         XCTAssertEqual(data.namespaces.map(\.namespace), ["global"])
-        XCTAssertEqual(data.status.embedModel, "nomic")
-        XCTAssertTrue(data.status.ollamaRunning)
         XCTAssertEqual(data.reflections.count, 1)
     }
 
@@ -194,7 +175,6 @@ final class JarvisMemoryTests: XCTestCase {
         // The row's id is an INTEGER server-side; stringified here.
         XCTAssertEqual(out[0].id, "7")
         XCTAssertEqual(out[0].title, "You commit at night")
-        XCTAssertEqual(out[0].dedupKey, "k")
     }
 
     func testDeleteEntryPostsAStringID() async throws {
@@ -216,7 +196,6 @@ final class JarvisMemoryTests: XCTestCase {
         XCTAssertEqual(transport.lastPath, "/api/jarvis-memory/reflections/dismiss")
         let body = transport.lastBody()
         XCTAssertEqual(body["id"] as? Int, 7)
-        XCTAssertEqual(body["reflection_id"] as? Int, 7)
     }
 
     func testDismissReflectionKeepsANonNumericIDAsAString() async throws {

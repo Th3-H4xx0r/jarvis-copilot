@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// State for the Settings "Quota & Usage" card.
+/// State for the "Quota & Usage" card at the top of Insights.
 ///
 /// `isRefreshing` is separate from `isLoading` so the manual refresh shows a
 /// small spinner in the header while the already-loaded bars stay on screen.
@@ -32,9 +32,9 @@ final class QuotaStore {
         task.replace(Task { [weak self] in await self?.refresh(initial: true) })
     }
 
-    /// `force` asks the server to re-poll upstream.
-    func reload(force: Bool = true) {
-        task.replace(Task { [weak self] in await self?.refresh(force: force) })
+    /// The manual refresh: asks the server to re-poll upstream.
+    func reload() {
+        task.replace(Task { [weak self] in await self?.refresh(force: true) })
     }
 
     func refresh(initial: Bool = false, force: Bool = false) async {
@@ -43,8 +43,7 @@ final class QuotaStore {
             providers = try await api.all(refresh: force)
             errorMessage = nil
         } catch {
-            // Matches the Flutter card, which shows a fixed line rather than the
-            // raw transport error.
+            // A fixed line rather than the raw transport error.
             errorMessage = "Couldn’t load usage"
         }
         isLoading = false

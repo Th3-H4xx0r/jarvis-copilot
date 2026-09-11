@@ -2,8 +2,7 @@ import Foundation
 import XCTest
 @testable import JarvisCopilot
 
-/// No Dart test existed for `api/photon.dart`; these cover the write-only secret
-/// contract and the status-pill precedence from `photon_setup_page.dart`.
+/// The write-only secret contract and the status-pill precedence.
 final class PhotonTests: XCTestCase {
 
     // MARK: Models
@@ -18,25 +17,13 @@ final class PhotonTests: XCTestCase {
             "sidecar_token_set": false,
             "allowed_users": "a,b",
             "allow_all": true,
-            "fields": [
-                ["key": "project_id", "label": "Project ID", "required": true],
-                ["key": "project_secret", "label": "Secret", "kind": "password"],
-                ["key": "allow_all", "label": "Allow all", "kind": "bool"],
-            ],
-            "sidecar": ["reachable": true, "ok": true, "mock": false, "connected": true],
+            "sidecar": ["reachable": true, "ok": true, "mock": false],
         ])
         XCTAssertTrue(config.configured)
         XCTAssertEqual(config.projectID, "proj_1")
         XCTAssertTrue(config.projectSecretSet)
         XCTAssertFalse(config.sidecarTokenSet)
         XCTAssertTrue(config.allowAll)
-        XCTAssertEqual(config.fields.map(\.key),
-                       ["project_id", "project_secret", "allow_all"])
-        XCTAssertTrue(config.fields[0].required)
-        // `kind: password` implies secret even without the legacy flag.
-        XCTAssertTrue(config.fields[1].secret)
-        XCTAssertFalse(config.fields[2].secret)
-        XCTAssertEqual(config.fields[0].kind, "text")
         XCTAssertTrue(config.sidecar.ok)
     }
 
@@ -45,7 +32,6 @@ final class PhotonTests: XCTestCase {
         XCTAssertFalse(config.configured)
         XCTAssertEqual(config.projectID, "")
         XCTAssertFalse(config.projectSecretSet)
-        XCTAssertTrue(config.fields.isEmpty)
         XCTAssertFalse(config.sidecar.reachable)
         XCTAssertEqual(config.sidecar.error, "")
     }

@@ -102,8 +102,6 @@ struct PhotonSetupPage: View {
 }
 
 /// One labelled input: bold caption, frosted field, optional muted note under it.
-/// Named `PhotonInputField` because `PhotonField` is the MODEL of one server-
-/// described field (`PhotonModels.swift`).
 struct PhotonInputField: View {
     let label: String
     @Binding var text: String

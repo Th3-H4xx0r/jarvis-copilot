@@ -18,18 +18,6 @@ struct MemoryEntry: Identifiable, Equatable, Sendable {
     var createdAt: String
     var score: Double?
     var namespace: String
-    var tags: [String]
-
-    init(id: String, body: String, source: String = "", createdAt: String = "",
-         score: Double? = nil, namespace: String = "", tags: [String] = []) {
-        self.id = id
-        self.body = body
-        self.source = source
-        self.createdAt = createdAt
-        self.score = score
-        self.namespace = namespace
-        self.tags = tags
-    }
 
     init(json: JSONObject) {
         id = MoreJSON.text(json["id"])
@@ -38,7 +26,6 @@ struct MemoryEntry: Identifiable, Equatable, Sendable {
         createdAt = MoreJSON.text(json["created_at"])
         score = MoreJSON.double(json["score"])
         namespace = MoreJSON.text(json["namespace"])
-        tags = MoreJSON.stringList(json["tags"])
     }
 
     /// Relative "created" line for the card, or "" when there is no timestamp.
@@ -51,32 +38,15 @@ struct MemoryEntry: Identifiable, Equatable, Sendable {
 /// sqlite row, so `id` is an INTEGER (the dismiss endpoint needs it numeric).
 struct MemoryReflection: Identifiable, Equatable, Sendable {
     var id: String
-    var ts: String
     var kind: String
     var title: String
     var body: String
-    var status: String
-    var dedupKey: String
-
-    init(id: String, ts: String = "", kind: String = "", title: String = "",
-         body: String = "", status: String = "", dedupKey: String = "") {
-        self.id = id
-        self.ts = ts
-        self.kind = kind
-        self.title = title
-        self.body = body
-        self.status = status
-        self.dedupKey = dedupKey
-    }
 
     init(json: JSONObject) {
         id = MoreJSON.text(json["id"])
-        ts = MoreJSON.text(json["ts"])
         kind = MoreJSON.text(json["kind"])
         title = MoreJSON.text(json["title"])
         body = MoreJSON.text(json["body"])
-        status = MoreJSON.text(json["status"])
-        dedupKey = MoreJSON.text(json["dedup_key"])
     }
 }
 
@@ -92,18 +62,16 @@ struct JarvisMemoryData: Equatable, Sendable {
     var statusUnavailable = false
     var errorText: String?
     var reflections: [MemoryReflection] = []
-    var status: JarvisMemoryStatus = .init()
 
     init() {}
 
     init(stats: JSONObject, status statusJSON: JSONObject, reflections: [MemoryReflection]) {
-        count = JarvisMemoryParse.asInt(stats["count"])
+        count = MoreJSON.int(stats["count"])
         namespaces = JarvisMemoryParse.namespaces(stats)
         statsUnavailable = MoreJSON.isFalse(stats["available"])
         statusUnavailable = MoreJSON.isFalse(statusJSON["available"])
         errorText = MoreJSON.nonEmpty(stats["error"]) ?? MoreJSON.nonEmpty(statusJSON["error"])
         self.reflections = reflections
-        status = JarvisMemoryStatus(json: statusJSON)
     }
 
     /// The store is usable only if neither stats nor status reported a failure.
@@ -113,27 +81,6 @@ struct JarvisMemoryData: Equatable, Sendable {
     var unavailableMessage: String? {
         guard let errorText, !errorText.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         return errorText
-    }
-}
-
-/// `/api/jarvis-memory/status` — the provider/embedder/ollama snapshot.
-struct JarvisMemoryStatus: Equatable, Sendable {
-    var embedModel = ""
-    var embedDim = 0
-    var extractModel = ""
-    var ollamaRunning = false
-    var ollamaURL = ""
-    var count = 0
-
-    init() {}
-
-    init(json: JSONObject) {
-        embedModel = MoreJSON.text(json["embed_model"])
-        embedDim = MoreJSON.int(json["embed_dim"])
-        extractModel = MoreJSON.text(json["extract_model"])
-        ollamaRunning = MoreJSON.isTrue(json["ollama_running"])
-        ollamaURL = MoreJSON.text(json["ollama_url"])
-        count = MoreJSON.int(json["count"])
     }
 }
 
@@ -152,32 +99,19 @@ enum JarvisMemoryParse {
             guard let m = item as? JSONObject else { continue }
             let name = MoreJSON.text(m["namespace"] ?? m["name"])
             if name.isEmpty { continue }
-            out.append(MemoryNamespace(namespace: name, count: asInt(m["count"])))
+            out.append(MemoryNamespace(namespace: name, count: MoreJSON.int(m["count"])))
         }
         return out
     }
 
-    /// Search-result entries. Real shape is `{entries:[…]}`; `{results:[…]}` and
-    /// a bare list are also accepted.
+    /// Search-result entries: `{entries:[…]}`, or a bare list.
     static func entries(_ data: Any?) -> [MemoryEntry] {
-        let raw: Any?
-        if let object = data as? JSONObject {
-            raw = object["entries"] ?? object["results"]
-        } else {
-            raw = data
-        }
+        let raw = (data as? JSONObject)?["entries"] ?? data
         return MoreJSON.mapList(raw).map(MemoryEntry.init(json:))
     }
 
     static func reflections(_ data: Any?) -> [MemoryReflection] {
         let raw = (data as? JSONObject)?["reflections"] ?? data
         return MoreJSON.mapList(raw).map(MemoryReflection.init(json:))
-    }
-
-    /// JSON number / numeric string / null → Int (0 on failure).
-    static func asInt(_ value: Any?) -> Int {
-        if let s = value as? String { return Int(s.trimmingCharacters(in: .whitespaces)) ?? 0 }
-        guard let d = MoreJSON.double(value), d.isFinite else { return 0 }
-        return Int(d)
     }
 }

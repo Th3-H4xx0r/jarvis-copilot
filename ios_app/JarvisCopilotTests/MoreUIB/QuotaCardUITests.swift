@@ -35,7 +35,6 @@ final class QuotaCardUITests: XCTestCase {
         let store = await loadedStore()
         XCTAssertEqual(store.providers.first?.headerTitle, "Claude Code · Max")
         XCTAssertEqual(store.providers.last?.headerTitle, "Codex")
-        XCTAssertFalse(store.providers.last?.hasLimits ?? true)
     }
 
     func testLoadedCardRenders() async {

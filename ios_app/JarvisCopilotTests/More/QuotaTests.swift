@@ -2,10 +2,8 @@ import Foundation
 import XCTest
 @testable import JarvisCopilot
 
-/// Ported from `mobile_client/test/quota_test.dart`. The parsing group is a
-/// case-for-case port; the four `QuotaUsageCard` **widget** cases are not
-/// portable here (this wave has no views), so their *logic* is asserted against
-/// `QuotaWindow`/`QuotaStore` instead — see the "card logic" section.
+/// Quota parsing, the card's display logic (asserted on `QuotaWindow` and
+/// `QuotaStore`), and the API requests.
 final class QuotaTests: XCTestCase {
 
     // MARK: QuotaProvider/QuotaWindow parsing
@@ -42,7 +40,6 @@ final class QuotaTests: XCTestCase {
         XCTAssertNil(p.windows[1].resetAt)
         // The empty detail string is dropped.
         XCTAssertEqual(p.details, ["Extra usage: 1.20 / 50.00 USD"])
-        XCTAssertNotNil(p.fetchedAt)
     }
 
     func testToleratesMissingFieldsAndANullUsedPercent() {
@@ -58,10 +55,9 @@ final class QuotaTests: XCTestCase {
         XCTAssertNil(p.windows[0].usedPercent)
         XCTAssertNil(p.plan)
         XCTAssertTrue(p.details.isEmpty)
-        XCTAssertNil(p.fetchedAt)
     }
 
-    // MARK: Card logic (from widgets/quota_card.dart)
+    // MARK: Card logic
 
     func testPercentTextRendersTheUsedValueOrAnEmDash() {
         XCTAssertEqual(QuotaWindow(label: "S", usedPercent: 45).percentText, "45%")
@@ -118,10 +114,6 @@ final class QuotaTests: XCTestCase {
         XCTAssertEqual(QuotaProvider(json: ["provider": "openrouter"]).iconName,
                        "arrow.triangle.branch")
         XCTAssertEqual(QuotaProvider(json: ["provider": "other"]).iconName, "speedometer")
-    }
-
-    func testHasLimitsIsFalseWithNoWindows() {
-        XCTAssertFalse(QuotaProvider(json: ["provider": "x"]).hasLimits)
     }
 
     // MARK: API requests
