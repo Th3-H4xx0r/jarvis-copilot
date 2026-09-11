@@ -8,7 +8,6 @@ import UIKit
 @MainActor
 protocol PairingClaiming: AnyObject {
     var serverURL: String { get set }
-    var isPaired: Bool { get }
     /// Stores a Cloudflare Access service token. Must land *before* the claim: a
     /// tunnel-fronted server 302-redirects a claim that arrives without
     /// CF-Access headers to its SSO login.

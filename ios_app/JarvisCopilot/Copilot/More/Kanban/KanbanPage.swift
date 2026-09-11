@@ -374,7 +374,7 @@ struct KanbanTaskCard: View {
     let task: KanbanTask
 
     var body: some View {
-        GlassCard(padding: 14, blur: false) {
+        GlassCard(padding: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(task.title.isEmpty ? "(untitled)" : task.title)
                     .font(.system(size: 15, weight: .semibold))

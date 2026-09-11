@@ -81,7 +81,6 @@ final class ChatModelsTests: XCTestCase {
         XCTAssertTrue(s.pinned)
         XCTAssertTrue(s.archived)
         XCTAssertEqual(s.model, "m")
-        XCTAssertEqual(s.modelProvider, "p")
     }
 
     // MARK: Blocks
@@ -143,17 +142,7 @@ final class ChatModelsTests: XCTestCase {
         XCTAssertEqual(m.plainText, "done")
     }
 
-    func testIsThinkingOnlyWhileReasoningWithNoVisibleOutput() {
-        var m = ChatMessage.assistant(streaming: true)
-        XCTAssertFalse(m.isThinking, "no reasoning yet")
-        m.reasoning = "hmm"
-        XCTAssertTrue(m.isThinking)
-        m.appendToken("hi")
-        XCTAssertFalse(m.isThinking, "text has arrived")
-    }
-
-    func testToolLabelStripsUnderscoresAndDevicePrefix() {
-        XCTAssertEqual(ToolInvocation(name: "web_search").label, "web search")
+    func testToolShortNameDropsTheDevicePrefix() {
         XCTAssertEqual(ToolInvocation(name: "device_esp32_upload").shortName, "esp32_upload")
     }
 

@@ -15,7 +15,7 @@ struct CodingSyncCard: View {
     @State private var refreshing = false
 
     var body: some View {
-        GlassCard(padding: 16, blur: false) {
+        GlassCard(padding: 16) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("Sync").font(.system(size: 14, weight: .bold))

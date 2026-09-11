@@ -38,7 +38,6 @@ enum JSONValue: Equatable, Sendable {
     }
 
     var objectValue: [String: JSONValue]? { if case .object(let o) = self { return o }; return nil }
-    var stringValue: String? { if case .string(let s) = self { return s }; return nil }
 
     /// Back to Foundation, for re-encoding a body.
     var anyValue: Any {

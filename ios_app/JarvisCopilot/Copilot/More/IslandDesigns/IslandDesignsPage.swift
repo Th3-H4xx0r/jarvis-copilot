@@ -57,7 +57,7 @@ struct IslandDesignsPage: View {
                         IslandErrorCard(message: message).padding(.bottom, 18)
                     }
 
-                    GlassSectionLabel("Show on Dynamic Island")
+                    GlassQuietLabel("Show on Dynamic Island")
                     GlassGroup {
                         IslandRadioRow(symbol: "wand.and.stars",
                                        title: "Auto",
@@ -80,7 +80,7 @@ struct IslandDesignsPage: View {
                     }
                     .padding(.bottom, 26)
 
-                    GlassSectionLabel("In the Auto rotation")
+                    GlassQuietLabel("In the Auto rotation")
                     GlassGroup {
                         ForEach(Array(store.entries.enumerated()), id: \.element.id) { index, entry in
                             IslandManageRow(entry: entry,

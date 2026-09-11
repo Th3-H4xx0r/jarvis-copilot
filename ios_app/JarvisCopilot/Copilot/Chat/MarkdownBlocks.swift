@@ -26,7 +26,6 @@ struct MarkdownListItem: Equatable, Sendable {
     var marker: String
     var depth: Int
     var text: String
-    var ordered: Bool
 }
 
 enum MarkdownBlock: Equatable, Sendable {
@@ -216,7 +215,7 @@ enum MarkdownBlocks {
 
         if let bullet = rest.first, "-*+".contains(bullet), rest.dropFirst().first == " " {
             let text = rest.dropFirst(2).trimmingCharacters(in: .whitespaces)
-            return MarkdownListItem(marker: "•", depth: depth, text: text, ordered: false)
+            return MarkdownListItem(marker: "•", depth: depth, text: text)
         }
 
         let digits = rest.prefix { $0.isNumber }
@@ -225,7 +224,7 @@ enum MarkdownBlocks {
         guard let punctuation = afterDigits.first, punctuation == "." || punctuation == ")",
               afterDigits.dropFirst().first == " " else { return nil }
         let text = afterDigits.dropFirst(2).trimmingCharacters(in: .whitespaces)
-        return MarkdownListItem(marker: "\(digits).", depth: depth, text: text, ordered: true)
+        return MarkdownListItem(marker: "\(digits).", depth: depth, text: text)
     }
 
     /// Split a table row into cells on unescaped pipes, dropping the outer

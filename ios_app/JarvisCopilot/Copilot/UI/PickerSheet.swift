@@ -22,27 +22,15 @@ struct PickerOption<Value: Hashable>: Identifiable, Hashable {
 /// `content` in a 1.2pt iridescent outline over a solid fill.
 struct GradientBorder<Content: View>: View {
     var radius: CGFloat = JcTheme.fieldRadius
-    var fill: Color? = nil
-    var gradient: LinearGradient? = nil
-    var thickness: CGFloat = 1.2
-    var glow: Bool = false
     @ViewBuilder var content: Content
 
-    init(radius: CGFloat = JcTheme.fieldRadius,
-         fill: Color? = nil,
-         gradient: LinearGradient? = nil,
-         thickness: CGFloat = 1.2,
-         glow: Bool = false,
-         @ViewBuilder content: () -> Content) {
+    init(radius: CGFloat = JcTheme.fieldRadius, @ViewBuilder content: () -> Content) {
         self.radius = radius
-        self.fill = fill
-        self.gradient = gradient
-        self.thickness = thickness
-        self.glow = glow
         self.content = content()
     }
 
-    private static var defaultGradient: LinearGradient {
+    private static var thickness: CGFloat { 1.2 }
+    private static var gradient: LinearGradient {
         LinearGradient(colors: [Color(jcHex: 0x46E0E0, alpha: 0x55 / 255.0),
                                 Color(jcHex: 0x8A7CFF, alpha: 0x55 / 255.0),
                                 Color(jcHex: 0xFF6FD8, alpha: 0x55 / 255.0)],
@@ -51,13 +39,11 @@ struct GradientBorder<Content: View>: View {
 
     var body: some View {
         content
-            .background((fill ?? JcTheme.surfaceAlt),
-                        in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .padding(thickness)
+            .background(JcTheme.surfaceAlt, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .padding(Self.thickness)
             .background {
-                RoundedRectangle(cornerRadius: radius + thickness, style: .continuous)
-                    .fill(gradient ?? Self.defaultGradient)
-                    .shadow(color: glow ? JcTheme.accent.opacity(0.20) : .clear, radius: 8)
+                RoundedRectangle(cornerRadius: radius + Self.thickness, style: .continuous)
+                    .fill(Self.gradient)
             }
     }
 }

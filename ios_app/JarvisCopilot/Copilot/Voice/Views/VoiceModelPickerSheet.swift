@@ -38,7 +38,7 @@ struct VoiceModelPickerSheet: View {
     @ViewBuilder
     private var modelSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionLabel("Model")
+            GlassQuietLabel("Model")
             Text("Choose the server model for voice turns.")
                 .font(.system(size: 12))
                 .foregroundStyle(JcTheme.muted)
@@ -88,7 +88,7 @@ struct VoiceModelPickerSheet: View {
             ForEach(providers, id: \.self) { provider in
                 let group = models.catalog?.models(for: provider) ?? []
                 VStack(alignment: .leading, spacing: 0) {
-                    GlassSectionLabel(provider.isEmpty ? "Models" : provider)
+                    GlassQuietLabel(provider.isEmpty ? "Models" : provider)
                         .padding(.top, 16)
                     GlassGroup {
                         ForEach(Array(group.enumerated()), id: \.element.id) { index, model in
@@ -136,7 +136,7 @@ struct VoiceModelPickerSheet: View {
 
     private var modeSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionLabel("Turn mode")
+            GlassQuietLabel("Turn mode")
             VoiceModeToggle(mode: store.mode, enabled: !store.isActive) { mode in
                 Task { await store.setMode(mode) }
             }

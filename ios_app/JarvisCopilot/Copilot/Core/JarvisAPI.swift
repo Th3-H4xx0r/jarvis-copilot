@@ -96,7 +96,6 @@ enum APIError: LocalizedError, Equatable {
     case http(status: Int, message: String)
     /// The reply was not what we expected (not JSON, missing field, …).
     case badResponse(String)
-    case cancelled
 
     var errorDescription: String? {
         switch self {
@@ -104,7 +103,6 @@ enum APIError: LocalizedError, Equatable {
         case .http(let status, let message):
             return message.isEmpty ? "Request failed (\(status))" : message
         case .badResponse(let why): return "Unexpected server reply: \(why)"
-        case .cancelled: return "Cancelled"
         }
     }
 
@@ -154,7 +152,6 @@ func apiErrorLine(_ error: Error) -> String {
 struct APIResponse {
     let status: Int
     let data: Data
-    let headers: [String: String]
 
     /// Body as a JSON object; empty dictionary for an empty body.
     ///
@@ -171,24 +168,6 @@ struct APIResponse {
         }
         if let dict = obj as? [String: Any] { return dict }
         return ["data": obj]
-    }
-
-    /// Wrapper keys the server actually uses, in the order we try them. A plain
-    /// `for value in dict.values` picks an *arbitrary* array — dictionary
-    /// iteration order is unspecified, so a body carrying two arrays parsed
-    /// differently from one launch to the next (silent-failures M6).
-    static let arrayKeys = ["items", "sessions", "data", "results", "models", "devices", "list"]
-
-    func array() throws -> [Any] {
-        if data.isEmpty { return [] }
-        let obj = try jsonBody()
-        if let arr = obj as? [Any] { return arr }
-        if let dict = obj as? [String: Any] {
-            for key in Self.arrayKeys { if let arr = dict[key] as? [Any] { return arr } }
-            throw APIError.badResponse(
-                "expected an array; object has \(dict.keys.sorted().joined(separator: ", "))")
-        }
-        throw APIError.badResponse("expected an array")
     }
 
     /// The array under a named key — for callers that know the server's shape and
@@ -211,11 +190,6 @@ struct APIResponse {
             throw APIError.badResponse("not JSON")
         }
         return obj
-    }
-
-    func decode<T: Decodable>(_ type: T.Type, decoder: JSONDecoder = JarvisAPI.decoder) throws -> T {
-        do { return try decoder.decode(type, from: data) }
-        catch { throw APIError.badResponse("\(T.self): \(error.localizedDescription)") }
     }
 
     var text: String { String(data: data, encoding: .utf8) ?? "" }
@@ -339,11 +313,6 @@ struct MultipartBody {
 final class JarvisAPI: @unchecked Sendable {
     static let shared = JarvisAPI()
 
-    static let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.keyDecodingStrategy = .convertFromSnakeCase
-        return d
-    }()
     static let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.keyEncodingStrategy = .convertToSnakeCase
@@ -394,9 +363,7 @@ final class JarvisAPI: @unchecked Sendable {
 
     private func perform(_ req: URLRequest) async throws -> APIResponse {
         let (data, http) = try await transport.send(req)
-        var headers: [String: String] = [:]
-        for (k, v) in http.allHeaderFields { headers[("\(k)").lowercased()] = "\(v)" }
-        let response = APIResponse(status: http.statusCode, data: data, headers: headers)
+        let response = APIResponse(status: http.statusCode, data: data)
         guard (200..<300).contains(http.statusCode) else {
             throw APIError.http(status: http.statusCode, message: APIError.message(status: http.statusCode, body: data))
         }
@@ -418,10 +385,6 @@ final class JarvisAPI: @unchecked Sendable {
 
     func patch(_ path: String, json body: Any, query: [String: String] = [:]) async throws -> APIResponse {
         try await perform(try request("PATCH", path, query: query, headers: ["Content-Type": "application/json"], body: try jsonBody(body)))
-    }
-
-    func put(_ path: String, json body: Any, query: [String: String] = [:]) async throws -> APIResponse {
-        try await perform(try request("PUT", path, query: query, headers: ["Content-Type": "application/json"], body: try jsonBody(body)))
     }
 
     func delete(_ path: String, json body: Any? = nil, query: [String: String] = [:]) async throws -> APIResponse {
@@ -635,9 +598,6 @@ extension Dictionary where Key == String, Value == Any {
     }
     func dict(_ key: String) -> [String: Any]? { self[key] as? [String: Any] }
     func list(_ key: String) -> [[String: Any]] { (self[key] as? [[String: Any]]) ?? [] }
-    func strings(_ key: String) -> [String] {
-        (self[key] as? [Any])?.compactMap { $0 as? String } ?? []
-    }
 }
 
 // MARK: - Line splitting that keeps empty lines (Foundation's `.lines` drops them,
@@ -669,37 +629,6 @@ extension AsyncThrowingStream where Element == Data, Failure == Error {
                         buffer.append(contentsOf: chunk[start...])
                     }
                     if !buffer.isEmpty { emit() }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
-}
-
-extension AsyncThrowingStream where Element == UInt8, Failure == Error {
-    /// The byte-at-a-time variant, kept for the parser tests and any caller that
-    /// still has a byte sequence in hand. Production streams are `Data` chunks.
-    var allLines: AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream<String, Error> { continuation in
-            let task = Task {
-                var buffer = [UInt8]()
-                do {
-                    for try await b in self {
-                        if b == 0x0A {
-                            if buffer.last == 0x0D { buffer.removeLast() }
-                            continuation.yield(String(decoding: buffer, as: UTF8.self))
-                            buffer.removeAll(keepingCapacity: true)
-                        } else {
-                            buffer.append(b)
-                        }
-                    }
-                    if !buffer.isEmpty {
-                        if buffer.last == 0x0D { buffer.removeLast() }
-                        continuation.yield(String(decoding: buffer, as: UTF8.self))
-                    }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)

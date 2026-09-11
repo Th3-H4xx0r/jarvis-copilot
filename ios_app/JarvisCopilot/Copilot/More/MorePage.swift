@@ -76,9 +76,6 @@ struct MorePage: View {
         }
     }
 
-    /// One launcher: a frosted square with a circular glyph and a two-line label.
-    /// `blur: false` — a grid of blurred cards is the one place the material
-    /// actually costs frames.
     /// A launcher in the Voice page's register: flat, quiet, one icon and a
     /// label — no chip inside a card.
     private struct Tile: View {

@@ -27,7 +27,7 @@ struct DevicesHealthStrip: View {
 
     var body: some View {
         if hasHealth || showsWiki {
-            GlassGroup(blur: false) {
+            GlassGroup {
                 statusRow
                 if hasHealth {
                     DevicesHairline()
@@ -166,7 +166,7 @@ struct DeviceServerCard: View {
     private var groups: [DeviceSkillGroup] { DevicesSkillText.groups(skills) }
 
     var body: some View {
-        GlassGroup(blur: false) {
+        GlassGroup {
             identityRow
             DevicesHairline()
             if skills.isEmpty {
@@ -314,7 +314,7 @@ struct DeviceServerCard: View {
 /// pair button right under it doing the asking.
 struct DevicesEmptyState: View {
     var body: some View {
-        GlassCard(padding: 20, blur: false) {
+        GlassCard(padding: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("No devices paired")
                     .font(.system(size: 15, weight: .semibold))
@@ -338,7 +338,7 @@ struct DevicesErrorState: View {
 
     var body: some View {
         VStack {
-            GlassCard(padding: 22, blur: false) {
+            GlassCard(padding: 22) {
                 VStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 26, weight: .light))

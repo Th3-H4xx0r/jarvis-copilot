@@ -196,7 +196,6 @@ final class ChatAPITests: XCTestCase {
         t.on("POST /api/chat/start", .sse(turn))
         _ = try await collect(ChatAPI(api: api).sendMessage(
             sessionID: "s1", text: "hi", model: "m", provider: "p",
-            workspace: "w", profile: "prof",
             attachments: [["path": "/u/a.png"]]))
 
         let body = t.lastBody(for: "POST /api/chat/start")
@@ -204,8 +203,6 @@ final class ChatAPITests: XCTestCase {
         XCTAssertEqual(body["message"] as? String, "hi")
         XCTAssertEqual(body["model"] as? String, "m")
         XCTAssertEqual(body["model_provider"] as? String, "p")
-        XCTAssertEqual(body["workspace"] as? String, "w")
-        XCTAssertEqual(body["profile"] as? String, "prof")
         XCTAssertEqual((body["attachments"] as? [[String: Any]])?.count, 1)
     }
 
@@ -277,14 +274,7 @@ final class SessionsAPITests: XCTestCase {
         XCTAssertEqual(rows.last?.title, "Two")
     }
 
-    func testListCanAskForEveryProfile() async throws {
-        let (api, t) = JarvisAPI.scripted()
-        t.on("GET /api/sessions", .json(["sessions": []]))
-        _ = try await SessionsAPI(api: api).list(allProfiles: true)
-        XCTAssertEqual(t.query("GET /api/sessions", "all_profiles"), "1")
-    }
-
-    func testGetHydratesTitleMessagesAndTheActiveStream() async throws {
+    func testGetHydratesTitleAndMessages() async throws {
         let (api, t) = JarvisAPI.scripted()
         t.on("GET /api/session", .json(["session": [
             "session_id": "s1",
@@ -298,7 +288,6 @@ final class SessionsAPITests: XCTestCase {
         ]]))
         let detail = try await SessionsAPI(api: api).get("s1")
         XCTAssertEqual(detail.title, "Dinner")
-        XCTAssertEqual(detail.activeStreamID, "live-1")
         XCTAssertEqual(detail.messages.count, 2)
         XCTAssertEqual(detail.messages.last?.tools.first?.result, "3 results")
         XCTAssertEqual(t.query("GET /api/session", "messages"), "1")
@@ -311,7 +300,6 @@ final class SessionsAPITests: XCTestCase {
         let detail = try await SessionsAPI(api: api).get("s1")
         XCTAssertEqual(detail.title, "Bare")
         XCTAssertEqual(detail.messages.count, 1)
-        XCTAssertNil(detail.activeStreamID)
     }
 
     func testCreateReadsTheIDFromEitherShape() async throws {
@@ -327,7 +315,7 @@ final class SessionsAPITests: XCTestCase {
         let (api, t) = JarvisAPI.scripted()
         t.on("POST /api/session/new", .json(["ok": true]))
         do {
-            _ = try await SessionsAPI(api: api).create(title: "T", profile: "P")
+            _ = try await SessionsAPI(api: api).create(title: "T")
             XCTFail("expected a failure")
         } catch {
             XCTAssertTrue("\(error)".lowercased().contains("session"), "\(error)")
@@ -382,7 +370,6 @@ final class SessionsAPITests: XCTestCase {
         let snap = try await SessionsAPI(api: api).snapshot("s1")
         XCTAssertEqual(snap.activeStreamID, "live-9")
         XCTAssertEqual(snap.lastAssistantText, "the answer")
-        XCTAssertEqual(snap.lastToolNames, ["search"])
     }
 
     func testSnapshotReadsArrayContentAndReportsNoActiveStream() async throws {

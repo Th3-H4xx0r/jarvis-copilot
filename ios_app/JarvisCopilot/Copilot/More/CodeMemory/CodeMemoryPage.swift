@@ -125,7 +125,7 @@ struct CodeMemoryProjectRow: View {
     let project: CodeMemoryProject
 
     var body: some View {
-        GlassCard(padding: 0, blur: false) {
+        GlassCard(padding: 0) {
             HStack(alignment: .top, spacing: 0) {
                 Image(systemName: "point.3.filled.connected.trianglepath.dotted")
                     .font(.system(size: 17))

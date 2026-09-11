@@ -59,7 +59,7 @@ struct MemoryPage: View {
         } else {
             VStack(alignment: .leading, spacing: 12) {
                 if !store.mtimeLabel.isEmpty { MemoryMtimeChip(mtime: store.mtimeLabel) }
-                GlassCard(padding: 16, blur: false, fill: JcTheme.surface) {
+                GlassCard(padding: 16, fill: JcTheme.surface) {
                     Text(store.content)
                         .font(.system(size: 13.5, design: .monospaced))
                         .foregroundStyle(JcTheme.text)
@@ -159,7 +159,7 @@ struct MemoryEditorView: View {
                 }
                 .padding(.bottom, 10)
 
-                GlassCard(padding: 14, blur: false, fill: JcTheme.surface) {
+                GlassCard(padding: 14, fill: JcTheme.surface) {
                     TextEditor(text: $text)
                         .font(.system(size: 13.5, design: .monospaced))
                         .foregroundStyle(JcTheme.text)

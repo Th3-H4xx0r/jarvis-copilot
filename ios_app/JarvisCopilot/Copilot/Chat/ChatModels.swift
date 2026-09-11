@@ -21,7 +21,6 @@ struct ChatSessionSummary: Identifiable, Equatable, Sendable {
     /// Epoch seconds.
     var updatedAt: Int?
     var model: String?
-    var modelProvider: String?
     var pinned = false
     var archived = false
     /// A turn is running on this session right now — possibly ours, possibly the
@@ -29,14 +28,13 @@ struct ChatSessionSummary: Identifiable, Equatable, Sendable {
     var isStreaming = false
 
     init(id: String, title: String = "", messageCount: Int? = nil, updatedAt: Int? = nil,
-         model: String? = nil, modelProvider: String? = nil,
+         model: String? = nil,
          pinned: Bool = false, archived: Bool = false, isStreaming: Bool = false) {
         self.id = id
         self.title = title
         self.messageCount = messageCount
         self.updatedAt = updatedAt
         self.model = model
-        self.modelProvider = modelProvider
         self.pinned = pinned
         self.archived = archived
         self.isStreaming = isStreaming
@@ -50,7 +48,6 @@ struct ChatSessionSummary: Identifiable, Equatable, Sendable {
             messageCount: j.int("message_count"),
             updatedAt: j.int("updated_at") ?? j.int("last_message_at"),
             model: j.string("model"),
-            modelProvider: j.string("model_provider"),
             pinned: j["pinned"] as? Bool == true,
             archived: j["archived"] as? Bool == true,
             isStreaming: j["is_streaming"] as? Bool == true || !activeStream.isEmpty
@@ -89,8 +86,6 @@ struct ToolInvocation: Identifiable, Equatable, Sendable {
     /// The OpenAI-style `tool_calls[].id`, used to fold stored results back in.
     var callID: String?
 
-    /// A short human label for the collapsed card header.
-    var label: String { name.replacingOccurrences(of: "_", with: " ") }
     /// Device skills read better without their routing prefix.
     var shortName: String {
         name.hasPrefix("device_") ? String(name.dropFirst("device_".count)) : name
@@ -148,9 +143,6 @@ struct ChatTurnStats: Equatable, Sendable {
     var cachedTokens: Int?
     var outputTokens: Int?
     var durationMs: Int?
-    /// Time to the first visible text — measured, but not shown.
-    var firstTokenMs: Int?
-    var tokensPerSecond: Double?
     /// The server metered this turn by estimate, not by count.
     var estimated = false
 
@@ -253,7 +245,6 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
     }
 
     var isUser: Bool { role == .user }
-    var isAssistant: Bool { role == .assistant }
 
     /// Concatenated plain text — used for copy and the user-bubble path.
     var plainText: String {
@@ -262,12 +253,6 @@ struct ChatMessage: Identifiable, Equatable, Sendable {
 
     /// Every tool call in this turn, in arrival order (the tool rows above the text).
     var tools: [ToolInvocation] { blocks.compactMap(\.asTool) }
-
-    /// True while the model is reasoning and nothing visible has arrived yet — the
-    /// cue for the "Thinking…" dots.
-    var isThinking: Bool {
-        !reasoning.isEmpty && plainText.isEmpty
-    }
 
     /// Append streamed text to the trailing text block, opening a fresh one if the
     /// last block is a tool card (a post-tool continuation).
@@ -399,7 +384,6 @@ extension ChatMessage {
             if cached > 0 { stats.cachedTokens = cached }
         }
         if let seconds = j.double("_turnDuration") { stats.durationMs = Int(seconds * 1_000) }
-        if let tps = j.double("_turnTps") { stats.tokensPerSecond = tps }
         if !stats.isEmpty { self.stats = stats }
     }
 }

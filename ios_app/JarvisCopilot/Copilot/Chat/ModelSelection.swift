@@ -32,12 +32,6 @@ struct ModelSelection: Sendable {
         write(Self.providerKey(surface), provider)
     }
 
-    /// Clear every persisted selection (e.g. on un-pair).
-    func clear() {
-        set(.chat, model: nil, provider: nil)
-        set(.voice, model: nil, provider: nil)
-    }
-
     private func read(_ key: String) -> String? {
         guard let value = store.string(key), !value.isEmpty else { return nil }
         return value

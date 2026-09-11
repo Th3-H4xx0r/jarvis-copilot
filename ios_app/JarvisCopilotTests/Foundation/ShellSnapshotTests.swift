@@ -276,7 +276,6 @@ final class ShellSnapshotTests: XCTestCase {
     func testNavPillMatchesTheFlutterMetrics() {
         XCTAssertEqual(GlassNavBar.barHeight, 68)
         XCTAssertEqual(GlassNavBar.bottomClearance, 6)
-        XCTAssertEqual(JcTheme.pillRadius, 26)
         XCTAssertEqual(GlassNavBar.stripHeight(bottomInset: 34), 6 + 34 * 0.3 + 68, accuracy: 0.001)
         XCTAssertEqual(GlassNavBar.stripHeight(bottomInset: 0), GlassNavBar.reservedHeight)
 

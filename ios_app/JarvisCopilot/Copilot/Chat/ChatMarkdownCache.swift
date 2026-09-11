@@ -61,21 +61,6 @@ enum ChatMarkdownCache {
         return value
     }
 
-    /// Whether `text` has already been split — for the tests, which cannot see a
-    /// saved parse any other way.
-    static func hasBlocks(for text: String) -> Bool {
-        blockCache.object(forKey: text as NSString) != nil
-    }
-
-    static func hasInline(for text: String) -> Bool {
-        inlineCache.object(forKey: text as NSString) != nil
-    }
-
-    static func removeAll() {
-        blockCache.removeAllObjects()
-        inlineCache.removeAllObjects()
-    }
-
     /// Inline markdown (bold, italics, links, `code`) the way the web UI shows it.
     /// Whitespace is preserved so a soft-wrapped reply keeps its shape, and a
     /// half-written emphasis run mid-stream falls back to plain text instead of

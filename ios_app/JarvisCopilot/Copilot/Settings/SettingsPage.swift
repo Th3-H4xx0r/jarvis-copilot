@@ -101,7 +101,7 @@ struct SettingsPage: View {
     private var identity: some View {
         VStack(alignment: .leading, spacing: 0) {
             GlassQuietLabel("This device")
-            GlassGroup(blur: false) {
+            GlassGroup {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Device name").font(JcText.small).foregroundStyle(JcTheme.muted)
                     TextField("My iPhone", text: $deviceNameDraft)
@@ -121,7 +121,7 @@ struct SettingsPage: View {
     private var assistant: some View {
         VStack(alignment: .leading, spacing: 0) {
             GlassQuietLabel("Assistant")
-            GlassGroup(blur: false) {
+            GlassGroup {
                 SwitchRow(symbol: "location.fill",
                           title: "Track my location",
                           subtitle: "Background location history for the assistant. "
@@ -171,7 +171,7 @@ struct SettingsPage: View {
     private var navigation: some View {
         VStack(alignment: .leading, spacing: 0) {
             GlassQuietLabel("More")
-            GlassGroup(blur: false) {
+            GlassGroup {
                 NavigationLink {
                     OnDeviceAISettingsPage()
                 } label: {
@@ -212,7 +212,7 @@ struct SettingsPage: View {
     }
 
     private var danger: some View {
-        GlassGroup(blur: false) {
+        GlassGroup {
             GlassRow(symbol: "rectangle.portrait.and.arrow.right",
                      title: "Unpair this device",
                      last: true, danger: true) {

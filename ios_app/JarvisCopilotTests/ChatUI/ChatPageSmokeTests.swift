@@ -52,7 +52,6 @@ final class ChatPageSmokeTests: XCTestCase {
         store.setMessages([.user("what's the temperature?"), live])
         store.streaming = true
         render(page(store))
-        XCTAssertTrue(store.messages.last?.isThinking == true)
     }
 
     func testToolRowsAndFinishedReplyRender() {

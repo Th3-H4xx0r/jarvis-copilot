@@ -9,13 +9,12 @@ import SwiftUI
 ///
 /// The legacy token NAMES (`accent`, `surface`, …) are kept and retargeted to the
 /// current palette so screens that reference them pick up the look for free;
-/// glass-specific tokens (`glassFill`, `glassBorder`, `bgTop`) are additions.
+/// glass-specific tokens (`glassFill`, `glassBorder`) are additions.
 enum JcTheme {
 
     // MARK: Canvas
 
     static let bg = Color(jcHex: 0x070710)
-    static let bgTop = Color(jcHex: 0x0E0E18)
 
     // MARK: Glass surfaces
     //
@@ -80,7 +79,6 @@ enum JcTheme {
 
     static let cardRadius: CGFloat = 22
     static let fieldRadius: CGFloat = 14
-    static let pillRadius: CGFloat = 26
 }
 
 /// The app's type scale, mirroring `theme.dart`'s `_textTheme`.
@@ -89,20 +87,14 @@ enum JcTheme {
 /// face at the same sizes and weights. Sizes are fixed (as in Flutter) rather than
 /// Dynamic-Type-relative, otherwise the ported layouts break at large sizes.
 enum JcText {
-    /// 28 / bold — screen hero (`displaySmall`).
-    static let display = Font.system(size: 28, weight: .bold, design: .default)
     /// 20 / semibold — section and screen titles (`titleLarge`).
     static let title = Font.system(size: 20, weight: .semibold, design: .default)
-    /// 16 / semibold — card titles (`titleMedium`).
-    static let titleSmall = Font.system(size: 16, weight: .semibold, design: .default)
     /// 15 / regular — the default reading size (`bodyLarge`).
     static let body = Font.system(size: 15, weight: .regular, design: .default)
     /// 14 / semibold — buttons and controls (`labelLarge`).
     static let label = Font.system(size: 14, weight: .semibold, design: .default)
     /// 12 / medium — captions, muted metadata (`bodySmall`).
     static let small = Font.system(size: 12, weight: .medium, design: .default)
-    /// 13 / monospaced — server URLs, fingerprints, log lines.
-    static let mono = Font.system(size: 13, weight: .regular, design: .monospaced)
 }
 
 extension Color {

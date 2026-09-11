@@ -188,17 +188,16 @@ struct JcWrap: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? .infinity
-        var rows: CGFloat = 1, x: CGFloat = 0, rowHeight: CGFloat = 0, total: CGFloat = 0
+        var x: CGFloat = 0, rowHeight: CGFloat = 0, total: CGFloat = 0
         for view in subviews {
             let size = view.sizeThatFits(.unspecified)
             if x > 0, x + spacing + size.width > width {
                 total += rowHeight + runSpacing
-                rows += 1; x = 0; rowHeight = 0
+                x = 0; rowHeight = 0
             }
             x += (x > 0 ? spacing : 0) + size.width
             rowHeight = max(rowHeight, size.height)
         }
-        _ = rows
         return CGSize(width: proposal.width ?? x, height: total + rowHeight)
     }
 

@@ -22,7 +22,6 @@ final class ChatStreamReducerTests: XCTestCase {
     func testStartedRecordsTheStreamID() {
         XCTAssertTrue(apply("started", ["stream_id": "s-9", "session_id": "sess-1"]))
         XCTAssertEqual(state.streamID, "s-9")
-        XCTAssertEqual(state.sessionID, "sess-1")
         XCTAssertTrue(state.receivedAnyEvent)
         XCTAssertNil(state.outcome, "the turn is only getting going")
     }
@@ -46,22 +45,12 @@ final class ChatStreamReducerTests: XCTestCase {
         XCTAssertTrue(state.message.blocks.isEmpty)
     }
 
-    func testFirstTextRecordsTimeToFirstToken() {
-        _ = apply("reasoning", ["text": "thinking"], at: 0.5)
-        XCTAssertNil(state.message.stats?.firstTokenMs, "reasoning is not visible output")
-        _ = apply("delta", ["text": "hi"], at: 2)
-        XCTAssertEqual(state.message.stats?.firstTokenMs, 2_000)
-        _ = apply("delta", ["text": " more"], at: 4)
-        XCTAssertEqual(state.message.stats?.firstTokenMs, 2_000, "only the first one counts")
-    }
-
     // MARK: thinking / reasoning
 
     func testThinkingAndReasoningBothAppendToTheTrace() {
         _ = apply("thinking", ["text": "step 1 "])
         _ = apply("reasoning", ["delta": "step 2"])
         XCTAssertEqual(state.message.reasoning, "step 1 step 2")
-        XCTAssertTrue(state.message.isThinking, "no visible text yet → the UI shows the thinking dots")
     }
 
     // MARK: interim assistant text
@@ -166,13 +155,9 @@ final class ChatStreamReducerTests: XCTestCase {
         }
     }
 
-    func testMeteringAlsoLandsOnTheLiveMirrorAndTheCost() {
-        _ = apply("metering", ["usage": ["input_tokens": 3, "output_tokens": 4, "estimated_cost": 0.02],
-                               "tps": 31.5, "estimated": true])
-        XCTAssertEqual(state.inputTokens, 3)
-        XCTAssertEqual(state.outputTokens, 4)
-        XCTAssertEqual(state.estimatedCost, 0.02)
-        XCTAssertEqual(state.message.stats?.tokensPerSecond, 31.5)
+    func testMeteringCarriesTheEstimatedFlag() {
+        _ = apply("metering", ["usage": ["input_tokens": 3, "output_tokens": 4], "estimated": true])
+        XCTAssertEqual(state.message.stats?.inputTokens, 3)
         XCTAssertTrue(state.message.stats?.estimated == true)
     }
 
@@ -183,11 +168,6 @@ final class ChatStreamReducerTests: XCTestCase {
 
     func testMeteringWithNothingUsefulChangesNothing() {
         XCTAssertFalse(apply("metering", ["note": "hi"]))
-    }
-
-    func testUnavailableTokensPerSecondIsDropped() {
-        _ = apply("metering", ["tps": 12.0, "tps_available": false, "usage": ["input_tokens": 1]])
-        XCTAssertNil(state.message.stats?.tokensPerSecond)
     }
 
     // MARK: clarify
@@ -328,14 +308,14 @@ final class ChatStreamReducerTests: XCTestCase {
     // MARK: history fallback
 
     func testAdoptingASnapshotFillsAnEmptyTurnFromTheServersRecord() {
-        let snap = SessionSnapshot(activeStreamID: nil, lastAssistantText: "server's copy", lastToolNames: ["search"])
+        let snap = SessionSnapshot(activeStreamID: nil, lastAssistantText: "server's copy")
         XCTAssertTrue(ChatStreamReducer.adopt(snap, into: &state))
         XCTAssertEqual(state.message.plainText, "server's copy")
     }
 
     func testAdoptingASnapshotNeverOverwritesWhatWeAlreadyStreamed() {
         _ = apply("delta", ["text": "ours"])
-        let snap = SessionSnapshot(activeStreamID: nil, lastAssistantText: "server's copy", lastToolNames: [])
+        let snap = SessionSnapshot(activeStreamID: nil, lastAssistantText: "server's copy")
         XCTAssertFalse(ChatStreamReducer.adopt(snap, into: &state))
         XCTAssertEqual(state.message.plainText, "ours")
     }

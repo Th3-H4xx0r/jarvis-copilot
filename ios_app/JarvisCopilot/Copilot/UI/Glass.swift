@@ -1,13 +1,7 @@
 import SwiftUI
 
-/// Shared "dark glass + iridescent" primitives, ported from `widgets/glass.dart`.
-/// Every screen composes from these so the visual identity stays consistent and
-/// tunable from one place.
-///
-/// Perf note: real blur (`.ultraThinMaterial`) is GPU-costly. `GlassCard` and
-/// `GlassGroup` take `blur:` so screens with many glass elements (grids, lists)
-/// can drop to a flat translucent fill per item — the same escape hatch the
-/// Flutter widgets have.
+/// Shared "dark glass + iridescent" primitives. Every screen composes from these
+/// so the visual identity stays consistent and tunable from one place.
 
 // MARK: - Backdrop
 
@@ -46,40 +40,23 @@ struct AuroraBackdrop: View {
     }
 }
 
-/// Wraps a screen in the aurora backdrop. Pair with a clear container background
-/// so the aurora shows through — `NavShell` already puts one behind every tab, so
-/// this is for pushed screens and sheets.
-struct AppBackground<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        content.background(AuroraBackdrop().ignoresSafeArea())
-    }
-}
-
 // MARK: - Cards
 
-/// A frosted-glass container: translucent fill + hairline border + optional blur.
+/// A frosted-glass container: translucent fill + hairline border.
 struct GlassCard<Content: View>: View {
     var padding: CGFloat = 16
     var radius: CGFloat = JcTheme.cardRadius
-    /// `true` puts a material blur behind the card. Off by default: the app's
-    /// screens (see the Voice page) sit flat on the aurora, and a blurred card
-    /// inside a scroll of them reads heavier than everything around it.
-    var blur: Bool = false
     var fill: Color? = nil
     var borderColor: Color? = nil
     @ViewBuilder var content: Content
 
     init(padding: CGFloat = 16,
          radius: CGFloat = JcTheme.cardRadius,
-         blur: Bool = false,
          fill: Color? = nil,
          borderColor: Color? = nil,
          @ViewBuilder content: () -> Content) {
         self.padding = padding
         self.radius = radius
-        self.blur = blur
         self.fill = fill
         self.borderColor = borderColor
         self.content = content()
@@ -90,13 +67,7 @@ struct GlassCard<Content: View>: View {
     var body: some View {
         content
             .padding(padding)
-            .background {
-                if blur {
-                    shape.fill(.ultraThinMaterial).overlay(shape.fill(fill ?? JcTheme.glassFill))
-                } else {
-                    shape.fill(fill ?? JcTheme.glassFill)
-                }
-            }
+            .background(shape.fill(fill ?? JcTheme.glassFill))
             .overlay(shape.strokeBorder(borderColor ?? JcTheme.glassBorder, lineWidth: 1))
             .contentShape(shape)
     }
@@ -104,11 +75,9 @@ struct GlassCard<Content: View>: View {
 
 /// A rounded frosted container that groups `GlassRow`s (iOS inset-list style).
 struct GlassGroup<Content: View>: View {
-    var blur: Bool = false
     @ViewBuilder var content: Content
 
-    init(blur: Bool = false, @ViewBuilder content: () -> Content) {
-        self.blur = blur
+    init(@ViewBuilder content: () -> Content) {
         self.content = content()
     }
 
@@ -116,13 +85,7 @@ struct GlassGroup<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) { content }
-            .background {
-                if blur {
-                    shape.fill(.ultraThinMaterial).overlay(shape.fill(JcTheme.glassFill))
-                } else {
-                    shape.fill(JcTheme.glassFill)
-                }
-            }
+            .background(shape.fill(JcTheme.glassFill))
             .overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 1))
             .clipShape(shape)
     }
@@ -292,35 +255,9 @@ struct GlassButton: View {
 
 // MARK: - Text & headings
 
-/// Text painted with the iridescent brand gradient — for headings and brand marks.
-struct GradientText: View {
-    let text: String
-    var font: Font = JcText.title
-    var gradient: LinearGradient = JcTheme.brandGradient
-
-    init(_ text: String, font: Font = JcText.title, gradient: LinearGradient = JcTheme.brandGradient) {
-        self.text = text
-        self.font = font
-        self.gradient = gradient
-    }
-
-    var body: some View {
-        Text(text).font(font).foregroundStyle(gradient)
-    }
-}
-
-/// A bold section heading (the reference's "Extra features").
-struct GlassSectionLabel: View {
-    let text: String
-    init(_ text: String) { self.text = text }
-
-    /// Same register as ``GlassQuietLabel`` — every screen now shares it.
-    var body: some View { GlassQuietLabel(text) }
-}
-
 /// Section label in the Voice page's register — small, spaced, muted — for the
 /// settings screens, where the rows should carry the weight rather than a bold
-/// header. `GlassSectionLabel` stays for the content pages.
+/// header.
 struct GlassQuietLabel: View {
     let text: String
     init(_ text: String) { self.text = text }

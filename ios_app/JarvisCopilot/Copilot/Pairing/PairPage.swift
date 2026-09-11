@@ -11,7 +11,6 @@ struct PairPage: View {
     @State private var step: Step = .welcome
     @State private var showManual = false
     /// Drives the staggered entrance of each screen's elements; reset on step change.
-    @State private var revealed = false
     /// When the current screen's reveal began. Fades are computed from elapsed time
     /// (a pure opacity ramp) instead of implicit animations, which also animated
     /// layout and made text glide in from the corner.
@@ -97,7 +96,7 @@ struct PairPage: View {
         // A scanned QR that carried a Cloudflare token opens the manual form so
         // the values it filled are visible.
         .onChange(of: store.showsCloudflareFields) { _, shown in if shown { showManual = true } }
-        .onAppear { revealed = true; revealAt = Date() }
+        .onAppear { revealAt = Date() }
         #if os(iOS)
         .fullScreenCover(isPresented: Binding(
             get: { store.phase == .scanning },
@@ -114,21 +113,19 @@ struct PairPage: View {
         guard target != step else { return }
         focus = nil
         if reduceMotion {
-            step = target; orbStep = target; revealed = true; revealAt = Date()
+            step = target; orbStep = target; revealAt = Date()
             return
         }
         contentVisible = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
             // Lay the next screen out while still invisible so its orb slot
             // reports a position, then send the orb there.
-            revealed = false
             revealAt = nil
             step = target
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { orbStep = target }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.62) {
             contentVisible = true
-            revealed = true
             revealAt = Date()
         }
     }
@@ -489,8 +486,6 @@ private struct WordReveal: View {
         self.font = font; self.color = color; self.revealAt = revealAt
         self.startDelay = startDelay; self.step = step; self.reduceMotion = reduceMotion
     }
-
-    private var totalDuration: Double { startDelay + Double(max(words.count - 1, 0)) * step + fade }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 60, paused: revealAt == nil || reduceMotion)) { tl in

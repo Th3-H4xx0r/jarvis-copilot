@@ -152,7 +152,7 @@ struct CronJobCard: View {
 
     var body: some View {
         Button(action: onTap) {
-            GlassCard(padding: 0, blur: false,
+            GlassCard(padding: 0,
                       borderColor: running ? JcTheme.primaryBlue.opacity(0.5) : nil) {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 10) {

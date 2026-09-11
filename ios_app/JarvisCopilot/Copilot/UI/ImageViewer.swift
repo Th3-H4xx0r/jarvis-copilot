@@ -8,7 +8,6 @@ import SwiftUI
 struct ImageViewerPage: View {
     let image: Image
     /// Shown instead of the image when the caller had nothing to decode.
-    var placeholder: String = "🖼 image"
 
     @Environment(\.dismiss) private var dismiss
     @State private var scale: CGFloat = 1

@@ -29,7 +29,6 @@ struct ChatModel: Identifiable, Equatable, Hashable, Sendable {
 struct ModelCatalog: Equatable, Sendable {
     var defaultModel: String = ""
     var activeModel: String?
-    var activeProvider: String?
     var models: [ChatModel] = []
 
     /// Providers in the order the server listed them (the picker's section order).
@@ -43,7 +42,6 @@ struct ModelCatalog: Equatable, Sendable {
     init(json object: [String: Any]) {
         defaultModel = object.string("default_model") ?? object.string("default") ?? ""
         activeModel = object.string("active_model") ?? object.dict("active")?.string("model")
-        activeProvider = object.string("active_provider") ?? object.dict("active")?.string("provider")
 
         // Newer servers group by provider; older ones send one flat list. The
         // grouped shape carries `provider_id` once per GROUP, the flat one per
@@ -84,10 +82,4 @@ struct ModelsAPI {
         ModelCatalog(json: try await api.get("/api/models").object())
     }
 
-    func setActive(model: String?, provider: String?) async throws {
-        var body: [String: Any] = [:]
-        if let model { body["model"] = model }
-        if let provider { body["provider"] = provider }
-        _ = try await api.post("/api/model/active", json: body)
-    }
 }

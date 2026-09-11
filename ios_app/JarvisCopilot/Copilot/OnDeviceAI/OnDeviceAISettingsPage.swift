@@ -93,7 +93,7 @@ struct OnDeviceAISettingsPage: View {
     // MARK: - Tier
 
     private var tierRows: some View {
-        GlassGroup(blur: false) {
+        GlassGroup {
             tierRow(.off, "Off", "Everything runs on the server.")
             tierRow(.routerCommands, "Router + instant commands",
                     "Answer trivial turns + fire device commands locally; escalate the rest.")
@@ -119,7 +119,7 @@ struct OnDeviceAISettingsPage: View {
     // MARK: - Surfaces
 
     private var surfaceRows: some View {
-        GlassGroup(blur: false) {
+        GlassGroup {
             OnDeviceSwitchRow(symbol: "bubble.left", title: "Chat",
                               isOn: store.settings.chatEnabled) { store.setChatEnabled($0) }
             OnDeviceSwitchRow(symbol: "waveform", title: "Voice",
@@ -131,7 +131,7 @@ struct OnDeviceAISettingsPage: View {
     // MARK: - Models
 
     private var modelRows: some View {
-        GlassGroup(blur: false) {
+        GlassGroup {
             if store.models.isEmpty {
                 GlassRow(symbol: "cpu", title: "No local models",
                          subtitle: "Apple Foundation Models needs iOS 26 + Apple Intelligence.",
@@ -187,7 +187,7 @@ struct OnDeviceAISettingsPage: View {
     // MARK: - Advanced
 
     private var advancedRows: some View {
-        GlassGroup(blur: false) {
+        GlassGroup {
             GlassRow(symbol: "arrow.triangle.branch",
                      title: "The model decides escalation",
                      subtitle: "Each turn runs the on-device model to completion; it chooses "
@@ -237,7 +237,7 @@ private struct OnDeviceDebugGenerate: View {
     @Bindable var store: OnDeviceAISettingsStore
 
     var body: some View {
-        GlassCard(blur: false) {
+        GlassCard {
             VStack(alignment: .leading, spacing: 12) {
                 TextField("Prompt the local model…", text: $store.prompt, axis: .vertical)
                     .font(JcText.body)

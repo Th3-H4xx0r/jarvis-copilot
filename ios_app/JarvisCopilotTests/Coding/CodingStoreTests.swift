@@ -259,7 +259,6 @@ final class CodingStoreTests: XCTestCase {
 
     func testTransientClassification() {
         XCTAssertTrue(CodingStore.isTransient(APIError.http(status: 502, message: "")))
-        XCTAssertTrue(CodingStore.isTransient(APIError.cancelled))
         XCTAssertTrue(CodingStore.isTransient(URLError(.notConnectedToInternet)))
         XCTAssertFalse(CodingStore.isTransient(APIError.http(status: 404, message: "")))
         XCTAssertFalse(CodingStore.isTransient(APIError.badResponse("nope")))

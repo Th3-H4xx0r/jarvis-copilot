@@ -128,21 +128,6 @@ final class JarvisAPITests: XCTestCase {
         catch { XCTAssertEqual(error as? APIError, .notPaired) }
     }
 
-    func testDecodeUsesSnakeCase() async throws {
-        struct S: Decodable, Equatable { let sessionId: String; let tokenCount: Int }
-        let (api, t) = JarvisAPI.mocked()
-        t.enqueue(json: ["session_id": "s", "token_count": 3])
-        let s = try await api.get("/x").decode(S.self)
-        XCTAssertEqual(s, S(sessionId: "s", tokenCount: 3))
-    }
-
-    func testArrayUnwrapsWrapperObject() async throws {
-        let (api, t) = JarvisAPI.mocked()
-        t.enqueue(json: ["sessions": [["id": 1], ["id": 2]]])
-        let arr = try await api.get("/x").array()
-        XCTAssertEqual(arr.count, 2)
-    }
-
     func testStreamSSEYieldsEventsAndSetsAccept() async throws {
         let (api, t) = JarvisAPI.mocked()
         t.enqueueSSE("event: delta\ndata: {\"text\":\"a\"}\n\nevent: delta\ndata: {\"text\":\"b\"}\n\ndata: {\"event\":\"done\"}\n\n")
@@ -190,23 +175,6 @@ final class JarvisAPITests: XCTestCase {
         var m = MultipartBody(boundary: "Z"); m.add("session_id", "s")
         _ = try await api.postMultipart("/api/upload", m)
         XCTAssertEqual(t.lastRequest?.value(forHTTPHeaderField: "Content-Type"), "multipart/form-data; boundary=Z")
-    }
-
-    func testArrayPrefersAKnownWrapperKeyOverDictionaryOrder() async throws {
-        let (api, t) = JarvisAPI.mocked()
-        t.enqueue(json: ["warnings": ["only one"], "items": [["id": 1], ["id": 2]]])
-        let arr = try await api.get("/x").array()
-        XCTAssertEqual(arr.count, 2, "the known wrapper key wins, whatever order the dict iterates in")
-    }
-
-    func testArrayWithoutAKnownWrapperKeyThrowsInsteadOfGuessing() async {
-        let (api, t) = JarvisAPI.mocked()
-        t.enqueue(json: ["rows": [["id": 1]]])
-        do { _ = try await api.get("/x").array(); XCTFail("expected throw") }
-        catch let e as APIError {
-            guard case .badResponse(let why) = e else { return XCTFail("wrong error \(e)") }
-            XCTAssertTrue(why.contains("rows"), why)
-        } catch { XCTFail("wrong error \(error)") }
     }
 
     func testArrayWithAnExplicitKeyReadsThatKeyOnly() async throws {
@@ -336,7 +304,6 @@ final class JarvisAPITests: XCTestCase {
         XCTAssertEqual(d.double("d"), 1)
         XCTAssertEqual(d.bool("b"), true)
         XCTAssertEqual(d.string("s"), "3")
-        XCTAssertEqual(d.strings("l"), ["a"])
         XCTAssertNil(d.string("missing"))
     }
 }
@@ -396,19 +363,6 @@ private extension MockTransport {
 }
 
 final class LineSplitterTests: XCTestCase {
-    private func stream(_ s: String) -> AsyncThrowingStream<UInt8, Error> {
-        AsyncThrowingStream { c in for b in Data(s.utf8) { c.yield(b) }; c.finish() }
-    }
-
-    func testKeepsEmptyLinesAndHandlesCRLF() async throws {
-        let lines = try await collect(stream("a\r\n\nb\n\n").allLines)
-        XCTAssertEqual(lines, ["a", "", "b", ""])
-    }
-
-    func testEmitsUnterminatedTail() async throws {
-        let lines = try await collect(stream("x\ny").allLines)
-        XCTAssertEqual(lines, ["x", "y"])
-    }
 
     /// The production path: the transport vends `Data` chunks that cut wherever
     /// the socket happened to break, so a line must survive being split in two.

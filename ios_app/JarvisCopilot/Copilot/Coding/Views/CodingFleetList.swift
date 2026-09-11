@@ -81,7 +81,7 @@ struct CodingProjectGroup: View {
     let onSettings: (() -> Void)?
 
     var body: some View {
-        GlassCard(padding: 0, blur: false) {
+        GlassCard(padding: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 header
                 if !collapsed {
@@ -330,7 +330,7 @@ struct CodingUsageCard: View {
 
     var body: some View {
         if !rows.isEmpty {
-            GlassCard(padding: 14, blur: false) {
+            GlassCard(padding: 14) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("ACCOUNT USAGE")
                         .font(.system(size: 10.5, weight: .bold))

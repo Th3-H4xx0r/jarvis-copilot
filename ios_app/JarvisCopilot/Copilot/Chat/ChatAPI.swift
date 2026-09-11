@@ -56,10 +56,9 @@ struct ChatAPI {
     /// — an older server answers with the ordinary start JSON, and we fall through
     /// to the classic two-step flow.
     func sendMessage(sessionID: String, text: String, model: String? = nil, provider: String? = nil,
-                     workspace: String? = nil, profile: String? = nil,
                      attachments: [[String: Any]]? = nil) -> AsyncThrowingStream<SSEEvent, Error> {
         let body = startBody(sessionID: sessionID, text: text, model: model, provider: provider,
-                             workspace: workspace, profile: profile, attachments: attachments)
+                             attachments: attachments)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -108,7 +107,7 @@ struct ChatAPI {
 
                     let start = try await startMessage(
                         sessionID: sessionID, text: text, model: model, provider: provider,
-                        workspace: workspace, profile: profile, attachments: attachments)
+                        attachments: attachments)
                     continuation.yield(Self.startedEvent(start))
                     try await pump(streamEvents(try Self.streamID(of: start)), into: continuation)
                     continuation.finish()
@@ -124,11 +123,10 @@ struct ChatAPI {
 
     /// The classic two-step start: returns the raw body, `stream_id` included.
     func startMessage(sessionID: String, text: String, model: String? = nil, provider: String? = nil,
-                      workspace: String? = nil, profile: String? = nil,
                       attachments: [[String: Any]]? = nil) async throws -> [String: Any] {
         try await api.post("/api/chat/start", json: startBody(
             sessionID: sessionID, text: text, model: model, provider: provider,
-            workspace: workspace, profile: profile, attachments: attachments)).object()
+            attachments: attachments)).object()
     }
 
     func streamEvents(_ streamID: String) -> AsyncThrowingStream<SSEEvent, Error> {
@@ -160,13 +158,10 @@ struct ChatAPI {
     // MARK: Plumbing
 
     private func startBody(sessionID: String, text: String, model: String?, provider: String?,
-                           workspace: String?, profile: String?,
                            attachments: [[String: Any]]?) -> [String: Any] {
         var body: [String: Any] = ["session_id": sessionID, "message": text]
         if let model, !model.isEmpty { body["model"] = model }
         if let provider, !provider.isEmpty { body["model_provider"] = provider }
-        if let workspace, !workspace.isEmpty { body["workspace"] = workspace }
-        if let profile, !profile.isEmpty { body["profile"] = profile }
         if let attachments, !attachments.isEmpty { body["attachments"] = attachments }
         return body
     }
@@ -207,7 +202,7 @@ struct ChatAPI {
             switch apiError {
             case .http(let status, _): return [404, 405, 500, 501, 502, 503].contains(status)
             case .badResponse: return true
-            case .notPaired, .cancelled: return false
+            case .notPaired: return false
             }
         }
         if error is CancellationError { return false }

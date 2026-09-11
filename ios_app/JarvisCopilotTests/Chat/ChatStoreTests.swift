@@ -6,7 +6,6 @@ final class ChatStoreTests: XCTestCase {
 
     private var transport: ScriptedTransport!
     private var clock: ManualChatClock!
-    private var clipboard: FakeClipboard!
     private var bus: ChatSyncBus!
     private var store: ChatStore!
 
@@ -26,7 +25,6 @@ final class ChatStoreTests: XCTestCase {
         ChatAPI.streamingStartSupported = nil
         transport = ScriptedTransport()
         clock = ManualChatClock()
-        clipboard = FakeClipboard()
         bus = ChatSyncBus()
         store = makeStore()
     }
@@ -43,7 +41,6 @@ final class ChatStoreTests: XCTestCase {
                   selection: ModelSelection(store: MemoryKeyValueStore()),
                   bus: bus,
                   clock: clock,
-                  clipboard: clipboard,
                   onDevice: onDevice,
                   resilience: ChatResilience(idleLimit: 45, checkStep: 5, maxReattach: 3))
     }
@@ -81,7 +78,6 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertFalse(store.streaming)
         XCTAssertNil(store.error)
         XCTAssertEqual(store.sessionTitle, "Swift search", "the server named the session mid-turn")
-        XCTAssertEqual(store.inputTokens, 1_200, "the live usage mirror the composer shows")
     }
 
     func testSendPassesTheSelectedModelAndProvider() async {
@@ -473,14 +469,12 @@ final class ChatStoreTests: XCTestCase {
     func testStartNewSessionClearsTheViewWithoutTouchingTheServer() async {
         transport.on("GET /api/session", .json(["session": ["title": "Old", "messages": [["role": "user", "content": "hi"]]]]))
         await store.openSession("s1")
-        store.inputTokens = 5
 
         store.startNewSession()
         XCTAssertNil(store.sessionID)
         XCTAssertEqual(store.sessionTitle, "New chat")
         XCTAssertTrue(store.messages.isEmpty)
         XCTAssertTrue(store.isEmpty)
-        XCTAssertNil(store.inputTokens)
         XCTAssertEqual(transport.count("POST /api/session/new"), 0, "deferred until the first message")
     }
 
@@ -756,13 +750,6 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertTrue(store.rows.isEmpty)
     }
 
-    func testCopyPutsAMessagesTextOnTheClipboard() async {
-        var m = ChatMessage.assistant()
-        m.appendToken("copy me")
-        store.copy(m)
-        XCTAssertEqual(clipboard.copied, ["copy me"])
-    }
-
     func testCanSendReflectsTheComposerState() {
         XCTAssertFalse(store.canSend(draft: "   "))
         XCTAssertTrue(store.canSend(draft: "hi"))
@@ -871,13 +858,6 @@ final class ChatStoreTests: XCTestCase {
 }
 
 // MARK: - Test doubles
-
-final class FakeClipboard: ChatClipboard, @unchecked Sendable {
-    private let lock = NSLock()
-    private var items: [String] = []
-    var copied: [String] { lock.lock(); defer { lock.unlock() }; return items }
-    func copy(_ text: String) { lock.lock(); items.append(text); lock.unlock() }
-}
 
 @MainActor
 final class FakeOnDeviceHandler: OnDeviceChatHandler {

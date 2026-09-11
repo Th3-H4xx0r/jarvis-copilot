@@ -121,7 +121,7 @@ struct ProfileCard: View {
     }
 
     var body: some View {
-        GlassCard(padding: 14, blur: false,
+        GlassCard(padding: 14,
                   borderColor: isActive ? JcTheme.success.opacity(0.40) : JcTheme.glassBorder) {
             HStack(alignment: .top, spacing: 12) {
                 Group {

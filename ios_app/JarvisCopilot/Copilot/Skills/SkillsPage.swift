@@ -69,7 +69,7 @@ struct SkillsPage: View {
                                 .font(.system(size: 11, weight: .bold)).kerning(0.8)
                                 .foregroundStyle(JcTheme.muted)
                                 .padding(.leading, 4)
-                            GlassGroup(blur: false) {
+                            GlassGroup {
                                 ForEach(Array(section.items.enumerated()), id: \.element.id) { index, item in
                                     SkillToggleRow(item: item,
                                                    last: index == section.items.count - 1,
@@ -188,7 +188,7 @@ struct SkillsInvokeLog: View {
                 .accessibilityLabel("Reload invoke log")
             }
             if rows.isEmpty {
-                GlassCard(padding: 14, blur: false) {
+                GlassCard(padding: 14) {
                     Text("Nothing has been invoked in this session yet.")
                         .font(.system(size: 13))
                         .foregroundStyle(JcTheme.muted)
@@ -209,7 +209,7 @@ struct SkillsInvokeLogCard: View {
     let row: SkillInvokeLogRow
 
     var body: some View {
-        GlassCard(padding: 12, blur: false) {
+        GlassCard(padding: 12) {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
                     Text(row.skill)

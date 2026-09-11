@@ -43,16 +43,11 @@ final class ModelSelectionTests: XCTestCase {
         XCTAssertEqual(sel.model(for: .voice), "google/gemini-2.5-flash")
     }
 
-    func testGettersAreNilWhenNothingWasEverSetAndAfterClear() {
+    func testGettersAreNilWhenNothingWasEverSet() {
         XCTAssertNil(sel.model(for: .chat))
         XCTAssertNil(sel.provider(for: .chat))
         XCTAssertNil(sel.model(for: .voice))
         XCTAssertNil(sel.provider(for: .voice))
-
-        sel.set(.chat, model: "anthropic/claude-opus-4.7", provider: "anthropic")
-        sel.clear()
-        XCTAssertNil(ModelSelection(store: store).model(for: .chat))
-        XCTAssertNil(ModelSelection(store: store).provider(for: .chat))
     }
 
     func testPassingNilClearsAPreviouslySetField() {
@@ -99,7 +94,6 @@ final class ModelsAPITests: XCTestCase {
         let catalog = try await ModelsAPI(api: api).list()
         XCTAssertEqual(catalog.defaultModel, "anthropic/opus")
         XCTAssertEqual(catalog.activeModel, "openai/gpt")
-        XCTAssertEqual(catalog.activeProvider, "openai")
         XCTAssertEqual(catalog.models.map(\.id), ["anthropic/opus", "openai/gpt"], "a model with no id is dropped")
         XCTAssertEqual(catalog.models.first?.label, "Opus")
         XCTAssertEqual(catalog.models.first?.provider, "anthropic")
@@ -159,11 +153,4 @@ final class ModelsAPITests: XCTestCase {
         XCTAssertEqual(catalog.models.first?.label, "a/b")
     }
 
-    func testSetActivePostsOnlyTheFieldsGiven() async throws {
-        let (api, t) = JarvisAPI.mocked()
-        t.enqueue(json: [:])
-        try await ModelsAPI(api: api).setActive(model: "a/b", provider: nil)
-        XCTAssertEqual(t.lastRequest?.url?.path, "/api/model/active")
-        XCTAssertEqual(t.lastBody() as? [String: String], ["model": "a/b"])
-    }
 }

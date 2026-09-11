@@ -2,43 +2,20 @@ import SwiftUI
 import XCTest
 @testable import JarvisCopilot
 
-/// The memo in front of the markdown renderer (swift-correctness H7) and the
-/// link policy the transcript applies on tap (security M5).
+/// The memo in front of the markdown renderer and the link policy the
+/// transcript applies on tap.
 final class ChatMarkdownCacheTests: XCTestCase {
-
-    override func setUp() {
-        super.setUp()
-        ChatMarkdownCache.removeAll()
-    }
-
-    override func tearDown() {
-        ChatMarkdownCache.removeAll()
-        super.tearDown()
-    }
 
     func testBlocksAreParsedOnceAndKeyedOnTheText() {
         let text = "# Title\n\nsome **bold** prose\n\n```swift\nlet x = 1\n```"
-        XCTAssertFalse(ChatMarkdownCache.hasBlocks(for: text))
-
         let first = ChatMarkdownCache.blocks(for: text)
-        XCTAssertTrue(ChatMarkdownCache.hasBlocks(for: text), "the parse is kept, not repeated per body eval")
         XCTAssertEqual(first, MarkdownBlocks.split(text), "memoising must not change the result")
         XCTAssertEqual(ChatMarkdownCache.blocks(for: text), first)
     }
 
-    func testAGrowingReplyOnlyMissesForItsNewestPrefix() {
-        _ = ChatMarkdownCache.blocks(for: "hel")
-        _ = ChatMarkdownCache.blocks(for: "hello")
-        XCTAssertTrue(ChatMarkdownCache.hasBlocks(for: "hel"))
-        XCTAssertTrue(ChatMarkdownCache.hasBlocks(for: "hello"))
-        XCTAssertFalse(ChatMarkdownCache.hasBlocks(for: "hello there"))
-    }
-
     func testInlineMarkdownIsMemoisedAndStillStylesCode() {
         let text = "call `foo()` now"
-        XCTAssertFalse(ChatMarkdownCache.hasInline(for: text))
         let attributed = chatInlineMarkdown(text)
-        XCTAssertTrue(ChatMarkdownCache.hasInline(for: text))
         XCTAssertEqual(String(attributed.characters), "call foo() now")
         XCTAssertTrue(attributed.runs.contains { $0.font != nil }, "inline code keeps its monospaced run")
         XCTAssertEqual(String(chatInlineMarkdown(text).characters), String(attributed.characters))

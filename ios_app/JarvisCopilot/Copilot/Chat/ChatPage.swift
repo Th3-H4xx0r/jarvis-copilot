@@ -184,7 +184,7 @@ struct ChatPage: View {
                             ChatMessageRow(
                                 row: row,
                                 isFirst: index == 0,
-                                onCopy: { store.copy(row.message) },
+                                onCopy: { UIPasteboard.general.string = row.message.plainText },
                                 onRetryOnServer: row.message.onDevice
                                     ? { Task { await store.retryOnServer(row.message) } } : nil)
                                 .id(row.id)

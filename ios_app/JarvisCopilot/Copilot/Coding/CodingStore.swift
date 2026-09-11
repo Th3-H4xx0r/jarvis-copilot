@@ -490,7 +490,6 @@ final class CodingStore {
         if let e = error as? APIError {
             switch e {
             case .http(let status, _): return status >= 500
-            case .cancelled: return true
             case .badResponse, .notPaired: return false
             }
         }

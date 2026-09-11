@@ -103,7 +103,7 @@ struct WorkspaceRow: View {
     private var accent: Color { isLastUsed ? JcTheme.success : JcTheme.muted }
 
     var body: some View {
-        GlassCard(padding: 12, blur: false, fill: JcTheme.surface,
+        GlassCard(padding: 12, fill: JcTheme.surface,
                   borderColor: isLastUsed ? JcTheme.success.opacity(0.35) : JcTheme.glassBorder) {
             HStack(spacing: 12) {
                 Image(systemName: isLastUsed ? "folder.fill" : "folder")

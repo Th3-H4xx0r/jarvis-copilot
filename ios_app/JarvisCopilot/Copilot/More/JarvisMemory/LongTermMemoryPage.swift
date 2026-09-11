@@ -265,7 +265,7 @@ struct MemoryEntryCard: View {
     }
 
     var body: some View {
-        GlassCard(padding: 0, blur: false, fill: JcTheme.surface) {
+        GlassCard(padding: 0, fill: JcTheme.surface) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(entry.body)
                     .font(.system(size: 14))
@@ -316,7 +316,7 @@ struct MemoryReflectionCard: View {
     }
 
     var body: some View {
-        GlassCard(padding: 0, blur: false, fill: JcTheme.surface) {
+        GlassCard(padding: 0, fill: JcTheme.surface) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles")

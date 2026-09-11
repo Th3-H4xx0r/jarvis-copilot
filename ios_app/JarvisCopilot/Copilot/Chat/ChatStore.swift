@@ -29,7 +29,6 @@ final class ChatStore {
     @ObservationIgnored private let modelsAPI: ModelsAPI
     @ObservationIgnored private let selection: ModelSelection
     @ObservationIgnored private let clock: ChatClock
-    @ObservationIgnored private let clipboard: ChatClipboard
     /// Internal, not private: `ChatEntryPoints.swift` reports whether the
     /// local-first lane is wired at all, and Swift's `private` is file-scoped.
     @ObservationIgnored let onDevice: OnDeviceChatHandler?
@@ -67,11 +66,6 @@ final class ChatStore {
     /// The agent's open clarify question; answering it resumes the blocked turn.
     var pendingClarify: ClarifyPrompt?
 
-    /// Live usage from `metering` frames, for the composer's subtle readout.
-    var inputTokens: Int?
-    var outputTokens: Int?
-    var estimatedCost: Double?
-
     // MARK: Composer
 
     var pendingAttachments: [ChatPendingAttachment] = []
@@ -106,7 +100,6 @@ final class ChatStore {
          selection: ModelSelection = .shared,
          bus: ChatSyncBus = .shared,
          clock: ChatClock = SystemChatClock(),
-         clipboard: ChatClipboard = SystemChatClipboard(),
          onDevice: OnDeviceChatHandler? = nil,
          resilience: ChatResilience = ChatResilience()) {
         chatAPI = ChatAPI(api: api)
@@ -114,7 +107,6 @@ final class ChatStore {
         modelsAPI = ModelsAPI(api: api)
         self.selection = selection
         self.clock = clock
-        self.clipboard = clipboard
         self.onDevice = onDevice
         self.resilience = resilience
         selectedModelID = selection.model(for: .chat)
@@ -263,9 +255,6 @@ final class ChatStore {
         setMessages([])
         pendingClarify = nil
         historyLoading = true
-        inputTokens = nil
-        outputTokens = nil
-        estimatedCost = nil
         sessionTitle = sessions.first { $0.id == id }?.displayTitle ?? "Chat"
         do {
             let detail = try await sessionsAPI.get(id)
@@ -289,9 +278,6 @@ final class ChatStore {
         setMessages([])
         error = nil
         pendingClarify = nil
-        inputTokens = nil
-        outputTokens = nil
-        estimatedCost = nil
     }
 
     private func ensureSession() async throws -> String {
@@ -560,11 +546,6 @@ final class ChatStore {
         pendingAttachments.removeAll { $0.id == attachment.id }
     }
 
-    /// Per-message copy (the little button under a reply).
-    func copy(_ message: ChatMessage) {
-        clipboard.copy(message.plainText)
-    }
-
     // MARK: Models
 
     func loadModels() async {
@@ -627,9 +608,6 @@ final class ChatStore {
     private func publish(_ state: ChatStreamState) {
         guard let id = liveMessageID, let index = messages.firstIndex(where: { $0.id == id }) else { return }
         replaceMessage(at: index, with: state.message)
-        if let value = state.inputTokens { inputTokens = value }
-        if let value = state.outputTokens { outputTokens = value }
-        if let value = state.estimatedCost { estimatedCost = value }
         if let title = state.sessionTitle, !title.isEmpty { sessionTitle = title }
         // Only on a change, so answering a clarify can't be undone by a later frame.
         if state.clarify != lastPublishedClarify {
@@ -638,9 +616,9 @@ final class ChatStore {
         }
     }
 
-    private func finishTurn(_ state: inout ChatStreamState, cancelled: Bool = false) {
+    private func finishTurn(_ state: inout ChatStreamState) {
         guard liveMessageID != nil else { return }
-        ChatStreamReducer.finish(&state, cancelled: cancelled, now: clock.now)
+        ChatStreamReducer.finish(&state, cancelled: false, now: clock.now)
         publish(state)
         streaming = false
         liveMessageID = nil

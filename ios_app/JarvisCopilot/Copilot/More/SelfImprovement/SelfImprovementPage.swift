@@ -62,7 +62,7 @@ struct SelfImprovementCard: View {
     let event: SelfImprovementEvent
 
     var body: some View {
-        GlassCard(padding: 14, blur: false) {
+        GlassCard(padding: 14) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     StatusPill(event.label, color: Color(tone: event.tone), dense: true)

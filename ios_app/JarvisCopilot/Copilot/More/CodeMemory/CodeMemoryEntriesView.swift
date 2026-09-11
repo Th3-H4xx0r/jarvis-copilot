@@ -186,7 +186,7 @@ struct CodeMemoryEntryRow: View {
     let tone: Color
 
     var body: some View {
-        GlassCard(padding: 0, blur: false) {
+        GlassCard(padding: 0) {
             HStack(alignment: .top, spacing: 11) {
                 Image(systemName: symbol)
                     .font(.system(size: 16))

@@ -5,8 +5,6 @@ struct ChatSessionDetail: Equatable, Sendable {
     var id: String = ""
     var title: String = ""
     var messages: [ChatMessage] = []
-    /// Set while a turn is running on this session — ours or another client's.
-    var activeStreamID: String?
 }
 
 /// What the server knows about a session right now: whether a turn is running (and
@@ -19,7 +17,6 @@ struct ChatSessionDetail: Equatable, Sendable {
 struct SessionSnapshot: Equatable, Sendable {
     let activeStreamID: String?
     let lastAssistantText: String?
-    let lastToolNames: [String]
 }
 
 /// `/api/sessions` wrapper, ported from `api/sessions.dart`. Mirrors the web UI's
@@ -30,8 +27,8 @@ struct SessionsAPI {
 
     init(api: JarvisAPI = .shared) { self.api = api }
 
-    func list(allProfiles: Bool = false) async throws -> [ChatSessionSummary] {
-        let response = try await api.get("/api/sessions", query: allProfiles ? ["all_profiles": "1"] : [:])
+    func list() async throws -> [ChatSessionSummary] {
+        let response = try await api.get("/api/sessions")
         return try response.object().list("sessions").map { ChatSessionSummary(json: $0) }
     }
 
@@ -45,10 +42,9 @@ struct SessionsAPI {
     /// Creates a session and returns its id. The caller defers this until the
     /// first message, matching the web UI's "an empty session writes nothing to
     /// disk" behaviour.
-    func create(title: String? = nil, profile: String? = nil) async throws -> String {
+    func create(title: String? = nil) async throws -> String {
         var body: [String: Any] = [:]
         if let title { body["title"] = title }
-        if let profile { body["profile"] = profile }
         let object = try await api.post("/api/session/new", json: body).object()
         guard let id = Self.sessionID(in: object), !id.isEmpty else {
             throw APIError.badResponse("could not create a chat session")
@@ -85,13 +81,9 @@ struct SessionsAPI {
         let session = object.dict("session") ?? object
         let active = session.string("active_stream_id").flatMap { $0.isEmpty ? nil : $0 }
         var lastText: String?
-        var tools: [String] = []
         for record in (session["messages"] as? [[String: Any]] ?? []).reversed() {
             guard record.string("role") == "assistant" else {
                 if lastText == nil { continue } else { break }
-            }
-            if let calls = record["tool_calls"] as? [[String: Any]] {
-                tools = calls.compactMap { $0.dict("function")?.string("name") ?? $0.string("name") } + tools
             }
             if lastText == nil {
                 if let content = record["content"] as? String,
@@ -107,7 +99,7 @@ struct SessionsAPI {
                 break
             }
         }
-        return SessionSnapshot(activeStreamID: active, lastAssistantText: lastText, lastToolNames: tools)
+        return SessionSnapshot(activeStreamID: active, lastAssistantText: lastText)
     }
 
     // MARK: Parsing
@@ -115,12 +107,10 @@ struct SessionsAPI {
     /// `GET /api/session` sometimes wraps the session and sometimes doesn't.
     static func detail(from object: [String: Any], fallbackID: String = "") -> ChatSessionDetail {
         let session = object.dict("session") ?? object
-        let active = session.string("active_stream_id").flatMap { $0.isEmpty ? nil : $0 }
         return ChatSessionDetail(
             id: sessionID(in: session) ?? fallbackID,
             title: (session.string("title") ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
-            messages: ChatHistory.hydrate(session["messages"] as? [[String: Any]] ?? []),
-            activeStreamID: active)
+            messages: ChatHistory.hydrate(session["messages"] as? [[String: Any]] ?? []))
     }
 
     private static func sessionID(in object: [String: Any]) -> String? {

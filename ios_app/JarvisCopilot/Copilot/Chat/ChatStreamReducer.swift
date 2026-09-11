@@ -12,15 +12,9 @@ struct ChatStreamState: Equatable, Sendable {
     var startedAt: Date
 
     var streamID: String?
-    var sessionID: String?
     /// Set when the server names the session mid-turn.
     var sessionTitle: String?
     var clarify: ClarifyPrompt?
-
-    /// Live usage mirror for the composer (the per-message copy lives on ``message``).
-    var inputTokens: Int?
-    var outputTokens: Int?
-    var estimatedCost: Double?
 
     /// nil while the turn is still running.
     var outcome: Outcome?
@@ -62,13 +56,11 @@ enum ChatStreamReducer {
         switch event.event {
         case "started":
             state.streamID = object.string("stream_id") ?? state.streamID
-            state.sessionID = object.string("session_id") ?? state.sessionID
             return true
 
         case "token", "delta", "text":
             let text = object.string("text") ?? object.string("delta") ?? object.string("content") ?? ""
             guard !text.isEmpty else { return false }
-            noteFirstToken(&state, now: now)
             state.message.appendToken(text)
             return true
 
@@ -84,7 +76,6 @@ enum ChatStreamReducer {
             guard object["already_streamed"] as? Bool != true, state.message.plainText.isEmpty else { return false }
             let text = object.string("text") ?? ""
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-            noteFirstToken(&state, now: now)
             state.message.appendToken(text)
             return true
 
@@ -201,14 +192,6 @@ enum ChatStreamReducer {
 
     // MARK: Bits
 
-    private static func noteFirstToken(_ state: inout ChatStreamState, now: Date) {
-        guard state.message.plainText.isEmpty else { return }
-        var stats = state.message.stats ?? ChatTurnStats()
-        guard stats.firstTokenMs == nil else { return }
-        stats.firstTokenMs = Int(now.timeIntervalSince(state.startedAt) * 1_000)
-        state.message.stats = stats
-    }
-
     private static func toolID(in object: [String: Any]) -> String? {
         for key in ["tid", "tool_call_id", "call_id", "id"] {
             if let id = object.string(key), !id.isEmpty { return id }
@@ -238,33 +221,20 @@ enum ChatStreamReducer {
             }
             return nil
         }
-        func digDouble(_ keys: [String]) -> Double? {
-            for nest in nests {
-                for key in keys {
-                    if let value = nest.double(key) { return value }
-                }
-            }
-            return nil
-        }
 
         let input = dig(["input_tokens", "prompt_tokens", "input"])
         let output = dig(["output_tokens", "completion_tokens", "output"])
         let cached = (dig(["cache_read_tokens", "cache_read_input_tokens"]) ?? 0)
             + (dig(["cache_write_tokens", "cache_creation_input_tokens"]) ?? 0)
-        let cost = digDouble(["estimated_cost", "cost"])
-        // The server says outright when it can't measure generation speed.
-        let tps = object["tps_available"] as? Bool == false ? nil : digDouble(["tps", "tokens_per_second"])
         let estimated = nests.compactMap { $0["estimated"] as? Bool }.first
 
-        guard input != nil || output != nil || cost != nil || tps != nil || estimated != nil else { return false }
+        guard input != nil || output != nil || estimated != nil else { return false }
 
         var stats = state.message.stats ?? ChatTurnStats()
-        if let input { stats.inputTokens = input; state.inputTokens = input }
+        if let input { stats.inputTokens = input }
         if cached > 0 { stats.cachedTokens = cached }
-        if let output { stats.outputTokens = output; state.outputTokens = output }
-        if let tps { stats.tokensPerSecond = tps }
+        if let output { stats.outputTokens = output }
         if let estimated { stats.estimated = estimated }
-        if let cost { state.estimatedCost = cost }
         state.message.stats = stats
         return true
     }

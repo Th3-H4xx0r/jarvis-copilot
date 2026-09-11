@@ -13,7 +13,6 @@ enum JcLog {
     static let skills = Logger(subsystem: subsystem, category: "skills")
     static let more = Logger(subsystem: subsystem, category: "more")
     static let services = Logger(subsystem: subsystem, category: "services")
-    static let ui = Logger(subsystem: subsystem, category: "ui")
 
     /// Log an error with context and return the user-facing line, so call sites can
     /// write `error = JcLog.report(.chat, "send", error)`.

@@ -1,24 +1,8 @@
 import Foundation
-#if canImport(UIKit)
-import UIKit
-#endif
 
 /// The platform and policy seams ``ChatStore`` depends on. Each is a small
 /// protocol with a production implementation here and a fake in the tests, so the
-/// store never touches UIKit or an on-device model directly.
-
-/// Where per-message "copy" puts text.
-protocol ChatClipboard: Sendable {
-    func copy(_ text: String)
-}
-
-struct SystemChatClipboard: ChatClipboard {
-    func copy(_ text: String) {
-        #if canImport(UIKit)
-        UIPasteboard.general.string = text
-        #endif
-    }
-}
+/// store never touches an on-device model directly.
 
 /// What the on-device layer decided about a turn.
 enum OnDeviceReply: Equatable, Sendable {

@@ -101,36 +101,36 @@ final class MarkdownBlocksTests: XCTestCase {
     func testBulletList() {
         let blocks = MarkdownBlocks.split("- one\n* two\n+ three")
         XCTAssertEqual(blocks, [.list([
-            MarkdownListItem(marker: "•", depth: 0, text: "one", ordered: false),
-            MarkdownListItem(marker: "•", depth: 0, text: "two", ordered: false),
-            MarkdownListItem(marker: "•", depth: 0, text: "three", ordered: false),
+            MarkdownListItem(marker: "•", depth: 0, text: "one"),
+            MarkdownListItem(marker: "•", depth: 0, text: "two"),
+            MarkdownListItem(marker: "•", depth: 0, text: "three"),
         ])])
     }
 
     func testOrderedListKeepsAuthorNumbers() {
         let blocks = MarkdownBlocks.split("1. first\n2. second\n7) seventh")
         XCTAssertEqual(blocks, [.list([
-            MarkdownListItem(marker: "1.", depth: 0, text: "first", ordered: true),
-            MarkdownListItem(marker: "2.", depth: 0, text: "second", ordered: true),
-            MarkdownListItem(marker: "7.", depth: 0, text: "seventh", ordered: true),
+            MarkdownListItem(marker: "1.", depth: 0, text: "first"),
+            MarkdownListItem(marker: "2.", depth: 0, text: "second"),
+            MarkdownListItem(marker: "7.", depth: 0, text: "seventh"),
         ])])
     }
 
     func testNestedList() {
         let blocks = MarkdownBlocks.split("- top\n  - nested\n    1. deep\n- back")
         XCTAssertEqual(blocks, [.list([
-            MarkdownListItem(marker: "•", depth: 0, text: "top", ordered: false),
-            MarkdownListItem(marker: "•", depth: 1, text: "nested", ordered: false),
-            MarkdownListItem(marker: "1.", depth: 2, text: "deep", ordered: true),
-            MarkdownListItem(marker: "•", depth: 0, text: "back", ordered: false),
+            MarkdownListItem(marker: "•", depth: 0, text: "top"),
+            MarkdownListItem(marker: "•", depth: 1, text: "nested"),
+            MarkdownListItem(marker: "1.", depth: 2, text: "deep"),
+            MarkdownListItem(marker: "•", depth: 0, text: "back"),
         ])])
     }
 
     func testBlankLineEndsTheList() {
         let blocks = MarkdownBlocks.split("- one\n\n- two")
         XCTAssertEqual(blocks, [
-            .list([MarkdownListItem(marker: "•", depth: 0, text: "one", ordered: false)]),
-            .list([MarkdownListItem(marker: "•", depth: 0, text: "two", ordered: false)]),
+            .list([MarkdownListItem(marker: "•", depth: 0, text: "one")]),
+            .list([MarkdownListItem(marker: "•", depth: 0, text: "two")]),
         ])
     }
 
@@ -142,7 +142,7 @@ final class MarkdownBlocksTests: XCTestCase {
         let blocks = MarkdownBlocks.split("Steps:\n- one")
         XCTAssertEqual(blocks, [
             .paragraph("Steps:"),
-            .list([MarkdownListItem(marker: "•", depth: 0, text: "one", ordered: false)]),
+            .list([MarkdownListItem(marker: "•", depth: 0, text: "one")]),
         ])
     }
 

@@ -172,9 +172,7 @@ struct InsightsStatTile: View {
 
     var body: some View {
         let tint = Color(tone: tone)
-        // `blur: false` — a grid of blurred cards is the one place the material
-        // actually costs frames.
-        GlassCard(padding: 14, blur: false) {
+        GlassCard(padding: 14) {
             VStack(alignment: .leading, spacing: 10) {
                 Image(systemName: symbol)
                     .font(.system(size: 17))

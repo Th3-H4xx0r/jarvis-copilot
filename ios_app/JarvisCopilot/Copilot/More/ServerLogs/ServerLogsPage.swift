@@ -143,7 +143,7 @@ struct ServerLogsControls: View {
     let onCopy: () -> Void
 
     var body: some View {
-        GlassCard(padding: 12, blur: false) {
+        GlassCard(padding: 12) {
             VStack(alignment: .leading, spacing: 10) {
                 JcWrap(spacing: 8, runSpacing: 8) {
                     ServerLogsMenuChip(label: "File", value: store.file,

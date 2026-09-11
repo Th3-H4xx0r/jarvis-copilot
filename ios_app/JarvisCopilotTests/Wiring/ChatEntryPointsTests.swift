@@ -18,20 +18,6 @@ final class ChatEntryPointsTests: XCTestCase {
                 transport)
     }
 
-    // MARK: The on-device lane
-
-    /// Without a handler every turn goes to the server, whatever the on-device AI
-    /// settings say — which is exactly the bug this catches.
-    func testTheProductionStoreCarriesTheOnDeviceHandler() {
-        let (api, _) = JarvisAPI.mocked()
-        XCTAssertTrue(ChatStore.production(api: api).usesOnDeviceLane)
-    }
-
-    func testAStoreBuiltWithoutOneIsServerOnly() {
-        let (store, _) = makeStore()
-        XCTAssertFalse(store.usesOnDeviceLane)
-    }
-
     // MARK: "Ask JARVIS"
 
     func testAdoptingTheLaunchBusTakesOverSending() async {

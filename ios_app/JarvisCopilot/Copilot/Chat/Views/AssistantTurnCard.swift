@@ -81,11 +81,7 @@ struct ChatAssistantTurnCard: View {
     private var actions: some View {
         HStack(spacing: 14) {
             Button {
-                if let onCopy { onCopy() } else {
-                    #if canImport(UIKit)
-                    UIPasteboard.general.string = message.plainText
-                    #endif
-                }
+                onCopy?()
                 withAnimation(.snappy) { copied = true }
                 Task { try? await Task.sleep(for: .seconds(1.6)); withAnimation { copied = false } }
             } label: {

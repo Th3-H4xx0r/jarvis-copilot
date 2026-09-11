@@ -44,7 +44,7 @@ struct CodeMasterSettingsPage: View {
                 }
 
                 GlassQuietLabel("Usage rings").padding(.top, 12)
-                GlassCard(padding: 14, blur: false) {
+                GlassCard(padding: 14) {
                     Toggle(isOn: Binding(get: { store.usageDisplay },
                                          set: { store.usageDisplay = $0 })) {
                         Text("Show the 5-hour / weekly account-usage rings")
@@ -55,7 +55,7 @@ struct CodeMasterSettingsPage: View {
                 }
 
                 GlassQuietLabel("Remote approvals").padding(.top, 22)
-                GlassCard(padding: 14, blur: false) {
+                GlassCard(padding: 14) {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle(isOn: Binding(get: { store.remoteApprovals },
                                              set: { store.remoteApprovals = $0 })) {
@@ -96,7 +96,7 @@ struct CodeMasterSettingsPage: View {
     }
 
     private func eventCard(_ event: (key: String, label: String)) -> some View {
-        GlassCard(padding: 14, blur: false) {
+        GlassCard(padding: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(event.label)
                     .font(.system(size: 15, weight: .semibold))

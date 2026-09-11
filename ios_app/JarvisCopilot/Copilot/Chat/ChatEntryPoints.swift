@@ -17,9 +17,6 @@ extension ChatStore {
         ChatStore(api: api, onDevice: OnDeviceAI.shared.chatHandler)
     }
 
-    /// Whether a local-first handler is attached at all.
-    var usesOnDeviceLane: Bool { onDevice != nil }
-
     /// Take over "Ask JARVIS" for this thread.
     ///
     /// `AppServices` installs a fallback sender at launch that posts through a

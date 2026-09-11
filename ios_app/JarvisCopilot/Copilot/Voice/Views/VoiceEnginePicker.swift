@@ -37,7 +37,7 @@ struct VoiceEngineSections: View {
 
     private var engineList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionLabel("Speaking voice")
+            GlassQuietLabel("Speaking voice")
             GlassGroup {
                 // "Server default" — clears the override so the server picks.
                 GlassRow(symbol: "wand.and.stars", title: "Server default",
@@ -71,7 +71,7 @@ struct VoiceEngineSections: View {
            let engine = store.engines.usable.first(where: { $0.id == id }),
            !engine.voices.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                GlassSectionLabel("Voice")
+                GlassQuietLabel("Voice")
                 GlassGroup {
                     GlassRow(symbol: "person.wave.2", title: "Engine default",
                              action: { store.selectEngine(engine.id, voice: nil) }) {
