@@ -16,7 +16,7 @@ final class AppServicesTests: XCTestCase {
         let fakes = Fakes(log: log, paired: paired, bridgeEnabled: bridgeEnabled)
         let services = AppServices(
             skills: fakes.skills, registry: fakes.registry, bridge: fakes.bridge,
-            push: fakes.push, persona: fakes.persona, wake: fakes.wake,
+            push: fakes.push, persona: fakes.persona,
             voiceLaunch: fakes.voiceLaunch, connection: fakes.connection,
             liveActivity: fakes.liveActivity, location: fakes.location,
             runner: fakes.runner, voice: fakes.voice, metrics: fakes.metrics,
@@ -32,7 +32,6 @@ final class AppServicesTests: XCTestCase {
         let bridge: FakeAppBridge
         let push: FakePush
         let persona: FakePersonaLoader
-        let wake: FakeWake
         let voiceLaunch: FakeVoiceLaunch
         let connection: FakeConnectionWatcher
         let liveActivity: FakeLiveActivityCoordinator
@@ -56,7 +55,6 @@ final class AppServicesTests: XCTestCase {
             bridge = FakeAppBridge(log, paired: paired, enabled: bridgeEnabled)
             push = FakePush(log)
             persona = FakePersonaLoader(log)
-            wake = FakeWake(log)
             voiceLaunch = FakeVoiceLaunch(log)
             connection = FakeConnectionWatcher(log)
             liveActivity = FakeLiveActivityCoordinator(log)
@@ -84,7 +82,7 @@ final class AppServicesTests: XCTestCase {
                        ["skills.install", "bridge.connect", "push.start"],
                        "skills must be registered before the socket advertises them, "
                        + "and push before iOS can deliver a launch tap")
-        for name in ["wake.onWake", "voiceLaunch.start", "connection.start",
+        for name in ["voiceLaunch.start", "connection.start",
                      "voice.attach", "liveActivity.start", "location.startIfEnabled",
                      "metrics.register", "runner.drain"] {
             XCTAssertTrue(log.contains(name), "missing \(name) — got \(log.calls)")
@@ -162,17 +160,13 @@ final class AppServicesTests: XCTestCase {
         XCTAssertFalse(log.contains("bridge.connect"))
     }
 
-    func testWakeWordAndVoiceLaunchBothRequestVoice() async {
+    func testVoiceLaunchRequestsVoice() async {
         let (services, _, fakes) = makeServices()
         services.start()
-        fakes.wake.onWake?()
+        fakes.voiceLaunch.fire()
         XCTAssertEqual(fakes.router.selectedTab, .voice)
         XCTAssertTrue(fakes.router.voiceLaunchRequested)
-
-        fakes.router.consumeVoiceLaunch()
-        fakes.voiceLaunch.fire()
-        XCTAssertTrue(fakes.router.voiceLaunchRequested)
-        XCTAssertEqual(fakes.router.voiceLaunchGeneration, 2)
+        XCTAssertEqual(fakes.router.voiceLaunchGeneration, 1)
     }
 
     func testVoiceSnapshotsAreForwardedToTheLiveActivityCoordinator() async {
@@ -212,15 +206,14 @@ final class AppServicesTests: XCTestCase {
 
     // MARK: Scene phase
 
-    func testGoingToBackgroundPausesVoiceAndTheWakeWord() async {
+    func testGoingToBackgroundPausesVoice() async {
         let (services, log, fakes) = makeServices()
         services.start()
         services.setForeground(false)
-        await servicesWaitUntil { log.contains("wake.foreground=false") }
+        await servicesWaitUntil { log.contains("voice.pause") }
 
         XCTAssertFalse(fakes.lifecycle.isForeground)
         XCTAssertTrue(log.contains("voice.pause"))
-        XCTAssertEqual(fakes.wake.foreground.last, false)
         XCTAssertFalse(services.isForeground)
     }
 
@@ -228,7 +221,7 @@ final class AppServicesTests: XCTestCase {
         let (services, log, fakes) = makeServices()
         services.start()
         services.setForeground(false)
-        await servicesWaitUntil { log.contains("wake.foreground=false") }
+        await servicesWaitUntil { log.contains("voice.pause") }
         let connectsBefore = fakes.bridge.connects
 
         services.setForeground(true)
@@ -239,7 +232,6 @@ final class AppServicesTests: XCTestCase {
                        "don't wait out the reconnect backoff on resume")
         XCTAssertTrue(log.contains("liveActivity.resume"))
         XCTAssertEqual(fakes.push.drains, 1)
-        XCTAssertEqual(fakes.wake.foreground.last, true)
     }
 
     func testForegroundDrainSeesTheLifecycleFlagAlreadySet() async {
@@ -248,7 +240,7 @@ final class AppServicesTests: XCTestCase {
         let (services, log, fakes) = makeServices()
         services.start()
         services.setForeground(false)
-        await servicesWaitUntil { log.contains("wake.foreground=false") }
+        await servicesWaitUntil { log.contains("voice.pause") }
 
         var flagWhenDrained: Bool?
         fakes.runner.observe = { flagWhenDrained = fakes.lifecycle.isForeground }

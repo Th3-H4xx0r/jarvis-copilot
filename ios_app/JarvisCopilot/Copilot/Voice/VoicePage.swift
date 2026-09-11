@@ -20,18 +20,10 @@ struct VoicePage: View {
     /// See `SettingsPage.init` — a view's `init` isn't main-actor-isolated, so the
     /// store can't be a default argument. Tests inject stores built with mocks.
     init(store: VoiceStore? = nil,
-         wakeWord: WakeWordController? = nil,
          models: VoiceModelStore? = nil) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated { VoiceStore.shared })
         _models = State(initialValue: models ?? MainActor.assumeIsolated { VoiceModelStore.shared })
-        self.wakeWord = wakeWord ?? MainActor.assumeIsolated { WakeWordController.shared }
     }
-
-    /// The "Hey Jarvis" listener. This screen owns both halves of it: the toolbar
-    /// switch starts and stops it live, and a turn taking the mic suppresses it —
-    /// the mic cannot be shared, so a listener left running would make every
-    /// recording fail to start.
-    private let wakeWord: WakeWordController
 
     private static let controlsGap: CGFloat = 14
 
@@ -66,7 +58,7 @@ struct VoicePage: View {
             .jcScreen("Voice")
             .toolbar { toolbar }
         }
-        // The Siri / Control-Center / wake-word latch. On appear for a cold launch
+        // The Siri / Control-Center latch. On appear for a cold launch
         // (the request lands before any view exists) and on every generation
         // change for a warm one.
         .task { await store.consumeVoiceLaunch() }
@@ -79,10 +71,6 @@ struct VoicePage: View {
             case .active: Task { await store.resumeFromBackground() }
             default: break
             }
-        }
-        // The mic is single-owner: hand it to the turn, take it back afterwards.
-        .onChange(of: store.isActive, initial: true) { _, active in
-            Task { await wakeWord.setVoiceActive(active) }
         }
         .sheet(isPresented: $showPicker) {
             VoiceModelPickerSheet(store: store, models: models)
@@ -230,9 +218,8 @@ struct VoicePage: View {
 
     // MARK: - Chrome
 
-    /// Flutter's app bar: a sparkles chip that opens the model picker, then the
-    /// wake-word ear. The chip carries the model NAME here — the whole point of
-    /// the picker is knowing what is answering without opening it.
+    /// The model chip carries the model NAME — the whole point of the picker is
+    /// knowing what is answering without opening it.
     ///
     /// The session chip is ICON-ONLY: with a title on it too the trailing group
     /// grew past the bar and squeezed the "Voice" title down to "V…". The
@@ -257,19 +244,6 @@ struct VoicePage: View {
             }
             .accessibilityLabel("Voice model: \(models.chipLabel)")
         }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                Task { await toggleWakeWord() }
-            } label: {
-                // `ear.slash` does NOT exist in SF Symbols — it rendered as an
-                // invisible gap. `ear.and.waveform` (on) / `ear` (off) is the
-                // closest live pair to Flutter's hearing / hearing_disabled.
-                Image(systemName: store.wakeWordEnabled ? "ear.and.waveform" : "ear")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(store.wakeWordEnabled ? JcTheme.cyan : JcTheme.muted)
-            }
-            .accessibilityLabel(store.wakeWordEnabled ? "Wake word on" : "Wake word off")
-        }
     }
 
     // MARK: - Actions
@@ -281,22 +255,6 @@ struct VoicePage: View {
         scenePhase == .active
             && orbTickerEnabled(activeTab: AppTab.allCases.firstIndex(of: router.selectedTab) ?? 0,
                                 ownerTab: voiceTabIndex)
-    }
-
-    /// Flip the wake word and start/stop the listener in the same gesture — the
-    /// preference on its own would only take effect on the next launch.
-    ///
-    /// The store's copy is written first so the icon flips immediately, and
-    /// reverted if the mic was refused: a switch that reads "on" while nothing is
-    /// listening is worse than one that snaps back.
-    private func toggleWakeWord() async {
-        let on = !store.wakeWordEnabled
-        store.setWakeWordEnabled(on)
-        let granted = await wakeWord.setEnabled(on)
-        if on && !granted {
-            store.setWakeWordEnabled(false)
-            showMicDialog = true
-        }
     }
 
     private func onPrimary() async {

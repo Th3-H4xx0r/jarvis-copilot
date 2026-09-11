@@ -23,15 +23,6 @@ protocol AppBridging: AnyObject {
     func sendRegistration()
 }
 
-/// The foreground "Hey JARVIS" listener, as the app-level wiring uses it.
-/// Production is `WakeWordController.shared`, which owns `WakeService`'s lifetime
-/// (it is created only while the wake-word setting is on).
-@MainActor
-protocol WakeControlling: AnyObject {
-    var onWake: (() -> Void)? { get set }
-    func setForeground(_ isForeground: Bool) async
-}
-
 /// The Siri / Control Center / widget "start voice" latch.
 @MainActor
 protocol VoiceLaunchStarting: AnyObject {
@@ -91,7 +82,6 @@ extension BridgeClient: AppBridging {
     var isBridgeEnabled: Bool { enabled }
 }
 
-extension WakeWordController: WakeControlling {}
 extension VoiceLaunchBridge: VoiceLaunchStarting {}
 extension BridgeConnectionFeed: ConnectionWatching {}
 extension LiveActivityCoordinator: LiveActivityCoordinating {}
@@ -173,7 +163,6 @@ final class AppServices {
     private let bridge: any AppBridging
     private let push: any PushStarting
     private let persona: any PersonaLoading
-    private let wake: any WakeControlling
     private let voiceLaunch: any VoiceLaunchStarting
     private let connection: any ConnectionWatching
     private let liveActivity: any LiveActivityCoordinating
@@ -200,7 +189,6 @@ final class AppServices {
          bridge: (any AppBridging)? = nil,
          push: (any PushStarting)? = nil,
          persona: (any PersonaLoading)? = nil,
-         wake: (any WakeControlling)? = nil,
          voiceLaunch: (any VoiceLaunchStarting)? = nil,
          connection: (any ConnectionWatching)? = nil,
          liveActivity: (any LiveActivityCoordinating)? = nil,
@@ -219,7 +207,6 @@ final class AppServices {
         self.bridge = bridge ?? BridgeClient.shared
         self.push = push ?? PushHandler.shared
         self.persona = persona ?? DefaultPersonaLoader()
-        self.wake = wake ?? WakeWordController.shared
         self.voiceLaunch = voiceLaunch ?? VoiceLaunchBridge()
         self.liveActivity = liveActivity ?? LiveActivityCoordinator.shared
         self.connection = connection ?? BridgeConnectionFeed(
@@ -273,37 +260,34 @@ final class AppServices {
         //    app is delivered as soon as a delegate exists.
         push.start()
 
-        // 4. Wake word (opt-in, foreground only) → open Voice and start a turn.
-        wake.onWake = { [weak self] in self?.router.requestVoiceLaunch() }
-
-        // 5. Siri / Control Center / widget latch, incl. a cold-launch replay.
+        // 4. Siri / Control Center / widget latch, incl. a cold-launch replay.
         voiceLaunch.onRequest = { [weak self] in self?.router.requestVoiceLaunch() }
         voiceLaunch.start()
 
-        // 6. "JARVIS disconnected / reconnected" banners.
+        // 5. "JARVIS disconnected / reconnected" banners.
         connection.start()
 
-        // 7. The single Live Activity owner, fed by the voice session.
+        // 6. The single Live Activity owner, fed by the voice session.
         voice.attachLiveActivity { [weak self] snapshot in
             self?.liveActivity.reportVoice(snapshot)
         }
         liveActivity.start()
 
-        // 8. Background location, if the user left it on.
+        // 7. Background location, if the user left it on.
         location.startIfEnabled()
 
-        // 9. Field metrics + the home-screen quick actions.
+        // 8. Field metrics + the home-screen quick actions.
         metrics.register()
         #if os(iOS)
         QuickAction.install()
         #endif
 
-        // 10. "Ask JARVIS" from Siri, until the Chat screen registers its own.
+        // 9. "Ask JARVIS" from Siri, until the Chat screen registers its own.
         if chatLaunch.send == nil {
             chatLaunch.send = { [weak self] prompt in await self?.voice.ask(prompt) }
         }
 
-        // 11. A tapped "tap to run" notification enqueues its action; run it
+        // 10. A tapped "tap to run" notification enqueues its action; run it
         //     immediately when we are already foregrounded (the tap can land just
         //     after the resume drain has run).
         pending.onChanged = { [weak self] in
@@ -312,7 +296,7 @@ final class AppServices {
         }
         Task { await runner.drainPending() }
 
-        // 12. The server's active personality → the on-device model, so a locally
+        // 11. The server's active personality → the on-device model, so a locally
         //     answered turn sounds like the same assistant. Last because it is
         //     the only step that waits on the network.
         Task { [weak self] in await self?.persona.loadPersona() }
@@ -340,13 +324,11 @@ final class AppServices {
                 guard let self else { return }
                 await self.push.drainNow()
                 await self.runner.drainPending()
-                await self.wake.setForeground(true)
                 await self.voice.resumeFromBackground()
             }
         } else {
             voice.pauseForBackground()
             WearablesHub.shared.appDidEnterBackground()
-            Task { [weak self] in await self?.wake.setForeground(false) }
         }
     }
 

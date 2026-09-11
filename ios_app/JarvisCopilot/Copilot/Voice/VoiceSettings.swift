@@ -1,8 +1,8 @@
 import Foundation
 
 /// Voice preferences that must survive a relaunch: which TTS engine + voice the
-/// user picked, the conversation mode, and the wake-word opt-in. Behind
-/// `KeyValueStore` so tests use `MemoryKeyValueStore`.
+/// user picked and the conversation mode. Behind `KeyValueStore` so tests use
+/// `MemoryKeyValueStore`.
 ///
 /// Keys keep their `jc_` Flutter prefixes so a user upgrading from the Flutter
 /// build keeps their choices.
@@ -13,7 +13,6 @@ final class VoiceSettings {
     static let engineKey = "jc_voice_engine"
     static let voiceKey = "jc_voice_voice"
     static let modeKey = "jc_voice_mode"
-    static let wakeWordKey = "jc_voice_wake_word"
     /// Written by the Siri intent / Control-Center control before the app is up.
     static let pendingVoiceKey = "jc_pending_voice"
 
@@ -24,7 +23,6 @@ final class VoiceSettings {
         _engine = store.string(Self.engineKey)
         _voice = store.string(Self.voiceKey)
         _mode = VoiceMode(rawValue: store.string(Self.modeKey) ?? "") ?? .realtime
-        _wakeWordEnabled = store.bool(Self.wakeWordKey) ?? false
     }
 
     // Backing fields so the setters can persist. `@Observable` tracks the
@@ -32,7 +30,6 @@ final class VoiceSettings {
     private var _engine: String?
     private var _voice: String?
     private var _mode: VoiceMode
-    private var _wakeWordEnabled: Bool
 
     /// Selected TTS engine id (nil = let the server use its own default).
     var engine: String? {
@@ -57,13 +54,6 @@ final class VoiceSettings {
     var mode: VoiceMode {
         get { _mode }
         set { _mode = newValue; store.set(newValue.rawValue, forKey: Self.modeKey) }
-    }
-
-    /// The "Hey Jarvis" foreground listener. Off by default: it's battery-heavy
-    /// and iOS can't run a custom wake word in the background anyway.
-    var wakeWordEnabled: Bool {
-        get { _wakeWordEnabled }
-        set { _wakeWordEnabled = newValue; store.set(newValue, forKey: Self.wakeWordKey) }
     }
 
     /// Selecting an engine drops a stale voice: voice ids are engine-specific,

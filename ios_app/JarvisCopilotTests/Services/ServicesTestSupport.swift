@@ -58,18 +58,6 @@ final class FakePersonaLoader: PersonaLoading {
 }
 
 @MainActor
-final class FakeWake: WakeControlling {
-    let log: ServiceRecorder
-    private(set) var foreground: [Bool] = []
-    var onWake: (() -> Void)? { didSet { log.record("wake.onWake") } }
-    init(_ log: ServiceRecorder) { self.log = log }
-    func setForeground(_ isForeground: Bool) async {
-        foreground.append(isForeground)
-        log.record("wake.foreground=\(isForeground)")
-    }
-}
-
-@MainActor
 final class FakeVoiceLaunch: VoiceLaunchStarting {
     let log: ServiceRecorder
     var onRequest: (() -> Void)?

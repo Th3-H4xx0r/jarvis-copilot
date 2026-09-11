@@ -620,15 +620,6 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.store.assistantText, "It's 18 degrees.")
     }
 
-    func testWakeWordOptInIsPersisted() {
-        let prefs = MemoryKeyValueStore()
-        let rig = makeRig(prefs: prefs)
-        XCTAssertFalse(rig.store.wakeWordEnabled)
-        rig.store.setWakeWordEnabled(true)
-        XCTAssertTrue(rig.store.wakeWordEnabled)
-        XCTAssertEqual(prefs.bool(VoiceSettings.wakeWordKey), true)
-    }
-
     // MARK: - The Siri / Control-Center latch
 
     func testTheLaunchLatchStartsExactlyOneTurn() async {

@@ -25,7 +25,7 @@ enum WatchTurnOutcome {
 @Observable
 final class VoiceStore {
 
-    /// `launch:` is what makes the Siri / Control-Center / wake-word latch reach
+    /// `launch:` is what makes the Siri / Control-Center latch reach
     /// the store — `consumeVoiceLaunch()` takes it and starts a turn. `local:` is
     /// the on-device lane (`VoiceLocalLane`); with the on-device tier off it
     /// escalates every turn, i.e. today's server-only behaviour.
@@ -128,7 +128,6 @@ final class VoiceStore {
     var isPlaying: Bool { audio.isBusy }
     var selectedEngine: String? { settings.engine }
     var selectedVoice: String? { settings.voice }
-    var wakeWordEnabled: Bool { settings.wakeWordEnabled }
 
     // MARK: - Internal turn state
 
@@ -369,8 +368,6 @@ final class VoiceStore {
         return granted
     }
 
-    func setWakeWordEnabled(_ on: Bool) { settings.wakeWordEnabled = on }
-
     /// Pick the TTS engine (and optionally a voice within it). Persisted, so the
     /// choice survives a relaunch.
     func selectEngine(_ id: String?, voice: String? = nil) {
@@ -382,7 +379,7 @@ final class VoiceStore {
         catch let failure { error = apiErrorMessage(failure) }
     }
 
-    /// The Siri / Control-Center / wake-word latch. Call from the page's
+    /// The Siri / Control-Center latch. Call from the page's
     /// `.onAppear` and on every `voiceLaunchGeneration` change.
     @discardableResult
     func consumeVoiceLaunch() async -> Bool {

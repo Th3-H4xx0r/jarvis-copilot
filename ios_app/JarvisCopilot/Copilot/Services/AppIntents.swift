@@ -56,7 +56,7 @@ final class ChatLaunchBus {
 ///
 /// Siri needs the app name in the phrase, so the trigger is e.g. "Hey Siri, start
 /// JarvisCopilot voice"; a true custom "Hey JARVIS" wake word is not available
-/// to third-party apps (the in-app `WakeService` covers the foreground case).
+/// to third-party apps.
 @available(iOS 16.0, *)
 struct StartVoiceIntent: AppIntent {
     static let title: LocalizedStringResource = "Start JARVIS voice"

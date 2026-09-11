@@ -1,7 +1,7 @@
 import XCTest
 @testable import JarvisCopilot
 
-/// Engine / voice / mode / wake-word persistence.
+/// Engine / voice / mode persistence.
 @MainActor
 final class VoiceSettingsTests: XCTestCase {
 
@@ -10,7 +10,6 @@ final class VoiceSettingsTests: XCTestCase {
         XCTAssertNil(settings.engine, "nil = let the server use its own default")
         XCTAssertNil(settings.voice)
         XCTAssertEqual(settings.mode, .realtime)
-        XCTAssertFalse(settings.wakeWordEnabled, "battery-heavy, so opt-in")
     }
 
     func testTheEngineSelectionSurvivesARelaunch() {
@@ -31,12 +30,6 @@ final class VoiceSettingsTests: XCTestCase {
         let store = MemoryKeyValueStore()
         VoiceSettings(store: store).mode = .quality
         XCTAssertEqual(VoiceSettings(store: store).mode, .quality)
-    }
-
-    func testWakeWordOptInSurvivesARelaunch() {
-        let store = MemoryKeyValueStore()
-        VoiceSettings(store: store).wakeWordEnabled = true
-        XCTAssertTrue(VoiceSettings(store: store).wakeWordEnabled)
     }
 
     func testAnEmptyOrNilSelectionIsErasedRatherThanStoredBlank() {
@@ -89,7 +82,6 @@ final class VoiceSettingsTests: XCTestCase {
         XCTAssertEqual(VoiceSettings.engineKey, "jc_voice_engine")
         XCTAssertEqual(VoiceSettings.voiceKey, "jc_voice_voice")
         XCTAssertEqual(VoiceSettings.modeKey, "jc_voice_mode")
-        XCTAssertEqual(VoiceSettings.wakeWordKey, "jc_voice_wake_word")
         XCTAssertEqual(VoiceSettings.pendingVoiceKey, "jc_pending_voice")
     }
 }
