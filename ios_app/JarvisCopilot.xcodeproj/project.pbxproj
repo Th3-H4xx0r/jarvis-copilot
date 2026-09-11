@@ -317,7 +317,6 @@
 		A100000000000000000000A2 /* Esp32Manager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B2 /* Esp32Manager.swift */; };
 		A100000000000000000000A3 /* Esp32Board.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B3 /* Esp32Board.swift */; };
 		A100000000000000000000A4 /* Esp32DeviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B4 /* Esp32DeviceView.swift */; };
-		A100000000000000000000A5 /* JarvisChatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B5 /* JarvisChatClient.swift */; };
 		A100000000000000000000A6 /* Esp32ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B6 /* Esp32ChatView.swift */; };
 		A2A76BEEB38C3EEE474836CC /* DevicesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95AC21F22B83E0AFEF9A9BBA /* DevicesStore.swift */; };
 		A2DED63D4577E622504D9ED1 /* IslandDesignsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C07DE7D137AE52D58065960 /* IslandDesignsUITests.swift */; };
@@ -408,6 +407,7 @@
 		D247F4222FE205603326CE56 /* Speaker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EAFEA64E85B7CB1E54D034B /* Speaker.swift */; };
 		D4AFD27F5C91E04620158FEC /* MessageRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6EECBB4BBB75D1EFAAA11C3 /* MessageRow.swift */; };
 		D4C889F76CD6BB6EDBE9920B /* PhoneDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6829487143171EDC108FDBF7 /* PhoneDevice.swift */; };
+		D52F80A6F9D671C237D51A8F /* BoardChatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF5256C1DE6B376C56A0214 /* BoardChatTests.swift */; };
 		D53A227828D37F294A91FABD /* ChatEntryPoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C0CF71FB06F08123F843FA /* ChatEntryPoints.swift */; };
 		D5E8230A516D10E3DAA2345A /* ShortcutRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CD789B1A172654A7E485137 /* ShortcutRunnerTests.swift */; };
 		D6ACB53B3C1E970A1D745825 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3930D1FDDC8450259305F67 /* TestSupport.swift */; };
@@ -606,6 +606,7 @@
 		1C64B0D1FF25641EC316AE1D /* ServerLogsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServerLogsTests.swift; sourceTree = "<group>"; };
 		1CAB96E7132FCDB494738F7F /* JarvisMemoryStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisMemoryStore.swift; sourceTree = "<group>"; };
 		1CDD52DB7E10082EBDBF61E9 /* QuotaStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaStore.swift; sourceTree = "<group>"; };
+		1DF5256C1DE6B376C56A0214 /* BoardChatTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BoardChatTests.swift; sourceTree = "<group>"; };
 		1E2A727BF7FBA5F3BE1F89C0 /* AppSchemeTable.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppSchemeTable.swift; sourceTree = "<group>"; };
 		1F4173328AB81A5A728A6B18 /* ToolRow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToolRow.swift; sourceTree = "<group>"; };
 		2170AA740F2CBD103E3717DB /* WorkspacesAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesAPI.swift; sourceTree = "<group>"; };
@@ -833,7 +834,6 @@
 		A100000000000000000000B2 /* Esp32Manager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Esp32Manager.swift; sourceTree = "<group>"; };
 		A100000000000000000000B3 /* Esp32Board.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Esp32Board.swift; sourceTree = "<group>"; };
 		A100000000000000000000B4 /* Esp32DeviceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Esp32DeviceView.swift; sourceTree = "<group>"; };
-		A100000000000000000000B5 /* JarvisChatClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JarvisChatClient.swift; sourceTree = "<group>"; };
 		A100000000000000000000B6 /* Esp32ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Esp32ChatView.swift; sourceTree = "<group>"; };
 		A1203E07EA5D17F444878DFA /* RootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A1702051C73E8DD4087418F6 /* PersonaLoaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaLoaderTests.swift; sourceTree = "<group>"; };
@@ -1264,7 +1264,6 @@
 				A100000000000000000000B2 /* Esp32Manager.swift */,
 				A100000000000000000000B3 /* Esp32Board.swift */,
 				A100000000000000000000B4 /* Esp32DeviceView.swift */,
-				A100000000000000000000B5 /* JarvisChatClient.swift */,
 				A100000000000000000000B6 /* Esp32ChatView.swift */,
 				A10000000000000000000015 /* ScaleDeviceView.swift */,
 				A10000000000000000000016 /* ScaleModel.swift */,
@@ -2005,6 +2004,7 @@
 				C41C5EDBC28E2E4F936EE5E0 /* DevicesFixtures.swift */,
 				195070864CE5E2E428B49E9D /* DevicesSnapshotTests.swift */,
 				9A713B8F4657D2BD51435488 /* DevicesTextTests.swift */,
+				1DF5256C1DE6B376C56A0214 /* BoardChatTests.swift */,
 			);
 			name = Devices;
 			path = Devices;
@@ -2387,6 +2387,7 @@
 				09FF35FCB172AD7D6086C73E /* ShellPolishSnapshotTests.swift in Sources */,
 				B1B785257FD986B2B83B352A /* WatchReplyContractTests.swift in Sources */,
 				5609082076311DCC78CE6408 /* MemoryKeyValueStore.swift in Sources */,
+				D52F80A6F9D671C237D51A8F /* BoardChatTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2458,7 +2459,6 @@
 				A100000000000000000000A2 /* Esp32Manager.swift in Sources */,
 				A100000000000000000000A3 /* Esp32Board.swift in Sources */,
 				A100000000000000000000A4 /* Esp32DeviceView.swift in Sources */,
-				A100000000000000000000A5 /* JarvisChatClient.swift in Sources */,
 				A100000000000000000000A6 /* Esp32ChatView.swift in Sources */,
 				A10000000000000000000005 /* ScaleDeviceView.swift in Sources */,
 				A10000000000000000000006 /* ScaleModel.swift in Sources */,

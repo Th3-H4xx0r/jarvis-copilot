@@ -102,8 +102,8 @@ final class ChatPageSmokeTests: XCTestCase {
 
     func testComposerWithAttachmentsAndClarifyRenders() {
         let store = makeStore()
-        store.addAttachment(ChatPendingAttachment(name: "notes.pdf", data: Data(count: 2_048)))
-        store.addAttachment(ChatPendingAttachment(name: "shot.jpg", data: Data(count: 900), isImage: true))
+        store.addAttachment(PendingAttachment(name: "notes.pdf", data: Data(count: 2_048)))
+        store.addAttachment(PendingAttachment(name: "shot.jpg", data: Data(count: 900), isImage: true))
         store.pendingClarify = ClarifyPrompt(question: "Which room?", choices: ["Kitchen", "Study"])
         store.setMessages([.user("turn on the light", attachments: store.pendingAttachments.map(\.messageAttachment))])
         render(page(store))
@@ -202,7 +202,7 @@ final class ChatStyleSnapshotTests: XCTestCase {
             reply.reasoning = "Reviewing the notes and finding the next steps."
             store.setMessages([.user("Help me make a plan for today."), reply])
             store.streaming = true
-            store.addAttachment(ChatPendingAttachment(name: "project-notes.pdf", data: Data(count: 2_048)))
+            store.addAttachment(PendingAttachment(name: "project-notes.pdf", data: Data(count: 2_048)))
             store.pendingClarify = ClarifyPrompt(question: "Which project should we start with?",
                                                 choices: ["The app", "My workspace"])
         }

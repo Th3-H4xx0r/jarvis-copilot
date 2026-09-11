@@ -10,7 +10,7 @@ final class ChatAttachmentsTests: XCTestCase {
     func testAnImageAttachmentUploadsExactlyOnce() async {
         var calls: [String] = []
         let out = await uploadChatAttachments(
-            [ChatPendingAttachment(name: "a.jpg", data: bytes(3), isImage: true)]
+            [PendingAttachment(name: "a.jpg", data: bytes(3), isImage: true)]
         ) { name, _ in
             calls.append(name)
             return ["filename": name, "path": "/u/\(name)", "is_image": true]
@@ -24,7 +24,7 @@ final class ChatAttachmentsTests: XCTestCase {
     func testAVideoUploadsTheFileAndAPosterImage() async {
         var calls: [String] = []
         let out = await uploadChatAttachments(
-            [ChatPendingAttachment(name: "clip.mov", data: bytes(5), isVideo: true, posterData: bytes(2))]
+            [PendingAttachment(name: "clip.mov", data: bytes(5), isVideo: true, posterData: bytes(2))]
         ) { name, _ in
             calls.append(name)
             return ["filename": name, "path": "/u/\(name)", "is_image": name.hasSuffix(".jpg")]
@@ -36,7 +36,7 @@ final class ChatAttachmentsTests: XCTestCase {
 
     func testAVideoWithoutAPosterUploadsOnlyTheFile() async {
         let out = await uploadChatAttachments(
-            [ChatPendingAttachment(name: "clip.mov", data: bytes(5), isVideo: true)]
+            [PendingAttachment(name: "clip.mov", data: bytes(5), isVideo: true)]
         ) { name, _ in ["filename": name, "path": "/u/\(name)"] }
         XCTAssertEqual(out.uploads.count, 1)
         XCTAssertTrue(out.failed.isEmpty)
@@ -44,8 +44,8 @@ final class ChatAttachmentsTests: XCTestCase {
 
     func testAFailedUploadIsSkippedAndTheRestStillSend() async {
         let out = await uploadChatAttachments([
-            ChatPendingAttachment(name: "bad.png", data: bytes(1), isImage: true),
-            ChatPendingAttachment(name: "ok.png", data: bytes(1), isImage: true),
+            PendingAttachment(name: "bad.png", data: bytes(1), isImage: true),
+            PendingAttachment(name: "ok.png", data: bytes(1), isImage: true),
         ]) { name, _ in
             if name == "bad.png" { throw APIError.badResponse("boom") }
             return ["filename": name, "path": "/u/\(name)"]
@@ -59,7 +59,7 @@ final class ChatAttachmentsTests: XCTestCase {
     /// only the model's look at a frame is gone.
     func testAFailedPosterKeepsTheVideoItself() async {
         let out = await uploadChatAttachments(
-            [ChatPendingAttachment(name: "clip.mov", data: bytes(5), isVideo: true, posterData: bytes(2))]
+            [PendingAttachment(name: "clip.mov", data: bytes(5), isVideo: true, posterData: bytes(2))]
         ) { name, _ in
             if name.hasSuffix(".poster.jpg") { throw APIError.badResponse("boom") }
             return ["filename": name, "path": "/u/\(name)"]
@@ -77,56 +77,56 @@ final class ChatAttachmentsTests: XCTestCase {
     }
 
     func testAnEmptyUploadResultIsNotAdded() async {
-        let out = await uploadChatAttachments([ChatPendingAttachment(name: "x", data: bytes(1))]) { _, _ in [:] }
+        let out = await uploadChatAttachments([PendingAttachment(name: "x", data: bytes(1))]) { _, _ in [:] }
         XCTAssertTrue(out.uploads.isEmpty)
         XCTAssertEqual(out.failed, ["x"], "an empty result is a failed upload, not a silent success")
     }
 
     func testPendingAttachmentDerivesItsThumbnailAndMessageAttachment() {
-        let image = ChatPendingAttachment(name: "a.jpg", data: bytes(4), isImage: true)
+        let image = PendingAttachment(name: "a.jpg", data: bytes(4), isImage: true)
         XCTAssertEqual(image.thumbnail, image.data, "an image previews with its own bytes")
 
-        let video = ChatPendingAttachment(name: "v.mov", data: bytes(9), isVideo: true, posterData: bytes(2))
+        let video = PendingAttachment(name: "v.mov", data: bytes(9), isVideo: true, posterData: bytes(2))
         XCTAssertEqual(video.thumbnail, video.posterData, "a video previews with its poster frame")
         XCTAssertEqual(video.size, 9)
 
-        let file = ChatPendingAttachment(name: "n.pdf", data: bytes(1))
+        let file = PendingAttachment(name: "n.pdf", data: bytes(1))
         XCTAssertNil(file.thumbnail, "a plain file falls back to a chip in the UI")
         XCTAssertEqual(file.messageAttachment.name, "n.pdf")
     }
 
     func testAVideoOverAHundredMegabytesIsRejectedBeforeItIsRead() {
-        XCTAssertNil(ChatPendingAttachment.videoRejection(bytes: ChatPendingAttachment.maxVideoBytes))
-        let tooBig = ChatPendingAttachment.videoRejection(bytes: ChatPendingAttachment.maxVideoBytes + 1)
+        XCTAssertNil(PendingAttachment.videoRejection(bytes: PendingAttachment.maxVideoBytes))
+        let tooBig = PendingAttachment.videoRejection(bytes: PendingAttachment.maxVideoBytes + 1)
         XCTAssertEqual(tooBig, "That video is too large (max 100 MB).")
     }
 
     /// The picker gates on the file's LENGTH before reading a byte, and the cap
     /// applies to plain files too (swift-correctness H14).
     func testTheSizeCapAppliesToPlainFilesAsWell() {
-        let over = ChatPendingAttachment.maxVideoBytes + 1
-        XCTAssertNil(ChatPendingAttachment.rejection(bytes: 10, isVideo: false))
-        XCTAssertEqual(ChatPendingAttachment.rejection(bytes: over, isVideo: false),
+        let over = PendingAttachment.maxVideoBytes + 1
+        XCTAssertNil(PendingAttachment.rejection(bytes: 10, isVideo: false))
+        XCTAssertEqual(PendingAttachment.rejection(bytes: over, isVideo: false),
                        "That file is too large (max 100 MB).")
-        XCTAssertEqual(ChatPendingAttachment.rejection(bytes: over, isVideo: true),
+        XCTAssertEqual(PendingAttachment.rejection(bytes: over, isVideo: true),
                        "That video is too large (max 100 MB).")
     }
 
     func testLooksLikeAVideoByExtension() {
         for name in ["a.mov", "b.MP4", "c.m4v", "d.avi", "e.webm"] {
-            XCTAssertTrue(ChatPendingAttachment.looksLikeVideo(name), name)
+            XCTAssertTrue(PendingAttachment.looksLikeVideo(name), name)
         }
         for name in ["a.png", "b.pdf", "c"] {
-            XCTAssertFalse(ChatPendingAttachment.looksLikeVideo(name), name)
+            XCTAssertFalse(PendingAttachment.looksLikeVideo(name), name)
         }
     }
 
     func testLooksLikeAnImageByExtension() {
         for name in ["a.png", "b.JPG", "c.jpeg", "d.gif", "e.webp", "f.heic"] {
-            XCTAssertTrue(ChatPendingAttachment.looksLikeImage(name), name)
+            XCTAssertTrue(PendingAttachment.looksLikeImage(name), name)
         }
         for name in ["a.pdf", "b.mov", "c"] {
-            XCTAssertFalse(ChatPendingAttachment.looksLikeImage(name), name)
+            XCTAssertFalse(PendingAttachment.looksLikeImage(name), name)
         }
     }
 }

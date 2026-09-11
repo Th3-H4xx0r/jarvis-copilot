@@ -316,10 +316,8 @@ final class CodingModelsTests: XCTestCase {
     // MARK: - PendingAttachment
 
     func testAttachmentImageSniffing() {
-        XCTAssertTrue(PendingAttachment.looksImage("Photo.HEIC"))
-        XCTAssertTrue(PendingAttachment.looksImage("a.jpeg"))
-        XCTAssertFalse(PendingAttachment.looksImage("notes.pdf"))
-        let a = PendingAttachment(name: "shot.png", data: Data([1, 2, 3]))
-        XCTAssertTrue(a.isImage)
+        XCTAssertTrue(PendingAttachment.looksLikeImage("Photo.HEIC"))
+        XCTAssertTrue(PendingAttachment.looksLikeImage("a.jpeg"))
+        XCTAssertFalse(PendingAttachment.looksLikeImage("notes.pdf"))
     }
 }

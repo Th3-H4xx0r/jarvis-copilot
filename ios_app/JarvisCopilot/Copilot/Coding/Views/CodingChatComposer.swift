@@ -1,9 +1,7 @@
-import PhotosUI
 import SwiftUI
 
-/// The chat input bar: pending-attachment chips, the "+" picker, the "/" command
-/// sheet, the growing text field and the send button. Port of `_ChatInputBar` +
-/// `coding/coding_attach.dart`.
+/// The chat input bar: pending-attachment chips, the shared "+" picker, the "/"
+/// command sheet, the growing text field and the send button.
 ///
 /// Every send goes through the terminal PTY (`CodingSessionStore.sendComposer`)
 /// — attachments are uploaded first and folded in as `@path` references.
@@ -32,7 +30,7 @@ struct CodingChatComposer: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let warning {
+            if let warning = warning ?? session.attachments.attachError {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle").font(.system(size: 11))
                     Text(warning).font(.system(size: 12))
@@ -42,9 +40,13 @@ struct CodingChatComposer: View {
                 .padding(.horizontal, 18)
                 .padding(.bottom, 4)
             }
-            CodingAttachmentChips(attachments: session.attachments)
+            if !session.attachments.isEmpty {
+                AttachmentStrip(attachments: session.attachments.items) { session.attachments.remove($0) }
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 6)
+            }
             HStack(alignment: .bottom, spacing: 4) {
-                CodingAttachControl(attachments: session.attachments, enabled: enabled)
+                AttachControl(sink: session.attachments, enabled: enabled, allowsVideo: false)
                 Button { commandsOpen = true } label: {
                     Text("/")
                         .font(.system(size: 19, weight: .bold, design: .monospaced))
@@ -127,111 +129,5 @@ struct CodingChatComposer: View {
                     : "\(result.failed) attachments couldn’t be uploaded — sent without them."
             }
         }
-    }
-}
-
-// MARK: - Attachments
-
-/// The composer's "+": photo library and files, straight into
-/// `CodingAttachments.add`. Picking is a view concern on iOS (the store never
-/// touches PhotosUI), which is why the loading lives here.
-struct CodingAttachControl: View {
-    let attachments: CodingAttachments
-    var enabled = true
-
-    @State private var showPhotos = false
-    @State private var showFiles = false
-    @State private var picked: [PhotosPickerItem] = []
-
-    var body: some View {
-        Menu {
-            Button { showPhotos = true } label: { Label("Photo", systemImage: "photo.on.rectangle") }
-            Button { showFiles = true } label: { Label("File", systemImage: "doc") }
-        } label: {
-            Image(systemName: "plus.circle")
-                .font(.system(size: 20))
-                .foregroundStyle(JcTheme.muted)
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-        }
-        .disabled(!enabled)
-        .accessibilityLabel("Attach photo or file")
-        .photosPicker(isPresented: $showPhotos, selection: $picked,
-                      maxSelectionCount: 4, matching: .images)
-        .onChange(of: picked) { _, items in
-            guard !items.isEmpty else { return }
-            picked = []
-            Task { await load(items) }
-        }
-        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item],
-                      allowsMultipleSelection: true) { result in
-            guard case .success(let urls) = result else { return }
-            Task { await load(files: urls) }
-        }
-    }
-
-    @MainActor private func load(_ items: [PhotosPickerItem]) async {
-        for (offset, item) in items.enumerated() {
-            guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else {
-                attachments.error = "Could not read that item."
-                continue
-            }
-            let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-            attachments.add(name: "photo-\(Int(Date().timeIntervalSince1970))-\(offset).\(ext)",
-                            data: data, isImage: true)
-        }
-    }
-
-    @MainActor private func load(files urls: [URL]) async {
-        for url in urls {
-            // A picked document lives outside the sandbox until it's opened.
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url), !data.isEmpty else {
-                attachments.error = "Could not read \(url.lastPathComponent)."
-                continue
-            }
-            attachments.add(name: url.lastPathComponent, data: data)
-        }
-    }
-}
-
-/// The horizontal strip of picked-but-unsent chips above the composer.
-struct CodingAttachmentChips: View {
-    let attachments: CodingAttachments
-
-    var body: some View {
-        if !attachments.items.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(attachments.items) { item in
-                        chip(item)
-                    }
-                }
-                .padding(.horizontal, 6)
-            }
-            .frame(height: 38)
-            .padding(.bottom, 6)
-        }
-    }
-
-    private func chip(_ item: PendingAttachment) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: item.isImage ? "photo" : "doc")
-                .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
-            Text(item.name)
-                .font(.system(size: 12)).foregroundStyle(JcTheme.text)
-                .lineLimit(1)
-                .frame(maxWidth: 130, alignment: .leading)
-            Button { attachments.remove(item) } label: {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(JcTheme.muted)
-                    .frame(width: 26, height: 26)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.leading, 10)
-        .background(JcTheme.glassFill, in: Capsule())
-        .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
     }
 }

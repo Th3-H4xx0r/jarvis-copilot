@@ -245,7 +245,7 @@ final class CodingSessionStoreTests: XCTestCase {
         t.route("/terminal/start", json: ["ok": true])
         t.route("/api/terminal/input", json: ["ok": true])
         t.enqueueSSE("") // the attach's output stream
-        store.attachments.add(name: "shot.png", data: Data("PNG".utf8))
+        store.attachments.addAttachment(PendingAttachment(name: "shot.png", data: Data("PNG".utf8), isImage: true))
         let r = await store.sendComposer("  look at this  ")
         XCTAssertTrue(r.sent)
         XCTAssertEqual(r.failed, 0)
@@ -469,12 +469,13 @@ final class CodingAttachmentsTests: XCTestCase {
         return (CodingAttachments(api: CodingSessionsAPI(api: client)), transport)
     }
 
-    func testPickedFilesKeepOnlyTheirBasenameAndSniffImages() {
+    func testAddingAPickClearsTheLastRejection() {
         let (a, _) = make()
-        a.add(name: "/private/tmp/IMG_0001.HEIC", data: Data("x".utf8))
-        a.add(name: "notes.pdf", data: Data("y".utf8))
+        a.attachError = "That file is too large (max 100 MB)."
+        a.addAttachment(PendingAttachment(name: "IMG_0001.HEIC", data: Data("x".utf8), isImage: true))
+        a.addAttachment(PendingAttachment(name: "notes.pdf", data: Data("y".utf8)))
+        XCTAssertNil(a.attachError, "a pick that worked replaces the old warning")
         XCTAssertEqual(a.items.map(\.name), ["IMG_0001.HEIC", "notes.pdf"])
-        XCTAssertEqual(a.items.map(\.isImage), [true, false])
         a.remove(a.items[0])
         XCTAssertEqual(a.items.map(\.name), ["notes.pdf"])
         a.clear()
@@ -483,8 +484,8 @@ final class CodingAttachmentsTests: XCTestCase {
 
     func testConsumeFoldsPathRefsIntoTheMessage() async {
         let (a, t) = make()
-        a.add(name: "shot.png", data: Data("A".utf8))
-        a.add(name: "notes.pdf", data: Data("B".utf8))
+        a.addAttachment(PendingAttachment(name: "shot.png", data: Data("A".utf8)))
+        a.addAttachment(PendingAttachment(name: "notes.pdf", data: Data("B".utf8)))
         t.enqueue(json: ["path": "/srv/up/shot.png"])
         t.enqueue(json: ["path": "/srv/up/notes.pdf"])
         let r = await a.consume(into: "  look at these  ", sessionId: "cs_1")
@@ -492,12 +493,12 @@ final class CodingAttachmentsTests: XCTestCase {
                        "space-joined — a newline would submit the TUI input early")
         XCTAssertEqual(r.failed, 0)
         XCTAssertTrue(a.isEmpty)
-        XCTAssertNil(a.error)
+        XCTAssertNil(a.attachError)
     }
 
     func testConsumeWithNoTextIsJustTheRefs() async {
         let (a, t) = make()
-        a.add(name: "shot.png", data: Data("A".utf8))
+        a.addAttachment(PendingAttachment(name: "shot.png", data: Data("A".utf8)))
         t.enqueue(json: ["path": "/srv/up/shot.png"])
         let value9 = await a.consume(into: "", sessionId: "cs_1").text
         XCTAssertEqual(value9, "@/srv/up/shot.png")
@@ -505,32 +506,32 @@ final class CodingAttachmentsTests: XCTestCase {
 
     func testEveryUploadFailing() async {
         let (a, t) = make()
-        a.add(name: "shot.png", data: Data("A".utf8))
+        a.addAttachment(PendingAttachment(name: "shot.png", data: Data("A".utf8)))
         t.enqueue(json: ["error": "disk full"], status: 500)
         let r = await a.consume(into: "hi", sessionId: "cs_1")
         XCTAssertEqual(r.text, "hi", "the message is unchanged when nothing uploaded")
         XCTAssertEqual(r.failed, 1)
-        XCTAssertEqual(a.error, "Attachments failed to upload")
+        XCTAssertEqual(a.attachError, "Attachments failed to upload")
         XCTAssertTrue(a.isEmpty, "the tray is cleared either way — no silent retry queue")
     }
 
     func testAPartialFailureIsCounted() async {
         let (a, t) = make()
-        a.add(name: "ok.png", data: Data("A".utf8))
-        a.add(name: "bad.png", data: Data("B".utf8))
+        a.addAttachment(PendingAttachment(name: "ok.png", data: Data("A".utf8)))
+        a.addAttachment(PendingAttachment(name: "bad.png", data: Data("B".utf8)))
         t.enqueue(json: ["path": "/srv/up/ok.png"])
         t.enqueue(json: ["path": ""]) // the server produced no path
         let r = await a.consume(into: "two", sessionId: "cs_1")
         XCTAssertEqual(r.text, "two @/srv/up/ok.png")
         XCTAssertEqual(r.failed, 1)
-        XCTAssertEqual(a.error, "1 attachment(s) failed to upload")
+        XCTAssertEqual(a.attachError, "1 attachment(s) failed to upload")
     }
 
     func testConsumeIsANoOpWithoutAttachmentsOrASession() async {
         let (a, t) = make()
         let value10 = await a.consume(into: "hi", sessionId: "cs_1").text
         XCTAssertEqual(value10, "hi")
-        a.add(name: "shot.png", data: Data("A".utf8))
+        a.addAttachment(PendingAttachment(name: "shot.png", data: Data("A".utf8)))
         let value11 = await a.consume(into: "hi", sessionId: "").text
         XCTAssertEqual(value11, "hi")
         XCTAssertFalse(a.isEmpty, "nothing was uploaded, so nothing was consumed")

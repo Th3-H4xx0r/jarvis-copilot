@@ -68,7 +68,7 @@ final class ChatStore {
 
     // MARK: Composer
 
-    var pendingAttachments: [ChatPendingAttachment] = []
+    var pendingAttachments: [PendingAttachment] = []
     /// A transient pick error (oversize, unreadable) the composer can show.
     var attachError: String?
 
@@ -355,7 +355,7 @@ final class ChatStore {
         }
     }
 
-    private func runTurn(text: String, attachments: [ChatPendingAttachment],
+    private func runTurn(text: String, attachments: [PendingAttachment],
                          forceServer: Bool, initial: ChatStreamState) async {
         var state = initial
         do {
@@ -537,12 +537,12 @@ final class ChatStore {
 
     // MARK: Composer
 
-    func addAttachment(_ attachment: ChatPendingAttachment) {
+    func addAttachment(_ attachment: PendingAttachment) {
         attachError = nil
         pendingAttachments.append(attachment)
     }
 
-    func removeAttachment(_ attachment: ChatPendingAttachment) {
+    func removeAttachment(_ attachment: PendingAttachment) {
         pendingAttachments.removeAll { $0.id == attachment.id }
     }
 

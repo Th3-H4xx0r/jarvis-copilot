@@ -52,29 +52,6 @@ struct PendingPermission: Identifiable, Equatable {
     }
 }
 
-// MARK: - Composer attachments
-
-/// A composer attachment the user picked but hasn't sent yet. On send it's
-/// uploaded to the session's host and referenced in the message as `@path`.
-struct PendingAttachment: Identifiable, Equatable {
-    let id: UUID
-    let name: String
-    let data: Data
-    let isImage: Bool
-
-    init(id: UUID = UUID(), name: String, data: Data, isImage: Bool? = nil) {
-        self.id = id
-        self.name = name
-        self.data = data
-        self.isImage = isImage ?? Self.looksImage(name)
-    }
-
-    static func looksImage(_ name: String) -> Bool {
-        let n = name.lowercased()
-        return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic"].contains { n.hasSuffix($0) }
-    }
-}
-
 // MARK: - Sync config
 
 /// Cross-device file sync config for a session (`sync: {enabled, device, remote_path}`).

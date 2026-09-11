@@ -197,7 +197,7 @@ extension CodingStore {
         defer { sending = false }
         do {
             let r = await attachments.consume(into: text, sessionId: id)
-            if let failure = attachments.error { error = failure }
+            if let failure = attachments.attachError { error = failure }
             guard !r.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             try await api.sendMessage(id, text: r.text)
             await refreshDetail()

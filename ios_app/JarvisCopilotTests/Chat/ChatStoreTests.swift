@@ -154,8 +154,8 @@ final class ChatStoreTests: XCTestCase {
 
     func testSendUploadsAttachmentsAndClearsTheComposer() async {
         store.sessionID = "s1"
-        store.addAttachment(ChatPendingAttachment(name: "a.png", data: Data([1]), isImage: true))
-        store.addAttachment(ChatPendingAttachment(name: "clip.mov", data: Data([2]), isVideo: true, posterData: Data([3])))
+        store.addAttachment(PendingAttachment(name: "a.png", data: Data([1]), isImage: true))
+        store.addAttachment(PendingAttachment(name: "clip.mov", data: Data([2]), isVideo: true, posterData: Data([3])))
         transport.on("POST /api/upload", .json(["path": "/u/a.png", "is_image": true]))
         transport.on("POST /api/upload", .json(["path": "/u/clip.mov"]))
         transport.on("POST /api/upload", .json(["path": "/u/clip.mov.poster.jpg", "is_image": true]))
@@ -173,7 +173,7 @@ final class ChatStoreTests: XCTestCase {
 
     func testAnAttachmentOnlyMessageStillSends() async {
         store.sessionID = "s1"
-        store.addAttachment(ChatPendingAttachment(name: "a.png", data: Data([1]), isImage: true))
+        store.addAttachment(PendingAttachment(name: "a.png", data: Data([1]), isImage: true))
         transport.on("POST /api/upload", .json(["path": "/u/a.png"]))
         transport.on("POST /api/chat/start", .sse(sseFrames([("done", [:])])))
         allowListRefresh()
@@ -184,7 +184,7 @@ final class ChatStoreTests: XCTestCase {
     }
 
     func testRemoveAttachmentDropsItFromTheComposer() {
-        let a = ChatPendingAttachment(name: "a.png", data: Data([1]), isImage: true)
+        let a = PendingAttachment(name: "a.png", data: Data([1]), isImage: true)
         store.addAttachment(a)
         store.removeAttachment(a)
         XCTAssertTrue(store.pendingAttachments.isEmpty)
@@ -588,7 +588,7 @@ final class ChatStoreTests: XCTestCase {
         let local = FakeOnDeviceHandler(reply: .answered(inputTokens: 1, outputTokens: 1), tokens: ["local"])
         store = makeStore(onDevice: local)
         store.sessionID = "s1"
-        store.addAttachment(ChatPendingAttachment(name: "a.png", data: Data([1]), isImage: true))
+        store.addAttachment(PendingAttachment(name: "a.png", data: Data([1]), isImage: true))
         transport.on("POST /api/upload", .json(["path": "/u/a.png"]))
         transport.on("POST /api/chat/start", .sse(sseFrames([("delta", ["text": "I see it"]), ("done", [:])])))
         allowListRefresh()
@@ -700,7 +700,7 @@ final class ChatStoreTests: XCTestCase {
 
     func testAnAttachmentThatFailsToUploadIsCalledOutInTheComposer() async {
         store.sessionID = "s1"
-        store.addAttachment(ChatPendingAttachment(name: "a.png", data: Data([1]), isImage: true))
+        store.addAttachment(PendingAttachment(name: "a.png", data: Data([1]), isImage: true))
         // Nothing scripted for POST /api/upload: the upload fails.
         transport.on("POST /api/chat/start", .sse(sseFrames([("done", [:])])))
         allowListRefresh()
@@ -753,7 +753,7 @@ final class ChatStoreTests: XCTestCase {
     func testCanSendReflectsTheComposerState() {
         XCTAssertFalse(store.canSend(draft: "   "))
         XCTAssertTrue(store.canSend(draft: "hi"))
-        store.addAttachment(ChatPendingAttachment(name: "a.png", data: Data([1])))
+        store.addAttachment(PendingAttachment(name: "a.png", data: Data([1])))
         XCTAssertTrue(store.canSend(draft: ""), "an attachment alone is enough to send")
     }
 

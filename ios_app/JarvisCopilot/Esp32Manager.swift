@@ -783,22 +783,16 @@ final class Esp32Manager: NSObject, ObservableObject {
     /// board claims it over Wi‑Fi, then reboots without Bluetooth to hold the bridge.
     func linkBoardToJarvis() async throws {
         guard state == .ready else { throw Esp32Error.notConnected }
-        guard BridgeClient.shared.isPaired else { throw JarvisChatClient.ChatError.notPaired }
+        guard BridgeClient.shared.isPaired else { throw APIError.notPaired }
         try? await refreshWifi()
         guard wifi?.state == .connected else {
             throw DeviceError.badArgument("the board is not on Wi‑Fi yet — set up its network first (current: \(wifi?.state.label ?? "unknown"))")
         }
-        guard var req = BridgeClient.shared.authorizedRequest(path: "api/devices/pair/start", timeout: 30) else {
-            throw JarvisChatClient.ChatError.noServer
-        }
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["label": "ESP32 \(connected?.name ?? "board")", "ttl": 300])
-        let (data, response) = try await BridgeClient.shared.urlSession.data(for: req)
-        guard (response as? HTTPURLResponse)?.statusCode == 200,
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let code = obj["code"] as? String, !code.isEmpty else {
-            throw JarvisChatClient.ChatError.badReply
+        let obj = try await JarvisAPI.shared.post("/api/devices/pair/start",
+                                                  json: ["label": "ESP32 \(connected?.name ?? "board")", "ttl": 300],
+                                                  timeout: 30).object()
+        guard let code = obj["code"] as? String, !code.isEmpty else {
+            throw APIError.badResponse("the server returned no pairing code")
         }
         // Every request the board makes must clear the Cloudflare tunnel with the Access
         // service token: prefer the one the server hands out for pairing, else the app's own.
@@ -946,18 +940,17 @@ final class Esp32Manager: NSObject, ObservableObject {
         let scriptName = script?.name ?? "script"
         let prompt = "[board event] \(boardName) · script \"\(scriptName)\" asks: `\(name)` \(json). Do it with your tools; reply in one line."
         do {
-            let chat = JarvisChatClient.shared
+            let chat = BoardChat()
             let session = try await chat.sessionID(for: (info?.deviceID ?? boardName) + ".events", title: "ESP32 \(boardName) events")
-            var reply = ""
+            let turn: ChatStreamState
             do {
-                reply = try await chat.send(sessionID: session, message: prompt, onEvent: { _ in })
-            } catch JarvisChatClient.ChatError.busy {
+                turn = try await chat.run(sessionID: session, message: prompt, joinRunningTurn: false)
+            } catch BoardChat.Failure.busy {
                 // Previous event still running; wait for it, then send ours.
-                if let stream = try? await chat.snapshot(sessionID: session).activeStreamID {
-                    _ = try? await chat.attach(streamID: stream) { _ in }
-                }
-                reply = try await chat.send(sessionID: session, message: prompt, onEvent: { _ in })
+                await chat.waitForRunningTurn(sessionID: session)
+                turn = try await chat.run(sessionID: session, message: prompt, joinRunningTurn: false)
             }
+            let reply = turn.message.plainText
             let line = reply.split(whereSeparator: \.isNewline).last.map(String.init) ?? reply
             return (true, line.isEmpty ? "done" : line)
         } catch {

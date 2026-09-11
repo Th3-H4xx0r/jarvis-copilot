@@ -3,16 +3,30 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The composer's "+" — camera, photo/video library, and files — ported from
-/// `widgets/composer_attach.dart`.
+/// Where a composer's "+" delivers what the user picked.
+@MainActor
+protocol AttachmentSink: AnyObject {
+    func addAttachment(_ attachment: PendingAttachment)
+    /// Why the last pick couldn't be used, for the composer to show.
+    var attachError: String? { get set }
+}
+
+extension ChatStore: AttachmentSink {}
+
+/// The composer's "+" — camera, photo library and files — shared by the Chat and
+/// Coding composers.
 ///
-/// Flutter has one plugin per source; here each is a system affordance, so the
-/// button owns all three presentations and hands finished
-/// ``ChatPendingAttachment``s to the store. Picking is a *view* concern (the
-/// store never touches PhotosUI), which is why the async loading lives here.
-struct ChatAttachControl: View {
-    let store: ChatStore
+/// Each source is a system affordance, so the button owns all three presentations
+/// and hands finished ``PendingAttachment``s to its sink. Picking is a *view*
+/// concern (the stores never touch PhotosUI), which is why the loading lives here —
+/// including the size gate and the off-main read.
+struct AttachControl: View {
+    let sink: any AttachmentSink
     var enabled = true
+    /// Library videos, each with a first-frame poster for the model. The Coding
+    /// composer hands files to a terminal agent that can't watch a movie, so it
+    /// turns this off.
+    var allowsVideo = true
 
     @State private var showPhotos = false
     @State private var showFiles = false
@@ -25,7 +39,7 @@ struct ChatAttachControl: View {
                 Button { showCamera = true } label: { Label("Camera", systemImage: "camera") }
             }
             Button { showPhotos = true } label: {
-                Label("Photo or video", systemImage: "photo.on.rectangle")
+                Label(allowsVideo ? "Photo or video" : "Photo", systemImage: "photo.on.rectangle")
             }
             Button { showFiles = true } label: { Label("File", systemImage: "doc") }
         } label: {
@@ -36,9 +50,9 @@ struct ChatAttachControl: View {
                 .contentShape(Rectangle())
         }
         .disabled(!enabled)
-        .accessibilityLabel("Attach photo, video, or file")
+        .accessibilityLabel(allowsVideo ? "Attach photo, video, or file" : "Attach photo or file")
         .photosPicker(isPresented: $showPhotos, selection: $picked,
-                      maxSelectionCount: 4, matching: .any(of: [.images, .videos]))
+                      maxSelectionCount: 4, matching: allowsVideo ? .any(of: [.images, .videos]) : .images)
         .onChange(of: picked) { _, items in
             guard !items.isEmpty else { return }
             picked = []
@@ -55,7 +69,7 @@ struct ChatAttachControl: View {
                 // is the only thing that can, and a cancel must clear it too.
                 showCamera = false
                 guard let data = image?.jpegData(compressionQuality: 0.85) else { return }
-                store.addAttachment(ChatPendingAttachment(
+                sink.addAttachment(PendingAttachment(
                     name: "photo-\(Int(Date().timeIntervalSince1970)).jpg",
                     data: data, isImage: true))
             }
@@ -67,9 +81,9 @@ struct ChatAttachControl: View {
 
     @MainActor private func load(_ items: [PhotosPickerItem]) async {
         for (offset, item) in items.enumerated() {
-            let isVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) }
+            let isVideo = allowsVideo && item.supportedContentTypes.contains { $0.conforms(to: .movie) }
             guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else {
-                store.attachError = "Could not read that item."
+                sink.attachError = "Could not read that item."
                 continue
             }
             let ext = item.supportedContentTypes.first?.preferredFilenameExtension
@@ -89,10 +103,10 @@ struct ChatAttachControl: View {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
-            let isVideo = ChatPendingAttachment.looksLikeVideo(url.lastPathComponent)
+            let isVideo = allowsVideo && PendingAttachment.looksLikeVideo(url.lastPathComponent)
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-            if let size, let rejection = ChatPendingAttachment.rejection(bytes: size, isVideo: isVideo) {
-                store.attachError = rejection
+            if let size, let rejection = PendingAttachment.rejection(bytes: size, isVideo: isVideo) {
+                sink.attachError = rejection
                 continue
             }
             let read = await Task.detached(priority: .userInitiated) { () -> Data? in
@@ -102,13 +116,13 @@ struct ChatAttachControl: View {
                 }
             }.value
             guard let data = read, !data.isEmpty else {
-                store.attachError = "Could not read \(url.lastPathComponent)."
+                sink.attachError = "Could not read \(url.lastPathComponent)."
                 continue
             }
             // `fileSize` is missing for some providers; the length we actually read
             // is the last word.
-            if let rejection = ChatPendingAttachment.rejection(bytes: data.count, isVideo: isVideo) {
-                store.attachError = rejection
+            if let rejection = PendingAttachment.rejection(bytes: data.count, isVideo: isVideo) {
+                sink.attachError = rejection
                 continue
             }
             await add(name: url.lastPathComponent, data: data, isVideo: isVideo)
@@ -116,13 +130,13 @@ struct ChatAttachControl: View {
     }
 
     /// A video is uploaded whole, so the size gate runs before the bytes are ever
-    /// queued — `ChatPendingAttachment.videoRejection` owns that rule.
+    /// queued — `PendingAttachment.videoRejection` owns that rule.
     ///
     /// Decoding the poster frame is done off the main actor: a long clip's first
     /// frame takes long enough to drop the composer's typing animation.
     @MainActor private func add(name: String, data: Data, isVideo: Bool) async {
-        if isVideo, let rejection = ChatPendingAttachment.videoRejection(bytes: data.count) {
-            store.attachError = rejection
+        if isVideo, let rejection = PendingAttachment.videoRejection(bytes: data.count) {
+            sink.attachError = rejection
             return
         }
         var poster: Data?
@@ -132,10 +146,10 @@ struct ChatAttachControl: View {
                 ChatVideoPoster.firstFrame(of: data, extension: ext)
             }.value
         }
-        store.addAttachment(ChatPendingAttachment(
+        sink.addAttachment(PendingAttachment(
             name: name,
             data: data,
-            isImage: !isVideo && ChatPendingAttachment.looksLikeImage(name),
+            isImage: !isVideo && PendingAttachment.looksLikeImage(name),
             isVideo: isVideo,
             posterData: poster))
     }

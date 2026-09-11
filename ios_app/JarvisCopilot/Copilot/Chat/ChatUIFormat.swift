@@ -32,7 +32,7 @@ enum ChatUIFormat {
     }
 
     /// The size line on an attachment chip. Binary units, because that is what
-    /// `ChatPendingAttachment.maxVideoBytes` (100 MB) counts in.
+    /// `PendingAttachment.maxVideoBytes` (100 MB) counts in.
     static func fileSize(_ bytes: Int) -> String {
         if bytes < 1_024 { return "\(bytes) B" }
         if bytes < 1_024 * 1_024 { return "\(Int((Double(bytes) / 1_024).rounded())) KB" }

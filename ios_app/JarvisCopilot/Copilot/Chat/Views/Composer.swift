@@ -31,7 +31,7 @@ struct ChatComposer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !store.pendingAttachments.isEmpty {
-                ChatAttachmentStrip(store: store)
+                AttachmentStrip(attachments: store.pendingAttachments) { store.removeAttachment($0) }
                     .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 4)
             }
             if let attachError = store.attachError {
@@ -41,7 +41,7 @@ struct ChatComposer: View {
                     .padding(.horizontal, 16).padding(.top, 8)
             }
             HStack(alignment: .bottom, spacing: 8) {
-                ChatAttachControl(store: store, enabled: !store.streaming)
+                AttachControl(sink: store, enabled: !store.streaming)
                 TextField("Message Jarvis", text: $draft,
                           prompt: Text("Message Jarvis").foregroundStyle(JcTheme.muted), axis: .vertical)
                     .id(generation)
@@ -81,18 +81,17 @@ struct ChatComposer: View {
     }
 }
 
-/// The horizontal strip of picked-but-unsent attachments above the field.
-/// Collapses to nothing when there are none.
-struct ChatAttachmentStrip: View {
-    let store: ChatStore
+/// The horizontal strip of picked-but-unsent attachments above a composer field,
+/// shared by the Chat and Coding composers.
+struct AttachmentStrip: View {
+    let attachments: [PendingAttachment]
+    let onRemove: (PendingAttachment) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(store.pendingAttachments) { attachment in
-                    ChatAttachmentChip(attachment: attachment) {
-                        store.removeAttachment(attachment)
-                    }
+                ForEach(attachments) { attachment in
+                    AttachmentChip(attachment: attachment) { onRemove(attachment) }
                 }
             }
         }
@@ -103,8 +102,8 @@ struct ChatAttachmentStrip: View {
 /// One pending attachment: its own thumbnail for an image, the poster frame (with
 /// a play badge) for a video, a type glyph for anything else — plus the name, the
 /// size, and an × to drop it.
-struct ChatAttachmentChip: View {
-    let attachment: ChatPendingAttachment
+struct AttachmentChip: View {
+    let attachment: PendingAttachment
     let onRemove: () -> Void
 
     private var thumbnail: Image? {

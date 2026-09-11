@@ -18,7 +18,7 @@ struct Esp32ChatView: View {
     /// binding is cleared while it's focused, so the field is recreated instead.
     @State private var composerGeneration = 0
     @State private var showConsole = false
-    @State private var models: [JarvisChatClient.Model] = []
+    @State private var models: [ChatModel] = []
     @State private var defaultModel = ""
     @State private var selectedModelID = ""
     @FocusState private var focused: Bool
@@ -39,7 +39,7 @@ struct Esp32ChatView: View {
     private var modelKey: String { "esp32ChatModel.\(deviceID)" }
     private var boardOnOwnLink: Bool { manager.cloud?.cloudMode == true && manager.cloud?.state == .connected }
     private var shared: Bool { boardOnOwnLink || (BridgeClient.isExposed(deviceID) && bridge.enabled) }
-    private var selectedModel: JarvisChatClient.Model? { models.first { $0.id == selectedModelID } }
+    private var selectedModel: ChatModel? { models.first { $0.id == selectedModelID } }
     private var canSend: Bool { !draft.trimmingCharacters(in: .whitespaces).isEmpty && !sending && bridge.isPaired }
     /// A muted slate blue: reads as "mine" without shouting, and sits well on the dark
     /// card material the replies use.
@@ -456,9 +456,9 @@ struct Esp32ChatView: View {
 
     private func loadModels() async {
         guard bridge.isPaired else { return }
-        if let result = try? await JarvisChatClient.shared.models() {
-            defaultModel = result.defaultModel
-            models = result.models
+        if let catalog = try? await BoardChat().models() {
+            defaultModel = catalog.defaultModel
+            models = catalog.models
         }
     }
 
@@ -528,7 +528,7 @@ final class Esp32ChatStore: ObservableObject {
         }
     }
 
-    func send(_ text: String, context: String, title: String, model: JarvisChatClient.Model?,
+    func send(_ text: String, context: String, title: String, model: ChatModel?,
               onFinished: @escaping () async -> Void) {
         guard !sending else { return }
         error = nil
@@ -537,85 +537,21 @@ final class Esp32ChatStore: ObservableObject {
         let reply = ChatMessage(role: .assistant, text: "")
         messages.append(reply)
         save()
-        let startedAt = Date()
         task = Task { [weak self] in
             guard let self else { return }
-            let apply: (JarvisChatClient.StreamEvent) -> Void = { [weak self] event in
-                guard let self, let i = self.messages.firstIndex(where: { $0.id == reply.id }) else { return }
-                if self.messages[i].stats == nil { self.messages[i].stats = Stats() }
-                switch event {
-                case .usage(let tin, let tout, _, let estimated):
-                    self.messages[i].stats?.tokensIn = tin
-                    self.messages[i].stats?.tokensOut = tout
-                    self.messages[i].stats?.estimated = estimated
-                case .token(let t):
-                    self.messages[i].text += t
-                    self.messages[i].reasoning = false
-                case .reasoning:
-                    if self.messages[i].text.isEmpty { self.messages[i].reasoning = true }
-                case .toolStarted(let id, let name, let preview):
-                    self.messages[i].reasoning = false
-                    if !self.messages[i].tools.contains(where: { $0.id == id }) {
-                        self.messages[i].tools.append(ToolCall(id: id, name: name, preview: preview, done: false, snippet: ""))
-                    }
-                case .toolFinished(let id, let name, let snippet):
-                    if let t = self.messages[i].tools.lastIndex(where: { !$0.done && ($0.id == id || $0.name == name) }) {
-                        self.messages[i].tools[t].done = true
-                        self.messages[i].tools[t].snippet = snippet
-                    }
-                }
-            }
             do {
-                let chat = JarvisChatClient.shared
+                let chat = BoardChat()
                 let sid = try await chat.sessionID(for: deviceID, title: title)
-                var full = ""
-                var attempts = 0
-                var sent = false
-                while true {
-                    do {
-                        if !sent {
-                            full = try await chat.send(sessionID: sid, message: context + "\n\n" + text, model: model, onEvent: apply)
-                            sent = true
-                        }
-                        break
-                    } catch JarvisChatClient.ChatError.busy where !sent {
-                        // A turn is already running on this session (maybe our own, if the
-                        // phone's stream broke): ride along with it instead of failing.
-                        let snap = try await chat.snapshot(sessionID: sid)
-                        guard let stream = snap.activeStreamID else { throw JarvisChatClient.ChatError.busy }
-                        sent = true
-                        full = try await chat.attach(streamID: stream, onEvent: apply)
-                        break
-                    } catch JarvisChatClient.ChatError.stalled {
-                        attempts += 1
-                        guard attempts <= 12 else { throw JarvisChatClient.ChatError.stalled }  // ~10 min
-                        let snap = try await chat.snapshot(sessionID: sid)
-                        if let stream = snap.activeStreamID {
-                            do { full = try await chat.attach(streamID: stream, onEvent: apply); break }
-                            catch JarvisChatClient.ChatError.stalled { continue }
-                        }
-                        // The turn finished while we weren't listening: take its text.
-                        full = snap.lastAssistantText ?? ""
-                        break
-                    }
+                let turn = try await chat.run(sessionID: sid, message: context + "\n\n" + text, model: model,
+                                              joinRunningTurn: true) { [weak self] state in
+                    self?.show(state, in: reply.id)
                 }
-                // Whatever we streamed, the server's record is authoritative.
-                if let i = messages.firstIndex(where: { $0.id == reply.id }) {
-                    if messages[i].text.isEmpty {
-                        if full.isEmpty, let snap = try? await chat.snapshot(sessionID: sid), let t = snap.lastAssistantText {
-                            full = t
-                        }
-                        messages[i].text = full.isEmpty ? (messages[i].tools.isEmpty ? "(no reply)" : "Done.") : full
-                    }
-                    messages[i].reasoning = false
-                    for t in messages[i].tools.indices { messages[i].tools[t].done = true }
-                    if messages[i].stats == nil { messages[i].stats = Stats() }
-                    messages[i].stats?.totalMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-                }
+                show(turn, in: reply.id)
                 await onFinished()
             } catch is CancellationError {
                 if let i = messages.firstIndex(where: { $0.id == reply.id }), messages[i].text.isEmpty {
                     messages[i].text = "(stopped)"
+                    messages[i].reasoning = false
                 }
             } catch {
                 self.error = error.localizedDescription
@@ -634,6 +570,29 @@ final class Esp32ChatStore: ObservableObject {
         }
     }
 
+    /// Mirrors the streamed turn into the persisted reply bubble.
+    private func show(_ state: ChatStreamState, in id: UUID) {
+        guard let i = messages.firstIndex(where: { $0.id == id }) else { return }
+        let turn = state.message
+        let finished = state.outcome != nil
+        messages[i].tools = turn.tools.map {
+            ToolCall(id: $0.id, name: $0.name, preview: $0.preview ?? "",
+                     done: $0.done || finished, snippet: $0.result ?? "")
+        }
+        messages[i].text = turn.plainText
+        if finished && messages[i].text.isEmpty {
+            messages[i].text = messages[i].tools.isEmpty ? "(no reply)" : "Done."
+        }
+        messages[i].reasoning = !finished && turn.plainText.isEmpty && !turn.reasoning.isEmpty
+            && !turn.tools.contains { !$0.done }
+        var stats = messages[i].stats ?? Stats()
+        if let input = turn.stats?.inputTokens { stats.tokensIn = input }
+        if let output = turn.stats?.outputTokens { stats.tokensOut = output }
+        if let estimated = turn.stats?.estimated { stats.estimated = estimated }
+        if finished { stats.totalMs = turn.stats?.durationMs }
+        messages[i].stats = stats
+    }
+
     func cancel() { task?.cancel() }
 
     func newConversation() {
@@ -641,10 +600,127 @@ final class Esp32ChatStore: ObservableObject {
         messages.removeAll()
         error = nil
         save()
-        JarvisChatClient.shared.forgetSession(for: deviceID)
+        BoardChat().forgetSession(for: deviceID)
     }
 
     private func save() {
         UserDefaults.standard.set(try? JSONEncoder().encode(messages.suffix(60)), forKey: historyKey)
+    }
+}
+
+/// The board chats on the shared chat stack: one server session per key,
+/// remembered across launches, and a turn that survives a busy session and a
+/// starved stream the way `ChatStore`'s does.
+@MainActor
+struct BoardChat {
+    enum Failure: LocalizedError, Equatable {
+        /// A turn is already running on the session and this caller won't join it.
+        case busy
+        /// The server reported the turn as failed.
+        case failed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .busy: return "Jarvis is still working on the previous message"
+            case .failed(let message): return "Jarvis: \(message)"
+            }
+        }
+    }
+
+    var api: JarvisAPI = .shared
+    var clock: any ChatClock = SystemChatClock()
+    var resilience = ChatResilience()
+    var defaults: any KeyValueStore = UserDefaults.standard
+
+    /// The server's model catalogue, fetched once per launch.
+    private static var catalog: ModelCatalog?
+
+    func models() async throws -> ModelCatalog {
+        if let catalog = Self.catalog { return catalog }
+        let catalog = try await ModelsAPI(api: api).list()
+        Self.catalog = catalog
+        return catalog
+    }
+
+    /// The conversation for `key` (a board's device id), created on first use and
+    /// remembered so the agent keeps its context across launches.
+    func sessionID(for key: String, title: String) async throws -> String {
+        if let cached = defaults.string(Self.sessionKey(key)), !cached.isEmpty { return cached }
+        let id = try await SessionsAPI(api: api).create(title: title)
+        defaults.set(id, forKey: Self.sessionKey(key))
+        return id
+    }
+
+    func forgetSession(for key: String) {
+        defaults.set(nil, forKey: Self.sessionKey(key))
+    }
+
+    /// Runs one turn and returns it finished.
+    ///
+    /// `joinRunningTurn` decides what a busy session means: the chat screen rides
+    /// along with the turn already running (often its own, after the phone's stream
+    /// broke); a board event throws `Failure.busy` so it can wait its turn.
+    func run(sessionID: String, message: String, model: ChatModel? = nil, joinRunningTurn: Bool,
+             onUpdate: (ChatStreamState) -> Void = { _ in }) async throws -> ChatStreamState {
+        let chat = ChatAPI(api: api)
+        let sessions = SessionsAPI(api: api)
+        var state = ChatStreamState(startedAt: clock.now)
+        var events = watched(chat.sendMessage(sessionID: sessionID, text: message,
+                                              model: model?.id, provider: model?.providerID))
+        var reattaches = 0
+        while true {
+            do {
+                for try await event in events {
+                    if event.event == "error" || event.event == "apperror" {
+                        throw Failure.failed(event.string("message") ?? event.string("error") ?? "stream error")
+                    }
+                    if ChatStreamReducer.apply(event, to: &state, now: clock.now) { onUpdate(state) }
+                    if state.outcome != nil { break }
+                }
+                break
+            } catch APIError.http(status: 409, message: _) where !state.receivedAnyEvent {
+                guard joinRunningTurn,
+                      let running = try await sessions.snapshot(sessionID).activeStreamID else { throw Failure.busy }
+                events = watched(chat.streamEvents(running))
+            } catch ChatStreamError.stalled {
+                reattaches += 1
+                guard reattaches <= resilience.maxReattach else { throw ChatStreamError.stalled }
+                let snapshot = try await sessions.snapshot(sessionID)
+                guard let running = snapshot.activeStreamID else {
+                    // The turn finished while we weren't listening: take the server's copy.
+                    ChatStreamReducer.adopt(snapshot, into: &state)
+                    break
+                }
+                events = watched(chat.streamEvents(running))
+            }
+        }
+        try Task.checkCancellation()
+        // A turn that streamed nothing is recovered from the server's record.
+        if !state.producedOutput, let snapshot = try? await sessions.snapshot(sessionID) {
+            ChatStreamReducer.adopt(snapshot, into: &state)
+        }
+        ChatStreamReducer.finish(&state, now: clock.now)
+        onUpdate(state)
+        return state
+    }
+
+    /// Follows the turn running on the session, if any, until it ends. Best-effort:
+    /// a failure only means there is nothing left to wait for.
+    func waitForRunningTurn(sessionID: String) async {
+        guard let running = try? await SessionsAPI(api: api).snapshot(sessionID).activeStreamID else { return }
+        let ends: Set<String> = ["done", "stream_end", "complete", "cancel", "cancelled", "error", "apperror"]
+        do {
+            for try await event in watched(ChatAPI(api: api).streamEvents(running)) where ends.contains(event.event) {
+                break
+            }
+        } catch {
+            JcLog.dropped(JcLog.devices, "waiting for the running board turn", error)
+        }
+    }
+
+    private static func sessionKey(_ key: String) -> String { "jarvisChatSession.\(key)" }
+
+    private func watched(_ events: AsyncThrowingStream<SSEEvent, Error>) -> AsyncThrowingStream<SSEEvent, Error> {
+        withStallDetection(events, limit: resilience.idleLimit, step: resilience.checkStep, clock: clock)
     }
 }

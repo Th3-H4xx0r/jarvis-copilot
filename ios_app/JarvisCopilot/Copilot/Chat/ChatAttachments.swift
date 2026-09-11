@@ -1,13 +1,8 @@
 import Foundation
 
-/// A composer attachment the user picked but hasn't sent yet.
-/// Ported from `widgets/composer_attach.dart`'s `PendingAttachment`.
-///
-/// `Copilot/Coding` has its own narrower `PendingAttachment` (no video/poster, and
-/// it uploads to the session host instead of `/api/upload`). Flutter shares one
-/// type between the two composers; unifying them is a follow-up for whoever owns
-/// the shared composer UI — this one is the superset.
-struct ChatPendingAttachment: Identifiable, Equatable, Sendable {
+/// A composer attachment the user picked but hasn't sent yet. The Chat composer
+/// uploads it to `/api/upload`; the Coding composer to the session's host.
+struct PendingAttachment: Identifiable, Equatable, Sendable {
     var id = UUID()
     var name: String
     var data: Data
@@ -74,7 +69,7 @@ struct ChatPendingAttachment: Identifiable, Equatable, Sendable {
 /// Free function with an injected `upload` so it is testable without a store.
 @discardableResult
 func uploadChatAttachments(
-    _ pending: [ChatPendingAttachment],
+    _ pending: [PendingAttachment],
     upload: (_ name: String, _ data: Data) async throws -> [String: Any]
 ) async -> (uploads: [[String: Any]], failed: [String]) {
     var out: [[String: Any]] = []

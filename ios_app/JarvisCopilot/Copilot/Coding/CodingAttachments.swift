@@ -2,15 +2,12 @@ import Foundation
 import Observation
 
 /// The composer's picked-but-unsent attachments, shared by the terminal composer
-/// and the chat input bar (port of the attachment half of
-/// `coding/coding_controller.dart` + `coding/coding_attach.dart`).
+/// and the chat input bar.
 ///
-/// Picking is a *view* concern on iOS — SwiftUI presents `PhotosPicker` /
-/// `.fileImporter` / the camera and hands the bytes to `add`, where Flutter
-/// called into image_picker/file_picker from the controller. Everything after
-/// the pick (the upload and the `@path` folding) lives here.
+/// The shared `AttachControl` picks and size-checks them; everything after the
+/// pick — the upload to the session's host and the `@path` folding — lives here.
 @Observable @MainActor
-final class CodingAttachments {
+final class CodingAttachments: AttachmentSink {
     private let api: CodingSessionsAPI
 
     init(api: CodingSessionsAPI = CodingSessionsAPI()) { self.api = api }
@@ -18,20 +15,15 @@ final class CodingAttachments {
     /// Photos/files the user picked but hasn't sent yet (rendered as chips).
     private(set) var items: [PendingAttachment] = []
 
-    /// Set when one or more uploads failed, so the composer can warn instead of
-    /// silently dropping the file.
-    var error: String?
+    /// A pick that couldn't be used, or uploads that failed, so the composer can
+    /// warn instead of silently dropping the file.
+    var attachError: String?
 
     var isEmpty: Bool { items.isEmpty }
 
-    func add(_ attachment: PendingAttachment) { items.append(attachment) }
-
-    func add(name: String, data: Data, isImage: Bool? = nil) {
-        // Flutter took `x.name.split('/').last` because the pickers hand back
-        // paths on some platforms.
-        let base = CodingJSON.basename(name)
-        items.append(PendingAttachment(name: base.isEmpty ? name : base,
-                                       data: data, isImage: isImage))
+    func addAttachment(_ attachment: PendingAttachment) {
+        attachError = nil
+        items.append(attachment)
     }
 
     func remove(_ attachment: PendingAttachment) { items.removeAll { $0.id == attachment.id } }
@@ -47,7 +39,7 @@ final class CodingAttachments {
     func consume(into text: String, sessionId: String) async -> (text: String, failed: Int) {
         // Clear last time's warning first — a send with nothing attached must not
         // resurface a previous failure.
-        error = nil
+        attachError = nil
         guard !items.isEmpty, !sessionId.isEmpty else { return (text, 0) }
         let pending = items
         var refs: [String] = []
@@ -65,7 +57,7 @@ final class CodingAttachments {
             }
         }
         clear()
-        error = Self.failureMessage(failed: failed, of: pending.count)
+        attachError = Self.failureMessage(failed: failed, of: pending.count)
         guard !refs.isEmpty else { return (text, failed) }
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let joined = refs.joined(separator: " ")
