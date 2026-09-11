@@ -63,6 +63,7 @@ final class WearablesHub: ObservableObject {
     let bottle = BottleManager()
     let scale = ScaleManager()
     let esp32 = Esp32Manager()
+    let ring = RingManager()
 
     private var reconnectTask: Task<Void, Never>?
 
@@ -72,6 +73,7 @@ final class WearablesHub: ObservableObject {
     func appDidBecomeActive() {
         restoreSharedDevices()
         bottle.enterForeground()
+        ring.enterForeground()
         if WearableKeepAlive.isOn(WearableKeepAlive.esp32) { esp32.resumeIfNeeded() }
         reconnectKnownDevices()
     }
@@ -81,6 +83,7 @@ final class WearablesHub: ObservableObject {
     func appDidEnterBackground() {
         reconnectTask?.cancel()
         bottle.enterBackground()
+        ring.enterBackground()
     }
 
     /// Bring the last-used bottle back without anyone opening the Devices tab,
@@ -104,6 +107,17 @@ final class WearablesHub: ObservableObject {
                 }
             }
             if WearableKeepAlive.isOn(WearableKeepAlive.scale) { self.scale.startScan() }
+            // The ring has its own central, which reports power separately.
+            if WearableKeepAlive.isOn(WearableKeepAlive.ring),
+               WearableIdentity.remembered(WearableKeepAlive.ring) != nil {
+                for _ in 0..<20 where !self.ring.bluetoothReady {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    if Task.isCancelled { return }
+                }
+                if await self.ring.ensureConnected(timeout: 15) == false {
+                    JcLog.services.notice("wearables: ring not reachable at launch")
+                }
+            }
         }
     }
 
@@ -151,6 +165,18 @@ final class WearablesHub: ObservableObject {
                                      lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.esp32),
                                      lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.esp32)))
         }
+        if let id = WearableIdentity.remembered(WearableKeepAlive.ring) {
+            let live = ring.discovered.first { $0.id == ring.connected?.id } ?? ring.discovered.first
+            out.append(WearableEntry(kind: WearableKeepAlive.ring,
+                                     deviceID: id,
+                                     model: ColmiR12.model,
+                                     name: live?.name ?? ring.connected?.name ?? ColmiR12.model,
+                                     connected: ring.state == .ready,
+                                     // A ring surfaced from iOS's own link has no RSSI (0).
+                                     rssi: (live?.rssi).flatMap { $0 == 0 ? nil : $0 },
+                                     lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.ring),
+                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.ring)))
+        }
         return out
     }
 
@@ -166,6 +192,9 @@ final class WearablesHub: ObservableObject {
         if let r = esp32.discovered.first(where: { $0.rssi != 0 })?.rssi {
             WearableIdentity.noteSeen(WearableKeepAlive.esp32, rssi: r)
         }
+        if let r = ring.discovered.first(where: { $0.rssi != 0 })?.rssi {
+            WearableIdentity.noteSeen(WearableKeepAlive.ring, rssi: r)
+        }
     }
 
     /// Register every device the user has already shared, with no live link required,
@@ -176,6 +205,7 @@ final class WearablesHub: ObservableObject {
         bottle.publishRemembered()
         scale.publishRemembered()
         esp32.publishRemembered()
+        ring.publishRemembered()
         DeviceRegistry.shared.register(WearablesDevice())
         BridgeClient.shared.sendRegistration()
     }
@@ -201,6 +231,15 @@ final class WearablesHub: ObservableObject {
             }) else { return false }
             esp32.connect(found)
             return await waitUntil(timeout: timeout) { self.esp32.state == .ready }
+        case WearableKeepAlive.ring:
+            // A known peripheral reopens by identifier; otherwise find it by scanning.
+            if await ring.ensureConnected(timeout: 3) { return true }
+            ring.startScan()
+            guard let found = await waitFor(timeout: timeout, {
+                self.ring.discovered.first { $0.id.uuidString == deviceID } ?? self.ring.discovered.first
+            }) else { return false }
+            if ring.connected?.id != found.id || !ring.linkIsUp { ring.connect(found) }
+            return await waitUntil(timeout: timeout) { self.ring.state == .ready }
         default:
             return false
         }
@@ -231,5 +270,6 @@ final class WearablesHub: ObservableObject {
         bottle.startScan()
         scale.startScan()
         esp32.startScan()
+        ring.startScan()
     }
 }

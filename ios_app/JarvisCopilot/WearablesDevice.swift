@@ -27,7 +27,7 @@ final class WearablesDevice: WearableDevice {
             DeviceCapability(
                 name: "wearables_list",
                 description: """
-                    List every paired Jarvis wearable — bottle, scale, ESP32 board — \
+                    List every paired Jarvis wearable — bottle, scale, smart ring, ESP32 board — \
                     with whether each is currently connected, its signal, when it was \
                     last seen, and the commands it offers. Call this first when a \
                     device command fails or when you are not sure what is reachable.

@@ -18,6 +18,7 @@ enum WearableKeepAlive {
     static let bottle = "bottle"
     static let scale = "scale"
     static let esp32 = "esp32"
+    static let ring = "ring"
 
     private static func key(_ device: String) -> String { "jc.keepAlive.\(device)" }
 
