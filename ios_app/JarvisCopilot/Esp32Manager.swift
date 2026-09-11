@@ -232,12 +232,6 @@ final class Esp32Manager: NSObject, ObservableObject {
         }
     }
 
-    static func forgetBoard(_ deviceID: String) {
-        knownBoards.removeAll { $0.deviceID == deviceID }
-        Keychain.write("esp32Token.\(deviceID)", nil)
-        UserDefaults.standard.removeObject(forKey: "esp32Link.\(deviceID)")
-    }
-
     private static func storeToken(_ token: [UInt8], for deviceID: String) {
         Keychain.write("esp32Token.\(deviceID)", token.map { String(format: "%02x", $0) }.joined())
     }
@@ -381,8 +375,6 @@ final class Esp32Manager: NSObject, ObservableObject {
         guard sessionWanted, let board = connected, state != .ready else { return }
         if reconnectTask == nil && wifiAttempt == nil && peripheral == nil { connect(board) }
     }
-
-    var isSessionActive: Bool { sessionWanted }
 
     private func scheduleReconnect(_ message: String) {
         guard sessionWanted, connected != nil else { return }

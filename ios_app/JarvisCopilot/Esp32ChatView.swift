@@ -515,9 +515,7 @@ final class Esp32ChatStore: ObservableObject {
         var tokensIn: Int = 0
         var tokensOut: Int = 0
         var estimated: Bool = false
-        var tokensPerSecond: Double? = nil
-        /// Milliseconds from send to first visible text, and to the end of the turn.
-        var firstTokenMs: Int? = nil
+        /// Milliseconds from send to the end of the turn.
         var totalMs: Int? = nil
     }
 
@@ -569,15 +567,11 @@ final class Esp32ChatStore: ObservableObject {
                 guard let self, let i = self.messages.firstIndex(where: { $0.id == reply.id }) else { return }
                 if self.messages[i].stats == nil { self.messages[i].stats = Stats() }
                 switch event {
-                case .usage(let tin, let tout, let tps, let estimated):
+                case .usage(let tin, let tout, _, let estimated):
                     self.messages[i].stats?.tokensIn = tin
                     self.messages[i].stats?.tokensOut = tout
-                    self.messages[i].stats?.tokensPerSecond = tps
                     self.messages[i].stats?.estimated = estimated
                 case .token(let t):
-                    if self.messages[i].text.isEmpty, self.messages[i].stats?.firstTokenMs == nil {
-                        self.messages[i].stats?.firstTokenMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-                    }
                     self.messages[i].text += t
                     self.messages[i].reasoning = false
                 case .reasoning:

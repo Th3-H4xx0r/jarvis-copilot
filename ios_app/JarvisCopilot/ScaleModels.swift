@@ -18,14 +18,6 @@ enum WeightUnit: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    func kilograms(from value: Double) -> Double {
-        switch self {
-        case .kilograms: return value
-        case .pounds:    return value / 2.2046226218
-        case .stones:    return value / 0.1574730444
-        }
-    }
-
     /// Stones are conventionally shown as "11 st 4.2 lb".
     func format(kg: Double, decimals: Int = 1) -> String {
         switch self {
@@ -36,24 +28,6 @@ enum WeightUnit: String, CaseIterable, Identifiable, Codable {
             return String(format: "%d st %.\(decimals)f lb", st, lb)
         default:
             return String(format: "%.\(decimals)f %@", value(fromKg: kg), rawValue)
-        }
-    }
-}
-
-enum HeightUnit: String, CaseIterable, Identifiable, Codable {
-    case centimetres = "cm", feetInches = "ft"
-    var id: String { rawValue }
-    var label: String { self == .centimetres ? "cm" : "ft / in" }
-
-    func format(cm: Double) -> String {
-        switch self {
-        case .centimetres:
-            return String(format: "%.0f cm", cm)
-        case .feetInches:
-            let inches = cm / 2.54
-            let ft = Int(inches / 12)
-            let rem = inches - Double(ft) * 12
-            return String(format: "%d' %.1f\"", ft, rem)
         }
     }
 }
@@ -75,10 +49,6 @@ struct ScaleUserProfile: Codable, Identifiable, Equatable {
     var birthday: Date = Calendar.current.date(byAdding: .year, value: -30, to: Date()) ?? Date()
     var sex: BiologicalSex = .male
     var athleteMode: Bool = false
-    var goalWeightKg: Double? = nil
-    /// Index of this user in the scale's own profile slots (P1…P10). Only some
-    /// models store users on the scale.
-    var scaleSlot: Int? = nil
 
     var age: Int {
         Calendar.current.dateComponents([.year], from: birthday, to: Date()).year ?? 0
@@ -91,7 +61,7 @@ struct ScaleUserProfile: Codable, Identifiable, Equatable {
 /// screen shows for a full-body-composition scale.
 enum BodyMetric: String, CaseIterable, Identifiable, Codable {
     case weight, bmi, bodyFat, fatFreeWeight, subcutaneousFat, visceralFat, bodyWater
-    case skeletalMuscle, muscleMass, boneMass, protein, bmr, metabolicAge, heartRate
+    case skeletalMuscle, muscleMass, boneMass, protein, bmr, metabolicAge
 
     var id: String { rawValue }
 
@@ -110,7 +80,6 @@ enum BodyMetric: String, CaseIterable, Identifiable, Codable {
         case .protein:         return "Protein"
         case .bmr:             return "BMR"
         case .metabolicAge:    return "Metabolic Age"
-        case .heartRate:       return "Heart Rate"
         }
     }
 
@@ -129,7 +98,6 @@ enum BodyMetric: String, CaseIterable, Identifiable, Codable {
         case .protein:         return "leaf.fill"
         case .bmr:             return "flame.fill"
         case .metabolicAge:    return "hourglass"
-        case .heartRate:       return "heart.fill"
         }
     }
 
@@ -148,7 +116,6 @@ enum BodyMetric: String, CaseIterable, Identifiable, Codable {
         case .protein:         return Color(red: 0.45, green: 0.85, blue: 0.60)
         case .bmr:             return Color(red: 1.0, green: 0.50, blue: 0.20)
         case .metabolicAge:    return Color(red: 0.80, green: 0.70, blue: 0.40)
-        case .heartRate:       return Color(red: 1.0, green: 0.31, blue: 0.40)
         }
     }
 
@@ -167,16 +134,7 @@ enum BodyMetric: String, CaseIterable, Identifiable, Codable {
         case .bodyFat, .subcutaneousFat, .bodyWater, .skeletalMuscle, .protein: return "%"
         case .bmr:             return "kcal"
         case .metabolicAge:    return "yrs"
-        case .heartRate:       return "bpm"
         default:               return ""
-        }
-    }
-
-    /// Metrics that only exist when the scale measured impedance.
-    var needsImpedance: Bool {
-        switch self {
-        case .weight, .bmi, .heartRate: return false
-        default: return true
         }
     }
 
@@ -185,20 +143,12 @@ enum BodyMetric: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .bmi:                         return String(format: "%.1f", value)
         case .visceralFat:                 return String(format: "%.0f", value)
-        case .bmr, .metabolicAge, .heartRate:
+        case .bmr, .metabolicAge:
             return String(format: "%.0f %@", value, fixedUnit)
         default:                           return String(format: "%.1f%@", value, fixedUnit)
         }
     }
 
-    /// Bare number without a unit, for large readouts.
-    func number(_ value: Double, unit: WeightUnit) -> String {
-        if isMass { return String(format: "%.1f", unit.value(fromKg: value)) }
-        switch self {
-        case .bmr, .metabolicAge, .heartRate, .visceralFat: return String(format: "%.0f", value)
-        default: return String(format: "%.1f", value)
-        }
-    }
 }
 
 // MARK: - Readings
@@ -214,15 +164,12 @@ struct ScaleReading: Codable, Identifiable, Equatable {
     var weightKg: Double
     /// Whole-body impedance in ohms, when the scale measured it.
     var impedance: Double?
-    var heartRate: Int?
     /// Derived body-composition figures, keyed by metric. Weight and BMI are always
     /// present; the rest need impedance and a profile.
     var metrics: [BodyMetric: Double]
     /// How the scale reported the weight; kept so the record can be shown in the
     /// unit the person saw on the display.
     var scaleUnit: WeightUnit
-    /// Baby-mode readings hold the difference between two weighings.
-    var isBabyMode: Bool = false
 
     static func == (a: ScaleReading, b: ScaleReading) -> Bool { a.id == b.id }
 }
@@ -272,34 +219,9 @@ final class ScaleHistoryStore: ObservableObject {
         readings.filter { $0.profileID == profile }.sorted { $0.date > $1.date }
     }
 
-    func latest(for profile: UUID?) -> ScaleReading? { readings(for: profile).first }
-
     func add(_ reading: ScaleReading) {
         readings.append(reading)
         readings.sort { $0.date > $1.date }
-        saveReadings()
-    }
-
-    func delete(_ reading: ScaleReading) {
-        readings.removeAll { $0.id == reading.id }
-        saveReadings()
-    }
-
-    func delete(ids: Set<UUID>) {
-        readings.removeAll { ids.contains($0.id) }
-        saveReadings()
-    }
-
-    /// Moves a guest reading onto a profile, the stock app's "assign to user".
-    func assign(_ reading: ScaleReading, to profile: UUID) {
-        guard let i = readings.firstIndex(where: { $0.id == reading.id }) else { return }
-        readings[i].profileID = profile
-        saveReadings()
-    }
-
-    func replace(_ reading: ScaleReading) {
-        guard let i = readings.firstIndex(where: { $0.id == reading.id }) else { return }
-        readings[i] = reading
         saveReadings()
     }
 

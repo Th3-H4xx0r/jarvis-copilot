@@ -66,9 +66,6 @@ enum BottleCommand: Identifiable {
     case touchLock(Bool)
     case uvIntensity(UVIntensity)
     case dailyAutoReset(Bool)
-    case aiSelfCleanPermanent(Bool)
-    case aiSelfCleanTimed(on: Bool, seconds: UInt32)
-    case setAutoSteriliseTimes([TimeSlot])
 
     /// Escape hatch for poking at undocumented opcodes.
     case raw(Data)
@@ -95,18 +92,6 @@ enum BottleCommand: Identifiable {
         case .touchLock(let on):            return Data([0x0F, on ? 1 : 0])
         case .uvIntensity(let i):           return Data([0x11, i.rawValue])
         case .dailyAutoReset(let on):       return Data([0x14, on ? 1 : 0])
-        case .aiSelfCleanPermanent(let on): return Data([0x18, on ? 1 : 0])
-
-        case .aiSelfCleanTimed(let on, let seconds):
-            var d = Data([0x17, on ? 1 : 0])
-            d.append(contentsOf: [
-                UInt8((seconds >> 24) & 0xFF), UInt8((seconds >> 16) & 0xFF),
-                UInt8((seconds >> 8) & 0xFF),  UInt8(seconds & 0xFF),
-            ])
-            return d
-
-        case .setAutoSteriliseTimes(let slots):
-            return Data([0x12]) + BottleProtocol.encodeTimeSlots(slots)
 
         case .raw(let d):
             return d
@@ -147,28 +132,14 @@ enum BottleCommand: Identifiable {
         case .touchLock(let on):          return "Touch lock \(on ? "on" : "off")"
         case .uvIntensity(let i):         return "UV \(i.label)"
         case .dailyAutoReset(let o):      return "Daily auto-reset \(o ? "on" : "off")"
-        case .aiSelfCleanPermanent(let o): return "AI clean \(o ? "always" : "off")"
-        case .aiSelfCleanTimed(_, let s): return "AI clean \(s)s"
-        case .setAutoSteriliseTimes:      return "Set auto-clean times"
         case .raw:                        return "Raw"
         }
     }
 }
 
 extension BottleProtocol {
-    /// mask byte + 8 × (hour, minute), unused slots padded with 0xFF.
-    static func encodeTimeSlots(_ slots: [TimeSlot]) -> Data {
-        var mask: UInt8 = 0
-        var body = Data()
-        for (i, slot) in slots.prefix(8).enumerated() {
-            if slot.isOn { mask |= (1 << UInt8(i)) }
-            body.append(contentsOf: [slot.hour, slot.minute])
-        }
-        while body.count < 16 { body.append(0xFF) }
-        return Data([mask]) + body
-    }
 
-    /// Inverse of `encodeTimeSlots`, applied to a payload that excludes the opcode.
+    /// Mask byte + 8 × (hour, minute), from a payload that excludes the opcode.
     static func decodeTimeSlots(_ payload: Data) -> [TimeSlot] {
         guard let mask = payload.first else { return [] }
         var out: [TimeSlot] = []
@@ -200,9 +171,6 @@ struct BottleStatus: Equatable {
     var steriliseCount: Int
     var dailyAutoReset: Bool
     var uvIntensity: UVIntensity
-    var aiCleanSecondsRemaining: UInt32
-    var aiCleanEnabled: Bool
-    var aiCleanPermanent: Bool
     /// The exact bytes this was decoded from, for diagnosing unexpected device states.
     var rawHex: String
 
@@ -226,10 +194,6 @@ struct BottleStatus: Equatable {
         steriliseCount = Int(b(9))
         dailyAutoReset = b(10) == 1
         uvIntensity = b(11) == 0 ? .normal : .strong
-        aiCleanSecondsRemaining = (UInt32(b(12)) << 24) | (UInt32(b(13)) << 16)
-                                | (UInt32(b(14)) << 8)  |  UInt32(b(15))
-        aiCleanEnabled = b(16) == 1
-        aiCleanPermanent = b(17) == 1
         rawHex = d.hexString
     }
 }

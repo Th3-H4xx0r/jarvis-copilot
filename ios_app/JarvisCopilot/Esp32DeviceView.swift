@@ -324,14 +324,6 @@ struct Esp32DeviceView: View {
         }
     }
 
-    private var wifiDetail: String? {
-        guard let w = manager.wifi, w.state == .connected else {
-            if let w = manager.wifi, w.state == .failed, !w.ssid.isEmpty { return "Check the password for \(w.ssid) and that it is a 2.4 GHz network." }
-            return nil
-        }
-        return [w.ip, "\(w.rssi) dBm", w.hostname.isEmpty ? nil : "\(w.hostname).local"].compactMap { $0 }.joined(separator: " · ")
-    }
-
     private var connection: some View {
         VStack(spacing: 22) {
             CardGroup("Network") {
@@ -468,20 +460,6 @@ struct Esp32DeviceView: View {
         if lower.contains("wi‑fi") || lower.contains("wifi") { return "Needs Wi‑Fi" }
         let firstLine = e.split(whereSeparator: \.isNewline).first.map(String.init) ?? e
         return firstLine.count > 70 ? String(firstLine.prefix(69)) + "…" : firstLine
-    }
-
-    private var networkFooter: String {
-        if manager.activeLink == .wifi {
-            return "Wi‑Fi settings change over Bluetooth. Switch Prefer to Bluetooth to edit them."
-        }
-        return "Auto uses Wi‑Fi when the board is on the network and falls back to Bluetooth."
-    }
-
-    private var cloudFooter: String {
-        if manager.cloud?.cloudMode == true {
-            return "In this mode Bluetooth is off; the phone reaches the board over the LAN. Hold the board's BOOT button 3 s to return to Bluetooth."
-        }
-        return "Linking turns Bluetooth off and restarts the board; the app reconnects over Wi‑Fi."
     }
 
     // MARK: Pins

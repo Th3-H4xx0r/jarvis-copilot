@@ -22,7 +22,6 @@ enum Esp32Protocol {
     static let sync: UInt8 = 0xA5
     static let responseBit: UInt8 = 0x80
     static let maxBody = 240
-    static let maxFrame = 3 + maxBody
     static let tokenLength = 16
     static let maxSSIDLength = 32
     static let maxPasswordLength = 64
@@ -169,7 +168,6 @@ enum Esp32Protocol {
         let gpio: UInt8
         let capabilities: PinCapabilities
         var id: UInt8 { gpio }
-        var isInputOnly: Bool { !capabilities.contains(.output) }
     }
 
     struct PinState: Hashable {
@@ -188,7 +186,6 @@ enum Esp32Protocol {
         /// False on a freshly flashed board: the first phone to connect owns it.
         let claimed: Bool
 
-        var macString: String { mac.map { String(format: "%02X", $0) }.joined(separator: ":") }
         /// Stable identity across transports and CoreBluetooth UUID rotations.
         var deviceID: String { "esp32-" + mac.map { String(format: "%02x", $0) }.joined() }
         var firmwareString: String { "\(firmwareMajor).\(firmwareMinor)" }

@@ -7,8 +7,6 @@ struct ScaleObservation: Equatable {
     let impedanceOhms: Double?
     let timestamp: Date
     let isStable: Bool
-    let hasImpedance: Bool
-    let wireUnit: UInt8
 }
 
 /// CoreBluetooth does not promise a one-notification-to-one-protocol-packet mapping.
@@ -115,9 +113,7 @@ enum ScaleProtocol {
             weightKg: weightKg,
             impedanceOhms: hasImpedance ? Double(littleEndian16(frame, 13)) : nil,
             timestamp: timestamp,
-            isStable: weightKg > 0 && frame[19] != 0,
-            hasImpedance: hasImpedance,
-            wireUnit: frame[21]
+            isStable: weightKg > 0 && frame[19] != 0
         )
     }
 
