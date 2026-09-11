@@ -1084,7 +1084,7 @@ def handle_coding_upload(handler):
 # after pairing), so 'browser'/'' must NOT be excluded here. Actual web
 # browsers never hold a device-bridge WS, so they're filtered out by the
 # bridge_connected requirement, not by kind.
-NON_SYNC_KINDS = frozenset({"mobile-ios", "mobile-android", "mobile"})
+NON_SYNC_KINDS = frozenset({"mobile-ios", "mobile"})
 
 
 def is_sync_capable_kind(kind: str | None) -> bool:

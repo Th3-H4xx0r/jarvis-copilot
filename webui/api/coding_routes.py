@@ -330,7 +330,7 @@ def _push_device_alert(title: str, body: str) -> int:
         try:
             token = (d.get("push_token") or "").strip()
             kind = (d.get("push_kind") or "").strip().lower()
-            if not token or kind not in ("fcm", "apns"):
+            if not token or kind != "apns":
                 continue
             if not (d.get("kind") or "").strip().lower().startswith("mobile"):
                 continue
@@ -376,7 +376,7 @@ def _push_permission_alert(*, title: str, body: str, data: dict) -> int:
         try:
             token = (d.get("push_token") or "").strip()
             kind = (d.get("push_kind") or "").strip().lower()
-            if not token or kind not in ("fcm", "apns"):
+            if not token or kind != "apns":
                 continue
             if not (d.get("kind") or "").strip().lower().startswith("mobile"):
                 continue
@@ -1100,7 +1100,7 @@ def handle_coding_request(method: str, path: str, body: dict | None, *,
                     name = d.get("name") or d.get("id") or "device"
                     token = (d.get("push_token") or "").strip()
                     kind = (d.get("push_kind") or "").strip().lower()
-                    if not token or kind not in ("fcm", "apns"):
+                    if not token or kind != "apns":
                         results.append({"device": name, "ok": False,
                                         "error": "no notification token registered"})
                         continue

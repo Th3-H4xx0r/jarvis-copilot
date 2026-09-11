@@ -1,7 +1,7 @@
 """Notification-tap bridge — server-side unit tests.
 
 Covers the visible-vs-silent push decision, the action-banner composer, the
-APNs/FCM visible payload builders, the poll filter + expiry in take_mobile_queue,
+APNs visible payload builders, the poll filter + expiry in take_mobile_queue,
 and the fire-and-forget behavior for foreground-required skills.
 
 See docs/superpowers/specs/2026-06-03-notification-tap-bridge-design.md.
@@ -17,7 +17,6 @@ from api.device_bridge import (  # noqa: E402
     is_foreground_skill, format_action_banner, _FOREGROUND_SKILLS,
 )
 from api.push.apns import _build_apns_body, _apns_headers  # noqa: E402
-from api.push.fcm import _build_fcm_message  # noqa: E402
 from api import device_bridge as db  # noqa: E402
 import api.device_bridge as dbridge  # noqa: E402
 
@@ -105,22 +104,6 @@ def test_apns_headers_silent_vs_alert():
     assert visible["apns-topic"] == "com.x"
 
 
-# ── Task 3: FCM visible payload ────────────────────────────────────────────
-
-def test_fcm_data_only_when_no_alert():
-    msg = _build_fcm_message("TOK", {"type": "invoke_pending", "device_id": "d1"}, None)
-    assert msg["token"] == "TOK"
-    assert msg["data"] == {"type": "invoke_pending", "device_id": "d1"}
-    assert "notification" not in msg
-    assert msg["android"]["priority"] == "HIGH"
-
-
-def test_fcm_notification_when_alert():
-    msg = _build_fcm_message("TOK", {"type": "invoke_pending"}, {"title": "Open google", "body": "Tap to run"})
-    assert msg["notification"] == {"title": "Open google", "body": "Tap to run"}
-    assert msg["data"] == {"type": "invoke_pending"}
-
-
 # ── Task 4: poll filter + expiry ───────────────────────────────────────────
 
 def _seed_queue(device_id, items):
@@ -174,7 +157,7 @@ class _FakePush:
     def __init__(self):
         self.calls = []
 
-    def send(self, kind, token, payload, *, timeout=10.0, alert=None):
+    def send(self, kind, token, payload, *, timeout=10.0, alert=None, topic=None, sandbox=None):
         self.calls.append({"kind": kind, "token": token, "payload": payload, "alert": alert})
         return {"ok": True}
 
@@ -220,7 +203,7 @@ def test_non_foreground_skill_sends_silent_push(monkeypatch):
 
 
 class _FailingPush:
-    def send(self, kind, token, payload, *, timeout=10.0, alert=None):
+    def send(self, kind, token, payload, *, timeout=10.0, alert=None, topic=None, sandbox=None):
         return {"ok": False, "error": "not configured"}  # no 404/410 status
 
 

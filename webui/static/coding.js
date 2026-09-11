@@ -71,7 +71,7 @@ function _codingDeviceOptionsHtml(selected) {
   // must NOT exclude 'browser'/'' by kind — actual web browsers are filtered by
   // sync_capable/bridge_connected (they never hold a bridge). Prefer the
   // server's sync_capable flag when present.
-  const MOBILE_KINDS = ['mobile-ios', 'mobile-android', 'mobile'];
+  const MOBILE_KINDS = ['mobile-ios', 'mobile'];
   const desktops = (_codingDevicesCache || []).filter(d => {
     const k = String(d.kind || '').toLowerCase();
     if (MOBILE_KINDS.includes(k)) return false;

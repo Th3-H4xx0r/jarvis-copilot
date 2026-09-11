@@ -54,7 +54,7 @@ def counting_tool():
 class TestEagerAllowList:
     @pytest.mark.parametrize("name", [
         "open_app", "open_url", "flashlight_on", "flashlight_off",
-        "set_volume", "notify", "chrome_navigate",
+        "notify", "chrome_navigate",
     ])
     def test_side_effect_safe_device_tools_are_eager(self, name):
         assert cch.is_eager_dispatchable(name) is True

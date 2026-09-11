@@ -185,7 +185,7 @@ def connected_device_ids() -> list[str]:
 def _push_reachable(device: dict) -> bool:
     """A device with a push token can be woken even with no live WS."""
     return bool((device.get("push_token") or "").strip()
-                and (device.get("push_kind") or "").strip().lower() in ("fcm", "apns"))
+                and (device.get("push_kind") or "").strip().lower() == "apns")
 
 
 def _remembered_skills(device_id: str) -> list[dict]:
@@ -278,7 +278,7 @@ def invoke_skill(device_id: str, skill_name: str, args: dict,
     2. **Mobile push fallback** — device has no WS but is a mobile record
        with a registered push token. Queue the invoke in
        ``_pending_mobile_invokes[device_id]``, wake the app via
-       silent FCM/APNs, and wait on a futures-Event the
+       silent APNs, and wait on a futures-Event the
        ``/api/devices/mobile/result`` endpoint will resolve.
     3. **Disconnected** — neither path is available; surface a
        device-offline error so the agent can pick another tool.
@@ -562,7 +562,7 @@ def _trigger_coding_resync(device_id: str) -> None:
 # When a mobile client is backgrounded its WS is gone. The bridge falls
 # back to:
 #   1. Append the invoke envelope to _PENDING_MOBILE[device_id].
-#   2. Send a silent push (FCM data / APNs background) telling the app
+#   2. Send a silent push (APNs background) telling the app
 #      "wake up and poll".
 #   3. Block on an Event keyed by call_id; the mobile /result endpoint
 #      sets it once the device responds.
@@ -673,7 +673,7 @@ def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
     push_token = (device.get("push_token") or "").strip()
     push_kind = (device.get("push_kind") or "").strip().lower()
     kind = (device.get("kind") or "").strip().lower()
-    if not push_token or push_kind not in ("fcm", "apns"):
+    if not push_token or push_kind != "apns":
         # Not a mobile record (or one that never registered a token).
         return {"ok": False, "error": "device not connected"}
     if not kind.startswith("mobile"):
@@ -703,7 +703,7 @@ def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
         })
 
     # Fire-and-forget push. We don't wait on the HTTP response because
-    # FCM/APNs delivery is independent of acknowledgement; if the message
+    # APNs delivery is independent of acknowledgement; if the message
     # never lands, the per-call Event will time out below.
     # Foreground-required skills can't run headless, so we send a VISIBLE,
     # tappable banner instead of a silent wake. Tapping it foregrounds the app,
@@ -729,7 +729,7 @@ def _invoke_via_mobile_push(device_id: str, skill_name: str, args: dict,
         if not push_ok:
             push_err = result.get("error")
             logger.warning("push send failed (%s): %s", push_kind, push_err)
-            # If the token is unambiguously dead (FCM 404/UNREGISTERED, APNs 410)
+            # If the token is unambiguously dead (APNs 410)
             # we surface a clearer error so the agent can move on AND clear
             # the stale token so subsequent invokes don't fire pointless pushes.
             status = result.get("status")

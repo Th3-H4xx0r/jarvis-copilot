@@ -440,7 +440,7 @@ def test_is_sync_capable_kind_excludes_only_mobile():
     for k in ("desktop", "", "browser", "web"):
         assert cd.is_sync_capable_kind(k) is True
     assert cd.is_sync_capable_kind(None) is True
-    for k in ("mobile-ios", "mobile-android", "mobile"):
+    for k in ("mobile-ios", "mobile"):
         assert cd.is_sync_capable_kind(k) is False
 
 

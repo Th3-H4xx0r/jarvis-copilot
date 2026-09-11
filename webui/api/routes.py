@@ -6277,7 +6277,7 @@ def handle_post(handler, parsed) -> bool:
 
     # ── Mobile client: register push token + device kind ──
     # POST /api/devices/mobile/token
-    # body: {"push_kind":"fcm"|"apns","push_token":"...","platform":"ios"|"android","app_version":"..."}
+    # body: {"push_kind":"apns","push_token":"...","platform":"ios","app_version":"..."}
     # Caller is the mobile app, authed via the paired session cookie. We
     # match the cookie to the device record and update its push fields so
     # the bridge can fall back to silent push when the WS isn't live.
@@ -6299,15 +6299,13 @@ def handle_post(handler, parsed) -> bool:
         if push_env not in ("", "development", "production"):
             return bad(handler, "push_env must be 'development' or 'production'")
         app_version = (body.get("app_version") or "").strip()[:32]
-        if push_kind not in ("", "fcm", "apns"):
-            return bad(handler, "push_kind must be 'fcm' or 'apns'")
+        if push_kind not in ("", "apns"):
+            return bad(handler, "push_kind must be 'apns'")
         if push_kind and not push_token:
             return bad(handler, "push_token required when push_kind is set")
         kind = device.get("kind") or "browser"
         if platform == "ios":
             kind = "mobile-ios"
-        elif platform == "android":
-            kind = "mobile-android"
         update_device_fields(
             device["id"],
             kind=kind,
@@ -6317,12 +6315,7 @@ def handle_post(handler, parsed) -> bool:
             push_env=push_env,
             app_version=app_version,
         )
-        from api import push as push_mod
-        return j(handler, {
-            "ok": True,
-            "device_id": device["id"],
-            "push_configured": push_mod.configured(),
-        })
+        return j(handler, {"ok": True, "device_id": device["id"]})
 
     # ── Mobile client: poll queued invocations ──
     # POST /api/devices/mobile/poll

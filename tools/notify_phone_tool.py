@@ -1,6 +1,6 @@
 """notify_phone — show a visible notification on the user's phone(s).
 
-Fans out an APNs/FCM *alert* push to every mobile device paired with this
+Fans out an APNs *alert* push to every mobile device paired with this
 server (the JarvisCopilot mobile client and the JarvisWearables app), so an
 automation — a door sensor script on an ESP32 board, a scheduled check, a
 long task finishing — can reach the user even when no app is open.

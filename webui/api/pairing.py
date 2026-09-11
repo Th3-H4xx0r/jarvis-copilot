@@ -280,8 +280,8 @@ def claim_pairing_code(code: str, *, device_name: str = "",
                 # after pairing. ``kind`` distinguishes browser/desktop/mobile
                 # records so the devices UI can render appropriately and
                 # the bridge knows whether to attempt push fallback.
-                "kind": "browser",  # browser | desktop | mobile-ios | mobile-android
-                "push_kind": "",    # "fcm" | "apns" | ""
+                "kind": "browser",  # browser | desktop | mobile-ios
+                "push_kind": "",    # "apns" | ""
                 "push_token": "",
             })
             # Cap device list at 64 most recent.

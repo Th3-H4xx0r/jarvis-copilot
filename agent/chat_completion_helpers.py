@@ -70,7 +70,7 @@ logger = logging.getLogger(__name__)
 # Anything that writes files, spends money, sends a message, or spawns an agent
 # stays on the normal path (dispatched only after message_stop).
 EAGER_DISPATCH_TOOLS = frozenset({
-    "open_app", "open_url", "set_volume", "notify", "vibrate",
+    "open_app", "open_url", "notify", "vibrate",
     "play_audio", "chrome_navigate", "chrome_new_tab", "chrome_activate_tab",
     "chrome_snapshot", "chrome_screenshot",
 })
