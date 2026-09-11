@@ -19,9 +19,7 @@ public actor LocalLLM {
     public private(set) var loadedModelID: String?
     private var container: ModelContainer?
 
-    public init() {
-        GPU.set(cacheLimit: 32 * 1024 * 1024)
-    }
+    public init() {}
 
     // MARK: - Storage
 
@@ -85,6 +83,9 @@ public actor LocalLLM {
                      progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws {
         if loadedModelID == modelID, container != nil { return }
         unload()
+        // The first GPU call brings up MLX's Metal device and allocator, so it
+        // waits until a model is really being built.
+        GPU.set(cacheLimit: 32 * 1024 * 1024)
         let config = LLMModelFactory.shared.configuration(id: modelID)
         let container = try await LLMModelFactory.shared.loadContainer(hub: Self.hub, configuration: config) { p in
             progress(p.fractionCompleted)
@@ -94,6 +95,7 @@ public actor LocalLLM {
     }
 
     public func unload() {
+        guard container != nil else { return }
         container = nil
         loadedModelID = nil
         GPU.clearCache()
