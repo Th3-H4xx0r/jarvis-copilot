@@ -69,6 +69,8 @@ final class RingManager: NSObject, ObservableObject {
     private var scanTimeoutTask: Task<Void, Never>?
     private var idleDropTask: Task<Void, Never>?
     private var setupTask: Task<Void, Never>?
+    private var discoveryTask: Task<Void, Never>?
+    private var discoveryAttempts = 0
     private var wasConnectedBeforeBackground: DiscoveredRing?
     private var isBackgrounded = false
     private var lastBackgroundDrain = Date.distantPast
@@ -145,6 +147,7 @@ final class RingManager: NSObject, ObservableObject {
         peripheral = ring.peripheral
         connected = ring
         if !discovered.contains(where: { $0.id == ring.id }) { discovered.insert(ring, at: 0) }
+        discoveryAttempts = 0
         state = .connecting
         ring.peripheral.delegate = self
         central.connect(ring.peripheral)
@@ -154,6 +157,8 @@ final class RingManager: NSObject, ObservableObject {
         JcLog.devices.notice("ring: disconnect state=\(self.state.text, privacy: .public)")
         setupTask?.cancel()
         setupTask = nil
+        discoveryTask?.cancel()
+        discoveryTask = nil
         if let p = peripheral { central.cancelPeripheralConnection(p) }
         peripheral = nil
         connected = nil
@@ -176,6 +181,7 @@ final class RingManager: NSObject, ObservableObject {
         if peripheral == nil, let known = knownPeripheral() {
             connect(DiscoveredRing(id: known.identifier, name: known.name ?? "Ring", rssi: 0, peripheral: known))
         } else if let p = peripheral, state != .connecting, state != .discovering {
+            discoveryAttempts = 0
             state = .connecting
             p.delegate = self
             central.connect(p)
@@ -240,8 +246,41 @@ final class RingManager: NSObject, ObservableObject {
         setupTask != nil || session.transport.isBusy || session.measurement?.isActive == true || sync.isSyncing
     }
 
+    /// Asks for the ring's services and keeps a watchdog on the answer. Discovery can stall
+    /// for good — the ring still held by another app, or a link restored by iOS that never
+    /// reports — and nothing else moves the state off "Discovering".
+    private func beginDiscovery(_ p: CBPeripheral) {
+        discoveryAttempts += 1
+        state = .discovering
+        p.delegate = self
+        p.discoverServices([RingProtocol.commandService, RingProtocol.bigDataService, RingProtocol.deviceInfoService])
+        discoveryTask?.cancel()
+        discoveryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard let self, !Task.isCancelled, self.state == .discovering, self.peripheral === p else { return }
+            switch self.discoveryAttempts {
+            case 1:
+                JcLog.devices.notice("ring: discovery stalled; asking again")
+                self.beginDiscovery(p)
+            case 2:
+                JcLog.devices.notice("ring: discovery stalled twice; reopening the link")
+                self.discoveryAttempts = 3
+                self.resetLink()
+                self.central.cancelPeripheralConnection(p)
+                self.state = .connecting
+                self.central.connect(p)
+            default:
+                JcLog.devices.error("ring: discovery never finished")
+                self.state = .failed("the ring never answered — unbind it in QRing, or toggle Bluetooth")
+            }
+        }
+    }
+
     private func becomeReady(_ p: CBPeripheral) {
         guard state != .ready else { return }
+        discoveryTask?.cancel()
+        discoveryTask = nil
+        discoveryAttempts = 0
         state = .ready
         UserDefaults.standard.set(p.identifier.uuidString, forKey: Self.lastPeripheralKey)
         publishToRegistry()
@@ -375,9 +414,11 @@ extension RingManager: CBCentralManagerDelegate {
             p.delegate = self
             self.peripheral = p
             self.connected = DiscoveredRing(id: p.identifier, name: p.name ?? "Ring", rssi: 0, peripheral: p)
-            self.state = p.state == .connected ? .discovering : .connecting
+            self.discoveryAttempts = 0
             if p.state == .connected {
-                p.discoverServices([RingProtocol.commandService, RingProtocol.bigDataService, RingProtocol.deviceInfoService])
+                self.beginDiscovery(p)
+            } else {
+                self.state = .connecting
             }
         }
     }
@@ -403,9 +444,7 @@ extension RingManager: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ c: CBCentralManager, didConnect p: CBPeripheral) {
         Task { @MainActor in
-            self.state = .discovering
-            p.delegate = self
-            p.discoverServices([RingProtocol.commandService, RingProtocol.bigDataService, RingProtocol.deviceInfoService])
+            self.beginDiscovery(p)
         }
     }
 
@@ -432,6 +471,7 @@ extension RingManager: CBCentralManagerDelegate {
                 return
             }
             JcLog.devices.notice("ring: link dropped (\(reason, privacy: .public)); reconnecting")
+            self.discoveryAttempts = 0
             self.state = .connecting
             self.central.connect(p)
         }
@@ -457,19 +497,29 @@ extension RingManager: CBPeripheralDelegate {
     nonisolated func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         Task { @MainActor in
             let characteristics = service.characteristics ?? []
+            // Record the writes BEFORE subscribing: the notify callback checks for the write
+            // characteristic, and it can land before this loop would have reached it.
             for characteristic in characteristics {
                 switch characteristic.uuid {
                 case RingProtocol.commandWrite:
                     self.commandWrite = characteristic
                 case RingProtocol.bigDataWrite:
                     self.bigDataWrite = characteristic
-                case RingProtocol.commandNotify, RingProtocol.bigDataNotify:
-                    p.setNotifyValue(true, for: characteristic)
                 case RingProtocol.firmwareRevision, RingProtocol.hardwareRevision:
                     p.readValue(for: characteristic)
                 default:
                     break
                 }
+            }
+            for characteristic in characteristics
+            where characteristic.uuid == RingProtocol.commandNotify || characteristic.uuid == RingProtocol.bigDataNotify {
+                if !characteristic.isNotifying { p.setNotifyValue(true, for: characteristic) }
+            }
+            // A reconnect can hand back a subscription that is still live, in which case no
+            // notify callback follows — so go ready here rather than wait for one that never comes.
+            if self.commandWrite != nil,
+               characteristics.contains(where: { $0.uuid == RingProtocol.commandNotify && $0.isNotifying }) {
+                self.becomeReady(p)
             }
         }
     }
@@ -482,11 +532,9 @@ extension RingManager: CBPeripheralDelegate {
                 return
             }
             guard characteristic.uuid == RingProtocol.commandNotify, characteristic.isNotifying else { return }
-            if self.commandWrite != nil {
-                self.becomeReady(p)
-            } else {
-                self.state = .failed("ring write characteristic missing")
-            }
+            // The write characteristic may still be on its way; the characteristics callback
+            // finishes the job in that case, so this must not fail the connection.
+            if self.commandWrite != nil { self.becomeReady(p) }
         }
     }
 
