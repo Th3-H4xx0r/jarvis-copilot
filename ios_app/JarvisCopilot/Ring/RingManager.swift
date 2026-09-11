@@ -48,8 +48,13 @@ final class RingManager: NSObject, ObservableObject {
 
     /// The ring hides its MAC from iOS, so identity is the remembered id, else this install's
     /// CoreBluetooth identifier.
+    /// Must stay stable while the ring is away. It used to fall back to the live connection
+    /// alone, so a dropped link took the input actions with it — and with them the reason to
+    /// hold the link open at all, which is why gestures died in the background.
     var deviceID: String? {
-        WearableIdentity.remembered(WearableKeepAlive.ring) ?? connected?.id.uuidString
+        WearableIdentity.remembered(WearableKeepAlive.ring)
+            ?? connected?.id.uuidString
+            ?? UserDefaults.standard.string(forKey: Self.lastPeripheralKey)
     }
 
     var store: RingHistoryStore? { deviceID.map { RingHistoryStore.shared(for: $0) } }
@@ -96,6 +101,7 @@ final class RingManager: NSObject, ObservableObject {
             if active { AudioServicesPlayAlertSound(SystemSoundID(1005)) }
         }
         session.onInput = { [weak self] input in self?.runAction(for: input) }
+        session.wantsMultiPress = { [weak self] in self?.inputs?.usesMultiPress ?? false }
     }
 
     // MARK: Scanning

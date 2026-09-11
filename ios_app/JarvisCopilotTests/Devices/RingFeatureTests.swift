@@ -63,6 +63,7 @@ final class RingFeatureTests: XCTestCase {
 
     func testEveryChannelTheRingPressesOnBecomesAnInput() async throws {
         session.pressWindow = 0.05
+        session.wantsMultiPress = { true }
         var seen: [RingInput] = []
         session.onInput = { seen.append($0) }
 
@@ -81,6 +82,7 @@ final class RingFeatureTests: XCTestCase {
 
     func testPressesInQuickSuccessionMakeThreeInputsFromOneGesture() async throws {
         session.pressWindow = 0.05
+        session.wantsMultiPress = { true }
         var seen: [RingInput] = []
         session.onInput = { seen.append($0) }
 
@@ -90,6 +92,31 @@ final class RingFeatureTests: XCTestCase {
         try await Task.sleep(nanoseconds: 120_000_000)
 
         XCTAssertEqual(seen, [.triplePress, .tap])
+    }
+
+    func testASinglePressRunsAtOnceWhenNothingUsesMultiPress() async throws {
+        session.pressWindow = 1.4
+        session.wantsMultiPress = { false }
+        var seen: [RingInput] = []
+        session.onInput = { seen.append($0) }
+
+        link.deliver(RingProtocol.frame(0x73, [41]))
+        try await Task.sleep(nanoseconds: 60_000_000)
+
+        XCTAssertEqual(seen, [.tap], "no waiting when there is nothing to disambiguate")
+    }
+
+    func testMultiPressIsOnlyCountedWhenSomethingIsBoundToIt() {
+        let defaults = UserDefaults(suiteName: "RingFeatureTests.multi")!
+        defaults.removePersistentDomain(forName: "RingFeatureTests.multi")
+        let store = RingInputStore(deviceID: "ring-3", defaults: defaults)
+        XCTAssertFalse(store.usesMultiPress)
+
+        store.set(.skill(id: "flashlight_on", arguments: [:]), for: .tap)
+        XCTAssertFalse(store.usesMultiPress, "a single-press action alone needs no window")
+
+        store.set(.skill(id: "vibrate", arguments: [:]), for: .doublePress)
+        XCTAssertTrue(store.usesMultiPress)
     }
 
     func testOnlyTheGesturesTheRingHasAreOffered() {

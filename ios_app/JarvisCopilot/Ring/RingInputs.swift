@@ -262,6 +262,12 @@ final class RingInputStore: ObservableObject {
     /// True once anything is set, which is when the ring is asked to report its inputs.
     var isConfigured: Bool { actions.values.contains(where: \.isSet) }
 
+    /// Whether anything needs presses counted. With only a single-press action there is
+    /// nothing to disambiguate, so the press can run the moment it arrives.
+    var usesMultiPress: Bool {
+        action(for: .doublePress).isSet || action(for: .triplePress).isSet
+    }
+
     /// What to put the ring in when nobody has chosen: reporting once actions exist, else off,
     /// so a ring nobody configured keeps its own behaviour.
     var wantedMode: RingInputMode { mode ?? (isConfigured ? .jarvis : .off) }

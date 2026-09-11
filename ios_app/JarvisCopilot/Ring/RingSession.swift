@@ -533,8 +533,12 @@ final class RingSession: ObservableObject {
         }
     }
 
-    /// How long to wait for another press before deciding what the gesture was.
-    var pressWindow: TimeInterval = 0.55
+    /// How long to wait for another press before deciding what the gesture was. The ring's own
+    /// double-tap takes about a second to detect and report, so two of them need a window this wide.
+    var pressWindow: TimeInterval = 1.4
+    /// Whether anything is bound to a double or triple press. When nothing is, there is nothing
+    /// to disambiguate and a press runs the moment it lands instead of waiting out the window.
+    var wantsMultiPress: () -> Bool = { false }
     private var pressCount = 0
     private var pressTask: Task<Void, Never>?
 
@@ -547,6 +551,11 @@ final class RingSession: ObservableObject {
         }
         pressCount += 1
         pressTask?.cancel()
+        guard pressWindow > 0, wantsMultiPress() else {
+            pressCount = 0
+            deliver(.tap)
+            return
+        }
         pressTask = Task { [weak self] in
             guard let window = self?.pressWindow else { return }
             try? await Task.sleep(for: .seconds(window))
