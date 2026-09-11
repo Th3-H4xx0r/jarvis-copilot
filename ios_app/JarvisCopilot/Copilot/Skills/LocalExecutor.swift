@@ -47,8 +47,6 @@ struct LocalRunOutcome {
 /// someone's phone. So: guards first, then a short list of verb patterns, and
 /// anything ambiguous escalates.
 ///
-/// Port of `mobile_client/lib/services/local_executor.dart`.
-///
 /// Deliberately NOT actor-isolated: `classify` and the whole grammar are pure
 /// and get called from any context (tests included); only `execute` and the
 /// registry lookup hop to the main actor.

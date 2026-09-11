@@ -27,8 +27,6 @@ protocol ContactsStore: Sendable {
 /// it can't match — so we look the name up in the device contacts FIRST and pass
 /// a bare phone number (which never needs conversion). Mirrors what Siri does
 /// behind the scenes.
-///
-/// Port of `mobile_client/lib/skills/contact_lookup.dart`.
 enum ContactLookup {
     private static let phoneLike = Rx(#"^[+()\-.\s\d]{4,}$"#)
 

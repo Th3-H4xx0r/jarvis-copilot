@@ -10,7 +10,6 @@ private func pcm(_ ms: Int, seed: Int = 0) -> Data {
     return out
 }
 
-/// Case-for-case port of `mobile_client/test/voice/pcm_chunker_test.dart`.
 final class PcmChunkerTests: XCTestCase {
 
     // MARK: - Emits playable chunks as audio arrives

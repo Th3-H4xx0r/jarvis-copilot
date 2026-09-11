@@ -2,8 +2,6 @@ import Foundation
 import XCTest
 @testable import JarvisCopilot
 
-/// Ported from `mobile_client/test/server_logs_test.dart`, case for case, plus
-/// the filter/auto-refresh behaviour from `server_logs_page.dart`.
 final class ServerLogsTests: XCTestCase {
 
     // MARK: logSeverity

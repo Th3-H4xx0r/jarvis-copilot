@@ -2,8 +2,6 @@ import Foundation
 import XCTest
 @testable import JarvisCopilot
 
-/// Ported from `mobile_client/test/island_demo_test.dart`, case for case, plus
-/// the `/api/island/*` endpoint and store behaviour from `island_designs_page.dart`.
 final class IslandDemoTests: XCTestCase {
 
     // MARK: The bundled demo

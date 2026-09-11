@@ -3,8 +3,6 @@ import Foundation
 /// Human title for the LOCAL notification posted when a foreground-required
 /// action is deferred (app backgrounded). Mirrors the server's
 /// `format_action_banner` so the banner reads the same whoever posts it.
-///
-/// Port of `mobile_client/lib/skills/action_banner.dart`.
 func actionBannerTitle(_ skill: String, _ args: [String: Any]) -> String {
     func s(_ key: String) -> String { SkillArgs.string(args, key) }
 

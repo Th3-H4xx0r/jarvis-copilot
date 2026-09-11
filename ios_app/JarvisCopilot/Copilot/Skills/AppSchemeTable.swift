@@ -9,8 +9,6 @@ import Foundation
 /// in Info.plist, otherwise `canOpenURL` returns false even when the app is
 /// installed. We open regardless and report the real outcome, so an undeclared
 /// scheme degrades to "launched: false" rather than a lie.
-///
-/// Ported from `mobile_client/ios/Runner/AppOpenBridge.swift`.
 enum AppSchemeTable {
     static let knownApps: [String: String] = [
         "twitter": "twitter://",

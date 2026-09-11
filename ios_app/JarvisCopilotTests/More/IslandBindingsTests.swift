@@ -2,7 +2,6 @@ import Foundation
 import XCTest
 @testable import JarvisCopilot
 
-/// Ported from `mobile_client/test/island_bindings_test.dart`, case for case.
 final class IslandBindingsTests: XCTestCase {
 
     // MARK: evaluateCondition

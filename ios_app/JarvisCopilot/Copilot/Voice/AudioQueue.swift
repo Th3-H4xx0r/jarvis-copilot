@@ -70,7 +70,6 @@ final class AudioQueue {
 
     private var queue: [Clip] = []
     private var playing = false
-    private var stopped = false
     /// Tag of the clip currently playing (for position events).
     private var currentTag: Int?
     /// Ms of this tag's audio played by earlier chunks.
@@ -124,7 +123,7 @@ final class AudioQueue {
         self.clock = clock
 
         output.onAmplitude = { [weak self] level in
-            guard let self, !self.stopped, self.isBusy else { return }
+            guard let self, self.isBusy else { return }
             self.onAmplitude?(level)
         }
         output.onClipComplete = { [weak self] in self?.advance() }
@@ -156,9 +155,6 @@ final class AudioQueue {
 
     var isBusy: Bool { playing || !queue.isEmpty || nativeActive }
 
-    /// True while a segment is mid-stream (some audio buffered but not emitted).
-    var hasPendingPcm: Bool { nativeActive || (chunker?.bufferedBytes ?? 0) > 0 }
-
     // MARK: - Enqueue
 
     /// Enqueue an MP3 clip (raw bytes). `tag` (a segment id) lets the caller sync
@@ -169,20 +165,11 @@ final class AudioQueue {
                      durationMs: nil, segmentMs: nil, baseMs: 0))
     }
 
-    /// Enqueue a whole raw PCM-S16LE clip at `sampleRate` (mono), wrapped in a
-    /// WAV container. PCM duration is exact (computed from the byte count).
-    func enqueuePcm(_ pcm: Data, sampleRate: Int = 24000, tag: Int? = nil) {
-        guard !pcm.isEmpty else { return }
-        let durMs = (pcm.count / 2) * 1000 / sampleRate
-        enqueue(Clip(bytes: Self.wrapWav(pcm, sampleRate: sampleRate), ext: "wav",
-                     tag: tag, durationMs: durMs, segmentMs: nil, baseMs: 0))
-    }
-
     /// Stream realtime PCM for segment `tag` as it arrives. Plays the leading
     /// slice as soon as there's enough of it instead of waiting for the segment
     /// to finish. Call `endPcmSegment` when `audio_end` lands.
     func appendPcm(_ pcm: Data, sampleRate: Int = 24000, tag: Int? = nil) {
-        guard !stopped, !pcm.isEmpty else { return }
+        guard !pcm.isEmpty else { return }
         if output.isStreamAvailable, queue.isEmpty, !(playing && !nativeActive) {
             appendNative(pcm, sampleRate: sampleRate, tag: tag)
             return
@@ -192,7 +179,6 @@ final class AudioQueue {
 
     /// The segment is complete — play whatever is left of it.
     func endPcmSegment(tag: Int? = nil) {
-        guard !stopped else { return }
         if nativeActive || (output.isStreamAvailable && nativePending) {
             // Ordered behind the feeds already queued: a short reply's audio_end
             // can land before the first feed has even opened the stream, and
@@ -245,19 +231,6 @@ final class AudioQueue {
         onAmplitude?(0)
     }
 
-    func dispose() async {
-        stopped = true
-        epoch += 1
-        chain?.cancel()
-        chain = nil
-        nativeTick?.cancel()
-        nativeTick = nil
-        queue.removeAll()
-        chunker?.reset()
-        await output.stopStream()
-        await output.stopClip()
-    }
-
     /// Tests only: wait until every queued async step has run (a step may queue
     /// more, so we drain until the chain stops growing).
     func settle() async {
@@ -278,7 +251,7 @@ final class AudioQueue {
         serial { [weak self] in
             guard let self else { return }
             self.nativePending = false
-            guard !self.stopped, ep == self.epoch else { return }
+            guard ep == self.epoch else { return }
             if !self.nativeActive {
                 guard await self.output.startStream(sampleRate: sampleRate) else {
                     // The player refused — hand this chunk to the fallback path.
@@ -402,13 +375,11 @@ final class AudioQueue {
     }
 
     private func enqueue(_ clip: Clip) {
-        guard !stopped else { return }
         queue.append(clip)
         if !playing { advance() }
     }
 
     private func advance() {
-        guard !stopped else { return }
         if queue.isEmpty {
             if playing {
                 playing = false

@@ -2,8 +2,6 @@ import Foundation
 import XCTest
 @testable import JarvisCopilot
 
-/// Ported from `mobile_client/test/workspaces_test.dart`, case for case, plus
-/// the endpoint and store behaviour from `workspaces_page.dart`.
 final class WorkspacesTests: XCTestCase {
 
     // MARK: parseWorkspaceList

@@ -193,8 +193,6 @@ final class DefaultCalendarAccess: CalendarAccessing {
 // MARK: - Health
 
 #if canImport(HealthKit)
-/// Adapted from `mobile_client/ios/Runner/HealthKitBridge.swift`.
-///
 /// Authorization is requested lazily on the first read so the user only sees the
 /// HealthKit prompt when the agent actually needs the data.
 ///

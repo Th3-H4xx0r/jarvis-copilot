@@ -36,9 +36,6 @@ final class VoiceAPITests: XCTestCase {
         XCTAssertEqual(list.engines.map(\.id), ["edge", "elevenlabs", "fish-audio"])
         XCTAssertEqual(list.engines[0].voices, ["en-GB-RyanNeural", "en-US-GuyNeural"])
         XCTAssertTrue(list.engines[0].active)
-        XCTAssertTrue(list.engines[1].requiresKey)
-        XCTAssertEqual(list.engines[2].voiceKind, "custom")
-        XCTAssertEqual(list.engines[2].voiceID, "abc123")
         // An engine that can't run must not reach the picker.
         XCTAssertEqual(list.usable.map(\.id), ["edge", "fish-audio"])
     }
@@ -171,13 +168,6 @@ final class VoiceAPITests: XCTestCase {
         let (voice, _) = make()
         XCTAssertEqual(try voice.realtimeURL().absoluteString,
                        "wss://jarvis.test/api/voice/s2s/ws")
-    }
-
-    func testRealtimeUrlCarriesSortedQueryParams() throws {
-        let (voice, _) = make()
-        let url = try voice.realtimeURL(params: ["mode": "realtime", "device": "ios"])
-        XCTAssertEqual(url.absoluteString,
-                       "wss://jarvis.test/api/voice/s2s/ws?device=ios&mode=realtime")
     }
 
     func testRealtimeUrlUpgradesPlainHttpToWs() throws {

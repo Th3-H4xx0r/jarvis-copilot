@@ -248,7 +248,6 @@ final class VoiceBackendFixTests: XCTestCase {
         let list = try await VoiceAPI(api: api).listEngines()
 
         XCTAssertEqual(list.engines[0].voices, ["en-US-AriaNeural", "en-GB-RyanNeural"])
-        XCTAssertEqual(list.engines[0].voiceLabels["en-GB-RyanNeural"], "Ryan (en-GB, male)")
     }
 
     func testEngineVoicesStillAcceptAPlainStringArray() {

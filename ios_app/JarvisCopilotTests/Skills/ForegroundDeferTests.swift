@@ -1,7 +1,6 @@
 import XCTest
 @testable import JarvisCopilot
 
-/// Port of `mobile_client/test/services/foreground_defer_test.dart`.
 @MainActor
 final class ForegroundDeferTests: XCTestCase {
 

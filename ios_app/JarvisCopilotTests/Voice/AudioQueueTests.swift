@@ -72,15 +72,6 @@ final class AudioQueueTests: XCTestCase {
         XCTAssertEqual(output.played.map(\.ext), ["mp3", "mp3", "mp3"])
     }
 
-    func testEmptyClipsAreIgnored() async {
-        let (queue, output, _) = make()
-        queue.enqueueMp3(Data())
-        queue.enqueuePcm(Data())
-        await queue.settle()
-        XCTAssertTrue(output.played.isEmpty)
-        XCTAssertFalse(queue.isBusy)
-    }
-
     // MARK: - Drain
 
     func testDrainingFiresIdleOnceAndZeroesTheAmplitude() async {
@@ -141,36 +132,6 @@ final class AudioQueueTests: XCTestCase {
 
     // MARK: - WAV wrapping
 
-    func testEnqueuePcmWrapsAValidWavHeader() async {
-        let (queue, output, _) = make()
-        let pcm = replyPcm(ms: 100)
-        queue.enqueuePcm(pcm, sampleRate: 24000, tag: 0)
-        await queue.settle()
-
-        let clip = try? XCTUnwrap(output.played.first)
-        let bytes = clip?.bytes ?? Data()
-        XCTAssertEqual(clip?.ext, "wav")
-        XCTAssertEqual(bytes.count, 44 + pcm.count)
-        XCTAssertEqual(String(decoding: bytes[0..<4], as: UTF8.self), "RIFF")
-        XCTAssertEqual(String(decoding: bytes[8..<12], as: UTF8.self), "WAVE")
-        XCTAssertEqual(String(decoding: bytes[36..<40], as: UTF8.self), "data")
-        XCTAssertEqual(le32(bytes, 24), 24000, "sample rate")
-        XCTAssertEqual(le32(bytes, 40), pcm.count, "data length")
-        XCTAssertEqual(le32(bytes, 4), 36 + pcm.count, "RIFF size")
-        XCTAssertEqual(Data(bytes.dropFirst(44)), pcm)
-    }
-
-    func testEnqueuePcmReportsTheExactDuration() async {
-        let (queue, _, _) = make()
-        var starts: [(Int?, Int)] = []
-        queue.onClipStart = { starts.append(($0, $1)) }
-        queue.enqueuePcm(replyPcm(ms: 250), sampleRate: 24000, tag: 3)
-        await queue.settle()
-        XCTAssertEqual(starts.count, 1)
-        XCTAssertEqual(starts.first?.0, 3)
-        XCTAssertEqual(starts.first?.1, 250)
-    }
-
     func testMp3StartsOnAnEstimateThenCorrectsToTheRealDuration() async {
         let (queue, output, _) = make()
         output.clipDuration = 1.25
@@ -225,7 +186,6 @@ final class AudioQueueTests: XCTestCase {
         // sentence arrives instead of restarting per chunk.
         XCTAssertEqual(starts.map(\.1), [100, 200])
         XCTAssertTrue(queue.isBusy)
-        XCTAssertTrue(queue.hasPendingPcm)
     }
 
     func testANewTagRebasesTheSegmentPositionsWithinOneStream() async {
@@ -298,7 +258,6 @@ final class AudioQueueTests: XCTestCase {
         XCTAssertEqual(output.flushCount, 1, "drop queued audio, keep the barge-in silent")
         XCTAssertEqual(idleCount, 0)
         XCTAssertFalse(queue.isBusy)
-        XCTAssertFalse(queue.hasPendingPcm)
         // The tick is gone, so a later clock advance can't resurrect the stream.
         clock.advance(ms: 5000)
         XCTAssertEqual(idleCount, 0)
@@ -363,21 +322,6 @@ final class AudioQueueTests: XCTestCase {
     }
 
     // MARK: - Dispose
-
-    func testDisposeStopsEverythingAndIgnoresLaterWork() async {
-        let (queue, output, _) = make()
-        var idleCount = 0
-        queue.onIdle = { idleCount += 1 }
-        await queue.dispose()
-
-        queue.enqueueMp3(Data([1]))
-        queue.appendPcm(replyPcm(ms: 200), tag: 0)
-        await queue.settle()
-
-        XCTAssertTrue(output.played.isEmpty)
-        XCTAssertTrue(output.startedStreams.isEmpty)
-        XCTAssertEqual(idleCount, 0)
-    }
 
     // MARK: - Helper
 

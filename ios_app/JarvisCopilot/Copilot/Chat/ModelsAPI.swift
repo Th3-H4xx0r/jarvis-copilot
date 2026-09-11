@@ -72,7 +72,6 @@ struct ModelCatalog: Equatable, Sendable {
 }
 
 /// `/api/models` — list available models and set the active one.
-/// Ported from `api/models.dart`.
 struct ModelsAPI {
     let api: JarvisAPI
 

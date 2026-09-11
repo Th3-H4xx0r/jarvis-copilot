@@ -16,8 +16,6 @@ struct PendingAction {
 /// / bluetooth-central modes), so the action survives until the user taps. If
 /// the app is fully killed before the tap the deferred action is lost — an
 /// acceptable degradation for a rare case.
-///
-/// Port of `mobile_client/lib/services/pending_actions.dart`.
 @MainActor
 final class PendingActions {
     static let shared = PendingActions()

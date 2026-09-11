@@ -1,7 +1,6 @@
 import XCTest
 @testable import JarvisCopilot
 
-/// Port of `mobile_client/test/skills/contact_lookup_test.dart`.
 final class ContactLookupTests: XCTestCase {
     private func c(_ name: String, _ phones: [String]) -> ContactRecord {
         ContactRecord(name: name, phones: phones)

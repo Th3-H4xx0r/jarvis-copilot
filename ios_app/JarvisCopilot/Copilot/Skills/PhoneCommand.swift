@@ -16,8 +16,6 @@ struct PhoneShortcut: Equatable, Sendable {
 /// a multi-key payload, and the `If` action won't reliably branch on a verb —
 /// both were proven flaky on-device. Per-verb shortcuts use only bulletproof
 /// primitives (text input → `Get Numbers from Input` → the action).
-///
-/// Port of `mobile_client/lib/skills/phone_command.dart`.
 enum PhoneCommand {
 
     /// The verbs phone_control drives, each to a same-named "JC <Verb>"

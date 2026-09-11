@@ -1,7 +1,6 @@
 import XCTest
 @testable import JarvisCopilot
 
-/// Case-for-case port of `mobile_client/test/voice/device_icon_test.dart`.
 final class DeviceIconTests: XCTestCase {
 
     // MARK: - Real /api/devices records

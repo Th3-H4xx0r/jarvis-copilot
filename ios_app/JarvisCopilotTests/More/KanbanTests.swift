@@ -2,8 +2,6 @@ import Foundation
 import XCTest
 @testable import JarvisCopilot
 
-/// Ported from `mobile_client/test/kanban_test.dart`, case for case, plus the
-/// endpoint and store behaviour from `kanban_page.dart`.
 final class KanbanTests: XCTestCase {
 
     // MARK: kanbanTaskId

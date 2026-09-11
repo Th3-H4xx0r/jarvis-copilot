@@ -220,8 +220,6 @@ private final class ShareTextItem: NSObject, UIActivityItemSource {
 // MARK: - SMS composer
 
 #if canImport(MessageUI)
-/// Adapted from `mobile_client/ios/Runner/SmsComposeBridge.swift`.
-///
 /// iOS has no programmatic SMS API — apps that ship to the store must route
 /// through `MFMessageComposeViewController` and let the user tap Send. We
 /// pre-fill recipient + body and present the sheet from the top-most view

@@ -8,8 +8,6 @@ import FoundationModels
 /// Apple Intelligence enabled this runs Apple's on-device language model: no
 /// download, no storage, no RAM accounting on our side (the OS owns the weights).
 ///
-/// Port of `mobile_client/ios/Runner/OnDeviceAI/AppleFMEngine.swift`.
-///
 /// **Availability shape.** The engine TYPE is deliberately NOT `@available`-gated:
 /// the app deploys to iOS 17 and constructs the engine unconditionally, so it has
 /// to exist on every OS version. Every FoundationModels API call sits behind an

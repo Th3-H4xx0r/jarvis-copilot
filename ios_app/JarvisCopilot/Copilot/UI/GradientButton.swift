@@ -1,7 +1,6 @@
 import SwiftUI
 
 /// Primary CTA — the iridescent brand gradient with a white foreground.
-/// Ported from `widgets/gradient_button.dart`.
 struct GradientButton: View {
     let title: String
     var symbol: String? = nil

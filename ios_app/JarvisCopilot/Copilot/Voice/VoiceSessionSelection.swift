@@ -52,11 +52,6 @@ final class VoiceSessionSelection {
         }
     }
 
-    /// Point voice at a chat session from the picker.
-    func select(session: ChatSessionSummary) {
-        select(.session(id: session.id, title: session.displayTitle))
-    }
-
     /// Create a fresh chat on the server and voice into it from now on; it takes
     /// its title from the first exchange, like a text chat.
     @discardableResult

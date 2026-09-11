@@ -2,7 +2,6 @@ import Foundation
 
 /// App-wide signal that a chat session changed (a turn was added) somewhere OTHER
 /// than the chat screen — e.g. a voice conversation persisted a turn.
-/// Ported from `services/chat_sync_bus.dart`.
 ///
 /// The chat screen owns its own ``ChatStore`` and has no other way to learn that
 /// the voice controller just wrote to a session. It subscribes here and refreshes

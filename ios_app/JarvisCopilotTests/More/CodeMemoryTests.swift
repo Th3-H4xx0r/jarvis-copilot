@@ -2,7 +2,6 @@ import Foundation
 import XCTest
 @testable import JarvisCopilot
 
-/// Ported from `mobile_client/test/code_memory_test.dart`, case for case.
 /// `relativeTime` takes an injected `now` here instead of reading the wall clock,
 /// so the cases are deterministic rather than "close to now".
 final class CodeMemoryTests: XCTestCase {

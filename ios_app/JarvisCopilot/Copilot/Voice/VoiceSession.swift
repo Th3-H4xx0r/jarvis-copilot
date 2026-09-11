@@ -143,9 +143,9 @@ final class VoiceSession {
         self.connector = connector
     }
 
-    func open(params: [String: String] = [:]) async throws {
+    func open() async throws {
         close()
-        let url = try voice.realtimeURL(params: params)
+        let url = try voice.realtimeURL()
         // Path + auth-header NAMES only: the cookie value and the CF-Access
         // secret must never reach a log the user can screenshot.
         onLog?("ws open \(url.path) auth=\(voice.api.credentials.headers.keys.sorted().joined(separator: ","))")
@@ -217,8 +217,7 @@ final class VoiceSession {
 final class URLSessionVoiceSocketConnector: VoiceSocketConnecting {
     private let session: URLSession
 
-    init(session: URLSession? = nil) {
-        if let session { self.session = session; return }
+    init() {
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never

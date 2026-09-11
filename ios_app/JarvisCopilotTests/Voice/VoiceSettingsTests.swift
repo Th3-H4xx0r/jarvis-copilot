@@ -142,15 +142,6 @@ final class VoiceLiveActivityTests: XCTestCase {
         XCTAssertEqual(box.pushes.map(\.state), ["listening", "idle"])
     }
 
-    func testCancelDropsAPendingTrailingPush() {
-        let (throttle, clock, box) = make()
-        throttle.offer(snapshot("listening"), terminal: false)
-        throttle.offer(snapshot("thinking"), terminal: false)
-        throttle.cancel()
-        clock.advance(ms: 5000)
-        XCTAssertEqual(box.pushes.count, 1)
-    }
-
     func testReOfferingTheSentContentCancelsAPendingPush() {
         let (throttle, clock, box) = make()
         throttle.offer(snapshot("listening"), terminal: false)

@@ -16,8 +16,6 @@ struct InvokeLogEntry {
 /// - logging lives in one place
 /// - the foreground UI can pause execution via a single flag
 /// - foreground-required actions are deferred consistently
-///
-/// Port of `mobile_client/lib/services/invoke_runner.dart`.
 @MainActor
 final class InvokeRunner {
     struct Outcome {

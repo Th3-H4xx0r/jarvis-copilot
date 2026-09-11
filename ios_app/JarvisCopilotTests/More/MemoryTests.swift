@@ -2,7 +2,6 @@ import Foundation
 import XCTest
 @testable import JarvisCopilot
 
-/// Ported from `mobile_client/test/memory_test.dart`, case for case.
 final class MemoryTests: XCTestCase {
 
     // MARK: formatMemoryMtime

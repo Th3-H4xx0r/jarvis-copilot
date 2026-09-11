@@ -68,11 +68,6 @@ final class VoiceLiveActivityThrottle {
         }
     }
 
-    func cancel() {
-        pendingTimer?.cancel()
-        pendingTimer = nil
-    }
-
     private func push(_ snapshot: VoiceLiveActivitySnapshot) {
         sent = snapshot
         lastPush = clock.now

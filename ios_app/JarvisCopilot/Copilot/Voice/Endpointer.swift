@@ -77,11 +77,12 @@ final class Endpointer {
 
     // MARK: - State
 
-    private var _speaking = false
-    /// Total ms since the turn opened (voiced + trailing silence).
-    private var _speechMs = 0
-    /// Ms of contiguous sub-threshold audio at the tail.
-    private var _silenceMs = 0
+    /// True while a turn is open (speech has started and hasn't been endpointed).
+    private(set) var speaking = false
+    /// Milliseconds since the turn opened, including the trailing silence.
+    private(set) var speechMs = 0
+    /// Milliseconds of contiguous silence at the tail (0 while voiced).
+    private(set) var silenceMs = 0
     /// Latched when the current silence run began.
     private var _risingTail = false
 
@@ -90,17 +91,8 @@ final class Endpointer {
     /// all `computeRisingTail` ever looks at.
     private var tail: [Frame] = []
 
-    /// True while a turn is open (speech has started and hasn't been endpointed).
-    var speaking: Bool { _speaking }
-
-    /// Milliseconds since the turn opened, including the trailing silence.
-    var speechMs: Int { _speechMs }
-
-    /// Milliseconds of contiguous silence at the tail (0 while voiced).
-    var silenceMs: Int { _silenceMs }
-
     /// Milliseconds of actual voiced audio in this turn.
-    var voicedMs: Int { _speechMs - _silenceMs }
+    var voicedMs: Int { speechMs - silenceMs }
 
     /// How much trailing silence must accumulate before this turn ends. Extended
     /// when the speaker is probably mid-thought — a rising tail, or barely any
@@ -110,7 +102,7 @@ final class Endpointer {
     /// still voiced we evaluate the tail live, so the getter always answers for
     /// the audio seen so far.
     var requiredSilenceMs: Int {
-        let rising = _silenceMs > 0 ? _risingTail : computeRisingTail()
+        let rising = silenceMs > 0 ? _risingTail : computeRisingTail()
         return (rising || voicedMs < Self.shortUtteranceMs)
             ? Self.extendedSilenceMs
             : Self.baseSilenceMs
@@ -124,52 +116,52 @@ final class Endpointer {
     func update(_ amp: Double, _ dtMs: Int) -> EndpointEvent {
         if dtMs <= 0 { return .none }
 
-        if !_speaking {
+        if !speaking {
             if amp > Self.speechThreshold {
-                _speaking = true
-                _speechMs = dtMs
-                _silenceMs = 0
+                speaking = true
+                speechMs = dtMs
+                silenceMs = 0
                 _risingTail = false
                 tail = [Frame(ms: dtMs, amp: amp)]
             }
             return .none
         }
 
-        _speechMs += dtMs
+        speechMs += dtMs
 
         if amp < Self.silenceThreshold {
             // Latch the rising-tail verdict at the moment silence starts: the
             // tail shape can't change once the speaker has stopped, and
             // re-deciding every frame would let the window flip mid-wait.
-            if _silenceMs == 0 { _risingTail = computeRisingTail() }
-            _silenceMs += dtMs
+            if silenceMs == 0 { _risingTail = computeRisingTail() }
+            silenceMs += dtMs
 
             if voicedMs < Self.minUtteranceMs {
                 // Not speech — a blip. Discard the "turn" once we've waited out
                 // the longest window, so the detector is ready for the real
                 // utterance and can't sit wedged in `speaking` forever.
-                if _silenceMs >= Self.extendedSilenceMs { reset() }
+                if silenceMs >= Self.extendedSilenceMs { reset() }
                 return .none
             }
-            if _silenceMs >= requiredSilenceMs { return .endOfTurn }
+            if silenceMs >= requiredSilenceMs { return .endOfTurn }
         } else {
             // Anything at or above the LOW threshold counts as still talking —
             // this is the hysteresis band. Restart the silence budget.
-            _silenceMs = 0
+            silenceMs = 0
             _risingTail = false
             pushTail(dtMs, amp)
         }
 
         // Checked last so a max-length turn still ends even while the mic is loud.
-        if _speechMs >= Self.maxUtteranceMs { return .endOfTurn }
+        if speechMs >= Self.maxUtteranceMs { return .endOfTurn }
         return .none
     }
 
     /// Return to the pre-speech state (new turn, barge-in, teardown).
     func reset() {
-        _speaking = false
-        _speechMs = 0
-        _silenceMs = 0
+        speaking = false
+        speechMs = 0
+        silenceMs = 0
         _risingTail = false
         tail.removeAll()
     }

@@ -6,38 +6,21 @@ import Foundation
 struct VoiceEngine: Equatable, Sendable, Identifiable {
     let id: String
     let name: String
-    let requiresKey: Bool
-    /// How the engine names a voice: "preset" (a list), "model" (a local file),
-    /// "custom" (a free-form id, e.g. a Fish Audio model).
-    let voiceKind: String
     /// The engine can run end-to-end with the server's current settings.
     let configured: Bool
     /// The engine the server is currently synthesizing with.
     let active: Bool
-    let hasAPIKey: Bool
     /// Voice **ids** — what `/api/voice/synthesize` wants.
     let voices: [String]
-    /// Voice id → human label, for a picker that wants to read "Ryan (en-GB,
-    /// male)" rather than "en-GB-RyanNeural".
-    let voiceLabels: [String: String]
-    /// Only for `voiceKind == "custom"`.
-    let voiceID: String?
-    let voiceIDHint: String?
 
     static func from(_ d: [String: Any]) -> VoiceEngine {
-        let (ids, labels) = parseVoices(d["voices"])
+        let (ids, _) = parseVoices(d["voices"])
         return VoiceEngine(
             id: d.string("id") ?? "",
             name: d.string("name") ?? (d.string("id") ?? ""),
-            requiresKey: d.bool("requires_key") ?? false,
-            voiceKind: d.string("voice_kind") ?? "preset",
             configured: d.bool("configured") ?? false,
             active: d.bool("active") ?? false,
-            hasAPIKey: d.bool("has_api_key") ?? false,
-            voices: ids,
-            voiceLabels: labels,
-            voiceID: d.string("voice_id"),
-            voiceIDHint: d.string("voice_id_hint"))
+            voices: ids)
     }
 
     /// The server sends `voices` as objects — `[{"id": "en-GB-RyanNeural",
@@ -105,7 +88,6 @@ struct VoiceQualityEvent: Equatable, Sendable {
 
 /// Voice endpoints: engine list, the dedicated voice session, one-shot TTS, the
 /// push-to-talk NDJSON turn, and the URL of the realtime WebSocket.
-/// Port of `api/voice.dart`.
 struct VoiceAPI: Sendable {
     let api: JarvisAPI
 
@@ -181,7 +163,7 @@ struct VoiceAPI: Sendable {
     /// `ws(s)://host/api/voice/s2s/ws` — derived from the API base URL, not from
     /// a stored server URL, so the voice socket follows the LAN-direct
     /// preference too instead of always taking the tunnel.
-    func realtimeURL(params: [String: String] = [:]) throws -> URL {
+    func realtimeURL() throws -> URL {
         guard let base = api.credentials.baseURL else { throw APIError.notPaired }
         guard var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
             throw APIError.badResponse("bad base URL")
@@ -193,9 +175,6 @@ struct VoiceAPI: Sendable {
         }
         let root = comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path
         comps.path = root + "/api/voice/s2s/ws"
-        if !params.isEmpty {
-            comps.queryItems = params.keys.sorted().map { URLQueryItem(name: $0, value: params[$0]) }
-        }
         guard let url = comps.url else { throw APIError.badResponse("bad URL") }
         return url
     }

@@ -58,13 +58,11 @@ final class SystemVoiceClock: VoiceClock {
 enum VoiceAudioError: LocalizedError, Equatable {
     case micUnavailable(String)
     case formatUnsupported
-    case notPaired
 
     var errorDescription: String? {
         switch self {
         case .micUnavailable(let why): return "Could not start recording: \(why)"
         case .formatUnsupported: return "This device can't record 16 kHz mono audio"
-        case .notPaired: return "Not paired with a Jarvis server"
         }
     }
 }
@@ -137,7 +135,6 @@ protocol SpeechSession: AnyObject {
 
 @MainActor
 protocol SpeechRecognizing: AnyObject {
-    var isAvailable: Bool { get }
     /// `prompt` false = only take a session when permission was already granted,
     /// so a user who never opted in is never surprised by a permission sheet.
     func startSession(sampleRate: Int, prompt: Bool) async -> SpeechSession?
@@ -154,7 +151,6 @@ protocol VoiceSynthesizing: AnyObject {
     var onPlaybackEnd: (() -> Void)? { get set }
     /// Word-timed pulse for native confirmations, whose audio Apple renders.
     var onSpeechPulse: ((Double) -> Void)? { get set }
-    var isAvailable: Bool { get }
     /// Speak now, interrupting anything still being said (an ack is only ever
     /// about the turn happening right now). False when we couldn't say it.
     @discardableResult

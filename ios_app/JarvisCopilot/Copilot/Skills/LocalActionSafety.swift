@@ -8,8 +8,6 @@ import Foundation
 /// Matching is on underscore-delimited NAME SEGMENTS (not raw substrings) so
 /// innocent names like `text_to_speech` / `type_text` aren't flagged just for
 /// containing "text".
-///
-/// Port of `mobile_client/lib/services/local_action_safety.dart`.
 private let riskySegments: Set<String> = [
     "send", "email", "mail", "sms", "call", "dial", "delete", "remove", "erase",
     "wipe", "purchase", "buy", "pay", "transfer", "post", "tweet", "publish",

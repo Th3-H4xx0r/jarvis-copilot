@@ -131,8 +131,6 @@ final class AudioSessionArbiter {
     }
 
     private(set) var holders: Set<AudioSessionClient> = []
-    /// What we last applied successfully — the belief `apply` short-circuits on.
-    private(set) var applied: AudioSessionPlan?
 
     private let session: AudioSessionApplying
     private var isActive = false
@@ -181,13 +179,6 @@ final class AudioSessionArbiter {
         try apply()
     }
 
-    /// Re-apply the current union to the live session (interruption ended,
-    /// media services reset, back to foreground).
-    func reassert() throws {
-        guard !holders.isEmpty else { return }
-        try apply(forceActivation: true)
-    }
-
     private func apply(forceActivation: Bool = false) throws {
         let plan = self.plan
         guard plan.active else {
@@ -197,10 +188,9 @@ final class AudioSessionArbiter {
                 try session.setActive(false, options: [.notifyOthersOnDeactivation])
                 isActive = false
             }
-            applied = plan
             return
         }
-        // Compared against the LIVE session, not against `applied`: this class is
+        // Compared against the LIVE session: this class is
         // not the only thing in the process that can touch the session (a media
         // services reset rewrites it behind our back), and `setCategory` on a
         // session that already matches is a no-op inside CoreAudio anyway.
@@ -211,7 +201,6 @@ final class AudioSessionArbiter {
             try session.setActive(true, options: [])
         }
         isActive = true
-        applied = plan
     }
 
     /// `options` is compared as a superset: iOS adds implicit flags of its own

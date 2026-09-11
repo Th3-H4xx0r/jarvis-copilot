@@ -2,8 +2,6 @@ import Foundation
 import XCTest
 @testable import JarvisCopilot
 
-/// Ported from `mobile_client/test/profiles_test.dart`, case for case, plus the
-/// endpoint and store behaviour from `profiles_page.dart`.
 final class ProfilesTests: XCTestCase {
 
     // MARK: parseProfiles

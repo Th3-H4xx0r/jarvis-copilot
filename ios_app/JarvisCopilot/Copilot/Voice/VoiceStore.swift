@@ -125,16 +125,12 @@ final class VoiceStore {
     var diagnostics: [String] = []
 
     var isActive: Bool { machine.state.isActive }
-    var isPlaying: Bool { audio.isBusy }
     var selectedEngine: String? { settings.engine }
     var selectedVoice: String? { settings.voice }
 
     // MARK: - Internal turn state
 
     var sessionID: String?
-    /// The ``VoiceSessionSelection/Target`` `sessionID` was resolved for, so a
-    /// change in the picker re-resolves instead of reusing the old socket target.
-    var boundSessionTarget: VoiceSessionSelection.Target?
     let endpointer = Endpointer()
     var speech: SpeechSession?
     private var resumeTimer: VoiceTimerToken?
@@ -188,7 +184,6 @@ final class VoiceStore {
     // span can be lined up with the server's `latency` frames for the same turn.
     var turnID: String?
     var speechEndMs: Int?
-    var firstAudioLogged = false
 
     var devicesAt = Date(timeIntervalSince1970: 0)
     var devicesFetching = false
@@ -341,7 +336,6 @@ final class VoiceStore {
     /// conversation binds to the new target, ending a live one first.
     func sessionTargetChanged() {
         sessionID = nil
-        boundSessionTarget = nil
         if machine.state.isActive { Task { await stopAll() } }
     }
 
@@ -805,14 +799,6 @@ final class VoiceStore {
     private func markSpeechEnd() {
         turnID = "m-\(Int(clock.now.timeIntervalSince1970 * 1_000_000))"
         speechEndMs = nowMs()
-        firstAudioLogged = false
-    }
-
-    /// First audible sample of the reply — the number the whole rehaul is judged
-    /// on. Recorded once per turn, at the moment audio is handed to the player.
-    func noteFirstAudio() {
-        guard !firstAudioLogged, speechEndMs != nil else { return }
-        firstAudioLogged = true
     }
 
     func nowMs() -> Int { Int(clock.now.timeIntervalSince1970 * 1000) }

@@ -2,8 +2,6 @@ import Foundation
 
 /// iOS-only skills: the Messages composer and everything that goes through the
 /// Shortcuts app.
-///
-/// Port of `mobile_client/lib/skills/ios.dart`.
 enum IOSSkills {
 
     /// A `ShortcutOutcome` in the `{ran, result, error, note}` shape the Flutter

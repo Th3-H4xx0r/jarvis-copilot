@@ -10,8 +10,6 @@ import Foundation
 /// commands, live data, the user's accounts, sending/calling/playing) to the
 /// server, where tool execution actually works. No guided-generation routing
 /// call, so there's only ONE model inference per local turn.
-///
-/// Port of `mobile_client/lib/services/local_router.dart`.
 @MainActor
 final class LocalRouter {
     private let model: any OnDeviceModel

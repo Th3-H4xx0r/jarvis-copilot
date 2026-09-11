@@ -1,7 +1,6 @@
 import XCTest
 @testable import JarvisCopilot
 
-/// Port of `mobile_client/test/skills/phone_command_test.dart`.
 final class PhoneCommandTests: XCTestCase {
 
     // MARK: buildPhoneCommand

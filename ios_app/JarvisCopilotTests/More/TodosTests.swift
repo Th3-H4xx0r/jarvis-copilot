@@ -2,7 +2,6 @@ import Foundation
 import XCTest
 @testable import JarvisCopilot
 
-/// Ported from `mobile_client/test/todos_test.dart`, case for case.
 final class TodosTests: XCTestCase {
 
     /// A `role: 'tool'` message whose JSON content carries `todos`.

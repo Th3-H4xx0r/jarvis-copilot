@@ -2,8 +2,6 @@ import Foundation
 import XCTest
 @testable import JarvisCopilot
 
-/// Ported from `mobile_client/test/insights_test.dart`, case for case, plus the
-/// health/wiki/message parsing and the fan-out load from `insights_page.dart`.
 final class InsightsTests: XCTestCase {
 
     // MARK: formatTokenCount

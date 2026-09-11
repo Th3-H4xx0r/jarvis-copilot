@@ -15,7 +15,6 @@ private func feed(_ ep: Endpointer, _ amp: Double, _ ms: Int, frameMs: Int = 20)
     return .none
 }
 
-/// Case-for-case port of `mobile_client/test/voice/endpointer_test.dart`.
 final class EndpointerTests: XCTestCase {
 
     // MARK: - VAD hysteresis

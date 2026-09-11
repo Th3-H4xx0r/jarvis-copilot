@@ -19,11 +19,6 @@ import Speech
 @MainActor
 final class DefaultSpeechRecognizing: SpeechRecognizing {
 
-    var isAvailable: Bool {
-        guard let recognizer = SFSpeechRecognizer() else { return false }
-        return recognizer.isAvailable && recognizer.supportsOnDeviceRecognition
-    }
-
     func startSession(sampleRate: Int, prompt: Bool) async -> SpeechSession? {
         guard await authorize(prompt: prompt) else { return nil }
         guard let recognizer = SFSpeechRecognizer(),
@@ -214,8 +209,6 @@ final class DefaultVoiceSynthesizing: NSObject, VoiceSynthesizing, AVSpeechSynth
         super.init()
         synthesizer.delegate = self
     }
-
-    var isAvailable: Bool { true }
 
     @discardableResult
     func speak(_ text: String, rate: Float = defaultRate) async -> Bool {

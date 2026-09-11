@@ -248,7 +248,6 @@ extension VoiceStore {
         // Stream it straight into the player instead of buffering the whole
         // segment (plan 1.7) — the first ~160 ms starts playing immediately.
         if pcmTag == nil { pcmTag = reply.claimSegmentTag() } // text may land after audio_meta
-        noteFirstAudio()
         if watchTurnActive {
             // The watch plays whole clips, so buffer the segment here. The
             // server picks the format, and it is usually PCM — forwarding only
@@ -264,7 +263,6 @@ extension VoiceStore {
     private func flushSegment() {
         if inFormat == "mp3" {
             guard !segMp3.isEmpty else { return }
-            noteFirstAudio()
             if watchTurnActive {
                 // Straight to the wrist; the phone stays silent for a turn the
                 // user dictated on their watch.
@@ -346,7 +344,6 @@ extension VoiceStore {
                 if let text = event.text, !text.isEmpty { tag = reply.append(text) }
                 if let data = event.audio, !data.isEmpty {
                     if let tag { reply.assignAudio(to: tag) }
-                    noteFirstAudio()
                     audio.enqueueMp3(data, tag: tag)
                 }
                 raise(.serverOutput)
@@ -434,7 +431,6 @@ extension VoiceStore {
         var anyAudio = false
         for (index, data) in clips.enumerated() where !data.isEmpty {
             reply.assignAudio(to: tags[index])
-            noteFirstAudio()
             audio.enqueueMp3(data, tag: tags[index])
             anyAudio = true
         }
@@ -460,7 +456,6 @@ extension VoiceStore {
         }
         if await synthesizer.speak(text, rate: DefaultVoiceSynthesizing.defaultRate) {
             reply.append(text)
-            noteFirstAudio()
             reply.finalizeSpoken()
             // Native playback callbacks own the speaking state and completion.
         } else {

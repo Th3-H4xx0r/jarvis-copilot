@@ -251,22 +251,6 @@ final class AudioSessionArbiterTests: XCTestCase {
         XCTAssertEqual(applier.calls.last, .active(true, []))
     }
 
-    func testAReassertRestoresACategoryThatMediaServicesThrewAway() throws {
-        let (arbiter, applier) = makeArbiter()
-        try arbiter.hold(.keepalive)
-        applier.simulateMediaServicesReset() // back to .soloAmbient, inactive
-        try arbiter.reassert()
-
-        XCTAssertEqual(applier.category, .playback)
-        XCTAssertTrue(applier.isActive)
-    }
-
-    func testReassertingWithNoHoldersTouchesNothing() throws {
-        let (arbiter, applier) = makeArbiter()
-        try arbiter.reassert()
-        XCTAssertTrue(applier.calls.isEmpty)
-    }
-
     func testAKeepaliveReassertUnderALiveVoiceTurnStaysOnTheVoicePlan() throws {
         let (arbiter, applier) = makeArbiter()
         try arbiter.hold(.keepalive)

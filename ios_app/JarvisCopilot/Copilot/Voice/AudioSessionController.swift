@@ -21,13 +21,6 @@ import Foundation
 @MainActor
 final class DefaultAudioSessionControlling: AudioSessionControlling {
 
-    /// What a conversation needs. Kept here as the voice-facing names; the
-    /// arbiter owns the values because it also has to know them to compute the
-    /// union with the keepalive.
-    static var category: AVAudioSession.Category { AudioSessionArbiter.voicePlan.category }
-    static var mode: AVAudioSession.Mode { AudioSessionArbiter.voicePlan.mode }
-    static var options: AVAudioSession.CategoryOptions { AudioSessionArbiter.voicePlan.options }
-
     var onInterruption: ((AudioInterruption) -> Void)?
     /// `nonisolated(unsafe)`: `deinit` is nonisolated and has to release this.
     nonisolated(unsafe) private var observer: NSObjectProtocol?

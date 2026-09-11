@@ -1,8 +1,6 @@
 import XCTest
 @testable import JarvisCopilot
 
-/// Case-for-case port of `mobile_client/test/local_ai_settings_test.dart`.
-///
 /// The two `androidStreamingStt` cases are deliberately absent: the Swift
 /// `LocalAiSettings` drops that flag (it is an Android-only kill switch for a
 /// recognizer pipe iOS doesn't have — see the doc comment on the Swift type).
