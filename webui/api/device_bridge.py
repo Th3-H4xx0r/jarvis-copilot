@@ -255,6 +255,19 @@ def all_device_skills() -> list[dict]:
     return out
 
 
+def device_offering(skill_name: str, caller_id: Optional[str] = None) -> Optional[str]:
+    """The device that should run ``skill_name`` for a caller that didn't name one.
+
+    The caller itself when it offers the skill — a board scripted through phone A
+    reaches A's ring. Otherwise the first match: ``all_device_skills`` lists live
+    bridge connections before push-reachable devices, so it answers soonest.
+    """
+    offering = [s.get("device_id") for s in all_device_skills() if s.get("name") == skill_name]
+    if caller_id and caller_id in offering:
+        return caller_id
+    return offering[0] if offering else None
+
+
 def disconnect_device(device_id: str) -> bool:
     """Force-disconnect a device (called when a user revokes / logs it
     out). Returns True if a connection was closed."""

@@ -6267,8 +6267,19 @@ def handle_post(handler, parsed) -> bool:
             timeout = float(timeout) if timeout is not None else 30.0
         except (TypeError, ValueError):
             timeout = 30.0
-        if not device_id or not skill:
-            return bad(handler, "device_id and skill are required")
+        if not skill:
+            return bad(handler, "skill is required")
+        if not device_id:
+            # Callers that only know the skill — an ESP32 script's jarvis.invoke —
+            # get the device offering it. A 404 tells them it isn't a device skill,
+            # so they can hand the request to the agent instead.
+            from api.auth import parse_cookie
+            from api.device_bridge import device_offering
+            from api.pairing import find_device_by_session
+            caller = find_device_by_session(parse_cookie(handler) or "") or {}
+            device_id = device_offering(skill, caller.get("id")) or ""
+            if not device_id:
+                return j(handler, {"ok": False, "error": f"no device offers skill '{skill}'"}, status=404)
         if not isinstance(args, dict):
             return bad(handler, "args must be an object")
         result = invoke_skill(device_id, skill, args, timeout=max(1.0, min(timeout, 120.0)))
