@@ -46,17 +46,7 @@ final class VoicePagePresentationTests: XCTestCase {
         XCTAssertEqual(voiceActiveSegment(segs, spokenWords: 2), 0)
     }
 
-    // MARK: - Captions and colours
-
-    func testEveryStateHasItsOwnCaption() {
-        let captions = VoiceState.allCases.map(voiceCaption(for:))
-        XCTAssertEqual(Set(captions).count, VoiceState.allCases.count,
-                       "two states reading the same is a copy/paste bug")
-        XCTAssertEqual(voiceCaption(for: .connecting), "Connecting…")
-        XCTAssertEqual(voiceCaption(for: .thinking), "Thinking it through…")
-        XCTAssertEqual(voiceCaption(for: .speaking), "Speaking…")
-        XCTAssertEqual(voiceCaption(for: .error), "Something went wrong — tap to retry")
-    }
+    // MARK: - Colours
 
     /// `connecting` deliberately shares `thinking`'s colour — the island has no
     /// distinct art for it and flipping between the two reads as a glitch.
@@ -64,28 +54,5 @@ final class VoicePagePresentationTests: XCTestCase {
         XCTAssertEqual(voiceStateColor(.connecting), voiceStateColor(.thinking))
         let distinct = Set(VoiceState.allCases.map { "\(voiceStateColor($0))" })
         XCTAssertEqual(distinct.count, VoiceState.allCases.count - 1)
-    }
-
-    // MARK: - Tab index
-
-    func testTheVoiceTabIndexIsDerivedFromTheShell() {
-        let expected = AppTab.allCases.firstIndex(of: .voice)
-        XCTAssertNotNil(expected, "the Voice tab must exist in AppTab")
-        XCTAssertEqual(voiceTabIndex, expected)
-        XCTAssertTrue(orbTickerEnabled(activeTab: voiceTabIndex, ownerTab: voiceTabIndex))
-        for (index, _) in AppTab.allCases.enumerated() where index != voiceTabIndex {
-            XCTAssertFalse(orbTickerEnabled(activeTab: index, ownerTab: voiceTabIndex),
-                           "the orb must not tick on tab \(index)")
-        }
-    }
-
-    // MARK: - Device symbols
-
-    func testEveryKindTheIconMapperEmitsHasASymbol() {
-        // `deviceIconKind` only ever produces these; anything else is a fallback.
-        for kind in ["watch", "tablet", "phone", "laptop", "web", "desktop"] {
-            XCTAssertFalse(voiceDeviceSymbol(kind).isEmpty, kind)
-        }
-        XCTAssertEqual(voiceDeviceSymbol(""), "desktopcomputer")
     }
 }

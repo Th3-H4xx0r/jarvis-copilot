@@ -248,14 +248,9 @@ struct VoicePage: View {
 
     // MARK: - Actions
 
-    /// The 60 fps orb only animates while Voice is the active tab and the app is
-    /// foregrounded — every tab lives forever in the shell, so an ungated ticker
-    /// would repaint behind all six.
-    private var tickerEnabled: Bool {
-        scenePhase == .active
-            && orbTickerEnabled(activeTab: AppTab.allCases.firstIndex(of: router.selectedTab) ?? 0,
-                                ownerTab: voiceTabIndex)
-    }
+    /// The 60 fps orb only animates while Voice is on screen — every tab stays
+    /// mounted in the shell, so an ungated ticker would repaint behind all six.
+    private var tickerEnabled: Bool { scenePhase == .active && router.selectedTab == .voice }
 
     private func onPrimary() async {
         // Stopping never needs permission.

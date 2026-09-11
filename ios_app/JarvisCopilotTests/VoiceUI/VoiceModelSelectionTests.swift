@@ -154,45 +154,7 @@ final class VoiceModelSelectionTests: XCTestCase {
         XCTAssertNil(models.loadError)
     }
 
-    // MARK: - The seams the screen needs from the store
-
-    /// The Diagnostics sheet and the "Try on server" chip are the two things the
-    /// screen reads off the store beyond the turn state. Both are protocol
-    /// requirements so a store that drops them fails HERE, not at runtime with a
-    /// silently missing button.
-    func testTheStoreStillProvidesWhatTheScreenReadsOffIt() {
-        let store = mockedVoiceStore()
-        XCTAssertTrue(store is any VoiceDiagnosticsProviding,
-                      "the Diagnostics sheet has nothing to show")
-        XCTAssertTrue(store is any VoiceServerRetrying,
-                      "the Try-on-server chip can never appear")
-        // Nothing has happened yet, so the chip must stay hidden.
-        XCTAssertFalse(store.canRetryOnServer)
-    }
-
-    func testDiagnosticsComeThroughTheProtocol() {
-        let stub: any VoiceDiagnosticsProviding = HasDiagnostics(["ws open", "hello sent"])
-        XCTAssertEqual(stub.diagnostics, ["ws open", "hello sent"])
-    }
-
     // MARK: - Helpers
-
-    private func mockedVoiceStore() -> VoiceStore {
-        let (api, transport) = JarvisAPI.mocked()
-        transport.route("/api/voice/engines", json: ["engines": [], "active": ""])
-        transport.route("/api/devices", json: [])
-        return VoiceStore(api: api,
-                          input: MockAudioInput(),
-                          output: MockAudioOutput(),
-                          recognizer: MockSpeechRecognizing(),
-                          synthesizer: MockVoiceSynthesizing(),
-                          audioSession: MockAudioSessionControlling(),
-                          connector: MockVoiceSocketConnector(),
-                          clock: TestVoiceClock(),
-                          keyValueStore: MemoryKeyValueStore(),
-                          launch: nil,
-                          local: nil)
-    }
 
     private func makeStore(keyValueStore: MemoryKeyValueStore = MemoryKeyValueStore())
         -> VoiceModelStore {
@@ -209,11 +171,4 @@ final class VoiceModelSelectionTests: XCTestCase {
         ])
         return VoiceModelStore(api: api, selection: ModelSelection(store: keyValueStore))
     }
-}
-
-// MARK: - Doubles
-
-@MainActor private final class HasDiagnostics: VoiceDiagnosticsProviding {
-    let diagnostics: [String]
-    init(_ diagnostics: [String]) { self.diagnostics = diagnostics }
 }

@@ -13,14 +13,6 @@ final class VoicePageTests: XCTestCase {
 
     // MARK: - Presentation helpers
 
-    func testEveryStateHasACaption() {
-        for state in VoiceState.allCases {
-            XCTAssertFalse(voiceCaption(for: state).isEmpty, "\(state)")
-        }
-        XCTAssertEqual(voiceCaption(for: .idle), "Tap the mic to start talking")
-        XCTAssertEqual(voiceCaption(for: .listening), "Go ahead, I'm listening…")
-    }
-
     func testStateColoursMatchTheFlutterScreen() {
         XCTAssertEqual(voiceStateColor(.listening), JcTheme.cyan)
         XCTAssertEqual(voiceStateColor(.thinking), JcTheme.accent)
@@ -28,17 +20,6 @@ final class VoicePageTests: XCTestCase {
         XCTAssertEqual(voiceStateColor(.speaking), JcTheme.accentAlt)
         XCTAssertEqual(voiceStateColor(.error), JcTheme.danger)
         XCTAssertEqual(voiceStateColor(.idle), JcTheme.muted)
-    }
-
-    func testDeviceSymbolsCoverEveryIconKind() {
-        XCTAssertEqual(voiceDeviceSymbol("watch"), "applewatch")
-        XCTAssertEqual(voiceDeviceSymbol("tablet"), "ipad")
-        XCTAssertEqual(voiceDeviceSymbol("phone"), "iphone")
-        XCTAssertEqual(voiceDeviceSymbol("laptop"), "laptopcomputer")
-        XCTAssertEqual(voiceDeviceSymbol("desktop"), "desktopcomputer")
-        XCTAssertEqual(voiceDeviceSymbol("web"), "globe")
-        // Unknown kinds fall back the same way `deviceIconKind` does.
-        XCTAssertEqual(voiceDeviceSymbol("toaster"), "desktopcomputer")
     }
 
     /// The reply auto-scroll follows this: it must point at the segment being
@@ -55,12 +36,6 @@ final class VoicePageTests: XCTestCase {
         XCTAssertEqual(voiceActiveSegment(segments, spokenWords: 4), 1)
         XCTAssertEqual(voiceActiveSegment(segments, spokenWords: 6), 2)
         XCTAssertEqual(voiceActiveSegment([], spokenWords: 3), -1)
-    }
-
-    func testVoiceTabIndexMatchesTheShell() {
-        XCTAssertEqual(voiceTabIndex, AppTab.allCases.firstIndex(of: .voice))
-        XCTAssertTrue(orbTickerEnabled(activeTab: voiceTabIndex, ownerTab: voiceTabIndex))
-        XCTAssertFalse(orbTickerEnabled(activeTab: voiceTabIndex + 1, ownerTab: voiceTabIndex))
     }
 
     // MARK: - Hosting smoke test
@@ -100,30 +75,20 @@ final class VoicePageTests: XCTestCase {
     }
 
     func testControlsAndPickerLayOut() {
-        let store = mockedStore()
         assertLaysOut(VoiceControls(state: .listening, isActive: true, muted: true,
                                     onPrimary: {}, onMute: {}, onFinish: {}, onInterrupt: {}),
                       name: "controls")
         assertLaysOut(VoiceModeToggle(mode: .realtime, enabled: true) { _ in }, name: "mode")
-        assertLaysOut(VoiceStatusPill(state: .thinking, toolStatus: "Running search_web"),
-                      name: "pill")
-        assertLaysOut(VoiceDeviceRow(kinds: ["phone", "web"]), name: "devices")
-        assertLaysOut(VoiceEnginePicker(store: store), name: "picker")
     }
 
-    /// The screen's own furniture after the Flutter-parity pass: the unboxed
-    /// status line, the error-as-reply slot, the "Try on server" chip, and the
-    /// model chip + combined picker that made the LLM changeable at all.
+    /// The screen's own furniture: the error-as-reply slot, the "Try on server"
+    /// chip, the model picker and the diagnostics sheet.
     func testTheParityComponentsLayOut() {
         let store = mockedStore()
         let models = mockedModels()
-        assertLaysOut(VoiceStatusLabel(state: .idle, toolStatus: nil), name: "status-label")
-        assertLaysOut(VoiceStatusLabel(state: .thinking, toolStatus: "Running search_web"),
-                      name: "status-tool")
         assertLaysOut(VoicePlainReply(text: "Lost the voice connection — tap to try again.",
                                       tint: JcTheme.danger), name: "plain-reply")
         assertLaysOut(VoiceTryServerChip {}, name: "try-server")
-        assertLaysOut(VoiceModelChip(label: "Claude Opus 4.7") {}, name: "model-chip")
         assertLaysOut(VoiceModelPickerSheet(store: store, models: models), name: "model-picker")
         assertLaysOut(VoiceDiagnosticsSheet(lines: ["ws open", "hello sent"]), name: "diagnostics")
         assertLaysOut(VoiceDiagnosticsSheet(lines: []), name: "diagnostics-empty")
@@ -135,12 +100,10 @@ final class VoicePageTests: XCTestCase {
         XCTAssertEqual(mockedModels().chipLabel, "Auto")
     }
 
-    func testOrbAndWaveformLayOutInEveryState() {
+    func testOrbLaysOutInEveryState() {
         for state in VoiceState.allCases {
             assertLaysOut(VoiceOrb(state: state, amplitude: 0.5, size: 200, animating: false),
                           name: "orb-\(state.rawValue)")
-            assertLaysOut(VoiceWaveformView(state: state, amplitude: 0.5, animating: false),
-                          name: "wave-\(state.rawValue)")
         }
     }
 

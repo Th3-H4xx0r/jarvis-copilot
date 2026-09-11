@@ -1,87 +1,44 @@
 import Foundation
 
-/// Pure decision logic for the watch's "instant spoken ack" (plan 1.6c): once
-/// the first sentence's TEXT is known — pushed early via
-/// `updateApplicationContext`, ahead of the hi-fi TTS clip — the watch waits
-/// briefly for the clip to arrive; if it hasn't landed in time, the watch
-/// speaks the sentence itself with the built-in `AVSpeechSynthesizer`, then
-/// stops that synthesizer and plays the clip whenever it finally arrives.
-/// No I/O here — pure function, unit-tested directly. `AckCoordinator` below
-/// wires it to real time + WCSession events and is not itself unit-tested.
-enum AckTimer {
-    /// How long the watch waits for the JARVIS clip before falling back to its
-    /// own voice.
-    ///
-    /// This is a FAILURE backstop, not a race the built-in voice is meant to
-    /// win. At 700 ms it won almost every time: a real turn synthesizes on the
-    /// server and is relayed by the phone, which takes longer than that even
-    /// when the phone is in the foreground — so the watch spoke in the system
-    /// voice and the JARVIS clip arrived to a stopped synthesizer. Long enough
-    /// now that the clip normally wins, short enough that a turn whose audio
-    /// never arrives is still spoken.
-    static let localVoiceFallbackMs = 6000
-
-    enum Decision: Equatable {
-        case wait          // keep waiting for the hi-fi clip
-        case speakLocally  // speak the sentence with the built-in voice now
-        case clipWon       // the hi-fi clip already arrived — nothing to do
-    }
-
-    /// - Parameters:
-    ///   - elapsedMs: milliseconds since the first sentence's text became known.
-    ///   - clipArrived: whether the hi-fi TTS clip has already arrived.
-    ///   - preferLocalVoice: `watch.preferLocalVoice` setting — always use
-    ///     the built-in voice, never wait for a clip.
-    static func decide(elapsedMs: Int, clipArrived: Bool, preferLocalVoice: Bool) -> Decision {
-        if clipArrived { return .clipWon }
-        if preferLocalVoice { return .speakLocally }
-        return elapsedMs >= localVoiceFallbackMs ? .speakLocally : .wait
-    }
-}
-
-/// Orchestrates `AckTimer.decide` against real time and WCSession events.
-/// Deliberately thin: all the actual decision-making is the pure function
-/// above, which is what's unit-tested.
+/// The watch's instant spoken acknowledgement. Once the first sentence's text is
+/// known, the watch waits for the JARVIS-voice clip; if it hasn't landed in time
+/// the watch speaks the sentence itself, and stops as soon as the clip arrives.
 @MainActor
 final class AckCoordinator {
+    /// A failure backstop, not a race: a real turn synthesizes on the server and
+    /// is relayed by the phone, which takes a few seconds. Long enough that the
+    /// clip normally wins, short enough that a turn whose audio never arrives is
+    /// still spoken.
+    static let localVoiceFallbackMs = 6000
+
     private var nonce = 0
     private var clipArrived = false
     private var speakingLocally = false
 
-    /// Call when a new turn starts (before the `ask` goes out) so a stale
-    /// timer from the previous turn can never fire.
+    /// A new turn is starting: a stale timer from the last one must never fire.
     func reset() {
         nonce += 1
         clipArrived = false
         if speakingLocally { Speaker.shared.stop(); speakingLocally = false }
     }
 
-    /// Call when the hi-fi clip arrives (file transfer or sendMessageData).
+    /// The JARVIS clip arrived (file transfer or `sendMessageData`).
     func clipDidArrive() {
         clipArrived = true
         if speakingLocally { Speaker.shared.stop(); speakingLocally = false }
     }
 
-    /// Call as soon as the first sentence's text is known for this turn.
+    /// The first sentence's text is known for this turn. `clipArrived` is not
+    /// cleared here: the clip can land before the text does.
     func firstSentenceKnown(_ text: String, preferLocalVoice: Bool) {
         nonce += 1
         let myNonce = nonce
-        // NOT cleared here. The clip (sendMessageData) and the first-sentence
-        // context are independent channels: a clip that lands first had its
-        // arrival erased, and 700 ms later the watch spoke over it. Only
-        // `reset()`, at the start of a turn, clears this.
-        let waitMs = preferLocalVoice ? 0 : AckTimer.localVoiceFallbackMs
+        let waitMs = preferLocalVoice ? 0 : Self.localVoiceFallbackMs
         Task { [weak self] in
-            if waitMs > 0 {
-                try? await Task.sleep(nanoseconds: UInt64(waitMs) * 1_000_000)
-            }
-            guard let self, self.nonce == myNonce else { return }
-            let decision = AckTimer.decide(elapsedMs: waitMs, clipArrived: self.clipArrived,
-                                            preferLocalVoice: preferLocalVoice)
-            if decision == .speakLocally {
-                self.speakingLocally = true
-                Speaker.shared.speak(text)
-            }
+            if waitMs > 0 { try? await Task.sleep(nanoseconds: UInt64(waitMs) * 1_000_000) }
+            guard let self, self.nonce == myNonce, !self.clipArrived else { return }
+            self.speakingLocally = true
+            Speaker.shared.speak(text)
         }
     }
 }

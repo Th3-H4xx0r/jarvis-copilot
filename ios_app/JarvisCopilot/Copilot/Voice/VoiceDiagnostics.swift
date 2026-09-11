@@ -157,10 +157,3 @@ extension VoiceStore {
         micBytesSent = 0
     }
 }
-
-/// The Voice screen reads the trace through this (see `VoiceModelSelection.swift`),
-/// so the sheet compiles whether or not the store has it yet.
-extension VoiceStore: VoiceDiagnosticsProviding {}
-
-/// "Try on server", likewise declared by the Voice UI and adopted here.
-extension VoiceStore: VoiceServerRetrying {}

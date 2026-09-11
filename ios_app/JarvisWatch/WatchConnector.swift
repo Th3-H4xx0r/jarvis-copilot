@@ -1,7 +1,6 @@
 import Combine
 import Foundation
 import WatchConnectivity
-import WatchKit
 
 /// The watch's WCSession client. Sends one dictated turn at a time, receives
 /// the login-state (pushed by the phone via application context), and plays the
@@ -13,16 +12,12 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     @Published var loggedIn: Bool = true
     /// The partial answer pushed by the phone as tokens stream in (live preview).
     @Published var streamingText: String = ""
-    /// Last agent-haptic command id we acted on (dedupe applicationContext repeats).
-    private var lastHapticNonce: Int = 0
-    /// Last "first sentence known" nonce we acted on (dedupe applicationContext repeats).
-    private var lastFirstSentenceNonce: Int = 0
-    /// Instant on-watch ack (plan 1.6c): waits briefly for the hi-fi clip,
-    /// falls back to the built-in voice, then hands off to the clip.
+    /// The instant spoken ack: waits for the JARVIS clip, falls back to the
+    /// built-in voice, then hands off to the clip.
     let ack = AckCoordinator()
 
     /// `watch.preferLocalVoice` (default false): always use the built-in
-    /// voice and skip clip transfer entirely. plan 1.6c.
+    /// voice and skip clip transfer entirely.
     static let preferLocalVoiceKey = "watch.preferLocalVoice"
     static var preferLocalVoice: Bool { UserDefaults.standard.bool(forKey: preferLocalVoiceKey) }
 
@@ -77,30 +72,10 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
         let v = ctx["loggedIn"] as? Bool
         let prefersLocal = ctx["preferLocalVoice"] as? Bool
         let streaming = ctx["streamingText"] as? String
-        let hapticNonce = ctx["hapticNonce"] as? Int
-        let hapticCount = ctx["hapticCount"] as? Int
-        let firstSentence = ctx["firstSentence"] as? String
-        let firstSentenceNonce = ctx["firstSentenceNonce"] as? Int
         Task { @MainActor in
             if let v { self.loggedIn = v }
             if let prefersLocal { Self.adoptPreferLocalVoice(prefersLocal) }
             if let streaming { self.streamingText = streaming }
-            // Agent → watch haptic command (deduped by nonce so we buzz once).
-            if let nonce = hapticNonce, nonce != self.lastHapticNonce {
-                self.lastHapticNonce = nonce
-                let n = max(1, min(hapticCount ?? 3, 10))
-                for i in 0..<n {
-                    WKInterfaceDevice.current().play(.notification)
-                    if i < n - 1 { try? await Task.sleep(nanoseconds: 600_000_000) }
-                }
-            }
-            // plan 1.6c: the first sentence's text is known — start the
-            // instant-ack countdown (deduped by nonce, one per turn).
-            if let nonce = firstSentenceNonce, nonce != self.lastFirstSentenceNonce,
-               let text = firstSentence, !text.isEmpty {
-                self.lastFirstSentenceNonce = nonce
-                self.ack.firstSentenceKnown(text, preferLocalVoice: Self.preferLocalVoice)
-            }
         }
     }
 
@@ -111,7 +86,7 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
     nonisolated func session(_ s: WCSession, didReceive file: WCSessionFile) {
         guard (file.metadata?["type"] as? String) == "voiceClip",
               let data = try? Data(contentsOf: file.fileURL), !data.isEmpty else { return }
-        // plan 1.6/2: reply audio can arrive over `transferFile` (this path,
+        // Reply audio can arrive over `transferFile` (this path,
         // queued, can lag) interleaved with `sendMessageData` (immediate) —
         // enqueue by `seq` so AudioPlayer plays them in READING order, not
         // whichever transport happened to deliver first.
@@ -122,11 +97,8 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
         }
     }
 
-    /// plan 1.6e: the low-latency path for a small clip — `sendMessageData`,
-    /// reachable-only, delivered immediately (no transfer queue). Framed as
-    /// [version:1][isFirst:1][seq:1][mp3 bytes...] by `WatchBridge.sendVoiceClip`.
-    /// A reply segment pushed by the phone the moment the model produced it,
-    /// rather than at the end of the turn.
+    /// A reply segment, pushed the moment the model produced it. The first one
+    /// starts the instant-ack countdown.
     nonisolated func session(_ s: WCSession, didReceiveMessage message: [String: Any]) {
         guard (message["type"] as? String) == "segment",
               let text = message["text"] as? String, !text.isEmpty else { return }
@@ -141,6 +113,8 @@ final class WatchConnector: NSObject, ObservableObject, WCSessionDelegate {
         }
     }
 
+    /// The low-latency path for a small clip: `sendMessageData`, framed as
+    /// `[version][isFirst][seq][mp3…]` by `WatchBridge.sendVoiceClip`.
     nonisolated func session(_ s: WCSession, didReceiveMessageData messageData: Data) {
         guard messageData.count > 3, messageData[0] == 0x01 else { return }
         let seq = Int(messageData[2])

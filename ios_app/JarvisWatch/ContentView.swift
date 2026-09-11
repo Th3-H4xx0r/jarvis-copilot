@@ -10,7 +10,6 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var connector: WatchConnector
     @StateObject private var vm: WatchViewModel
-    @ObservedObject private var voice = VoiceStatus.shared
     @ObservedObject private var audio = AudioPlayer.shared
     @StateObject private var menu = WatchMenuStore()
     @State private var activeSheet: ActiveSheet?
@@ -20,18 +19,7 @@ struct ContentView: View {
 
     init(connector: WatchConnector) {
         self.connector = connector
-        _vm = StateObject(wrappedValue: WatchViewModel(
-            asker: { await connector.ask(text: $0) },
-            speak: { result in
-                if result.expectsClip {
-                    // JARVIS clip is arriving via transferFile → plays on receipt
-                    // (WatchConnector.didReceive). Don't also speak built-in.
-                } else if !result.audioBase64.isEmpty {
-                    AudioPlayer.shared.play(base64: result.audioBase64)
-                } else {
-                    Speaker.shared.speak(result.replyText)  // synth failed → built-in fallback
-                }
-            }))
+        _vm = StateObject(wrappedValue: WatchViewModel(connector: connector))
     }
 
     var body: some View {
@@ -53,9 +41,7 @@ struct ContentView: View {
                 NavigationStack { WatchChatPicker(store: menu) }
             }
         }
-        // The orb is a TextFieldLink, so dictation can't be opened
-        // programmatically; the complication (jarviswatch://listen) just brings
-        // the app forward to the orb — one tap to talk.
+        // The orb is a TextFieldLink, so dictation can't be opened programmatically.
     }
 
     @ViewBuilder private var content: some View {
@@ -74,7 +60,7 @@ struct ContentView: View {
             speakingScreen
         } else {
             switch vm.state {
-            case .idle, .listening:
+            case .idle:
                 VStack(spacing: 14) {
                     orbButton(.idle, size: 120)
                     Text("Tap to talk")
@@ -107,10 +93,6 @@ struct ContentView: View {
                         // Speaking is finished here (the speaking screen owns the
                         // live highlight) → fully lit, centred.
                         KaraokeText(text: voicePlainSpeech(text), progress: 1.0)
-                        if !voice.note.isEmpty {
-                            Text(voice.note)
-                                .font(.inter(11)).foregroundStyle(JcWatch.muted)
-                        }
                         volumeButton.padding(.top, 4)
                     }
                 }

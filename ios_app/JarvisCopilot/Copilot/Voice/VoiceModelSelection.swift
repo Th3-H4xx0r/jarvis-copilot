@@ -114,20 +114,3 @@ func voiceModelShortLabel(_ model: String?) -> String {
 }
 
 // MARK: - Optional store capabilities
-
-/// The rolling debug log the Voice screen shows behind a long-press. Named here
-/// rather than reached for directly so the screen states what it needs from the
-/// store; ``VoiceStore`` adopts it in `VoiceDiagnostics.swift`.
-@MainActor
-protocol VoiceDiagnosticsProviding: AnyObject {
-    var diagnostics: [String] { get }
-}
-
-/// "Try on server" — offered after an ON-DEVICE voice answer, to re-run that turn
-/// against the server (which can give a better one). Port of `canRetryOnServer` /
-/// `retryLastOnServer` in `voice_controller.dart`.
-@MainActor
-protocol VoiceServerRetrying: AnyObject {
-    var canRetryOnServer: Bool { get }
-    func retryLastOnServer()
-}

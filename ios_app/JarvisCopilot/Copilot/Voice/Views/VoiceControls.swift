@@ -114,22 +114,6 @@ struct VoiceTryServerChip: View {
     }
 }
 
-/// The quiet state echo under the orb, where the reply lands before there is
-/// one: `Text(state.label)` at 13 pt / w700 / 1.6 tracking in the state's
-/// colour. Flutter shows this as plain text, NOT a pill.
-struct VoiceStatusLabel: View {
-    let state: VoiceState
-    let toolStatus: String?
-
-    var body: some View {
-        Text(toolStatus?.isEmpty == false ? toolStatus! : state.label)
-            .font(.system(size: 13, weight: .bold))
-            .kerning(1.6)
-            .foregroundStyle(voiceStateColor(state))
-            .multilineTextAlignment(.center)
-    }
-}
-
 /// Push-to-talk ⇄ Realtime. Disabled mid-session: switching modes tears the
 /// session down, and doing that from under a live turn reads as a crash.
 ///
@@ -177,50 +161,5 @@ struct VoiceModeToggle: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
-    }
-}
-
-/// The frosted state pill: the tool the server is running, else the state name.
-/// Kept for the Live Activity / island surfaces; the Voice screen itself uses the
-/// unboxed ``VoiceStatusLabel``, as the Flutter page does.
-struct VoiceStatusPill: View {
-    let state: VoiceState
-    let toolStatus: String?
-
-    var body: some View {
-        Text((toolStatus?.isEmpty == false ? toolStatus! : state.label).uppercased())
-            .font(.system(size: 11, weight: .bold))
-            .kerning(1.8)
-            .foregroundStyle(voiceStateColor(state))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 7)
-            .background(JcTheme.glassFill, in: Capsule())
-            .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-    }
-}
-
-/// The devices strip — which of the user's devices Jarvis can currently see. Same
-/// list the Live Activity shows (`VoiceStore.deviceKinds`). Not on the Flutter
-/// voice screen; kept for the sheets that do show it.
-struct VoiceDeviceRow: View {
-    let kinds: [String]
-
-    var body: some View {
-        if kinds.isEmpty {
-            EmptyView()
-        } else {
-            HStack(spacing: 12) {
-                ForEach(Array(kinds.enumerated()), id: \.offset) { _, kind in
-                    Image(systemName: voiceDeviceSymbol(kind))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(JcTheme.muted)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .background(JcTheme.glassFill, in: Capsule())
-            .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-            .accessibilityLabel("\(kinds.count) devices online")
-        }
     }
 }

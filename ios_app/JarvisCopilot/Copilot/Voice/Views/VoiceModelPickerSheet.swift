@@ -152,43 +152,7 @@ struct VoiceModelPickerSheet: View {
     }
 }
 
-/// The toolbar capsule: the current voice model's name, tappable to change it.
-/// Port of `ModelChip(compact: true)` — sparkles, label, chevron, glass pill.
-struct VoiceModelChip: View {
-    let label: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(JcTheme.muted)
-                Text(label)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(JcTheme.text)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: 104, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(JcTheme.muted)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(JcTheme.glassFill, in: Capsule())
-            .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Voice model: \(label)")
-    }
-}
-
-/// The rolling voice debug log, behind a long-press on the status line. Empty
-/// until the store adopts ``VoiceDiagnosticsProviding`` — the screen must not
-/// depend on a debug hook existing.
+/// The rolling voice debug log (`VoiceStore.diagnostics`).
 struct VoiceDiagnosticsSheet: View {
     let lines: [String]
     @Environment(\.dismiss) private var dismiss

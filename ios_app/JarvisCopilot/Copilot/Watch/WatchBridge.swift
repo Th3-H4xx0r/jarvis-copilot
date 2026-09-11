@@ -4,34 +4,22 @@ import WatchConnectivity
 
 /// The phone half of the Apple Watch companion.
 ///
-/// A watch turn runs the PHONE'S VOICE PIPELINE, not a private one: the same
-/// `/api/voice/quality-turn` the push-to-talk path uses, with the same voice
-/// session and the same voice model fields. That endpoint runs the shared
-/// `_run_agent_turn_via_chat`, so the watch inherits the voice system prompt,
-/// the fast lane and the model you picked for voice — change the phone's voice
-/// flow and the watch changes with it. There is no second implementation here:
-/// the server already returns text segments with their audio, so nothing is
-/// re-synthesized or re-ordered on this side.
+/// A watch turn runs the phone's own voice pipeline (`VoiceStore`) in the voice
+/// session, so the watch inherits the voice model, prompt, tools and history.
 ///
-/// The wire protocol to the WATCH is unchanged:
+/// Wire protocol:
 ///   watch → phone  `sendMessage(["type":"ask","text":…,"preferLocalVoice":Bool])`
-///   phone → watch  application context: `loggedIn`, `preferLocalVoice`,
-///                  `streamingText`, `hapticNonce`/`hapticCount`,
-///                  `firstSentence`/`firstSentenceNonce`
+///   phone → watch  application context: `loggedIn`, `preferLocalVoice`, `streamingText`
+///   phone → watch  `sendMessage(["type":"segment","text":…,"first":Bool])` per sentence
 ///   phone → watch  clips: `sendMessageData` framed `[0x01][isFirst][seq][mp3…]`,
 ///                  or `transferFile` with metadata `{type:"voiceClip", seq:Int}`
 @MainActor
 final class WatchBridge: NSObject, ObservableObject {
     static let shared = WatchBridge()
 
-    /// The watch keeps its OWN conversation so a dictated turn never lands in
-    /// the middle of whatever is open on the phone. It still shows up in Chats.
-    private static let sessionKey = "watch.sessionId"
     /// Read by the WATCH app (`WatchConnector.preferLocalVoice`) and sent with
     /// every turn; declared here so the phone's settings page can toggle it.
     static let preferLocalVoiceKey = "watch.preferLocalVoice"
-    /// The shared voice conversation both surfaces write to.
-    static let sessionTitle = "Voice"
 
     @Published private(set) var isPaired = false
     @Published private(set) var isReachable = false
@@ -51,40 +39,27 @@ final class WatchBridge: NSObject, ObservableObject {
     @Published private(set) var clipBytesSent = 0
     /// Wall-clock of the last completed turn.
     @Published private(set) var lastTurnSeconds: Double?
-    /// Round trip for the last clip/segment handed to the watch.
-    @Published private(set) var lastRoundTripMs: Int?
     @Published private(set) var lastTurnAt: Date?
     /// Files still queued for a watch that wasn't reachable.
     var queuedTransfers: Int {
         WCSession.isSupported() ? WCSession.default.outstandingFileTransfers.count : 0
     }
-    /// Rough throughput of the last clip, which is what "slow" usually means.
-    var lastClipKBPerSecond: Double? {
-        guard let ms = lastRoundTripMs, ms > 0, clipBytesSent > 0 else { return nil }
-        return (Double(clipBytesSent) / 1024) / (Double(ms) / 1000)
-    }
 
     func resetStatistics() {
         turnsRun = 0; turnsFailed = 0; messagesIn = 0; messagesOut = 0
         segmentsSent = 0; clipsSent = 0; clipBytesSent = 0
-        lastTurnSeconds = nil; lastRoundTripMs = nil; lastError = nil
+        lastTurnSeconds = nil; lastError = nil
     }
 
     private let api: JarvisAPI
-    private let voice: VoiceAPI
     private let defaults: UserDefaults
 
     /// Bumped per turn; a reply from an abandoned turn is dropped.
     private var turnCounter = 0
     private var activeTurn = 0
-    // Seeded from the clock: the watch dedupes on `nonce != last`, so restarting
-    // at 0 each launch could silently swallow the first haptic or ack.
-    private var hapticNonce = Int(Date().timeIntervalSince1970 * 1000)
-    private var firstSentenceNonce = Int(Date().timeIntervalSince1970 * 1000)
 
     init(api: JarvisAPI = .shared, defaults: UserDefaults = .standard) {
         self.api = api
-        self.voice = VoiceAPI(api: api)
         self.defaults = defaults
         super.init()
     }
@@ -159,15 +134,6 @@ final class WatchBridge: NSObject, ObservableObject {
         catch { JcLog.dropped(JcLog.services, "watch application context", error) }
     }
 
-    // MARK: - Agent → watch
-
-    /// Buzz the watch. Deduped by nonce on the far side so a repeated context
-    /// update doesn't buzz twice.
-    func sendHaptic(count: Int) {
-        hapticNonce += 1
-        push(["hapticNonce": hapticNonce, "hapticCount": max(1, min(count, 10))])
-    }
-
     // MARK: - The turn
 
     private func beginTurn() -> Int {
@@ -202,12 +168,7 @@ final class WatchBridge: NSObject, ObservableObject {
                     streamed += streamed.isEmpty ? text : " " + text
                     self.sendSegment(text, isFirst: !sawFirst)
                     self.pushStreaming(streamed)
-                    if !sawFirst {
-                        sawFirst = true
-                        self.firstSentenceNonce += 1
-                        self.push(["firstSentence": text,
-                                   "firstSentenceNonce": self.firstSentenceNonce])
-                    }
+                    sawFirst = true
                 }
                 // The phone already synthesized this in the JARVIS voice.
                 if !preferLocalVoice, let audio, !audio.isEmpty {
@@ -246,16 +207,6 @@ final class WatchBridge: NSObject, ObservableObject {
     }
 
     private func isActive(_ turn: Int) -> Bool { turn == activeTurn }
-
-    /// The very session the phone's voice uses — same conversation, same
-    /// history, same model binding. Resolved by the shared voice transport, so
-    /// the session picker in the Voice tab governs the watch too.
-    private func watchSessionID() async throws -> String {
-        try await VoiceSessionResolver.shared.ensureSession(voice: voice)
-    }
-
-    /// Ask for a fresh voice session on the next turn.
-    func startNewSession() { VoiceSessionResolver.shared.invalidate() }
 
     // MARK: - Background assertion
 
@@ -307,7 +258,6 @@ final class WatchBridge: NSObject, ObservableObject {
             // this one — `transferFile` survives the turn that made it.
             for transfer in session.outstandingFileTransfers { transfer.cancel() }
         }
-        let sentAt = Date()
         clipsSent += 1
         clipBytesSent += data.count
         messagesOut += 1
@@ -317,7 +267,6 @@ final class WatchBridge: NSObject, ObservableObject {
             session.sendMessageData(framed, replyHandler: nil) { [weak self] _ in
                 Task { @MainActor in self?.transferClipFile(data, seq: seq) }
             }
-            lastRoundTripMs = Int(Date().timeIntervalSince(sentAt) * 1000)
             return
         }
         transferClipFile(data, seq: seq)

@@ -1,13 +1,11 @@
 import SwiftUI
 
-/// The Apple Watch companion's settings, replacing the Flutter client's
-/// `watch_companion_page.dart`. Shows whether the watch is actually reachable
+/// The Apple Watch companion's settings. Shows whether the watch is actually reachable
 /// (the single most common reason a dictated turn fails), and the one setting
 /// the watch reads.
 struct WatchPage: View {
     @ObservedObject private var watch = WatchBridge.shared
     @AppStorage(WatchBridge.preferLocalVoiceKey) private var preferLocalVoice = false
-    @State private var didStartNewSession = false
 
     var body: some View {
         ScrollView {
@@ -21,7 +19,7 @@ struct WatchPage: View {
                             ok: watch.isReachable)
                         Text(watch.isPaired
                              ? "Raise your wrist and tap the orb to dictate. The reply is spoken "
-                               + "in the JARVIS voice, and appears in Chats under \"Watch\"."
+                               + "in the JARVIS voice and saved to the Voice chat."
                              : "Install JARVIS on your Apple Watch from the Watch app on this "
                                + "iPhone, then come back.")
                             .font(.system(size: 12))
@@ -43,23 +41,6 @@ struct WatchPage: View {
 
                 GlassCard {
                     VStack(alignment: .leading, spacing: 10) {
-                        GlassQuietLabel("Conversation")
-                        Text("Watch turns go into their own chat, so dictating on your wrist "
-                             + "never interrupts what you have open here.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(JcTheme.muted)
-                        Button {
-                            WatchBridge.shared.startNewSession()
-                            didStartNewSession = true
-                        } label: {
-                            Text(didStartNewSession ? "Started a new one" : "Start a new Watch chat")
-                        }
-                        .disabled(didStartNewSession)
-                    }
-                }
-
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 10) {
                         GlassQuietLabel("Link")
                         // A watch turn that quietly did nothing looks exactly
                         // like one that never left the wrist; these separate
@@ -73,12 +54,6 @@ struct WatchPage: View {
                         row("Audio sent", byteCount(watch.clipBytesSent), ok: true)
                         if let seconds = watch.lastTurnSeconds {
                             row("Last turn", String(format: "%.1f s", seconds), ok: true)
-                        }
-                        if let ms = watch.lastRoundTripMs {
-                            row("Last clip handoff", "\(ms) ms", ok: true)
-                        }
-                        if let rate = watch.lastClipKBPerSecond {
-                            row("Link speed", String(format: "%.0f KB/s", rate), ok: true)
                         }
                         row("Queued transfers", "\(watch.queuedTransfers)",
                             ok: watch.queuedTransfers == 0)

@@ -90,28 +90,6 @@ struct VoiceEngineSections: View {
     }
 }
 
-/// The engine sections on their own, for anywhere that wants just the TTS pick.
-struct VoiceEnginePicker: View {
-    let store: VoiceStore
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VoiceEngineSections(store: store)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-            }
-            .jcScreen("Voice engine")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-    }
-}
-
 /// The blue tick every picker row uses when it is the current choice — Flutter's
 /// `Icon(Icons.check_rounded, color: JcTheme.primaryBlueHi)`.
 struct VoicePickerCheck: View {

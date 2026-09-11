@@ -11,14 +11,13 @@ final class Speaker {
 
     func speak(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else { VoiceStatus.shared.set("🔇 empty reply"); return }
+        guard !t.isEmpty else { return }
         let u = AVSpeechUtterance(string: t)
         u.rate = AVSpeechUtteranceDefaultSpeechRate
         synth.speak(u)
-        VoiceStatus.shared.set("🗣️ built-in voice")
     }
 
-    /// Stop an in-progress instant ack (plan 1.6c) the moment the hi-fi clip
+    /// Stop an in-progress instant ack the moment the JARVIS clip
     /// arrives, so the two voices don't overlap.
     func stop() {
         if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }

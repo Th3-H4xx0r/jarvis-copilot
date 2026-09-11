@@ -32,20 +32,6 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
     private var nextSeqToPlay = 0
     private var pendingBySeq: [Int: Data] = [:]
 
-    func play(base64 string: String) {
-        guard let data = Data(base64Encoded: string), !data.isEmpty else {
-            VoiceStatus.shared.set("🔇 bad clip data"); return
-        }
-        play(data: data)
-    }
-
-    func play(data: Data) {
-        calibrating = false           // a real reply clip takes over the player
-        clipQueue.removeAll()
-        isSpeaking = true
-        start(data: data, loop: false)
-    }
-
     /// Enqueue one reply-clip chunk, identified by its `seq` in the turn
     /// (plan 1.6/2). Held back if an earlier-numbered clip hasn't arrived
     /// yet — sent to the play queue strictly in `seq` order, regardless of
@@ -171,14 +157,12 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
             try s.setCategory(.playback, mode: .default)
         } catch {
             isStarting = false
-            VoiceStatus.shared.set("🔇 \(error.localizedDescription)")
             return
         }
         s.activate(options: []) { success, error in
             Task { @MainActor in
                 defer { self.isStarting = false }
                 guard success, error == nil else {
-                    VoiceStatus.shared.set("🔇 audio session unavailable")
                     return
                 }
                 do {
@@ -190,9 +174,7 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate, ObservableObject {
                     p.play()
                     self.player = p
                     if !loop { self.startProgressPolling() }
-                    VoiceStatus.shared.set("")   // clean on success
                 } catch {
-                    VoiceStatus.shared.set("🔇 \(error.localizedDescription)")
                 }
             }
         }

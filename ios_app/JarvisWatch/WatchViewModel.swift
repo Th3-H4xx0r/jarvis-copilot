@@ -2,26 +2,21 @@ import Combine
 import Foundation
 
 enum WatchState: Equatable {
-    case idle, listening, thinking
+    case idle, thinking
     case answer(String)
     case error(String)
 }
 
-/// Drives the single watch screen. Dependency-injected `asker` + `speak` so the
-/// state machine is unit-testable without WCSession or audio. `speak` plays the
-/// JARVIS clip if present, else speaks the text with the built-in voice.
+/// Drives the single watch screen: sends a dictated turn through the connector
+/// and speaks the reply with the built-in voice unless a JARVIS clip is coming.
 @MainActor
 final class WatchViewModel: ObservableObject {
     @Published var state: WatchState = .idle
-    @Published var serverVoiceNote: String = ""   // phone-side voice debug from the last reply
 
-    private let asker: (String) async -> Result<AskResult, AskError>
-    private let speak: (AskResult) -> Void
+    private let connector: WatchConnector
 
-    init(asker: @escaping (String) async -> Result<AskResult, AskError>,
-         speak: @escaping (AskResult) -> Void) {
-        self.asker = asker
-        self.speak = speak
+    init(connector: WatchConnector) {
+        self.connector = connector
     }
 
     func submit(text: String) async {
@@ -29,19 +24,18 @@ final class WatchViewModel: ObservableObject {
         guard !trimmed.isEmpty else { state = .idle; return }
         guard state != .thinking else { return }   // ignore re-entrant / double-tap submits
         state = .thinking
-        switch await asker(trimmed) {
-        case .success(let r):
-            serverVoiceNote = r.voiceDbg
-            state = .answer(r.replyText)
-            speak(r)
+        switch await connector.ask(text: trimmed) {
+        case .success(let reply):
+            state = .answer(reply.replyText)
+            // A JARVIS clip plays on arrival (`WatchConnector`); don't talk over it.
+            if !reply.expectsClip { Speaker.shared.speak(reply.replyText) }
         case .failure(.notConfigured):
             state = .error("Sign in on your iPhone first.")
         case .failure(.unreachable):
             state = .error("Open JarvisCopilot on your iPhone to use voice.")
         case .failure(.network(let detail)):
-            // Show what actually went wrong. "Couldn't reach JarvisCopilot"
-            // was the same message whether the phone was busy, the session was
-            // gone, or the model errored — nothing to act on.
+            // Show what actually went wrong; one generic message for every cause
+            // gave nothing to act on.
             let reason = detail.trimmingCharacters(in: .whitespacesAndNewlines)
             state = .error(reason.isEmpty ? "Couldn't reach JarvisCopilot. Try again." : reason)
         }
