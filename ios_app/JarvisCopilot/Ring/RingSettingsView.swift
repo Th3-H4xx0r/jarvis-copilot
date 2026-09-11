@@ -64,7 +64,7 @@ struct RingSettingsView: View {
                                           Task { await session.setInputMode(mode) }
                                       },
                                       onSensitivity: { value in
-                                          apply { try await session.setGestureMode(.tasbih, strength: value) }
+                                          apply { try await session.setGestureMode(.game, strength: value) }
                                       })
                 }
                 goalsSection

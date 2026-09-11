@@ -470,6 +470,9 @@ enum RingDeviceEvent: Equatable {
     case touchSleep(Bool)
     /// 1 swipe down, 2 swipe up, 3 click, 4 long press.
     case touchKey(Int)
+    /// A press the ring reports to the app rather than to iOS: the tasbih counter (37), a
+    /// game click (41) or a couple double-tap (48).
+    case press(RingInput)
     case instantHeartRate(Int)
     case liveTemperature(Double)
     case phoneStillTimeRequest
@@ -851,6 +854,10 @@ enum RingDecode {
         case 40: return .settingsChanged
         case 42: return .touchSleep(at(p, 1) == 1)
         case 45: return .touchKey(at(p, 1))
+        // Modes QRing handles in its own app report every press here. 37 carries a running
+        // count, 41 is the game click, 48 the couple double-tap — one push per press.
+        case 37, 41: return .press(.tap)
+        case 48: return .press(.doubleTap)
         case 55: return .instantHeartRate(at(p, 1))
         case 61: return .liveTemperature(Double(u16LE(p, 1)) / 10)
         case 62: return .phoneStillTimeRequest

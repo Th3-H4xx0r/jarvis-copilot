@@ -55,9 +55,10 @@ enum RingInput: String, CaseIterable, Codable, Identifiable {
 /// What the ring's taps and swipes drive.
 ///
 /// In its music mode the ring talks straight to iOS as a Bluetooth media remote, so the press
-/// never reaches this app — that mode can only control music. The modes QRing handles in its
-/// own app (tasbih, a tap counter) make the ring report each press over its own channel, which
-/// is what a custom action needs.
+/// never reaches this app — that mode can only control music. The modes QRing drives from its
+/// own app report each press over the ring's channel instead (`0x73`: 41 a game click, 37 the
+/// tasbih counter, 48 a couple double-tap), which is what a custom action needs. Game is the
+/// one this ring advertises.
 enum RingInputMode: String, CaseIterable, Codable, Identifiable {
     case jarvis, music, off
 
@@ -82,7 +83,7 @@ enum RingInputMode: String, CaseIterable, Codable, Identifiable {
     /// The ring's app type for touch and gesture control.
     var appType: UInt8 {
         switch self {
-        case .jarvis: return RingTouchMode.tasbih.rawValue
+        case .jarvis: return RingTouchMode.game.rawValue
         case .music: return RingTouchMode.music.rawValue
         case .off: return RingTouchMode.off.rawValue
         }

@@ -61,14 +61,18 @@ final class RingFeatureTests: XCTestCase {
         XCTAssertEqual(RingInput(touchKey: 3), .tap)
     }
 
-    func testAMusicCommandBecomesAnInput() {
+    func testEveryChannelTheRingPressesOnBecomesAnInput() {
         var seen: [RingInput] = []
         session.onInput = { seen.append($0) }
 
-        link.deliver(RingProtocol.frame(0x1D, [3]))
-        link.deliver(RingProtocol.frame(0x73, [45, 4]))
+        link.deliver(RingProtocol.frame(0x1D, [3]))       // music mode (Android only)
+        link.deliver(RingProtocol.frame(0x73, [45, 4]))   // key event
+        link.deliver(RingProtocol.frame(0x73, [41]))      // game click
+        link.deliver(RingProtocol.frame(0x73, [37, 0, 0, 0, 5]))  // tasbih counter
+        link.deliver(RingProtocol.frame(0x73, [48]))      // couple double-tap
+        link.deliver(RingProtocol.frame(0x02, [1]))       // camera shutter
 
-        XCTAssertEqual(seen, [.swipeForward, .longPress])
+        XCTAssertEqual(seen, [.swipeForward, .longPress, .tap, .tap, .doubleTap, .tap])
     }
 
     func testActionsSurviveARelaunchAndOnlyCountWhenSet() {

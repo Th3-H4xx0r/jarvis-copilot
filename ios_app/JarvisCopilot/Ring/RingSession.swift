@@ -520,6 +520,9 @@ final class RingSession: ObservableObject {
             let active = inbound.payload.first == 1
             findPhoneActive = active
             onFindPhone?(active)
+        case RingOp.camera:
+            // In camera mode the shutter press comes to the app instead of to iOS.
+            noteInput(.tap)
         case RingOp.ppgData:
             livePPG = (livePPG + inbound.payload.map(Int.init)).suffix(180)
         case RingOp.musicCommand:
@@ -561,6 +564,8 @@ final class RingSession: ObservableObject {
         case .touchKey(let key):
             lastTouchKey = RingLiveReading(value: Double(key), date: Date())
             if let input = RingInput(touchKey: key) { noteInput(input) }
+        case .press(let input):
+            noteInput(input)
         case .instantHeartRate(let bpm):
             guard bpm > 0 else { return }
             let reading = RingLiveReading(value: Double(bpm), date: Date())

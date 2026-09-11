@@ -195,7 +195,7 @@ enum RingLogDecoder {
         case RingOp.deviceEvent:
             return event(p)
         case RingOp.camera:
-            return ("Camera control", "")
+            return out ? ("Camera control", "") : ("Ring input", "shutter")
         case RingOp.sportEvent:
             return ("Workout event", "type \(at(p, 0))")
         default:
@@ -222,6 +222,8 @@ enum RingLogDecoder {
             return ("Touch-to-sleep", onOff(on))
         case .touchKey(let key):
             return ("Ring input", RingInput(touchKey: key)?.label ?? "key \(key)")
+        case .press(let input):
+            return ("Ring input", input.label)
         case .instantHeartRate(let bpm):
             return ("Heart rate", "\(bpm) bpm")
         case .instantSpO2(let percent):
