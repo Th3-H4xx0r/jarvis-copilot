@@ -292,9 +292,8 @@ final class RingManager: NSObject, ObservableObject {
             self.setupTask = nil
             guard self.state == .ready else { return }
             if let id = self.deviceID { self.session.saveCache(deviceID: id) }
-            // Always: an action set later would otherwise never fire, because the ring only
-            // reports taps and swipes once it has been put in this mode.
-            await self.session.enableInputReporting()
+            // Put the ring where the user asked — reporting to Jarvis, driving music, or off.
+            await self.session.setInputMode(self.inputs?.wantedMode ?? .off)
             // Find out what this ring actually answers; its own flags under-report.
             await self.session.runProbe()
             self.sync.syncIfStale()

@@ -57,11 +57,14 @@ struct RingSettingsView: View {
                 monitoring
                 if let inputs = manager.inputs {
                     RingInputsSection(store: inputs, ready: ready, lastInput: session.lastInput,
-                                      reporting: session.inputReportingOn,
+                                      ringMode: session.inputMode,
                                       sensitivity: caps.gesture ? session.settings.gesture?.strength ?? 1 : nil,
-                                      onEnable: { Task { await session.enableInputReporting() } },
+                                      onMode: { mode in
+                                          inputs.setMode(mode)
+                                          Task { await session.setInputMode(mode) }
+                                      },
                                       onSensitivity: { value in
-                                          apply { try await session.setGestureMode(.music, strength: value) }
+                                          apply { try await session.setGestureMode(.tasbih, strength: value) }
                                       })
                 }
                 goalsSection
@@ -80,8 +83,10 @@ struct RingSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             loadDrafts()
-            // Arms a ring that connected before any action was set, without waiting for a reconnect.
-            if ready, !session.inputReportingOn { Task { await session.enableInputReporting() } }
+            // Applies a choice made while the ring was away, without waiting for a reconnect.
+            if ready, let inputs = manager.inputs, session.inputMode != inputs.wantedMode {
+                Task { await session.setInputMode(inputs.wantedMode) }
+            }
         }
         .confirmationDialog("Power the ring off?", isPresented: $confirmPowerOff, titleVisibility: .visible) {
             Button("Power off", role: .destructive) { apply { try await session.powerOff() } }

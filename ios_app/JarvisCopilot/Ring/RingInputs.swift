@@ -52,6 +52,43 @@ enum RingInput: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+/// What the ring's taps and swipes drive.
+///
+/// In its music mode the ring talks straight to iOS as a Bluetooth media remote, so the press
+/// never reaches this app — that mode can only control music. The modes QRing handles in its
+/// own app (tasbih, a tap counter) make the ring report each press over its own channel, which
+/// is what a custom action needs.
+enum RingInputMode: String, CaseIterable, Codable, Identifiable {
+    case jarvis, music, off
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .jarvis: return "Jarvis actions"
+        case .music: return "Music"
+        case .off: return "Off"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .jarvis: return "The ring reports every press to Jarvis, which runs what you set below."
+        case .music: return "The ring acts as a media remote to iOS. Jarvis never sees these presses."
+        case .off: return "The ring ignores taps and swipes."
+        }
+    }
+
+    /// The ring's app type for touch and gesture control.
+    var appType: UInt8 {
+        switch self {
+        case .jarvis: return RingTouchMode.tasbih.rawValue
+        case .music: return RingTouchMode.music.rawValue
+        case .off: return RingTouchMode.off.rawValue
+        }
+    }
+}
+
 /// The last input the ring sent, so the settings screen can show which row it lands on.
 struct RingInputEvent: Equatable {
     let input: RingInput
@@ -187,13 +224,18 @@ final class RingInputStore: ObservableObject {
     }
 
     @Published private(set) var actions: [RingInput: RingAction] = [:]
+    /// What the user chose the ring's presses should do; nil until they choose.
+    @Published private(set) var mode: RingInputMode?
 
     private let key: String
+    private let modeKey: String
     private let defaults: UserDefaults
 
     init(deviceID: String, defaults: UserDefaults = .standard) {
         self.key = "jc.ring.inputs.\(deviceID)"
+        self.modeKey = "jc.ring.inputs.\(deviceID).mode"
         self.defaults = defaults
+        mode = defaults.string(forKey: modeKey).flatMap(RingInputMode.init(rawValue:))
         if let data = defaults.data(forKey: key),
            let stored = try? JSONDecoder().decode([String: RingAction].self, from: data) {
             actions = stored.reduce(into: [:]) { out, pair in
@@ -206,6 +248,15 @@ final class RingInputStore: ObservableObject {
 
     /// True once anything is set, which is when the ring is asked to report its inputs.
     var isConfigured: Bool { actions.values.contains(where: \.isSet) }
+
+    /// What to put the ring in when nobody has chosen: reporting once actions exist, else off,
+    /// so a ring nobody configured keeps its own behaviour.
+    var wantedMode: RingInputMode { mode ?? (isConfigured ? .jarvis : .off) }
+
+    func setMode(_ mode: RingInputMode) {
+        self.mode = mode
+        defaults.set(mode.rawValue, forKey: modeKey)
+    }
 
     func set(_ action: RingAction, for input: RingInput) {
         if action.isSet { actions[input] = action } else { actions.removeValue(forKey: input) }

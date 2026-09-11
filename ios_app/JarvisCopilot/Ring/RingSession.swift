@@ -76,8 +76,8 @@ final class RingSession: ObservableObject {
     @Published private(set) var lastTouchKey: RingLiveReading?
     /// The last tap or swipe, whichever channel it arrived on.
     @Published private(set) var lastInput: RingInputEvent?
-    /// Whether the ring is in the mode where it reports taps and swipes to the phone.
-    @Published private(set) var inputReportingOn = false
+    /// What the ring's taps and swipes are currently set to drive, as read back from the ring.
+    @Published private(set) var inputMode: RingInputMode = .off
     @Published private(set) var measurement: RingMeasurementState?
     @Published private(set) var calibration: RingCalibrationState?
     /// Every command and input, decoded. Its own object, so a busy link redraws the log
@@ -319,22 +319,22 @@ final class RingSession: ObservableObject {
 
     /// Puts the ring where it reports taps and swipes to the phone: its music mode, with the
     /// reporting channel on. Jarvis runs the user's own action for each one.
-    func enableInputReporting() async {
+    /// Points the ring's taps and swipes at Jarvis, at music, or nowhere, and reads back what
+    /// it actually took. Both controls are written whatever the capability flags claim: this
+    /// firmware under-reports, and a ring that ignores one may still honour the other.
+    func setInputMode(_ mode: RingInputMode) async {
         guard transport.link?.isLinkReady == true else { return }
-        _ = try? await transport.perform(.inputReporting(true), until: .single)
-        // Both controls, whatever the flags claim: this firmware under-reports what it has,
-        // and a ring that ignores one still reports through the other.
-        try? await write(.writeTouch(appType: RingTouchMode.music.rawValue,
-                                     sleepTime: settings.touch?.sleepTime ?? 0))
-        try? await write(.writeGesture(appType: RingTouchMode.music.rawValue,
-                                       strength: settings.gesture?.strength ?? 1))
+        // The reporting channel only matters when the presses should reach this app.
+        _ = try? await transport.perform(.inputReporting(mode == .jarvis), until: .single)
+        try? await write(.writeTouch(appType: mode.appType, sleepTime: settings.touch?.sleepTime ?? 0))
+        try? await write(.writeGesture(appType: mode.appType, strength: settings.gesture?.strength ?? 1))
         if let touch = await read(.readTouch, RingDecode.touch, accept: \.isTouch) { settings.touch = touch }
         if let gesture = await read(.readGesture, RingDecode.touch, accept: { !$0.isTouch }) { settings.gesture = gesture }
-        let music = RingTouchMode.music.rawValue
-        inputReportingOn = settings.touch?.mode == music || settings.gesture?.mode == music
-        log.note("Ring input reporting", inputReportingOn
-                 ? "on — taps and swipes now reach Jarvis"
-                 : "the ring kept touch mode \(settings.touch?.mode ?? 0) and gesture mode \(settings.gesture?.mode ?? 0)")
+        let taken = settings.gesture?.mode ?? settings.touch?.mode ?? 0
+        inputMode = RingInputMode.allCases.first { $0.appType == taken } ?? .off
+        log.note("Ring gestures → \(inputMode.label)",
+                 inputMode == mode ? "the ring took it"
+                                   : "asked for \(mode.label); the ring kept mode \(taken)")
     }
 
     func syncClock() async throws {

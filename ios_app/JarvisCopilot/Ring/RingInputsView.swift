@@ -6,9 +6,10 @@ struct RingInputsSection: View {
     @ObservedObject var store: RingInputStore
     let ready: Bool
     let lastInput: RingInputEvent?
-    let reporting: Bool
+    /// What the ring actually took, read back from it.
+    let ringMode: RingInputMode
     let sensitivity: Int?
-    let onEnable: () -> Void
+    let onMode: (RingInputMode) -> Void
     let onSensitivity: (Int) -> Void
 
     var body: some View {
@@ -17,17 +18,22 @@ struct RingInputsSection: View {
                       + "double-tap usually arrives as \"Swipe forward\". Do the gesture and watch which "
                       + "row says it was just seen, then set that one.") {
             Row {
-                HStack {
-                    Image(systemName: reporting ? "dot.radiowaves.left.and.right" : "exclamationmark.triangle")
-                        .foregroundStyle(reporting ? .green : .orange)
-                    Text(reporting ? "The ring is reporting its inputs"
-                                   : "The ring is not reporting its inputs yet")
-                        .font(.caption)
-                    Spacer(minLength: 0)
-                    if !reporting {
-                        Button("Turn on", action: onEnable).font(.caption).disabled(!ready)
+                Picker("Gestures", selection: Binding(get: { store.wantedMode }, set: onMode)) {
+                    ForEach(RingInputMode.allCases) { Text($0.label).tag($0) }
+                }
+                .disabled(!ready)
+            }
+            RowDivider()
+            Row {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(store.wantedMode.detail).font(.caption).foregroundStyle(.secondary)
+                    if ready, ringMode != store.wantedMode {
+                        Text("The ring is on \"\(ringMode.label)\" — reconnect or pick again if this sticks.")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             ForEach(Array(RingInput.allCases.enumerated()), id: \.element.id) { index, input in
                 RowDivider()
