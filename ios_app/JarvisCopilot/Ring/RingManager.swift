@@ -102,7 +102,7 @@ final class RingManager: NSObject, ObservableObject {
         }
         session.onInput = { [weak self] input in self?.runAction(for: input) }
         session.wantsMultiPress = { [weak self] in self?.inputs?.usesMultiPress ?? false }
-        session.pressWindow = { [weak self] in self?.inputs?.pressWindow ?? 2.5 }
+        session.pressWindow = { [weak self] in self?.inputs?.pressWindow ?? 1.8 }
     }
 
     // MARK: Scanning

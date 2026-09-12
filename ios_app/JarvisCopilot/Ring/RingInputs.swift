@@ -241,7 +241,7 @@ final class RingInputStore: ObservableObject {
     @Published private(set) var mode: RingInputMode?
 
     /// The chosen wait for a second press.
-    @Published private(set) var pressWindow: TimeInterval = 2.5
+    @Published private(set) var pressWindow: TimeInterval = 1.8
 
     private let key: String
     private let modeKey: String

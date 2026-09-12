@@ -536,7 +536,7 @@ final class RingSession: ObservableObject {
     /// How long to wait for another press before deciding what the gesture was. The ring needs
     /// a moment to detect and report each double-tap, so two of them arrive further apart than
     /// they feel; the log prints the measured gap and this is settable per ring.
-    var pressWindow: () -> TimeInterval = { 2.5 }
+    var pressWindow: () -> TimeInterval = { 1.8 }
     private var lastPressAt: Date?
     /// Whether anything is bound to a double or triple press. When nothing is, there is nothing
     /// to disambiguate and a press runs the moment it lands instead of waiting out the window.
