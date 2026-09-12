@@ -316,6 +316,28 @@ class Ring:
         return self.invoke("ring_raw_command", {"hex": hex, "big_data_cmd": big_data_cmd,
                                                 "payload_hex": payload_hex, "confirm": True})
 
+    def firmware_update(self, image_path: str | None = None, url: str | None = None,
+                        confirm: bool = False) -> dict[str, Any]:
+        """Flash a firmware image to the ring over its own BLE updater. Refuses unless ``confirm``.
+
+        Give ``image_path`` (a local ``.bin``, sent as base64) or ``url`` (the phone downloads it).
+        The ring stages the image and commits only after its own magic/model/length checks, so a
+        failed transfer leaves the running firmware intact; it reboots into the new image when done.
+        The transfer takes minutes and runs in the background on the phone — the reply says
+        ``started``; follow progress with ``ring_get_log``.
+        """
+        if confirm is not True:
+            raise RingError("ring_firmware_update needs confirm=True: this reflashes the ring")
+        if (image_path is None) == (url is None):
+            raise RingError("give either image_path (a local .bin) or url")
+        body: dict[str, Any] = {"confirm": True}
+        if image_path is not None:
+            import base64
+            body["image_b64"] = base64.b64encode(Path(image_path).read_bytes()).decode("ascii")
+        else:
+            body["url"] = url
+        return self.invoke("ring_firmware_update", body)
+
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
@@ -434,6 +456,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--big-data-cmd", dest="big_data_cmd", type=_byte, help="large-data opcode, e.g. 0x27")
     p.add_argument("--payload-hex", dest="payload_hex", help="large-data payload as hex")
     p.add_argument("--confirm", action="store_true")
+
+    p = sub.add_parser("firmware-update",
+                       help="flash a firmware .bin over the ring's own BLE updater (needs --confirm)")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--file", dest="fw_file", help="local .bin to send (base64)")
+    src.add_argument("--url", dest="fw_url", help="HTTPS URL the phone downloads the .bin from")
+    p.add_argument("--confirm", action="store_true")
     return parser
 
 
@@ -471,6 +500,8 @@ def _run(ring: Ring, args: argparse.Namespace) -> dict[str, Any]:
     if command == "raw":
         return ring.raw(hex=args.hex, big_data_cmd=args.big_data_cmd, payload_hex=args.payload_hex,
                         confirm=args.confirm)
+    if command == "firmware-update":
+        return ring.firmware_update(image_path=args.fw_file, url=args.fw_url, confirm=args.confirm)
     raise RingError(f"unknown command {command!r}")
 
 

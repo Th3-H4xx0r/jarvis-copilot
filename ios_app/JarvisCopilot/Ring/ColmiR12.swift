@@ -181,6 +181,18 @@ final class ColmiR12: WearableDevice {
                     "payload_hex": ["type": "string"],
                     "confirm": ["type": "boolean"],
                 ], required: ["confirm"])),
+            DeviceCapability(
+                name: "ring_firmware_update",
+                description: "Flash a firmware image to the ring over its own BLE updater. image_b64 = the "
+                    + ".bin (base64), or url to download it. The ring stages the image and only commits after "
+                    + "its own checks, so a failed transfer leaves the running firmware intact. Takes minutes and "
+                    + "runs in the background — watch ring_get_log; the ring reboots into the new image when done. "
+                    + "confirm must be true.",
+                inputSchema: DeviceCapability.schema([
+                    "image_b64": ["type": "string", "description": "Firmware .bin as base64."],
+                    "url": ["type": "string", "description": "HTTPS URL to download the .bin from instead."],
+                    "confirm": ["type": "boolean"],
+                ], required: ["confirm"])),
         ]
     }
 
@@ -212,6 +224,7 @@ final class ColmiR12: WearableDevice {
         case "ring_power": return try await power(args)
         case "ring_get_log": return recentLog(args)
         case "ring_raw_command": return try await raw(args)
+        case "ring_firmware_update": return try await firmwareUpdate(args)
         default: throw DeviceError.unknownCommand(name)
         }
     }
@@ -554,6 +567,56 @@ final class ColmiR12: WearableDevice {
             let replies = try await self.session.sendRawBigData(cmd: UInt8(cmd), payload: [UInt8](payload))
             return ["replies": replies.map(self.inboundJSON)]
         }
+    }
+
+    /// Flash a firmware image over the ring's own BLE updater. The transfer takes minutes —
+    /// longer than one bridge invoke — so we validate, start it, and let it run in the
+    /// background; every OTA frame and ack shows up in ring_get_log, and the ring reboots into
+    /// the new image once it commits. A failed/aborted transfer leaves the running image intact.
+    private func firmwareUpdate(_ args: [String: Any]) async throws -> [String: Any] {
+        guard args["confirm"] as? Bool == true else {
+            throw DeviceError.badArgument("'confirm' must be true — this reflashes the ring")
+        }
+        let image = try await firmwareImage(args)
+        if let bad = RingFirmwareUpdate.precondition(image) {
+            throw DeviceError.badArgument("this image won't flash: \(bad.reason)")
+        }
+        let pockets = RingFirmwareUpdate.pocketCount(image)
+        return try await live { secondsLeft in
+            var failure: String?
+            let finished = await self.runBounded(max(2, secondsLeft)) { [backend] in
+                do {
+                    try await RingFirmwareUpdate.run(
+                        image: image,
+                        send: { cmd, payload in try await backend.session.sendRawBigData(cmd: cmd, payload: payload) })
+                } catch {
+                    failure = (error as? RingFirmwareUpdate.Failure)?.reason ?? String(describing: error)
+                }
+            }
+            if let failure {
+                throw DeviceError.badArgument("firmware update failed: \(failure) (the ring kept the old image)")
+            }
+            if finished {
+                return ["finished": true, "pockets": pockets, "bytes": image.count]
+            }
+            return ["started": true, "finished": false, "pockets": pockets, "bytes": image.count,
+                    "note": "flashing in the background — watch ring_get_log; the ring reboots into the new image when it commits"]
+        }
+    }
+
+    /// The image bytes from `image_b64` or a downloaded `url`.
+    private func firmwareImage(_ args: [String: Any]) async throws -> [UInt8] {
+        if let b64 = args["image_b64"] as? String, !b64.isEmpty {
+            guard let data = Data(base64Encoded: b64) else {
+                throw DeviceError.badArgument("'image_b64' is not valid base64")
+            }
+            return [UInt8](data)
+        }
+        if let urlString = args["url"] as? String, let url = URL(string: urlString) {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            return [UInt8](data)
+        }
+        throw DeviceError.badArgument("give 'image_b64' (base64 of the .bin) or 'url'")
     }
 
     // MARK: Encoding
