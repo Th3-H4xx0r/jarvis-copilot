@@ -654,6 +654,13 @@ final class RingSession: ObservableObject {
     /// The longest press run anything is bound to. A burst that reaches it is decided at once,
     /// and with nothing beyond a single press bound there is no burst at all.
     var maxBoundPresses: () -> Int = { 1 }
+    /// What a gesture is currently set to run, for the gesture monitor.
+    var actionSummary: (RingInput) -> String? = { _ in nil }
+    /// Set while the inputs screen is open: count presses whether or not anything is bound to
+    /// them, so the rows light up and the monitor shows what the ring can really do. Without
+    /// this a double press is invisible until you have already bound something to it — which is
+    /// exactly the wrong way round when you are trying to find out whether it works.
+    var countEveryPress = false
     private var presses = RingPressCounter()
     private var pressTask: Task<Void, Never>?
 
@@ -686,7 +693,7 @@ final class RingSession: ObservableObject {
             pressTask = nil
             presses.discard()
         }
-        note(.shake, "Shake", "run now")
+        note(.shake, "Shake", outcomeNote(.shake))
         deliver(.shake)
     }
 
@@ -700,7 +707,8 @@ final class RingSession: ObservableObject {
             log.note("Ring press ignored", "inside the shake guard")
             return
         }
-        let outcome = presses.press(at: Date(), window: pressWindow(), maxPresses: maxBoundPresses())
+        let maxPresses = countEveryPress ? max(3, maxBoundPresses()) : maxBoundPresses()
+        let outcome = presses.press(at: Date(), window: pressWindow(), maxPresses: maxPresses)
         if case .echo = outcome {} else { lastPressGap = outcome.gap }
         switch outcome {
         case .echo(let gap):
@@ -711,7 +719,7 @@ final class RingSession: ObservableObject {
             pressTask?.cancel()
             pressTask = nil
             note(.press, "Tap \(presses.count + 1) reported", detail(gap))
-            note(.resolved, resolved.label, "run now")
+            note(.resolved, resolved.label, outcomeNote(resolved))
             log.note("Ring \(resolved.label.lowercased())", detail(gap) + ", run now")
             deliver(resolved)
         case .waiting(let deadline, let gap):
@@ -723,7 +731,7 @@ final class RingSession: ObservableObject {
                 try? await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
                 guard !Task.isCancelled, let self else { return }
                 let resolved = self.presses.take()
-                self.note(.resolved, resolved.label, "the window closed")
+                self.note(.resolved, resolved.label, self.outcomeNote(resolved))
                 self.deliver(resolved)
             }
         }
@@ -741,6 +749,12 @@ final class RingSession: ObservableObject {
     private func note(_ kind: RingGestureEvent.Kind, _ title: String, _ detail: String) {
         gestureFeed.insert(RingGestureEvent(kind: kind, title: title, detail: detail, date: Date()), at: 0)
         if gestureFeed.count > 12 { gestureFeed.removeLast(gestureFeed.count - 12) }
+    }
+
+    /// What will come of a gesture: the action it runs, or that nothing is set for it. A row
+    /// left on "Nothing" is the commonest reason a gesture looks broken.
+    private func outcomeNote(_ input: RingInput) -> String {
+        actionSummary(input) ?? "nothing set for this"
     }
 
     /// The gap between this press and the one before it — the only way to tell "the ring

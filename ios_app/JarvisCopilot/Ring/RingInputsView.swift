@@ -80,7 +80,9 @@ struct RingInputsSection: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
             }
-            if store.usesMultiPress {
+            // Shown whenever the ring can do multi-press, not only once something is bound to it:
+            // the window is what you tune while trying a double press out.
+            if inputs.contains(.doublePress) {
                 RowDivider()
                 Row {
                     Picker("Wait for a second press",

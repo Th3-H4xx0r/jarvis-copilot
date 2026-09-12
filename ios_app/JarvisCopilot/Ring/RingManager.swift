@@ -103,6 +103,10 @@ final class RingManager: NSObject, ObservableObject {
         session.onInput = { [weak self] input in self?.runAction(for: input) }
         session.maxBoundPresses = { [weak self] in self?.inputs?.maxBoundPresses ?? 1 }
         session.wantsShake = { [weak self] in self?.inputs?.usesShake ?? false }
+        session.actionSummary = { [weak self] input in
+            let action = self?.inputs?.action(for: input) ?? .none
+            return action.isSet ? action.summary : nil
+        }
         session.pressWindow = { [weak self] in self?.inputs?.pressWindow ?? 3.0 }
         watchInputBindings()
     }

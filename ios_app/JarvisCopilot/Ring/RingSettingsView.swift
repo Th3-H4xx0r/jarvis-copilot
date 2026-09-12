@@ -87,7 +87,10 @@ struct RingSettingsView: View {
         }
         .navigationTitle("Ring settings")
         .navigationBarTitleDisplayMode(.inline)
+        // While this screen is open every press is counted, bound or not, so a double or triple
+        // press can be tried out before anything is set for it.
         .onAppear {
+            session.countEveryPress = true
             loadDrafts()
             // Applies a choice made while the ring was away, without waiting for a reconnect.
             if ready, let inputs = manager.inputs, session.inputMode != inputs.wantedMode {
@@ -95,6 +98,7 @@ struct RingSettingsView: View {
             }
         }
 
+        .onDisappear { session.countEveryPress = false }
         .confirmationDialog("Power the ring off?", isPresented: $confirmPowerOff, titleVisibility: .visible) {
             Button("Power off", role: .destructive) { apply { try await session.powerOff() } }
         } message: {
