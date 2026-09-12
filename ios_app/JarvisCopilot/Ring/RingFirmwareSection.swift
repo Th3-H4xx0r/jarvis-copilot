@@ -143,6 +143,11 @@ struct RingFirmwareSection: View {
                 ProgressView().controlSize(.small)
                 Text("Flashing \(Int(flasher.fraction * 100))%").font(.caption).monospacedDigit()
             }
+        case .verifying:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Verifying…").font(.caption)
+            }
         case .succeeded:
             Label("Flashed", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
         case .failed(let why):

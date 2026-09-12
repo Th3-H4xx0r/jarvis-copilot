@@ -46,6 +46,7 @@ struct RingFirmwareFlashSheet: View {
     private var title: String {
         switch flasher.phase {
         case .idle, .running: return "Flashing firmware"
+        case .verifying: return "Verifying"
         case .succeeded: return "Firmware flashed"
         case .failed(let why): return why == "cancelled" ? "Flash cancelled" : "Flash failed"
         }
@@ -67,6 +68,8 @@ struct RingFirmwareFlashSheet: View {
                     switch flasher.phase {
                     case .succeeded:
                         Image(systemName: "checkmark").font(.system(size: 44, weight: .semibold)).foregroundStyle(.green)
+                    case .verifying:
+                        ProgressView().controlSize(.large)
                     case .failed:
                         Image(systemName: "xmark").font(.system(size: 44, weight: .semibold)).foregroundStyle(.red)
                     default:
@@ -112,7 +115,7 @@ struct RingFirmwareFlashSheet: View {
     }
 
     private var gaugeFraction: Double {
-        flasher.phase == .succeeded ? 1 : flasher.fraction
+        (flasher.phase == .succeeded || flasher.phase == .verifying) ? 1 : flasher.fraction
     }
 
     private var gaugeColor: Color {
@@ -137,7 +140,9 @@ struct RingFirmwareFlashSheet: View {
         case .running:
             if flasher.sent == 0 { return "Handshaking with the ring…" }
             if flasher.sent < flasher.total { return "Sending image to the ring. Keep the ring close to the phone." }
-            return "Verifying and committing. The ring will reboot."
+            return "Sending the commit. The ring will reboot."
+        case .verifying:
+            return "Image sent. Waiting for the ring to reboot and come back on the new version. Keep it close."
         case .succeeded:
             return "Image committed. The ring is rebooting into \(image.version) and reconnects in about 20 s."
         case .failed(let why):

@@ -38,10 +38,13 @@ final class RingFirmwareFlasher: ObservableObject {
     enum Phase: Equatable {
         case idle
         case running
+        /// image sent; waiting for the ring to reboot and reconnect on the new version
+        case verifying
         case succeeded
         case failed(String)
 
-        var isRunning: Bool { self == .running }
+        /// The UI stays locked (no cancel, no dismiss) through both sending and verifying.
+        var isRunning: Bool { self == .running || self == .verifying }
     }
 
     struct Line: Identifiable, Equatable {
@@ -91,6 +94,7 @@ final class RingFirmwareFlasher: ObservableObject {
         }
         log("Pre-flight OK: magic, model RT12_V3.1, image_id 0x2793, size, wrapper checksum")
         phase = .running
+        let fromVersion = session.firmware
         session.log.note("Firmware flash started", image.version)
         task = Task { [weak self] in
             guard let self else { return }
@@ -106,12 +110,46 @@ final class RingFirmwareFlasher: ObservableObject {
                         self.sent = sent
                         self.total = total
                     })
-                self.finish(.succeeded, session: session)
+                await self.verify(image: image, from: fromVersion, session: session)
             } catch let failure as RingFirmwareUpdate.Failure {
                 self.finish(.failed(failure.reason), session: session)
             } catch {
                 self.finish(.failed(error.localizedDescription), session: session)
             }
+        }
+    }
+
+    /// After the commit frame there is no ack — the ring reboots. Real success is the ring
+    /// coming back on the new version, so watch the link drop then read the firmware revision.
+    /// This is what turns a written-but-not-applied commit from a false "success" into the truth.
+    private func verify(image: RingFirmwareImage, from: String?, session: RingSession) async {
+        phase = .verifying
+        log("Commit sent. Waiting for the ring to reboot and reconnect (about 15–30 s)…")
+        var sawDrop = false
+        var announcedDrop = false, announcedBack = false
+        for _ in 0..<40 {                                   // ~80 s
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            let ready = session.transport.link?.isLinkReady ?? false
+            if !ready {
+                sawDrop = true
+                if !announcedDrop { log("Ring disconnected — it is rebooting into the new image."); announcedDrop = true }
+                continue
+            }
+            if sawDrop && !announcedBack { log("Ring reconnected. Reading its firmware version…"); announcedBack = true }
+            if sawDrop, let now = session.firmware, now != from {
+                if now.contains("3.11") || image.version.contains(now) || now.contains("260911") {
+                    finish(.succeeded, session: session); return
+                }
+                finish(.failed("rebooted but came back on \(now) — the bootloader kept the old image (version tie)"), session: session)
+                return
+            }
+        }
+        if !sawDrop {
+            finish(.failed("the ring never rebooted — the commit frame was not applied by the ring"), session: session)
+        } else if let now = session.firmware, now == from {
+            finish(.failed("rebooted but stayed on \(now) — the bootloader kept the old image"), session: session)
+        } else {
+            finish(.failed("could not confirm the new version within 80 s — check 'On the ring' after it reconnects"), session: session)
         }
     }
 
@@ -148,8 +186,8 @@ final class RingFirmwareFlasher: ObservableObject {
         switch result {
         case .succeeded:
             let secs = Int(now.timeIntervalSince(startedAt ?? now))
-            log("✓ Flashed \(sent)/\(total) pockets in \(secs)s. The ring is rebooting; it reconnects in ~10–20 s.")
-            session.log.note("Firmware flash finished", "\(sent) pockets, \(secs)s")
+            log("✓ Done in \(secs)s. The ring rebooted and is now running \(session.firmware ?? "the new firmware").")
+            session.log.note("Firmware flash finished", session.firmware ?? "\(sent) pockets")
         case .failed(let why):
             log("✗ Failed: \(why). The ring kept its old firmware; you can retry.")
             session.log.note("Firmware flash failed", why)
