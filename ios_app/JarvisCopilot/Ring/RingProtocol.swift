@@ -434,6 +434,15 @@ extension RingRequest {
         .command(RingOp.measure, [type.rawValue, type.rawValue < 3 ? 0x00 : 0x25])
     }
 
+    /// The ring's real-time heart-rate mode: `0x69` type 6, action 1 to start and 4 to stop.
+    ///
+    /// Unlike a one-shot measurement this keeps the optical sensor running and pushes a reading
+    /// every couple of seconds — a zero when there is no finger in the way. That is the only
+    /// live "is it being worn" signal the ring has, so the wear status rides on it.
+    static func realtimeHeartRate(_ on: Bool) -> RingRequest {
+        .command(RingOp.measure, [6, on ? 1 : 4])
+    }
+
     static func stopMeasurement(_ type: RingMeasurementType, value: Int = 0, extra: Int = 0) -> RingRequest {
         .command(RingOp.stopMeasure, [type.rawValue, byte(value), byte(extra)])
     }

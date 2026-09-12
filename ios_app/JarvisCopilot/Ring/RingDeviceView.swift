@@ -57,8 +57,17 @@ struct RingDeviceView: View {
             manager.screenIsOpen = true
             if manager.connected?.id != ring.id || !manager.linkIsUp { manager.connect(ring) }
         }
+        // The wear status is only live while the ring's optical sensor is running, so it runs
+        // while this screen is up and stops the moment it isn't.
+        .task(id: ready) {
+            guard ready else { return }
+            await session.startWearWatch()
+        }
         .onDisappear {
+            // Settings is a push from here and comes straight back, so keep the sensor running
+            // across it rather than stopping and restarting.
             guard !showingSettings else { return }
+            Task { await session.stopWearWatch() }
             manager.screenIsOpen = false
             manager.releaseIfIdle()
         }
@@ -114,17 +123,16 @@ struct RingDeviceView: View {
         .padding(.horizontal, 24)
     }
 
-    /// On a finger, off it, or on the charger. The ring has no flag for this, so it is what the
-    /// ring has told us in passing — a measurement that came back "not worn", a real reading, or
-    /// the charger — and it says how long ago rather than implying it is live.
+    /// On a finger, off it, or on the charger — live while this screen is open.
+    ///
+    /// The ring has no flag to poll: it will only say whether it is being worn while its optical
+    /// sensor is running, so the screen turns on the ring's real-time heart-rate mode and turns
+    /// it off again on the way out.
     @ViewBuilder private var wearStatus: some View {
         let state = session.wearState
         HStack(spacing: 5) {
             Image(systemName: icon(for: state))
             Text(state.label)
-            if let at = session.wearStateAt, Date().timeIntervalSince(at) > 90 {
-                Text("· \(at, style: .relative) ago")
-            }
         }
         .foregroundStyle(state == .unknown ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
     }

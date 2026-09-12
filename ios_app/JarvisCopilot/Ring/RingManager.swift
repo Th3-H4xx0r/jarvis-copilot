@@ -103,12 +103,20 @@ final class RingManager: NSObject, ObservableObject {
         session.onInput = { [weak self] input in self?.runAction(for: input) }
         session.maxBoundPresses = { [weak self] in self?.inputs?.maxBoundPresses ?? 1 }
         session.wantsShake = { [weak self] in self?.inputs?.usesShake ?? false }
-        inputs?.onActionsChanged = { [weak self] in
+        session.pressWindow = { [weak self] in self?.inputs?.pressWindow ?? 3.0 }
+        watchInputBindings()
+    }
+
+    /// Some gestures have to be armed on the ring rather than merely read: the shake detector is
+    /// a command. The store is per ring and only exists once the ring is known, so this is
+    /// attached here and again on every connect rather than once at launch — the first version
+    /// ran while `inputs` was still nil, and the detector was never armed at all.
+    private func watchInputBindings() {
+        guard let inputs else { return }
+        inputs.onActionsChanged = { [weak self] in
             guard let self, let inputs = self.inputs else { return }
-            let wanted = inputs.usesShake && inputs.wantedMode == .jarvis
-            Task { await self.session.setShakeDetector(wanted) }
+            Task { await self.session.setShakeDetector(inputs.usesShake && inputs.wantedMode == .jarvis) }
         }
-        session.pressWindow = { [weak self] in self?.inputs?.pressWindow ?? 2.0 }
     }
 
     // MARK: Scanning
@@ -310,6 +318,7 @@ final class RingManager: NSObject, ObservableObject {
             guard self.state == .ready else { return }
             if let id = self.deviceID { self.session.saveCache(deviceID: id) }
             // Put the ring where the user asked — reporting to Jarvis, driving music, or off.
+            self.watchInputBindings()
             await self.session.setInputMode(self.inputs?.wantedMode ?? .off)
             // Find out what this ring actually answers; its own flags under-report.
             await self.session.runProbe()

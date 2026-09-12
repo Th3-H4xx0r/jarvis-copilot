@@ -61,6 +61,8 @@ struct RingSettingsView: View {
                                       inputs: RingInput.available(touchSurface: caps.touch),
                                       ringMode: session.inputMode,
                                       sensitivity: caps.gesture ? session.settings.gesture?.strength ?? 1 : nil,
+                                      lastPressGap: session.lastPressGap,
+                                      shakeArmed: session.shakeArmed,
                                       onMode: { mode in
                                           inputs.setMode(mode)
                                           Task { await session.setInputMode(mode) }

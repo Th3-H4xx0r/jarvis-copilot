@@ -11,6 +11,11 @@ struct RingInputsSection: View {
     /// What the ring actually took, read back from it.
     let ringMode: RingInputMode
     let sensitivity: Int?
+    /// The gap between the ring's last two presses, as measured. The only honest way to pick a
+    /// window: the ring's reporting delay is not the speed you tapped at.
+    let lastPressGap: TimeInterval?
+    /// Whether the ring acknowledged arming its shake detector.
+    let shakeArmed: Bool
     let onMode: (RingInputMode) -> Void
     let onSensitivity: (Int) -> Void
 
@@ -20,9 +25,10 @@ struct RingInputsSection: View {
 
     var body: some View {
         CardGroup("Ring inputs",
-                  footer: inputs.count <= 3
-                      ? "This ring has one gesture — the double-tap it feels on its own. Do it twice or "
-                        + "three times quickly for the other two, the way a one-button remote works."
+                  footer: inputs.contains(.shake)
+                      ? "This ring feels two things: a tap and a shake. Tap it two or three times — "
+                        + "about a second apart, it cannot feel them faster — for the double and "
+                        + "triple, the way a one-button remote works."
                       : "Do a gesture and watch which row says it was just seen, then set that one.") {
             Row {
                 Picker("Gestures", selection: Binding(get: { store.wantedMode }, set: onMode)) {
@@ -84,13 +90,45 @@ struct RingInputsSection: View {
                 }
                 RowDivider()
                 Row {
-                    Text("Leave about a second between taps: the ring stops listening for one after "
-                         + "every tap it reports, so anything faster reaches Jarvis as a single press. "
-                         + "A double or triple runs the moment its last tap lands; a single press waits "
-                         + "this long first. The log prints the gap between presses.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Leave about a second between taps: the ring stops listening for one "
+                             + "after every tap it reports, so anything faster reaches Jarvis as a "
+                             + "single press. A double or triple runs the moment its last tap lands; "
+                             + "a single press waits this long first.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if let gap = lastPressGap {
+                            // The measured gap is the thing to set the window above. Tap twice and
+                            // read it, rather than guessing.
+                            Text(String(format: "Last two presses arrived %.1fs apart%@", gap,
+                                        gap > store.pressWindow ? " — longer than the window above" : ""))
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(gap > store.pressWindow ? AnyShapeStyle(Color.orange)
+                                                                         : AnyShapeStyle(.secondary))
+                        } else {
+                            Text("Tap the ring twice to see how far apart it reports them.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            if store.usesShake {
+                RowDivider()
+                Row {
+                    HStack(spacing: 8) {
+                        Image(systemName: shakeArmed ? "checkmark.circle.fill" : "exclamationmark.circle")
+                            .foregroundStyle(shakeArmed ? Color.green : Color.orange)
+                        Text(shakeArmed
+                             ? "Shake detector armed. Shake your hand firmly; it waits three seconds "
+                               + "between shakes."
+                             : "Shake detector not armed — the ring refuses this while it is on the "
+                               + "charger, and while gestures are off.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             if sensitivity != nil {

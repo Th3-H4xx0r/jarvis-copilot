@@ -96,9 +96,12 @@ final class RingSession: ObservableObject {
     @Published private(set) var accelerometerSupported: Bool?
     /// `value` is the key code: 1 swipe down, 2 swipe up, 3 click, 4 long press.
     @Published private(set) var lastTouchKey: RingLiveReading?
-    /// On a finger, off it, or on the charger — with when we last learnt that.
+    /// On a finger, off it, or on the charger.
     @Published private(set) var wearState: RingWearState = .unknown
     @Published private(set) var wearStateAt: Date?
+    /// True while the ring's real-time heart-rate mode is running to keep the status live.
+    @Published private(set) var wearWatching = false
+    private var wearWatchTimeout: Task<Void, Never>?
     /// The last tap or swipe, whichever channel it arrived on.
     @Published private(set) var lastInput: RingInputEvent?
     /// What the ring's taps and swipes are currently set to drive, as read back from the ring.
@@ -402,13 +405,20 @@ final class RingSession: ObservableObject {
     /// firmware under-reports, and a ring that ignores one may still honour the other.
     /// Whether a shake is bound to anything, so the detector is only armed when it has work.
     var wantsShake: () -> Bool = { false }
+    /// Whether the ring acknowledged arming its shake detector.
+    @Published private(set) var shakeArmed = false
 
     /// Turns the ring's shake detector on or off. It refuses while the ring is charging, so this
     /// is sent again whenever the input mode is applied.
     func setShakeDetector(_ on: Bool) async {
         guard transport.link?.isLinkReady == true else { return }
-        _ = try? await transport.perform(.shakeDetector(on), until: .none)
-        log.note("Ring shake detector", on ? "armed" : "off")
+        // The ring drops this silently while it is charging, or before it is fully up, so wait
+        // for the ack and say which happened — an unarmed detector simply never fires.
+        let reply = try? await transport.perform(.shakeDetector(on), until: .single)
+        shakeArmed = on && reply?.isEmpty == false
+        log.note("Ring shake detector",
+                 reply?.isEmpty == false ? (on ? "armed" : "off")
+                                         : "no answer — the ring refuses this while charging")
     }
 
     func setInputMode(_ mode: RingInputMode) async {
@@ -629,6 +639,7 @@ final class RingSession: ObservableObject {
             }
         case RingOp.ppgData:
             livePPG = (livePPG + inbound.payload.map(Int.init)).suffix(180)
+            if inbound.payload.contains(where: { $0 > 0 }) { noteWear(.onFinger) }
         case RingOp.musicCommand:
             // In the ring's music mode every tap and swipe arrives as one of these.
             if let input = RingInput(musicAction: Int(inbound.payload.first ?? 0)) { noteInput(input) }
@@ -656,6 +667,7 @@ final class RingSession: ObservableObject {
             return
         }
         let outcome = presses.press(at: Date(), window: pressWindow(), maxPresses: maxBoundPresses())
+        if case .echo = outcome {} else { lastPressGap = outcome.gap }
         switch outcome {
         case .echo(let gap):
             // Not a second press: the ring cannot report two taps this close together.
@@ -676,6 +688,10 @@ final class RingSession: ObservableObject {
         }
     }
 
+    /// What the ring's last press looked like, so the settings screen can show the real gap
+    /// rather than leaving the user to guess why a double press did not group.
+    @Published private(set) var lastPressGap: TimeInterval?
+
     /// The gap between this press and the one before it — the only way to tell "the ring
     /// dropped a press" from "the window was too short", so it goes in the log every time.
     private func detail(_ gap: TimeInterval?) -> String {
@@ -683,9 +699,46 @@ final class RingSession: ObservableObject {
     }
 
     private func noteWear(_ state: RingWearState) {
+        // Charging outranks everything: the ring is demonstrably not on a finger.
+        if wearState == .charging, state == .onFinger, battery?.charging == true { return }
+        wearStateAt = state == .unknown ? nil : Date()
         guard state != wearState else { return }
         wearState = state
-        wearStateAt = state == .unknown ? nil : Date()
+    }
+
+    // MARK: Wear watch
+
+    /// Keeps the wear status live by running the ring's real-time heart-rate mode.
+    ///
+    /// There is no flag on the ring to poll: it will only say whether it is being worn while its
+    /// optical sensor is actually running. Real-time mode pushes a reading every couple of
+    /// seconds — a number when it can see a finger, a zero when it cannot — so the status is
+    /// live for as long as this is on. It costs the sensor, so it runs only while a screen is
+    /// showing the status and is stopped the moment that screen goes away.
+    func startWearWatch() async {
+        guard !wearWatching, transport.link?.isLinkReady == true else { return }
+        // A one-shot measurement owns the sensor; don't fight it for the hardware.
+        guard measurement?.isActive != true else { return }
+        if battery?.charging == true { noteWear(.charging); return }
+        wearWatching = true
+        _ = try? await transport.perform(.realtimeHeartRate(true), until: .none)
+        log.note("Ring wear watch", "real-time heart rate on")
+        // Nothing at all coming back is itself an answer, but only after a fair wait.
+        wearWatchTimeout?.cancel()
+        wearWatchTimeout = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(14))
+            guard !Task.isCancelled, let self, self.wearWatching else { return }
+            if self.wearState == .unknown { self.noteWear(.offFinger) }
+        }
+    }
+
+    func stopWearWatch() async {
+        wearWatchTimeout?.cancel()
+        wearWatchTimeout = nil
+        guard wearWatching else { return }
+        wearWatching = false
+        _ = try? await transport.perform(.realtimeHeartRate(false), until: .none)
+        log.note("Ring wear watch", "off")
     }
 
     private func deliver(_ input: RingInput) {
@@ -724,8 +777,14 @@ final class RingSession: ObservableObject {
         case .press(let input):
             noteInput(input)
         case .instantHeartRate(let bpm):
+            // In real-time mode the ring pushes a zero when it cannot see a finger, which is
+            // the only live wear signal it has. Outside that mode a zero says nothing.
+            if bpm > 0 {
+                noteWear(.onFinger)
+            } else if wearWatching {
+                noteWear(.offFinger)
+            }
             guard bpm > 0 else { return }
-            noteWear(.onFinger)
             let reading = RingLiveReading(value: Double(bpm), date: Date())
             liveHeartRate = reading
             onLiveReading?(.heartRate, reading)

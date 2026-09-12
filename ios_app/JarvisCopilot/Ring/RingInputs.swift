@@ -111,6 +111,14 @@ struct RingPressCounter {
         case decided(RingInput, gap: TimeInterval?)
         /// More presses may follow; decide at this moment unless one does.
         case waiting(until: Date, gap: TimeInterval?)
+
+        /// How long after the previous press this one landed, if there was one.
+        var gap: TimeInterval? {
+            switch self {
+            case .echo(let gap): return gap
+            case .decided(_, let gap), .waiting(_, let gap): return gap
+            }
+        }
     }
 
     /// Takes one press report. `maxPresses` is the highest count anything is bound to.
@@ -317,7 +325,7 @@ final class RingInputStore: ObservableObject {
     @Published private(set) var mode: RingInputMode?
 
     /// The chosen wait for a second press.
-    @Published private(set) var pressWindow: TimeInterval = 2.0
+    @Published private(set) var pressWindow: TimeInterval = 3.0
 
     private let key: String
     private let modeKey: String
@@ -347,11 +355,12 @@ final class RingInputStore: ObservableObject {
 
     /// How long to wait for a second press.
     ///
-    /// The floor is the ring's own: it stops listening for a second between reporting one tap
-    /// and re-arming, then reports on a poll timer, so two presses can land anywhere from one
-    /// to three seconds apart however fast you tap. Anything under 1.5 s could never catch a
-    /// second press — which is why the old 1.2 s option is gone. The log prints the gap.
-    static let pressWindows: [TimeInterval] = [1.5, 2.0, 2.6, 3.5]
+    /// The floor is the ring's own. It stops listening for a full second after reporting a tap,
+    /// then only sends the next one when its accelerometer poll timer next comes round — so two
+    /// taps land on the phone anywhere from one to three seconds apart however fast you tap.
+    /// A window under 2 s will miss the slow end of that, which is why the short options are
+    /// gone; 3 s covers the ring's worst case. The screen and the log both print the real gap.
+    static let pressWindows: [TimeInterval] = [2.0, 3.0, 4.0, 5.0]
 
     /// Whether anything is bound to a shake. The detector costs a command to arm and reports
     /// on a three-second cooldown, so it is only turned on when it has something to run.
