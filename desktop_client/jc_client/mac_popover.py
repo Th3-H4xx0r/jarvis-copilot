@@ -330,7 +330,14 @@ if sys.platform == "darwin":  # pragma: no cover - needs a macOS run loop
         import AppKit as _AppKit
         import objc as _objc
 
-        from jc_client._mac_media import _SELECTOR, _SIGNATURE, _WK_PERMISSION_GRANT
+        from jc_client._mac_media import _SELECTOR, _WK_PERMISSION_GRANT
+
+        # The decision handler is a block, and PyObjC can only call a block whose
+        # own signature it was told. `@?` alone leaves that unknown, so invoking
+        # it raised — and a Python exception escaping into Obj-C aborts the
+        # process, which is what took the whole tray down. `<v@?q>` spells out
+        # the block: void(WKPermissionDecision).
+        _SIGNATURE = b"v@:@@@q@?<v@?q>"
 
         class _ClickDelegate(_AppKit.NSObject):  # noqa: F811
             """Target for the status-item button and the footer button."""
@@ -353,7 +360,14 @@ if sys.platform == "darwin":  # pragma: no cover - needs a macOS run loop
             """
 
         def _grant(self, _webview, _origin, _frame, _type, decision_handler):
-            decision_handler(_WK_PERMISSION_GRANT)
+            # Nothing may escape from here into Obj-C: WebKit calls this from a
+            # C++ frame with no handler, so a raised exception is an abort, not
+            # a traceback. The worst this may now cost is a panel without a
+            # microphone.
+            try:
+                decision_handler(_WK_PERMISSION_GRANT)
+            except Exception:
+                logger.exception("voice popover: granting microphone access failed")
 
         _objc.classAddMethods(_WebViewDelegate, [
             _objc.selector(_grant, selector=_SELECTOR, signature=_SIGNATURE),
