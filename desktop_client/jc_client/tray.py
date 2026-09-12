@@ -35,6 +35,9 @@ log = logging.getLogger(__name__)
 
 
 _STATE_REFRESH_SEC = 2.0
+# How many device/wearable rows the menu can hold. Fixed, because pystray's item
+# list is built once; empty slots hide themselves.
+_MAX_DEVICE_ROWS = 12
 
 # Cross-process Coding-Session sync indicator. The service process (which may be
 # a SEPARATE launchd-supervised process) writes this file via CodingSyncAgent;
@@ -455,11 +458,23 @@ class TrayApp:
         # One disabled row per device and wearable: a status dot in the text and,
         # on macOS, the device's own picture attached to the item (see
         # mac_popover._apply_icons) — the way the system's Bluetooth menu reads.
-        def _device_items():
-            rows = list(self._roster.rows)
-            if not rows:
-                return [MenuItem("Devices — loading…", None, enabled=False)]
-            return [MenuItem(row.title, None, enabled=False) for row in rows]
+        #
+        # A FIXED set of slots whose text is computed per refresh, because
+        # pystray expands the item list once when the Menu is built and only
+        # ever re-evaluates the callables on it. Building the rows directly
+        # froze them at whatever the roster held at launch — nothing.
+        def _device_slot(index):
+            def text(_item):
+                rows = self._roster.rows
+                if not rows:
+                    return "Devices — loading…" if index == 0 else ""
+                return rows[index].title if index < len(rows) else ""
+
+            def visible(_item):
+                rows = self._roster.rows
+                return index == 0 if not rows else index < len(rows)
+
+            return MenuItem(text, None, enabled=False, visible=visible)
 
         return Menu(
             MenuItem(_status_text, None, enabled=False),
@@ -470,7 +485,7 @@ class TrayApp:
             MenuItem(_syncing_label, None, enabled=False,
                      visible=_syncing_visible),
             Sep,
-            *_device_items(),
+            *[_device_slot(i) for i in range(_MAX_DEVICE_ROWS)],
             Sep,
             MenuItem("Open dashboard", self._act_open_dashboard),
             MenuItem(_voice_label, self._act_voice_menu_item),
