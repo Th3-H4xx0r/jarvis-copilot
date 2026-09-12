@@ -29,7 +29,9 @@ main.main.showing-voice #mainVoice { display: flex !important; }
   align-items: center;
   justify-content: center;
   gap: 24px;
-  padding: 32px 24px 40px;
+  /* Top breathing room: in the narrow menubar panel the orb (and the "what you
+     said" line above it) otherwise sit hard against the top edge. */
+  padding: 46px 24px 40px;
   min-height: 0;
   width: 100%;
   max-width: 720px;
@@ -49,6 +51,9 @@ main.main.showing-voice #mainVoice { display: flex !important; }
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Room underneath for the state label. The sphere fills most of the canvas,
+     so a label inside the box lands on its glow. */
+  margin-bottom: 28px;
 }
 
 .voice-orb-canvas {
@@ -59,7 +64,8 @@ main.main.showing-voice #mainVoice { display: flex !important; }
 
 .voice-orb-state-label {
   position: absolute;
-  bottom: 6px;
+  /* Below the canvas, not over it — the orb's bloom reaches the box's edge. */
+  bottom: -26px;
   left: 50%;
   transform: translateX(-50%);
   font-size: 11px;
