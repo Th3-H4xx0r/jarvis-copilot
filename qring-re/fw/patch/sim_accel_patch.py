@@ -297,3 +297,31 @@ if __name__ == '__main__' and '--deep' in os.sys.argv:
     clean = open(CLEAN, 'rb').read(); patched = open(PATCHED, 'rb').read()
     test_wire(patched)
     test_free_ids(clean)
+
+# ---------------------------------------------------------------- stock: run the unedited firmware on its own
+def report_stock(clean):
+    """Exercise the ORIGINAL image's command dispatcher for every command byte and summarise."""
+    print('== stock: the unedited 3.10.06 firmware, every command byte through ble_cmd_dispatch ==')
+    kinds = {'handled': [], 'queued_to_app_task': [], 'unsupported': [], 'silent': []}
+    for cmd in range(256):
+        lc, ec, rc = trace(clean, cmd)
+        assert ec is None and rc['pc'] == SENTINEL and rc['sp'] == STACK_TOP, (hex(cmd), ec, rc)
+        names = [n for n, _, _ in lc if n != 'ble_rx_mark_activity']
+        if names == ['reply_unsupported']: kinds['unsupported'].append(cmd)
+        elif 'queue_cmd_for_task' in names: kinds['queued_to_app_task'].append(cmd)
+        elif names: kinds['handled'].append(cmd)
+        else: kinds['silent'].append(cmd)
+    for k, v in kinds.items():
+        print(f'  {k:18}: {len(v):3}  ' + ' '.join(f'{c:02x}' for c in v[:40]) + (' …' if len(v) > 40 else ''))
+    # the two commands the patch cares about
+    for cmd in (0x5A, 0x03):
+        lc, _, _ = trace(clean, cmd)
+        print(f'  0x{cmd:02X} on stock -> {[n for n, _, _ in lc]}')
+    # the stock image's own reply to an accelerometer poll is the error form (0x5A|0x80 = 0xDA)
+    lc, _, _ = trace(clean, 0x5A)
+    assert [n for n, _, _ in lc if n != 'ble_rx_mark_activity'] == ['reply_unsupported']
+    print('  stock answers 0x5A with reply_unsupported -> the app will show "not in this firmware".  OK')
+    print('  every command returned to the caller with a balanced stack: the stock dispatcher runs clean in the emulator.')
+
+if __name__ == '__main__' and '--stock' in os.sys.argv:
+    report_stock(open(CLEAN, 'rb').read())
