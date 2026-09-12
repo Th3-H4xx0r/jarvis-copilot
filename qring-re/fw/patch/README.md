@@ -12,6 +12,7 @@ script. **Nothing here flashes the ring.** See the safety section before you eve
 | `build_patch.py` | rebuilds the patched image from the clean base; encodes + verifies every branch |
 | `base_RT12_3.11.00_260911.bin` | the patched image (version bumped from 3.10.06_260429), 80 bytes changed |
 | `tap_and_accel_client.py` | **phone/host side** — poll accel + derive single/double/triple tap. Works today, no flashing. |
+| `sim_accel_patch.py` | **emulator harness** (Unicorn): runs the real patched bytes; proves decode, passthrough for all 255 other commands, the 0xB2 reply for every FIFO head, and clean-vs-patched call traces. `pip install unicorn capstone && python3 sim_accel_patch.py` |
 
 Rebuild: `python3 build_patch.py`.
 
@@ -67,13 +68,37 @@ equivalent. Ask and I will write that hook as a separate, clearly-marked patch.
 
 ## SAFETY — read before flashing anything
 
-- This image is **unverified on hardware.** The Thumb code and all four branch targets are
-  decode-checked, and `build_patch.py` reproduces the bytes deterministically, but it has
-  **not** run on a ring.
-- `build_patch.py` recomputes the **byte-sum word at offset 0x0C** (the one integrity field I
-  confirmed earlier). It does **not** touch the 32-bit word at offset 0x00 or prove out the
-  Realtek image-header integrity field, because the exact boot-checked field was not fully
-  reverse-engineered. **Confirm that before flashing**, or the boot ROM may reject the image.
-- The ring is a sealed 5ATM device with **no non-destructive recovery** if the bootloader
-  rejects a patched image. Only flash a **sacrificial unit** first, over a recoverable path
-  (UART / rtltool), never your only ring, never blindly via the OTA app.
+### What is now verified (software)
+- `sim_accel_patch.py` executes the patched image on an emulated Cortex-M core. All checks pass:
+  the hook and cave decode exactly as `accel_stream.s`; for every command byte except 0xB2 the
+  machine state at `ble_cmd_dispatch+4` is identical to the clean firmware (r0, r2-r7, sp, lr,
+  pushed words; only the dead register r1 differs); 0xB2 calls `send_reply_payload(0xB2, &newest, 6)`
+  for all 83 FIFO head positions including the wrap, and returns to the caller with sp balanced and
+  r4 restored; clean-vs-patched callee traces are identical for the other 255 commands.
+- The index math (`head-6`, wrap `+0x1ec` after the borrow) equals the firmware's own
+  `gsensor_read_recent` (`head + 0x1e6`).
+- The cave at 0x847840 sits in a 298-byte zero run between a const table and the
+  `lib_BIODetect_V14_1` string; nothing in the image references that range.
+- The Realtek image header (file 0x50..0x450) is untouched. Decoded from the stock image:
+  `ctrl_flag = 0x0981` → `integrity_check_en_in_boot = 0`, `crc16 = 0`, `sha256` all zero.
+  The boot ROM is not checksumming the app payload (the stock image would fail if it were), so the
+  open question from the earlier handoff is resolved: there is no hidden boot integrity field to
+  satisfy. `build_patch.py` recomputes the only live checksum, the vendor wrapper's byte-sum at 0x0C.
+- The app image contains no OTA receiver; firmware updates go through Realtek's ROM DFU
+  (dual-bank, `not_ready` / `not_obsolete` flags). The patch changes nothing it inspects.
+
+### What is NOT verified
+- It has never run on a ring. The emulator models the CPU, SRAM and the reply call; it does not
+  model the BLE stack, timing, or the ROM DFU's acceptance rules (no ROM dump is available).
+- Torn reads: the BLE task reads `head` and 6 bytes while the app task may be writing the ring.
+  Worst case is one mixed-axis sample, never a fault.
+
+### Recovery
+- No QEMU/Renode model of the RTL8762 exists; the harness above is the simulator.
+- A rejected or crashing image is recoverable over UART with `rtltool` (RTS = reset, DTR low =
+  flash mode, uploads `firmware0.bin` from the BeeMPTool kit, arbitrary flash read/write/erase
+  from 0x00800000). The ring is a sealed 5ATM unit, so that path needs opening the case.
+- Because the hook only runs when a BLE command arrives and the boot path is untouched, a bug in
+  the 0xB2 handler would at worst reset the ring, leaving the stock OTA route available to go back
+  to `../base_RT12_3.10.06_260429.bin`.
+- Still: first flash on a **sacrificial unit**, never your only ring, and never blindly.
