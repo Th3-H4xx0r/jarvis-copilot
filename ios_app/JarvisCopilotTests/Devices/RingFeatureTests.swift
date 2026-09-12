@@ -82,6 +82,41 @@ final class RingFeatureTests: XCTestCase {
         XCTAssertEqual(seen, [.swipeForward, .longPress, .doubleTap, .triplePress])
     }
 
+    /// Tapping the ring repeatedly builds enough motion to trip its shake detector. Once a run
+    /// of presses is under way, a shake is that tapping and must not steal the gesture.
+    func testAShakeDuringARunOfPressesIsTheTapping() async throws {
+        session.pressWindow = { 1.0 }
+        session.maxBoundPresses = { 3 }
+        var seen: [RingInput] = []
+        session.onInput = { seen.append($0) }
+
+        link.deliver(RingProtocol.frame(0x73, [41]))
+        try await Task.sleep(nanoseconds: 250_000_000)
+        link.deliver(RingProtocol.frame(0x73, [41]))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        link.deliver(RingProtocol.frame(0x02, [2]))       // the tapping tripped the shake detector
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+
+        XCTAssertEqual(seen, [.doublePress], "the shake was the tapping, not a gesture of its own")
+    }
+
+    /// The other direction: a shake trips the tap detector, and that stray click is not a press.
+    func testAShakeTakesTheStrayPressItCausedWithIt() async throws {
+        session.pressWindow = { 1.0 }
+        session.maxBoundPresses = { 3 }
+        var seen: [RingInput] = []
+        session.onInput = { seen.append($0) }
+
+        link.deliver(RingProtocol.frame(0x73, [41]))      // the shake's own motion
+        try await Task.sleep(nanoseconds: 200_000_000)
+        link.deliver(RingProtocol.frame(0x02, [2]))
+        try await Task.sleep(nanoseconds: 200_000_000)
+        link.deliver(RingProtocol.frame(0x73, [41]))      // still rattling
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+
+        XCTAssertEqual(seen, [.shake])
+    }
+
     /// A shake is its own gesture, not another press: it must never join the count.
     func testAShakeIsDeliveredAsItsOwnGesture() async throws {
         session.pressWindow = { 0.3 }

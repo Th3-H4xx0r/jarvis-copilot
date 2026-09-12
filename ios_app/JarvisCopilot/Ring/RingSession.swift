@@ -633,7 +633,7 @@ final class RingSession: ObservableObject {
             // detector firing, `3` the camera closing. A shake is its own gesture and must not
             // reach the press counter — it would read as an extra tap.
             switch inbound.payload.first {
-            case 2: deliver(.shake)
+            case 2: noteShake()
             case 1: noteInput(.tap)
             default: break
             }
@@ -661,9 +661,43 @@ final class RingSession: ObservableObject {
     /// single, double and triple — three inputs out of one gesture. `RingPressCounter` holds
     /// the rules; this is the plumbing: cancel the pending decision, act on the outcome, log
     /// the measured gap either way.
+    /// How long after a shake the ring's tap detector keeps rattling. A shake is sustained
+    /// motion, so it trips the click interrupt too; those clicks are not presses.
+    private static let shakeGuard: TimeInterval = 2.5
+    private var lastShakeAt: Date?
+
+    /// A shake the ring reports, arbitrated against whatever tapping is in flight.
+    ///
+    /// The two detectors share one accelerometer and overlap in both directions: a shake trips
+    /// the tap detector, and tapping the ring repeatedly builds enough motion to trip the shake
+    /// detector. Neither can be turned down from the phone, so they are told apart by what else
+    /// is happening — a shake that lands in the middle of a run of presses is the tapping, and
+    /// anything else is a real shake, which takes the stray press it caused with it.
+    private func noteShake() {
+        if presses.count >= 2 {
+            note(.ignored, "Shake ignored", "you were already \(presses.count) presses into a tap")
+            log.note("Ring shake ignored", "\(presses.count) presses in flight — that was tapping")
+            return
+        }
+        lastShakeAt = Date()
+        if presses.count > 0 {
+            // The shake's own motion tripped the tap detector; that click was not a press.
+            pressTask?.cancel()
+            pressTask = nil
+            presses.discard()
+        }
+        note(.shake, "Shake", "run now")
+        deliver(.shake)
+    }
+
     private func noteInput(_ input: RingInput) {
         guard input.isPress else {
             deliver(input)
+            return
+        }
+        if let shake = lastShakeAt, Date().timeIntervalSince(shake) < Self.shakeGuard {
+            note(.ignored, "Tap ignored", "inside the shake that just ran")
+            log.note("Ring press ignored", "inside the shake guard")
             return
         }
         let outcome = presses.press(at: Date(), window: pressWindow(), maxPresses: maxBoundPresses())
@@ -671,19 +705,26 @@ final class RingSession: ObservableObject {
         switch outcome {
         case .echo(let gap):
             // Not a second press: the ring cannot report two taps this close together.
+            note(.ignored, "Tap ignored", String(format: "%.2fs behind the last — a repeat", gap))
             log.note("Ring press ignored", String(format: "%.2fs behind the last — a repeat of it", gap))
         case .decided(let resolved, let gap):
             pressTask?.cancel()
             pressTask = nil
+            note(.press, "Tap \(presses.count + 1) reported", detail(gap))
+            note(.resolved, resolved.label, "run now")
             log.note("Ring \(resolved.label.lowercased())", detail(gap) + ", run now")
             deliver(resolved)
         case .waiting(let deadline, let gap):
+            note(.press, "Tap \(presses.count) reported",
+                 detail(gap) + String(format: " · deciding in %.1fs", deadline.timeIntervalSinceNow))
             log.note("Ring press", detail(gap) + String(format: " — deciding in %.1fs", deadline.timeIntervalSinceNow))
             pressTask?.cancel()
             pressTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
                 guard !Task.isCancelled, let self else { return }
-                self.deliver(self.presses.take())
+                let resolved = self.presses.take()
+                self.note(.resolved, resolved.label, "the window closed")
+                self.deliver(resolved)
             }
         }
     }
@@ -691,6 +732,16 @@ final class RingSession: ObservableObject {
     /// What the ring's last press looked like, so the settings screen can show the real gap
     /// rather than leaving the user to guess why a double press did not group.
     @Published private(set) var lastPressGap: TimeInterval?
+
+    /// The raw gesture stream, newest first — every press and shake as the ring sent it, and
+    /// what Jarvis made of it. The two detectors overlap in the hardware, so this is the only
+    /// way to see which one actually fired.
+    @Published private(set) var gestureFeed: [RingGestureEvent] = []
+
+    private func note(_ kind: RingGestureEvent.Kind, _ title: String, _ detail: String) {
+        gestureFeed.insert(RingGestureEvent(kind: kind, title: title, detail: detail, date: Date()), at: 0)
+        if gestureFeed.count > 12 { gestureFeed.removeLast(gestureFeed.count - 12) }
+    }
 
     /// The gap between this press and the one before it — the only way to tell "the ring
     /// dropped a press" from "the window was too short", so it goes in the log every time.

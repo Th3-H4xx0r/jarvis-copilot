@@ -16,6 +16,8 @@ struct RingInputsSection: View {
     let lastPressGap: TimeInterval?
     /// Whether the ring acknowledged arming its shake detector.
     let shakeArmed: Bool
+    /// The raw gesture stream, newest first.
+    let gestureFeed: [RingGestureEvent]
     let onMode: (RingInputMode) -> Void
     let onSensitivity: (Int) -> Void
 
@@ -153,9 +155,57 @@ struct RingInputsSection: View {
                 }
                 .disabled(!ready)
             }
+            if store.wantedMode == .jarvis {
+                RowDivider()
+                monitor
+            }
         }
         .onAppear { wantedSensitivity = sensitivity ?? 1 }
         .onChange(of: sensitivity) { _, value in wantedSensitivity = value ?? wantedSensitivity }
+    }
+
+    /// What the ring actually sent, newest first.
+    ///
+    /// The tap and shake detectors share one accelerometer and trip each other, so when a
+    /// gesture "does not work" this is the only way to see which one the ring really reported —
+    /// and whether a second tap arrived at all, or the ring simply never sent one.
+    @ViewBuilder private var monitor: some View {
+        Row {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("What the ring is sending")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                if gestureFeed.isEmpty {
+                    Text("Nothing yet. Tap the ring and watch this fill in.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    ForEach(gestureFeed.prefix(6)) { event in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: event.kind.icon)
+                                .font(.caption2)
+                                .foregroundStyle(tint(event.kind))
+                                .frame(width: 14)
+                            Text(event.title).font(.caption.weight(.medium))
+                            Text(event.detail).font(.caption2).foregroundStyle(.secondary)
+                            Spacer(minLength: 4)
+                            Text(event.date, style: .relative)
+                                .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func tint(_ kind: RingGestureEvent.Kind) -> Color {
+        switch kind {
+        case .press: return .blue
+        case .shake: return .purple
+        case .resolved: return .green
+        case .ignored: return .orange
+        }
     }
 
     /// Says whether the ring took the change, rather than leaving a number that never moves.

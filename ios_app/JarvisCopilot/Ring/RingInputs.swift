@@ -138,6 +138,13 @@ struct RingPressCounter {
         return .waiting(until: min(now.addingTimeInterval(window), ceiling), gap: gap)
     }
 
+    /// Throws the burst away without delivering anything — the presses turned out to be
+    /// something else's doing.
+    mutating func discard() {
+        count = 0
+        firstPressAt = nil
+    }
+
     /// The gesture the presses so far add up to, and the end of the burst.
     mutating func take() -> RingInput {
         let resolved: RingInput = count >= 3 ? .triplePress : count == 2 ? .doublePress : .tap
@@ -184,6 +191,32 @@ enum RingInputMode: String, CaseIterable, Codable, Identifiable {
         case .off: return RingTouchMode.off.rawValue
         }
     }
+}
+
+/// One line of the gesture monitor: what the ring actually sent, when, and what came of it.
+///
+/// The ring's two detectors overlap — tapping it repeatedly builds enough motion to trip the
+/// shake detector, and shaking it trips the tap detector — so when a gesture "does not work" the
+/// only way to tell which of the two happened is to watch the raw stream.
+struct RingGestureEvent: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case press, shake, resolved, ignored
+
+        var icon: String {
+            switch self {
+            case .press: return "hand.tap"
+            case .shake: return "waveform.path"
+            case .resolved: return "arrow.turn.down.right"
+            case .ignored: return "minus.circle"
+            }
+        }
+    }
+
+    let id = UUID()
+    let kind: Kind
+    let title: String
+    let detail: String
+    let date: Date
 }
 
 /// The last input the ring sent, so the settings screen can show which row it lands on.
