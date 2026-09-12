@@ -265,9 +265,12 @@ final class RingManager: NSObject, ObservableObject {
             return
         }
         session.log.note("Ring input: \(input.label)", action.summary)
+        let started = Date()
         Task { [weak self] in
             let outcome = await RingActionRunner.run(action)
-            self?.session.log.note("Ran \(input.label)", outcome)
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            self?.session.log.note("Ran \(input.label)", "\(outcome) — \(ms)ms")
+            self?.session.noteGestureRun(input, "\(action.summary) · \(ms)ms")
         }
     }
 

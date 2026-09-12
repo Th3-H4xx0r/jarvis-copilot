@@ -742,6 +742,14 @@ final class RingSession: ObservableObject {
     /// way to see which one actually fired.
     @Published private(set) var gestureFeed: [RingGestureEvent] = []
 
+    /// What the action bound to a gesture did, and how long it took — reported by whoever ran
+    /// it. Between this and the "run now" line above it, the monitor accounts for every
+    /// millisecond the phone is responsible for; anything left over is the ring taking its time
+    /// to send the tap in the first place.
+    func noteGestureRun(_ input: RingInput, _ detail: String) {
+        note(.ran, input.label, detail)
+    }
+
     private func note(_ kind: RingGestureEvent.Kind, _ title: String, _ detail: String) {
         gestureFeed.insert(RingGestureEvent(kind: kind, title: title, detail: detail, date: Date()), at: 0)
         if gestureFeed.count > 12 { gestureFeed.removeLast(gestureFeed.count - 12) }

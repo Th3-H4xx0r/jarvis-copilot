@@ -200,7 +200,7 @@ enum RingInputMode: String, CaseIterable, Codable, Identifiable {
 /// only way to tell which of the two happened is to watch the raw stream.
 struct RingGestureEvent: Identifiable, Equatable {
     enum Kind: Equatable {
-        case press, shake, resolved, ignored
+        case press, shake, resolved, ignored, ran
 
         var icon: String {
             switch self {
@@ -208,6 +208,7 @@ struct RingGestureEvent: Identifiable, Equatable {
             case .shake: return "waveform.path"
             case .resolved: return "arrow.turn.down.right"
             case .ignored: return "minus.circle"
+            case .ran: return "bolt.fill"
             }
         }
     }

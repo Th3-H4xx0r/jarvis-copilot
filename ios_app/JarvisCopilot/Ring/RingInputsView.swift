@@ -208,6 +208,7 @@ struct RingInputsSection: View {
         case .shake: return .purple
         case .resolved: return .green
         case .ignored: return .orange
+        case .ran: return .teal
         }
     }
 
