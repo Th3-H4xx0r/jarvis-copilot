@@ -130,6 +130,37 @@ struct MetricPill: View {
     }
 }
 
+/// What a device card shows instead of a signal reading when the device is remembered but
+/// out of reach — so a card never claims a link it doesn't have.
+///
+/// A remembered board or ring is surfaced into its manager's scan list with an RSSI of 0,
+/// which used to read as "Known" or even "Wi‑Fi" on the card while a second row underneath
+/// said "Not found". One card, one honest status.
+struct DisconnectedPill: View {
+    var lastSeen: Date? = nil
+
+    var body: some View {
+        HStack(spacing: 8) {
+            MetricPill(icon: "antenna.radiowaves.left.and.right.slash", label: "Status",
+                       value: "Disconnected", tint: .secondary)
+            if let note = Self.lastSeenNote(lastSeen) {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    /// "last seen 22h ago", or nil when we have never had it in hand.
+    static func lastSeenNote(_ date: Date?) -> String? {
+        guard let date else { return nil }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return "last seen \(formatter.localizedString(for: date, relativeTo: Date()))"
+    }
+}
+
 // MARK: - Shared formatting
 
 /// Thresholds are physical, so they stay in Celsius whichever unit is displayed.

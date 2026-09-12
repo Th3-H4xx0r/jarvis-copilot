@@ -91,6 +91,7 @@ struct RingSettingsView: View {
                 Task { await session.setInputMode(inputs.wantedMode) }
             }
         }
+
         .confirmationDialog("Power the ring off?", isPresented: $confirmPowerOff, titleVisibility: .visible) {
             Button("Power off", role: .destructive) { apply { try await session.powerOff() } }
         } message: {

@@ -442,6 +442,16 @@ extension RingRequest {
         .command(RingOp.phoneStillTime, [2, inUse ? 1 : 0] + u16LE(counter & 0xFFFF))
     }
 
+    /// Arms or disarms the ring's shake detector.
+    ///
+    /// It rides on the camera control (`0x02`): `4` is "the camera is open", which is what turns
+    /// the detector on, and `6` closes it. While armed the ring watches its own motion magnitude
+    /// and sends `0x02` with a `2` when you shake it, then holds off for three seconds. The ring
+    /// refuses this while it is charging.
+    static func shakeDetector(_ on: Bool) -> RingRequest {
+        .command(RingOp.camera, [on ? 4 : 6])
+    }
+
     /// Wearing calibration: `6` starts it, `2` cancels.
     static func calibration(mode: UInt8) -> RingRequest {
         .command(RingOp.calibration, [mode])

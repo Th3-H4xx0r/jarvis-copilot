@@ -61,9 +61,11 @@ final class RingFeatureTests: XCTestCase {
         XCTAssertEqual(RingInput(touchKey: 3), .tap)
     }
 
+    /// Every channel the ring can report a press on feeds the one counter, so three presses
+    /// spread across three of them are one triple press.
     func testEveryChannelTheRingPressesOnBecomesAnInput() async throws {
-        session.pressWindow = { 0.05 }
-        session.wantsMultiPress = { true }
+        session.pressWindow = { 0.5 }
+        session.maxBoundPresses = { 3 }
         var seen: [RingInput] = []
         session.onInput = { seen.append($0) }
 
@@ -71,32 +73,78 @@ final class RingFeatureTests: XCTestCase {
         link.deliver(RingProtocol.frame(0x73, [45, 4]))   // key event
         link.deliver(RingProtocol.frame(0x73, [48]))      // couple double-tap
         link.deliver(RingProtocol.frame(0x73, [41]))      // game click
-        try await Task.sleep(nanoseconds: 120_000_000)
+        try await Task.sleep(nanoseconds: 200_000_000)
         link.deliver(RingProtocol.frame(0x73, [37, 0, 0, 0, 5]))  // tasbih counter
-        link.deliver(RingProtocol.frame(0x02, [1]))       // camera shutter
-        try await Task.sleep(nanoseconds: 120_000_000)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        link.deliver(RingProtocol.frame(0x02, [1]))       // the ring asking for the camera
+        try await Task.sleep(nanoseconds: 80_000_000)
 
-        // Presses are grouped, so the two that land together are one double press.
-        XCTAssertEqual(seen, [.swipeForward, .longPress, .doubleTap, .tap, .doublePress])
+        XCTAssertEqual(seen, [.swipeForward, .longPress, .doubleTap, .triplePress])
     }
 
-    func testPressesInQuickSuccessionMakeThreeInputsFromOneGesture() async throws {
-        session.pressWindow = { 0.05 }
-        session.wantsMultiPress = { true }
+    /// A shake is its own gesture, not another press: it must never join the count.
+    func testAShakeIsDeliveredAsItsOwnGesture() async throws {
+        session.pressWindow = { 0.3 }
+        session.maxBoundPresses = { 3 }
         var seen: [RingInput] = []
         session.onInput = { seen.append($0) }
 
-        for _ in 0..<3 { link.deliver(RingProtocol.frame(0x73, [41])) }
-        try await Task.sleep(nanoseconds: 120_000_000)
+        link.deliver(RingProtocol.frame(0x02, [2]))       // the shake detector firing
+        try await Task.sleep(nanoseconds: 60_000_000)
+        link.deliver(RingProtocol.frame(0x02, [3]))       // camera closing: not an input
+        try await Task.sleep(nanoseconds: 60_000_000)
+
+        XCTAssertEqual(seen, [.shake])
+    }
+
+    func testPressesInSuccessionMakeThreeInputsFromOneGesture() async throws {
+        session.pressWindow = { 0.4 }
+        session.maxBoundPresses = { 3 }
+        var seen: [RingInput] = []
+        session.onInput = { seen.append($0) }
+
+        for _ in 0..<3 {
+            link.deliver(RingProtocol.frame(0x73, [41]))
+            try await Task.sleep(nanoseconds: 200_000_000)
+        }
         link.deliver(RingProtocol.frame(0x73, [41]))
-        try await Task.sleep(nanoseconds: 120_000_000)
+        try await Task.sleep(nanoseconds: 500_000_000)
 
         XCTAssertEqual(seen, [.triplePress, .tap])
     }
 
+    /// The gesture the user asked for shouldn't wait out a window that can no longer change it.
+    func testTheLastBoundPressRunsWithoutWaitingOutTheWindow() async throws {
+        session.pressWindow = { 5 }
+        session.maxBoundPresses = { 2 }
+        var seen: [RingInput] = []
+        session.onInput = { seen.append($0) }
+
+        link.deliver(RingProtocol.frame(0x73, [41]))
+        try await Task.sleep(nanoseconds: 200_000_000)
+        link.deliver(RingProtocol.frame(0x73, [41]))
+        try await Task.sleep(nanoseconds: 60_000_000)
+
+        XCTAssertEqual(seen, [.doublePress], "a double press with nothing longer bound runs at once")
+    }
+
+    /// One gesture reported twice must not read as two presses.
+    func testAPressRepeatedInstantlyIsNotASecondPress() async throws {
+        session.pressWindow = { 0.2 }
+        session.maxBoundPresses = { 3 }
+        var seen: [RingInput] = []
+        session.onInput = { seen.append($0) }
+
+        link.deliver(RingProtocol.frame(0x73, [41]))
+        link.deliver(RingProtocol.frame(0x73, [41]))
+        try await Task.sleep(nanoseconds: 400_000_000)
+
+        XCTAssertEqual(seen, [.tap])
+    }
+
     func testASinglePressRunsAtOnceWhenNothingUsesMultiPress() async throws {
         session.pressWindow = { 1.4 }
-        session.wantsMultiPress = { false }
+        session.maxBoundPresses = { 1 }
         var seen: [RingInput] = []
         session.onInput = { seen.append($0) }
 
@@ -120,7 +168,10 @@ final class RingFeatureTests: XCTestCase {
     }
 
     func testOnlyTheGesturesTheRingHasAreOffered() {
-        XCTAssertEqual(RingInput.available(touchSurface: false), [.tap, .doublePress, .triplePress])
+        // A ring with no touch strip still has two real gestures: the accelerometer's tap,
+        // counted into single/double/triple, and the separate shake detector.
+        XCTAssertEqual(RingInput.available(touchSurface: false),
+                       [.tap, .doublePress, .triplePress, .shake])
         XCTAssertTrue(RingInput.available(touchSurface: true).contains(.swipeForward))
     }
 

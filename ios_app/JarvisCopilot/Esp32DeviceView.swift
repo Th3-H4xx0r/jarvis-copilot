@@ -770,6 +770,8 @@ struct Esp32Card: View {
     let board: DiscoveredEsp32
     /// Link the manager currently holds to this board, if any.
     var activeLink: Esp32Link? = nil
+    /// When the board was last in range, for the offline pill.
+    var lastSeen: Date? = nil
 
     private var blue: Color { Color(red: 0.30, green: 0.62, blue: 1.0) }
 
@@ -803,8 +805,10 @@ struct Esp32Card: View {
                             Text("needs Bluetooth setup").font(.caption2).foregroundStyle(.secondary)
                         }
                     } else if board.rssi == 0 {
-                        MetricPill(icon: board.canUseWifi ? "wifi" : "antenna.radiowaves.left.and.right",
-                                   label: "Signal", value: board.canUseWifi ? "Wi‑Fi" : "Known", tint: blue)
+                        // Remembered, but neither advertising nor answering on the LAN. Saying
+                        // "Wi‑Fi" here claimed a link the board wasn't on, and the Devices tab
+                        // then added a second "Not found" row for the very same board.
+                        DisconnectedPill(lastSeen: lastSeen)
                     } else {
                         MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
                                    value: "\(board.rssi) dBm", tint: signalTint)

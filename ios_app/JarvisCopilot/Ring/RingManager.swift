@@ -101,8 +101,14 @@ final class RingManager: NSObject, ObservableObject {
             if active { AudioServicesPlayAlertSound(SystemSoundID(1005)) }
         }
         session.onInput = { [weak self] input in self?.runAction(for: input) }
-        session.wantsMultiPress = { [weak self] in self?.inputs?.usesMultiPress ?? false }
-        session.pressWindow = { [weak self] in self?.inputs?.pressWindow ?? 1.8 }
+        session.maxBoundPresses = { [weak self] in self?.inputs?.maxBoundPresses ?? 1 }
+        session.wantsShake = { [weak self] in self?.inputs?.usesShake ?? false }
+        inputs?.onActionsChanged = { [weak self] in
+            guard let self, let inputs = self.inputs else { return }
+            let wanted = inputs.usesShake && inputs.wantedMode == .jarvis
+            Task { await self.session.setShakeDetector(wanted) }
+        }
+        session.pressWindow = { [weak self] in self?.inputs?.pressWindow ?? 2.0 }
     }
 
     // MARK: Scanning

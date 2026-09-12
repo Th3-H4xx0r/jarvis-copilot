@@ -107,11 +107,35 @@ struct RingDeviceView: View {
                 Text("· synced \(last, style: .relative) ago")
             }
             Spacer()
-            if let firmware = session.firmware { Text("fw \(firmware)").monospaced() }
+            wearStatus
         }
         .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 24)
+    }
+
+    /// On a finger, off it, or on the charger. The ring has no flag for this, so it is what the
+    /// ring has told us in passing — a measurement that came back "not worn", a real reading, or
+    /// the charger — and it says how long ago rather than implying it is live.
+    @ViewBuilder private var wearStatus: some View {
+        let state = session.wearState
+        HStack(spacing: 5) {
+            Image(systemName: icon(for: state))
+            Text(state.label)
+            if let at = session.wearStateAt, Date().timeIntervalSince(at) > 90 {
+                Text("· \(at, style: .relative) ago")
+            }
+        }
+        .foregroundStyle(state == .unknown ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
+    }
+
+    private func icon(for state: RingWearState) -> String {
+        switch state {
+        case .onFinger: return "hand.point.up.left.fill"
+        case .offFinger: return "hand.point.up.left"
+        case .charging: return "bolt.fill"
+        case .unknown: return "questionmark.circle"
+        }
     }
 
     // MARK: Actions
@@ -308,6 +332,8 @@ struct RingCard: View {
     let ring: DiscoveredRing
     let battery: RingBattery?
     let connected: Bool
+    /// When the ring was last in range, for the offline pill.
+    var lastSeen: Date? = nil
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -332,9 +358,12 @@ struct RingCard: View {
                     if connected {
                         MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
                                    tint: Color(red: 0.29, green: 0.82, blue: 0.49))
+                    } else if ring.rssi == 0 {
+                        // Remembered from iOS's own link, not answering: not a signal reading.
+                        DisconnectedPill(lastSeen: lastSeen)
                     } else {
                         MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
-                                   value: ring.rssi == 0 ? "Known" : "\(ring.rssi) dBm", tint: .blue)
+                                   value: "\(ring.rssi) dBm", tint: .blue)
                     }
                     if let battery {
                         MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",

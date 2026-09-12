@@ -20,13 +20,17 @@ struct ScanView: View {
     }
 
     private var scroller: some View {
-        ScrollView {
+        // Read once per pass: the roster is what the cards and the absent rows both work from,
+        // and it records last-seen signal as a side effect.
+        let entries = WearablesHub.shared.roster()
+        let absent = absentDevices(from: entries)
+        return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if manager.discovered.isEmpty && scaleManager.discovered.isEmpty
                     && esp32Manager.discovered.isEmpty && ringManager.discovered.isEmpty && absent.isEmpty {
                     emptyState
                 } else {
-                    grid
+                    grid(entries, absent: absent)
                     scanningRow
                 }
                 scannerFooter
@@ -50,7 +54,7 @@ struct ScanView: View {
 
     // MARK: Device list
 
-    private var grid: some View {
+    private func grid(_ entries: [WearableEntry], absent: [WearableEntry]) -> some View {
         VStack(spacing: spacing) {
             ForEach(manager.discovered) { bottle in
                 NavigationLink {
@@ -67,7 +71,9 @@ struct ScanView: View {
                     ScaleDeviceView(manager: scaleManager, scale: scale)
                         .zoomTransition(id: scale.id, in: cardNamespace)
                 } label: {
-                    ScaleCard(scale: scale)
+                    ScaleCard(scale: scale,
+                              connected: scaleManager.connected?.id == scale.id && scaleManager.state == .ready,
+                              lastSeen: lastSeen(WearableKeepAlive.scale, in: entries))
                 }
                 .buttonStyle(.plain)
                 .zoomSource(id: scale.id, in: cardNamespace)
@@ -79,7 +85,8 @@ struct ScanView: View {
                 } label: {
                     Esp32Card(board: board,
                               activeLink: esp32Manager.connected?.id == board.id && esp32Manager.state == .ready
-                                  ? esp32Manager.activeLink : nil)
+                                  ? esp32Manager.activeLink : nil,
+                              lastSeen: lastSeen(WearableKeepAlive.esp32, in: entries))
                 }
                 .buttonStyle(.plain)
                 .zoomSource(id: board.id, in: cardNamespace)
@@ -91,7 +98,8 @@ struct ScanView: View {
                 } label: {
                     RingCard(ring: ring,
                              battery: ringManager.connected?.id == ring.id ? ringManager.session.battery : nil,
-                             connected: ringManager.connected?.id == ring.id && ringManager.state == .ready)
+                             connected: ringManager.connected?.id == ring.id && ringManager.state == .ready,
+                             lastSeen: lastSeen(WearableKeepAlive.ring, in: entries))
                 }
                 .buttonStyle(.plain)
                 .zoomSource(id: ring.id, in: cardNamespace)
@@ -108,17 +116,23 @@ struct ScanView: View {
         }
     }
 
-    /// Paired devices this scan didn't turn up.
+    /// Paired devices with no card of their own that this scan didn't turn up.
     ///
     /// The list used to be the live scan buffer alone, so a bottle that was merely
     /// out of range vanished from the Devices tab entirely — indistinguishable from
     /// one that was never paired. They keep their card and say what's wrong instead.
-    private var absent: [WearableEntry] {
-        // A remembered ring surfaced from iOS's own link has no signal reading but already has a card.
-        let listedRings = Set(ringManager.discovered.map(\.id.uuidString))
-        return WearablesHub.shared.roster().filter {
-            !$0.connected && !$0.seenInLastScan && !listedRings.contains($0.deviceID)
-        }
+    ///
+    /// `listed` is what keeps a device to ONE card: a remembered board or ring is surfaced
+    /// into its manager's `discovered` list with no signal reading, which drew the full card
+    /// AND an "Not found" row beneath it for the same device. The card carries the offline
+    /// status now, and only a device with no card at all gets a row here.
+    private func absentDevices(from entries: [WearableEntry]) -> [WearableEntry] {
+        entries.filter { !$0.connected && !$0.seenInLastScan && !$0.listed }
+    }
+
+    /// When this kind of device was last in range, for a card whose link is down.
+    private func lastSeen(_ kind: String, in entries: [WearableEntry]) -> Date? {
+        entries.first { $0.kind == kind }?.lastSeen
     }
 
     // MARK: Chrome
@@ -223,6 +237,8 @@ private struct ScanRadar: View {
 
 private struct ScaleCard: View {
     let scale: DiscoveredScale
+    var connected = false
+    var lastSeen: Date? = nil
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -242,9 +258,16 @@ private struct ScaleCard: View {
                 Text("Etekcity body scale")
                     .font(.caption).foregroundStyle(.secondary).padding(.top, 3)
                 Spacer()
-                MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
-                           value: scale.rssi == 0 ? "Known" : "\(scale.rssi) dBm",
-                           tint: signalTint)
+                if connected {
+                    MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
+                               tint: Color(red: 0.29, green: 0.82, blue: 0.49))
+                } else if scale.rssi == 0 {
+                    // Remembered, not advertising: say so rather than "Known", which read as a link.
+                    DisconnectedPill(lastSeen: lastSeen)
+                } else {
+                    MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
+                               value: "\(scale.rssi) dBm", tint: signalTint)
+                }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
@@ -425,10 +448,8 @@ private struct AbsentDeviceCard: View {
     }
 
     private var subtitle: String {
-        guard let seen = entry.lastSeen else { return "Not found" }
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .abbreviated
+        guard let seen = DisconnectedPill.lastSeenNote(entry.lastSeen) else { return "Not found" }
         let signal = entry.lastRSSI.map { " · \($0) dBm" } ?? ""
-        return "Not found · last seen \(f.localizedString(for: seen, relativeTo: Date()))\(signal)"
+        return "Not found · \(seen)\(signal)"
     }
 }

@@ -48,6 +48,24 @@ struct RingCalibrationState: Equatable {
     var results: [Int: Int] = [:]
 }
 
+/// Whether the ring is on a finger, as far as anything it has actually told us goes.
+///
+/// The ring has no "worn" flag to read — the protocol only ever says so in passing, so this is
+/// inferred from what does arrive: a measurement that comes back `not worn`, a real reading
+/// (nothing reads a pulse off a bedside table), or the battery reporting the charger.
+enum RingWearState: String, Codable, Equatable {
+    case unknown, onFinger, offFinger, charging
+
+    var label: String {
+        switch self {
+        case .unknown: return "Not known"
+        case .onFinger: return "On finger"
+        case .offFinger: return "Off finger"
+        case .charging: return "On charger"
+        }
+    }
+}
+
 /// A value the ring pushed on its own, stamped when it arrived.
 struct RingLiveReading: Codable, Equatable {
     var value: Double
@@ -78,6 +96,9 @@ final class RingSession: ObservableObject {
     @Published private(set) var accelerometerSupported: Bool?
     /// `value` is the key code: 1 swipe down, 2 swipe up, 3 click, 4 long press.
     @Published private(set) var lastTouchKey: RingLiveReading?
+    /// On a finger, off it, or on the charger — with when we last learnt that.
+    @Published private(set) var wearState: RingWearState = .unknown
+    @Published private(set) var wearStateAt: Date?
     /// The last tap or swipe, whichever channel it arrived on.
     @Published private(set) var lastInput: RingInputEvent?
     /// What the ring's taps and swipes are currently set to drive, as read back from the ring.
@@ -379,10 +400,22 @@ final class RingSession: ObservableObject {
     /// Points the ring's taps and swipes at Jarvis, at music, or nowhere, and reads back what
     /// it actually took. Both controls are written whatever the capability flags claim: this
     /// firmware under-reports, and a ring that ignores one may still honour the other.
+    /// Whether a shake is bound to anything, so the detector is only armed when it has work.
+    var wantsShake: () -> Bool = { false }
+
+    /// Turns the ring's shake detector on or off. It refuses while the ring is charging, so this
+    /// is sent again whenever the input mode is applied.
+    func setShakeDetector(_ on: Bool) async {
+        guard transport.link?.isLinkReady == true else { return }
+        _ = try? await transport.perform(.shakeDetector(on), until: .none)
+        log.note("Ring shake detector", on ? "armed" : "off")
+    }
+
     func setInputMode(_ mode: RingInputMode) async {
         guard transport.link?.isLinkReady == true else { return }
         // The reporting channel only matters when the presses should reach this app.
         _ = try? await transport.perform(.inputReporting(mode == .jarvis), until: .single)
+        await setShakeDetector(mode == .jarvis && wantsShake())
         try? await write(.writeTouch(appType: mode.appType, sleepTime: settings.touch?.sleepTime ?? 0))
         try? await write(.writeGesture(appType: mode.appType, strength: settings.gesture?.strength ?? 1))
         if let touch = await read(.readTouch, RingDecode.touch, accept: \.isTouch) { settings.touch = touch }
@@ -489,6 +522,7 @@ final class RingSession: ObservableObject {
     private func handleMeasurement(_ reading: RingMeasurementReading) {
         guard var running = measurement, running.isActive, reading.type == running.type.rawValue else { return }
         if reading.errorCode == 1 {
+            noteWear(.offFinger)
             finishMeasurement(.notWorn, detail: "the ring is not being worn")
             return
         }
@@ -498,6 +532,8 @@ final class RingSession: ObservableObject {
         }
         let hasValue = running.type == .bloodPressure ? reading.systolic > 0 : reading.value > 0
         guard hasValue else { return }
+        // Nothing reads a pulse off a bedside table.
+        noteWear(.onFinger)
         running.value = reading.value
         if reading.systolic > 0 { running.systolic = reading.systolic }
         if reading.diastolic > 0 { running.diastolic = reading.diastolic }
@@ -583,8 +619,14 @@ final class RingSession: ObservableObject {
             findPhoneActive = active
             onFindPhone?(active)
         case RingOp.camera:
-            // In camera mode the shutter press comes to the app instead of to iOS.
-            noteInput(.tap)
+            // `1` the ring asking for the camera (a tap, in its photo mode), `2` the shake
+            // detector firing, `3` the camera closing. A shake is its own gesture and must not
+            // reach the press counter — it would read as an extra tap.
+            switch inbound.payload.first {
+            case 2: deliver(.shake)
+            case 1: noteInput(.tap)
+            default: break
+            }
         case RingOp.ppgData:
             livePPG = (livePPG + inbound.payload.map(Int.init)).suffix(180)
         case RingOp.musicCommand:
@@ -595,47 +637,55 @@ final class RingSession: ObservableObject {
         }
     }
 
-    /// How long to wait for another press before deciding what the gesture was. The ring needs
-    /// a moment to detect and report each double-tap, so two of them arrive further apart than
-    /// they feel; the log prints the measured gap and this is settable per ring.
-    var pressWindow: () -> TimeInterval = { 1.8 }
-    private var lastPressAt: Date?
-    /// Whether anything is bound to a double or triple press. When nothing is, there is nothing
-    /// to disambiguate and a press runs the moment it lands instead of waiting out the window.
-    var wantsMultiPress: () -> Bool = { false }
-    private var pressCount = 0
+    /// How long to wait for another press before deciding what the gesture was. The ring's own
+    /// re-arm delay sets the floor; the log prints the measured gap and this is settable per ring.
+    var pressWindow: () -> TimeInterval = { 2.0 }
+    /// The longest press run anything is bound to. A burst that reaches it is decided at once,
+    /// and with nothing beyond a single press bound there is no burst at all.
+    var maxBoundPresses: () -> Int = { 1 }
+    private var presses = RingPressCounter()
     private var pressTask: Task<Void, Never>?
 
-    /// A ring with no touch surface sends one kind of press, so presses in quick succession
-    /// become single, double and triple — three inputs out of one gesture.
+    /// A ring with no touch surface sends one kind of press, so presses in succession become
+    /// single, double and triple — three inputs out of one gesture. `RingPressCounter` holds
+    /// the rules; this is the plumbing: cancel the pending decision, act on the outcome, log
+    /// the measured gap either way.
     private func noteInput(_ input: RingInput) {
-        guard input == .tap else {
+        guard input.isPress else {
             deliver(input)
             return
         }
-        // The measured gap is the only way to tell "the ring dropped the second press" from
-        // "the window was too short", so it goes in the log either way.
-        let now = Date()
-        let gap = lastPressAt.map { now.timeIntervalSince($0) }
-        lastPressAt = now
-        log.note("Ring press", gap.map { String(format: "%.1fs after the last", $0) } ?? "first")
+        let outcome = presses.press(at: Date(), window: pressWindow(), maxPresses: maxBoundPresses())
+        switch outcome {
+        case .echo(let gap):
+            // Not a second press: the ring cannot report two taps this close together.
+            log.note("Ring press ignored", String(format: "%.2fs behind the last — a repeat of it", gap))
+        case .decided(let resolved, let gap):
+            pressTask?.cancel()
+            pressTask = nil
+            log.note("Ring \(resolved.label.lowercased())", detail(gap) + ", run now")
+            deliver(resolved)
+        case .waiting(let deadline, let gap):
+            log.note("Ring press", detail(gap) + String(format: " — deciding in %.1fs", deadline.timeIntervalSinceNow))
+            pressTask?.cancel()
+            pressTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
+                guard !Task.isCancelled, let self else { return }
+                self.deliver(self.presses.take())
+            }
+        }
+    }
 
-        pressCount += 1
-        pressTask?.cancel()
-        let window = pressWindow()
-        guard window > 0, wantsMultiPress() else {
-            pressCount = 0
-            deliver(.tap)
-            return
-        }
-        pressTask = Task { [weak self] in
-            guard self != nil else { return }
-            try? await Task.sleep(for: .seconds(window))
-            guard !Task.isCancelled, let self else { return }
-            let count = self.pressCount
-            self.pressCount = 0
-            self.deliver(count >= 3 ? .triplePress : count == 2 ? .doublePress : .tap)
-        }
+    /// The gap between this press and the one before it — the only way to tell "the ring
+    /// dropped a press" from "the window was too short", so it goes in the log every time.
+    private func detail(_ gap: TimeInterval?) -> String {
+        gap.map { String(format: "%.1fs after the last", $0) } ?? "first"
+    }
+
+    private func noteWear(_ state: RingWearState) {
+        guard state != wearState else { return }
+        wearState = state
+        wearStateAt = state == .unknown ? nil : Date()
     }
 
     private func deliver(_ input: RingInput) {
@@ -649,6 +699,8 @@ final class RingSession: ObservableObject {
             onDataUpdated?(metric)
         case .battery(let value):
             battery = value
+            // Coming off the charger says nothing about where it went, so it goes back to unknown.
+            if value.charging { noteWear(.charging) } else if wearState == .charging { noteWear(.unknown) }
             if value.charging, calibration?.phase == .running {
                 calibration?.phase = .failed("charging — calibration needs the ring off the charger")
             }
@@ -673,11 +725,13 @@ final class RingSession: ObservableObject {
             noteInput(input)
         case .instantHeartRate(let bpm):
             guard bpm > 0 else { return }
+            noteWear(.onFinger)
             let reading = RingLiveReading(value: Double(bpm), date: Date())
             liveHeartRate = reading
             onLiveReading?(.heartRate, reading)
         case .instantSpO2(let percent):
             guard percent > 0 else { return }
+            noteWear(.onFinger)
             let reading = RingLiveReading(value: Double(percent), date: Date())
             liveSpO2 = reading
             onLiveReading?(.spo2, reading)

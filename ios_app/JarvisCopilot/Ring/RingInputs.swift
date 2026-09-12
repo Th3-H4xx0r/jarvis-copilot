@@ -15,6 +15,7 @@ enum RingInput: String, CaseIterable, Codable, Identifiable {
     case volumeDown = "volume_down"
     case longPress = "long_press"
     case doubleTap = "double_tap"
+    case shake
 
     var id: String { rawValue }
 
@@ -29,15 +30,25 @@ enum RingInput: String, CaseIterable, Codable, Identifiable {
         case .volumeDown: return "Volume-down gesture"
         case .longPress: return "Long press"
         case .doubleTap: return "Double tap"
+        case .shake: return "Shake"
         }
     }
 
-    /// What a ring can actually produce. Without a touch surface there is one gesture — the
-    /// ring's own double-tap — so Jarvis counts presses to make three inputs out of it, the
-    /// way a one-button remote does. Swipes and long press need a touch strip.
+    /// What a ring can actually produce.
+    ///
+    /// Two gestures, and the firmware is clear about which: a **tap**, which is the
+    /// accelerometer's click interrupt and the only thing the ring's gesture engine detects
+    /// (its dispatcher switches on which app the tap is pointed at, never on a gesture id), and
+    /// a **shake**, a separate detector that watches the pedometer's motion magnitude. Jarvis
+    /// counts taps to make three inputs out of the one gesture, the way a one-button remote
+    /// does. Swipes and long press need a touch strip, which this ring does not have — its
+    /// capability word has the touch bit clear, and the firmware's touch dispatcher is dead code.
     static func available(touchSurface: Bool) -> [RingInput] {
-        touchSurface ? allCases : [.tap, .doublePress, .triplePress]
+        touchSurface ? allCases : [.tap, .doublePress, .triplePress, .shake]
     }
+
+    /// Gestures that are not presses, so they never go through the press counter.
+    var isPress: Bool { self == .tap }
 
     /// `0x1D` music actions: 1 play/pause · 2 previous · 3 next · 4 volume up · 5 volume down.
     init?(musicAction: Int) {
@@ -60,6 +71,71 @@ enum RingInput: String, CaseIterable, Codable, Identifiable {
         case 4: self = .longPress
         default: return nil
         }
+    }
+}
+
+/// Turns the presses the ring reports into a single, double or triple press.
+///
+/// Why this is not simply "count presses inside a fixed window": the ring's firmware fires on
+/// ONE tap (the accelerometer's click interrupt, armed on all three axes), latches it, reports
+/// it, and then **disables tap detection for a fixed second** before re-arming — and it only
+/// services that latch when its accelerometer poll timer comes round, 0.8-2 s apart. So two
+/// taps closer than about a second reach the phone as a single press however hard you tap, and
+/// the gap between two that do get through is stretched by up to a poll period.
+///
+/// Three things follow, and all three are what the old fixed 1.8 s window got wrong:
+/// * A press arriving right behind another is a duplicate, not a second press — the ring
+///   cannot physically produce one that fast.
+/// * The window has to be generous, because the arrival gap is not the tapping gap.
+/// * A generous window must not mean a slow gesture: once as many presses have landed as
+///   anything is bound to, the answer is already known and the burst ends there.
+struct RingPressCounter {
+    /// The same press decoded twice — two channels reporting one gesture, say. Deliberately
+    /// far tighter than the ring's one-second re-arm: presses going missing is the failure
+    /// that matters, so anything that could plausibly be a real second press is counted, even
+    /// when iOS hands the app a stalled pair of notifications back to back.
+    static let echoWindow: TimeInterval = 0.15
+
+    /// One burst can't run forever: a press stream that keeps extending the window is capped
+    /// at this many windows from the first press.
+    static let maxWindows: Double = 3
+
+    private(set) var count = 0
+    private var firstPressAt: Date?
+    private var lastPressAt: Date?
+
+    enum Outcome: Equatable {
+        /// A duplicate of the press before it, with the gap that gave it away.
+        case echo(gap: TimeInterval)
+        /// Decided now — either nothing else can be bound, or the burst is full.
+        case decided(RingInput, gap: TimeInterval?)
+        /// More presses may follow; decide at this moment unless one does.
+        case waiting(until: Date, gap: TimeInterval?)
+    }
+
+    /// Takes one press report. `maxPresses` is the highest count anything is bound to.
+    mutating func press(at now: Date, window: TimeInterval, maxPresses: Int) -> Outcome {
+        let gap = lastPressAt.map { now.timeIntervalSince($0) }
+        if let gap, gap < Self.echoWindow { return .echo(gap: gap) }
+
+        if count == 0 { firstPressAt = now }
+        lastPressAt = now
+        count += 1
+
+        // Nothing to disambiguate, or the burst is as long as anything is bound to: run it now.
+        guard window > 0, maxPresses > 1 else { return .decided(take(), gap: gap) }
+        if count >= maxPresses { return .decided(take(), gap: gap) }
+
+        let ceiling = (firstPressAt ?? now).addingTimeInterval(window * Self.maxWindows)
+        return .waiting(until: min(now.addingTimeInterval(window), ceiling), gap: gap)
+    }
+
+    /// The gesture the presses so far add up to, and the end of the burst.
+    mutating func take() -> RingInput {
+        let resolved: RingInput = count >= 3 ? .triplePress : count == 2 ? .doublePress : .tap
+        count = 0
+        firstPressAt = nil
+        return resolved
     }
 }
 
@@ -241,7 +317,7 @@ final class RingInputStore: ObservableObject {
     @Published private(set) var mode: RingInputMode?
 
     /// The chosen wait for a second press.
-    @Published private(set) var pressWindow: TimeInterval = 1.8
+    @Published private(set) var pressWindow: TimeInterval = 2.0
 
     private let key: String
     private let modeKey: String
@@ -254,7 +330,11 @@ final class RingInputStore: ObservableObject {
         self.windowKey = "jc.ring.inputs.\(deviceID).window"
         self.defaults = defaults
         mode = defaults.string(forKey: modeKey).flatMap(RingInputMode.init(rawValue:))
-        if let stored = defaults.object(forKey: windowKey) as? Double, stored > 0 { pressWindow = stored }
+        if let stored = defaults.object(forKey: windowKey) as? Double, stored > 0 {
+            // Older builds stored windows this version no longer offers (1.2 s was below the
+            // ring's own re-arm); snap to the nearest one so the picker has a selection.
+            pressWindow = Self.pressWindows.min { abs($0 - stored) < abs($1 - stored) } ?? stored
+        }
         if let data = defaults.data(forKey: key),
            let stored = try? JSONDecoder().decode([String: RingAction].self, from: data) {
             actions = stored.reduce(into: [:]) { out, pair in
@@ -265,19 +345,32 @@ final class RingInputStore: ObservableObject {
 
     func action(for input: RingInput) -> RingAction { actions[input] ?? .none }
 
-    /// How long to wait for a second press. The ring needs a moment to detect and report each
-    /// double-tap, so the gap between two of them is longer than it feels — the log prints the
-    /// measured gap so this can be set to match the ring.
-    static let pressWindows: [TimeInterval] = [1.2, 1.8, 2.5, 3.5]
+    /// How long to wait for a second press.
+    ///
+    /// The floor is the ring's own: it stops listening for a second between reporting one tap
+    /// and re-arming, then reports on a poll timer, so two presses can land anywhere from one
+    /// to three seconds apart however fast you tap. Anything under 1.5 s could never catch a
+    /// second press — which is why the old 1.2 s option is gone. The log prints the gap.
+    static let pressWindows: [TimeInterval] = [1.5, 2.0, 2.6, 3.5]
+
+    /// Whether anything is bound to a shake. The detector costs a command to arm and reports
+    /// on a three-second cooldown, so it is only turned on when it has something to run.
+    var usesShake: Bool { action(for: .shake).isSet }
 
     /// True once anything is set, which is when the ring is asked to report its inputs.
     var isConfigured: Bool { actions.values.contains(where: \.isSet) }
 
+    /// The longest press run worth waiting for. A burst that reaches it is decided on the
+    /// spot — waiting past the last gesture anything is bound to only adds delay.
+    var maxBoundPresses: Int {
+        if action(for: .triplePress).isSet { return 3 }
+        if action(for: .doublePress).isSet { return 2 }
+        return 1
+    }
+
     /// Whether anything needs presses counted. With only a single-press action there is
     /// nothing to disambiguate, so the press can run the moment it arrives.
-    var usesMultiPress: Bool {
-        action(for: .doublePress).isSet || action(for: .triplePress).isSet
-    }
+    var usesMultiPress: Bool { maxBoundPresses > 1 }
 
     /// What to put the ring in when nobody has chosen: reporting once actions exist, else off,
     /// so a ring nobody configured keeps its own behaviour.
@@ -297,7 +390,13 @@ final class RingInputStore: ObservableObject {
         if action.isSet { actions[input] = action } else { actions.removeValue(forKey: input) }
         let stored = actions.reduce(into: [String: RingAction]()) { out, pair in out[pair.key.rawValue] = pair.value }
         if let data = try? JSONEncoder().encode(stored) { defaults.set(data, forKey: key) }
+        onActionsChanged?()
     }
+
+    /// Called whenever the bound actions change. Some gestures have to be armed on the ring —
+    /// the shake detector is a command, not something the ring works out for itself — so the
+    /// side that holds the link listens here rather than every screen remembering to re-apply.
+    var onActionsChanged: (() -> Void)?
 }
 
 /// Runs what an input is set to: a Jarvis turn for a prompt, otherwise the skill itself —

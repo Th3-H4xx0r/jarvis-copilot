@@ -84,8 +84,10 @@ struct RingInputsSection: View {
                 }
                 RowDivider()
                 Row {
-                    Text("A single press waits this long before running. The log prints the gap between "
-                         + "presses — set this a little above it.")
+                    Text("Leave about a second between taps: the ring stops listening for one after "
+                         + "every tap it reports, so anything faster reaches Jarvis as a single press. "
+                         + "A double or triple runs the moment its last tap lands; a single press waits "
+                         + "this long first. The log prints the gap between presses.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)

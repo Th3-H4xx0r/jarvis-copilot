@@ -2,19 +2,22 @@ import SceneKit
 import UIKit
 
 /// A procedural Colmi R12, after the real ring: a glossy gunmetal shell with polished inner lips,
-/// and a clear resin band over the segmented circuit board — black chips, pale metal parts,
-/// passives, rows of solder, and the round sensor contact — as you see it looking inside.
+/// and a clear resin band over the inside — the segmented flex board with its chips, pale metal
+/// parts, passives and rows of solder down one arc, the round magnetic charging port set into it,
+/// and "SMART RING · FC CE · 9" with the crossed-out bin laser-etched on the arc opposite.
 ///
 /// The ring's axis is Y. The profile is a rounded rectangle in (radius, height) lathed around
 /// that axis; the inner face is split off so the resin and the board behind it can differ.
 enum RingModel {
-    // A real R12 is ~20 mm across, ~7.5 mm wide, with a ~2.5 mm wall.
+    // A real R12 is ~23.5 mm across, 6.8 mm wide, with a 2.3 mm wall — so the band is a little
+    // over a quarter of the ring's diameter. The model used to draw it at a third, which is what
+    // made it look stocky next to a photograph of the ring.
     static let outerRadius: CGFloat = 1.0
-    static let innerRadius: CGFloat = 0.78
-    static let width: CGFloat = 0.72
+    static let innerRadius: CGFloat = 0.805
+    static let width: CGFloat = 0.58
     /// Leans the ring toward the camera so the inside — board, sensor, LEDs — shows.
     static let defaultTilt: Float = 0.95
-    private static let fillet: CGFloat = 0.09
+    private static let fillet: CGFloat = 0.082
     /// How far behind the resin the board sits.
     private static let boardDepth: CGFloat = 0.03
 
@@ -101,11 +104,21 @@ enum RingModel {
 
     // MARK: Textures
 
-    /// The board as seen through the resin, and a metalness map drawn from the same layout.
-    /// u runs around the band (the sensor sits at u = 0.75), v across it.
-    static let board = (color: drawBoard(metalness: false), metalness: drawBoard(metalness: true))
+    /// The inner face as you see it looking into the ring: the flex board down one arc, the
+    /// laser marks down the other, and a metalness map drawn from the same layout so the solder
+    /// and the shield can catch the light while the laminate does not.
+    ///
+    /// u runs around the band, v across it. The charging port sits at u = 0.75 (that is where
+    /// `mount(along: 0)` lands), so the board is drawn around it and the marks go opposite.
+    static let board = (color: drawInnerFace(metalness: false), metalness: drawInnerFace(metalness: true))
 
-    private static func drawBoard(metalness: Bool) -> UIImage {
+    /// Where the board runs, as a fraction of the way round: a little over half the ring,
+    /// centred on the charging port.
+    private static let boardArc: ClosedRange<CGFloat> = 0.47...1.03
+    /// Where "SMART RING · FC CE · 9" is etched.
+    private static let markCentre: CGFloat = 0.24
+
+    private static func drawInnerFace(metalness: Bool) -> UIImage {
         let size = CGSize(width: 2400, height: 256)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -117,41 +130,65 @@ enum RingModel {
                 seed = seed &* 1_664_525 &+ 1_013_904_223
                 return CGFloat(seed >> 8) / CGFloat(1 << 24)
             }
+            /// Fills a rect, repeating it across the u seam so the board can wrap past x = 0.
             func fill(_ rect: CGRect, _ color: UIColor, metallic: CGFloat = 0) {
                 (metalness ? UIColor(white: metallic, alpha: 1) : color).setFill()
                 g.fill(rect)
+                if rect.maxX > size.width { g.fill(rect.offsetBy(dx: -size.width, dy: 0)) }
+                if rect.minX < 0 { g.fill(rect.offsetBy(dx: size.width, dy: 0)) }
             }
-            let solder = UIColor(white: 0.74, alpha: 1)
-            let package = UIColor(white: 0.045, alpha: 1)
-            fill(CGRect(origin: .zero, size: size), UIColor(red: 0.03, green: 0.038, blue: 0.035, alpha: 1))
+            let solder = UIColor(white: 0.92, alpha: 1)
+            let package = UIColor(white: 0.03, alpha: 1)
+            // Black, but a shade lighter than the outer band's 0.05 — looking inside the real ring
+            // the cavity reads lighter than the polished shell around it, and the parts have to
+            // stand out of it rather than disappear into it.
+            fill(CGRect(origin: .zero, size: size), UIColor(red: 0.048, green: 0.052, blue: 0.056, alpha: 1))
 
-            let sensorX = size.width * 0.75
-            let segmentWidth = size.width / 12
-            for index in 0..<12 {
-                let x0 = CGFloat(index) * segmentWidth
-                // Flex joint between rigid sections.
-                fill(CGRect(x: x0, y: 0, width: 8, height: size.height), UIColor(white: 0.09, alpha: 1))
-                // Vias along both edges.
-                var vx = x0 + 16
-                while vx < x0 + segmentWidth - 12 {
-                    fill(CGRect(x: vx, y: 9, width: 4, height: 4), solder, metallic: 1)
-                    fill(CGRect(x: vx, y: size.height - 13, width: 4, height: 4), solder, metallic: 1)
-                    vx += 13
+            // MARK: The flex board
+            let boardStart = boardArc.lowerBound * size.width
+            let boardEnd = boardArc.upperBound * size.width
+            let portX = size.width * 0.75
+            fill(CGRect(x: boardStart, y: 0, width: boardEnd - boardStart, height: size.height),
+                 UIColor(red: 0.058, green: 0.070, blue: 0.062, alpha: 1))
+            // The laminate fades into the shell rather than ending on a hard line.
+            for step in 0..<14 {
+                let t = CGFloat(step) / 14
+                let alpha = 1 - t
+                let edge = UIColor(red: 0.052, green: 0.060, blue: 0.056, alpha: alpha * 0.6)
+                fill(CGRect(x: boardStart - CGFloat(step) * 5, y: 0, width: 5, height: size.height), edge)
+                fill(CGRect(x: boardEnd + CGFloat(step) * 5, y: 0, width: 5, height: size.height), edge)
+            }
+
+            let segment = (boardEnd - boardStart) / 7
+            for index in 0..<7 {
+                let x0 = boardStart + CGFloat(index) * segment
+                // Flex joint between the rigid sections.
+                fill(CGRect(x: x0, y: 0, width: 7, height: size.height), UIColor(white: 0.028, alpha: 1))
+                // Vias in a run along both edges, the way the real board carries them.
+                var vx = x0 + 18
+                while vx < x0 + segment - 14 {
+                    fill(CGRect(x: vx, y: 10, width: 4, height: 4), solder, metallic: 1)
+                    fill(CGRect(x: vx, y: size.height - 14, width: 4, height: 4), solder, metallic: 1)
+                    vx += 14
                 }
                 // A column of solder dots.
-                let columnX = x0 + 20 + random() * (segmentWidth - 40)
-                var dy: CGFloat = 36
-                while dy < size.height - 36 {
+                let columnX = x0 + 24 + random() * (segment - 48)
+                var dy: CGFloat = 40
+                while dy < size.height - 40 {
                     fill(CGRect(x: columnX, y: dy, width: 3, height: 3), solder, metallic: 1)
-                    dy += 8
+                    dy += 9
                 }
-                // Passives: small bodies with metal end caps.
-                for _ in 0..<14 {
+                // Passives: pale ceramic bodies with bright end caps, in the loose rows of the
+                // photograph — they are what you actually pick out looking inside the ring.
+                for _ in 0..<26 {
                     let vertical = random() > 0.5
-                    let w: CGFloat = vertical ? 7 : 15, h: CGFloat = vertical ? 15 : 7
-                    let rect = CGRect(x: x0 + 16 + random() * (segmentWidth - 34),
-                                      y: 22 + random() * (size.height - 44 - h), width: w, height: h)
-                    fill(rect, UIColor(red: 0.30, green: 0.27, blue: 0.23, alpha: 1))
+                    let w: CGFloat = vertical ? 8 : 17, h: CGFloat = vertical ? 17 : 8
+                    let rect = CGRect(x: x0 + 18 + random() * (segment - 40),
+                                      y: 26 + random() * (size.height - 52 - h), width: w, height: h)
+                    // Leave the charging port's seat clear — a 3D part sits there.
+                    if abs(rect.midX - portX) < 118 && abs(rect.midY - size.height / 2) < 96 { continue }
+                    fill(rect.insetBy(dx: -2, dy: -2), UIColor(white: 0.016, alpha: 1))
+                    fill(rect, UIColor(red: 0.80, green: 0.78, blue: 0.74, alpha: 1), metallic: 0.45)
                     if vertical {
                         fill(CGRect(x: rect.minX, y: rect.minY, width: w, height: 3), solder, metallic: 1)
                         fill(CGRect(x: rect.minX, y: rect.maxY - 3, width: w, height: 3), solder, metallic: 1)
@@ -160,35 +197,76 @@ enum RingModel {
                         fill(CGRect(x: rect.maxX - 3, y: rect.minY, width: 3, height: h), solder, metallic: 1)
                     }
                 }
-                // Around the sensor the raised parts take over.
-                guard abs(x0 + segmentWidth / 2 - sensorX) >= segmentWidth else { continue }
-                let half = (segmentWidth - 30) / 2
-                for slot in 0..<2 {
-                    let left = x0 + 18 + CGFloat(slot) * half
-                    if slot == 1, random() > 0.45 {
-                        // Crystal or shielded part: a pale metal square.
-                        let side = 30 + random() * 24
-                        let square = CGRect(x: left + random() * (half - side - 8),
-                                            y: 26 + random() * (size.height - 52 - side), width: side, height: side)
-                        fill(square, UIColor(red: 0.62, green: 0.58, blue: 0.50, alpha: 1), metallic: 0.85)
-                        fill(square.insetBy(dx: 6, dy: 6), UIColor(red: 0.52, green: 0.48, blue: 0.41, alpha: 1),
-                             metallic: 0.85)
-                    } else {
-                        // Chip: a black package with pads down both sides.
-                        let w = 34 + random() * (half - 50), h = 44 + random() * 76
-                        let chip = CGRect(x: left + 6 + random() * (half - w - 14),
-                                          y: 24 + random() * (size.height - 48 - h), width: w, height: h)
-                        fill(chip.insetBy(dx: -2, dy: -2), UIColor(white: 0.15, alpha: 1))
-                        fill(chip, package)
-                        var py = chip.minY + 6
-                        while py < chip.maxY - 6 {
-                            fill(CGRect(x: chip.minX - 6, y: py, width: 5, height: 3), solder, metallic: 1)
-                            fill(CGRect(x: chip.maxX + 1, y: py, width: 5, height: 3), solder, metallic: 1)
-                            py += 9
-                        }
-                    }
+                // Fine solder specks between the parts.
+                for _ in 0..<26 {
+                    let speck = CGRect(x: x0 + 14 + random() * (segment - 28),
+                                       y: 18 + random() * (size.height - 36), width: 3, height: 3)
+                    if abs(speck.midX - portX) < 112 && abs(speck.midY - size.height / 2) < 92 { continue }
+                    fill(speck, solder, metallic: 1)
                 }
             }
+            // The two parts you pick out by eye in the photograph, at a fixed place each.
+            // A gold-framed die — the sensor front-end, its silicon showing violet-black.
+            let die = CGRect(x: portX - 470, y: size.height / 2 - 46, width: 92, height: 92)
+            fill(die.insetBy(dx: -3, dy: -3), UIColor(white: 0.014, alpha: 1))
+            fill(die, UIColor(red: 0.88, green: 0.72, blue: 0.34, alpha: 1), metallic: 0.95)
+            fill(die.insetBy(dx: 15, dy: 15), UIColor(red: 0.13, green: 0.11, blue: 0.19, alpha: 1), metallic: 0.2)
+            for lead in 0..<5 {
+                let y = die.minY + 16 + CGFloat(lead) * 15
+                fill(CGRect(x: die.minX + 4, y: y, width: 9, height: 4), solder, metallic: 1)
+                fill(CGRect(x: die.maxX - 13, y: y, width: 9, height: 4), solder, metallic: 1)
+            }
+            // A shield can / crystal: brushed pale metal.
+            let can = CGRect(x: portX - 600, y: size.height / 2 - 60, width: 74, height: 46)
+            fill(can.insetBy(dx: -3, dy: -3), UIColor(white: 0.014, alpha: 1))
+            fill(can, UIColor(red: 0.82, green: 0.80, blue: 0.76, alpha: 1), metallic: 0.9)
+            fill(can.insetBy(dx: 7, dy: 7), UIColor(red: 0.64, green: 0.62, blue: 0.58, alpha: 1), metallic: 0.9)
+            // A white part, bright against the laminate.
+            let white = CGRect(x: portX - 330, y: size.height / 2 + 6, width: 40, height: 40)
+            fill(white.insetBy(dx: -3, dy: -3), UIColor(white: 0.014, alpha: 1))
+            fill(white, UIColor(white: 0.93, alpha: 1), metallic: 0.4)
+            // A black IC package with pads down both sides.
+            let chip = CGRect(x: portX - 250, y: size.height / 2 - 58, width: 76, height: 74)
+            fill(chip.insetBy(dx: -3, dy: -3), UIColor(white: 0.12, alpha: 1))
+            fill(chip, package)
+            var pad = chip.minY + 8
+            while pad < chip.maxY - 8 {
+                fill(CGRect(x: chip.minX - 7, y: pad, width: 7, height: 4), solder, metallic: 1)
+                fill(CGRect(x: chip.maxX, y: pad, width: 7, height: 4), solder, metallic: 1)
+                pad += 12
+            }
+
+            // The optical window beside the port, dark glass with its two dies.
+            let window = CGRect(x: portX + 150, y: size.height / 2 - 52, width: 120, height: 104)
+            fill(window, UIColor(white: 0.10, alpha: 1), metallic: 0.2)
+            fill(window.insetBy(dx: 8, dy: 8), UIColor(red: 0.020, green: 0.030, blue: 0.026, alpha: 1))
+
+            // MARK: The laser marks — "SMART RING  9  [bin]" over "FC CE", as etched inside.
+            let ink = metalness ? UIColor(white: 0.05, alpha: 1) : UIColor(white: 0.97, alpha: 1)
+            let centre = markCentre * size.width
+            func text(_ string: String, _ pointSize: CGFloat, _ at: CGPoint, tracking: CGFloat = 2) {
+                let font = UIFont.systemFont(ofSize: pointSize, weight: .medium)
+                let attributed = NSAttributedString(string: string, attributes: [
+                    .font: font, .foregroundColor: ink, .kern: tracking,
+                ])
+                let bounds = attributed.size()
+                attributed.draw(at: CGPoint(x: at.x - bounds.width / 2, y: at.y - bounds.height / 2))
+            }
+            text("SMART RING", 52, CGPoint(x: centre - 90, y: size.height * 0.36))
+            text("FC", 30, CGPoint(x: centre - 150, y: size.height * 0.66))
+            text("CE", 34, CGPoint(x: centre - 70, y: size.height * 0.65))
+            text("9", 58, CGPoint(x: centre + 140, y: size.height * 0.40))
+            // The crossed-out wheelie bin.
+            ink.setStroke()
+            ink.setFill()
+            g.setLineWidth(5)
+            let bin = CGRect(x: centre + 205, y: size.height * 0.24, width: 62, height: 56)
+            g.stroke(CGRect(x: bin.minX + 8, y: bin.minY + 14, width: bin.width - 16, height: bin.height - 22))
+            g.fill(CGRect(x: bin.minX + 4, y: bin.minY + 6, width: bin.width - 8, height: 6))
+            g.fill(CGRect(x: bin.minX - 2, y: bin.maxY + 6, width: bin.width + 4, height: 7))
+            g.move(to: CGPoint(x: bin.minX - 2, y: bin.maxY - 2))
+            g.addLine(to: CGPoint(x: bin.maxX + 2, y: bin.minY + 2))
+            g.strokePath()
         }
     }
 
@@ -223,9 +301,9 @@ enum RingModel {
     private static func resinMaterial() -> SCNMaterial {
         let m = SCNMaterial()
         m.lightingModel = .physicallyBased
-        m.diffuse.contents = UIColor(white: 1, alpha: 0.08)
+        m.diffuse.contents = UIColor(white: 1, alpha: 0.02)
         m.metalness.contents = 0.0
-        m.roughness.contents = 0.03
+        m.roughness.contents = 0.02
         m.transparencyMode = .dualLayer
         m.blendMode = .alpha
         m.writesToDepthBuffer = false
@@ -239,7 +317,7 @@ enum RingModel {
         m.diffuse.mipFilter = .linear
         m.metalness.contents = board.metalness
         m.metalness.mipFilter = .linear
-        m.roughness.contents = 0.32
+        m.roughness.contents = 0.26
         return m
     }
 
@@ -292,8 +370,9 @@ enum RingModel {
         return holder
     }
 
-    /// The round contact on the inner face: a polished ring around a white ring and a black centre.
-    private static func sensorContact() -> SCNNode {
+    /// The magnetic charging port on the inner face — the round part you see looking inside.
+    /// Two concentric contacts: a bright outer annulus and a brass centre, set in a dark seat.
+    private static func chargingContact() -> SCNNode {
         let node = SCNNode()
         func add(_ geometry: SCNGeometry, z: Float) {
             let part = SCNNode(geometry: geometry)
@@ -301,15 +380,22 @@ enum RingModel {
             part.position.z = z
             node.addChildNode(part)
         }
-        let base = SCNCylinder(radius: 0.078, height: 0.012)
-        base.materials = [plasticMaterial(white: 0.02)]
-        add(base, z: 0)
-        let outer = SCNTorus(ringRadius: 0.064, pipeRadius: 0.012)
-        outer.materials = [metalMaterial(roughness: 0.12)]
-        add(outer, z: 0.005)
-        let ceramic = SCNTorus(ringRadius: 0.036, pipeRadius: 0.013)
-        ceramic.materials = [plasticMaterial(white: 0.9)]
-        add(ceramic, z: 0.004)
+        let seat = SCNCylinder(radius: 0.108, height: 0.010)
+        seat.materials = [plasticMaterial(white: 0.02)]
+        add(seat, z: 0)
+        let outer = SCNTorus(ringRadius: 0.084, pipeRadius: 0.016)
+        outer.materials = [metalMaterial(UIColor(white: 0.80, alpha: 1), roughness: 0.10)]
+        add(outer, z: 0.004)
+        let inner = SCNTorus(ringRadius: 0.050, pipeRadius: 0.013)
+        inner.materials = [metalMaterial(UIColor(red: 0.76, green: 0.66, blue: 0.46, alpha: 1), roughness: 0.16)]
+        add(inner, z: 0.004)
+        // The middle is dark, with only a small pip catching the light.
+        let well = SCNCylinder(radius: 0.038, height: 0.012)
+        well.materials = [plasticMaterial(white: 0.012)]
+        add(well, z: 0.003)
+        let pip = SCNCylinder(radius: 0.014, height: 0.013)
+        pip.materials = [metalMaterial(UIColor(white: 0.72, alpha: 1), roughness: 0.2)]
+        add(pip, z: 0.004)
         return node
     }
 
@@ -336,8 +422,8 @@ enum RingModel {
         resinNode.renderingOrder = 10
         root.addChildNode(resinNode)
 
-        // The sensor contact faces the camera before the ring spins, with raised parts around it.
-        root.addChildNode(mount(sensorContact(), along: 0, y: 0, thickness: 0.024))
+        // The charging port faces the camera before the ring spins, with raised parts around it.
+        root.addChildNode(mount(chargingContact(), along: 0, y: 0, thickness: 0.024))
         let raised: [(along: Float, y: Float, width: CGFloat, height: CGFloat, depth: CGFloat, material: SCNMaterial)] = [
             (-0.20, 0.04, 0.075, 0.08, 0.012, plasticMaterial(white: 0.04)),
             (-0.33, -0.07, 0.055, 0.055, 0.008, metalMaterial(UIColor(red: 0.62, green: 0.58, blue: 0.5, alpha: 1), roughness: 0.35)),
@@ -350,10 +436,12 @@ enum RingModel {
             root.addChildNode(mount(SCNNode(geometry: box), along: part.along, y: part.y, thickness: part.depth))
         }
 
-        // The optical sensor's LEDs: dark dies until a measurement lights them.
+        // The optical sensor's LEDs: dark dies until a measurement lights them. They sit in the
+        // dark window drawn beside the charging port, not on the port itself.
         let green = UIColor(red: 0.25, green: 1, blue: 0.4, alpha: 1)
         let placements: [(along: Float, y: Float, color: UIColor)] = [
-            (0.1, 0.075, green), (0.1, -0.075, green), (-0.1, -0.08, UIColor(red: 1, green: 0.2, blue: 0.2, alpha: 1)),
+            (0.50, 0.055, green), (0.60, -0.055, green),
+            (0.55, -0.005, UIColor(red: 1, green: 0.2, blue: 0.2, alpha: 1)),
         ]
         var leds: [SCNNode] = []
         for placement in placements {
@@ -396,7 +484,7 @@ enum RingModel {
         private let glow: SCNNode
 
         init(spin: Bool, tilt: Float = RingModel.defaultTilt, cameraDistance: Float = 4.2,
-             spinSeconds: Double = 34) {
+             spinSeconds: Double = 34, spinAngle: Float = 0) {
             let parts = RingModel.makeNode()
             pivot = parts.pivot
             spinner = parts.spinner
@@ -408,6 +496,9 @@ enum RingModel {
             scene.lightingEnvironment.intensity = 1.6
             scene.rootNode.addChildNode(pivot)
             pivot.eulerAngles = SCNVector3(tilt, 0, 0.32)
+            // Poses the ring at a fixed point in its turn — the render harness looks at the
+            // board on one side and the laser marks on the other.
+            spinner.eulerAngles.y = spinAngle
             if spin {
                 spinner.runAction(.repeatForever(.rotateBy(x: 0, y: .pi * 2, z: 0, duration: spinSeconds)),
                                   forKey: "spin")

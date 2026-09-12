@@ -281,6 +281,9 @@ final class ColmiR12: WearableDevice {
             out["battery_percent"] = battery.percent
             out["charging"] = battery.charging
         }
+        // Inferred, never read: say when we learnt it so nothing treats it as live.
+        out["worn"] = session.wearState.rawValue
+        if let at = session.wearStateAt { out["worn_as_of"] = ISO8601DateFormatter().string(from: at) }
         if let firmware = session.firmware { out["firmware_version"] = firmware }
         if let supported = session.accelerometerSupported { out["accelerometer"] = supported }
         if let a = session.liveAccelerometer { out["last_accelerometer"] = accelJSON(a) }

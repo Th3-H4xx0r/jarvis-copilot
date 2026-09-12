@@ -73,6 +73,7 @@ final class ColmiR12Tests: XCTestCase {
             "ring_get_status", "ring_get_day", "ring_get_history", "ring_sync", "ring_measure", "ring_find",
             "ring_set_monitoring", "ring_set_touch_mode", "ring_set_goals", "ring_set_profile",
             "ring_set_preferences", "ring_power", "ring_get_log", "ring_raw_command",
+            "ring_read_accelerometer", "ring_firmware_update",
         ])
         XCTAssertEqual(ColmiR12.model, "Colmi R12")
     }

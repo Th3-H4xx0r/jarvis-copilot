@@ -18,6 +18,11 @@ struct WearableEntry: Identifiable {
     let rssi: Int?
     let lastRSSI: Int?
     let lastSeen: Date?
+    /// True when the device is in its manager's live `discovered` list, so the Devices grid
+    /// already draws a full card for it. A remembered board is surfaced there with an RSSI of
+    /// 0 — no signal reading, but a card all the same — and the tab used to add a second
+    /// "Not found" row under it for the very same device.
+    var listed: Bool = false
 
     var id: String { deviceID }
     var seenInLastScan: Bool { rssi != nil }
@@ -142,7 +147,8 @@ final class WearablesHub: ObservableObject {
                                      connected: bottle.state == .ready,
                                      rssi: live?.rssi,
                                      lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.bottle),
-                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.bottle)))
+                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.bottle),
+                                     listed: live != nil))
         }
         if let id = WearableIdentity.remembered(WearableKeepAlive.scale) {
             let live = scale.discovered.first
@@ -153,7 +159,8 @@ final class WearablesHub: ObservableObject {
                                      connected: scale.connected != nil && scale.state == .ready,
                                      rssi: live?.rssi,
                                      lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.scale),
-                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.scale)))
+                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.scale),
+                                     listed: live != nil))
         }
         if let id = WearableIdentity.remembered(WearableKeepAlive.esp32) {
             let live = esp32.discovered.first { $0.id == id } ?? esp32.discovered.first
@@ -166,7 +173,8 @@ final class WearablesHub: ObservableObject {
                                      // not advertising" in `DiscoveredEsp32`.
                                      rssi: (live?.rssi).flatMap { $0 == 0 ? nil : $0 },
                                      lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.esp32),
-                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.esp32)))
+                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.esp32),
+                                     listed: live != nil))
         }
         if let id = WearableIdentity.remembered(WearableKeepAlive.ring) {
             let live = ring.discovered.first { $0.id == ring.connected?.id } ?? ring.discovered.first
@@ -178,7 +186,8 @@ final class WearablesHub: ObservableObject {
                                      // A ring surfaced from iOS's own link has no RSSI (0).
                                      rssi: (live?.rssi).flatMap { $0 == 0 ? nil : $0 },
                                      lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.ring),
-                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.ring)))
+                                     lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.ring),
+                                     listed: live != nil))
         }
         return out
     }
