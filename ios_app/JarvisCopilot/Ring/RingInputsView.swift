@@ -97,8 +97,9 @@ struct RingInputsSection: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Leave about a second between taps: the ring stops listening for one "
                              + "after every tap it reports, so anything faster reaches Jarvis as a "
-                             + "single press. A double or triple runs the moment its last tap lands; "
-                             + "a single press waits this long first.")
+                             + "single press. A double or triple runs the moment its last tap lands. "
+                             + "A single tap has to wait this long to prove it was single — so with "
+                             + "nothing set for a double or triple, it runs immediately instead.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         if let gap = lastPressGap {

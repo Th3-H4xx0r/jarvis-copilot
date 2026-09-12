@@ -656,11 +656,6 @@ final class RingSession: ObservableObject {
     var maxBoundPresses: () -> Int = { 1 }
     /// What a gesture is currently set to run, for the gesture monitor.
     var actionSummary: (RingInput) -> String? = { _ in nil }
-    /// Set while the inputs screen is open: count presses whether or not anything is bound to
-    /// them, so the rows light up and the monitor shows what the ring can really do. Without
-    /// this a double press is invisible until you have already bound something to it — which is
-    /// exactly the wrong way round when you are trying to find out whether it works.
-    var countEveryPress = false
     private var presses = RingPressCounter()
     private var pressTask: Task<Void, Never>?
 
@@ -707,8 +702,9 @@ final class RingSession: ObservableObject {
             log.note("Ring press ignored", "inside the shake guard")
             return
         }
-        let maxPresses = countEveryPress ? max(3, maxBoundPresses()) : maxBoundPresses()
-        let outcome = presses.press(at: Date(), window: pressWindow(), maxPresses: maxPresses)
+        // Only what is actually bound is waited for: with nothing on a double or triple press
+        // there is nothing to disambiguate, and a tap runs the moment it lands.
+        let outcome = presses.press(at: Date(), window: pressWindow(), maxPresses: maxBoundPresses())
         if case .echo = outcome {} else { lastPressGap = outcome.gap }
         switch outcome {
         case .echo(let gap):
