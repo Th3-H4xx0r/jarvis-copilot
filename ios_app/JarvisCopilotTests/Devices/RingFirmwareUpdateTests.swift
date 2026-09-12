@@ -70,17 +70,32 @@ final class RingFirmwareUpdateTests: XCTestCase {
         var lastProgress = (0, 0)
         try await RingFirmwareUpdate.run(
             image: img,
-            send: { cmd, _ in sentCmds.append(cmd); return [.bigData(cmd: cmd, payload: [0])] },
+            send: { cmd, _, _ in sentCmds.append(cmd); return [.bigData(cmd: cmd, payload: [0])] },
             progress: { lastProgress = ($0, $1) })
         XCTAssertEqual(sentCmds, [1, 2] + [UInt8](repeating: 3, count: 11) + [4, 5])
         XCTAssertEqual(lastProgress.0, 11)
         XCTAssertEqual(lastProgress.1, 11)
     }
 
+    /// `end` is write-only and ack-driven steps use `.single`; a failed `end` write surfaces.
+    func testEndIsWriteOnlyAndCheckIsAckDriven() async throws {
+        struct Dropped: Error {}
+        let img = validImage(size: 0x2900)
+        var sentCmds: [UInt8] = []
+        var untils: [UInt8: RingUntil] = [:]
+        try await RingFirmwareUpdate.run(image: img, send: { cmd, _, until in
+            sentCmds.append(cmd); untils[cmd] = until
+            return [.bigData(cmd: cmd, payload: [0])]
+        })
+        XCTAssertEqual(sentCmds.last, 5)
+        if case .none? = untils[5] {} else { XCTFail("end must be write-only") }
+        if case .single? = untils[4] {} else { XCTFail("check must be ack-driven, not idle-timed") }
+    }
+
     func testRunStopsWhenTheRingNaksAPocket() async {
         let img = validImage(size: 0x2900)
         do {
-            try await RingFirmwareUpdate.run(image: img, send: { cmd, _ in
+            try await RingFirmwareUpdate.run(image: img, send: { cmd, _, _ in
                 [.bigData(cmd: cmd, payload: [cmd == 3 ? 1 : 0])]    // NAK the first data pocket
             })
             XCTFail("expected the NAK to abort the update")

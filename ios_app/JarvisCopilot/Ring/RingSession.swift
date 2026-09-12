@@ -363,8 +363,8 @@ final class RingSession: ObservableObject {
                                            until: .idle)
     }
 
-    func sendRawBigData(cmd: UInt8, payload: [UInt8]) async throws -> [RingInbound] {
-        try await transport.perform(.bigData(cmd, payload), until: .idle)
+    func sendRawBigData(cmd: UInt8, payload: [UInt8], until: RingUntil = .idle) async throws -> [RingInbound] {
+        try await transport.perform(.bigData(cmd, payload), until: until)
     }
 
     // MARK: Measurements

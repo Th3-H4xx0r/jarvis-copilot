@@ -84,19 +84,32 @@ enum RingFirmwareUpdate {
 
     /// Drives the whole sequence through `send` (one big-data request → its replies),
     /// failing the moment the ring NAKs a step. `progress` gets `(sentPockets, totalPockets)`.
+    /// `send` performs one big-data request with the given wait rule and returns its replies.
+    /// Every step but the last is acknowledgement-driven (`.single`): the ring answers each frame
+    /// with exactly one status frame, and waiting for "idle" after it wastes over a second per
+    /// pocket — and, worse, lets the ring drop the link after `check` before `end` is written.
+    /// `end` itself is write-only (`.none`): the ring commits and reboots on it, so no reply
+    /// ever comes; the write must still leave on a live link or the error surfaces.
     static func run(image: [UInt8],
-                    send: (UInt8, [UInt8]) async throws -> [RingInbound],
+                    send: (UInt8, [UInt8], RingUntil) async throws -> [RingInbound],
                     progress: (Int, Int) -> Void = { _, _ in }) async throws {
         if let bad = precondition(image) { throw bad }
         let plan = steps(for: image)
         let total = pocketCount(image)
         var sent = 0
         for (cmd, payload) in plan {
-            let replies = try await send(cmd, payload)
+            if cmd == endCommand {
+                _ = try await send(cmd, payload, .none)
+                return
+            }
+            let replies = try await send(cmd, payload, .single)
             try checkAck(cmd: cmd, replies: replies)
             if cmd == 3 { sent += 1; progress(sent, total) }
         }
     }
+
+    /// `cmd5`: the commit. Its ack is never seen because the ring reboots on it.
+    static let endCommand: UInt8 = 5
 
     /// An OTA ack is a `0xBC cmd …` frame whose first payload byte (SDK `data[6]`) is the
     /// status; 0 means OK. A missing reply for a step is itself a failure.

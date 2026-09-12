@@ -14,6 +14,8 @@ struct RingFirmwareSection: View {
     @State private var confirmFlash = false
     @State private var importing = false
     @State private var importError: String?
+    @State private var showSheet = false
+    @State private var flashing: RingFirmwareImage?
 
     private var selected: RingFirmwareImage? { images.first { $0.id == selectedID } ?? images.first }
 
@@ -69,7 +71,7 @@ struct RingFirmwareSection: View {
             Row {
                 HStack {
                     if flasher.phase.isRunning {
-                        Button("Cancel", role: .destructive) { flasher.cancel() }
+                        Button { showSheet = true } label: { Label("Show progress", systemImage: "gauge.with.needle") }
                     } else {
                         Button {
                             confirmFlash = true
@@ -82,21 +84,36 @@ struct RingFirmwareSection: View {
                     statusBadge
                 }
             }
-            if flasher.phase != .idle {
+            if flasher.phase != .idle, !flasher.phase.isRunning {
                 RowDivider()
-                Row { progress }
-                RowDivider()
-                Row { logView }
+                Row {
+                    HStack {
+                        Text(lastResultText).font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Details") { showSheet = true }.font(.caption)
+                    }
+                }
             }
         }
         .confirmationDialog("Flash \(selected?.version ?? "this image") to the ring?",
                             isPresented: $confirmFlash, titleVisibility: .visible) {
             Button("Flash", role: .destructive) {
-                if let image = selected { flasher.flash(image, over: session) }
+                if let image = selected {
+                    flashing = image
+                    showSheet = true
+                    flasher.flash(image, over: session)
+                }
             }
         } message: {
-            Text("Takes a few minutes. Keep the phone near the ring. The ring keeps its current firmware "
-                 + "until the whole image is received and verified, then reboots into the new one.")
+            Text("Takes a few minutes and cannot be cancelled once started. Keep the ring close to the phone. "
+                 + "The ring keeps its current firmware until the whole image is received and verified, then reboots into the new one.")
+        }
+        .sheet(isPresented: $showSheet) {
+            if let image = flashing ?? selected {
+                RingFirmwareFlashSheet(flasher: flasher, image: image, fromVersion: currentVersion) {
+                    showSheet = false
+                }
+            }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.data, .item]) { result in
             switch result {
@@ -134,50 +151,11 @@ struct RingFirmwareSection: View {
         }
     }
 
-    private var progress: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ProgressView(value: flasher.fraction)
-                .tint(flasher.phase == .succeeded ? Color.green : (flasher.phase.isRunning ? Color.accentColor : Color.red))
-            HStack {
-                Text("\(flasher.sent) / \(flasher.total) pockets").font(.caption2).monospacedDigit()
-                Spacer()
-                if let started = flasher.startedAt {
-                    Text(elapsed(from: started, to: flasher.finishedAt ?? Date()))
-                        .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private var logView: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text("Flash log").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                if !flasher.phase.isRunning {
-                    Button("Clear") { flasher.clear() }.font(.caption)
-                }
-            }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(flasher.lines) { line in
-                            HStack(alignment: .top, spacing: 6) {
-                                Text(line.time, format: .dateTime.hour().minute().second())
-                                    .foregroundStyle(.secondary)
-                                Text(line.text)
-                            }
-                            .font(.caption2.monospaced())
-                            .id(line.id)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(height: 150)
-                .onChange(of: flasher.lines.count) { _, _ in
-                    if let last = flasher.lines.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
-                }
-            }
+    private var lastResultText: String {
+        switch flasher.phase {
+        case .succeeded: return "Last flash: succeeded (\(flasher.sent) pockets, \(Int(flasher.elapsed)) s)"
+        case .failed(let why): return "Last flash: \(why == "cancelled" ? "cancelled" : "failed — " + why)"
+        default: return ""
         }
     }
 

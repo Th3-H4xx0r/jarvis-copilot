@@ -588,7 +588,9 @@ final class ColmiR12: WearableDevice {
                 do {
                     try await RingFirmwareUpdate.run(
                         image: image,
-                        send: { cmd, payload in try await backend.session.sendRawBigData(cmd: cmd, payload: payload) })
+                        send: { cmd, payload, until in
+                            try await backend.session.sendRawBigData(cmd: cmd, payload: payload, until: until)
+                        })
                 } catch {
                     failure = (error as? RingFirmwareUpdate.Failure)?.reason ?? String(describing: error)
                 }

@@ -59,6 +59,18 @@ final class RingFirmwareFlasher: ObservableObject {
 
     var fraction: Double { total > 0 ? Double(sent) / Double(total) : 0 }
 
+    /// Seconds left, from the pace so far. Nil until a few pockets have gone through.
+    var estimatedRemaining: TimeInterval? {
+        guard phase.isRunning, let startedAt, sent >= 3, total > sent else { return nil }
+        let perPocket = Date().timeIntervalSince(startedAt) / Double(sent)
+        return perPocket * Double(total - sent)
+    }
+
+    var elapsed: TimeInterval {
+        guard let startedAt else { return 0 }
+        return (finishedAt ?? Date()).timeIntervalSince(startedAt)
+    }
+
     private var task: Task<Void, Never>?
 
     /// Starts flashing `image` over `session`. Refuses (with a logged reason) if the image
@@ -85,8 +97,8 @@ final class RingFirmwareFlasher: ObservableObject {
             do {
                 try await RingFirmwareUpdate.run(
                     image: image.bytes,
-                    send: { cmd, payload in
-                        let replies = try await session.sendRawBigData(cmd: cmd, payload: payload)
+                    send: { cmd, payload, until in
+                        let replies = try await session.sendRawBigData(cmd: cmd, payload: payload, until: until)
                         self.narrate(cmd: cmd, payload: payload, replies: replies)
                         return replies
                     },
@@ -101,14 +113,6 @@ final class RingFirmwareFlasher: ObservableObject {
                 self.finish(.failed(error.localizedDescription), session: session)
             }
         }
-    }
-
-    func cancel() {
-        guard phase.isRunning else { return }
-        task?.cancel()
-        log("Cancelled. The ring discards the partial image and keeps running the old one.")
-        phase = .failed("cancelled")
-        finishedAt = Date()
     }
 
     func clear() {
@@ -131,13 +135,13 @@ final class RingFirmwareFlasher: ObservableObject {
                 log("pocket \(seq)/\(total) (\(payload.count - 2) bytes) → \(ack)")
             }
         case 4: log("check (length) → \(ack)")
-        case 5: log("end → \(ack) — ring commits and reboots into the new image")
+        case 5: log("end → sent. The ring commits and reboots now; the Bluetooth drop that follows is expected.")
         default: log("cmd \(cmd) → \(ack)")
         }
     }
 
     private func finish(_ result: Phase, session: RingSession) {
-        guard phase.isRunning else { return }          // a cancel already closed it
+        guard phase.isRunning else { return }
         phase = result
         let now = Date()
         finishedAt = now
