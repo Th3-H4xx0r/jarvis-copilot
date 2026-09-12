@@ -37,10 +37,12 @@ _FOOTER_H = 34
 
 _MINI_PATH = "/?mini=voice"
 
-# Row metrics. The renders carry their own shading so they run a little larger
-# than the flat SF Symbols beside them.
-_ICON_PT = 26
-_SYMBOL_PT = 19
+# Row metrics. ONE size for every picture, renders and SF Symbols alike: AppKit
+# indents a row's text by its image, so images of different widths gave every row
+# a different text origin — which is what threw the tab-stopped status dots out
+# of line with each other.
+_ICON_PT = 22
+_SYMBOL_PT = 22
 # Where the trailing status dot is pinned. Wide enough for the longest row.
 _ROW_WIDTH = 300.0
 
