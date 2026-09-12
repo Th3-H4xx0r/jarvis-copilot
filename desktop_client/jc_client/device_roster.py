@@ -41,16 +41,19 @@ class DeviceRow:
     detail: str = ""
     #: "ring" / "bottle" / "scale" / "esp32" when this is a wearable.
     wearable: str = ""
-
-    @property
-    def dot(self) -> str:
-        """Status colour. Menu items are text, so the dot is the text."""
-        return "🟢" if self.online else "⚪️"
+    #: A section heading rather than a device ("Devices", "Wearables").
+    header: bool = False
 
     @property
     def title(self) -> str:
-        return f"{self.dot}  {self.name} — {self.detail}" if self.detail \
-            else f"{self.dot}  {self.name}"
+        """What the menu item's text is set to.
+
+        Plain text, because that is all pystray can put in a menu. On macOS it is
+        replaced with a styled attributed title and the status dot is drawn —
+        see ``mac_popover._style_rows``. The plain form is the fallback, and the
+        key the two halves match on, so it has to stay unique and stable.
+        """
+        return f"{self.name} — {self.detail}" if self.detail else self.name
 
 
 def kind_symbol(kind: str) -> str:
@@ -162,9 +165,17 @@ def fetch() -> tuple:
             if _WEARABLE_SKILL in names:
                 wearable_host = str(device.get("id") or "")
 
-    if wearable_host:
-        rows.extend(_wearables(client, wearable_host))
-    return rows, ""
+    wearables = _wearables(client, wearable_host) if wearable_host else []
+    # Grouped the way the system's own network menus group things, rather than
+    # one long undifferentiated list.
+    out: list = []
+    if rows:
+        out.append(DeviceRow(name="Devices", kind="", online=False, header=True))
+        out.extend(rows)
+    if wearables:
+        out.append(DeviceRow(name="Wearables", kind="", online=False, header=True))
+        out.extend(wearables)
+    return out, ""
 
 
 def _wearables(client, device_id: str) -> list:

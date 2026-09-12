@@ -37,6 +37,13 @@ _FOOTER_H = 34
 
 _MINI_PATH = "/?mini=voice"
 
+# Row metrics. The renders carry their own shading so they run a little larger
+# than the flat SF Symbols beside them.
+_ICON_PT = 26
+_SYMBOL_PT = 19
+# Where the trailing status dot is pinned. Wide enough for the longest row.
+_ROW_WIDTH = 300.0
+
 
 def _kind_symbol(kind: str) -> str:
     from jc_client.device_roster import kind_symbol
@@ -137,19 +144,21 @@ class MenuBarVoicePopover:
             if menu is not None:
                 self._menu = menu
                 self._status_item.setMenu_(None)
-                self._apply_icons(menu)
+                self._style_rows(menu)
         except Exception as exc:
             logger.debug("voice popover: could not detach the menu: %s", exc)
 
     # ── device pictures ──────────────────────────────────────────────
 
-    def _apply_icons(self, menu) -> None:
-        """Give each device row its own picture, like the Bluetooth menu.
+    def _style_rows(self, menu) -> None:
+        """Dress the device rows to look like a system menu.
 
-        pystray only knows how to put text in a menu, but the items it builds are
-        ordinary NSMenuItems — so the pictures are attached here, matched to the
-        rows by title. Phones and laptops get SF Symbols; the wearables get a
-        render of their actual 3D model, shipped alongside this file.
+        pystray can only put plain text in a menu, but the items it builds are
+        ordinary NSMenuItems — so each row is restyled here, matched by its
+        plain title: the device's picture on the left, its name in the menu
+        font, the detail in a smaller secondary colour, and a status dot drawn
+        at the trailing edge the way the Wi-Fi menu puts a lock there. Section
+        headings become real section headers.
         """
         rows = self.rows_for_icons() if self.rows_for_icons else []
         if not rows:
@@ -161,11 +170,67 @@ class MenuBarVoicePopover:
                 row = by_title.get(str(item.title()))
                 if row is None:
                     continue
-                image = self._image_for(row)
-                if image is not None:
-                    item.setImage_(image)
+                if row.header:
+                    self._style_header(item, row)
+                else:
+                    self._style_device(item, row)
         except Exception as exc:
-            logger.debug("voice popover: could not decorate the menu: %s", exc)
+            logger.debug("voice popover: could not style the menu: %s", exc)
+
+    def _style_header(self, item, row) -> None:
+        import AppKit
+
+        item.setImage_(None)
+        font = AppKit.NSFont.systemFontOfSize_weight_(11, AppKit.NSFontWeightSemibold)
+        item.setAttributedTitle_(AppKit.NSAttributedString.alloc().initWithString_attributes_(
+            row.name.upper(), {
+                AppKit.NSFontAttributeName: font,
+                AppKit.NSForegroundColorAttributeName: AppKit.NSColor.secondaryLabelColor(),
+                AppKit.NSKernAttributeName: 0.6,
+            }))
+
+    def _style_device(self, item, row) -> None:
+        import AppKit
+
+        image = self._image_for(row)
+        if image is not None:
+            item.setImage_(image)
+
+        # Name, then the detail in a smaller secondary colour, then the status
+        # dot pushed to the trailing edge by a right tab stop.
+        body = AppKit.NSFont.menuFontOfSize_(0)
+        small = AppKit.NSFont.menuFontOfSize_(11)
+        title = AppKit.NSMutableAttributedString.alloc().initWithString_attributes_(
+            row.name, {AppKit.NSFontAttributeName: body})
+        if row.detail:
+            title.appendAttributedString_(
+                AppKit.NSAttributedString.alloc().initWithString_attributes_(
+                    "  " + row.detail, {
+                        AppKit.NSFontAttributeName: small,
+                        AppKit.NSForegroundColorAttributeName: AppKit.NSColor.secondaryLabelColor(),
+                    }))
+        title.appendAttributedString_(
+            AppKit.NSAttributedString.alloc().initWithString_attributes_(
+                "\t●", {
+                    AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_(9),
+                    AppKit.NSForegroundColorAttributeName: self._dot_colour(row.online),
+                }))
+
+        paragraph = AppKit.NSMutableParagraphStyle.alloc().init()
+        tab = AppKit.NSTextTab.alloc().initWithTextAlignment_location_options_(
+            _const(AppKit, "NSTextAlignmentRight", default=2), _ROW_WIDTH, {})
+        paragraph.setTabStops_([tab])
+        title.addAttribute_value_range_(AppKit.NSParagraphStyleAttributeName, paragraph,
+                                        AppKit.NSMakeRange(0, title.length()))
+        item.setAttributedTitle_(title)
+
+    def _dot_colour(self, online: bool):
+        import AppKit
+
+        if online:
+            return AppKit.NSColor.systemGreenColor()
+        # Not a red alarm: most of these are simply out of range, which is normal.
+        return AppKit.NSColor.tertiaryLabelColor()
 
     def _image_for(self, row):
         """An 18pt picture for one row, cached — menus rebuild every few seconds."""
@@ -188,7 +253,7 @@ class MenuBarVoicePopover:
         image = AppKit.NSImage.alloc().initWithContentsOfFile_(str(path))
         if image is None:
             return None
-        image.setSize_(AppKit.NSMakeSize(20, 20))
+        image.setSize_(AppKit.NSMakeSize(_ICON_PT, _ICON_PT))
         return image
 
     def _symbol(self, name: str):
@@ -200,7 +265,7 @@ class MenuBarVoicePopover:
             image = None
         if image is None:
             return None
-        image.setSize_(AppKit.NSMakeSize(16, 16))
+        image.setSize_(AppKit.NSMakeSize(_SYMBOL_PT, _SYMBOL_PT))
         # Template images follow the menu's own light/dark appearance.
         image.setTemplate_(True)
         return image

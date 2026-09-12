@@ -9,15 +9,18 @@ from __future__ import annotations
 from jc_client.device_roster import DeviceRow, _ago, kind_symbol, wearable_kind
 
 
-def test_the_dot_follows_the_state():
-    assert DeviceRow("iPhone", "mobile-ios", True).dot == "🟢"
-    assert DeviceRow("iPhone", "mobile-ios", False).dot == "⚪️"
-
-
 def test_a_row_says_what_is_wrong_only_when_something_is():
-    assert DeviceRow("iPhone", "mobile-ios", True).title == "🟢  iPhone"
+    assert DeviceRow("iPhone", "mobile-ios", True).title == "iPhone"
     row = DeviceRow("Board", "browser", False, "last seen 1d ago")
-    assert row.title == "⚪️  Board — last seen 1d ago"
+    assert row.title == "Board — last seen 1d ago"
+
+
+def test_titles_carry_no_decoration():
+    """The title is also the key the macOS styling matches rows on, and what
+    non-Mac trays show verbatim — so it stays plain."""
+    title = DeviceRow("R12_7E04", "wearable", True, "Connected", "ring").title
+    assert title == "R12_7E04 — Connected"
+    assert not any(ch in title for ch in "🟢⚪️●")
 
 
 def test_every_wearable_finds_its_picture():
