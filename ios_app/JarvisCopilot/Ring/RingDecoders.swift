@@ -542,11 +542,19 @@ enum RingDecode {
         UInt32(at(p, i)) | UInt32(at(p, i + 1)) << 8 | UInt32(at(p, i + 2)) << 16 | UInt32(at(p, i + 3)) << 24
     }
 
-    /// `0x5A` accelerometer reply: x, y, z as int16 little-endian.
+    /// `0x5A` accelerometer reply (patched firmware): x, y, z as int16 little-endian.
     static func accelerometer(_ p: [UInt8], at date: Date = Date()) -> RingAccelSample? {
         guard p.count >= 6 else { return nil }
         func i16(_ i: Int) -> Int16 { Int16(bitPattern: UInt16(p[i]) | (UInt16(p[i + 1]) << 8)) }
         return RingAccelSample(x: i16(0), y: i16(2), z: i16(4), date: date)
+    }
+
+    /// Subtype 3 of the stock `0xA1` telemetry burst: [3][x_hi][x_lo][y_hi][y_lo][z_hi][z_lo],
+    /// big-endian int16 per axis, straight from the sensor FIFO. Works on stock firmware.
+    static func accelFromTelemetry(_ p: [UInt8], at date: Date = Date()) -> RingAccelSample? {
+        guard p.count >= 7, p[0] == 3 else { return nil }
+        func be(_ i: Int) -> Int16 { Int16(bitPattern: (UInt16(p[i]) << 8) | UInt16(p[i + 1])) }
+        return RingAccelSample(x: be(1), y: be(3), z: be(5), date: date)
     }
 
     static func battery(_ p: [UInt8]) -> RingBattery? {

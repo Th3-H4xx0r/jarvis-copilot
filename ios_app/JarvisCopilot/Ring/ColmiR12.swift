@@ -183,8 +183,7 @@ final class ColmiR12: WearableDevice {
                 ], required: ["confirm"])),
             DeviceCapability(
                 name: "ring_read_accelerometer",
-                description: "Raw accelerometer samples from the ring (needs the JarvisCopilot firmware 3.11.00+; "
-                    + "stock firmware replies unsupported). samples 1–100 (default 1), interval_ms ≥ 40 (default 40, "
+                description: "Raw accelerometer samples from the ring (works on stock firmware via the 0xA1 telemetry burst). samples 1–100 (default 1), interval_ms ≥ 40 (default 40, "
                     + "the sensor's 25 Hz). Each sample: x, y, z in LSB (±2 g, 16384 LSB/g) plus g-units and time.",
                 inputSchema: DeviceCapability.schema([
                     "samples": ["type": "integer", "minimum": 1, "maximum": 100],

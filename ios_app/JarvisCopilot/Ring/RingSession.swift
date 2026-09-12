@@ -184,35 +184,57 @@ final class RingSession: ObservableObject {
         persistCache()
     }
 
-    // MARK: Accelerometer (patched firmware)
+    // MARK: Accelerometer
 
-    /// Polls the newest accelerometer sample. Stock firmware answers with an error frame, which
-    /// surfaces as `RingError.unsupported`.
+    /// Runs on STOCK firmware. The `0xA1` "wearing calibration" mode makes the ring stream a
+    /// telemetry burst once a second; subtype 3 of that burst carries the newest accelerometer
+    /// sample from the sensor FIFO (chip-independent). We turn the mode on, wait for one fresh
+    /// subtype-3 packet (extracted in `handleUnsolicited`), then turn it off.
+    private var accelStreaming = false
+
     func readAccelerometer() async throws -> RingAccelSample {
-        do {
-            let frames = try await transport.perform(.readAccelerometer, until: .single)
-            guard let sample = frames.compactMap({ RingDecode.accelerometer($0.payload) }).first else {
-                throw RingError.timeout(RingOp.accelerometer)
+        return try await withAccelTelemetry {
+            let before = self.liveAccelerometer?.date
+            for _ in 0..<40 {                                   // ~4 s, telemetry ticks ~1 Hz
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                if let a = self.liveAccelerometer, a.date != before {
+                    self.accelerometerSupported = true
+                    return a
+                }
             }
-            accelerometerSupported = true
-            liveAccelerometer = sample
-            return sample
-        } catch RingError.rejected {
-            accelerometerSupported = false
-            throw RingError.unsupported("the accelerometer (needs firmware 3.11.00 or newer)")
+            self.accelerometerSupported = false
+            throw RingError.timeout(RingOp.calibration)
         }
     }
 
-    /// `count` samples, `intervalMs` apart (the sensor updates at 25 Hz, so 40 ms is the floor).
+    /// `count` samples from the telemetry stream. The ring pushes ~1 per second, so `intervalMs`
+    /// only sets the minimum spacing; faster than the ring emits just returns repeats.
     func streamAccelerometer(count: Int, intervalMs: Int) async throws -> [RingAccelSample] {
-        var out: [RingAccelSample] = []
-        for i in 0..<max(1, count) {
-            out.append(try await readAccelerometer())
-            if i < count - 1 {
+        return try await withAccelTelemetry {
+            var out: [RingAccelSample] = []
+            var lastDate = self.liveAccelerometer?.date
+            let deadline = Date().addingTimeInterval(Double(max(1, count)) * 1.5 + 5)
+            while out.count < max(1, count), Date() < deadline {
                 try? await Task.sleep(nanoseconds: UInt64(max(40, intervalMs)) * 1_000_000)
+                if let a = self.liveAccelerometer, a.date != lastDate {
+                    out.append(a); lastDate = a.date; self.accelerometerSupported = true
+                }
             }
+            if out.isEmpty { self.accelerometerSupported = false; throw RingError.timeout(RingOp.calibration) }
+            return out
         }
-        return out
+    }
+
+    /// Turns the `0xA1` telemetry stream on for the duration of `body`, then off — without
+    /// touching the wearing-calibration UI state.
+    private func withAccelTelemetry<T>(_ body: () async throws -> T) async throws -> T {
+        accelStreaming = true
+        _ = try? await transport.perform(.calibration(mode: 6), until: .none)
+        defer {
+            accelStreaming = false
+            Task { _ = try? await transport.perform(.calibration(mode: 2), until: .none) }
+        }
+        return try await body()
     }
 
     func refreshBattery() async {
@@ -548,7 +570,12 @@ final class RingSession: ObservableObject {
         case RingOp.measure:
             if let reading = RingDecode.measurement(inbound.payload) { handleMeasurement(reading) }
         case RingOp.calibration:
-            handleCalibration(RingDecode.calibration(inbound.payload))
+            // Subtype 3 of the 0xA1 telemetry burst is the newest accelerometer sample.
+            if let a = RingDecode.accelFromTelemetry(inbound.payload) {
+                liveAccelerometer = a
+                accelerometerSupported = true
+            }
+            if !accelStreaming { handleCalibration(RingDecode.calibration(inbound.payload)) }
         case RingOp.packageLength:
             chunkSize = max(RingProtocol.minimumChunk, Int(inbound.payload.first ?? 0))
         case RingOp.findPhone:

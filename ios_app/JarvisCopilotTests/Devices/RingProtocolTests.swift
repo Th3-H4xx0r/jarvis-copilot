@@ -37,6 +37,15 @@ final class RingProtocolTests: XCTestCase {
         XCTAssertEqual(sample?.z, 1007)
         XCTAssertNil(RingDecode.accelerometer([1, 2, 3]))
         XCTAssertEqual(RingRequest.readAccelerometer.cmd, 0x5A)
+
+        // Stock path: subtype 3 of the 0xA1 telemetry burst, big-endian int16 per axis.
+        // payload = frame after the cmd byte: [3][x_hi][x_lo][y_hi][y_lo][z_hi][z_lo]
+        let tel = RingDecode.accelFromTelemetry([3, 0x00, 0x07, 0xFF, 0xF9, 0x03, 0xEF])
+        XCTAssertEqual(tel?.x, 7)
+        XCTAssertEqual(tel?.y, -7)
+        XCTAssertEqual(tel?.z, 1007)
+        XCTAssertNil(RingDecode.accelFromTelemetry([1, 0, 0]))     // wrong subtype
+        XCTAssertEqual(RingOp.calibration, 0xA1)
     }
 
     func testCRC16IsModbus() {

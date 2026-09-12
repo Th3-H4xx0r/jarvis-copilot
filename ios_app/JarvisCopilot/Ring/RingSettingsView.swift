@@ -455,7 +455,7 @@ struct RingSettingsView: View {
     private var liveSensors: some View {
         CardGroup("Live sensors",
                   footer: "Pushed by the ring as they happen. Start a measurement to see the optical "
-                      + "sensor working. Accelerometer samples need the JarvisCopilot firmware (3.11.00+).") {
+                      + "sensor working. Tap Read accelerometer for a live sample (works on stock firmware).") {
             infoRow("Heart rate", session.liveHeartRate.map { "\(Int($0.value)) bpm · \(ago($0.date))" } ?? "—")
             RowDivider()
             infoRow("Blood oxygen", session.liveSpO2.map { "\(Int($0.value))% · \(ago($0.date))" } ?? "—")
@@ -470,7 +470,7 @@ struct RingSettingsView: View {
             RowDivider()
             infoRow("Accelerometer", session.liveAccelerometer.map {
                 String(format: "%d %d %d · %.2f g · ", $0.x, $0.y, $0.z, $0.magnitudeG) + ago($0.date)
-            } ?? (session.accelerometerSupported == false ? "not in this firmware" : "—"))
+            } ?? (session.accelerometerSupported == false ? "tap Read" : "—"))
             Row {
                 Button("Read accelerometer") { apply { _ = try await session.readAccelerometer() } }
                     .font(.caption)
