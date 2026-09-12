@@ -37,6 +37,9 @@ log = logging.getLogger(__name__)
 
 # Reconnection backoff schedule (seconds).
 _BACKOFF_SECONDS = [1, 2, 4, 8, 16, 32, 60]
+# How long a connection has to survive before it counts as healthy enough to
+# clear the backoff. Anything shorter is a connection that was dropped on us.
+_STABLE_SECONDS = 30.0
 # plan 5.3: LAN-direct preference — single definition lives in protocol.py
 # (protocol.probe_lan's default timeout); imported here so this module and
 # tests share the one constant instead of two copies drifting apart.
@@ -177,9 +180,22 @@ class Service:
                 continue
 
             self._last_connect_attempt = time.time()
+            opened_at = time.time()
             try:
                 self._connect_and_pump(creds)
-                backoff_idx = 0  # successful disconnect → reset backoff
+                lived = time.time() - opened_at
+                # Reset the backoff only for a connection that actually LASTED.
+                # Resetting after any successful connect turns a connection that
+                # dies a second after it opens — another client holding the same
+                # device identity, which the server evicts us for — into a
+                # permanent 45-times-a-minute reconnect storm, with the menubar
+                # light flickering red and green throughout. Now a connection
+                # that keeps dying immediately backs off like any other failure.
+                if lived >= _STABLE_SECONDS:
+                    backoff_idx = 0
+                else:
+                    log.warning("connection closed by the server after %.1fs — "
+                                "another client may hold this device's identity", lived)
             except Exception as exc:
                 self._last_error = str(exc)
                 log.warning("connection ended: %s", exc)
