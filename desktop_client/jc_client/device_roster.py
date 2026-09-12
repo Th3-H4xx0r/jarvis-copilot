@@ -56,19 +56,27 @@ class DeviceRow:
         return f"{self.name} — {self.detail}" if self.detail else self.name
 
 
-def kind_symbol(kind: str) -> str:
-    """SF Symbol for a device kind. Wearables use their own rendered picture."""
+def kind_symbol(kind: str, name: str = "") -> str:
+    """SF Symbol for a device. Wearables use their own rendered picture.
+
+    The name matters as much as the kind: everything that paired through a web
+    page is recorded as "browser", including the ESP32 board and this Mac, so a
+    globe on all of them tells you nothing. The name is what distinguishes them.
+    """
     k = (kind or "").lower()
-    if k.startswith("mobile-ios") or k.startswith("ios"):
+    n = (name or "").lower()
+    if "esp32" in n or "board" in n:
+        return "cpu"
+    if k.startswith("mobile-ios") or k.startswith("ios") or "iphone" in n:
         return "iphone"
     if k.startswith("mobile"):
         return "ipad"
     if k.startswith("watch"):
         return "applewatch"
-    if k.startswith("desktop"):
+    if k.startswith("desktop") or "macbook" in n or "imac" in n or "mac" in n:
         return "laptopcomputer"
     if k.startswith("browser"):
-        return "globe"
+        return "safari"
     return "display"
 
 

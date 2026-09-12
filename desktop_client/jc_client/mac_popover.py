@@ -37,19 +37,25 @@ _FOOTER_H = 34
 
 _MINI_PATH = "/?mini=voice"
 
-# Row metrics. ONE size for every picture, renders and SF Symbols alike: AppKit
-# indents a row's text by its image, so images of different widths gave every row
-# a different text origin — which is what threw the tab-stopped status dots out
-# of line with each other.
-_ICON_PT = 22
-_SYMBOL_PT = 22
-# Where the trailing status dot is pinned. Wide enough for the longest row.
-_ROW_WIDTH = 300.0
+# Row metrics. The device rows are drawn by hand (see `_RowView`) rather than
+# handed to AppKit as text: a menu item lays its text out after its image, so a
+# status dot placed with a tab stop moves with whatever is to its left and never
+# lines up between rows. Drawing puts it at a fixed distance from the row's
+# trailing edge, which is the only way it sits in a true column.
+_ICON_PT = 33.0
+_ROW_WIDTH = 340.0
+_ROW_HEIGHT = 40.0
+_LEFT_INSET = 14.0
+_GAP = 9.0
+_DOT_PT = 8.0
+_DOT_RIGHT_INSET = 16.0
+_HEADER_HEIGHT = 24.0
+_HEADER_INSET = 11.0
 
 
-def _kind_symbol(kind: str) -> str:
+def _kind_symbol(kind: str, name: str = "") -> str:
     from jc_client.device_roster import kind_symbol
-    return kind_symbol(kind)
+    return kind_symbol(kind, name)
 
 
 def _const(module, *names, default=None):
@@ -180,70 +186,47 @@ class MenuBarVoicePopover:
             logger.debug("voice popover: could not style the menu: %s", exc)
 
     def _style_header(self, item, row) -> None:
-        import AppKit
+        """A section heading, drawn at the menu's own left margin.
 
+        As a titled item it would start after the image gutter, indented under
+        the rows it heads; drawn, it sits where the system puts "Known Networks".
+        """
+        if _RowView is None:
+            return
+        view = _RowView.alloc().initWithFrame_(
+            _AppKit.NSMakeRect(0, 0, _ROW_WIDTH, _HEADER_HEIGHT))
+        view.row = row
+        view.image = None
         item.setImage_(None)
-        font = AppKit.NSFont.systemFontOfSize_weight_(11, AppKit.NSFontWeightSemibold)
-        item.setAttributedTitle_(AppKit.NSAttributedString.alloc().initWithString_attributes_(
-            row.name.upper(), {
-                AppKit.NSFontAttributeName: font,
-                AppKit.NSForegroundColorAttributeName: AppKit.NSColor.secondaryLabelColor(),
-                AppKit.NSKernAttributeName: 0.6,
-            }))
+        item.setView_(view)
 
     def _style_device(self, item, row) -> None:
-        import AppKit
+        """Hand the row to a view that draws itself, so every part is placed.
 
-        image = self._image_for(row)
-        if image is not None:
-            item.setImage_(image)
-
-        # Name, then the detail in a smaller secondary colour, then the status
-        # dot pushed to the trailing edge by a right tab stop.
-        body = AppKit.NSFont.menuFontOfSize_(0)
-        small = AppKit.NSFont.menuFontOfSize_(11)
-        title = AppKit.NSMutableAttributedString.alloc().initWithString_attributes_(
-            row.name, {AppKit.NSFontAttributeName: body})
-        if row.detail:
-            title.appendAttributedString_(
-                AppKit.NSAttributedString.alloc().initWithString_attributes_(
-                    "  " + row.detail, {
-                        AppKit.NSFontAttributeName: small,
-                        AppKit.NSForegroundColorAttributeName: AppKit.NSColor.secondaryLabelColor(),
-                    }))
-        title.appendAttributedString_(
-            AppKit.NSAttributedString.alloc().initWithString_attributes_(
-                "\t●", {
-                    AppKit.NSFontAttributeName: AppKit.NSFont.systemFontOfSize_(9),
-                    AppKit.NSForegroundColorAttributeName: self._dot_colour(row.online),
-                }))
-
-        paragraph = AppKit.NSMutableParagraphStyle.alloc().init()
-        tab = AppKit.NSTextTab.alloc().initWithTextAlignment_location_options_(
-            _const(AppKit, "NSTextAlignmentRight", default=2), _ROW_WIDTH, {})
-        paragraph.setTabStops_([tab])
-        title.addAttribute_value_range_(AppKit.NSParagraphStyleAttributeName, paragraph,
-                                        AppKit.NSMakeRange(0, title.length()))
-        item.setAttributedTitle_(title)
-
-    def _dot_colour(self, online: bool):
-        import AppKit
-
-        if online:
-            return AppKit.NSColor.systemGreenColor()
-        # Not a red alarm: most of these are simply out of range, which is normal.
-        return AppKit.NSColor.tertiaryLabelColor()
+        These rows are never clickable, so a custom view costs nothing in
+        behaviour — and it is the only way the pictures all render at one size
+        and the status dots share a column.
+        """
+        if _RowView is None:
+            return
+        view = _RowView.alloc().initWithFrame_(
+            _AppKit.NSMakeRect(0, 0, _ROW_WIDTH, _ROW_HEIGHT))
+        view.row = row
+        view.image = self._image_for(row)
+        item.setImage_(None)
+        item.setView_(view)
 
     def _image_for(self, row):
-        """An 18pt picture for one row, cached — menus rebuild every few seconds."""
-        key = row.wearable or f"symbol:{_kind_symbol(row.kind)}"
+        """One row's picture, cached — the menu rebuilds every couple of seconds."""
+        symbol = _kind_symbol(row.kind, row.name)
+        key = row.wearable or f"symbol:{symbol}"
         if key in self._image_cache:
             return self._image_cache[key]
-        image = self._render_wearable(row.wearable) if row.wearable             else self._symbol(_kind_symbol(row.kind))
+        image = self._render_wearable(row.wearable) if row.wearable else self._symbol(symbol)
         self._image_cache[key] = image
         return image
 
-    def _render_wearable(self, wearable: str):
+    def _render_wearable(self, wearable: str):  # noqa: D401
         """The PNG rendered from the device's own 3D model in the iOS app."""
         import AppKit
         from pathlib import Path
@@ -258,6 +241,21 @@ class MenuBarVoicePopover:
         image.setSize_(AppKit.NSMakeSize(_ICON_PT, _ICON_PT))
         return image
 
+    def _tinted(self, image, colour):
+        """A template symbol drawn by hand loses the tint AppKit would give it."""
+        import AppKit
+
+        out = image.copy()
+        out.setSize_(AppKit.NSMakeSize(_ICON_PT, _ICON_PT))
+        out.lockFocus()
+        colour.set()
+        AppKit.NSRectFillUsingOperation(
+            AppKit.NSMakeRect(0, 0, _ICON_PT, _ICON_PT),
+            _const(AppKit, "NSCompositingOperationSourceAtop", default=5))
+        out.unlockFocus()
+        out.setTemplate_(False)
+        return out
+
     def _symbol(self, name: str):
         import AppKit
 
@@ -267,10 +265,10 @@ class MenuBarVoicePopover:
             image = None
         if image is None:
             return None
-        image.setSize_(AppKit.NSMakeSize(_SYMBOL_PT, _SYMBOL_PT))
-        # Template images follow the menu's own light/dark appearance.
+        image.setSize_(AppKit.NSMakeSize(_ICON_PT, _ICON_PT))
         image.setTemplate_(True)
-        return image
+        # Drawn by hand, so the menu's own tinting no longer applies.
+        return self._tinted(image, AppKit.NSColor.labelColor())
 
     # ── clicks ───────────────────────────────────────────────────────
 
@@ -498,6 +496,8 @@ def install(icon, on_open_window: Callable[[], None]) -> Optional[MenuBarVoicePo
 
 _ClickDelegate = None
 _WebViewDelegate = None
+_RowView = None
+_AppKit = None
 # Decision blocks we could not call; held so WebKit never releases them. See
 # `_grant` — releasing an uncalled one aborts the process.
 _UNANSWERED: list = []
@@ -538,6 +538,83 @@ if sys.platform == "darwin":  # pragma: no cover - needs a macOS run loop
                 if self.owner is not None:
                     self.owner.open_in_window()
 
+        class _RowView(_AppKit.NSView):
+            """One device or heading, drawn rather than described.
+
+            A menu item lays its text out after its image, so anything pinned to
+            the trailing edge with a tab stop shifts with whatever precedes it —
+            which is why the status dots never shared a column. Drawing places
+            every part against the row's own bounds instead. These rows are not
+            clickable, so nothing of a menu item's behaviour is given up.
+            """
+
+            row = None
+            image = None
+
+            def drawRect_(self, _dirty):
+                bounds = self.bounds()
+                if self.row is None:
+                    return
+                if getattr(self.row, "header", False):
+                    self._draw_header(bounds)
+                else:
+                    self._draw_device(bounds)
+
+            def _draw_header(self, bounds):
+                text = _AppKit.NSAttributedString.alloc().initWithString_attributes_(
+                    str(self.row.name).upper(), {
+                        _AppKit.NSFontAttributeName:
+                            _AppKit.NSFont.systemFontOfSize_weight_(11, _AppKit.NSFontWeightSemibold),
+                        _AppKit.NSForegroundColorAttributeName:
+                            _AppKit.NSColor.secondaryLabelColor(),
+                        _AppKit.NSKernAttributeName: 0.6,
+                    })
+                size = text.size()
+                text.drawAtPoint_(_AppKit.NSMakePoint(
+                    _HEADER_INSET, (bounds.size.height - size.height) / 2))
+
+            def _draw_device(self, bounds):
+                if self.image is not None:
+                    self.image.drawInRect_fromRect_operation_fraction_(
+                        _AppKit.NSMakeRect(_LEFT_INSET,
+                                           (bounds.size.height - _ICON_PT) / 2,
+                                           _ICON_PT, _ICON_PT),
+                        _AppKit.NSZeroRect,
+                        _const(_AppKit, "NSCompositingOperationSourceOver", default=2), 1.0)
+
+                name = _AppKit.NSAttributedString.alloc().initWithString_attributes_(
+                    str(self.row.name), {
+                        _AppKit.NSFontAttributeName: _AppKit.NSFont.menuFontOfSize_(0),
+                        _AppKit.NSForegroundColorAttributeName: _AppKit.NSColor.labelColor(),
+                    })
+                x = _LEFT_INSET + _ICON_PT + _GAP
+                size = name.size()
+                y = (bounds.size.height - size.height) / 2
+                name.drawAtPoint_(_AppKit.NSMakePoint(x, y))
+
+                detail = str(getattr(self.row, "detail", "") or "")
+                if detail:
+                    aside = _AppKit.NSAttributedString.alloc().initWithString_attributes_(
+                        detail, {
+                            _AppKit.NSFontAttributeName: _AppKit.NSFont.menuFontOfSize_(11),
+                            _AppKit.NSForegroundColorAttributeName:
+                                _AppKit.NSColor.secondaryLabelColor(),
+                        })
+                    aside_size = aside.size()
+                    aside.drawAtPoint_(_AppKit.NSMakePoint(
+                        x + size.width + 8,
+                        (bounds.size.height - aside_size.height) / 2))
+
+                # The dot, measured from the row's trailing edge so every row
+                # agrees on where it goes.
+                colour = _AppKit.NSColor.systemGreenColor() if self.row.online \
+                    else _AppKit.NSColor.tertiaryLabelColor()
+                colour.set()
+                rect = _AppKit.NSMakeRect(bounds.size.width - _DOT_RIGHT_INSET - _DOT_PT,
+                                          (bounds.size.height - _DOT_PT) / 2,
+                                          _DOT_PT, _DOT_PT)
+                _AppKit.NSBezierPath.bezierPathWithOvalInRect_(rect).fill()
+
         class _WebViewDelegate(_AppKit.NSObject):  # noqa: F811
             """Grants the page microphone access.
 
@@ -567,3 +644,4 @@ if sys.platform == "darwin":  # pragma: no cover - needs a macOS run loop
         logger.debug("voice popover: Obj-C glue unavailable: %s", _exc)
         _ClickDelegate = None
         _WebViewDelegate = None
+        _RowView = None

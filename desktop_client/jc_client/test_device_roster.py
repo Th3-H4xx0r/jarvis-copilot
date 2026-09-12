@@ -34,9 +34,18 @@ def test_every_wearable_finds_its_picture():
 def test_device_kinds_map_to_symbols():
     assert kind_symbol("mobile-ios") == "iphone"
     assert kind_symbol("desktop") == "laptopcomputer"
-    assert kind_symbol("browser") == "globe"
+    assert kind_symbol("browser") == "safari"
     assert kind_symbol("watch") == "applewatch"
     assert kind_symbol("") == "display"
+
+
+def test_the_name_decides_when_the_kind_cannot():
+    """Everything paired through a web page is recorded as "browser" — the Mac
+    and the ESP32 board included — so a globe on all of them says nothing."""
+    assert kind_symbol("browser", "Jarvis-ESP32 board") == "cpu"
+    assert kind_symbol("browser", "Pranavs-MacBook-Pro.local") == "laptopcomputer"
+    assert kind_symbol("browser", "Macbook Pro Web") == "laptopcomputer"
+    assert kind_symbol("browser", "Some random tab") == "safari"
 
 
 def test_last_seen_reads_in_the_largest_useful_unit():
