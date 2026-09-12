@@ -12,7 +12,7 @@ script. **Nothing here flashes the ring.** See the safety section before you eve
 | `build_patch.py` | rebuilds the patched image from the clean base; encodes + verifies every branch |
 | `base_RT12_3.11.00_260911.bin` | the patched image (version bumped from 3.10.06_260429), 80 bytes changed |
 | `tap_and_accel_client.py` | **phone/host side** — poll accel + derive single/double/triple tap. Works today, no flashing. |
-| `sim_accel_patch.py` | **emulator harness** (Unicorn): runs the real patched bytes; proves decode, passthrough for all 255 other commands, the 0xB2 reply for every FIFO head, and clean-vs-patched call traces. `pip install unicorn capstone && python3 sim_accel_patch.py` |
+| `sim_accel_patch.py` | **emulator harness** (Unicorn): runs the real patched bytes; proves decode, passthrough for all 255 other commands, the 0x5A reply for every FIFO head, and clean-vs-patched call traces. `pip install unicorn capstone && python3 sim_accel_patch.py` |
 
 Rebuild: `python3 build_patch.py`.
 
@@ -23,19 +23,19 @@ packet. Its first two instructions (`push {r4,lr}; mov r4,r0`, 4 bytes) are repl
 `b.w` into a 54-byte routine placed in the tail code-cave at `0x847840` (298 free zero bytes
 inside the mapped image). The routine:
 
-1. reads `packet[0]`; if it is **not** `0xB2`, it replays the two displaced instructions and
+1. reads `packet[0]`; if it is **not** `0x5A`, it replays the two displaced instructions and
    branches back to `0x82b62a`, so every existing command behaves exactly as before;
-2. if it **is** `0xB2`, it takes the most recent sample from the accelerometer FIFO ring
+2. if it **is** `0x5A`, it takes the most recent sample from the accelerometer FIFO ring
    (`accel_fifo_ring` at `0x20bdf8`, head at `0x20bdf4`, interleaved `x,y,z` int16 LE, stride
-   6, size 0x1ec) and calls `send_reply_payload(0xB2, &sample, 6)`.
+   6, size 0x1ec) and calls `send_reply_payload(0x5A, &sample, 6)`.
 
 It is **stateless** and touches no other code path — the lowest-risk shape I could give it.
 
 ### Wire protocol added
 
 ```
-phone -> ring   16-byte frame, byte[0] = 0xB2                 (poll; bytes 1..14 ignored)
-ring  -> phone  16-byte frame, byte[0] = 0xB2, [1..2]=x, [3..4]=y, [5..6]=z  (int16 LE)
+phone -> ring   16-byte frame, byte[0] = 0x5A                 (poll; bytes 1..14 ignored)
+ring  -> phone  16-byte frame, byte[0] = 0x5A, [1..2]=x, [3..4]=y, [5..6]=z  (int16 LE)
                                               byte[15] = checksum (sum of bytes 0..14)
 ```
 
@@ -43,11 +43,13 @@ Poll as fast as you like; each reply is the newest sample the sensor wrote (25 H
 LIS3DH-style path, so ~40 ms is the useful floor). This is "streaming by polling"; it needs no
 new device-initiated notify and no new RAM state, which is why it is safe to add.
 
-Note: `0xB2` has bit 7 set, which the 16-byte framing normally uses as its error-flag bit. The
-dispatcher matches the full byte so the command works, but the **reply** also carries the raw
-byte `0xB2` — the host must match it directly (do not mask off bit 7). `tap_and_accel_client.py`
-does this. If you prefer a clean low command id, change `CMD_ACCEL` in both the patch and the
-client to any unused id < 0x80.
+Command id: `0x5A`. The emulator enumerated every id the stock firmware answers with
+`reply_unsupported` (175 of them) and intersected that with the ids the phone app uses; `0x5A`
+sits in a block of thirteen ids (`0x53..0x5E`) free on both sides. An earlier draft used `0xB2`,
+which was rejected because bit 7 is the framing's error flag: `0xB2` is indistinguishable from
+an error reply to command `0x32`, which the app's table lists. To change the id, edit the two
+immediates in `build_patch.py` (`0x295A`, `0x205A`), `accel_stream.s`, `CMD_ACCEL` in the
+client and `CMD` in the harness, then rebuild and rerun the harness.
 
 ## Taps: single / double / triple
 
@@ -59,7 +61,7 @@ firmware and the LIS3DH-style sensor on this ring only does single-click in hard
 `tap_and_accel_client.py` derives them on the host by counting those existing single-tap
 events inside a time window (<=400 ms apart -> double, a third <=400 ms -> triple). This needs
 no firmware change and carries zero brick risk, so it is the recommended path for taps. The
-accel `0xB2` command is the only part that genuinely required a firmware change.
+accel `0x5A` command is the only part that genuinely required a firmware change.
 
 If you truly want the ring itself to emit a 1/2/3 tap code, that is a second hook on the
 tap-emit path plus an OS timer for the inter-tap window; I left it out of this image on
@@ -70,9 +72,11 @@ equivalent. Ask and I will write that hook as a separate, clearly-marked patch.
 
 ### What is now verified (software)
 - `sim_accel_patch.py` executes the patched image on an emulated Cortex-M core. All checks pass:
-  the hook and cave decode exactly as `accel_stream.s`; for every command byte except 0xB2 the
+  the hook and cave decode exactly as `accel_stream.s`; the real `send_reply_payload` ->
+  `checksum_u8` path runs and the 16-byte frame captured at `tx_enqueue_packet` parses correctly
+  in `tap_and_accel_client.py` (`--deep`); for every command byte except 0x5A the
   machine state at `ble_cmd_dispatch+4` is identical to the clean firmware (r0, r2-r7, sp, lr,
-  pushed words; only the dead register r1 differs); 0xB2 calls `send_reply_payload(0xB2, &newest, 6)`
+  pushed words; only the dead register r1 differs); 0x5A calls `send_reply_payload(0x5A, &newest, 6)`
   for all 83 FIFO head positions including the wrap, and returns to the caller with sp balanced and
   r4 restored; clean-vs-patched callee traces are identical for the other 255 commands.
 - The index math (`head-6`, wrap `+0x1ec` after the borrow) equals the firmware's own
@@ -84,14 +88,19 @@ equivalent. Ask and I will write that hook as a separate, clearly-marked patch.
   The boot ROM is not checksumming the app payload (the stock image would fail if it were), so the
   open question from the earlier handoff is resolved: there is no hidden boot integrity field to
   satisfy. `build_patch.py` recomputes the only live checksum, the vendor wrapper's byte-sum at 0x0C.
-- The app image contains no OTA receiver; firmware updates go through Realtek's ROM DFU
-  (dual-bank, `not_ready` / `not_obsolete` flags). The patch changes nothing it inspects.
+- The app image contains no OTA receiver, so updates are handled below it (Realtek ROM/stack,
+  dual-bank `not_ready` / `not_obsolete` header flags). The patch changes nothing in that header.
+
+- The harness also caught a real regression during the id change (a commented-out `movs r2,#6`
+  shrank the cave to 52 bytes); rebuilt and re-verified at 54 bytes.
 
 ### What is NOT verified
 - It has never run on a ring. The emulator models the CPU, SRAM and the reply call; it does not
   model the BLE stack, timing, or the ROM DFU's acceptance rules (no ROM dump is available).
 - Torn reads: the BLE task reads `head` and 6 bytes while the app task may be writing the ring.
   Worst case is one mixed-axis sample, never a fault.
+- While gesture detection is armed the firmware's own reader drains the chip FIFO before reading;
+  the hook does not, so its sample can lag by one FIFO drain. Still a valid sample.
 
 ### Recovery
 - No QEMU/Renode model of the RTL8762 exists; the harness above is the simulator.
@@ -99,6 +108,6 @@ equivalent. Ask and I will write that hook as a separate, clearly-marked patch.
   flash mode, uploads `firmware0.bin` from the BeeMPTool kit, arbitrary flash read/write/erase
   from 0x00800000). The ring is a sealed 5ATM unit, so that path needs opening the case.
 - Because the hook only runs when a BLE command arrives and the boot path is untouched, a bug in
-  the 0xB2 handler would at worst reset the ring, leaving the stock OTA route available to go back
+  the 0x5A handler would at worst reset the ring, leaving the stock OTA route available to go back
   to `../base_RT12_3.10.06_260429.bin`.
 - Still: first flash on a **sacrificial unit**, never your only ring, and never blindly.

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Host/phone-side client for the RT12 accel+tap patch.
 
-- Polls the new firmware command 0xB2 for the latest accelerometer sample.
+- Polls the new firmware command 0x5A for the latest accelerometer sample.
 - Derives single / double / triple tap from the EXISTING single-tap event the
   stock firmware already sends (0x73 notify, subtype 45, value 3) -- so taps
-  work even without the firmware patch; only the accel stream needs 0xB2.
+  work even without the firmware patch; only the accel stream needs 0x5A.
 
 Transport is intentionally abstracted: plug in your BLE stack by implementing
 `write_cmd(16 bytes)` on the command characteristic (6E400002) and feeding every
@@ -13,7 +13,7 @@ are in ../notes/sdk-protocol.md.
 """
 import time, struct
 
-CMD_ACCEL   = 0xB2          # added by the firmware patch
+CMD_ACCEL   = 0x5A          # added by the firmware patch (free in firmware AND app; no bit 7)
 CMD_NOTIFY  = 0x73          # stock device-notify
 TAP_SUBTYPE = 45            # stock "gesture" subtype; value 3 == single click
 TAP_WINDOW  = 0.40          # seconds; two clicks within this -> double, a third -> triple
@@ -53,9 +53,8 @@ class Ring:
         """Feed every 16-byte command-notify frame here."""
         if len(frame) != 16 or checksum(frame[:15]) != frame[15]:
             return
-        # NOTE: 0xB2 has bit 7 set, which the BLE framing normally uses as the
-        # error-flag bit. The accel reply carries the raw byte 0xB2 (not an error),
-        # so match it directly and do NOT mask; only mask for real command ids.
+        # 0x5A is below 0x80, so an error reply for it would arrive as 0xDA and is
+        # correctly ignored here; match the id exactly.
         if frame[0] == CMD_ACCEL:
             x, y, z = struct.unpack_from("<hhh", frame, 1)
             if self.on_accel:
@@ -89,8 +88,8 @@ if __name__ == "__main__":
     ring = Ring(write_cmd=lambda f: log.append(f),
                 on_accel=lambda x, y, z: print(f"accel  x={x:6d} y={y:6d} z={z:6d}"),
                 on_tap=lambda n: print(f"tap    {['','single','double','triple'][n]}"))
-    # accel reply: 0xB2, x=100, y=-200, z=16000
-    ring.on_notify(build_cmd(0xB2, struct.pack("<hhh", 100, -200, 16000)))
+    # accel reply: CMD_ACCEL, x=100, y=-200, z=16000
+    ring.on_notify(build_cmd(CMD_ACCEL, struct.pack("<hhh", 100, -200, 16000)))
     # three quick single-tap events -> triple
     for _ in range(3):
         ring.on_notify(build_cmd(0x73, bytes([45, 3])))

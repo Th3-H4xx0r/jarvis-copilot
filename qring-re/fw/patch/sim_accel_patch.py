@@ -9,16 +9,16 @@ What it proves, on the exact bytes in base_RT12_3.11.00_260911.bin:
   1. decode   - the 4 patched bytes at ble_cmd_dispatch and the 54-byte cave
                 disassemble to exactly the instructions in accel_stream.s, and
                 nothing else changed except version digits + the 0x0C sum.
-  2. passthru - for every command byte except 0xB2, the cave hands control to
+  2. passthru - for every command byte except 0x5A, the cave hands control to
                 ble_cmd_dispatch+4 with machine state IDENTICAL to the clean
                 firmware at the same point (r0, r4, lr, sp, pushed words).
-  3. accel    - for 0xB2 the cave calls send_reply_payload(0xB2, &sample, 6)
+  3. accel    - for 0x5A the cave calls send_reply_payload(0x5A, &sample, 6)
                 where the 6 bytes are the newest FIFO sample, for every head
                 position (0..486 step 6, plus 0x1ec), then returns to the
                 dispatcher's caller with r4 restored and sp balanced.
   4. trace    - differential: clean vs patched image run from the real
                 dispatcher entry for all 256 command bytes with every callee
-                stubbed+logged. Call traces must be identical except 0xB2
+                stubbed+logged. Call traces must be identical except 0x5A
                 (clean -> reply_unsupported, patched -> send_reply_payload).
 
 Run:  python3 sim_accel_patch.py      (needs: pip install unicorn capstone)
@@ -38,6 +38,7 @@ CAVE = 0x847840; CAVE_END = 0x847880
 SWITCH8 = 0x84027c; SWITCH8_END = 0x8402a0
 SEND_REPLY = 0x82a616; REPLY_UNSUP = 0x82a98e; QUEUE_CMD = 0x82ab6c; MARK_ACT = 0x82dea2
 HEAD = 0x20bdf4; RINGB = 0x20bdf8; RSIZE = 0x1ec
+CMD = 0x5a                        # the accel command id (must match build_patch.py / accel_stream.s)
 SENTINEL = 0x0ffffff0             # fake return address for the dispatcher's caller
 
 NAMES = {SEND_REPLY: 'send_reply_payload', REPLY_UNSUP: 'reply_unsupported',
@@ -105,10 +106,11 @@ def test_decode(patched, clean):
             out.append(f'  {ins.address:08x}: {ins.bytes.hex():<10} {ins.mnemonic:<6} {ins.op_str}')
     txt = '\n'.join(out)
     print(txt)
-    expect = ['b.w    #0x847840', 'ldrb   r1, [r0]', 'cmp    r1, #0xb2', 'beq    #0x84784e', 'push   {r4, lr}',
+    expect = ['b.w    #0x847840', 'ldrb   r1, [r0]', f'cmp    r1, #{CMD:#x}', 'beq    #0x84784e', 'push   {r4, lr}',
               'mov    r4, r0', 'b.w    #0x82b62a', 'movw   r3, #0xbdf4', 'movt   r3, #0x20', 'ldrh   r2, [r3]',
               'subs   r2, #6', 'bpl    #0x847862', 'addw   r2, r2, #0x1ec', 'movw   r1, #0xbdf8', 'movt   r1, #0x20',
-              'add    r1, r2', 'movs   r0, #0xb2', 'movs   r2, #6', 'bl     #0x82a616', 'pop    {r4, pc}']
+              'add    r1, r2', f'movs   r0, #{CMD:#x}', 'movs   r2, #6', 'bl     #0x82a616', 'pop    {r4, pc}']
+    expect = [e.replace('{CMD}', f'{CMD:#x}') for e in expect]
     missing = [e for e in expect if e not in txt]
     assert not missing, f'unexpected decode, missing: {missing}'
     diffs = [i for i in range(len(clean)) if clean[i] != patched[i]]
@@ -144,10 +146,10 @@ def state_at_cont(image, cmd):
     return hit, r
 
 def test_passthru(patched, clean):
-    print('== 2. passthru: every cmd != 0xB2 reaches dispatch+4 in the clean machine state ==')
+    print('== 2. passthru: every cmd != 0x5A reaches dispatch+4 in the clean machine state ==')
     bad = []
     for cmd in range(256):
-        if cmd == 0xb2: continue
+        if cmd == CMD: continue
         hc, rc = state_at_cont(clean, cmd)
         hp, rp = state_at_cont(patched, cmd)
         assert hc.get('pc') == CONT and hp.get('pc') == CONT, (cmd, hc, hp)
@@ -163,10 +165,10 @@ def test_passthru(patched, clean):
 
 # ---------------------------------------------------------------- 3. accel
 def test_accel(patched):
-    print('== 3. accel: 0xB2 replies the newest FIFO sample for every head position ==')
+    print('== 3. accel: 0x5A replies the newest FIFO sample for every head position ==')
     heads = list(range(0, RSIZE, 6)) + [RSIZE]
     for head in heads:
-        uc = make_uc(patched); ring = seed_fifo(uc, head); setup_call(uc, 0xb2)
+        uc = make_uc(patched); ring = seed_fifo(uc, head); setup_call(uc, CMD)
         calls = []
         def hook(uc, addr, size, ud):
             if addr == SEND_REPLY:
@@ -182,13 +184,13 @@ def test_accel(patched):
         assert len(calls) == 1, (head, calls)
         r0, r1, r2, data = calls[0]
         exp = newest_sample(ring, head)
-        assert r0 == 0xb2 and r2 == 6, (head, hex(r0), r2)
+        assert r0 == CMD and r2 == 6, (head, hex(r0), r2)
         assert data == exp, (head, data.hex(), exp.hex())
         assert r1 == RINGB + ((head - 6) % RSIZE), (head, hex(r1))
         assert r['pc'] == SENTINEL and r['sp'] == STACK_TOP and r['r4'] == R4_IN, (head, r)
     x, y, z = struct.unpack('<hhh', newest_sample(seed_fifo(make_uc(patched), 0), 0))
     print(f'  {len(heads)} head values incl. 0 (wrap -> slot 81 = ({x},{y},{z})) and 0x1ec: '
-          f'send_reply_payload(0xB2, &newest, 6) then return to caller, sp balanced, r4 restored.  OK')
+          f'send_reply_payload(0x5A, &newest, 6) then return to caller, sp balanced, r4 restored.  OK')
 
 # ---------------------------------------------------------------- 4. trace
 def trace(image, cmd):
@@ -224,14 +226,14 @@ def test_trace(patched, clean):
         assert rc['pc'] == SENTINEL and rp['pc'] == SENTINEL, (hex(cmd), rc, rp)
         assert rc['sp'] == STACK_TOP and rp['sp'] == STACK_TOP and rp['r4'] == R4_IN, (hex(cmd), rc, rp)
         if lc != lp: diff[cmd] = (lc, lp)
-    assert list(diff) == [0xb2], f'behaviour changed for commands: {[hex(c) for c in diff]}'
-    lc, lp = diff[0xb2]
+    assert list(diff) == [CMD], f'behaviour changed for commands: {[hex(c) for c in diff]}'
+    lc, lp = diff[CMD]
     print('  255 commands: identical callee+argument traces; both images return to caller with sp balanced.')
-    print(f'  0xB2 clean  : {lc}')
-    print(f'  0xB2 patched: {lp}')
-    assert lc == [('ble_rx_mark_activity', 0xb2, ''), ('reply_unsupported', 0xb2, '')]
-    assert lp[0][0] == 'send_reply_payload' and lp[0][1] == 0xb2 and len(lp) == 1
-    print('  clean firmware treated 0xB2 as unsupported (so the id was free); patched answers it.  OK')
+    print(f'  0x5A clean  : {lc}')
+    print(f'  0x5A patched: {lp}')
+    assert lc == [('ble_rx_mark_activity', CMD, ''), ('reply_unsupported', CMD, '')]
+    assert lp[0][0] == 'send_reply_payload' and lp[0][1] == CMD and len(lp) == 1
+    print('  clean firmware treated 0x5A as unsupported (so the id was free); patched answers it.  OK')
 
 if __name__ == '__main__':
     clean = open(CLEAN, 'rb').read(); patched = open(PATCHED, 'rb').read()
@@ -241,3 +243,57 @@ if __name__ == '__main__':
     test_accel(patched)
     test_trace(patched, clean)
     print('\nALL CHECKS PASSED on', os.path.basename(PATCHED))
+
+# ---------------------------------------------------------------- 5. wire frame (real send_reply_payload -> checksum_u8 -> tx_enqueue_packet)
+TX_ENQUEUE = 0x82dbc0; ROM_MEMCPY = 0x3f848
+def test_wire(patched):
+    print('== 5. wire: run the REAL reply path; capture the 16-byte frame at tx_enqueue_packet; parse with the host client ==')
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('client', os.path.join(HERE, 'tap_and_accel_client.py'))
+    client = importlib.util.module_from_spec(spec); spec.loader.exec_module(client)
+    for head in (0, 6, 0x30, 0x1e6):
+        uc = make_uc(patched); ring = seed_fifo(uc, head); setup_call(uc, CMD)
+        uc.mem_map(0x30000, 0x10000)                     # ROM page holding memcpy (stubbed below)
+        frames = []
+        def hook(uc, addr, size, ud):
+            if addr == ROM_MEMCPY:                       # ROM memcpy(dst, src, n) -> do it in Python, return
+                d, s, n = (uc.reg_read(x) for x in (UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2))
+                uc.mem_write(d, bytes(uc.mem_read(s, n)))
+                uc.reg_write(UC_ARM_REG_PC, uc.reg_read(UC_ARM_REG_LR))
+            elif addr == TX_ENQUEUE:                     # capture the frame the BLE layer would notify
+                frames.append(bytes(uc.mem_read(uc.reg_read(UC_ARM_REG_R0), 16)))
+                trash_caller_saved(uc)
+                uc.reg_write(UC_ARM_REG_PC, uc.reg_read(UC_ARM_REG_LR))
+            elif addr == SENTINEL:
+                uc.emu_stop()
+        uc.hook_add(UC_HOOK_CODE, hook)
+        uc.emu_start(DISP | 1, 0, count=2000)
+        r = regs(uc)
+        assert len(frames) == 1 and r['pc'] == SENTINEL and r['sp'] == STACK_TOP and r['r4'] == R4_IN, (head, frames, r)
+        f = frames[0]
+        exp = newest_sample(ring, head)
+        assert f[0] == CMD and f[1:7] == exp and f[7:15] == bytes(8) and f[15] == sum(f[:15]) & 0xff, (head, f.hex())
+        got = []
+        ring_obj = client.Ring(write_cmd=lambda b: None, on_accel=lambda x, y, z: got.append((x, y, z)))
+        ring_obj.on_notify(f)
+        assert got == [struct.unpack('<hhh', exp)], (head, got, exp)
+        print(f'  head={head:#5x}: frame {f.hex()}  -> client parsed {got[0]}  OK')
+
+# ---------------------------------------------------------------- 6. free command ids in the clean firmware
+def test_free_ids(clean):
+    print('== 6. free ids: which command bytes does the clean firmware answer with reply_unsupported? ==')
+    free, handled = [], {}
+    for cmd in range(256):
+        lc, ec, rc = trace(clean, cmd)
+        names = [n for n, _, _ in lc if n != 'ble_rx_mark_activity']
+        if names == ['reply_unsupported']: free.append(cmd)
+        else: handled[cmd] = names
+    lo = [c for c in free if c < 0x80]
+    print(f'  {len(free)} free ids; {len(lo)} below 0x80: {" ".join(f"{c:02x}" for c in lo)}')
+    print(f'  0x32 handled as: {handled.get(0x32)}   (the old id 0xB2 == 0x32|0x80 was the error-reply form of 0x32; 0x5A has no such alias)')
+    return free, handled
+
+if __name__ == '__main__' and '--deep' in os.sys.argv:
+    clean = open(CLEAN, 'rb').read(); patched = open(PATCHED, 'rb').read()
+    test_wire(patched)
+    test_free_ids(clean)

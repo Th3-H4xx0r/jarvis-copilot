@@ -23,14 +23,14 @@ d=bytearray(d.replace(b'3.10.06',NEWVER.encode()).replace(b'260429',NEWDATE.enco
 buf=bytearray(); a=CAVE
 def e(b):
     global a; buf.extend(b); a+=len(b)
-e(struct.pack('<H',0x7801)); e(struct.pack('<H',0x29B2))
+e(struct.pack('<H',0x7801)); e(struct.pack('<H',0x295A))  # cmp r1,#CMD
 beq=a; e(b'\0\0'); e(struct.pack('<H',0xB510)); e(struct.pack('<H',0x4604))
 bw2=a; e(b'\0\0\0\0'); mine=a
 e(struct.pack('<H',0xB510)); e(movw(3,HEAD&0xffff)); e(movt(3,HEAD>>16))
 e(struct.pack('<H',0x881A)); e(struct.pack('<H',0x3A06))
 bpl=a; e(b'\0\0'); e(addw(2,2,RSIZE)); nw=a
 e(movw(1,RINGB&0xffff)); e(movt(1,RINGB>>16)); e(struct.pack('<H',0x4411))
-e(struct.pack('<H',0x20B2)); e(struct.pack('<H',0x2206))
+e(struct.pack('<H',0x205A)); e(struct.pack('<H',0x2206))  # movs r0,#CMD; movs r2,#6
 bl=a; e(b'\0\0\0\0'); e(struct.pack('<H',0xBD10))
 p=lambda x,b: buf.__setitem__(slice(x-CAVE,x-CAVE+len(b)),b)
 p(beq,struct.pack('<H',0xD000|(((mine-(beq+4))>>1)&0xff)))
