@@ -39,8 +39,18 @@ def enable_microphone() -> None:
     """Grant the embedded WebView microphone access (web + OS layers)."""
     if sys.platform != "darwin":
         return
-    _inject_usage_description()
+    prepare_microphone()
     _patch_webview_media_permission()
+
+
+def prepare_microphone() -> None:
+    """The OS-layer half only: usage description plus a proactive TCC request.
+
+    The menubar popover builds its own WKWebView with its own UI delegate, so it
+    grants the web layer itself and only needs this part."""
+    if sys.platform != "darwin":
+        return
+    _inject_usage_description()
     _request_os_audio_access()
 
 

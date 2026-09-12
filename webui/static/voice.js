@@ -660,13 +660,299 @@
     }
   }
 
-  // Choose the WebGL orb when Three.js + a WebGL context are available, else
-  // the Canvas-2D fallback. Probes on a throwaway canvas so we never consume
-  // the real canvas's context with the wrong type before WebGLRenderer claims
-  // it.
+  // ---- VoiceOrbLiquidGL — the iOS liquid-glass orb, in WebGL ----
+  //
+  // A direct port of the app's `setupOrb` Metal shader
+  // (ios_app/JarvisCopilot/Copilot/Voice/Views/OrbShader.metal), so the desktop
+  // panel and the phone show the same object rather than two orbs that merely
+  // rhyme. Everything is per-pixel from (position, size, time): a crisp glass
+  // shell, two sheets of liquid light turning inside it, motes on tilted
+  // orbits, curved cap/bottom reflections and a warm bloom where the liquid
+  // meets the glass.
+  //
+  // Two deliberate differences from a mechanical transcription:
+  //   * y is flipped — Metal hands the shader SwiftUI's y-down points, WebGL
+  //     counts up from the bottom;
+  //   * even-powered `pow` calls became multiplications, because GLSL ES
+  //     leaves `pow` undefined for a negative base and several of these bases
+  //     go negative (Metal is happy to fold an integral exponent).
+  const _ORB_FS = `
+  precision highp float;
+  uniform vec2 uSize;
+  uniform float uT;
+  uniform float uPulse;
+
+  float sq(float x) { return x * x; }
+  float qd(float x) { float a = x * x; return a * a; }
+
+  // One pair of liquid sheets. RGB is interior light; alpha is the warm light
+  // that reaches the glass.
+  vec4 liquidLight(vec2 q, float drift, float aa) {
+    vec3 light = vec3(0.0);
+    float warmLight = 0.0;
+    float r = length(q);
+    for (int i = 0; i < 2; ++i) {
+      float seed = float(i) * 2.4;
+      float turn = (i == 0 ? drift : -drift) + seed - 0.4 * sin(2.0 * drift + seed);
+      vec2 local = vec2(q.x * cos(turn) + q.y * sin(turn),
+                       -q.x * sin(turn) + q.y * cos(turn));
+      float u = local.x - 0.24 * sin(3.0 * drift + seed);
+      float bend = 0.24 * sin(2.8 * u + 5.0 * drift + seed) + 0.18 * sin(3.0 * drift + seed);
+      float v = local.y - bend;
+      float opening = 0.5 + 0.5 * sin(2.0 * u - 4.0 * drift + seed);
+      float width = 0.13 + 0.19 * opening;
+      float e = u / 0.91;
+      float envelope = exp(-(sq(e) * sq(e) * sq(e)));
+      // One defined liquid boundary with depth fading into its broad body.
+      float surface = smoothstep(-width - 0.018, -width + 0.018, v);
+      float thickness = exp(-pow(max(v + width, 0.0) / (width * 1.45), 1.5));
+      float body = surface * thickness * envelope;
+      // Reflections sit in short patches; nothing draws a continuous contour.
+      float glintAt = 0.36 * sin(2.0 * drift + seed + 0.8);
+      float glint = exp(-sq((v + width * 0.88) / (0.014 + aa * 0.5)))
+                  * exp(-sq((u - glintAt) / 0.16));
+      float depth = (i == 0) ? 1.0 : 0.20;
+      float warm = smoothstep(0.48, 0.93, r) * (0.20 + 0.80 * smoothstep(-0.10, 0.55, u));
+      vec3 tint = mix(vec3(0.035, 0.24, 0.80), vec3(1.0, 0.37, 0.07), warm);
+      light += tint * body * depth * 0.74;
+      light += vec3(0.58, 0.80, 1.0) * body * opening * depth * 0.10;
+      light += vec3(0.80, 0.93, 1.0) * glint * depth * 0.34;
+      warmLight += body * warm * depth;
+    }
+    return vec4(light, warmLight);
+  }
+
+  void main() {
+    // SwiftUI hands the Metal version y-down points; match that.
+    vec2 pos = vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y);
+
+    float phase = uT * (6.28318530718 / 9.6);
+    float breathe = 1.0 + 0.035 * sin(phase) - 0.012 * sin(2.0 * phase);
+    // Speech expands the orb, exactly as the app scales the whole view by
+    // 1 + 0.10 * pulse.
+    // The app draws the shader on a surface 1/0.53 larger than the visible
+    // frame, so its sphere fills that frame edge to edge. Here the canvas IS
+    // the frame, so the sphere is sized to it, less the margin the exterior
+    // bloom needs (it reaches r = 1.22).
+    float radius = min(uSize.x, uSize.y) * 0.42 * breathe * (1.0 + 0.10 * uPulse);
+    vec2 q = (pos - uSize * 0.5) / radius;
+    // Inverse-warp glass and liquid together so reflections stay attached as
+    // the idle silhouette pulses.
+    float angle = dot(q, q) > 0.00001 ? atan(q.y, q.x) : 0.0;
+    float flex = 0.022 * sin(3.0 * angle + phase) + 0.012 * sin(2.0 * angle - 2.0 * phase);
+    q /= 1.0 + flex * smoothstep(0.1, 0.9, length(q));
+    float r = length(q);
+    if (r > 1.22) { gl_FragColor = vec4(0.0); return; }
+
+    float drift = uT * (6.28318530718 / 38.4);
+    float aa = 1.0 / radius;
+    vec4 liquid = liquidLight(q, drift, aa);
+    vec3 ice = vec3(0.55, 0.77, 1.0);
+    vec3 pearl = vec3(0.88, 0.96, 1.0);
+    vec3 blue = vec3(0.045, 0.30, 0.82);
+    // Warm light only blooms where a liquid surface reaches the glass.
+    float contact = exp(-sq((r - 0.99) / 0.048));
+    vec3 glow = vec3(1.0, 0.57, 0.20) * liquid.a * contact * 0.34;
+    float coverage = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, r);
+
+    // A transparent exterior lets the page show through the bloom.
+    float glowAlpha = clamp(max(glow.r, max(glow.g, glow.b)), 0.0, 1.0);
+    float outerFade = 1.0 - smoothstep(1.02, 1.22, r);
+    vec3 exterior = glow * outerFade;
+    float exteriorAlpha = glowAlpha * outerFade;
+    if (r > 1.0 + aa) { gl_FragColor = vec4(exterior, exteriorAlpha); return; }
+
+    vec3 col = vec3(0.002, 0.005, 0.009);
+    float interiorMask = 1.0 - smoothstep(0.58, 0.91, r);
+    // Motes on tilted 3D orbits: depth changes focus and brightness, so they
+    // read as suspended inside the sphere rather than stuck on its face.
+    for (int i = 0; i < 7; ++i) {
+      float seed = float(i) * 2.39996;
+      float orbit = 0.30 + 0.045 * float(i);
+      float theta = drift + seed;
+      vec3 p = vec3(orbit * cos(theta), 0.18 * sin(seed), orbit * sin(theta));
+      vec2 mote = vec2(p.x, p.y * 0.82 - p.z * 0.57);
+      float depth = 0.5 + 0.5 * (p.y * 0.57 + p.z * 0.82) / 0.7;
+      float d2 = dot(q - mote, q - mote);
+      float focus = max(mix(0.011, 0.0045, depth), aa * 0.5);
+      float light = exp(-d2 / (focus * focus)) * (0.24 + 0.55 * depth) + exp(-d2 / 0.0014) * 0.018;
+      col += mix(ice, pearl, depth) * light * interiorMask;
+    }
+    float bowl = sqrt(max(0.0, 1.0 - q.x * q.x));
+    // Curved reflections: a narrow specular highlight over a blue body.
+    float capY = -0.80 * bowl - 0.075;
+    float cap = exp(-sq((q.y - capY) / 0.075));
+    float capFalloff = exp(-qd(q.x / 0.82));
+    float keyLight = 0.68 + 0.32 * exp(-sq((q.x + 0.25) / 0.55));
+    col += ice * cap * capFalloff * keyLight * 0.88;
+    col += pearl * exp(-sq((q.y - capY + 0.015) / 0.017)) * exp(-sq((q.x + 0.22) / 0.48)) * 0.46;
+    col += blue * exp(-sq((q.y - capY) / 0.15)) * capFalloff * 0.07;
+    float bottomY = 0.89 * bowl + 0.025;
+    float bottom = exp(-sq((q.y - bottomY) / 0.060));
+    col += ice * bottom * exp(-qd(q.x / 0.78)) * 0.76;
+    col += pearl * exp(-sq((q.y - bottomY) / 0.014)) * exp(-sq(q.x / 0.34)) * 0.52;
+    col += blue * exp(-sq((q.y - bottomY) / 0.14)) * 0.07;
+    // A crisp Fresnel edge, strongest where the glass catches the key light.
+    float rim = exp(-sq((r - 0.991) / (0.005 + aa * 0.45)));
+    col += ice * rim * (0.18 + 0.30 * abs(q.y));
+
+    col += liquid.rgb;
+    col += glow;
+
+    // Keep the near-black glass interior; emit premultiplied alpha.
+    col = min(col, vec3(1.0));
+    float alpha = mix(exteriorAlpha, 1.0, coverage);
+    vec3 result = mix(exterior, col, coverage);
+    gl_FragColor = vec4(min(result, vec3(alpha)), alpha);
+  }`;
+
+  const _ORB_VS = `
+  attribute vec2 aPos;
+  void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
+
+  class VoiceOrbLiquidGL {
+    /** True when this canvas can host the shader. Probes on a throwaway canvas
+     *  so the real one's context type is never decided by the check. */
+    static isSupported() {
+      try {
+        const probe = document.createElement('canvas');
+        const gl = probe.getContext('webgl', { alpha: true })
+                || probe.getContext('experimental-webgl', { alpha: true });
+        if (!gl) return false;
+        // Some software renderers report a context but no float precision in
+        // fragment shaders, which this shader needs throughout.
+        const fmt = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+        return !!fmt && fmt.precision > 0;
+      } catch (e) { return false; }
+    }
+
+    constructor(canvas) {
+      this.canvas = canvas;
+      this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+      this.w = 0; this.h = 0;
+      this.state = 'idle';
+      this.target = 0;   // raw amplitude in
+      this.amp = 0;      // smoothed envelope
+      this.running = false;
+      this._raf = 0;
+      this._t0 = 0;
+      this._last = 0;
+      this._resize = this._resize.bind(this);
+      this._tick = this._tick.bind(this);
+
+      const gl = canvas.getContext('webgl', {
+        alpha: true, premultipliedAlpha: true, antialias: true, depth: false,
+      });
+      this.gl = gl;
+      const program = this._link(_ORB_VS, _ORB_FS);
+      this.program = program;
+      gl.useProgram(program);
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      const aPos = gl.getAttribLocation(program, 'aPos');
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+      this._uSize = gl.getUniformLocation(program, 'uSize');
+      this._uT = gl.getUniformLocation(program, 'uT');
+      this._uPulse = gl.getUniformLocation(program, 'uPulse');
+
+      window.addEventListener('resize', this._resize);
+      this._resize();
+    }
+
+    _link(vsSrc, fsSrc) {
+      const gl = this.gl;
+      const compile = (type, src) => {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, src);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          throw new Error('orb shader: ' + gl.getShaderInfoLog(shader));
+        }
+        return shader;
+      };
+      const program = gl.createProgram();
+      gl.attachShader(program, compile(gl.VERTEX_SHADER, vsSrc));
+      gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fsSrc));
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        throw new Error('orb program: ' + gl.getProgramInfoLog(program));
+      }
+      return program;
+    }
+
+    _resize() {
+      const parent = this.canvas.parentElement || this.canvas;
+      const rect = parent.getBoundingClientRect();
+      const side = Math.max(120, Math.min(rect.width, rect.height, 360));
+      this.w = side;
+      this.h = side;
+      this.canvas.style.width = side + 'px';
+      this.canvas.style.height = side + 'px';
+      this.canvas.width = Math.round(side * this.dpr);
+      this.canvas.height = Math.round(side * this.dpr);
+      if (this.gl) this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    }
+
+    setState(state) { this.state = state; }
+    setAmplitude(a) { this.target = Math.max(0, Math.min(1, a)); }
+
+    /** The app's VoiceOrbGeometry.speechPulse: perceptual gain so quiet speech
+     *  still shows, and only while someone is actually talking — idle keeps the
+     *  shader's own breathing. */
+    _pulseTarget() {
+      if (this.state !== 'listening' && this.state !== 'speaking') return 0;
+      const a = Math.max(0, Math.min(1, this.target - 0.003));
+      return Math.min(Math.pow(a, 0.35) * 1.2, 1);
+    }
+
+    _tick(now) {
+      if (!this.running) return;
+      const ms = now || performance.now();
+      if (!this._t0) { this._t0 = ms; this._last = ms; }
+      // Clamp dt: a backgrounded tab resumes with a huge gap, which would snap
+      // the envelope instead of easing it.
+      const dt = Math.min(Math.max((ms - this._last) / 1000, 0), 0.1);
+      this._last = ms;
+      const target = this._pulseTarget();
+      // One-pole envelope, fast attack / slower release — the app's constants.
+      const tau = target > this.amp ? 0.05 : 0.16;
+      this.amp += (target - this.amp) * Math.min(Math.max(1 - Math.exp(-dt / tau), 0), 1);
+
+      const gl = this.gl;
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.useProgram(this.program);
+      gl.uniform2f(this._uSize, this.canvas.width, this.canvas.height);
+      gl.uniform1f(this._uT, (ms - this._t0) / 1000);
+      gl.uniform1f(this._uPulse, this.amp);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      this._raf = requestAnimationFrame(this._tick);
+    }
+
+    start() {
+      if (this.running) return;
+      this.running = true;
+      this._raf = requestAnimationFrame(this._tick);
+    }
+
+    stop() {
+      this.running = false;
+      if (this._raf) cancelAnimationFrame(this._raf);
+      this._raf = 0;
+    }
+  }
+
+  // The liquid-glass orb is the one the phone shows, so it is the one to use
+  // here; the Canvas-2D ribbon orb stays as the fallback for anything without
+  // a usable WebGL context (and VoiceOrbGL above is unused).
   function createVoiceOrb(canvas) {
-    // Always use the Canvas-2D glass-ribbon orb so the WebUI matches the
-    // mobile/watch orb exactly. (VoiceOrbGL is kept above but no longer used.)
+    if (VoiceOrbLiquidGL.isSupported()) {
+      try { return new VoiceOrbLiquidGL(canvas); } catch (e) {
+        console.warn('[voice] liquid orb unavailable, falling back:', e);
+      }
+    }
     return new VoiceOrbCanvas2D(canvas);
   }
 
