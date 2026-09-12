@@ -98,6 +98,7 @@
 		2B03F20C352F08FEB2919368 /* RingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E48670F467C67F30CDE44936 /* RingSettingsView.swift */; };
 		2B48BFAF259F095BC25C1944 /* VoiceModelSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6480C0ADC9254A6368121AE /* VoiceModelSelectionTests.swift */; };
 		2B84AD8307094FA3EE74158B /* ChatLinkGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96BE122E9B3721EF10F3EC20 /* ChatLinkGuard.swift */; };
+		2BA5D1B69E15131CC92A7547 /* RingFirmwareSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19E63C1F5D1B088AEDCB2607 /* RingFirmwareSection.swift */; };
 		2C0C4E56F8A34E85B5B20CAF /* NavShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 909C387EC141D206ED743368 /* NavShell.swift */; };
 		2C361BBE3A4AC8F84847F25A /* CodeMemoryEntriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F29BC98268712C15516BC6D2 /* CodeMemoryEntriesView.swift */; };
 		2C47622AD5185BC561E155B4 /* DevicesFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41C5EDBC28E2E4F936EE5E0 /* DevicesFixtures.swift */; };
@@ -495,6 +496,7 @@
 		F0CCEB43E75B246A26F236E8 /* DevicesTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A713B8F4657D2BD51435488 /* DevicesTextTests.swift */; };
 		F148D36E52EB42687CC86F01 /* DeviceIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 620783A3C8AF6257135DFB6D /* DeviceIcon.swift */; };
 		F16B92057EF368FBB8CBA6CA /* CodingApprovalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B225BC7B720833E133240924 /* CodingApprovalCard.swift */; };
+		F1A88B06932D32BDC83C4DD7 /* RingFirmwareFlasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEB9F76EF0605F18705E19A9 /* RingFirmwareFlasher.swift */; };
 		F2B280EF04866050D818C6A7 /* SessionsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C108BDF93416CAEC97CCEB60 /* SessionsAPI.swift */; };
 		F329F94DD5B23E613818D67F /* QuotaCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4427D18CA560FC8794B4334D /* QuotaCard.swift */; };
 		F37371663D5D976A18615A53 /* LoadErrorBannerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 831EA93461D058E7FDDB52F0 /* LoadErrorBannerUITests.swift */; };
@@ -507,6 +509,7 @@
 		F819F1E1A43FE3BF9178C99E /* CodingProjectSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AF92EB81DA500125FDC74C1 /* CodingProjectSheets.swift */; };
 		F8DA828F7DEC22216800C8C1 /* SettingsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B04FC9C8E84EB548A42E441 /* SettingsStoreTests.swift */; };
 		F9C22A26ABDAED60FA00A4E5 /* PhoneSkillsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7641CE63B1EC9EF88B73DBA1 /* PhoneSkillsTests.swift */; };
+		FB39EEED51862E3465414805 /* Firmware in Resources */ = {isa = PBXBuildFile; fileRef = E8152F8F3CF43DF519045357 /* Firmware */; };
 		FC4507A64F24FEF1F033A638 /* JcLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5072183EC782BEB4F738CF5E /* JcLog.swift */; };
 		FC5BA42C90943C4E829B09AC /* AppleFoundationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6998747AD0EC6B5B3EB2EA90 /* AppleFoundationModel.swift */; };
 		FD5D894E637CB850201974B1 /* InsightsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB3F558D05BF433A58D7179 /* InsightsUITests.swift */; };
@@ -627,6 +630,7 @@
 		195070864CE5E2E428B49E9D /* DevicesSnapshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesSnapshotTests.swift; sourceTree = "<group>"; };
 		196FE8A2C465C6B144FD2C7F /* StatsLine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StatsLine.swift; sourceTree = "<group>"; };
 		19D4DBC17D9CC8E43A595FF7 /* IslandDemoTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandDemoTests.swift; sourceTree = "<group>"; };
+		19E63C1F5D1B088AEDCB2607 /* RingFirmwareSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingFirmwareSection.swift; sourceTree = "<group>"; };
 		1AB72620872144EC212B8790 /* BottleModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleModel.swift; sourceTree = "<group>"; };
 		1AC17D45E7912672EDE9E317 /* WorkspacesUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesUITests.swift; sourceTree = "<group>"; };
 		1ADFF9AFA07D037BF229025D /* IslandDesignsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandDesignsPage.swift; sourceTree = "<group>"; };
@@ -945,6 +949,7 @@
 		BD85C337C09C2129C82247FA /* PairPayloadTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PairPayloadTests.swift; sourceTree = "<group>"; };
 		BEA8341C7336CAEB461139EA /* MoreGapTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MoreGapTests.swift; sourceTree = "<group>"; };
 		BEAE6A435982222E11D399BF /* RingProtocolTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingProtocolTests.swift; sourceTree = "<group>"; };
+		BEB9F76EF0605F18705E19A9 /* RingFirmwareFlasher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingFirmwareFlasher.swift; sourceTree = "<group>"; };
 		BF0AB26DA55CCFACCA38ECE6 /* TerminalBufferTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TerminalBufferTests.swift; sourceTree = "<group>"; };
 		BF3E30F3BEC433A5D3BB3F89 /* LocalAiSettingsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalAiSettingsTests.swift; sourceTree = "<group>"; };
 		BFA44E462ADEBC5FBDDD2FF7 /* RingSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingSession.swift; sourceTree = "<group>"; };
@@ -1029,6 +1034,7 @@
 		E6EECBB4BBB75D1EFAAA11C3 /* MessageRow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MessageRow.swift; sourceTree = "<group>"; };
 		E6FCBE9970FC5AED821E2622 /* CodingFleetList.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingFleetList.swift; sourceTree = "<group>"; };
 		E79232515B9F15B54012F055 /* CodingStreamReducerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingStreamReducerTests.swift; sourceTree = "<group>"; };
+		E8152F8F3CF43DF519045357 /* Firmware */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = Firmware; sourceTree = "<group>"; };
 		E83314966A024DAD58D98459 /* AppIntents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppIntents.swift; sourceTree = "<group>"; };
 		E9C33AC4137EA0D360D1D971 /* IslandPlanNotifier.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandPlanNotifier.swift; sourceTree = "<group>"; };
 		E9D2755340D3BA0F5C5AF68B /* CodingSessionStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodingSessionStoreTests.swift; sourceTree = "<group>"; };
@@ -1329,6 +1335,7 @@
 				AABB00AA00000000ICON0001 /* Assets.xcassets */,
 				8F4EF0043628B8C251DDD12F /* SceneCanvas.swift */,
 				F1D85B5C66CD7C7F1DFCBB07 /* Ring */,
+				E8152F8F3CF43DF519045357 /* Firmware */,
 			);
 			path = JarvisCopilot;
 			sourceTree = "<group>";
@@ -2134,6 +2141,8 @@
 				83C429F206CC9CEAC921AA8F /* RingLog.swift */,
 				AC55A5B95B8F19C84D67EF5E /* RingProbe.swift */,
 				EE029576C3EECD8DD6F9EC4A /* RingFirmwareUpdate.swift */,
+				BEB9F76EF0605F18705E19A9 /* RingFirmwareFlasher.swift */,
+				19E63C1F5D1B088AEDCB2607 /* RingFirmwareSection.swift */,
 			);
 			name = Ring;
 			path = Ring;
@@ -2302,6 +2311,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AABB00AA00000000ICON0002 /* Assets.xcassets in Resources */,
+				FB39EEED51862E3465414805 /* Firmware in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2837,6 +2847,8 @@
 				E496A861E5948DF39B1A7F00 /* RingLog.swift in Sources */,
 				7976EBB570FA56D06F859828 /* RingProbe.swift in Sources */,
 				4955B0954EB14C95944FCC4B /* RingFirmwareUpdate.swift in Sources */,
+				F1A88B06932D32BDC83C4DD7 /* RingFirmwareFlasher.swift in Sources */,
+				2BA5D1B69E15131CC92A7547 /* RingFirmwareSection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

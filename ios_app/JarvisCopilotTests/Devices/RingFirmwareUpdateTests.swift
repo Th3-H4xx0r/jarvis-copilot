@@ -65,20 +65,20 @@ final class RingFirmwareUpdateTests: XCTestCase {
     }
 
     func testRunSendsEveryStepAndReportsProgress() async throws {
-        let img = validImage(size: 0x900)
+        let img = validImage(size: 0x2900)                      // in the receiver's range: 11 pockets
         var sentCmds: [UInt8] = []
         var lastProgress = (0, 0)
         try await RingFirmwareUpdate.run(
             image: img,
             send: { cmd, _ in sentCmds.append(cmd); return [.bigData(cmd: cmd, payload: [0])] },
             progress: { lastProgress = ($0, $1) })
-        XCTAssertEqual(sentCmds, [1, 2, 3, 3, 3, 4, 5])
-        XCTAssertEqual(lastProgress.0, 3)
-        XCTAssertEqual(lastProgress.1, 3)
+        XCTAssertEqual(sentCmds, [1, 2] + [UInt8](repeating: 3, count: 11) + [4, 5])
+        XCTAssertEqual(lastProgress.0, 11)
+        XCTAssertEqual(lastProgress.1, 11)
     }
 
     func testRunStopsWhenTheRingNaksAPocket() async {
-        let img = validImage(size: 0x900)
+        let img = validImage(size: 0x2900)
         do {
             try await RingFirmwareUpdate.run(image: img, send: { cmd, _ in
                 [.bigData(cmd: cmd, payload: [cmd == 3 ? 1 : 0])]    // NAK the first data pocket

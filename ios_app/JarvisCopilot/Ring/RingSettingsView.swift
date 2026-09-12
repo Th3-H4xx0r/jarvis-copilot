@@ -5,6 +5,7 @@ struct RingSettingsView: View {
     @ObservedObject var manager: RingManager
     @ObservedObject private var session: RingSession
     @StateObject private var bridge = BridgeClient.shared
+    @StateObject private var flasher = RingFirmwareFlasher()
 
     @State private var error: String?
     @State private var working = false
@@ -72,6 +73,7 @@ struct RingSettingsView: View {
                 profileSection
                 preferences
                 maintenance
+                firmware
                 whatItDoes
                 liveSensors
                 deviceInfo
@@ -397,6 +399,11 @@ struct RingSettingsView: View {
             }
         }
         .disabled(!ready || working)
+    }
+
+    private var firmware: some View {
+        RingFirmwareSection(flasher: flasher, session: session, ready: ready && !working,
+                            currentVersion: session.firmware)
     }
 
     private var calibrationText: String {
