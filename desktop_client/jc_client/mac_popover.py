@@ -42,13 +42,15 @@ _MINI_PATH = "/?mini=voice"
 # status dot placed with a tab stop moves with whatever is to its left and never
 # lines up between rows. Drawing puts it at a fixed distance from the row's
 # trailing edge, which is the only way it sits in a true column.
-_ICON_PT = 33.0
+_ICON_PT = 27.0
 _ROW_WIDTH = 340.0
-_ROW_HEIGHT = 40.0
+_ROW_HEIGHT = 34.0
 _LEFT_INSET = 14.0
 _GAP = 9.0
 _DOT_PT = 8.0
 _DOT_RIGHT_INSET = 16.0
+# Gap between a row's detail ("Connected", "-87 dBm") and its status dot.
+_DETAIL_GAP = 10.0
 _HEADER_HEIGHT = 24.0
 _HEADER_INSET = 11.0
 
@@ -592,6 +594,8 @@ if sys.platform == "darwin":  # pragma: no cover - needs a macOS run loop
                 y = (bounds.size.height - size.height) / 2
                 name.drawAtPoint_(_AppKit.NSMakePoint(x, y))
 
+                # The detail is a status, not part of the name: it belongs in its
+                # own column against the trailing edge, just inside the dot.
                 detail = str(getattr(self.row, "detail", "") or "")
                 if detail:
                     aside = _AppKit.NSAttributedString.alloc().initWithString_attributes_(
@@ -601,8 +605,9 @@ if sys.platform == "darwin":  # pragma: no cover - needs a macOS run loop
                                 _AppKit.NSColor.secondaryLabelColor(),
                         })
                     aside_size = aside.size()
+                    right = bounds.size.width - _DOT_RIGHT_INSET - _DOT_PT - _DETAIL_GAP
                     aside.drawAtPoint_(_AppKit.NSMakePoint(
-                        x + size.width + 8,
+                        max(x + size.width + 8, right - aside_size.width),
                         (bounds.size.height - aside_size.height) / 2))
 
                 # The dot, measured from the row's trailing edge so every row
