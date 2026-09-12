@@ -60,3 +60,8 @@ jc-client = "jc_client.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["jc_client", "jc_client.*"]
+
+# The wearable pictures in the tray menu: renders of each device's own 3D model,
+# produced by the iOS app's render harness and shipped here as PNGs.
+[tool.setuptools.package-data]
+jc_client = ["assets/*.png"]

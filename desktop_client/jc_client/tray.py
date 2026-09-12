@@ -28,7 +28,7 @@ import time
 import webbrowser
 from typing import Optional
 
-from jc_client import credentials, service
+from jc_client import credentials, device_roster, service
 from jc_client.logger import log_path, setup as setup_logging, state_dir
 
 log = logging.getLogger(__name__)
@@ -172,6 +172,8 @@ class TrayApp:
         # Mac where PyObjC/WebKit isn't what we expect — the window is the
         # fallback, so nothing is lost.
         self._popover = None
+        # Devices + wearables shown in the menu, refreshed in the background.
+        self._roster = device_roster.DeviceRoster()
         # Cross-process Coding-Session sync indicator: the latest "syncing?"
         # value, refreshed each tick from sync_state.json. ``_prev_syncing``
         # holds the previous tick's value so we fire ONE notification on the
@@ -450,6 +452,15 @@ class TrayApp:
         def _voice_label(_item):
             return "Voice Orb" if self._popover is None else "Voice Orb in a window"
 
+        # One disabled row per device and wearable: a status dot in the text and,
+        # on macOS, the device's own picture attached to the item (see
+        # mac_popover._apply_icons) — the way the system's Bluetooth menu reads.
+        def _device_items():
+            rows = list(self._roster.rows)
+            if not rows:
+                return [MenuItem("Devices — loading…", None, enabled=False)]
+            return [MenuItem(row.title, None, enabled=False) for row in rows]
+
         return Menu(
             MenuItem(_status_text, None, enabled=False),
             MenuItem(_sync_text, None, enabled=False, visible=_sync_visible),
@@ -458,6 +469,8 @@ class TrayApp:
             # label appends a percentage when the server has pushed progress.
             MenuItem(_syncing_label, None, enabled=False,
                      visible=_syncing_visible),
+            Sep,
+            *_device_items(),
             Sep,
             MenuItem("Open dashboard", self._act_open_dashboard),
             MenuItem(_voice_label, self._act_voice_menu_item),
@@ -520,6 +533,7 @@ class TrayApp:
     def _refresh_loop(self) -> None:
         while not self._stop.is_set():
             self._poll_sync_state()
+            self._roster.maybe_refresh()
             self._refresh_menu()
             if self._stop.wait(_STATE_REFRESH_SEC):
                 break
@@ -551,6 +565,10 @@ class TrayApp:
         # before the run loop starts.
         from jc_client import mac_popover
         self._popover = mac_popover.install(icon, self._spawn_voice_window)
+        if self._popover is not None:
+            self._popover.rows_for_icons = lambda: list(self._roster.rows)
+        # Have something to show the first time the menu is opened.
+        self._roster.maybe_refresh(force=True)
         if self._popover is not None:
             icon.update_menu()  # relabel "Voice Orb" now the panel owns the click
         try:

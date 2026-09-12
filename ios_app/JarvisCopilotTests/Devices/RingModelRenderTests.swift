@@ -30,6 +30,33 @@ final class RingModelRenderTests: XCTestCase {
         write(image, "ring-render.png")
     }
 
+    /// Small transparent renders of every wearable's 3D model, for the Mac
+    /// menubar menu — which lists the devices with a picture of each, the way
+    /// the system's own Bluetooth menu does. Shipped as PNGs with the desktop
+    /// client rather than rendered there: the models are SceneKit scenes that
+    /// only exist in this app.
+    func testWearableIconsRender() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("no Metal device") }
+        let scenes: [(String, SCNScene, SCNNode)] = [
+            ("icon-ring.png", { let l = RingModel.Live(spin: false, tilt: 0.95, cameraDistance: 4.1)
+                                return (l.scene, l.camera) }()),
+            ("icon-bottle.png", { let l = BottleModel.Live(spin: false, tilt: -0.12, cameraZ: 3.1)
+                                  return (l.scene, l.camera) }()),
+            ("icon-scale.png", { let l = ScaleModel.Live(presentation: .card)
+                                 return (l.scene, l.camera) }()),
+        ].map { ($0.0, $0.1.0, $0.1.1) }
+
+        let renderer = SCNRenderer(device: device, options: nil)
+        for (name, scene, camera) in scenes {
+            renderer.scene = scene
+            renderer.pointOfView = camera
+            let image = renderer.snapshot(atTime: 0, with: CGSize(width: 144, height: 144),
+                                          antialiasingMode: .multisampling4X)
+            XCTAssertEqual(image.size.width, 144)
+            write(image, name)
+        }
+    }
+
     /// Each face of the inside, plus the profile the proportions are judged on.
     func testTheInsideRendersFromEveryAngle() throws {
         let views: [(String, RingModel.Live)] = [

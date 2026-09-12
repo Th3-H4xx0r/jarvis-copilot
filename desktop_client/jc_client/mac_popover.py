@@ -38,6 +38,11 @@ _FOOTER_H = 34
 _MINI_PATH = "/?mini=voice"
 
 
+def _kind_symbol(kind: str) -> str:
+    from jc_client.device_roster import kind_symbol
+    return kind_symbol(kind)
+
+
 def _const(module, *names, default=None):
     """First constant that exists under any of `names` — PyObjC renamed a lot of
     AppKit constants between versions, and we support both spellings."""
@@ -64,6 +69,10 @@ class MenuBarVoicePopover:
         self._webview_delegate = None
         self._status_item = None
         self._button = None
+        # Set by the tray: the device rows currently in the menu, so each item
+        # can be given the right picture.
+        self.rows_for_icons = None
+        self._image_cache: dict = {}
 
     # ── install ──────────────────────────────────────────────────────
 
@@ -128,8 +137,73 @@ class MenuBarVoicePopover:
             if menu is not None:
                 self._menu = menu
                 self._status_item.setMenu_(None)
+                self._apply_icons(menu)
         except Exception as exc:
             logger.debug("voice popover: could not detach the menu: %s", exc)
+
+    # ── device pictures ──────────────────────────────────────────────
+
+    def _apply_icons(self, menu) -> None:
+        """Give each device row its own picture, like the Bluetooth menu.
+
+        pystray only knows how to put text in a menu, but the items it builds are
+        ordinary NSMenuItems — so the pictures are attached here, matched to the
+        rows by title. Phones and laptops get SF Symbols; the wearables get a
+        render of their actual 3D model, shipped alongside this file.
+        """
+        rows = self.rows_for_icons() if self.rows_for_icons else []
+        if not rows:
+            return
+        by_title = {row.title: row for row in rows}
+        try:
+            for index in range(menu.numberOfItems()):
+                item = menu.itemAtIndex_(index)
+                row = by_title.get(str(item.title()))
+                if row is None:
+                    continue
+                image = self._image_for(row)
+                if image is not None:
+                    item.setImage_(image)
+        except Exception as exc:
+            logger.debug("voice popover: could not decorate the menu: %s", exc)
+
+    def _image_for(self, row):
+        """An 18pt picture for one row, cached — menus rebuild every few seconds."""
+        key = row.wearable or f"symbol:{_kind_symbol(row.kind)}"
+        if key in self._image_cache:
+            return self._image_cache[key]
+        image = self._render_wearable(row.wearable) if row.wearable             else self._symbol(_kind_symbol(row.kind))
+        self._image_cache[key] = image
+        return image
+
+    def _render_wearable(self, wearable: str):
+        """The PNG rendered from the device's own 3D model in the iOS app."""
+        import AppKit
+        from pathlib import Path
+
+        path = Path(__file__).with_name("assets") / f"icon-{wearable}.png"
+        if not path.exists():
+            # The ESP32 has no 3D model — it is a board, so a board glyph.
+            return self._symbol("cpu")
+        image = AppKit.NSImage.alloc().initWithContentsOfFile_(str(path))
+        if image is None:
+            return None
+        image.setSize_(AppKit.NSMakeSize(20, 20))
+        return image
+
+    def _symbol(self, name: str):
+        import AppKit
+
+        try:
+            image = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(name, None)
+        except Exception:
+            image = None
+        if image is None:
+            return None
+        image.setSize_(AppKit.NSMakeSize(16, 16))
+        # Template images follow the menu's own light/dark appearance.
+        image.setTemplate_(True)
+        return image
 
     # ── clicks ───────────────────────────────────────────────────────
 
