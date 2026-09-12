@@ -7,6 +7,8 @@ import ghidra.program.model.mem.*;
 import ghidra.program.model.symbol.*;
 import ghidra.program.model.data.*;
 import ghidra.util.task.ConsoleTaskMonitor;
+import ghidra.program.model.pcode.JumpTable;
+import ghidra.app.cmd.function.CreateFunctionCmd;
 import java.io.*;
 import java.util.*;
 
@@ -39,6 +41,38 @@ public class ExportRT12 extends GhidraScript {
         println("prologue sweep created " + swept + " functions");
         analyzeChanges(currentProgram);
 
+        // 1b. ARM "switch8" jump tables: the helper at 0x84027c is followed at the call return
+        //     address by [count][count+1 byte offsets]; target = table + off*2 (index clamped to count).
+        Address helper = a(0x0084027cL);
+        ReferenceManager rm = currentProgram.getReferenceManager();
+        int fixed = 0;
+        for (Reference ref : rm.getReferencesTo(helper)) {
+            if (!ref.getReferenceType().isCall()) continue;
+            Address site = ref.getFromAddress();
+            Instruction bl = listing.getInstructionAt(site);
+            if (bl == null) continue;
+            Address table = site.add(bl.getLength());
+            int count = mem.getByte(table) & 0xff;
+            List<Address> targets = new ArrayList<>();
+            for (int i = 0; i <= count; i++) {
+                int off = mem.getByte(table.add(1 + i)) & 0xff;
+                targets.add(table.add(off * 2));
+            }
+            for (Address t : targets) {
+                if (listing.getInstructionAt(t) == null) disassemble(t);
+                rm.addMemoryReference(site, t, RefType.COMPUTED_JUMP, SourceType.USER_DEFINED, 0);
+            }
+            Function f = listing.getFunctionContaining(site);
+            if (f != null) {
+                new JumpTable(site, new ArrayList<>(targets), true, 0).writeOverride(f);
+                CreateFunctionCmd.fixupFunctionBody(currentProgram, f, monitor);
+                fixed++;
+            }
+            println(String.format("switch8 @%s: %d cases -> %s .. %s", site, count + 1, targets.get(0), targets.get(count)));
+        }
+        println("switch8 tables overridden: " + fixed);
+        analyzeChanges(currentProgram);
+
         // 2. Known names from earlier manual analysis (qring-re/fw/README.md).
         Object[][] names = {
             {0x00829E98L, "checksum_u8"}, {0x0082A98EL, "reply_unsupported"}, {0x0082DBC0L, "tx_enqueue_packet"},
@@ -69,7 +103,7 @@ public class ExportRT12 extends GhidraScript {
         funcs.sort(Comparator.comparing(Function::getEntryPoint));
         println("decompiling " + funcs.size() + " functions");
 
-        try (PrintWriter c = new PrintWriter(new FileWriter(new File(outDir, "RT12_3.10.06.c")));
+        try (PrintWriter c = new PrintWriter(new FileWriter(new File(outDir, "RT12_3.10.06.raw.c")));
              PrintWriter idx = new PrintWriter(new FileWriter(new File(outDir, "functions.csv")))) {
             c.println("// Ghidra decompilation of RT12_3.10.06_260429 (Colmi/YaWell R12 ring, Realtek RTL8762, Cortex-M Thumb-2)");
             c.println("// App image loaded at 0x00826400. SRAM 0x0020xxxx, ROM 0x000xxxxx/0x004xxxxx (not in image), peripherals 0x400xxxxx.");
