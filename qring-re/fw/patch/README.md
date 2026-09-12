@@ -12,6 +12,7 @@ script. **Nothing here flashes the ring.** See the safety section before you eve
 | `build_patch.py` | rebuilds the patched image from the clean base; encodes + verifies every branch |
 | `base_RT12_3.11.00_260911.bin` | the patched image (version bumped from 3.10.06_260429), 80 bytes changed |
 | `tap_and_accel_client.py` | **phone/host side** — poll accel + derive single/double/triple tap. Works today, no flashing. |
+| `ota_flash.py` | **firmware uploader** — pushes an image over the ring's own BLE updater (ports the app's `DfuHandle`). Dry-run by default; `--flash --address <MAC>` to upload. |
 | `sim_accel_patch.py` | **emulator harness** (Unicorn): runs the real patched bytes; proves decode, passthrough for all 255 other commands, the 0x5A reply for every FIFO head, and clean-vs-patched call traces. `pip install unicorn capstone && python3 sim_accel_patch.py` |
 
 Rebuild: `python3 build_patch.py`.
@@ -68,6 +69,36 @@ tap-emit path plus an OS timer for the inter-tap window; I left it out of this i
 purpose because it modifies a live interrupt path (higher risk) and the host-side counter is
 equivalent. Ask and I will write that hook as a separate, clearly-marked patch.
 
+## Deploying to the ring (BLE OTA)
+
+The ring flashes **itself** over BLE — no soldering, no UART for the normal path. The app class
+`com.oudmon.ble.base.communication.DfuHandle` drives it on the big-data service `de5bf728`
+(write `de5bf72a`, notify `de5bf729`). Frames are `[0xBC][cmd][len u16 LE][crc16-MODBUS u16 LE][payload]`,
+split into MTU writes; the sequence is: `cmd1` start, `cmd2` init `[01][len u32][crc16 u16][bytesum u16]`,
+`cmd3` data `[seq u16][<=1024 B]` repeated, `cmd4` check, `cmd5` end.
+
+`ota_flash.py` reproduces that exactly. It is a **dry run** unless you pass `--flash`:
+
+```
+python3 ota_flash.py                           # build + verify frames for the patched image
+python3 ota_flash.py --flash --address <MAC>   # real upload over BLE
+python3 ota_flash.py --file ../base_RT12_3.10.06_260429.bin --flash --address <MAC>   # roll back
+```
+
+The stock QRing app will NOT flash a local file (it only installs server-downloaded, version-gated
+images), which is why the uploader drives the protocol directly.
+
+### Why this is fail-safe (from the firmware receiver)
+- The image is received into **spare flash at 0x84e000**, never over the running app at 0x826000.
+- Every `0xBC` frame is CRC-16/MODBUS checked before use (`bigdata_rx_complete`); a bad frame is NAK'd.
+- The first chunk is gated on the wrapper magic `0x81BDC3E5` at offset 0 and a `memcmp` of the
+  `"RT12_V3.1"` model string (`algo_fn_83db3c`) — no signature, no crypto.
+- Commit (mark the new image valid + reboot, `boot_log_826f2a(&0x2793)`) happens **only** after the
+  received length matches the announced length. A failed or interrupted transfer leaves the running
+  image bootable.
+- The patch never touches the boot or OTA-receiver code, so the new image can always OTA back to
+  stock. That is the rollback path; keep `../base_RT12_3.10.06_260429.bin`.
+
 ## SAFETY — read before flashing anything
 
 ### What is now verified (software)
@@ -87,7 +118,7 @@ equivalent. Ask and I will write that hook as a separate, clearly-marked patch.
   `ctrl_flag = 0x0981` → `integrity_check_en_in_boot = 0`, `crc16 = 0`, `sha256` all zero.
   The boot ROM is not checksumming the app payload (the stock image would fail if it were), so the
   open question from the earlier handoff is resolved: there is no hidden boot integrity field to
-  satisfy. `build_patch.py` recomputes the only live checksum, the vendor wrapper's byte-sum at 0x0C.
+  satisfy. `build_patch.py` recomputes the only live checksum, the vendor wrapper's byte-sum at 0x0C (a sum over file[0x50:], i.e. the Realtek image; an earlier draft of build_patch.py summed from 0x10 and was corrected).
 - The app image contains no OTA receiver, so updates are handled below it (Realtek ROM/stack,
   dual-bank `not_ready` / `not_obsolete` header flags). The patch changes nothing in that header.
 

@@ -39,6 +39,6 @@ p(bw2,bw(bw2,CONT)); p(bl,bw(bl,SEND,link=True))
 assert len(buf)<=298
 d[fo(CAVE):fo(CAVE)+len(buf)]=buf
 d[fo(DISP):fo(DISP)+4]=bw(DISP,CAVE)
-struct.pack_into('<I',d,0xc,sum(d[0x10:])&0xffffffff)   # recompute the byte-sum word
+struct.pack_into('<I',d,0xc,sum(d[0x50:])&0xffffffff)   # wrapper checksum = byte-sum over the Realtek image (file 0x50:), matching stock
 open(OUT,'wb').write(d)
 print("wrote",OUT,len(d),"bytes; cave",len(buf),"bytes at",hex(CAVE))

@@ -120,7 +120,7 @@ def test_decode(patched, clean):
         assert clean[i:i+1] in b'0123456789' and patched[i:i+1] in b'0123456789', f'non-version diff at {i:#x}'
     assert all(clean[fo(CAVE) + k] == 0 for k in range(54)), 'cave not zero in the clean image'
     assert not any(0x50 <= i < 0x450 for i in diffs), 'Realtek image header modified!'
-    assert struct.unpack_from('<I', patched, 0xc)[0] == sum(patched[0x10:]) & 0xffffffff, 'wrapper sum wrong'
+    assert struct.unpack_from('<I', patched, 0xc)[0] == sum(patched[0x50:]) & 0xffffffff, 'wrapper sum wrong'
     print(f'  {len(diffs)} bytes differ: 4 hook + 54 cave + {len(others)} version-string digits + 0x0C sum; '
           f'Realtek header 0x50..0x450 untouched; cave was all-zero.  OK')
 
