@@ -80,6 +80,7 @@ class MenuBarVoicePopover:
             logger.info("voice popover unavailable: Obj-C glue did not load")
             return False
 
+        import AppKit
         status_item = getattr(self._icon, "_status_item", None)
         button = status_item.button() if status_item is not None else None
         if button is None:
@@ -88,12 +89,20 @@ class MenuBarVoicePopover:
         self._status_item = status_item
         self._button = button
 
+        # A menubar app should be an accessory: a regular app owns a Space and a
+        # Dock tile, and activating it drags the user to that Space. Accessory
+        # apps activate in place, on the display they were clicked on.
+        try:
+            policy = _const(AppKit, "NSApplicationActivationPolicyAccessory", default=1)
+            AppKit.NSApp.setActivationPolicy_(policy)
+        except Exception as exc:
+            logger.debug("voice popover: could not become an accessory app: %s", exc)
+
         self._delegate = _ClickDelegate.alloc().init()
         self._delegate.owner = self
         button.setTarget_(self._delegate)
         button.setAction_(b"statusClick:")
 
-        import AppKit
         left = _const(AppKit, "NSEventMaskLeftMouseDown", "NSLeftMouseDownMask", default=1 << 1)
         right = _const(AppKit, "NSEventMaskRightMouseDown", "NSRightMouseDownMask", default=1 << 3)
         button.sendActionOn_(left | right)
@@ -169,13 +178,37 @@ class MenuBarVoicePopover:
             return
         import AppKit
         edge = _const(AppKit, "NSRectEdgeMinY", "NSMinYEdge", default=1)
-        AppKit.NSApp.activateIgnoringOtherApps_(True)
+        # Show FIRST, activate after. Activating a regular app pulls the system
+        # to whichever Space that app lives on — which, from a full-screen window
+        # on another display, is how the panel ended up opening on the wrong
+        # monitor. Showing first anchors it to the status button that was
+        # actually clicked.
         popover.showRelativeToRect_ofView_preferredEdge_(self._button.bounds(), self._button, edge)
+        self._pin_to_current_space(popover)
+        AppKit.NSApp.activateIgnoringOtherApps_(True)
         # The page only starts capturing once it has key focus.
         try:
             self._webview.window().makeFirstResponder_(self._webview)
         except Exception:
             pass
+
+    def _pin_to_current_space(self, popover) -> None:
+        """Let the panel draw on whatever Space is in front, full-screen included.
+
+        Without this the popover's window belongs to the app's own Space, so
+        invoking it from a full-screen window elsewhere either yanks you to
+        another display or leaves the panel behind on it."""
+        try:
+            import AppKit
+            window = popover.contentViewController().view().window()
+            if window is None:
+                return
+            window.setCollectionBehavior_(
+                _const(AppKit, "NSWindowCollectionBehaviorCanJoinAllSpaces", default=1 << 0)
+                | _const(AppKit, "NSWindowCollectionBehaviorFullScreenAuxiliary", default=1 << 8)
+                | _const(AppKit, "NSWindowCollectionBehaviorTransient", default=1 << 3))
+        except Exception as exc:
+            logger.debug("voice popover: could not pin the panel to this space: %s", exc)
 
     def close(self) -> None:
         try:
