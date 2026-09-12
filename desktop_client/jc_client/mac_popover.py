@@ -357,20 +357,32 @@ def install(icon, on_open_window: Callable[[], None]) -> Optional[MenuBarVoicePo
 
 _ClickDelegate = None
 _WebViewDelegate = None
+# Decision blocks we could not call; held so WebKit never releases them. See
+# `_grant` — releasing an uncalled one aborts the process.
+_UNANSWERED: list = []
 
 if sys.platform == "darwin":  # pragma: no cover - needs a macOS run loop
     try:
         import AppKit as _AppKit
         import objc as _objc
 
-        from jc_client._mac_media import _SELECTOR, _WK_PERMISSION_GRANT
+        from jc_client._mac_media import _SELECTOR, _SIGNATURE, _WK_PERMISSION_GRANT
 
-        # The decision handler is a block, and PyObjC can only call a block whose
-        # own signature it was told. `@?` alone leaves that unknown, so invoking
-        # it raised — and a Python exception escaping into Obj-C aborts the
-        # process, which is what took the whole tray down. `<v@?q>` spells out
-        # the block: void(WKPermissionDecision).
-        _SIGNATURE = b"v@:@@@q@?<v@?q>"
+        # PyObjC works out how to call a block from the block's own descriptor,
+        # and WebKit hands this one over without that signature — so calling it
+        # failed with "cannot call block without a signature". This is what
+        # describes it up front instead of relying on introspection: argument 6
+        # (0 self, 1 _cmd, 2 webView, 3 origin, 4 frame, 5 type, 6 handler) is
+        # void(WKPermissionDecision).
+        try:
+            _objc.registerMetaDataForSelector(b"NSObject", _SELECTOR, {
+                "arguments": {
+                    6: {"callable": {"retval": {"type": b"v"},
+                                     "arguments": {0: {"type": b"^v"}, 1: {"type": b"q"}}}},
+                },
+            })
+        except Exception as _meta_exc:
+            logger.debug("voice popover: block metadata not registered: %s", _meta_exc)
 
         class _ClickDelegate(_AppKit.NSObject):  # noqa: F811
             """Target for the status-item button and the footer button."""
@@ -394,13 +406,18 @@ if sys.platform == "darwin":  # pragma: no cover - needs a macOS run loop
 
         def _grant(self, _webview, _origin, _frame, _type, decision_handler):
             # Nothing may escape from here into Obj-C: WebKit calls this from a
-            # C++ frame with no handler, so a raised exception is an abort, not
-            # a traceback. The worst this may now cost is a panel without a
-            # microphone.
+            # C++ frame with no handler, so a raised exception is an abort.
             try:
                 decision_handler(_WK_PERMISSION_GRANT)
+                return
             except Exception:
                 logger.exception("voice popover: granting microphone access failed")
+            # WebKit also aborts when a decision block is RELEASED without having
+            # been called ("CompletionHandlerCallChecker"), so swallowing the
+            # failure is not enough — holding a reference keeps that check from
+            # ever running. The request simply goes unanswered: no microphone in
+            # the panel, but a tray that is still alive.
+            _UNANSWERED.append(decision_handler)
 
         _objc.classAddMethods(_WebViewDelegate, [
             _objc.selector(_grant, selector=_SELECTOR, signature=_SIGNATURE),
