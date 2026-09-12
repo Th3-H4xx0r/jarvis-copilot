@@ -23,6 +23,22 @@ final class RingProtocolTests: XCTestCase {
         XCTAssertEqual(bytes[14], 14)
     }
 
+    /// `0x5A` is the accelerometer poll added by the JarvisCopilot firmware patch: a bare
+    /// command frame out, `x y z` int16 LE back.
+    func testAccelerometerRequestAndReply() {
+        let req = [UInt8](RingProtocol.frame(RingOp.accelerometer))
+        XCTAssertEqual(req.count, 16)
+        XCTAssertEqual(req[0], 0x5A)
+        XCTAssertEqual(req[15], 0x5A)
+        // 7, -7, 1007 — the emulator's slot-7 sample
+        let sample = RingDecode.accelerometer([0x07, 0x00, 0xF9, 0xFF, 0xEF, 0x03])
+        XCTAssertEqual(sample?.x, 7)
+        XCTAssertEqual(sample?.y, -7)
+        XCTAssertEqual(sample?.z, 1007)
+        XCTAssertNil(RingDecode.accelerometer([1, 2, 3]))
+        XCTAssertEqual(RingRequest.readAccelerometer.cmd, 0x5A)
+    }
+
     func testCRC16IsModbus() {
         XCTAssertEqual(RingProtocol.crc16(Array("123456789".utf8)), 0x4B37)
         XCTAssertEqual(RingProtocol.crc16([UInt8]()), 0xFFFF)

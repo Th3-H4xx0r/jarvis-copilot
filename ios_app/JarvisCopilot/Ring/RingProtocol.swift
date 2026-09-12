@@ -143,6 +143,8 @@ enum RingOp {
     static let hrvHistory: UInt8 = 0x39
     static let temperatureMonitor: UInt8 = 0x3A
     static let touch: UInt8 = 0x3B
+    /// Added by the JarvisCopilot firmware patch (3.11.00+): reply = newest accelerometer sample.
+    static let accelerometer: UInt8 = 0x5A
     static let deviceSupport: UInt8 = 0x3C
     static let stepDetail: UInt8 = 0x43
     static let legacySleep: UInt8 = 0x44
@@ -367,6 +369,7 @@ extension RingRequest {
         ])
     }
 
+    static let readAccelerometer = RingRequest.command(RingOp.accelerometer)
     static let readTouch = RingRequest.command(RingOp.touch, [1, 0])
     static let readGesture = RingRequest.command(RingOp.touch, [1, 1])
     static func writeTouch(appType: UInt8, sleepTime: Int) -> RingRequest {

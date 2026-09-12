@@ -455,7 +455,7 @@ struct RingSettingsView: View {
     private var liveSensors: some View {
         CardGroup("Live sensors",
                   footer: "Pushed by the ring as they happen. Start a measurement to see the optical "
-                      + "sensor working; the ring sends no raw accelerometer or gyroscope data.") {
+                      + "sensor working. Accelerometer samples need the JarvisCopilot firmware (3.11.00+).") {
             infoRow("Heart rate", session.liveHeartRate.map { "\(Int($0.value)) bpm · \(ago($0.date))" } ?? "—")
             RowDivider()
             infoRow("Blood oxygen", session.liveSpO2.map { "\(Int($0.value))% · \(ago($0.date))" } ?? "—")
@@ -467,6 +467,16 @@ struct RingSettingsView: View {
             infoRow("Last input", session.lastTouchKey.map {
                 (RingInput(touchKey: Int($0.value))?.label ?? "key \(Int($0.value))") + " · " + ago($0.date)
             } ?? "—")
+            RowDivider()
+            infoRow("Accelerometer", session.liveAccelerometer.map {
+                String(format: "%d %d %d · %.2f g · ", $0.x, $0.y, $0.z, $0.magnitudeG) + ago($0.date)
+            } ?? (session.accelerometerSupported == false ? "not in this firmware" : "—"))
+            Row {
+                Button("Read accelerometer") { apply { _ = try await session.readAccelerometer() } }
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .disabled(!ready || working)
             RowDivider()
             infoRow("Optical samples", session.livePPG.isEmpty
                     ? "—" : "\(session.livePPG.count) · latest \(session.livePPG.suffix(6).map(String.init).joined(separator: " "))")

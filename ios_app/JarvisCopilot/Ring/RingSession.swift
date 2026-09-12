@@ -72,6 +72,10 @@ final class RingSession: ObservableObject {
     @Published private(set) var liveHeartRate: RingLiveReading?
     @Published private(set) var liveSpO2: RingLiveReading?
     @Published private(set) var liveTemperature: RingLiveReading?
+    /// Newest raw accelerometer sample (needs the patched firmware, 3.11.00+).
+    @Published private(set) var liveAccelerometer: RingAccelSample?
+    /// nil until the first read; false when the ring answered "unsupported" (stock firmware).
+    @Published private(set) var accelerometerSupported: Bool?
     /// `value` is the key code: 1 swipe down, 2 swipe up, 3 click, 4 long press.
     @Published private(set) var lastTouchKey: RingLiveReading?
     /// The last tap or swipe, whichever channel it arrived on.
@@ -178,6 +182,37 @@ final class RingSession: ObservableObject {
         }
         probe = result
         persistCache()
+    }
+
+    // MARK: Accelerometer (patched firmware)
+
+    /// Polls the newest accelerometer sample. Stock firmware answers with an error frame, which
+    /// surfaces as `RingError.unsupported`.
+    func readAccelerometer() async throws -> RingAccelSample {
+        do {
+            let frames = try await transport.perform(.readAccelerometer, until: .single)
+            guard let sample = frames.compactMap({ RingDecode.accelerometer($0.payload) }).first else {
+                throw RingError.timeout(RingOp.accelerometer)
+            }
+            accelerometerSupported = true
+            liveAccelerometer = sample
+            return sample
+        } catch RingError.rejected {
+            accelerometerSupported = false
+            throw RingError.unsupported("the accelerometer (needs firmware 3.11.00 or newer)")
+        }
+    }
+
+    /// `count` samples, `intervalMs` apart (the sensor updates at 25 Hz, so 40 ms is the floor).
+    func streamAccelerometer(count: Int, intervalMs: Int) async throws -> [RingAccelSample] {
+        var out: [RingAccelSample] = []
+        for i in 0..<max(1, count) {
+            out.append(try await readAccelerometer())
+            if i < count - 1 {
+                try? await Task.sleep(nanoseconds: UInt64(max(40, intervalMs)) * 1_000_000)
+            }
+        }
+        return out
     }
 
     func refreshBattery() async {

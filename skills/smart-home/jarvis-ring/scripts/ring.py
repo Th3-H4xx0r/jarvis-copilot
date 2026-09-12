@@ -13,6 +13,8 @@ CLI (JSON on stdout; ``{"error": ...}`` on stderr and exit code 1 on failure):
     python3 ring.py measure heart_rate
     python3 ring.py monitoring heart_rate on --interval 10
     python3 ring.py --device iphone history --days 14
+    python3 ring.py accel --samples 25            # raw x,y,z (JarvisCopilot firmware 3.11.00+)
+    python3 ring.py firmware-update --file image.bin --confirm
 
 Python:
 
@@ -316,6 +318,12 @@ class Ring:
         return self.invoke("ring_raw_command", {"hex": hex, "big_data_cmd": big_data_cmd,
                                                 "payload_hex": payload_hex, "confirm": True})
 
+    def accelerometer(self, samples: int = 1, interval_ms: int = 40) -> dict[str, Any]:
+        """Raw accelerometer samples (x, y, z in LSB plus g-units). Needs firmware 3.11.00+."""
+        if not 1 <= samples <= 100:
+            raise RingError("samples must be 1-100")
+        return self.invoke("ring_read_accelerometer", {"samples": samples, "interval_ms": max(40, interval_ms)})
+
     def firmware_update(self, image_path: str | None = None, url: str | None = None,
                         confirm: bool = False) -> dict[str, Any]:
         """Flash a firmware image to the ring over its own BLE updater. Refuses unless ``confirm``.
@@ -457,6 +465,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--payload-hex", dest="payload_hex", help="large-data payload as hex")
     p.add_argument("--confirm", action="store_true")
 
+    p = sub.add_parser("accel", help="raw accelerometer samples (needs the JarvisCopilot firmware 3.11.00+)")
+    p.add_argument("--samples", type=int, default=1, help="1-100 (default 1)")
+    p.add_argument("--interval-ms", dest="interval_ms", type=int, default=40, help="gap between samples, >= 40")
+
     p = sub.add_parser("firmware-update",
                        help="flash a firmware .bin over the ring's own BLE updater (needs --confirm)")
     src = p.add_mutually_exclusive_group(required=True)
@@ -500,6 +512,8 @@ def _run(ring: Ring, args: argparse.Namespace) -> dict[str, Any]:
     if command == "raw":
         return ring.raw(hex=args.hex, big_data_cmd=args.big_data_cmd, payload_hex=args.payload_hex,
                         confirm=args.confirm)
+    if command == "accel":
+        return ring.accelerometer(samples=args.samples, interval_ms=args.interval_ms)
     if command == "firmware-update":
         return ring.firmware_update(image_path=args.fw_file, url=args.fw_url, confirm=args.confirm)
     raise RingError(f"unknown command {command!r}")

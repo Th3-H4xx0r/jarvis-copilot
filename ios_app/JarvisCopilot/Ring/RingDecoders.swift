@@ -251,6 +251,21 @@ struct RingCapabilities: Codable, Equatable {
 
 // MARK: - Values
 
+/// One raw accelerometer sample (`0x5A`, patched firmware): int16 LE x, y, z in the sensor's
+/// native LSB (±2 g full scale on the LIS3DH-class part → ~16384 LSB per g).
+struct RingAccelSample: Codable, Equatable {
+    let x: Int16
+    let y: Int16
+    let z: Int16
+    let date: Date
+
+    static let lsbPerG: Double = 16384
+    var gx: Double { Double(x) / Self.lsbPerG }
+    var gy: Double { Double(y) / Self.lsbPerG }
+    var gz: Double { Double(z) / Self.lsbPerG }
+    var magnitudeG: Double { (gx * gx + gy * gy + gz * gz).squareRoot() }
+}
+
 struct RingBattery: Codable, Equatable {
     var percent: Int
     var charging: Bool
@@ -525,6 +540,13 @@ enum RingDecode {
     private static func u24BE(_ p: [UInt8], _ i: Int) -> Int { at(p, i) << 16 | at(p, i + 1) << 8 | at(p, i + 2) }
     private static func u32LE(_ p: [UInt8], _ i: Int) -> UInt32 {
         UInt32(at(p, i)) | UInt32(at(p, i + 1)) << 8 | UInt32(at(p, i + 2)) << 16 | UInt32(at(p, i + 3)) << 24
+    }
+
+    /// `0x5A` accelerometer reply: x, y, z as int16 little-endian.
+    static func accelerometer(_ p: [UInt8], at date: Date = Date()) -> RingAccelSample? {
+        guard p.count >= 6 else { return nil }
+        func i16(_ i: Int) -> Int16 { Int16(bitPattern: UInt16(p[i]) | (UInt16(p[i + 1]) << 8)) }
+        return RingAccelSample(x: i16(0), y: i16(2), z: i16(4), date: date)
     }
 
     static func battery(_ p: [UInt8]) -> RingBattery? {

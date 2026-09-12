@@ -69,6 +69,9 @@ enum RingLogDecoder {
         case RingOp.setTime:
             return out ? ("Set the ring's clock", clock(p))
                        : ("Ring capabilities (block A)", "\(p.count) bytes of feature flags")
+        case RingOp.accelerometer:
+            guard !out, let a = RingDecode.accelerometer(p) else { return ("Read accelerometer", "") }
+            return ("Accelerometer", String(format: "x %d  y %d  z %d  (%.2f g)", a.x, a.y, a.z, a.magnitudeG))
         case RingOp.battery:
             guard !out, let battery = RingDecode.battery(p) else { return ("Read battery", "") }
             return ("Battery", "\(battery.percent)%" + (battery.charging ? ", charging" : ""))

@@ -182,6 +182,15 @@ final class ColmiR12: WearableDevice {
                     "confirm": ["type": "boolean"],
                 ], required: ["confirm"])),
             DeviceCapability(
+                name: "ring_read_accelerometer",
+                description: "Raw accelerometer samples from the ring (needs the JarvisCopilot firmware 3.11.00+; "
+                    + "stock firmware replies unsupported). samples 1–100 (default 1), interval_ms ≥ 40 (default 40, "
+                    + "the sensor's 25 Hz). Each sample: x, y, z in LSB (±2 g, 16384 LSB/g) plus g-units and time.",
+                inputSchema: DeviceCapability.schema([
+                    "samples": ["type": "integer", "minimum": 1, "maximum": 100],
+                    "interval_ms": ["type": "integer", "minimum": 40, "maximum": 5000],
+                ])),
+            DeviceCapability(
                 name: "ring_firmware_update",
                 description: "Flash a firmware image to the ring over its own BLE updater. image_b64 = the "
                     + ".bin (base64), or url to download it. The ring stages the image and only commits after "
@@ -225,6 +234,7 @@ final class ColmiR12: WearableDevice {
         case "ring_get_log": return recentLog(args)
         case "ring_raw_command": return try await raw(args)
         case "ring_firmware_update": return try await firmwareUpdate(args)
+        case "ring_read_accelerometer": return try await accelerometer(args)
         default: throw DeviceError.unknownCommand(name)
         }
     }
@@ -273,6 +283,8 @@ final class ColmiR12: WearableDevice {
             out["charging"] = battery.charging
         }
         if let firmware = session.firmware { out["firmware_version"] = firmware }
+        if let supported = session.accelerometerSupported { out["accelerometer"] = supported }
+        if let a = session.liveAccelerometer { out["last_accelerometer"] = accelJSON(a) }
         if let hardware = session.hardware { out["hardware_version"] = hardware }
         if let measurement = session.measurement { out["last_measurement"] = measurementJSON(measurement) }
         if let last = backend.sync.lastTodaySync { out["last_sync"] = iso(last) }
@@ -604,6 +616,22 @@ final class ColmiR12: WearableDevice {
             return ["started": true, "finished": false, "pockets": pockets, "bytes": image.count,
                     "note": "flashing in the background — watch ring_get_log; the ring reboots into the new image when it commits"]
         }
+    }
+
+    private func accelerometer(_ args: [String: Any]) async throws -> [String: Any] {
+        let count = max(1, min(100, args["samples"] as? Int ?? 1))
+        let interval = max(40, min(5000, args["interval_ms"] as? Int ?? 40))
+        return try await live { _ in
+            let samples = try await self.session.streamAccelerometer(count: count, intervalMs: interval)
+            return ["samples": samples.map(self.accelJSON), "lsb_per_g": RingAccelSample.lsbPerG,
+                    "firmware_required": "3.11.00"]
+        }
+    }
+
+    private func accelJSON(_ a: RingAccelSample) -> [String: Any] {
+        ["x": Int(a.x), "y": Int(a.y), "z": Int(a.z),
+         "gx": (a.gx * 1000).rounded() / 1000, "gy": (a.gy * 1000).rounded() / 1000, "gz": (a.gz * 1000).rounded() / 1000,
+         "magnitude_g": (a.magnitudeG * 1000).rounded() / 1000, "time": iso(a.date)]
     }
 
     /// The image bytes from `image_b64` or a downloaded `url`.
