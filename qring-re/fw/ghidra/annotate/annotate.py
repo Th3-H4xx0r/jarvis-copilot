@@ -8,6 +8,10 @@ every function (hand-written or generated), and prepend a subsystem index.
 import re, sys, csv, struct, os, collections
 sys.path.insert(0, os.path.dirname(__file__))
 import names as N
+try:
+    from names_agent import FUNCS_AGENT
+except ImportError:
+    FUNCS_AGENT = {}
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FW   = os.path.abspath(os.path.join(HERE, '..', '..'))
@@ -27,6 +31,7 @@ def fwb(vaddr): return fw[vaddr - BASE]
 
 # ---------------------------------------------------------------- names
 rename = {}
+for addr, (nm, _, _) in FUNCS_AGENT.items(): rename[f"FUN_{addr:08x}"] = nm
 for addr, (nm, _) in N.FUNCS.items(): rename[f"FUN_{addr:08x}"] = nm
 for addr, (nm, _) in N.ROM.items():   rename[f"FUN_{addr:08x}"] = nm
 rename.update(N.GLOBALS)
@@ -157,8 +162,9 @@ for f in funcs:
     name, addr, size, callers, callees = meta
     region = region_of(addr)
     hand = descs.get(addr)
-    d = hand if hand else gen_desc(f, meta)
-    tag = "" if hand else " [auto]"
+    agent = FUNCS_AGENT.get(addr)
+    d = hand if hand else (agent[1] if agent and agent[1] else gen_desc(f, meta))
+    tag = "" if hand else (f" [agent:{agent[2]}]" if agent else " [auto]")
     # wrap the description at ~100 cols
     words, lines, cur = d.split(), [], ""
     for w in words:
@@ -169,11 +175,12 @@ for f in funcs:
     f = re.sub(r'^(// \S+ @ 0x[0-9a-f]+.*\n(?:// called from:.*\n)?)', lambda m: m.group(1) + block + "\n", f, count=1, flags=re.M)
     annotated.append(f)
     rows.append((addr, name, size, callers, callees, d))
-    if hand: index[region].append((addr, name, d.split('. ')[0].rstrip('.')))
+    if hand or (agent and agent[2] == 'high'): index[region].append((addr, name, d.split('. ')[0].rstrip('.')))
 
 toc = ["// ============================================================================",
        "// INDEX OF NAMED FUNCTIONS (by subsystem).  Every function below also carries a",
-       "// '// Module:' line and a '// What:' description; '[auto]' marks generated ones.",
+       "// '// Module:' line and a '// What:' description. Tags: none = hand-verified,",
+       "// '[agent:high|medium|low]' = named by an LLM pass over the body, '[auto]' = generated summary.",
        "// ============================================================================"]
 for lo, hi, lab in N.REGIONS:
     if lab not in index: continue
