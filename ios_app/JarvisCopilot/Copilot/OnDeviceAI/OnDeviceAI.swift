@@ -15,12 +15,17 @@ final class OnDeviceAI {
     let engine: any OnDeviceInferenceEngine
     let settings: LocalAiSettings
     private let personaBox: OnDevicePersona
+    /// Apple Intelligence on its own, for the model list's Apple row — `engine`
+    /// is the router, which is available whenever EITHER engine is.
+    private let appleFM: any OnDeviceInferenceEngine
 
     init(engine: (any OnDeviceInferenceEngine)? = nil,
+         appleFM: any OnDeviceInferenceEngine = AppleFMEngine.shared,
          settings: LocalAiSettings? = nil,
          persona: OnDevicePersona = .shared) {
         let settings = settings ?? .shared
         self.engine = engine ?? OnDeviceRoutingEngine(settings: settings)
+        self.appleFM = appleFM
         self.settings = settings
         self.personaBox = persona
     }
@@ -41,7 +46,7 @@ final class OnDeviceAI {
     func availability() async -> OnDeviceAvailability { await model.availability() }
 
     func listModels() async -> [LocalModelInfo] {
-        OnDeviceModelCatalog.list(appleFM: await AppleFMEngine.shared.availability(),
+        OnDeviceModelCatalog.list(appleFM: await appleFM.availability(),
                                   mlxInstalled: LocalLLM.isInstalled)
     }
 

@@ -11,7 +11,10 @@ final class OnDeviceAISettingsStoreTests: XCTestCase {
                        availability: OnDeviceEngineAvailability = .available)
     -> (OnDeviceAISettingsStore, LocalAiSettings) {
         let settings = LocalAiSettings(store: kv)
-        let ai = OnDeviceAI(engine: FakeOnDeviceEngine(availability: availability),
+        // The fake stands in for Apple Intelligence too: the model list must not
+        // depend on whether the Mac running the simulator has it switched on.
+        let engine = FakeOnDeviceEngine(availability: availability)
+        let ai = OnDeviceAI(engine: engine, appleFM: engine,
                             settings: settings,
                             persona: OnDevicePersona())
         return (OnDeviceAISettingsStore(ai: ai, settings: settings), settings)

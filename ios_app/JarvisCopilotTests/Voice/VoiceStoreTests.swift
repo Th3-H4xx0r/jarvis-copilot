@@ -472,6 +472,9 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.output.startedStreams, [24000])
 
         socket.receive(json: ["type": "audio_end"])
+        // The server closes the turn; until it does, a drained reply stays in
+        // thinking (an ack before a long tool run is not the end of the turn).
+        socket.receive(json: ["type": "end_turn"])
         await settleVoiceTasks()
         await rig.store.audio.settle()
 
