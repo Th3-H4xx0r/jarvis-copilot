@@ -119,9 +119,9 @@ struct MacVoicePanel: View {
                         object: nil)
                 } label: {
                     Image(systemName: "macwindow")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(JcTheme.muted)
-                        .frame(width: 24, height: 24)
+                        .frame(width: 30, height: 30)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
