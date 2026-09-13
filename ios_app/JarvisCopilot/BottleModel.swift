@@ -249,7 +249,7 @@ enum BottleModel {
         let m = SCNMaterial()
         m.lightingModel = .constant
         m.diffuse.contents = UIColor.black
-        m.emission.contents = UIColor(red: 0.27, green: 0.88, blue: 0.88, alpha: 1)
+        m.emission.contents = UIColor(JcAccent.color)
         m.blendMode = .add
         m.writesToDepthBuffer = false
         m.isDoubleSided = false
@@ -332,7 +332,7 @@ enum BottleModel {
 
         let lamp = SCNLight()
         lamp.type = .omni
-        lamp.color = UIColor(red: 0.27, green: 0.88, blue: 0.88, alpha: 1)
+        lamp.color = UIColor(JcAccent.color)
         lamp.intensity = 0
         lamp.attenuationStartDistance = 0.0
         lamp.attenuationEndDistance = 0.65

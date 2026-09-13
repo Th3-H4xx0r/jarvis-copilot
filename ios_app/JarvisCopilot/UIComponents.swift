@@ -135,29 +135,39 @@ struct MetricPill: View {
 ///
 /// A remembered board or ring is surfaced into its manager's scan list with an RSSI of 0,
 /// which used to read as "Known" or even "Wi‑Fi" on the card while a second row underneath
-/// said "Not found". One card, one honest status.
+/// said "Not found". One card, one honest status. When it was last in range goes in
+/// the card's corner (`lastSeenCorner`), not beside the pill.
 struct DisconnectedPill: View {
-    var lastSeen: Date? = nil
-
     var body: some View {
-        HStack(spacing: 8) {
-            MetricPill(icon: "antenna.radiowaves.left.and.right.slash", label: "Status",
-                       value: "Disconnected", tint: .secondary)
-            if let note = Self.lastSeenNote(lastSeen) {
+        MetricPill(icon: "antenna.radiowaves.left.and.right.slash", label: "Status",
+                   value: "Disconnected", tint: .secondary)
+    }
+
+    /// "last seen 22h ago", or nil when we have never had it in hand. Within the
+    /// last minute it is "just now": the formatter called a moment ago "in 0s".
+    static func lastSeenNote(_ date: Date?, now: Date = Date()) -> String? {
+        guard let date else { return nil }
+        if now.timeIntervalSince(date) < 60 { return "last seen just now" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return "last seen \(formatter.localizedString(for: date, relativeTo: now))"
+    }
+}
+
+extension View {
+    /// A device card's "last seen …", in its bottom-right corner — shown while the
+    /// card says the device is disconnected.
+    func lastSeenCorner(_ date: Date?, visible: Bool) -> some View {
+        overlay(alignment: .bottomTrailing) {
+            if visible, let note = DisconnectedPill.lastSeenNote(date) {
                 Text(note)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
+                    .padding(.trailing, 18)
+                    .padding(.bottom, 14)
             }
         }
-    }
-
-    /// "last seen 22h ago", or nil when we have never had it in hand.
-    static func lastSeenNote(_ date: Date?) -> String? {
-        guard let date else { return nil }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return "last seen \(formatter.localizedString(for: date, relativeTo: Date()))"
     }
 }
 

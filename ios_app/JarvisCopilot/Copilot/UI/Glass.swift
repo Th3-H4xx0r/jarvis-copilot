@@ -16,25 +16,25 @@ struct AuroraBackdrop: View {
         LinearGradient(colors: [Color(jcHex: 0x0A0C12), Color(jcHex: 0x050608)],
                        startPoint: .top, endPoint: .bottom)
             .overlay(alignment: .topLeading) {
-                glow(0x1EA89C, 340, 0.12).offset(x: -50, y: -60)
+                glow(JcAccent.deep, 340, 0.12).offset(x: -50, y: -60)
             }
             .overlay(alignment: .topTrailing) {
-                glow(0x46E0E0, 360, 0.06).offset(x: 90, y: 20)
+                glow(JcAccent.color, 360, 0.06).offset(x: 90, y: 20)
             }
             .overlay(alignment: .bottomLeading) {
-                glow(0xB0703A, 300, 0.05).offset(x: -70, y: 40)
+                glow(Color(jcHex: 0xB0703A), 300, 0.05).offset(x: -70, y: 40)
             }
             .overlay(alignment: .bottomTrailing) {
-                glow(0x14A8AA, 300, 0.06).offset(x: 60, y: -80)
+                glow(JcAccent.deep, 300, 0.06).offset(x: 60, y: -80)
             }
             .clipped()
             .allowsHitTesting(false)
     }
 
-    private func glow(_ hex: UInt32, _ diameter: CGFloat, _ alpha: Double) -> some View {
+    private func glow(_ color: Color, _ diameter: CGFloat, _ alpha: Double) -> some View {
         Circle()
             .fill(RadialGradient(
-                colors: [Color(jcHex: hex, alpha: alpha), Color(jcHex: hex, alpha: 0)],
+                colors: [color.opacity(alpha), color.opacity(0)],
                 center: .center, startRadius: 0, endRadius: diameter / 2))
             .frame(width: diameter, height: diameter)
     }

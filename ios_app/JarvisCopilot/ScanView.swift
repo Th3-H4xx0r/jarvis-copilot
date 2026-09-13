@@ -219,7 +219,7 @@ private struct ScanRadar: View {
         ZStack {
             ForEach(0..<3, id: \.self) { i in
                 Circle()
-                    .stroke(Color.accentColor.opacity(0.5), lineWidth: 1.5)
+                    .stroke(JcTheme.accent.opacity(0.5), lineWidth: 1.5)
                     .frame(width: size * 0.29, height: size * 0.29)
                     .scaleEffect(animate ? 3.2 : 1)
                     .opacity(animate ? 0 : 0.8)
@@ -228,7 +228,7 @@ private struct ScanRadar: View {
             }
             Image(systemName: "dot.radiowaves.left.and.right")
                 .font(.system(size: size * 0.2, weight: .light))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(JcTheme.accent)
         }
         .frame(width: size, height: size)
         .onAppear { animate = true }
@@ -263,7 +263,7 @@ private struct ScaleCard: View {
                                tint: Color(red: 0.29, green: 0.82, blue: 0.49))
                 } else if scale.rssi == 0 {
                     // Remembered, not advertising: say so rather than "Known", which read as a link.
-                    DisconnectedPill(lastSeen: lastSeen)
+                    DisconnectedPill()
                 } else {
                     MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
                                value: "\(scale.rssi) dBm", tint: signalTint)
@@ -274,6 +274,7 @@ private struct ScaleCard: View {
         }
         .frame(height: 190)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .lastSeenCorner(lastSeen, visible: !connected && scale.rssi == 0)
         .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))
@@ -372,7 +373,7 @@ private struct SignalBars: View {
         HStack(alignment: .bottom, spacing: 2) {
             ForEach(1...4, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 1, style: .continuous)
-                    .fill(i <= level ? Color.accentColor : Color.secondary.opacity(0.25))
+                    .fill(i <= level ? JcTheme.accent : Color.secondary.opacity(0.25))
                     .frame(width: 3, height: CGFloat(i) * 2.5 + 3)
             }
         }

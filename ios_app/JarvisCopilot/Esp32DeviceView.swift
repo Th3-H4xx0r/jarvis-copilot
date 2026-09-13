@@ -163,7 +163,7 @@ struct Esp32DeviceView: View {
                 } label: {
                     Row {
                         HStack(spacing: 12) {
-                            Image(systemName: "sparkles").foregroundStyle(Color.accentColor)
+                            Image(systemName: "sparkles").foregroundStyle(JcTheme.accent)
                             Text("Program with Jarvis")
                             Spacer()
                             Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
@@ -808,7 +808,7 @@ struct Esp32Card: View {
                         // Remembered, but neither advertising nor answering on the LAN. Saying
                         // "Wi‑Fi" here claimed a link the board wasn't on, and the Devices tab
                         // then added a second "Not found" row for the very same board.
-                        DisconnectedPill(lastSeen: lastSeen)
+                        DisconnectedPill()
                     } else {
                         MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
                                    value: "\(board.rssi) dBm", tint: signalTint)
@@ -822,6 +822,7 @@ struct Esp32Card: View {
         }
         .frame(height: 190)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .lastSeenCorner(lastSeen, visible: activeLink == nil && !board.isOnWifi && board.rssi == 0)
         .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))

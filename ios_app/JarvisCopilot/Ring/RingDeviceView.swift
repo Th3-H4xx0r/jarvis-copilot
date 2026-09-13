@@ -260,7 +260,7 @@ struct RingDeviceView: View {
                             .font(.subheadline.weight(dayOffset == offset ? .semibold : .regular))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 7)
-                            .background(dayOffset == offset ? Color.accentColor.opacity(0.28) : Color.white.opacity(0.07),
+                            .background(dayOffset == offset ? JcTheme.accent.opacity(0.28) : Color.white.opacity(0.07),
                                         in: Capsule())
                     }
                     .buttonStyle(.plain)
@@ -368,7 +368,7 @@ struct RingCard: View {
                                    tint: Color(red: 0.29, green: 0.82, blue: 0.49))
                     } else if ring.rssi == 0 {
                         // Remembered from iOS's own link, not answering: not a signal reading.
-                        DisconnectedPill(lastSeen: lastSeen)
+                        DisconnectedPill()
                     } else {
                         MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
                                    value: "\(ring.rssi) dBm", tint: JcTheme.accent)
@@ -384,6 +384,7 @@ struct RingCard: View {
         }
         .frame(height: 190)
         .frame(maxWidth: .infinity)
+        .lastSeenCorner(lastSeen, visible: !connected && ring.rssi == 0)
         .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.07)))

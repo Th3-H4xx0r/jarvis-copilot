@@ -41,29 +41,29 @@ enum JcTheme {
 
     // MARK: Brand
     //
-    // The app's accent is cyan, everywhere — pages, sheets, popups, system
-    // alerts (Assets `AccentColor` carries the same value for UIKit). It used to
-    // be violet, with cyan only on the More tab; the whole app now matches that.
+    // Every accent token is `JcAccent` (Copilot/Shared/JcAccent.swift): change
+    // its `hex` to re-colour the whole app, widget, watch and Mac panel. The
+    // names below are the ones screens already use.
 
-    static let accent = Color(jcHex: 0x46E0E0)          // cyan
+    static let accent = JcAccent.color
     static let accentAlt = Color(jcHex: 0xFF6FD8)       // pink
-    static let cyan = Color(jcHex: 0x46E0E0)
+    /// The accent, under the name the voice states and data colours use.
+    static let cyan = JcAccent.color
     /// The secondary accent — info chips, a running tool, your own message's
-    /// wash. A soft cyan, so nothing in the app reads as a second brand colour.
-    /// (Named for the light blue it replaced.)
-    static let blue = Color(jcHex: 0x9BEFEA)
+    /// wash. (Named for the light blue it replaced.)
+    static let blue = JcAccent.soft
 
     /// Primary action colour — the filled CTAs (mic / send / Pair) and their
-    /// ticks. Teal: the accent, deep enough that the white label on a filled
-    /// button stays readable. (Named for the blue it replaced.)
-    static let primaryBlue = Color(jcHex: 0x14A8AA)
-    static let primaryBlueLo = Color(jcHex: 0x0C7F82)
-    static let primaryBlueHi = Color(jcHex: 0x5EE6E4)
+    /// ticks: the accent, deep enough that a white label on it stays readable.
+    /// (Named for the blue it replaced.)
+    static let primaryBlue = JcAccent.deep
+    static let primaryBlueLo = JcAccent.deeper
+    static let primaryBlueHi = JcAccent.bright
 
     static let success = Color(jcHex: 0x5BE5A0)
     static let amber = Color(jcHex: 0xFFC34D)           // warning / mock-mode
-    /// Muted slate blue for the user's own bubbles and the active send button.
-    static let slate = Color(jcHex: 0x546689)
+    /// A dark wash of the accent for the user's own bubbles in coding chats.
+    static let slate = JcAccent.shade(0.4)
     static let danger = Color(jcHex: 0xFF6B7E)
 
     // MARK: Gradients
@@ -104,7 +104,7 @@ enum JcText {
 }
 
 extension Color {
-    /// `Color(jcHex: 0x46E0E0)`. Deliberately not called `hex:` so it can't collide
+    /// `Color(jcHex: 0xFF6FD8)`. Deliberately not called `hex:` so it can't collide
     /// with a same-named helper another area adds.
     init(jcHex value: UInt32, alpha: Double = 1) {
         self.init(.sRGB,

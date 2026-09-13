@@ -187,4 +187,17 @@ final class DevicesTextTests: XCTestCase {
         XCTAssertNil(DevicesLocal.thisDeviceID(in: devices))
         XCTAssertNil(DevicesLocal.thisDeviceID(in: []))
     }
+
+    // MARK: Wearable cards
+
+    func testLastSeenReadsJustNowRatherThanInZeroSeconds() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertEqual(DisconnectedPill.lastSeenNote(now, now: now), "last seen just now")
+        XCTAssertEqual(DisconnectedPill.lastSeenNote(now.addingTimeInterval(2), now: now), "last seen just now")
+        XCTAssertEqual(DisconnectedPill.lastSeenNote(now.addingTimeInterval(-30), now: now), "last seen just now")
+        XCTAssertNil(DisconnectedPill.lastSeenNote(nil, now: now))
+        let old = DisconnectedPill.lastSeenNote(now.addingTimeInterval(-2 * 86_400), now: now)
+        XCTAssertEqual(old?.hasPrefix("last seen 2"), true)
+        XCTAssertEqual(old?.hasSuffix("ago"), true)
+    }
 }

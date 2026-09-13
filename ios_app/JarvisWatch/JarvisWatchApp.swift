@@ -20,6 +20,7 @@ struct JarvisWatchApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(connector: connector)
+                .tint(JcWatch.accent)
         }
     }
 }

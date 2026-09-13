@@ -122,7 +122,7 @@ struct RingFirmwareFlashSheet: View {
         switch flasher.phase {
         case .succeeded: return .green
         case .failed: return .red
-        default: return .accentColor
+        default: return JcTheme.accent
         }
     }
 

@@ -7,8 +7,8 @@ enum JcWatch {
     // Text
     static let text = Color(red: 0.93, green: 0.94, blue: 0.97)
     static let muted = Color(red: 0.72, green: 0.75, blue: 0.81)
-    /// The app's cyan accent, for anything live or selected.
-    static let accent = Color(red: 0.27, green: 0.88, blue: 0.88)
+    /// The app's accent (`JcAccent`), for anything live or selected.
+    static let accent = JcAccent.color
 
     /// Ambient backdrop: near-black with a couple of very faint colour washes,
     /// matching the mobile voice screen (kept subtle for OLED battery).
@@ -19,10 +19,10 @@ enum JcWatch {
                 colors: [Color(red: 0.04, green: 0.05, blue: 0.07), .black],
                 startPoint: .top, endPoint: .bottom)
             RadialGradient(
-                colors: [Color(red: 0.12, green: 0.66, blue: 0.61).opacity(0.16), .clear],
+                colors: [JcAccent.deep.opacity(0.16), .clear],
                 center: .topLeading, startRadius: 2, endRadius: 160)
             RadialGradient(
-                colors: [Color(red: 0.27, green: 0.88, blue: 0.88).opacity(0.08), .clear],
+                colors: [JcAccent.color.opacity(0.08), .clear],
                 center: .bottomTrailing, startRadius: 2, endRadius: 170)
         }
         .ignoresSafeArea()

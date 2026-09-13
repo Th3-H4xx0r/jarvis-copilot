@@ -218,8 +218,7 @@ openPicker = .session
             .overlay(alignment: .top) {
                 Circle()
                     .fill(RadialGradient(
-                        colors: [Color(jcHex: 0x1EA89C, alpha: 0.10),
-                                 Color(jcHex: 0x1EA89C, alpha: 0)],
+                        colors: [JcAccent.deep.opacity(0.10), JcAccent.deep.opacity(0)],
                         center: .center, startRadius: 0, endRadius: 170))
                     .frame(width: 340, height: 340)
                     .offset(y: -60)

@@ -44,8 +44,7 @@ struct JarvisWidgetView: View {
             // Home Screen systemSmall: gradient tile with the mic, on-brand.
             ZStack {
                 LinearGradient(
-                    colors: [Color(red: 0.27, green: 0.88, blue: 0.88),
-                             Color(red: 0.08, green: 0.66, blue: 0.67)],
+                    colors: [JcAccent.color, JcAccent.deep],
                     startPoint: .topLeading, endPoint: .bottomTrailing)
                 VStack(spacing: 8) {
                     Image(systemName: "atom")

@@ -106,7 +106,7 @@ struct ChatCodeBox: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(10)
-            .background(Color(jcHex: 0x0E171A), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Color(jcHex: 0x111418), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(JcTheme.border, lineWidth: 1))
         }

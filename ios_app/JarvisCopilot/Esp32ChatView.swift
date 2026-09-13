@@ -43,7 +43,7 @@ struct Esp32ChatView: View {
     private var canSend: Bool { !draft.trimmingCharacters(in: .whitespaces).isEmpty && !sending && bridge.isPaired }
     /// A muted slate blue: reads as "mine" without shouting, and sits well on the dark
     /// card material the replies use.
-    private let userTint = Color(jcHex: 0x1D6468)
+    private let userTint = JcAccent.shade(0.5)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -188,7 +188,7 @@ struct Esp32ChatView: View {
     private var intro: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Image(systemName: "sparkles").font(.title3).foregroundStyle(Color.accentColor)
+                Image(systemName: "sparkles").font(.title3).foregroundStyle(JcTheme.accent)
                 Text("Tell Jarvis what this board should do.").font(.headline)
             }
             Text("Jarvis writes a small script, installs it on the board, and it keeps running there — with or without the phone.")
@@ -235,8 +235,8 @@ struct Esp32ChatView: View {
           VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 10) {
                 ZStack {
-                    Circle().fill(Color.accentColor.opacity(0.18)).frame(width: 26, height: 26)
-                    Image(systemName: "sparkles").font(.caption).foregroundStyle(Color.accentColor)
+                    Circle().fill(JcTheme.accent.opacity(0.18)).frame(width: 26, height: 26)
+                    Image(systemName: "sparkles").font(.caption).foregroundStyle(JcTheme.accent)
                 }
                 .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 8) {
@@ -297,7 +297,7 @@ struct Esp32ChatView: View {
             ForEach(tools) { t in
                 HStack(alignment: .top, spacing: 8) {
                     if t.done {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor).font(.footnote)
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(JcTheme.accent).font(.footnote)
                     } else {
                         ProgressView().controlSize(.mini)
                     }

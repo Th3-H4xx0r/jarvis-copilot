@@ -12,6 +12,7 @@
 #   * every *.swift under JarvisCopilot/Copilot/Shared/ -> BOTH the app and the
 #     widget, because the Live Activity's attributes and the App Group ids have to
 #     be one declaration compiled twice, never two that can drift
+#   * Copilot/Shared/JcAccent.swift -> the watch as well: one accent colour
 #   * a shared scheme "JarvisCopilot" with a Test action covering the test target
 #
 # Safe to run repeatedly and from several agents: a mkdir-based lock serialises
@@ -26,6 +27,7 @@ TEST_DIR = 'JarvisCopilotTests'
 TEST_TARGET = 'JarvisCopilotTests'
 WIDGET_DIR = 'JarvisWidget'
 WIDGET_TARGET = 'JarvisWidget'
+WATCH_TARGET = 'JarvisWatch'
 SHARED_DIR = File.join(APP_DIR, 'Copilot', 'Shared')
 LOCK = File.join(ROOT, 'build', '.sync-project.lock')
 
@@ -88,11 +90,11 @@ begin
   # references (they already belong to another target's group), and drop the ones
   # whose file has since been deleted. Used for Copilot/Shared, which is compiled
   # into the app and the widget both.
-  def share_sources(project, target, dir)
+  def share_sources(project, target, dir, pattern = File.join('**', '*.swift'))
     added = 0
     root = File.join(project.project_dir, dir)
     existing = target.source_build_phase.files.map { |bf| bf.file_ref&.real_path.to_s }
-    Dir.glob(File.join(root, '**', '*.swift')).sort.each do |abs|
+    Dir.glob(File.join(root, pattern)).sort.each do |abs|
       next if existing.include?(abs)
       ref = project.files.find { |f| f.real_path.to_s == abs }
       next if ref.nil?   # the owning target's sync adds it first; next run picks it up
@@ -147,6 +149,11 @@ begin
     added_widget = sync_sources(project, widget, WIDGET_DIR, widget_group)
     added_widget += share_sources(project, widget, SHARED_DIR)
   end
+
+  # The watch has its own sources, registered by hand; of Copilot/Shared it
+  # compiles only the accent (the rest is ActivityKit and App Group plumbing).
+  watch = project.targets.find { |t| t.name == WATCH_TARGET }
+  added_widget += share_sources(project, watch, SHARED_DIR, 'JcAccent.swift') if watch
 
   # The test target needs the app's @testable interface.
   app.build_configurations.each do |cfg|

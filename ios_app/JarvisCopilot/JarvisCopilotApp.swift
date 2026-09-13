@@ -17,6 +17,8 @@ struct JarvisCopilotApp: App {
     /// that launched the app, and the skill registry has to be populated before
     /// the bridge socket advertises it.
     init() {
+        // System alerts and action sheets tint from the window, not SwiftUI.
+        UIWindow.appearance().tintColor = UIColor(JcTheme.accent)
         MainActor.assumeIsolated { AppServices.shared.start() }
     }
 
