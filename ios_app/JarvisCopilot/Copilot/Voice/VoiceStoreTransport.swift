@@ -117,10 +117,16 @@ extension VoiceStore {
                 note("mic start superseded (gen \(generation))")
                 return
             }
+            var echo = ""
+            #if os(iOS)
+            // Whether the phone is cancelling its own speaker — the thing barge-in
+            // depends on, and invisible otherwise.
+            echo = " echoCancel=\(VoiceAudioEngine.shared.voiceProcessing ? "on" : "off")"
+            #endif
             note("mic started @\(Self.micRate)"
                  + " permission=\(DefaultAudioInput.permissionDescription)"
                  + " input=\(DefaultAudioInput.inputDescription)"
-                 + " hw=\(DefaultAudioInput.lastHardwareFormat)")
+                 + " hw=\(DefaultAudioInput.lastHardwareFormat)" + echo)
             monitorMic()
         } catch {
             guard generation == micGeneration else { return }
