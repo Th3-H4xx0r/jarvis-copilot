@@ -45,7 +45,7 @@ struct MacVoicePanel: View {
         VStack(spacing: 0) {
             topBar
 
-            Spacer(minLength: 6)
+            Spacer(minLength: 18)
 
             VoiceOrb(state: store.state,
                      amplitude: store.state == .listening && store.muted ? 0 : store.amplitude,
@@ -113,10 +113,8 @@ struct MacVoicePanel: View {
             // Disabled mid-turn, like the phone's: switching either one under a
             // live turn changes which chat it lands in, or which model finishes
             // answering it.
-            MacSessionMenu { store.sessionTargetChanged() }
-                .disabled(store.isActive)
-            MacModelMenu()
-                .disabled(store.isActive)
+            MacSessionMenu(enabled: !store.isActive) { store.sessionTargetChanged() }
+            MacModelMenu(enabled: !store.isActive)
             Spacer(minLength: 2)
             if showsOpenInWindow {
                 Button {
@@ -135,7 +133,6 @@ struct MacVoicePanel: View {
                 .accessibilityLabel("Open in a window")
             }
         }
-        .opacity(store.isActive ? 0.45 : 1)
         .padding(.top, 4)
     }
 
