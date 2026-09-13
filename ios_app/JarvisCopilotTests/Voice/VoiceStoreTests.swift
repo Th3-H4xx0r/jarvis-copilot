@@ -558,6 +558,43 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertGreaterThan(rig.synthesizer.stopCount, 0)
     }
 
+    // Measured on the phone: echo under the reply peaks 0.005–0.009 per 100 ms
+    // frame; ordinary speech over it ~0.014, peaks to 0.034. The Mac's 0.03 bar
+    // needed a shout.
+
+    func testSpeakingOverTheReplyAtAnOrdinaryVolumeOnThePhoneInterruptsIt() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+        rig.input.emitFrames(amplitude: 0.005, ms: 2000, frameMs: 100)   // the reply's echo
+
+        rig.input.emitFrames(amplitude: 0.016, ms: 400, frameMs: 100)    // "wait, stop"
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening, "a normal voice is enough")
+    }
+
+    func testTheEchoOfTheReplyAloneNeverInterruptsOnThePhone() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+        for _ in 0..<40 {
+            rig.input.emitFrames(amplitude: 0.004, ms: 100, frameMs: 100)
+            rig.input.emitFrames(amplitude: 0.009, ms: 100, frameMs: 100)
+        }
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .speaking)
+    }
+
+    func testTalkingQuietlyFirstDoesNotRaiseTheBarAgainstYou() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+        rig.input.emitFrames(amplitude: 0.004, ms: 2000, frameMs: 100)   // echo
+        // Speech just under the bar used to be learned as echo and push the
+        // bar up past the voice that followed it.
+        rig.input.emitFrames(amplitude: 0.010, ms: 1000, frameMs: 100)
+        rig.input.emitFrames(amplitude: 0.022, ms: 400, frameMs: 100)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening)
+    }
+
     func testASpikeOfEchoDoesNotInterrupt() async throws {
         let rig = makeRig()
         try await speakingAndSettled(rig)
@@ -598,10 +635,18 @@ final class VoiceStoreTests: XCTestCase {
 
     func testLouderEchoRaisesTheBar() async throws {
         let rig = makeRig()
-        try await speakingAndSettled(rig)
+        await startListening(rig)
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, audioMs: 5000)
 
-        // Speakers turned up: steady echo at 0.02, so 0.04 is not clearly a voice.
+        // Speakers turned up: steady echo at 0.02 — above the phone's gate on its
+        // own, so the bar has to come from the echo, heard from the first moment.
+        rig.input.emitFrames(amplitude: 0.02, ms: VoiceStore.bargeInSettleMs)
+        rig.clock.advance(ms: VoiceStore.bargeInSettleMs)
         rig.input.emitFrames(amplitude: 0.02, ms: 3000)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .speaking, "the reply's own echo must not interrupt it")
+
         rig.input.emitFrames(amplitude: 0.04, ms: 600)
         await settleVoiceTasks()
         XCTAssertEqual(rig.store.state, .speaking, "0.04 is not clearly above a 0.02 echo")

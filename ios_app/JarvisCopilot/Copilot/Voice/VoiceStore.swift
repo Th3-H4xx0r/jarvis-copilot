@@ -108,23 +108,43 @@ final class VoiceStore {
     /// 0.18 — was pitched for a raw browser mic; nobody talking at a normal
     /// volume reached it, so barge-in never fired.
     ///
-    /// Measured on a MacBook with a reply playing through its own speakers,
-    /// what echo cancellation lets through is usually tiny (median ≈0.002–0.004)
-    /// but it LEAKS: bursts to 0.05–0.57, worst as playback starts and as the
-    /// canceller re-adapts. Single-frame spikes are therefore never enough, and
-    /// the numbers below are the ones that stayed quiet across those recordings
-    /// while still sitting well under a voice raised to talk over someone.
+    /// The two devices cancel echo very differently, so the bar is per platform:
+    ///
+    ///  * **Mac** — with a reply playing through its own speakers, what gets
+    ///    through is usually tiny (median ≈0.002–0.004) but it LEAKS: bursts to
+    ///    0.05–0.57, worst as playback starts. A gate at 0.03 held for 350 ms
+    ///    stayed quiet across those recordings.
+    ///  * **Phone** — measured in real conversations: echo under the reply
+    ///    peaks 0.005–0.009 per 100 ms frame, while ordinary speech talking over
+    ///    it runs around 0.014 with peaks to 0.034. The Mac's 0.03 made people
+    ///    shout to cut in. 0.012 is `Endpointer.speechThreshold`: what counts as
+    ///    speech when the phone is listening counts when it is talking.
+    ///
+    /// Single-frame spikes are never enough on either.
+    #if os(iOS)
+    static let bargeInSustainMs = 300
+    static let bargeInSpeechAmp = Endpointer.speechThreshold
+    #else
     static let bargeInSustainMs = 350
-    /// ...out of the last this-many milliseconds. Density, not an unbroken run:
-    /// speech has gaps between syllables, and echo leaks in syllable-sized
-    /// bursts too — but a voice talking over the reply fills most of the window
-    /// and a leak does not.
-    static let bargeInWindowMs = 500
-    /// Voiced means at least this loud...
     static let bargeInSpeechAmp = 0.03
-    /// ...and at least this many times the echo the mic has been hearing under
+    #endif
+    /// Voiced audio has to fill `bargeInSustainMs` of the last this-many
+    /// milliseconds. Density, not an unbroken run: speech has gaps between
+    /// syllables, and echo leaks in syllable-sized bursts too — but a voice
+    /// talking over the reply fills most of the window and a leak does not.
+    static let bargeInWindowMs = 500
+    /// Voiced also means at least this many times the echo level heard under
     /// this reply, so turned-up speakers raise the bar instead of interrupting.
     static let bargeInEchoMargin = 3.0
+    /// The echo level is a low percentile of the mic over this long. A mean of
+    /// "quiet" frames used to count speech just under the bar as echo, and the
+    /// bar rose past the voice that followed it.
+    static let bargeInEchoWindowMs = 3000
+    static let bargeInEchoPercentile = 0.25
+    /// No echo level until this much has been heard. It is gathered from the
+    /// moment playback starts — through `bargeInSettleMs`, when the mic can only
+    /// be hearing the reply — so it is ready when barge-in starts listening.
+    static let bargeInEchoMinMs = 500
     /// Nothing counts this soon after playback starts: the echo canceller has
     /// not caught up with the new audio yet, and that is when it leaks most.
     static let bargeInSettleMs = 500
@@ -244,9 +264,15 @@ final class VoiceStore {
     /// whether each counted as voiced.
     var bargeFrames: [(ms: Int, voiced: Bool)] = []
     var bargeVoicedMs: Int { bargeFrames.reduce(0) { $0 + ($1.voiced ? $1.ms : 0) } }
-    /// Running mean of what the mic hears under the reply when nobody is
-    /// talking: the reply's leftover echo.
-    var bargeEchoFloor = 0.0
+    /// Recent mic frames under the reply, for the echo level.
+    var bargeEchoFrames: [(ms: Int, amp: Double)] = []
+    /// What the mic hears under the reply when nobody is talking: the reply's
+    /// leftover echo. See `bargeInEchoPercentile`.
+    var bargeEchoFloor: Double {
+        guard bargeEchoFrames.reduce(0, { $0 + $1.ms }) >= Self.bargeInEchoMinMs else { return 0 }
+        let sorted = bargeEchoFrames.map(\.amp).sorted()
+        return sorted[Int(Double(sorted.count - 1) * Self.bargeInEchoPercentile)]
+    }
     /// The last moments of mic audio under the reply. When they turn out to be
     /// the user cutting in, they are the start of what was said.
     var bargeHeld: [Data] = []
@@ -954,13 +980,19 @@ final class VoiceStore {
             bargeWindowPeak = max(bargeWindowPeak, amp)
             bargeWindowFrames += 1
             if bargeWindowFrames >= 24 {
-                note(String(format: "mic under reply: peak=%.4f echo=%.4f", bargeWindowPeak, bargeEchoFloor))
+                note(String(format: "mic under reply: peak=%.4f echo=%.4f bar=%.4f", bargeWindowPeak, bargeEchoFloor,
+                            max(Self.bargeInSpeechAmp, bargeEchoFloor * Self.bargeInEchoMargin)))
                 bargeWindowPeak = 0
                 bargeWindowFrames = 0
             }
-            if let until = bargeSettleUntil, clock.now < until { return }
-            holdBargeAudio(chunk)
             let frameMs = Endpointer.frameMsForPcm16(byteLength: chunk.count, sampleRate: Self.micRate)
+            if let until = bargeSettleUntil, clock.now < until {
+                // The canceller is still settling: this is the reply's echo,
+                // which is what the bar is measured against, never a trigger.
+                noteEchoFrame(amp, frameMs: frameMs)
+                return
+            }
+            holdBargeAudio(chunk)
             if foreground, detectBargeIn(amp, frameMs: frameMs) {
                 let said = bargeHeld
                 note("barge-in: \(bargeVoicedMs)ms of speech over the reply")
@@ -1018,18 +1050,21 @@ final class VoiceStore {
 
     func detectBargeIn(_ amp: Double, frameMs: Int) -> Bool {
         let voiced = amp >= max(Self.bargeInSpeechAmp, bargeEchoFloor * Self.bargeInEchoMargin)
-        // Only quiet stretches teach the echo level, so a voice that is
-        // building up never raises the bar against itself.
-        if !voiced, bargeVoicedMs == 0 {
-            let weight = min(1, Double(frameMs) / 1000)
-            bargeEchoFloor += (amp - bargeEchoFloor) * weight
-        }
+        noteEchoFrame(amp, frameMs: frameMs)
         bargeFrames.append((frameMs, voiced))
         var total = bargeFrames.reduce(0) { $0 + $1.ms }
         while total > Self.bargeInWindowMs, bargeFrames.count > 1 {
             total -= bargeFrames.removeFirst().ms
         }
         return bargeVoicedMs >= Self.bargeInSustainMs
+    }
+
+    private func noteEchoFrame(_ amp: Double, frameMs: Int) {
+        bargeEchoFrames.append((frameMs, amp))
+        var total = bargeEchoFrames.reduce(0) { $0 + $1.ms }
+        while total > Self.bargeInEchoWindowMs, bargeEchoFrames.count > 1 {
+            total -= bargeEchoFrames.removeFirst().ms
+        }
     }
 
     private func holdBargeAudio(_ chunk: Data) {
@@ -1043,7 +1078,7 @@ final class VoiceStore {
 
     private func resetBargeIn() {
         bargeFrames.removeAll()
-        bargeEchoFloor = 0
+        bargeEchoFrames.removeAll()
         bargeHeld.removeAll()
     }
 
