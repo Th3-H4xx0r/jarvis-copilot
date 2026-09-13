@@ -24,6 +24,8 @@ import sys
 logger = logging.getLogger(__name__)
 
 _USAGE = "JarvisCopilot voice mode uses the microphone to capture your speech."
+_SPEECH_USAGE = ("JarvisCopilot transcribes your speech on this Mac when "
+                 "on-device transcription is on.")
 
 # WKWebView media-capture permission selector + its Obj-C type encoding.
 #   -(void)webView:(WKWebView*)wv requestMediaCapturePermissionForOrigin:(...)o
@@ -62,6 +64,11 @@ def _inject_usage_description() -> None:
         # setting the key lets macOS show the mic prompt + list us in Privacy.
         if info is not None and not info.get("NSMicrophoneUsageDescription"):
             info["NSMicrophoneUsageDescription"] = _USAGE
+        # On-device transcription: macOS 26 transcribes without asking, but on
+        # older systems it falls back to SFSpeechRecognizer, whose authorization
+        # request ABORTS a process that has no usage string for it.
+        if info is not None and not info.get("NSSpeechRecognitionUsageDescription"):
+            info["NSSpeechRecognitionUsageDescription"] = _SPEECH_USAGE
     except Exception as exc:
         logger.debug("mic: usage-description injection failed: %s", exc)
 

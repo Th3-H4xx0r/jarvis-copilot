@@ -124,21 +124,44 @@ final class MacModelPicker {
 
     func load() async { await models.load() }
 
-    func rows() -> [PickerRow] {
+    /// The model choices, then how speech becomes text. Transcription lives in
+    /// this card rather than a chip of its own: the phone keeps it in its voice
+    /// settings sheet beside the model, and the top bar has no room for a third.
+    func rows(store: VoiceStore) -> [PickerRow] {
         var out = [PickerRow(title: "Auto",
                              checked: models.selectedModelID == nil,
                              action: { self.models.select(nil) })]
-        guard let catalog = models.catalog else {
-            out.append(.header(models.loading ? "Loading…" : (models.loadError ?? "No models")))
-            return out
-        }
-        for provider in catalog.providers {
-            out.append(.header(provider))
-            for model in catalog.models(for: provider) {
-                out.append(PickerRow(title: model.label,
-                                     checked: models.selectedModelID == model.id,
-                                     action: { self.models.select(model) }))
+        if let catalog = models.catalog {
+            for provider in catalog.providers {
+                out.append(.header(provider))
+                for model in catalog.models(for: provider) {
+                    out.append(PickerRow(title: model.label,
+                                         checked: models.selectedModelID == model.id,
+                                         action: { self.models.select(model) }))
+                }
             }
+        } else {
+            out.append(.header(models.loading ? "Loading…" : (models.loadError ?? "No models")))
+        }
+        out.append(contentsOf: Self.transcriptionRows(store: store))
+        return out
+    }
+
+    static func transcriptionRows(store: VoiceStore) -> [PickerRow] {
+        var out: [PickerRow] = [.header("Transcription")]
+        for value in VoiceTranscription.allCases {
+            out.append(PickerRow(title: value.label,
+                                 checked: store.transcription == value,
+                                 action: { Task { await store.setTranscription(value) } }))
+        }
+        switch store.transcriptionStatus {
+        case .preparing(let fraction):
+            out.append(.header(fraction.map { "Downloading speech model… \(Int($0 * 100))%" }
+                               ?? "Preparing…"))
+        case .failed(let message):
+            out.append(.header(message))
+        case .ready, .idle:
+            break
         }
         return out
     }

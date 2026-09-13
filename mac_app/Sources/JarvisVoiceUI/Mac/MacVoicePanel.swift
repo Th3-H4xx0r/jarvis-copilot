@@ -122,7 +122,7 @@ struct MacVoicePanel: View {
                 MacPickerSheet(title: kind.title,
                                rows: kind == .session
                                    ? sessionPicker.rows { store.sessionTargetChanged() }
-                                   : modelPicker.rows()) {
+                                   : modelPicker.rows(store: store)) {
                     openPicker = nil
                 }
             }
@@ -341,6 +341,12 @@ openPicker = .session
     }
 
     private var headlineText: String {
+        // The picker card closes as soon as On device is chosen, and the model
+        // can take a while to download: say so where the eye already is.
+        if case .preparing(let fraction) = store.transcriptionStatus, store.state == .idle {
+            return fraction.map { "Downloading speech model… \(Int($0 * 100))%" }
+                ?? "Getting on-device transcription ready…"
+        }
         switch store.state {
         case .idle: return "What's on your mind?"
         case .listening: return store.muted ? "Take your time." : "Go ahead, I'm here."
