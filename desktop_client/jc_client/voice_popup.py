@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 # Built at import time on macOS only, so importing this module elsewhere (and in
 # tests) stays free of PyObjC. Mirrors `mac_popover`.
+#
+# The Obj-C class name is namespaced because that namespace is PROCESS-WIDE and
+# flat: a bare `_AppDelegate` is exactly what another library would also claim
+# (pywebview builds one in this very process when we fall back to it), and the
+# second registration of a name is an error, not a shadow.
 _AppDelegate = None
 
 if sys.platform == "darwin":  # pragma: no cover - needs a macOS run loop
@@ -39,11 +44,13 @@ if sys.platform == "darwin":  # pragma: no cover - needs a macOS run loop
         import AppKit as _AppKit
         import objc as _objc
 
-        class _AppDelegate(_AppKit.NSObject):  # noqa: F811
+        class JcVoiceWindowDelegate(_AppKit.NSObject):
             """Closing the window ends the process — it is all this process is for."""
 
             def applicationShouldTerminateAfterLastWindowClosed_(self, _app):
                 return True
+
+        _AppDelegate = JcVoiceWindowDelegate
     except Exception:  # pragma: no cover - PyObjC missing or a version we don't know
         _AppDelegate = None
 

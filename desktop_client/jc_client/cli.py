@@ -396,6 +396,12 @@ def cmd_status(args) -> int:
     manifest = skills.all_manifest(disabled=creds.skills_disabled)
     print("  skills enabled:", len(manifest), "/", len(skills.registered_names()))
     print("  allow_shell:  ", "yes" if creds.allow_shell else "no")
+    if sys.platform == "darwin":
+        try:
+            from jc_client.mac_popover import voice_panel_health
+            print("  voice panel:  ", voice_panel_health()[1])
+        except Exception as exc:  # noqa: BLE001
+            print("  voice panel:   unknown (%s)" % exc)
     return 0
 
 
@@ -895,6 +901,7 @@ def cmd_update(args) -> int:
     # Ensure the Mutagen sync engine is installed/refreshed for coding-session
     # file sync (best-effort — a failure here must not fail the client update).
     _ensure_mutagen_quiet()
+    _report_voice_panel()
 
     if getattr(args, "no_restart", False):
         print("Updated. Apply with `jc-client restart` (and relaunch the tray).")
@@ -912,6 +919,29 @@ def cmd_update(args) -> int:
         print("(auto-restart did not confirm — run `jc-client restart` manually)",
               file=sys.stderr)
     return 0
+
+
+def _report_voice_panel() -> None:
+    """Say which voice panel this client will show, after an update.
+
+    The Mac voice panel is a prebuilt dylib committed to the repo, so the git
+    sync above is its whole install — there is nothing to compile. But when it
+    does not load, nothing breaks: the popover falls back to the web page and
+    says so only in the log. Print it here so an update that quietly downgraded
+    the panel is visible at the moment it happened.
+    """
+    if sys.platform != "darwin":
+        return
+    try:
+        from jc_client.mac_popover import voice_panel_health
+        ok, detail = voice_panel_health()
+    except Exception as exc:  # noqa: BLE001
+        print(f"(could not check the voice panel: {exc})", file=sys.stderr)
+        return
+    print(f"Voice panel:  {detail}")
+    if not ok:
+        print("  Voice still works — this is the older web panel, not a failure.",
+              file=sys.stderr)
 
 
 def _ensure_mutagen_quiet() -> None:

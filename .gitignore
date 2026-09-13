@@ -81,3 +81,7 @@ docs/superpowers/*
 
 # SwiftPM build output for the Mac voice dylib
 mac_app/.build/
+
+# setuptools output from a local `pip wheel` / `pip install` of the client
+desktop_client/build/
+desktop_client/*.egg-info/

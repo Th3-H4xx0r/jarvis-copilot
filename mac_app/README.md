@@ -14,16 +14,24 @@ Credentials are not its problem. `JarvisAPI` takes them through a protocol, so o
 pointed at `http://127.0.0.1:<port>` — the loopback proxy the Python client already runs, which
 does the TLS pinning and injects the session cookie.
 
-    ./build.sh          # release dylib + bundle, installed into the client
+    ./build.sh          # universal dylib + bundle, installed into the client
     swift build         # compile only
 
 **Use `build.sh`, not `swift build`, for anything you intend to run.** SwiftPM copies `.metal`
 files into the resource bundle but never runs the Metal compiler on them, so a `swift build`
 alone leaves the orb with no shader — and SwiftUI has no error channel for a missing shader
-function, so it simply draws nothing. `build.sh` compiles the metallib and installs the dylib
-and its bundle together into `desktop_client/jc_client/assets/`, which is where the client loads
-them from and where they are committed. **Re-run it after touching anything under `mac_app/` or
-the phone's `Voice`/`Core` sources**, or the client keeps running the last build.
+function, so it simply draws nothing. `build.sh` compiles the metallib, lipos an arm64 +
+x86_64 dylib, and installs both into `desktop_client/jc_client/assets/`, where they are
+committed.
+
+**That commit is the whole install.** `jc-client update` is a git sync plus a pip install and
+never compiles Swift, so every client runs whatever binary is checked in here. **Re-run
+`build.sh` and commit the result after touching anything under `mac_app/` or the phone's
+`Voice`/`Core` sources**, or every client keeps running the last build.
+
+Nothing here fails loudly: a dylib that is missing, stale, or built for the wrong architecture
+just leaves the client on the old web panel. `jc-client status` and `jc-client update` both
+print which panel is live, and why, for that reason.
 
 ## What the Mac has that the phone doesn't
 

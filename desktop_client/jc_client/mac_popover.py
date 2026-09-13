@@ -37,6 +37,11 @@ logger = logging.getLogger(__name__)
 # needs a value of its own.
 _UNSET = object()
 _panel_class = _UNSET
+# Why the last look failed, for `voice_panel_health` to report. Kept because the
+# fallback is silent by design: the user gets the web panel either way, so the
+# only way "the native panel is not running" ever reaches them is if something
+# asks.
+_panel_error: Optional[str] = None
 
 # Popover size. Matches the standalone window so the page lays out identically.
 _WIDTH = 400
@@ -71,14 +76,15 @@ def _voice_panel_class():
     with the Obj-C runtime as it loads, so the class is then reachable by name.
     Cached because dlopen is idempotent but the lookup is not free.
     """
-    global _panel_class
+    global _panel_class, _panel_error
     if _panel_class is not _UNSET:
         return _panel_class
     _panel_class = None
     # Checked before anything is imported, so "never built" is answered the same
     # way on a machine without PyObjC as on one with it.
-    dylib = Path(__file__).with_name("assets") / "libJarvisVoiceUI.dylib"
+    dylib = _dylib_path()
     if not dylib.exists():
+        _panel_error = f"{dylib.name} is not in this checkout — run mac_app/build.sh"
         logger.info("voice popover: no %s — run mac_app/build.sh; using the web panel",
                     dylib.name)
         return None
@@ -90,6 +96,9 @@ def _voice_panel_class():
         ctypes.CDLL(str(dylib))
         cls = objc.lookUpClass("JarvisVoicePanel")
     except Exception as exc:
+        # Typically PyObjC missing, or a dylib built for another architecture —
+        # ctypes says which, and it is the whole diagnosis, so keep the text.
+        _panel_error = str(exc)
         logger.info("voice popover: native panel unavailable (%s); using the web panel", exc)
         return None
     # A missing shader draws an empty rectangle where the orb should be and
@@ -102,6 +111,34 @@ def _voice_panel_class():
         pass
     _panel_class = cls
     return cls
+
+
+def _dylib_path() -> Path:
+    return Path(__file__).with_name("assets") / "libJarvisVoiceUI.dylib"
+
+
+def voice_panel_health() -> tuple[bool, str]:
+    """Is the native voice panel usable on this machine? (ok, one line to print)
+
+    `jc-client status` and `jc-client update` both show this. Worth surfacing
+    because every failure here is a SILENT downgrade to the web panel: voice
+    still works, so nothing complains, and the only symptom is that the Mac
+    stopped looking like the phone.
+    """
+    if sys.platform != "darwin":
+        return False, "n/a (macOS only)"
+    dylib = _dylib_path()
+    if not dylib.exists():
+        return False, f"web panel — {dylib.name} is missing (run mac_app/build.sh)"
+    if _voice_panel_class() is None:
+        return False, f"web panel — {dylib.name} would not load: {_panel_error}"
+    try:
+        if not _panel_class.orbShaderAvailable():
+            return True, ("native panel, but the orb has no shader "
+                          "(re-run mac_app/build.sh)")
+    except Exception:  # pragma: no cover - an older dylib without the check
+        pass
+    return True, "native panel"
 
 
 def _kind_symbol(kind: str, name: str = "") -> str:

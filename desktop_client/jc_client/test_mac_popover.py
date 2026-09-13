@@ -223,3 +223,57 @@ def test_a_panel_that_will_not_stop_does_not_block_the_quit():
         mac_popover._panel_class = mac_popover._UNSET
     # The proxy still came down, which is the part that holds a port.
     assert proxy.stopped is True
+
+
+def _health(monkeypatch, *, darwin=True, cls=None, error=None, dylib=True, tmp_path=None):
+    monkeypatch.setattr(mac_popover.sys, "platform", "darwin" if darwin else "linux")
+    monkeypatch.setattr(mac_popover, "_panel_class", cls)
+    monkeypatch.setattr(mac_popover, "_panel_error", error)
+    path = (tmp_path / "libJarvisVoiceUI.dylib") if tmp_path else None
+    if path is not None and dylib:
+        path.write_bytes(b"")
+    monkeypatch.setattr(mac_popover, "_dylib_path",
+                        lambda: path if path is not None else __import__("pathlib").Path("/nope"))
+    return mac_popover.voice_panel_health()
+
+
+def test_health_is_not_a_question_off_macos(monkeypatch):
+    ok, detail = _health(monkeypatch, darwin=False)
+    assert ok is False and "macOS only" in detail
+
+
+def test_health_names_the_build_step_when_the_dylib_was_never_built(monkeypatch, tmp_path):
+    ok, detail = _health(monkeypatch, dylib=False, tmp_path=tmp_path)
+    assert ok is False
+    assert "build.sh" in detail
+
+
+def test_health_repeats_why_the_dylib_would_not_load(monkeypatch, tmp_path):
+    """The ctypes message names the cause — a wrong architecture, say."""
+    ok, detail = _health(monkeypatch, cls=None,
+                         error="incompatible architecture (have 'arm64', need 'x86_64')",
+                         tmp_path=tmp_path)
+    assert ok is False
+    assert "incompatible architecture" in detail
+
+
+def test_health_is_good_when_the_panel_and_its_shader_are_there(monkeypatch, tmp_path):
+    class _Cls:
+        @staticmethod
+        def orbShaderAvailable():
+            return True
+
+    ok, detail = _health(monkeypatch, cls=_Cls, tmp_path=tmp_path)
+    assert ok is True and detail == "native panel"
+
+
+def test_a_loaded_panel_with_no_shader_is_still_a_working_panel(monkeypatch, tmp_path):
+    """The orb goes missing; the conversation does not. Say so without crying wolf."""
+    class _Cls:
+        @staticmethod
+        def orbShaderAvailable():
+            return False
+
+    ok, detail = _health(monkeypatch, cls=_Cls, tmp_path=tmp_path)
+    assert ok is True
+    assert "shader" in detail and "build.sh" in detail
