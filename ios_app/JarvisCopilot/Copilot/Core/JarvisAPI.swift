@@ -41,14 +41,32 @@ struct BridgeCredentials: APICredentials {
 /// Read through on every request rather than captured: `JarvisAPI.shared` is
 /// built the first time anything touches it, which can be before the host has
 /// called `configure`.
+///
+/// Lock-guarded, NOT actor-isolated. `APICredentials` is a plain `Sendable`
+/// protocol and `JarvisAPI.request` reads both properties while building a
+/// request, which on a voice turn happens on the cooperative pool — so these
+/// getters run wherever the caller happens to be. (`BridgeCredentials` is
+/// thread-safe for the same reason: it reads the Keychain from `nonisolated`
+/// methods.) An earlier version stored these on `@MainActor` and read them
+/// through `MainActor.assumeIsolated`, which does not check-and-adapt — it
+/// traps, and every turn died at `SIGTRAP` on its first request.
 struct ProxyCredentials: APICredentials {
-    /// Set once by `JarvisVoicePanel` as it hands the popover its view
-    /// controller — on the main thread, before any request exists.
-    @MainActor static var proxy: URL?
-    @MainActor static var extraHeaders: [String: String] = [:]
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var proxyURL: URL?
+    nonisolated(unsafe) private static var proxyHeaders: [String: String] = [:]
 
-    var baseURL: URL? { MainActor.assumeIsolated { Self.proxy } }
-    var headers: [String: String] { MainActor.assumeIsolated { Self.extraHeaders } }
+    /// Point every `ProxyCredentials` at a proxy. Called by `JarvisVoicePanel`
+    /// as it builds the panel; not write-once, because the proxy comes up on a
+    /// fresh port whenever the client restarts or re-pairs.
+    static func configure(baseURL: URL?, headers: [String: String] = [:]) {
+        lock.withLock {
+            proxyURL = baseURL
+            proxyHeaders = headers
+        }
+    }
+
+    var baseURL: URL? { Self.lock.withLock { Self.proxyURL } }
+    var headers: [String: String] { Self.lock.withLock { Self.proxyHeaders } }
 }
 #endif
 

@@ -33,7 +33,7 @@ public final class JarvisVoicePanel: NSObject {
     @MainActor
     public static func makeViewController(baseURL: String) -> NSViewController? {
         guard let url = URL(string: baseURL), url.scheme != nil else { return nil }
-        ProxyCredentials.proxy = url
+        ProxyCredentials.configure(baseURL: url)
         // Default `sizingOptions` (`.preferredContentSize`) on purpose: the
         // hosting controller then reports the panel's ideal size, which is what
         // an `NSPopover` falls back to when the caller sets no `contentSize` of

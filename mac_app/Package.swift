@@ -52,5 +52,11 @@ let package = Package(
             // `#if os(iOS)`.
             swiftSettings: [.define("JC_MAC_VOICE")]
         ),
+        .testTarget(
+            name: "JarvisVoiceUITests",
+            dependencies: ["JarvisVoiceUI"],
+            // The library's own flag: the tests compile against what it built.
+            swiftSettings: [.define("JC_MAC_VOICE")]
+        ),
     ]
 )
