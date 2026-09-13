@@ -304,7 +304,9 @@ class TrayApp:
         "Reconnecting…" for the rest of its life, with a perfectly connected
         client underneath. The PID file is what actually knows.
         """
-        return _read_service_pid() if self._supervised else None
+        if not self._supervised:
+            return None
+        return _read_service_pid() or _service_pid_from_state()
 
     def _act_restart(self, _icon, _item) -> None:
         if self._supervised_pid:
@@ -665,6 +667,31 @@ def _pid_alive(pid: int) -> bool:
         return True
     except (OSError, ProcessLookupError):
         return False
+
+
+def _service_pid_from_state() -> Optional[int]:
+    """The PID the SERVICE last recorded for itself, if that process is alive.
+
+    The PID file is written by `jc-client start` and deleted by `jc-client
+    stop`, so it answers "was a service started this way", and it can be absent
+    while a perfectly healthy service is running — started by the supervisor, or
+    left without a file after a restart raced its own cleanup. Observed exactly
+    that: no PID file, service alive and answering skill invocations, tray
+    showing a red dot.
+
+    `connection_state.json` is written BY the service ABOUT ITSELF and carries
+    its own PID, which makes it the better answer to "which service is running".
+    A dead PID is rejected here, which is the same staleness guard the PID file
+    gets from `_read_service_pid`.
+    """
+    import json as _json
+    try:
+        from jc_client.logger import state_dir
+        data = _json.loads((state_dir() / "connection_state.json").read_text())
+        pid = int(data.get("pid") or 0)
+    except Exception:
+        return None
+    return pid if pid and _pid_alive(pid) else None
 
 
 def _read_connection_state(pid: Optional[int]) -> Optional[str]:
