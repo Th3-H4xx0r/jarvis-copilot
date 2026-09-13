@@ -126,13 +126,34 @@ extension VoiceStore {
             sendEndTurn(text: retry)
             return
         }
-        if let running = speech {
+        if settings.transcription == .onDevice {
+            // No session means the engine never started for this utterance —
+            // a miss, never a server turn: there is no audio on the server.
+            guard let running = speech else { localNoSpeech(); return }
             speech = nil
+            // `.clearReply` wiped the line a moment ago, in this same effect
+            // pass. Put the words back before anything renders, rather than
+            // blanking them until the final transcript lands.
+            if !livePartial.isEmpty { userTranscript = livePartial }
             let epoch = turnEpoch
             Task { await finishStreamedTurn(running, epoch: epoch) }
             return
         }
+        // Server transcription: the audio streamed all along; the server
+        // transcribes it.
         sendEndTurn(text: nil)
+    }
+
+    /// The on-device engine heard sound but made no words of it. Nothing goes
+    /// to the server — there is no audio there to fall back on — so this takes
+    /// the same benign path a server `no_speech` does: the watchdog stands down,
+    /// the resume grace runs, and the mic is listening again. The status line
+    /// says so for that grace, rather than the turn silently evaporating.
+    func localNoSpeech() {
+        toolStatus = "Didn't catch that"
+        livePartial = ""
+        note("on-device: no words; nothing sent")
+        raise(.turnEnded(reason: "no_speech", producedReply: false))
     }
 
     private func sendEndTurn(text: String?) {
@@ -153,9 +174,10 @@ extension VoiceStore {
         let transcript = final.trimmingCharacters(in: .whitespacesAndNewlines)
         guard epoch == turnEpoch, machine.state.isActive else { return }
         guard !transcript.isEmpty else {
-            sendEndTurn(text: nil) // recognizer produced nothing → server STT
+            localNoSpeech()
             return
         }
+        livePartial = ""
         userTranscript = transcript
         pushLiveActivity()
         // The on-device lane gets first refusal: when it finishes the turn here
@@ -295,21 +317,56 @@ extension VoiceStore {
     // MARK: - Quality mode (push-to-talk)
 
     func postQualityTurn() async {
+        amplitude = 0
+        if settings.transcription == .onDevice {
+            await postOnDeviceQualityTurn()
+            return
+        }
         let clip = qualityPcm
         qualityPcm.removeAll()
-        amplitude = 0
         guard clip.count >= Self.minQualityBytes else {
             raise(.failed("Didn't catch that — try again."))
             return
         }
+        note("quality turn \(clip.count)B")
+        await runQualityTurn { [voice] sid in
+            voice.qualityTurn(audio: clip, sessionID: sid, sampleRate: Self.micRate,
+                              extra: voiceTurnModelFields())
+        }
+    }
+
+    /// Push-to-talk with on-device transcription: the engine heard the whole
+    /// press, so its final transcript IS the turn. No words → nothing is sent.
+    private func postOnDeviceQualityTurn() async {
+        guard let running = speech else {
+            raise(.failed("Didn't catch that — try again."))
+            return
+        }
+        speech = nil
+        let final = await voiceStopWithDeadline(running, after: Self.sttFinalTimeoutMs, clock: clock)
+        let text = final.trimmingCharacters(in: .whitespacesAndNewlines)
+        livePartial = ""
+        guard !text.isEmpty else {
+            raise(.failed("Didn't catch that — try again."))
+            return
+        }
+        userTranscript = text
+        note("quality turn text=\(text.count)ch")
+        await runQualityTurn { [voice] sid in
+            voice.qualityTurn(text: text, sessionID: sid, extra: voiceTurnModelFields())
+        }
+    }
+
+    /// Resolve the session, open the NDJSON stream `makeStream` builds for it,
+    /// and pump its events — the part both push-to-talk paths share.
+    private func runQualityTurn(
+        _ makeStream: @escaping (String) -> AsyncThrowingStream<VoiceQualityEvent, Error>
+    ) async {
         do {
             // The session id is REQUIRED here (the server 400s without one),
             // unlike the realtime socket where it is optional.
             let sid = try await ensureSession()
-            note("quality turn \(clip.count)B session=ok")
-            let stream = voice.qualityTurn(audio: clip, sessionID: sid,
-                                           sampleRate: Self.micRate,
-                                           extra: voiceTurnModelFields())
+            let stream = makeStream(sid)
             qualityTask.replace(Task { @MainActor [weak self] in
                 do {
                     for try await event in stream {
@@ -475,21 +532,12 @@ extension VoiceStore {
     /// Open a live recognizer for the next utterance. Best-effort and silent: a
     /// device without streaming STT simply runs the server-STT path.
     func startSpeechSession() async {
-        guard speech == nil, machine.mode == .realtime else { return }
-        // Only PROMPT for Speech when the user opted into on-device AI for voice
-        // (Flutter passes `LocalAiSettings.enabledForVoice` here). Otherwise we
-        // take the session only if permission was already granted, so enabling
-        // nothing still changes nothing.
-        // Without an on-device lane there is nothing on this machine that would
-        // use the recognizer beyond what the server already does, so we never
-        // prompt for it.
-        #if JC_MAC_VOICE
-        let prompt = false
-        #else
-        let prompt = local != nil && LocalAiSettings.shared.enabledForVoice
-        #endif
+        // The recognizer runs ONLY for on-device transcription, in both turn
+        // modes. In server mode it never starts: the audio goes to the server,
+        // and a transcript made here must not ride along on the turn.
+        guard speech == nil, settings.transcription == .onDevice else { return }
         guard let session = await recognizer.startSession(sampleRate: Self.micRate,
-                                                          prompt: prompt) else { return }
+                                                          prompt: true) else { return }
         guard machine.state.isActive else {
             session.cancel()
             return
@@ -499,6 +547,7 @@ extension VoiceStore {
             guard let self, let session, self.speech === session,
                   self.state == .listening, !self.muted else { return }
             self.userTranscript = text
+            self.livePartial = text
         }
     }
 

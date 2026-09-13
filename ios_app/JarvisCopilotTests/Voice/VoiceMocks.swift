@@ -229,6 +229,15 @@ final class MockSpeechRecognizing: SpeechRecognizing {
     private(set) var sessions: [MockSpeechSession] = []
     private(set) var startCount = 0
     private(set) var promptFlags: [Bool] = []
+    /// What `prepare` answers — `.ready` unless a test says otherwise.
+    var readiness: SpeechReadiness = .ready
+    private(set) var prepareCount = 0
+
+    func prepare(onProgress: @escaping @MainActor (Double) -> Void) async -> SpeechReadiness {
+        prepareCount += 1
+        onProgress(1)
+        return readiness
+    }
 
     func startSession(sampleRate: Int, prompt: Bool) async -> SpeechSession? {
         startCount += 1

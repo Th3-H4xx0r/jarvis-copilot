@@ -31,6 +31,18 @@ final class DefaultSpeechRecognizing: SpeechRecognizing {
         return DefaultSpeechSession(recognizer: recognizer, format: format)
     }
 
+    /// The SFSpeechRecognizer engine's readiness: permission, a recognizer for
+    /// this language, and on-device support. It has no model to download.
+    func prepare(onProgress: @escaping @MainActor (Double) -> Void) async -> SpeechReadiness {
+        guard await authorize(prompt: true) else { return .denied }
+        guard let recognizer = SFSpeechRecognizer() else {
+            return .unsupportedLanguage(SpeechReadiness.currentLanguageName)
+        }
+        guard recognizer.supportsOnDeviceRecognition else { return .unavailable }
+        onProgress(1)
+        return .ready
+    }
+
     /// `prompt` false = only take a session when permission was already granted,
     /// so a user who never opted into on-device AI is never surprised by a sheet.
     private func authorize(prompt: Bool) async -> Bool {

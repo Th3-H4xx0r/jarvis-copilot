@@ -146,6 +146,20 @@ final class VoiceAPITests: XCTestCase {
         XCTAssertNil(events[3].audio)
     }
 
+    func testQualityTurnCanCarryTextInsteadOfAudio() async throws {
+        // On-device transcription: the server skips its STT and gets no audio.
+        let (voice, t) = make()
+        t.enqueue(text: "{\"type\":\"done\"}\n", contentType: "application/x-ndjson")
+        _ = try await collect(voice.qualityTurn(text: "turn off the lights", sessionID: "voice-1",
+                                                 extra: ["model": "m"]))
+        XCTAssertEqual(t.lastRequest?.url?.path, "/api/voice/quality-turn")
+        let body = t.lastBody()
+        XCTAssertEqual(body["text"] as? String, "turn off the lights")
+        XCTAssertEqual(body["session_id"] as? String, "voice-1")
+        XCTAssertEqual(body["model"] as? String, "m")
+        XCTAssertNil(body["audio_base64"], "a text turn uploads no audio")
+    }
+
     func testQualityTurnHonoursACustomSampleRate() async throws {
         let (voice, t) = make()
         t.enqueue(text: "{\"type\":\"done\"}\n", contentType: "application/x-ndjson")

@@ -102,7 +102,10 @@ struct VoiceTurnMachine: Equatable {
                 return [.clearReply, .resetEndpointer, .newTurnEpoch, .stopPlayback, .openTransport]
             }
             state = .listening
-            return [.clearReply, .resetEndpointer, .newTurnEpoch, .stopPlayback, .startMic]
+            // `.restartRecognizer` so on-device push-to-talk transcribes while
+            // the user holds; the store ignores it in server transcription.
+            return [.clearReply, .resetEndpointer, .newTurnEpoch, .stopPlayback, .startMic,
+                    .restartRecognizer]
 
         case .connected:
             guard state == .connecting else { return [] }

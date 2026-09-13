@@ -1,6 +1,16 @@
 import Foundation
 import Observation
 
+/// Where on-device transcription stands.
+enum VoiceTranscriptionStatus: Equatable, Sendable {
+    case idle
+    /// Getting ready; the fraction is the language-model download, when there
+    /// is one to report.
+    case preparing(Double?)
+    case ready
+    case failed(String)
+}
+
 /// How a watch-dictated turn ended. A plain `Result` would need an `Error` type
 /// for what is only ever a sentence to show on a small screen.
 enum WatchTurnOutcome {
@@ -114,9 +124,18 @@ final class VoiceStore {
 
     var state: VoiceState { machine.state }
     var mode: VoiceMode { machine.mode }
+    /// How speech becomes text — see `VoiceTranscription`.
+    var transcription: VoiceTranscription { settings.transcription }
+    /// Where on-device transcription stands, for the settings UIs: progress
+    /// while the language model downloads, and why it cannot run if it can't.
+    var transcriptionStatus: VoiceTranscriptionStatus = .idle
     /// 0..1 mic peak while listening, playback envelope while speaking.
     var amplitude: Double = 0
     var userTranscript = ""
+    /// The on-device engine's latest words for the utterance in progress. Kept
+    /// apart from `userTranscript` because `.clearReply` wipes that at the very
+    /// moment the turn ends — this is what puts the words back.
+    var livePartial = ""
     /// Plain (markdown-stripped) reply, joined segments.
     var assistantText: String { reply.text }
     /// Leading words of `assistantText` already spoken — the view colours these
@@ -326,7 +345,9 @@ final class VoiceStore {
                 raise(.endOfSpeech)
             } else if !machine.state.isActive {
                 guard await ensureMic() else { return }
+                guard await ensureTranscription() else { return }
                 qualityPcm.removeAll()
+                livePartial = ""
                 muted = false
                 raise(.startRequested)
             }
@@ -336,9 +357,46 @@ final class VoiceStore {
             await stopAll()
         } else {
             guard await ensureMic() else { return }
+            guard await ensureTranscription() else { return }
             muted = false
+            livePartial = ""
             raise(.startRequested)
         }
+    }
+
+    // MARK: - Transcription
+
+    /// Persist the choice, and for on-device get it usable NOW — permission and
+    /// the language model — so the first spoken turn is not the one that waits.
+    /// Refused mid-session: it would change how the turn in flight is sent.
+    func setTranscription(_ value: VoiceTranscription) async {
+        guard !isActive else { return }
+        settings.transcription = value
+        transcriptionStatus = .idle
+        if value == .onDevice { await prepareTranscription() }
+    }
+
+    @discardableResult
+    func prepareTranscription() async -> SpeechReadiness {
+        transcriptionStatus = .preparing(nil)
+        let readiness = await recognizer.prepare { [weak self] fraction in
+            self?.transcriptionStatus = .preparing(fraction)
+        }
+        transcriptionStatus = readiness == .ready ? .ready : .failed(readiness.message)
+        return readiness
+    }
+
+    /// Whether the chosen transcription can run. Server always can. On-device
+    /// that cannot never falls back to the server: the turn does not start, and
+    /// the panel says why.
+    func ensureTranscription() async -> Bool {
+        guard settings.transcription == .onDevice else { return true }
+        let readiness = await prepareTranscription()
+        guard readiness == .ready else {
+            error = readiness.message
+            return false
+        }
+        return true
     }
 
     /// The user explicitly signals end-of-speech (the "Done" button).
@@ -691,7 +749,14 @@ final class VoiceStore {
         if machine.mode == .quality {
             guard machine.state == .listening else { return }
             amplitude = muted ? 0 : amp
-            if !muted { qualityPcm.append(chunk) }
+            guard !muted else { return }
+            if settings.transcription == .onDevice {
+                // Transcribed as you hold; the recording itself is not kept,
+                // because nothing is going to upload it.
+                speech?.feed(chunk)
+            } else {
+                qualityPcm.append(chunk)
+            }
             return
         }
 
@@ -709,7 +774,11 @@ final class VoiceStore {
 
         guard machine.state == .listening else { return }
         bargeRun = 0
-        if session.send(pcm: chunk) {
+        if settings.transcription == .onDevice {
+            // On-device transcription: the audio never leaves this device. The
+            // recognizer gets the frame below; the socket gets nothing.
+            noteMicFrame(bytes: chunk.count, peak: amp, local: true)
+        } else if session.send(pcm: chunk) {
             noteMicFrame(bytes: chunk.count, peak: amp)
         } else if !loggedMicDrop {
             // The socket went away under a live mic: the user keeps talking into

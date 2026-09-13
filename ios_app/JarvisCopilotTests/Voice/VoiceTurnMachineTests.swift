@@ -258,6 +258,13 @@ final class VoiceTurnMachineTests: XCTestCase {
         XCTAssertFalse(start.contains(.openTransport), "push-to-talk is one HTTP round trip")
     }
 
+    func testQualityStartRestartsTheRecognizer() {
+        // On-device push-to-talk transcribes while you hold; the store ignores
+        // the effect in server mode.
+        var m = VoiceTurnMachine(mode: .quality)
+        XCTAssertTrue(m.apply(.startRequested).contains(.restartRecognizer))
+    }
+
     func testQualityModeSendsOnTheSecondTapAndStopsTheMic() {
         var m = VoiceTurnMachine(mode: .quality)
         _ = m.apply(.startRequested)

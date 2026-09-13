@@ -144,6 +144,20 @@ struct VoiceAPI: Sendable {
             "session_id": sessionID,
         ]
         for (key, value) in extra { body[key] = value }
+        return qualityTurnStream(body: body)
+    }
+
+    /// A push-to-talk turn whose words were already transcribed on this device.
+    /// Same endpoint and same event stream; the body carries `text` and no audio,
+    /// and the server skips its own STT.
+    func qualityTurn(text: String, sessionID: String,
+                     extra: [String: Any] = [:]) -> AsyncThrowingStream<VoiceQualityEvent, Error> {
+        var body: [String: Any] = ["text": text, "session_id": sessionID]
+        for (key, value) in extra { body[key] = value }
+        return qualityTurnStream(body: body)
+    }
+
+    private func qualityTurnStream(body: [String: Any]) -> AsyncThrowingStream<VoiceQualityEvent, Error> {
         let raw = api.streamNDJSON("/api/voice/quality-turn", method: "POST", json: body)
         return AsyncThrowingStream { continuation in
             let task = Task {

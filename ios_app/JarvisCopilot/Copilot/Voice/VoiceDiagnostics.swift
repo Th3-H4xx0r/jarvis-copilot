@@ -89,8 +89,12 @@ enum VoiceDiagnostics {
     /// muted in hardware, denied by the OS, or an input device that hears
     /// nothing — looks exactly like a healthy one: frames keep flowing, bytes
     /// keep climbing, and the turn simply never ends.
-    static func describe(micFrames count: Int, bytes: Int, peak: Double) -> String {
-        "ws→ pcm \(count) frame(s) \(bytes)B peak=\(String(format: "%.4f", peak))"
+    static func describe(micFrames count: Int, bytes: Int, peak: Double,
+                         local: Bool = false) -> String {
+        // `local`: on-device transcription, where the frames go to the engine
+        // here and not over the socket — the line must not claim otherwise.
+        (local ? "mic→ stt " : "ws→ pcm ")
+            + "\(count) frame(s) \(bytes)B peak=\(String(format: "%.4f", peak))"
             + " raw=\(String(format: "%.4f", DefaultAudioInput.lastRawPeak))"
     }
 
@@ -155,13 +159,13 @@ extension VoiceStore {
     /// Coalesce the outbound PCM stream into one line per `micLogBatch` frames.
     /// Logging each one would evict everything else from a 200-line ring inside
     /// a single utterance.
-    func noteMicFrame(bytes: Int, peak: Double) {
+    func noteMicFrame(bytes: Int, peak: Double, local: Bool = false) {
         micFramesSent += 1
         micBytesSent += bytes
         micPeakSent = max(micPeakSent, peak)
         guard micFramesSent % Self.micLogBatch == 0 else { return }
         note(VoiceDiagnostics.describe(micFrames: Self.micLogBatch, bytes: micBytesSent,
-                                       peak: micPeakSent))
+                                       peak: micPeakSent, local: local))
         micBytesSent = 0
         micPeakSent = 0
     }

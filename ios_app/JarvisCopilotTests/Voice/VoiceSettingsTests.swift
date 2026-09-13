@@ -12,6 +12,19 @@ final class VoiceSettingsTests: XCTestCase {
         XCTAssertEqual(settings.mode, .realtime)
     }
 
+    func testTranscriptionDefaultsToServer() {
+        // Server is what every existing install already does, so updating
+        // changes nothing until the user flips it.
+        XCTAssertEqual(VoiceSettings(store: MemoryKeyValueStore()).transcription, .server)
+    }
+
+    func testTranscriptionSurvivesARelaunch() {
+        let store = MemoryKeyValueStore()
+        VoiceSettings(store: store).transcription = .onDevice
+        XCTAssertEqual(store.string(VoiceSettings.transcriptionKey), "on_device")
+        XCTAssertEqual(VoiceSettings(store: store).transcription, .onDevice)
+    }
+
     func testTheEngineSelectionSurvivesARelaunch() {
         let store = MemoryKeyValueStore()
         let first = VoiceSettings(store: store)

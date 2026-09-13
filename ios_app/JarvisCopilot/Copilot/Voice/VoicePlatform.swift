@@ -138,6 +138,47 @@ protocol SpeechRecognizing: AnyObject {
     /// `prompt` false = only take a session when permission was already granted,
     /// so a user who never opted in is never surprised by a permission sheet.
     func startSession(sampleRate: Int, prompt: Bool) async -> SpeechSession?
+
+    /// Make on-device transcription usable: permission, language support and,
+    /// for the newer engine, the language model — downloading it if needed and
+    /// reporting progress 0…1 as it goes.
+    func prepare(onProgress: @escaping @MainActor (Double) -> Void) async -> SpeechReadiness
+}
+
+/// Whether on-device transcription can run, and if not, why — worded for the
+/// person who has to fix it. On-device mode never falls back to the server, so
+/// these are what the panel says instead of starting a turn.
+enum SpeechReadiness: Equatable, Sendable {
+    case ready
+    case denied
+    case unsupportedLanguage(String)
+    case unavailable
+    case downloadFailed
+
+    var message: String {
+        switch self {
+        case .ready:
+            return ""
+        case .denied:
+            #if os(iOS)
+            return "Speech recognition is off — turn it on in Settings."
+            #else
+            return "Speech recognition is off — turn it on in System Settings › Privacy & Security › Speech Recognition."
+            #endif
+        case .unsupportedLanguage(let language):
+            return "On-device transcription doesn't support \(language)."
+        case .unavailable:
+            return "On-device transcription isn't available on this device."
+        case .downloadFailed:
+            return "Couldn't download the speech model — check your connection."
+        }
+    }
+
+    /// The device's language, as a person would name it.
+    static var currentLanguageName: String {
+        let id = Locale.current.identifier
+        return Locale.current.localizedString(forIdentifier: id) ?? id
+    }
 }
 
 // MARK: - Local synthesizer

@@ -25,7 +25,8 @@ final class VoiceStoreTests: XCTestCase {
     private func makeRig(mode: VoiceMode = .realtime,
                          prefs: MemoryKeyValueStore = MemoryKeyValueStore(),
                          launch: VoiceLaunchRequesting? = nil,
-                         devices: Any = []) -> Rig {
+                         devices: Any = [],
+                         transcription: VoiceTranscription = .server) -> Rig {
         let (api, transport) = JarvisAPI.mocked()
         // Routed (not FIFO) so background chatter can't eat a queued reply.
         transport.route("/api/voice/session", json: ["session_id": "voice-1"])
@@ -40,6 +41,7 @@ final class VoiceStoreTests: XCTestCase {
         let connector = MockVoiceSocketConnector()
         let clock = TestVoiceClock()
         prefs.set(mode.rawValue, forKey: VoiceSettings.modeKey)
+        prefs.set(transcription.rawValue, forKey: VoiceSettings.transcriptionKey)
 
         let store = VoiceStore(api: api, input: input, output: output, recognizer: recognizer,
                                 synthesizer: synthesizer, audioSession: audioSession,
@@ -98,8 +100,18 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(socket.sentJSON.first?["session_id"] as? String, "voice-1")
         XCTAssertEqual(socket.sentJSON.first?["sample_rate"] as? Int, 16000)
         XCTAssertEqual(rig.store.sessionID, "voice-1")
-        // The audio session is locked in BEFORE the mic starts.
-        XCTAssertTrue(rig.recognizer.startCount >= 1, "the recognizer is armed for the utterance")
+        // Server transcription (the default): the on-device engine is never
+        // armed — the audio is the server's to transcribe.
+        XCTAssertEqual(rig.recognizer.startCount, 0, "server mode arms no recognizer")
+    }
+
+    func testOnDeviceStartArmsTheRecognizerForTheUtterance() async throws {
+        let rig = makeRig(transcription: .onDevice)
+        await startListening(rig)
+        XCTAssertEqual(rig.store.state, .listening)
+        XCTAssertGreaterThanOrEqual(rig.recognizer.startCount, 1, "the recognizer is armed")
+        XCTAssertEqual(rig.recognizer.promptFlags.last, true,
+                       "on-device mode was chosen, so asking for permission is expected")
     }
 
     func testMicPermissionDenialBlocksTheTurn() async {
@@ -149,17 +161,121 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertNotNil(endTurn["speech_end_ts"])
     }
 
-    func testTheOnDeviceTranscriptRidesAlongOnEndTurn() async throws {
-        let rig = makeRig()
+    func testOnDeviceSendsTheTranscriptAndNoAudio() async throws {
+        let rig = makeRig(transcription: .onDevice)
         rig.recognizer.nextTranscript = "turn on the lights"
         await startListening(rig)
         await speakThenPause(rig)
 
-        let endTurn = try XCTUnwrap(try XCTUnwrap(rig.socket).lastMessage(ofType: "end_turn"))
+        let socket = try XCTUnwrap(rig.socket)
+        XCTAssertTrue(socket.sentData.isEmpty, "on-device mode never streams audio")
+        let endTurn = try XCTUnwrap(socket.lastMessage(ofType: "end_turn"))
         XCTAssertEqual(endTurn["text"] as? String, "turn on the lights")
         XCTAssertEqual(rig.store.userTranscript, "turn on the lights")
         XCTAssertGreaterThan(rig.recognizer.latest?.fedBytes ?? 0, 0,
-                             "the recognizer got the same frames as the server")
+                             "the recognizer got the mic frames")
+    }
+
+    func testServerTranscriptionNeverStartsTheRecognizer() async throws {
+        let rig = makeRig()
+        rig.recognizer.nextTranscript = "must never be used"
+        await startListening(rig)
+        await speakThenPause(rig)
+
+        let socket = try XCTUnwrap(rig.socket)
+        XCTAssertEqual(rig.recognizer.startCount, 0, "server mode: no on-device engine at all")
+        XCTAssertEqual(rig.recognizer.prepareCount, 0)
+        XCTAssertFalse(socket.sentData.isEmpty, "server mode streams the audio")
+        XCTAssertNil(socket.lastMessage(ofType: "end_turn")?["text"])
+    }
+
+    func testOnDeviceThatHeardNoWordsSendsNothingAndKeepsListening() async throws {
+        let rig = makeRig(transcription: .onDevice)
+        rig.recognizer.nextTranscript = ""
+        await startListening(rig)
+        await speakThenPause(rig)
+
+        let socket = try XCTUnwrap(rig.socket)
+        XCTAssertFalse(socket.sentTypes.contains("end_turn"), "no words → nothing goes to the server")
+        XCTAssertEqual(rig.store.toolStatus, "Didn't catch that")
+        XCTAssertNil(rig.store.error, "a miss is not a failure")
+
+        rig.clock.advance(ms: VoiceStore.resumeGraceMs + 10)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening)
+    }
+
+    func testTheLivePartialSurvivesTheEndOfSpeechClear() async throws {
+        let rig = makeRig(transcription: .onDevice)
+        await startListening(rig)
+        let speech = try XCTUnwrap(rig.recognizer.latest)
+        speech.stallStop = true
+        speech.emitPartial("what time is it")
+
+        await speakThenPause(rig)
+        XCTAssertEqual(rig.store.userTranscript, "what time is it",
+                       "the words stay on screen while the final transcript is awaited")
+    }
+
+    func testOnDeviceThatCannotRunRefusesToStartAndSaysWhy() async {
+        let rig = makeRig(transcription: .onDevice)
+        rig.recognizer.readiness = .denied
+        await rig.store.primaryAction()
+        await settleVoiceTasks()
+
+        XCTAssertEqual(rig.store.state, .idle)
+        XCTAssertTrue(rig.connector.connectedURLs.isEmpty, "no session opens")
+        XCTAssertEqual(rig.store.error, SpeechReadiness.denied.message)
+    }
+
+    func testChoosingOnDevicePreparesAndReportsReady() async {
+        let rig = makeRig()
+        await rig.store.setTranscription(.onDevice)
+        XCTAssertEqual(rig.store.transcription, .onDevice)
+        XCTAssertEqual(rig.store.transcriptionStatus, .ready)
+        XCTAssertEqual(rig.prefs.string(VoiceSettings.transcriptionKey), "on_device")
+    }
+
+    func testChoosingOnDeviceSurfacesAFailedPrepare() async {
+        let rig = makeRig()
+        rig.recognizer.readiness = .unsupportedLanguage("Klingon")
+        await rig.store.setTranscription(.onDevice)
+        XCTAssertEqual(rig.store.transcriptionStatus,
+                       .failed(SpeechReadiness.unsupportedLanguage("Klingon").message))
+    }
+
+    func testQualityOnDevicePostsTextAndNoAudio() async throws {
+        let rig = makeRig(mode: .quality, transcription: .onDevice)
+        rig.recognizer.nextTranscript = "hello there"
+        rig.transport.enqueue(text: """
+        {"type":"segment","kind":"text","text":"Hi.","audio_base64":"\(Data([9, 9]).base64EncodedString())"}
+        {"type":"done"}
+        """, contentType: "application/x-ndjson")
+
+        await rig.store.primaryAction()
+        await settleVoiceTasks()
+        rig.input.emitFrames(amplitude: 0.5, ms: 300)
+        await rig.store.primaryAction()
+        await settleVoiceTasks()
+
+        let posted = try XCTUnwrap(rig.transport.requests.first { $0.url?.path == "/api/voice/quality-turn" })
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: posted.httpBody ?? Data()) as? [String: Any])
+        XCTAssertEqual(body["text"] as? String, "hello there")
+        XCTAssertNil(body["audio_base64"], "on-device push-to-talk uploads no audio")
+        XCTAssertGreaterThan(rig.recognizer.latest?.fedBytes ?? 0, 0)
+    }
+
+    func testQualityOnDeviceWithNoWordsSaysSoAndPostsNothing() async {
+        let rig = makeRig(mode: .quality, transcription: .onDevice)
+        rig.recognizer.nextTranscript = ""
+        await rig.store.primaryAction()
+        await settleVoiceTasks()
+        rig.input.emitFrames(amplitude: 0.5, ms: 300)
+        await rig.store.primaryAction()
+        await settleVoiceTasks()
+
+        XCTAssertNil(rig.transport.requests.first { $0.url?.path == "/api/voice/quality-turn" })
+        XCTAssertEqual(rig.store.error, "Didn't catch that — try again.")
     }
 
     func testTheReplyWalksThinkingToSpeakingToListening() async throws {
@@ -316,7 +432,7 @@ final class VoiceStoreTests: XCTestCase {
     }
 
     func testLiveRecognitionUpdatesTheTranscriptAndIgnoresStaleSessions() async throws {
-        let rig = makeRig()
+        let rig = makeRig(transcription: .onDevice)
         await startListening(rig)
         let speech = try XCTUnwrap(rig.recognizer.sessions.last)
         speech.emitPartial("A live sentence")
@@ -330,7 +446,7 @@ final class VoiceStoreTests: XCTestCase {
     // MARK: - Interrupt / cancel
 
     func testTheInterruptButtonReturnsToListening() async throws {
-        let rig = makeRig()
+        let rig = makeRig(transcription: .onDevice)
         await startListening(rig)
         await speakThenPause(rig)
         try await replyWithAudio(rig)
@@ -710,7 +826,7 @@ final class VoiceStoreTests: XCTestCase {
     /// swift-correctness C1: SFSpeech's final callback is not guaranteed. Without
     /// a deadline the turn sat in `thinking` forever and the continuation leaked.
     func testAStalledRecognizerCannotWedgeTheTurn() async throws {
-        let rig = makeRig()
+        let rig = makeRig(transcription: .onDevice)
         rig.recognizer.nextTranscript = "never delivered"
         await startListening(rig)
         let speech = try XCTUnwrap(rig.recognizer.latest)
@@ -723,10 +839,10 @@ final class VoiceStoreTests: XCTestCase {
         rig.clock.advance(ms: VoiceStore.sttFinalTimeoutMs + 10)
         await settleVoiceTasks()
 
-        XCTAssertTrue(socket.sentTypes.contains("end_turn"),
-                      "the deadline hands the turn to server STT instead of hanging")
-        XCTAssertNil(socket.lastMessage(ofType: "end_turn")?["text"],
-                     "nothing was transcribed, so the server does its own STT")
+        XCTAssertFalse(socket.sentTypes.contains("end_turn"),
+                       "a stalled on-device recognizer is a miss, never a server turn")
+        XCTAssertEqual(rig.store.toolStatus, "Didn't catch that",
+                       "the deadline ends the wait instead of hanging")
         XCTAssertGreaterThan(speech.cancelCount, 0, "the stalled session is released")
     }
 
