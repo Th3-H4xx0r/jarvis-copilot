@@ -204,8 +204,8 @@ struct RingInputsSection: View {
 
     private func tint(_ kind: RingGestureEvent.Kind) -> Color {
         switch kind {
-        case .press: return .blue
-        case .shake: return .purple
+        case .press: return JcTheme.accent
+        case .shake: return JcTheme.accentAlt
         case .resolved: return .green
         case .ignored: return .orange
         case .ran: return .teal

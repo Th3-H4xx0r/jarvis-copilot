@@ -103,15 +103,15 @@ enum BodyMetric: String, CaseIterable, Identifiable, Codable {
 
     var tint: Color {
         switch self {
-        case .weight:          return Color(red: 0.30, green: 0.62, blue: 1.0)
-        case .bmi:             return Color(red: 0.55, green: 0.55, blue: 1.0)
+        case .weight:          return JcTheme.accent
+        case .bmi:             return JcTheme.blue
         case .bodyFat:         return .orange
         case .fatFreeWeight:   return Color(red: 0.29, green: 0.82, blue: 0.49)
         case .subcutaneousFat: return Color(red: 1.0, green: 0.62, blue: 0.30)
         case .visceralFat:     return Color(red: 1.0, green: 0.42, blue: 0.35)
-        case .bodyWater:       return Color(red: 0.35, green: 0.78, blue: 1.0)
-        case .skeletalMuscle:  return Color(red: 0.66, green: 0.40, blue: 1.0)
-        case .muscleMass:      return Color(red: 0.72, green: 0.48, blue: 1.0)
+        case .bodyWater:       return JcTheme.primaryBlue
+        case .skeletalMuscle:  return JcTheme.accentAlt
+        case .muscleMass:      return Color(red: 1.0, green: 0.62, blue: 0.88)
         case .boneMass:        return Color(red: 0.85, green: 0.85, blue: 0.75)
         case .protein:         return Color(red: 0.45, green: 0.85, blue: 0.60)
         case .bmr:             return Color(red: 1.0, green: 0.50, blue: 0.20)

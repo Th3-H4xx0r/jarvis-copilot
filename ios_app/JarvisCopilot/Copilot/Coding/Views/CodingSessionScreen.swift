@@ -95,7 +95,7 @@ struct CodingSessionScreen: View {
                     Image(systemName: live ? "stop.fill" : "arrow.clockwise.circle")
                         .font(.system(size: 16))
                 }
-                .tint(live ? JcTheme.danger : JcTheme.primaryBlue)
+                .tint(live ? JcTheme.danger : JcTheme.accent)
                 .disabled(coding.busy)
                 .accessibilityLabel(live ? "Stop session" : "Restart session")
             }
@@ -103,7 +103,7 @@ struct CodingSessionScreen: View {
                 Button { confirmingDelete = true } label: {
                     Image(systemName: "trash").font(.system(size: 15))
                 }
-                .tint(JcTheme.text)
+                .tint(JcTheme.accent)
                 .disabled(coding.busy)
                 .accessibilityLabel("Delete session")
             }
@@ -112,7 +112,7 @@ struct CodingSessionScreen: View {
             Button { settingsOpen = true } label: {
                 Image(systemName: "slider.horizontal.3").font(.system(size: 16))
             }
-            .tint(JcTheme.text)
+            .tint(JcTheme.accent)
             .disabled(detail == nil)
             .accessibilityLabel("Session settings")
         }
@@ -251,10 +251,10 @@ struct CodingModeToggle: View {
             .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
-            .background(selected ? JcTheme.primaryBlue.opacity(0.20) : .clear,
+            .background(selected ? JcTheme.accent.opacity(0.20) : .clear,
                         in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(selected ? JcTheme.primaryBlue.opacity(0.55) : .clear, lineWidth: 1))
+                .strokeBorder(selected ? JcTheme.accent.opacity(0.55) : .clear, lineWidth: 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

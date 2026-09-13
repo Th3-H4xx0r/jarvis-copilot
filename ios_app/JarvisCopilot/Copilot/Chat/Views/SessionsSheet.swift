@@ -34,7 +34,7 @@ struct ChatSessionsSheet: View {
                         Button {
                             store.startNewSession()
                             dismiss()
-                        } label: { Image(systemName: "square.and.pencil") }
+                        } label: { Image(systemName: "square.and.pencil").foregroundStyle(JcTheme.accent) }
                         .accessibilityLabel("New chat")
                     }
                 }

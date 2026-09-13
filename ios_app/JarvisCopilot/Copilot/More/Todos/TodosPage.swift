@@ -71,7 +71,7 @@ struct TodoCard: View {
 
     var body: some View {
         GlassCard(padding: 14,
-                  borderColor: active ? JcTheme.primaryBlue.opacity(0.40) : nil) {
+                  borderColor: active ? JcTheme.accent.opacity(0.40) : nil) {
             HStack(alignment: .top, spacing: 12) {
                 icon.padding(.top, 1)
                 VStack(alignment: .leading, spacing: 8) {

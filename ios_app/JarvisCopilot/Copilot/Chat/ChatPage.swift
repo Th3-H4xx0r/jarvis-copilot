@@ -115,7 +115,7 @@ struct ChatPage: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button { showSessions = true } label: { Image(systemName: "sidebar.left") }
+            Button { showSessions = true } label: { Image(systemName: "sidebar.left").foregroundStyle(JcTheme.accent) }
                 .accessibilityLabel("Chats")
         }
         ToolbarItem(placement: .principal) {
@@ -141,7 +141,7 @@ struct ChatPage: View {
                 draft = ""
                 composerGeneration += 1
                 store.startNewSession()
-            } label: { Image(systemName: "square.and.pencil") }
+            } label: { Image(systemName: "square.and.pencil").foregroundStyle(JcTheme.accent) }
             .accessibilityLabel("New chat")
         }
     }
@@ -150,6 +150,7 @@ struct ChatPage: View {
         Button { showModels = true } label: {
             HStack(spacing: 6) {
                 Image(systemName: "sparkles")
+                    .foregroundStyle(JcTheme.accent)
                 Text(ChatUIFormat.shortModelName(store.selectedModel?.label ?? store.selectedModelID ?? ""))
                     .lineLimit(1)
             }

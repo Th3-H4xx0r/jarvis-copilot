@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// Shared "dark glass + iridescent" primitives. Every screen composes from these
+/// Shared dark-glass primitives. Every screen composes from these
 /// so the visual identity stays consistent and tunable from one place.
 
 // MARK: - Backdrop
 
 /// The app's signature backdrop: a near-black vertical gradient with four soft
-/// aurora glows — cool teal/blue up top, a warm hint low-left.
+/// aurora glows — cool teals up top, a warm hint low-left.
 ///
 /// Deliberately static. It is behind every screen including scrolling lists, so
 /// there is no animation and no blur here: four radial gradients composite in one
@@ -19,13 +19,13 @@ struct AuroraBackdrop: View {
                 glow(0x1EA89C, 340, 0.12).offset(x: -50, y: -60)
             }
             .overlay(alignment: .topTrailing) {
-                glow(0x2E6BFF, 360, 0.08).offset(x: 90, y: 20)
+                glow(0x46E0E0, 360, 0.06).offset(x: 90, y: 20)
             }
             .overlay(alignment: .bottomLeading) {
                 glow(0xB0703A, 300, 0.05).offset(x: -70, y: 40)
             }
             .overlay(alignment: .bottomTrailing) {
-                glow(0x3A6BFF, 300, 0.06).offset(x: 60, y: -80)
+                glow(0x14A8AA, 300, 0.06).offset(x: 60, y: -80)
             }
             .clipped()
             .allowsHitTesting(false)
@@ -185,11 +185,13 @@ struct GlassCircleIcon: View {
     var size: CGFloat = 40
 
     var body: some View {
+        // Accent glyph on neutral glass, like the More tiles; a caller's tint
+        // (danger rows) colours both.
         Image(systemName: symbol)
             .font(.system(size: size * 0.5, weight: .regular))
-            .foregroundStyle(tint ?? JcTheme.text)
+            .foregroundStyle(tint ?? JcTheme.accent)
             .frame(width: size, height: size)
-            .background((tint ?? JcTheme.text).opacity(0.10), in: Circle())
+            .background((tint ?? Color.white).opacity(tint == nil ? 0.06 : 0.10), in: Circle())
             .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
     }
 }
@@ -208,7 +210,7 @@ struct GlassIconButton: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: iconSize, weight: .regular))
-                .foregroundStyle(tint ?? JcTheme.text)
+                .foregroundStyle(tint ?? JcTheme.accent)
                 .frame(width: size, height: size)
                 .background(JcTheme.glassFill, in: Circle())
                 .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
@@ -217,7 +219,7 @@ struct GlassIconButton: View {
     }
 }
 
-/// Primary action: iridescent gradient pill. `ghost` is the transparent glass variant.
+/// Primary action: brand-gradient pill. `ghost` is the transparent glass variant.
 struct GlassButton: View {
     let title: String
     var symbol: String? = nil

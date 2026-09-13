@@ -24,7 +24,7 @@ struct WorkspacesPage: View {
             .jcScreen("Workspaces")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { adding = true } label: { Image(systemName: "plus") }
+                    Button { adding = true } label: { Image(systemName: "plus").foregroundStyle(JcTheme.accent) }
                         .accessibilityLabel("Add workspace")
                 }
             }
@@ -137,7 +137,7 @@ struct WorkspaceRow: View {
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(JcTheme.muted)
+                        .foregroundStyle(JcTheme.accent)
                         .frame(width: 34, height: 34)
                         .contentShape(Rectangle())
                 }

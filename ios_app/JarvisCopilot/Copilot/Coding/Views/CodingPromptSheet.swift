@@ -55,17 +55,17 @@ struct CodingPromptSheet: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "hand.tap")
                 .font(.system(size: 18))
-                .foregroundStyle(CodingUI.purple)
+                .foregroundStyle(CodingUI.waiting)
                 .frame(width: 38, height: 38)
-                .background(CodingUI.purple.opacity(0.14),
+                .background(CodingUI.waiting.opacity(0.14),
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(CodingUI.purple.opacity(0.35), lineWidth: 1))
+                    .strokeBorder(CodingUI.waiting.opacity(0.35), lineWidth: 1))
             VStack(alignment: .leading, spacing: 4) {
                 Text("CLAUDE NEEDS YOUR INPUT")
                     .font(.system(size: 10.5, weight: .bold))
                     .kerning(1.2)
-                    .foregroundStyle(CodingUI.purple.opacity(0.9))
+                    .foregroundStyle(CodingUI.waiting.opacity(0.9))
                 Text(jcTrim(prompt.question ?? "").isEmpty
                      ? "Choose how to continue"
                      : jcTrim(prompt.question!))
@@ -168,9 +168,9 @@ struct CodingPromptOptionButton: View {
             HStack(spacing: 12) {
                 Text(option.key)
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
-                    .foregroundStyle(JcTheme.primaryBlueHi)
+                    .foregroundStyle(JcTheme.accent)
                     .frame(width: 26, height: 26)
-                    .background(JcTheme.primaryBlue.opacity(0.25),
+                    .background(JcTheme.accent.opacity(0.25),
                                 in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 Text(option.label.isEmpty ? "Option \(option.key)" : option.label)
                     .font(.system(size: 14, weight: .semibold))
@@ -178,7 +178,7 @@ struct CodingPromptOptionButton: View {
                     .multilineTextAlignment(.leading)
                 Spacer(minLength: 0)
                 if pending {
-                    ProgressView().controlSize(.small).tint(JcTheme.primaryBlueHi)
+                    ProgressView().controlSize(.small).tint(JcTheme.accent)
                 } else {
                     Image(systemName: "chevron.right").font(.system(size: 13))
                         .foregroundStyle(JcTheme.muted)
@@ -186,10 +186,10 @@ struct CodingPromptOptionButton: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
-            .background(JcTheme.primaryBlue.opacity(pending ? 0.20 : 0.12),
+            .background(JcTheme.accent.opacity(pending ? 0.20 : 0.12),
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(JcTheme.primaryBlue.opacity(0.35), lineWidth: 1))
+                .strokeBorder(JcTheme.accent.opacity(0.35), lineWidth: 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -216,7 +216,7 @@ struct CodingCommandSheet: View {
                     HStack(spacing: 12) {
                         Text(entry.command)
                             .font(.system(size: 13.5, weight: .bold, design: .monospaced))
-                            .foregroundStyle(JcTheme.primaryBlueHi)
+                            .foregroundStyle(JcTheme.accent)
                         Text(entry.help)
                             .font(.system(size: 12.5))
                             .foregroundStyle(JcTheme.muted)

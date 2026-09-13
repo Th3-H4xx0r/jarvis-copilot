@@ -143,7 +143,7 @@ struct CodingProjectGroup: View {
                 Button(action: onNewSession) {
                     Image(systemName: "plus")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(JcTheme.muted)
+                        .foregroundStyle(JcTheme.accent)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
@@ -154,7 +154,7 @@ struct CodingProjectGroup: View {
                 Button(action: onSettings) {
                     Image(systemName: "slider.horizontal.3")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(JcTheme.muted)
+                        .foregroundStyle(JcTheme.accent)
                         .frame(width: 30, height: 32)
                         .contentShape(Rectangle())
                 }
@@ -216,7 +216,7 @@ struct CodingSessionRow: View {
                 .padding(.top, 10)
             }
         }
-        .background(selected ? JcTheme.primaryBlue.opacity(0.10) : .clear,
+        .background(selected ? JcTheme.accent.opacity(0.10) : .clear,
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
@@ -296,20 +296,20 @@ struct CodingResumeButton: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 if busy {
-                    ProgressView().controlSize(.mini).tint(JcTheme.primaryBlueHi)
+                    ProgressView().controlSize(.mini).tint(JcTheme.accent)
                 } else {
                     Image(systemName: "play.fill").font(.system(size: 11, weight: .bold))
                 }
                 Text(busy ? "Resuming…" : "Resume")
                     .font(.system(size: 12, weight: .bold))
             }
-            .foregroundStyle(JcTheme.primaryBlueHi)
+            .foregroundStyle(JcTheme.accent)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(JcTheme.primaryBlue.opacity(0.16),
+            .background(JcTheme.accent.opacity(0.16),
                         in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(JcTheme.primaryBlue.opacity(0.4), lineWidth: 1))
+                .strokeBorder(JcTheme.accent.opacity(0.4), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(busy)

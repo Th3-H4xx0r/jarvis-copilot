@@ -162,7 +162,7 @@ struct ChatSelectTextSheet: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Button {
                             UIPasteboard.general.string = text
-                        } label: { Image(systemName: "doc.on.doc") }
+                        } label: { Image(systemName: "doc.on.doc").foregroundStyle(JcTheme.accent) }
                         .accessibilityLabel("Copy all")
                     }
                     ToolbarItem(placement: .topBarTrailing) {

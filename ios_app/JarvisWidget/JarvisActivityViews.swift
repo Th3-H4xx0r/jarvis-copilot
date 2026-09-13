@@ -4,11 +4,11 @@ import ActivityKit
 
 func jcStateColor(_ s: String) -> Color {
     switch s {
-    case "listening": return Color(red: 0.18, green: 0.72, blue: 1.0)  // cyan
-    case "thinking":  return Color(red: 0.54, green: 0.49, blue: 1.0)  // violet
+    case "listening": return Color(red: 0.27, green: 0.88, blue: 0.88) // cyan — the app accent
+    case "thinking":  return Color(red: 0.93, green: 0.94, blue: 0.97) // bright neutral, as in the app
     case "speaking":  return Color(red: 1.0,  green: 0.44, blue: 0.85) // pink
     case "error":     return Color(red: 1.0,  green: 0.42, blue: 0.49) // red
-    default:          return Color(red: 0.44, green: 0.69, blue: 1.0)  // idle blue
+    default:          return Color(red: 0.61, green: 0.94, blue: 0.92) // idle soft cyan
     }
 }
 
@@ -145,13 +145,13 @@ struct JarvisConvo: View {
 
 // ── Coding mode (Scheme 4) ────────────────────────────────────────────────
 // Shown when voice is idle and there are live Claude Code sessions. Colors:
-// working = green, waiting = purple (the attention state), idle = grey; the two
+// working = green, waiting = amber (the attention state), idle = grey; the two
 // usage rings are 5-hour = red (inner) and weekly = blue (outer).
 
 func jcCodingColor(_ s: String) -> Color {
     switch s {
     case "working": return Color(red: 0.20, green: 0.83, blue: 0.60)  // green
-    case "waiting": return Color(red: 0.75, green: 0.52, blue: 0.99)  // purple
+    case "waiting": return Color(red: 1.0,  green: 0.76, blue: 0.30)  // amber — as "waiting on you" in the app
     case "dim":     return Color(red: 0.40, green: 0.42, blue: 0.45)  // muted (forgotten)
     default:        return Color(red: 0.51, green: 0.55, blue: 0.59)  // grey (idle)
     }
@@ -170,7 +170,7 @@ func jcSubColor(_ s: String) -> Color {
 /// A forgotten (detached+idle) entry is de-emphasized: muted color + dimmed.
 func jcEntryOpacity(_ state: String) -> Double { state == "dim" ? 0.5 : 1.0 }
 let jcUsage5Color = Color(red: 0.98, green: 0.44, blue: 0.52)    // red
-let jcUsageWeekColor = Color(red: 0.22, green: 0.74, blue: 0.97) // blue
+let jcUsageWeekColor = Color(red: 0.27, green: 0.88, blue: 0.88) // cyan
 
 func jcCodingStateLabel(_ s: String) -> String {
     switch s {
@@ -358,7 +358,7 @@ struct JCCompactSpinner: View {
 }
 
 /// Compact fleet bar for the collapsed island's trailing slot — one small
-/// segment per spotlight session, colored by its state (green working / purple
+/// segment per spotlight session, colored by its state (green working / amber
 /// waiting / grey idle). The whole fleet at a glance.
 struct JCCompactFleetBar: View {
     let sessions: [JCSession]

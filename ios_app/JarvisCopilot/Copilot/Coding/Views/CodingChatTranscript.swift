@@ -51,13 +51,13 @@ struct CodingChatTranscript: View {
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.right").font(.system(size: 13))
             }
-            .foregroundStyle(CodingUI.purple)
+            .foregroundStyle(CodingUI.waiting)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
-            .background(CodingUI.purple.opacity(0.12),
+            .background(CodingUI.waiting.opacity(0.12),
                         in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(CodingUI.purple.opacity(0.35), lineWidth: 1))
+                .strokeBorder(CodingUI.waiting.opacity(0.35), lineWidth: 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -144,7 +144,7 @@ struct CodingChatTranscript: View {
 
 // MARK: - State chip & gauge
 
-/// The live chip: a spinner while working, a purple badge while waiting (tap to
+/// The live chip: a spinner while working, an amber badge while waiting (tap to
 /// re-open the prompt), otherwise Idle / Live / Offline.
 struct CodingStateChip: View {
     let activityState: String?

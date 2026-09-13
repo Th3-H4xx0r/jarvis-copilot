@@ -196,7 +196,7 @@ openPicker = .session
                 } label: {
                     Image(systemName: "macwindow")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(JcTheme.muted)
+                        .foregroundStyle(JcTheme.accent)
                         .frame(width: 30, height: 30)
                         .contentShape(Rectangle())
                 }

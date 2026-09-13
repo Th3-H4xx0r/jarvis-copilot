@@ -37,7 +37,7 @@ struct OnDeviceAISettingsPage: View {
                 Button { Task { await store.refresh() } } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(JcTheme.muted)
+                        .foregroundStyle(JcTheme.accent)
                 }
                 .accessibilityLabel("Refresh")
             }
@@ -221,7 +221,7 @@ private struct OnDeviceSwitchRow: View {
                  subtitleLineLimit: 3, last: last) {
             Toggle("", isOn: Binding(get: { isOn }, set: onChange))
                 .labelsHidden()
-                .tint(JcTheme.primaryBlue)
+                .tint(JcTheme.accent)
         }
     }
 }

@@ -123,7 +123,7 @@ struct SkillToggleRow: View {
                 .accessibilityLabel("Test \(item.name)")
                 Toggle("", isOn: Binding(get: { item.enabled }, set: onToggle))
                     .labelsHidden()
-                    .tint(JcTheme.primaryBlue)
+                    .tint(JcTheme.accent)
                     .accessibilityLabel(item.name)
             }
             .padding(.horizontal, 14)
@@ -182,7 +182,7 @@ struct SkillsInvokeLog: View {
                 Button(action: onReload) {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(JcTheme.muted)
+                        .foregroundStyle(JcTheme.accent)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Reload invoke log")
@@ -352,7 +352,7 @@ struct SkillArgFieldView: View {
                         .font(.system(size: 13, design: .monospaced))
                         .foregroundStyle(JcTheme.muted)
                 }
-                .tint(JcTheme.primaryBlue)
+                .tint(JcTheme.accent)
             default:
                 TextField(field.detail.isEmpty ? field.key : field.detail, text: $text)
                     .keyboardType(field.kind == .text ? .default : .numbersAndPunctuation)

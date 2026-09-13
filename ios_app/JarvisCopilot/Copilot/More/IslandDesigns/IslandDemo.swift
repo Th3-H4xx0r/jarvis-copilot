@@ -17,7 +17,7 @@ enum IslandDemo {
         "version": 6,
         "name": "UI Example (max size)",
         "icon": "rectangle.on.rectangle.angled",
-        "tint": "#0a84ff",
+        "tint": "#46e0e0",
         "presentations": [
             // Each region is LABELED so the expanded island visibly proves the
             // leading/trailing slots render BESIDE the camera cutout, not just
@@ -51,7 +51,7 @@ enum IslandDemo {
                     "children": [
                         ["type": "badge", "text": "TRAILING", "color": "#ff9f0a"],
                         ["type": "symbol", "name": "waveform",
-                         "style": ["size": 22, "tint": "#0a84ff"]],
+                         "style": ["size": 22, "tint": "#46e0e0"]],
                     ],
                 ],
                 "bottom": [
@@ -59,8 +59,8 @@ enum IslandDemo {
                     "spacing": 10,
                     "style": ["minHeight": 82],
                     "children": [
-                        ["type": "badge", "text": "BOTTOM (full width)", "color": "#0a84ff"],
-                        ["type": "progress", "value": 0.7, "tint": "#0a84ff",
+                        ["type": "badge", "text": "BOTTOM (full width)", "color": "#46e0e0"],
+                        ["type": "progress", "value": 0.7, "tint": "#46e0e0",
                          "tip": ["symbol": "airplane", "color": "#FFFFFF", "size": 13]],
                         ["type": "hstack",
                          "spacing": 40,

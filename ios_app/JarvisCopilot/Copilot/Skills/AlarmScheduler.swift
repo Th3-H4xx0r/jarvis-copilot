@@ -51,7 +51,7 @@ final class DefaultAlarmScheduler: AlarmScheduling, @unchecked Sendable {
             let attributes = AlarmAttributes<JarvisAlarmMetadata>(
                 presentation: Self.presentation(label: label),
                 metadata: JarvisAlarmMetadata(label: label, kind: kindName),
-                tintColor: Color(red: 0.31, green: 0.45, blue: 1.0))
+                tintColor: JcTheme.accent)
             let snooze = TimeInterval(max(1, spec.snoozeMinutes) * 60)
             let configuration: AlarmManager.AlarmConfiguration<JarvisAlarmMetadata>
             switch spec.kind {

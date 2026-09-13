@@ -622,7 +622,7 @@ struct RingSettingsView: View {
 
         private func tint(_ entry: RingLogEntry) -> Color {
             if entry.frame.isError { return .red }
-            if entry.frame.cmd == 0 { return Color(red: 0.6, green: 0.55, blue: 1) }
+            if entry.frame.cmd == 0 { return JcTheme.accent }
             return entry.frame.outbound ? .orange : .green
         }
     }

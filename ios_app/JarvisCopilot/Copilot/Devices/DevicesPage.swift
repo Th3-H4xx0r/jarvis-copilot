@@ -139,10 +139,10 @@ struct DevicesServerSection: View {
                 VStack(alignment: .leading, spacing: 20) {
                     DevicesHealthStrip(health: store.health, wiki: store.wiki)
                     devices
-                    // The blue CTA rather than the iridescent one: this screen's
+                    // The solid CTA rather than the gradient one: this screen's
                     // whole problem was competing colours, and the brand sweep
-                    // under three grey cards reads as a candy bar. Blue is the
-                    // reference's colour for the single commit action on a page.
+                    // under three grey cards reads as a candy bar. The solid pill
+                    // is the reference's style for the single commit action.
                     BlueButton(store.isEmpty ? "Pair a device" : "Pair another device") {
                         pairing = true
                     }

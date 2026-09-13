@@ -25,7 +25,7 @@ struct ProfilesPage: View {
             .jcScreen("Profiles")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { creating = true } label: { Image(systemName: "plus") }
+                    Button { creating = true } label: { Image(systemName: "plus").foregroundStyle(JcTheme.accent) }
                         .accessibilityLabel("New profile")
                 }
             }

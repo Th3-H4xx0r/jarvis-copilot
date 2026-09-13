@@ -100,7 +100,7 @@ struct RingDeviceView: View {
                            tint: Color(red: 1, green: 0.35, blue: 0.4))
                 MetricPill(icon: "figure.walk", label: "Steps",
                            value: (session.liveActivity?.steps ?? today?.steps).map { "\($0)" } ?? "—",
-                           tint: Color(red: 0.3, green: 0.62, blue: 1))
+                           tint: JcTheme.accent)
             }
         }
     }
@@ -169,7 +169,7 @@ struct RingDeviceView: View {
                     }
                 }
             }
-            ActionButton(title: "Sync", icon: "arrow.triangle.2.circlepath", isOn: sync.isSyncing, tint: .blue) {
+            ActionButton(title: "Sync", icon: "arrow.triangle.2.circlepath", isOn: sync.isSyncing, tint: JcTheme.accent) {
                 Task { await sync.sync(days: dayOffset) }
             }
         }
@@ -371,7 +371,7 @@ struct RingCard: View {
                         DisconnectedPill(lastSeen: lastSeen)
                     } else {
                         MetricPill(icon: "antenna.radiowaves.left.and.right", label: "Signal",
-                                   value: "\(ring.rssi) dBm", tint: .blue)
+                                   value: "\(ring.rssi) dBm", tint: JcTheme.accent)
                     }
                     if let battery {
                         MetricPill(icon: battery.charging ? "bolt.fill" : "battery.75", label: "Battery",
@@ -421,11 +421,11 @@ extension RingMeasurementType {
         switch self {
         case .heartRate: return Color(red: 1, green: 0.35, blue: 0.4)
         case .bloodPressure: return .pink
-        case .spo2: return Color(red: 0.3, green: 0.75, blue: 1)
+        case .spo2: return JcTheme.accent
         case .healthCheck: return .mint
-        case .stress: return .purple
+        case .stress: return JcTheme.amber
         case .bloodSugar: return .teal
-        case .hrv: return .indigo
+        case .hrv: return JcTheme.blue
         case .temperature: return .orange
         }
     }

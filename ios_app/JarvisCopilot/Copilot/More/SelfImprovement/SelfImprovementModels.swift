@@ -31,7 +31,7 @@ struct SelfImprovementEvent: Identifiable, Equatable, Sendable {
     var tone: MoreTone {
         switch kind {
         case "fail": return .danger
-        case "rejected": return .accent
+        case "rejected": return .amber
         case "noop": return .muted
         default: return .success
         }

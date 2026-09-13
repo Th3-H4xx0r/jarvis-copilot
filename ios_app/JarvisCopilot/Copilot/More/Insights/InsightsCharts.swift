@@ -7,7 +7,7 @@ import SwiftUI
 ///
 /// The Flutter page hand-rolled proportional bars because Flutter has no chart
 /// in the box; Swift Charts is a system framework, so this is the real thing —
-/// same data, same colours (input blue, output violet), with an axis.
+/// same data (input teal, output cyan), with an axis.
 struct InsightsDailyTokensCard: View {
     let bars: [InsightsDailyBar]
 

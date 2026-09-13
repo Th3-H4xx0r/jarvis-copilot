@@ -20,7 +20,7 @@ struct CodeMasterSettingsPage: View {
     var body: some View {
         Group {
             if store.loading {
-                ProgressView().tint(JcTheme.primaryBlue)
+                ProgressView().tint(JcTheme.accent)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 form
@@ -51,7 +51,7 @@ struct CodeMasterSettingsPage: View {
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(JcTheme.text)
                     }
-                    .tint(JcTheme.primaryBlue)
+                    .tint(JcTheme.accent)
                 }
 
                 GlassQuietLabel("Remote approvals").padding(.top, 22)
@@ -64,7 +64,7 @@ struct CodeMasterSettingsPage: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(JcTheme.text)
                         }
-                        .tint(JcTheme.primaryBlue)
+                        .tint(JcTheme.accent)
                         Text("Turn on when you’re away from the terminal. "
                              + "While off, sessions prompt locally as usual.")
                             .font(.system(size: 12))
@@ -116,7 +116,7 @@ struct CodeMasterSettingsPage: View {
                                     .foregroundStyle(JcTheme.text)
                             }
                         }
-                        .tint(JcTheme.primaryBlue)
+                        .tint(JcTheme.accent)
                         .padding(.vertical, 2)
                 }
             }

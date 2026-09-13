@@ -141,12 +141,12 @@ struct CronJobCard: View {
     let onRun: () -> Void
 
     private var running: Bool { job.isRunning || starting }
-    private var tone: Color { running ? JcTheme.primaryBlue : Color(tone: job.statusTone) }
+    private var tone: Color { running ? JcTheme.accent : Color(tone: job.statusTone) }
 
     var body: some View {
         Button(action: onTap) {
             GlassCard(padding: 0,
-                      borderColor: running ? JcTheme.primaryBlue.opacity(0.5) : nil) {
+                      borderColor: running ? JcTheme.accent.opacity(0.5) : nil) {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 10) {
                         Text(job.name.isEmpty ? "(unnamed)" : job.name)
@@ -224,18 +224,18 @@ struct CronRunButton: View {
         Button { if !active { onRun() } } label: {
             Group {
                 if starting {
-                    ProgressView().controlSize(.small).tint(JcTheme.primaryBlue)
+                    ProgressView().controlSize(.small).tint(JcTheme.accent)
                 } else {
                     Image(systemName: running ? "arrow.triangle.2.circlepath" : "play.fill")
                         .font(.system(size: 16))
-                        .foregroundStyle(running ? JcTheme.muted : JcTheme.primaryBlue)
+                        .foregroundStyle(running ? JcTheme.muted : JcTheme.accent)
                 }
             }
             .frame(width: 36, height: 36)
-            .background(active ? JcTheme.glassFill : JcTheme.primaryBlue.opacity(0.16),
+            .background(active ? JcTheme.glassFill : JcTheme.accent.opacity(0.16),
                         in: Circle())
             .overlay(Circle().strokeBorder(
-                active ? JcTheme.glassBorder : JcTheme.primaryBlue.opacity(0.5), lineWidth: 1))
+                active ? JcTheme.glassBorder : JcTheme.accent.opacity(0.5), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(active)

@@ -236,7 +236,7 @@ private struct SwitchRow: View {
                  subtitleLineLimit: 3, last: last) {
             Toggle("", isOn: Binding(get: { isOn }, set: onChange))
                 .labelsHidden()
-                .tint(JcTheme.primaryBlue)
+                .tint(JcTheme.accent)
         }
     }
 }

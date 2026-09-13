@@ -18,7 +18,7 @@ struct Esp32DeviceView: View {
     @State private var resetNote: String?
     /// While a script owns the pins, manual controls step aside.
     private var scriptRunning: Bool { manager.script?.state == .running }
-    private var blue: Color { Color(red: 0.30, green: 0.62, blue: 1.0) }
+    private var blue: Color { JcTheme.accent }
     private var green: Color { Color(red: 0.29, green: 0.82, blue: 0.49) }
     private var red: Color { Color(red: 1.0, green: 0.31, blue: 0.27) }
 
@@ -550,7 +550,7 @@ private struct Esp32PinTile: View {
     private var canOutput: Bool { pin.capabilities.contains(.output) }
 
     private var tint: Color {
-        if pin.capabilities.contains(.led) { return Color(red: 0.30, green: 0.62, blue: 1.0) }
+        if pin.capabilities.contains(.led) { return JcTheme.accent }
         if !canOutput { return .orange }
         return Color(red: 0.29, green: 0.82, blue: 0.49)
     }
@@ -773,7 +773,7 @@ struct Esp32Card: View {
     /// When the board was last in range, for the offline pill.
     var lastSeen: Date? = nil
 
-    private var blue: Color { Color(red: 0.30, green: 0.62, blue: 1.0) }
+    private var blue: Color { JcTheme.accent }
 
     var body: some View {
         ZStack(alignment: .topLeading) {

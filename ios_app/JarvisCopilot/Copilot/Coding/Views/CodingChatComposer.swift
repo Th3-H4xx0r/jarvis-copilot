@@ -50,7 +50,7 @@ struct CodingChatComposer: View {
                 Button { commandsOpen = true } label: {
                     Text("/")
                         .font(.system(size: 19, weight: .bold, design: .monospaced))
-                        .foregroundStyle(enabled ? JcTheme.primaryBlueHi : JcTheme.muted.opacity(0.5))
+                        .foregroundStyle(enabled ? JcTheme.accent : JcTheme.muted.opacity(0.5))
                         .frame(width: 28, height: 32)
                         .contentShape(Rectangle())
                 }

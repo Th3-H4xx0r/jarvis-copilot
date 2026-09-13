@@ -40,7 +40,7 @@ struct WebViewPage: View {
                     if isLoading {
                         ProgressView(value: max(progress, 0.02))
                             .progressViewStyle(.linear)
-                            .tint(JcTheme.primaryBlue)
+                            .tint(JcTheme.accent)
                     }
                     ServerWebView(url: url,
                                   headers: BridgeClient.shared.apiAuthHeaders(),

@@ -6,7 +6,7 @@ import ActivityKit
 /// while running (the system re-renders `Text(timerInterval:)` itself), shows
 /// the frozen time while stopped, and the last laps when expanded.
 struct JarvisStopwatchActivity: Widget {
-    private var tint: Color { Color(red: 0.31, green: 0.45, blue: 1.0) }
+    private var tint: Color { Color(red: 0.27, green: 0.88, blue: 0.88) }
 
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: JarvisStopwatchAttributes.self) { context in

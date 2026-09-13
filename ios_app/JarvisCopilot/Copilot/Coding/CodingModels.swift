@@ -200,7 +200,7 @@ struct CodingSession: Identifiable, Equatable {
         // The server detects activity_state for any LIVE session (running,
         // starting or idle lifecycle), so refine all of them — otherwise a
         // session whose lifecycle is idle/starting but whose pane is a permission
-        // prompt would show grey instead of the purple "waiting" signal.
+        // prompt would show grey instead of the amber "waiting" signal.
         if isLive {
             switch (activityState ?? "").lowercased() {
             case "waiting": return "waiting"

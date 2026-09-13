@@ -36,7 +36,7 @@ struct QuotaCard: View {
                 Button { store.reload() } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(JcTheme.muted)
+                        .foregroundStyle(JcTheme.accent)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Refresh usage")

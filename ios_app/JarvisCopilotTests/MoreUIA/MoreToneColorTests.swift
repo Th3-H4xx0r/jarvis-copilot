@@ -38,10 +38,14 @@ final class MoreToneColorTests: XCTestCase {
     }
 
     /// Two slots resolving to the same colour would make status states
-    /// indistinguishable, so the palette must stay injective.
+    /// indistinguishable, so the palette stays injective — except `accent` and
+    /// `cyan`, which are one colour on purpose: the app's accent IS cyan. No
+    /// store may use both for different states (Kanban's "ready" moved off
+    /// `accent` for exactly that).
     func testTonesResolveToDistinctColours() {
-        let colours = MoreTone.allCases.map { Color(tone: $0) }
-        XCTAssertEqual(Set(colours).count, MoreTone.allCases.count)
+        XCTAssertEqual(Color(tone: .accent), Color(tone: .cyan))
+        let colours = MoreTone.allCases.filter { $0 != .accent }.map { Color(tone: $0) }
+        XCTAssertEqual(Set(colours).count, MoreTone.allCases.count - 1)
     }
 
     /// Guards the enum itself: the wire-facing raw values are what stores emit.

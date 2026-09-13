@@ -230,7 +230,7 @@ struct DeviceServerCard: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(JcTheme.muted)
+                .foregroundStyle(JcTheme.accent)
                 .frame(width: 34, height: 34)
                 .contentShape(Rectangle())
         }

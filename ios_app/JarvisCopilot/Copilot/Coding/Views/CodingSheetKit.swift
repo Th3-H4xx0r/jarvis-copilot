@@ -135,7 +135,7 @@ struct CodingToggleRow: View {
                 }
             }
         }
-        .tint(JcTheme.primaryBlue)
+        .tint(JcTheme.accent)
     }
 }
 
@@ -158,10 +158,10 @@ struct CodingHostPicker: View {
                 .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 11)
-                .background(selected ? JcTheme.primaryBlue.opacity(0.20) : JcTheme.glassFill,
+                .background(selected ? JcTheme.accent.opacity(0.20) : JcTheme.glassFill,
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(selected ? JcTheme.primaryBlue : JcTheme.glassBorder, lineWidth: 1))
+                    .strokeBorder(selected ? JcTheme.accent : JcTheme.glassBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }

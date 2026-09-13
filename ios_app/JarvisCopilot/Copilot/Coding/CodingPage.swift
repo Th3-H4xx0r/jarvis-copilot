@@ -91,14 +91,14 @@ struct CodingPage: View {
             NavigationLink { CodeMasterSettingsPage() } label: {
                 Image(systemName: "gearshape").font(.system(size: 17))
             }
-            .tint(JcTheme.text)
+            .tint(JcTheme.accent)
             .accessibilityLabel("Code Master settings")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { Task { await store.discoverRefresh() } } label: {
                 Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 17))
             }
-            .tint(store.busyProjects ? JcTheme.muted : JcTheme.text)
+            .tint(store.busyProjects ? JcTheme.muted : JcTheme.accent)
             .disabled(store.busyProjects)
             .accessibilityLabel("Rescan discovered sessions")
         }
@@ -106,7 +106,7 @@ struct CodingPage: View {
             Button { Task { await store.loadSessions() } } label: {
                 Image(systemName: "arrow.clockwise").font(.system(size: 17))
             }
-            .tint(store.loading ? JcTheme.muted : JcTheme.text)
+            .tint(store.loading ? JcTheme.muted : JcTheme.accent)
             .disabled(store.loading)
             .accessibilityLabel("Refresh sessions")
         }

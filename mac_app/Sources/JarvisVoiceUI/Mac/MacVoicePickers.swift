@@ -232,6 +232,7 @@ struct MacPickerChip: View {
             HStack(spacing: 4) {
                 Image(systemName: symbol)
                     .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(JcTheme.accent.opacity(enabled ? 1 : 0.45))
                 Text(Self.clipped(text))
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
@@ -314,6 +315,7 @@ struct MacPickerSheet: View {
                                     HStack(spacing: 6) {
                                         Image(systemName: "checkmark")
                                             .font(.system(size: 9, weight: .bold))
+                                            .foregroundStyle(JcTheme.accent)
                                             .opacity(row.checked ? 1 : 0)
                                             .frame(width: 11)
                                         Text(row.title)

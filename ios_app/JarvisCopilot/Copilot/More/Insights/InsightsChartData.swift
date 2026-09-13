@@ -193,7 +193,7 @@ enum InsightsUI {
 
     /// The "LIVE" / "PARTIAL" chip beside the System health header.
     static func healthBadge(_ health: SystemHealth) -> (label: String, tone: MoreTone) {
-        health.status == "partial" ? ("PARTIAL", .blue) : ("LIVE", .success)
+        health.status == "partial" ? ("PARTIAL", .amber) : ("LIVE", .success)
     }
 
     // MARK: LLM Wiki

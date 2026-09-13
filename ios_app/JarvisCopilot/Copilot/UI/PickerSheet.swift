@@ -19,7 +19,7 @@ struct PickerOption<Value: Hashable>: Identifiable, Hashable {
 }
 
 /// A thin gradient hairline border — the app's "futuristic glass edge". Wraps
-/// `content` in a 1.2pt iridescent outline over a solid fill.
+/// `content` in a 1.2pt cyan-to-teal outline over a solid fill.
 struct GradientBorder<Content: View>: View {
     var radius: CGFloat = JcTheme.fieldRadius
     @ViewBuilder var content: Content
@@ -31,9 +31,8 @@ struct GradientBorder<Content: View>: View {
 
     private static var thickness: CGFloat { 1.2 }
     private static var gradient: LinearGradient {
-        LinearGradient(colors: [Color(jcHex: 0x46E0E0, alpha: 0x55 / 255.0),
-                                Color(jcHex: 0x8A7CFF, alpha: 0x55 / 255.0),
-                                Color(jcHex: 0xFF6FD8, alpha: 0x55 / 255.0)],
+        LinearGradient(colors: [JcTheme.cyan.opacity(0x55 / 255.0),
+                                JcTheme.primaryBlue.opacity(0x55 / 255.0)],
                        startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
@@ -90,7 +89,7 @@ struct PickerField<Value: Hashable>: View {
 }
 
 /// The themed modal picker: an opaque dark sheet with a gradient top accent; the
-/// selected row gets an iridescent tint and a cyan check.
+/// selected row gets a cyan tint and a cyan check.
 ///
 /// Opaque on purpose — a translucent sheet bleeds the aurora backdrop through.
 struct PickerSheet<Value: Hashable>: View {

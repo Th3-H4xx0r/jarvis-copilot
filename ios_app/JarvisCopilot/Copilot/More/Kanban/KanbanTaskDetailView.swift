@@ -198,7 +198,7 @@ struct KanbanTaskDetailView: View {
                     } else {
                         Button { Task { await store.loadLog() } } label: {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
+                                .font(.system(size: 13)).foregroundStyle(JcTheme.accent)
                         }
                         .buttonStyle(.plain)
                     }

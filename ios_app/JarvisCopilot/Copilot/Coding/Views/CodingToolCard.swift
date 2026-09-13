@@ -14,7 +14,7 @@ struct CodingToolCard: View {
     private var isSubagent: Bool { tool.isSubagent }
     private var hasOutput: Bool { !jcTrim(tool.output).isEmpty }
     private var tint: Color {
-        if isSubagent { return tool.ok ? CodingUI.purple : JcTheme.danger }
+        if isSubagent { return tool.ok ? JcTheme.accent : JcTheme.danger }
         return tool.ok ? JcTheme.cyan : JcTheme.danger
     }
 
@@ -24,10 +24,10 @@ struct CodingToolCard: View {
             if !tool.diff.isEmpty { CodingDiffBlock(lines: tool.diff) }
             if expanded && hasOutput { output }
         }
-        .background(isSubagent ? CodingUI.purple.opacity(0.07) : JcTheme.glassFill,
+        .background(isSubagent ? JcTheme.accent.opacity(0.07) : JcTheme.glassFill,
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .strokeBorder(isSubagent ? CodingUI.purple.opacity(0.30) : JcTheme.glassBorder,
+            .strokeBorder(isSubagent ? JcTheme.accent.opacity(0.30) : JcTheme.glassBorder,
                           lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
@@ -39,7 +39,7 @@ struct CodingToolCard: View {
             HStack(spacing: 8) {
                 if running || tool.running {
                     ProgressView().controlSize(.mini)
-                        .tint(isSubagent ? CodingUI.purple : CodingUI.green)
+                        .tint(isSubagent ? JcTheme.accent : CodingUI.green)
                         .frame(width: 16, height: 16)
                 } else {
                     Image(systemName: symbol).font(.system(size: 14)).foregroundStyle(tint)
@@ -47,7 +47,7 @@ struct CodingToolCard: View {
                 }
                 Text(name)
                     .font(.system(size: 12.5, weight: .bold, design: .monospaced))
-                    .foregroundStyle(isSubagent ? CodingUI.purple : JcTheme.text)
+                    .foregroundStyle(isSubagent ? JcTheme.accent : JcTheme.text)
                 Text(tool.summary)
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(JcTheme.muted)
@@ -138,7 +138,7 @@ struct CodingDiffBlock: View {
 
 /// The typing-style indicator shown while Claude works. When the server sends a
 /// live status line ("✳ Zesting… (50s · ↑ 2.0k tokens)") its parts are styled
-/// individually: verb salmon, elapsed muted, tokens blue, effort purple.
+/// individually: verb salmon, elapsed muted, tokens and effort cyan.
 struct CodingThinkingBubble: View {
     let statusLine: String?
 
@@ -175,8 +175,8 @@ struct CodingThinkingBubble: View {
     private func styled(_ s: LiveStatus) -> AttributedString {
         var out = segment(s.verb, size: 12, weight: .semibold, color: Color(jcHex: 0xFB7185))
         append(&out, s.elapsed, JcTheme.muted)
-        append(&out, s.tokens, JcTheme.primaryBlueHi.opacity(0.9))
-        append(&out, s.effort, CodingUI.purple.opacity(0.9))
+        append(&out, s.tokens, JcTheme.accent.opacity(0.9))
+        append(&out, s.effort, JcTheme.accent.opacity(0.9))
         for extra in s.extra { append(&out, extra, JcTheme.muted) }
         return out
     }

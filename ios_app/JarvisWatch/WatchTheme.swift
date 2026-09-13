@@ -1,14 +1,14 @@
 import SwiftUI
 
-/// Shared styling for the watch app, mirroring the mobile "dark glass +
-/// iridescent" look: the Inter typeface and an ambient near-black backdrop with
+/// Shared styling for the watch app, mirroring the mobile dark-glass look with
+/// its cyan accent: the Inter typeface and an ambient near-black backdrop with
 /// faint aurora glows.
 enum JcWatch {
     // Text
     static let text = Color(red: 0.93, green: 0.94, blue: 0.97)
     static let muted = Color(red: 0.72, green: 0.75, blue: 0.81)
-    /// The orb's cool rim blue, used for anything live or selected.
-    static let accent = Color(red: 0.55, green: 0.77, blue: 1.0)
+    /// The app's cyan accent, for anything live or selected.
+    static let accent = Color(red: 0.27, green: 0.88, blue: 0.88)
 
     /// Ambient backdrop: near-black with a couple of very faint colour washes,
     /// matching the mobile voice screen (kept subtle for OLED battery).
@@ -22,7 +22,7 @@ enum JcWatch {
                 colors: [Color(red: 0.12, green: 0.66, blue: 0.61).opacity(0.16), .clear],
                 center: .topLeading, startRadius: 2, endRadius: 160)
             RadialGradient(
-                colors: [Color(red: 0.18, green: 0.42, blue: 1.0).opacity(0.12), .clear],
+                colors: [Color(red: 0.27, green: 0.88, blue: 0.88).opacity(0.08), .clear],
                 center: .bottomTrailing, startRadius: 2, endRadius: 170)
         }
         .ignoresSafeArea()

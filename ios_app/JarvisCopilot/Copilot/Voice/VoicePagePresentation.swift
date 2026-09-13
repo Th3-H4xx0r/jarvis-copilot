@@ -8,7 +8,8 @@ import SwiftUI
 func voiceStateColor(_ state: VoiceState) -> Color {
     switch state {
     case .listening:            return JcTheme.cyan
-    case .thinking, .connecting: return JcTheme.accent
+    // Bright neutral: the accent is cyan now, which is listening's colour.
+    case .thinking, .connecting: return JcTheme.text
     case .speaking:             return JcTheme.accentAlt
     case .error:                return JcTheme.danger
     case .idle:                 return JcTheme.muted

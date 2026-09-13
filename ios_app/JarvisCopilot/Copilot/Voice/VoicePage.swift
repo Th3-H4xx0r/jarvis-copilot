@@ -339,13 +339,14 @@ struct VoicePage: View {
             Button { showSessionPicker = true } label: {
                 Image(systemName: "bubble.left")
                     .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(JcTheme.accent)
             }
             .accessibilityLabel("Voice session: \(sessionSelection.chipLabel)")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { showPicker = true } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
+                    Image(systemName: "sparkles").foregroundStyle(JcTheme.accent)
                     Text(models.chipLabel).lineLimit(1)
                 }
                 .font(.system(size: 14, weight: .medium))

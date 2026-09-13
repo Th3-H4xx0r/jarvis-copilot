@@ -139,7 +139,7 @@ final class ShellPolishSnapshotTests: XCTestCase {
 
     // MARK: Pixel probe
 
-    /// The bottom-most row of "button blue" in `image`, in points, ignoring
+    /// The bottom-most row of "button teal" in `image`, in points, ignoring
     /// anything at or below `above`.
     ///
     /// SwiftUI draws a `Button` into its parent's layer, so the mic and the
@@ -164,7 +164,9 @@ final class ShellPolishSnapshotTests: XCTestCase {
             for x in 0..<width {
                 let i = (y * width + x) * 4
                 let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
-                if b > 140 && b > r + 50 && b > g + 40 { return CGFloat(y + 1) }
+                // The primary action teal (`JcTheme.primaryBlue` family): green
+                // and blue high and close together, red far below.
+                if g > 110 && b > 110 && abs(g - b) < 40 && g > r + 60 { return CGFloat(y + 1) }
             }
         }
         return nil

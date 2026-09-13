@@ -15,8 +15,9 @@ final class VoicePageTests: XCTestCase {
 
     func testStateColoursMatchTheFlutterScreen() {
         XCTAssertEqual(voiceStateColor(.listening), JcTheme.cyan)
-        XCTAssertEqual(voiceStateColor(.thinking), JcTheme.accent)
-        XCTAssertEqual(voiceStateColor(.connecting), JcTheme.accent)
+        // Thinking can't borrow the accent: listening already is cyan.
+        XCTAssertEqual(voiceStateColor(.thinking), JcTheme.text)
+        XCTAssertEqual(voiceStateColor(.connecting), JcTheme.text)
         XCTAssertEqual(voiceStateColor(.speaking), JcTheme.accentAlt)
         XCTAssertEqual(voiceStateColor(.error), JcTheme.danger)
         XCTAssertEqual(voiceStateColor(.idle), JcTheme.muted)

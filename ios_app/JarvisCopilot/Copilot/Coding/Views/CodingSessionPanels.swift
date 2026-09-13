@@ -31,7 +31,7 @@ struct CodingSyncCard: View {
                                 ProgressView().controlSize(.mini).tint(JcTheme.muted)
                             } else {
                                 Image(systemName: "arrow.clockwise").font(.system(size: 12))
-                                    .foregroundStyle(JcTheme.muted)
+                                    .foregroundStyle(JcTheme.accent)
                             }
                             Text("Refresh").font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(JcTheme.text)

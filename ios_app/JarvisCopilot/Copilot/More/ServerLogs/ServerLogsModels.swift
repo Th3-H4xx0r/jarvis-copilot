@@ -11,9 +11,8 @@ enum LogSeverity: String, Equatable, Sendable {
     var tone: MoreTone {
         switch self {
         case .error: return .danger
-        // The palette has no amber-for-logs slot in the Flutter original — a
-        // warm blue reads as the caution tier there, so keep that mapping.
-        case .warn: return .blue
+        // Amber, as caution is everywhere else in the app.
+        case .warn: return .amber
         case .info: return .muted
         }
     }

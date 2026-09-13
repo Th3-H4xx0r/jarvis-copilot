@@ -111,7 +111,7 @@ final class InsightsUITests: XCTestCase {
         XCTAssertEqual(InsightsUI.healthBadge(SystemHealth(json: ["status": "ok"])).label, "LIVE")
         let partial = InsightsUI.healthBadge(SystemHealth(json: ["status": "partial"]))
         XCTAssertEqual(partial.label, "PARTIAL")
-        XCTAssertEqual(partial.tone, .blue)
+        XCTAssertEqual(partial.tone, .amber)
     }
 
     func testWikiBadgeCoversEveryState() {

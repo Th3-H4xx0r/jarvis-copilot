@@ -29,7 +29,7 @@ struct ServerLogsPage: View {
         .jcScreen("Server logs")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { store.load() } label: { Image(systemName: "arrow.clockwise") }
+                Button { store.load() } label: { Image(systemName: "arrow.clockwise").foregroundStyle(JcTheme.accent) }
                     .disabled(store.isLoading)
                     .accessibilityLabel("Reload logs")
             }
@@ -195,7 +195,7 @@ struct ServerLogsControls: View {
     private var legend: some View {
         HStack(spacing: 10) {
             chip(JcTheme.danger, "Error")
-            chip(JcTheme.blue, "Warn")
+            chip(JcTheme.amber, "Warn")
             chip(JcTheme.muted, "Info")
         }
     }

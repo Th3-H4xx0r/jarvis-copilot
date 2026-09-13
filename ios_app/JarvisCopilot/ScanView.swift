@@ -45,7 +45,7 @@ struct ScanView: View {
             NavigationLink {
                 BridgeSettingsView()
             } label: {
-                Image(systemName: "gearshape")
+                Image(systemName: "gearshape").foregroundStyle(JcTheme.accent)
             }
             Button("Rescan", systemImage: "arrow.clockwise") { WearablesHub.shared.rescanAll() }
                 .disabled(!manager.bluetoothReady)
@@ -281,7 +281,7 @@ private struct ScaleCard: View {
 
     private var signalTint: Color {
         switch scale.rssi {
-        case 0: return .blue
+        case 0: return JcTheme.accent
         case (-68)...: return Color(red: 0.29, green: 0.82, blue: 0.49)
         case (-82)..<(-68): return .orange
         default: return Color(red: 1.0, green: 0.31, blue: 0.27)

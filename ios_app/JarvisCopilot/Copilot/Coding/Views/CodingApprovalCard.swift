@@ -39,7 +39,7 @@ struct CodingApprovalCard: View {
     @State private var busy = false
     @FocusState private var replyFocused: Bool
 
-    private var purple: Color { CodingUI.purple }
+    private var tint: Color { CodingUI.waiting }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -49,18 +49,18 @@ struct CodingApprovalCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(purple.opacity(0.10),
+        .background(tint.opacity(0.10),
                     in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .strokeBorder(purple.opacity(0.36), lineWidth: 1))
+            .strokeBorder(tint.opacity(0.36), lineWidth: 1))
     }
 
     private var header: some View {
         HStack(spacing: 7) {
-            Image(systemName: "lock").font(.system(size: 14)).foregroundStyle(purple)
+            Image(systemName: "lock").font(.system(size: 14)).foregroundStyle(tint)
             Text("Claude needs approval")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(purple)
+                .foregroundStyle(tint)
             Spacer(minLength: 8)
             Text(CodingUI.approvalMeta(permission, extra: extra))
                 .font(.system(size: 11))
@@ -100,7 +100,7 @@ struct CodingApprovalCard: View {
             } label: {
                 Image(systemName: "arrowshape.turn.up.left")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(purple)
+                    .foregroundStyle(tint)
                     .frame(width: 40, height: 38)
             }
             .buttonStyle(.plain)
@@ -142,13 +142,13 @@ struct CodingApprovalCard: View {
                 Spacer()
                 Button { send("deny", reply) } label: {
                     HStack(spacing: 6) {
-                        if busy { ProgressView().controlSize(.small).tint(.white) }
+                        if busy { ProgressView().controlSize(.small).tint(.black) }
                         Text("Send to Claude").font(.system(size: 14, weight: .bold))
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.black)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
-                    .background(purple, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .background(tint, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(busy)

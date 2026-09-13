@@ -7,16 +7,18 @@ import SwiftUI
 /// Everything here is a pure function of its inputs so the views stay dumb and
 /// the rules are unit-tested (`JarvisCopilotTests/CodingUI/`). The colour
 /// values are the Flutter page's literals, not `JcTheme` lookups, wherever the
-/// Dart code used a literal — the fleet's green/purple/grey ladder is a
-/// deliberate scheme of its own ("Scheme 4" in `coding_page.dart`).
+/// Dart code used a literal — the fleet's green/amber/grey ladder is a
+/// deliberate scheme of its own ("Scheme 4" in `coding_page.dart`, where
+/// waiting was purple before the app's accent became cyan).
 enum CodingUI {
 
     // MARK: - Palette
 
     /// Working — a live turn is in flight.
     static let green = Color(jcHex: 0x34D399)
-    /// Waiting — Claude is asking for input. Also the approval/subagent accent.
-    static let purple = Color(jcHex: 0xC084FC)
+    /// Waiting — Claude is asking for input or approval. Amber, as "waiting on
+    /// you" is everywhere else (the Chat dashboard, the Live Activity).
+    static let waiting = JcTheme.amber
     /// Idle — alive but nothing happening.
     static let grey = Color(jcHex: 0x838B97)
     /// Forgotten (detached + idle) — de-emphasised, not hidden.
@@ -37,7 +39,7 @@ enum CodingUI {
     static func stateColor(_ state: String) -> Color {
         switch state {
         case "working": return green
-        case "waiting": return purple
+        case "waiting": return waiting
         case "running": return JcTheme.success
         case "done":    return JcTheme.primaryBlue
         case "error":   return JcTheme.danger
@@ -63,7 +65,7 @@ enum CodingUI {
     static func badgeColor(kind: String) -> Color {
         switch kind {
         case "discovered": return JcTheme.cyan
-        case "desktop":    return JcTheme.accent
+        case "desktop":    return JcTheme.blue
         case "history":    return JcTheme.muted
         default:           return JcTheme.primaryBlueHi
         }
@@ -83,7 +85,7 @@ enum CodingUI {
     static func stateChip(activityState: String?, live: Bool) -> (label: String, color: Color, spinning: Bool) {
         switch activityState {
         case "working": return ("Working", green, true)
-        case "waiting": return ("Needs input", purple, false)
+        case "waiting": return ("Needs input", waiting, false)
         case "idle":    return ("Idle", grey, false)
         default:
             return live ? ("Live", JcTheme.primaryBlueHi, false) : ("Offline", JcTheme.muted, false)

@@ -20,7 +20,7 @@ struct PhotonSetupPage: View {
         @Bindable var store = store
         return Group {
             if store.isLoading {
-                ProgressView().tint(JcTheme.primaryBlue)
+                ProgressView().tint(JcTheme.accent)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
@@ -55,7 +55,7 @@ struct PhotonSetupPage: View {
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundStyle(JcTheme.text)
                             }
-                            .tint(JcTheme.primaryBlue)
+                            .tint(JcTheme.accent)
                             Text("Recommended when it's just you texting Jarvis. "
                                + "Restart the gateway to apply.")
                                 .font(.system(size: 11))

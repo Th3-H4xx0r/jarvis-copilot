@@ -113,7 +113,7 @@ struct ChatModelPickerSheet: View {
                 Spacer(minLength: 8)
                 if selected {
                     Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(JcTheme.primaryBlueHi)
+                        .foregroundStyle(JcTheme.accent)
                 }
             }
             .contentShape(Rectangle())

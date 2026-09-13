@@ -11,7 +11,7 @@ final class CodingUIFormatTests: XCTestCase {
 
     func testStateColorsSeparateTheFleetLadder() {
         XCTAssertEqual(CodingUI.stateColor("working"), CodingUI.green)
-        XCTAssertEqual(CodingUI.stateColor("waiting"), CodingUI.purple)
+        XCTAssertEqual(CodingUI.stateColor("waiting"), JcTheme.amber)
         XCTAssertEqual(CodingUI.stateColor("idle"), CodingUI.grey)
         XCTAssertEqual(CodingUI.stateColor("dim"), CodingUI.dimGrey)
         XCTAssertEqual(CodingUI.stateColor("error"), JcTheme.danger)
@@ -30,7 +30,7 @@ final class CodingUIFormatTests: XCTestCase {
 
     func testBadgeAndStatusColors() {
         XCTAssertEqual(CodingUI.badgeColor(kind: "discovered"), JcTheme.cyan)
-        XCTAssertEqual(CodingUI.badgeColor(kind: "desktop"), JcTheme.accent)
+        XCTAssertEqual(CodingUI.badgeColor(kind: "desktop"), JcTheme.blue)
         XCTAssertEqual(CodingUI.badgeColor(kind: "history"), JcTheme.muted)
         XCTAssertEqual(CodingUI.badgeColor(kind: "server"), JcTheme.primaryBlueHi)
 

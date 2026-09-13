@@ -45,7 +45,7 @@ struct AttachControl: View {
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 20, weight: .regular))
-                .foregroundStyle(enabled ? JcTheme.text : JcTheme.muted.opacity(0.5))
+                .foregroundStyle(enabled ? JcTheme.accent : JcTheme.muted.opacity(0.5))
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }

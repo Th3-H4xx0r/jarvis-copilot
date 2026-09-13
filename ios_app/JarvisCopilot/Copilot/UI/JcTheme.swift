@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// JarvisCopilot's mobile theme — "dark glass + iridescent". A one-for-one port of
+/// JarvisCopilot's mobile theme — dark glass with a cyan accent. A one-for-one port of
 /// the Flutter client's `theme.dart`, so a screen ported from Dart keeps its exact
 /// colours.
 ///
@@ -39,20 +39,26 @@ enum JcTheme {
     static let text = Color(jcHex: 0xEDF0F8)
     static let muted = Color(jcHex: 0x8A93A8)
 
-    // MARK: Brand — iridescent
+    // MARK: Brand
     //
-    // `accent` (the legacy primary) is the violet midpoint so single-colour uses
-    // read on-brand; the full sweep is `brandGradient`.
+    // The app's accent is cyan, everywhere — pages, sheets, popups, system
+    // alerts (Assets `AccentColor` carries the same value for UIKit). It used to
+    // be violet, with cyan only on the More tab; the whole app now matches that.
 
-    static let accent = Color(jcHex: 0x8A7CFF)          // violet
+    static let accent = Color(jcHex: 0x46E0E0)          // cyan
     static let accentAlt = Color(jcHex: 0xFF6FD8)       // pink
     static let cyan = Color(jcHex: 0x46E0E0)
-    static let blue = Color(jcHex: 0x7CB9FF)
+    /// The secondary accent — info chips, a running tool, your own message's
+    /// wash. A soft cyan, so nothing in the app reads as a second brand colour.
+    /// (Named for the light blue it replaced.)
+    static let blue = Color(jcHex: 0x9BEFEA)
 
-    /// Primary action blue — the reference's CTA colour (mic / send / get-pro).
-    static let primaryBlue = Color(jcHex: 0x2E6BFF)
-    static let primaryBlueLo = Color(jcHex: 0x1E57DC)
-    static let primaryBlueHi = Color(jcHex: 0x6FB0FF)
+    /// Primary action colour — the filled CTAs (mic / send / Pair) and their
+    /// ticks. Teal: the accent, deep enough that the white label on a filled
+    /// button stays readable. (Named for the blue it replaced.)
+    static let primaryBlue = Color(jcHex: 0x14A8AA)
+    static let primaryBlueLo = Color(jcHex: 0x0C7F82)
+    static let primaryBlueHi = Color(jcHex: 0x5EE6E4)
 
     static let success = Color(jcHex: 0x5BE5A0)
     static let amber = Color(jcHex: 0xFFC34D)           // warning / mock-mode
@@ -62,12 +68,12 @@ enum JcTheme {
 
     // MARK: Gradients
 
-    /// Iridescent brand gradient: cyan → violet → pink.
+    /// Brand gradient: bright cyan into deep teal.
     static let brandGradient = LinearGradient(
-        colors: [cyan, accent, accentAlt],
+        colors: [cyan, primaryBlue],
         startPoint: .topLeading, endPoint: .bottomTrailing)
 
-    /// Primary CTA gradient — the glossy blue behind the mic / send / Pair buttons.
+    /// Primary CTA gradient — the glossy teal behind the mic / send / Pair buttons.
     /// Use `primaryBlue` where a single colour is needed.
     static let blueGradient = LinearGradient(
         colors: [primaryBlueHi, primaryBlue, primaryBlueLo],
@@ -98,7 +104,7 @@ enum JcText {
 }
 
 extension Color {
-    /// `Color(jcHex: 0x8A7CFF)`. Deliberately not called `hex:` so it can't collide
+    /// `Color(jcHex: 0x46E0E0)`. Deliberately not called `hex:` so it can't collide
     /// with a same-named helper another area adds.
     init(jcHex value: UInt32, alpha: Double = 1) {
         self.init(.sRGB,

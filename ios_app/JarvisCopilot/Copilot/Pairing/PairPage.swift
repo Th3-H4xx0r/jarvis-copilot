@@ -429,13 +429,13 @@ private struct LivingAurora: View {
                                    startPoint: .top, endPoint: .bottom)
                     // Small, deep-toned glows on slow orbits — an accent in the dark,
                     // never a light show.
-                    blob(Color(jcHex: 0x123A8C), 0.16, 160,
+                    blob(Color(jcHex: 0x0E5C66), 0.16, 160,
                          x: w * (0.28 + 0.36 * sin(t / 4.2)), y: h * (0.20 + 0.20 * cos(t / 3.6)))
                     blob(Color(jcHex: 0x0C4C55), 0.14, 150,
                          x: w * (0.72 + 0.34 * cos(t / 3.9 + 1)), y: h * (0.52 + 0.28 * sin(t / 4.6)))
-                    blob(Color(jcHex: 0x2C1E6E), 0.14, 170,
+                    blob(Color(jcHex: 0x14807F), 0.12, 170,
                          x: w * (0.42 + 0.40 * sin(t / 5.1 + 2)), y: h * (0.80 + 0.16 * cos(t / 4.0 + 1)))
-                    blob(Color(jcHex: 0x3A1F4E), 0.10, 130,
+                    blob(Color(jcHex: 0x1B4A52), 0.10, 130,
                          x: w * (0.60 + 0.36 * cos(t / 4.4 + 3)), y: h * (0.36 + 0.32 * sin(t / 5.3 + 2)))
                 }
             }

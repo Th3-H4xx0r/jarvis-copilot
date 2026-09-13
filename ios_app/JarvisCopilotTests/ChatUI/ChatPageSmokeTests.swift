@@ -235,6 +235,7 @@ final class ChatStyleSnapshotTests: XCTestCase {
         }
         .ignoresSafeArea(.container, edges: .bottom)
         .preferredColorScheme(.dark)
+        .tint(JcTheme.accent)   // as RootView sets it for the whole app
         let host = UIHostingController(rootView: page)
         window.rootViewController = host
         window.overrideUserInterfaceStyle = .dark

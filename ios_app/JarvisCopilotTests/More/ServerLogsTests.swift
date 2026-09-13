@@ -69,7 +69,7 @@ final class ServerLogsTests: XCTestCase {
 
     func testSeverityTones() {
         XCTAssertEqual(LogSeverity.error.tone, .danger)
-        XCTAssertEqual(LogSeverity.warn.tone, .blue)
+        XCTAssertEqual(LogSeverity.warn.tone, .amber)
         XCTAssertEqual(LogSeverity.info.tone, .muted)
     }
 

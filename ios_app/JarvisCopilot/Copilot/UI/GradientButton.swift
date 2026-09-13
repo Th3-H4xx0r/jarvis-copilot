@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Primary CTA — the iridescent brand gradient with a white foreground.
+/// Primary CTA — the cyan-to-teal brand gradient with a white foreground.
 struct GradientButton: View {
     let title: String
     var symbol: String? = nil
@@ -45,8 +45,8 @@ struct GradientButton: View {
     }
 }
 
-/// The blue primary CTA pill — `pair_page.dart`'s `_BlueButton`. The glossy blue
-/// (rather than the iridescent sweep) is the reference's colour for the one
+/// The primary CTA pill — `pair_page.dart`'s `_BlueButton`, now glossy teal. The
+/// solid pill (rather than the brand sweep) is the reference's colour for the one
 /// commit action on a screen: Pair, mic, send.
 struct BlueButton: View {
     let title: String

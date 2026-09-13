@@ -8,8 +8,9 @@ struct ScaleDeviceView: View {
     @AppStorage("scaleDisplayUnit") private var unit: WeightUnit = .kilograms
     @State private var showingSettings = false
 
-    private let blue = Color(red: 0.30, green: 0.62, blue: 1.0)
-    private let violet = Color(red: 0.66, green: 0.40, blue: 1.0)
+    private let blue = JcTheme.accent
+    /// A weighing in progress: the soft accent, apart from the connected cyan.
+    private let measuring = JcTheme.blue
     private let green = Color(red: 0.29, green: 0.82, blue: 0.49)
 
     private var observation: ScaleObservation? { manager.latestObservation }
@@ -90,7 +91,7 @@ struct ScaleDeviceView: View {
             HStack(spacing: 7) {
                 MetricPill(icon: "waveform.path.ecg", label: "Impedance",
                            value: observation?.impedanceOhms.map { "\(Int($0)) Ω" } ?? "—",
-                           tint: violet)
+                           tint: measuring)
                 MetricPill(icon: "dot.radiowaves.left.and.right", label: "Signal",
                            value: scale.rssi == 0 ? "Known" : "\(scale.rssi) dBm",
                            tint: signalTint)
@@ -251,7 +252,7 @@ struct ScaleDeviceView: View {
     }
     private var phaseTint: Color {
         if observation?.isStable == true { return green }
-        if observation != nil { return violet }
+        if observation != nil { return measuring }
         return connected ? blue : .secondary
     }
     private var signalTint: Color {

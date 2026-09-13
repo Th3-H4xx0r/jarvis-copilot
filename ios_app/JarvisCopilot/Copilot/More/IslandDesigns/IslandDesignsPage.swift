@@ -138,7 +138,7 @@ struct IslandRadioRow: View {
                     Spacer(minLength: 8)
                     Image(systemName: selected ? "largecircle.fill.circle" : "circle")
                         .font(.system(size: 20))
-                        .foregroundStyle(selected ? JcTheme.primaryBlue : JcTheme.muted)
+                        .foregroundStyle(selected ? JcTheme.accent : JcTheme.muted)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
@@ -186,7 +186,7 @@ struct IslandManageRow: View {
                 }
                 Toggle("", isOn: Binding(get: { entry.enabled }, set: onEnabled))
                     .labelsHidden()
-                    .tint(JcTheme.primaryBlue)
+                    .tint(JcTheme.accent)
                     .disabled(busy)
                     .accessibilityLabel("\(entry.name) in Auto rotation")
             }

@@ -45,8 +45,7 @@ struct JarvisWidgetView: View {
             ZStack {
                 LinearGradient(
                     colors: [Color(red: 0.27, green: 0.88, blue: 0.88),
-                             Color(red: 0.54, green: 0.49, blue: 1.0),
-                             Color(red: 1.0, green: 0.44, blue: 0.85)],
+                             Color(red: 0.08, green: 0.66, blue: 0.67)],
                     startPoint: .topLeading, endPoint: .bottomTrailing)
                 VStack(spacing: 8) {
                     Image(systemName: "atom")

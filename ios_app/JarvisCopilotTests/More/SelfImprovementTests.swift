@@ -13,7 +13,7 @@ final class SelfImprovementTests: XCTestCase {
         XCTAssertEqual(event("fail").label, "FAILED")
         XCTAssertEqual(event("fail").tone, .danger)
         XCTAssertEqual(event("rejected").label, "REJECTED")
-        XCTAssertEqual(event("rejected").tone, .accent)
+        XCTAssertEqual(event("rejected").tone, .amber)
         XCTAssertEqual(event("noop").label, "REVIEWED")
         XCTAssertEqual(event("noop").tone, .muted)
         XCTAssertEqual(event("change").label, "LEARNED")

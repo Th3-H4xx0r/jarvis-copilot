@@ -18,11 +18,11 @@ struct RingStatsSections: View {
                 spo2(day, summary)
             }
             if capabilities.hrv || day.hrv != nil {
-                series("HRV", unit: "ms", color: .indigo, values: day.hrv, extra: [],
+                series("HRV", unit: "ms", color: JcTheme.blue, values: day.hrv, extra: [],
                        stats: [("Average", summary.hrvAvg.map { "\($0) ms" }), ("Latest", summary.hrvLatest.map { "\($0) ms" })])
             }
             if capabilities.stress || day.stress != nil {
-                series("Stress", unit: "", color: .purple, values: day.stress, extra: [],
+                series("Stress", unit: "", color: JcTheme.amber, values: day.stress, extra: [],
                        stats: [("Average", summary.stressAvg.map(String.init)), ("Latest", summary.stressLatest.map(String.init))])
             }
             if capabilities.anyTemperature || day.temperature != nil || !day.instantTemperature.isEmpty {
@@ -52,7 +52,7 @@ struct RingStatsSections: View {
                 RowDivider()
                 Chart(day.stepSlots, id: \.slot) { slot in
                     BarMark(x: .value("Hour", Double(slot.slot) / 4), y: .value("Steps", slot.steps), width: 3)
-                        .foregroundStyle(Color.blue.gradient)
+                        .foregroundStyle(JcTheme.accent.gradient)
                 }
                 .chartXScale(domain: 0.0...24.0)
                 .chartXAxis { hourAxis }
@@ -83,8 +83,8 @@ struct RingStatsSections: View {
                                 y: .value("Stage", segment.name))
                             .foregroundStyle(by: .value("Stage", segment.name))
                     }
-                    .chartForegroundStyleScale(["Awake": Color.orange, "REM": Color.cyan,
-                                                "Light": Color.blue, "Deep": Color.indigo])
+                    .chartForegroundStyleScale(["Awake": Color.orange, "REM": JcTheme.accentAlt,
+                                                "Light": JcTheme.accent, "Deep": JcTheme.primaryBlue])
                     .chartLegend(.hidden)
                     .frame(height: 130)
                 }

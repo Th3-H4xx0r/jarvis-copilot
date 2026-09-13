@@ -185,7 +185,8 @@ enum Kanban {
         case "done": return .success
         case "blocked": return .danger
         case "running": return .cyan
-        case "ready": return .accent
+        // The accent is cyan now, running's colour; ready takes the soft cyan.
+        case "ready": return .blue
         case "triage": return .accentAlt
         default: return .muted
         }

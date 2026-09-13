@@ -33,7 +33,6 @@ struct VoiceModelPickerSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
             }
         }
-        // The More tab's palette: cyan on the glass cards, not the app's violet.
         .tint(JcTheme.cyan)
         .task { await models.load() }
     }

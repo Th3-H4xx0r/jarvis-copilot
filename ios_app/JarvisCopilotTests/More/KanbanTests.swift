@@ -148,7 +148,7 @@ final class KanbanTests: XCTestCase {
         XCTAssertEqual(Kanban.columnTone("done"), .success)
         XCTAssertEqual(Kanban.columnTone("blocked"), .danger)
         XCTAssertEqual(Kanban.columnTone("running"), .cyan)
-        XCTAssertEqual(Kanban.columnTone("ready"), .accent)
+        XCTAssertEqual(Kanban.columnTone("ready"), .blue)
         XCTAssertEqual(Kanban.columnTone("triage"), .accentAlt)
         XCTAssertEqual(Kanban.columnTone("todo"), .muted)
     }

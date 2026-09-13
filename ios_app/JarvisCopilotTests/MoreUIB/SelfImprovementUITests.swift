@@ -16,7 +16,7 @@ final class SelfImprovementUITests: XCTestCase {
     func testEventBadgesAndTonesCoverEveryKind() async {
         let store = await loadedStore()
         XCTAssertEqual(store.events.map(\.label), ["LEARNED", "FAILED", "REJECTED"])
-        XCTAssertEqual(store.events.map(\.tone), [.success, .danger, .accent])
+        XCTAssertEqual(store.events.map(\.tone), [.success, .danger, .amber])
         // Every event needs a distinct id or the list collapses rows.
         XCTAssertEqual(Set(store.events.map(\.id)).count, store.events.count)
     }

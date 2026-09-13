@@ -24,8 +24,8 @@ struct DeviceView: View {
     @State private var showingSettings = false
 
     private var isSterilising: Bool { manager.status?.isSterilising ?? false }
-    private var uv: Color { Color(red: 0.66, green: 0.40, blue: 1.0) }
-    private var coolTint: Color { Color(red: 0.30, green: 0.62, blue: 1.0) }
+    private var uv: Color { JcTheme.accent }
+    private var coolTint: Color { JcTheme.blue }
     private var goodTint: Color { Color(red: 0.29, green: 0.82, blue: 0.49) }
     private var ready: Bool { manager.state == .ready }
 
@@ -230,7 +230,7 @@ struct DeviceView: View {
             ActionButton(title: "Auto-clean",
                          icon: "clock.arrow.trianglehead.counterclockwise.rotate.90",
                          isOn: s?.autoSteriliseEnabled ?? false,
-                         tint: Color(red: 0.30, green: 0.62, blue: 1.0)) {
+                         tint: JcTheme.accent) {
                 manager.send(.autoSterilise(!(s?.autoSteriliseEnabled ?? false)))
             }
             ActionButton(title: "Touch lock",

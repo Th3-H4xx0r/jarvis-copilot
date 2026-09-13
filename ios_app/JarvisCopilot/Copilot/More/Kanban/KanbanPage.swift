@@ -71,7 +71,7 @@ struct KanbanPage: View {
             }
             .buttonStyle(.plain)
 
-            KanbanHeaderButton(symbol: "bolt.fill", tint: JcTheme.primaryBlue) {
+            KanbanHeaderButton(symbol: "bolt.fill", tint: JcTheme.accent) {
                 Task { await store.runDispatcher() }
             }
             KanbanHeaderButton(symbol: "ellipsis") { route = .boardActions }

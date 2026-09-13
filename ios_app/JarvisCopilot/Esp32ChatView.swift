@@ -43,7 +43,7 @@ struct Esp32ChatView: View {
     private var canSend: Bool { !draft.trimmingCharacters(in: .whitespaces).isEmpty && !sending && bridge.isPaired }
     /// A muted slate blue: reads as "mine" without shouting, and sits well on the dark
     /// card material the replies use.
-    private let userTint = Color(red: 0.33, green: 0.40, blue: 0.54)
+    private let userTint = Color(jcHex: 0x1D6468)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,7 +72,7 @@ struct Esp32ChatView: View {
                     Button(role: .destructive) {
                         chat.newConversation()
                     } label: { Label("New conversation", systemImage: "square.and.pencil") }
-                } label: { Image(systemName: "ellipsis.circle") }
+                } label: { Image(systemName: "ellipsis.circle").foregroundStyle(JcTheme.accent) }
             }
         }
         .onAppear {
