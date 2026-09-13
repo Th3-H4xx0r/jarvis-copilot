@@ -116,12 +116,13 @@ enum VoiceDiagnostics {
         case .failed: return "failed"
         case .stopRequested: return "stopRequested"
         case .qualityStreamDone(let busy): return "qualityStreamDone(busy=\(busy))"
+        case .interruptedTurnExpired: return "interruptedTurnExpired"
         }
     }
 
     // MARK: - stderr mirror
 
-    /// DEBUG only. `fputs` to `stderr` rather than `print`, so the line survives
+    /// DEBUG, or `JC_VOICE_CONSOLE=1`. `fputs` to `stderr` rather than `print`, so the line survives
     /// stdout buffering and lands in `devicectl --console` in real time.
     static func mirror(_ line: String) {
         #if DEBUG

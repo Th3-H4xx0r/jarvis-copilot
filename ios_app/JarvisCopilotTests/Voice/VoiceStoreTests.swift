@@ -627,6 +627,42 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(interruptIndex, socket.sentText.count - 1, "nothing but audio after the interrupt")
     }
 
+    /// What the phone did: the interrupt went out, then the rest of the reply
+    /// the server had already sent arrived and was played anyway.
+    func testTheRestOfAReplyThatWasCutOffIsNeverPlayed() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+        let socket = try XCTUnwrap(rig.socket)
+
+        rig.input.emitFrames(amplitude: 0.06, ms: VoiceStore.bargeInSustainMs)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening)
+        let fed = rig.output.fed.count
+        let text = rig.store.reply.text
+
+        socket.receive(json: ["type": "assistant_text", "text": "And another thing about the weather."])
+        socket.receive(json: ["type": "audio_meta", "format": "pcm_s16le", "sample_rate": 24000])
+        socket.receive(binary: replyPcm(ms: 800))
+        socket.receive(json: ["type": "audio_end"])
+        await settleVoiceTasks()
+        await rig.store.audio.settle()
+
+        XCTAssertEqual(rig.store.state, .listening, "the reply does not come back")
+        XCTAssertEqual(rig.output.fed.count, fed, "none of it reaches the speaker")
+        XCTAssertEqual(rig.store.reply.text, text, "none of it is shown")
+
+        socket.receive(json: ["type": "end_turn"])
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening)
+
+        // The next turn is answered normally.
+        await speakThenPause(rig)
+        XCTAssertEqual(rig.store.state, .thinking)
+        try await replyWithAudio(rig, text: "Here is the answer.")
+        XCTAssertEqual(rig.store.state, .speaking)
+        XCTAssertGreaterThan(rig.output.fed.count, fed)
+    }
+
     func testBargeInIsIgnoredWhileBackgrounded() async throws {
         let rig = makeRig()
         try await speakingAndSettled(rig)

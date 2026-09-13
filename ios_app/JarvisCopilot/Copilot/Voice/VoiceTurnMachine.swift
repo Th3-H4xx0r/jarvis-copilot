@@ -29,6 +29,8 @@ enum VoiceTurnEvent: Equatable, Sendable {
     case stopRequested
     /// The quality-mode NDJSON stream finished.
     case qualityStreamDone(playbackBusy: Bool)
+    /// A cut-off reply's `end_turn` never came; stop dropping server output.
+    case interruptedTurnExpired
 }
 
 /// What the store must actually do. Keeping these out of the machine is what
@@ -81,6 +83,15 @@ struct VoiceTurnMachine: Equatable {
     /// (the spoken acknowledgement, or a mid-turn sentence before a long tool
     /// run) must NOT resume listening — the model is still working.
     private(set) var serverTurnOpen = false
+    /// The user cut a reply off before the server had finished sending it.
+    ///
+    /// The server generates faster than it speaks, so by the time an interrupt
+    /// reaches it the rest of the reply is often already on the wire — and each
+    /// late frame used to count as a new reply: `serverOutput` took the machine
+    /// out of listening and `playbackStarted` put the voice straight back on.
+    /// Everything the server sends is dropped until that turn's own `end_turn`,
+    /// which it always sends before starting the next turn.
+    private(set) var discardingInterruptedTurn = false
 
     init(mode: VoiceMode = .realtime) { self.mode = mode }
 
@@ -97,6 +108,7 @@ struct VoiceTurnMachine: Equatable {
         case .startRequested:
             guard !state.isActive else { return [] }
             serverProducedOutput = false
+            discardingInterruptedTurn = false
             if mode == .realtime {
                 state = .connecting
                 // The mic and the recognizer start WITH the transport, not after
@@ -135,6 +147,7 @@ struct VoiceTurnMachine: Equatable {
             return [.stopMic, .markSpeechEnd, .sendEndTurn, .armThinkingWatchdog]
 
         case .serverOutput:
+            guard !discardingInterruptedTurn else { return [] }
             serverProducedOutput = true
             let effects: [VoiceTurnEffect] = [.cancelResume, .cancelThinkingWatchdog]
             guard state.isActive else { return effects }
@@ -144,6 +157,7 @@ struct VoiceTurnMachine: Equatable {
             return effects
 
         case .playbackStarted:
+            guard !discardingInterruptedTurn else { return [] }
             let effects: [VoiceTurnEffect] = [.cancelResume, .cancelThinkingWatchdog]
             guard state != .idle, state != .error else { return effects }
             if state != .speaking { state = .speaking }
@@ -179,6 +193,7 @@ struct VoiceTurnMachine: Equatable {
 
         case .bargeIn:
             guard bargeInAllowed else { return [] }
+            discardingInterruptedTurn = serverTurnOpen
             serverTurnOpen = false
             state = .listening
             return [.sendInterrupt, .stopPlayback, .cancelResume, .resetEndpointer,
@@ -186,12 +201,19 @@ struct VoiceTurnMachine: Equatable {
 
         case .interruptRequested:
             guard mode == .realtime, state == .speaking || state == .thinking else { return [] }
+            discardingInterruptedTurn = serverTurnOpen
             serverTurnOpen = false
             state = .listening
             return [.cancelResume, .cancelThinkingWatchdog, .newTurnEpoch, .sendInterrupt,
                     .stopPlayback, .resetEndpointer, .abortRecognizer, .restartRecognizer]
 
         case .turnEnded(let reason, let producedReply):
+            if discardingInterruptedTurn {
+                // The cut-off turn, over. A question asked since then is a
+                // different turn, still open, and still being answered.
+                discardingInterruptedTurn = false
+                return []
+            }
             serverTurnOpen = false
             var effects: [VoiceTurnEffect] = [.cancelThinkingWatchdog]
             guard state.isActive else { return effects }
@@ -211,12 +233,14 @@ struct VoiceTurnMachine: Equatable {
 
         case .failed(let message):
             serverTurnOpen = false
+            discardingInterruptedTurn = false
             state = .error
             return [.cancelResume, .cancelThinkingWatchdog, .abortRecognizer,
                     .teardown, .stopPlayback, .showError(message)]
 
         case .stopRequested:
             serverTurnOpen = false
+            discardingInterruptedTurn = false
             let wasError = state == .error
             state = wasError ? .error : .idle
             // Keep the reply on screen after Stop — DON'T erase it and DON'T
@@ -229,6 +253,10 @@ struct VoiceTurnMachine: Equatable {
             guard mode == .quality, state != .error, !playbackBusy else { return [] }
             state = .idle
             return [.finalizeSpoken]
+
+        case .interruptedTurnExpired:
+            discardingInterruptedTurn = false
+            return []
         }
     }
 }

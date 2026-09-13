@@ -229,6 +229,27 @@ extension VoiceStore {
     // MARK: - Server frames
 
     func handle(_ frame: VoiceServerFrame) {
+        // The rest of a reply the user cut off: drop it before any of it reaches
+        // the reply text, the karaoke tags or the speaker. Only its `end_turn`
+        // gets through, to end the dropping.
+        if machine.discardingInterruptedTurn {
+            switch frame {
+            case .endTurn:
+                inFormat = "pcm_s16le"
+                segMp3.removeAll()
+                segPcm.removeAll()
+                pcmTag = nil
+                interruptedTurnExpiry?.cancel()
+                interruptedTurnExpiry = nil
+                note("cut-off reply ended; dropped \(droppedInterruptedFrames) late frame(s)")
+                raise(.turnEnded(reason: "interrupt", producedReply: true))
+            case .ready, .latency, .other:
+                break
+            default:
+                droppedInterruptedFrames += 1
+            }
+            return
+        }
         switch frame {
         case .ready:
             break

@@ -280,6 +280,11 @@ final class VoiceStore {
     var segPcm = Data()
     /// Karaoke segment the CURRENT streamed PCM reply belongs to (plan 1.7).
     var pcmTag: Int?
+    /// Gives up dropping a cut-off reply if its `end_turn` never arrives — a
+    /// stuck drop would swallow the next reply whole.
+    var interruptedTurnExpiry: VoiceTimerToken?
+    var droppedInterruptedFrames = 0
+    static let interruptedTurnExpiryMs = 10_000
 
     // Quality mode capture.
     var qualityPcm = Data()
@@ -689,7 +694,18 @@ final class VoiceStore {
             lastLocalTranscript = nil
             // A send into a socket that is already gone used to vanish; the turn
             // then waited for a reply that could never arrive.
-            if !session.send(.interrupt) { raise(.failed(Self.connectionLostNotice)) }
+            if !session.send(.interrupt) { raise(.failed(Self.connectionLostNotice)); return }
+            if machine.discardingInterruptedTurn {
+                droppedInterruptedFrames = 0
+                interruptedTurnExpiry?.cancel()
+                interruptedTurnExpiry = clock.schedule(after: Self.interruptedTurnExpiryMs) { [weak self] in
+                    guard let self else { return }
+                    self.interruptedTurnExpiry = nil
+                    guard self.machine.discardingInterruptedTurn else { return }
+                    self.note("cut-off reply never ended; no longer dropping")
+                    self.raise(.interruptedTurnExpired)
+                }
+            }
         case .stopPlayback:
             synthesizer.stop()
             Task { await audio.stop() }

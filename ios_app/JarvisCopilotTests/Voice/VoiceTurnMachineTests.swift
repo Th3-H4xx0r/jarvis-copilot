@@ -112,6 +112,79 @@ final class VoiceTurnMachineTests: XCTestCase {
         XCTAssertEqual(m.state, .listening)
     }
 
+    // The server generates faster than it speaks, so when the user cuts a reply
+    // off, the rest of it is often already on the wire. Seen on the phone: the
+    // interrupt went out, 200 ms later the next sentence's audio_meta arrived,
+    // and `serverOutput` + `playbackStarted` put the reply straight back on.
+
+    func testAReplyCutOffMidStreamStaysCutOff() {
+        var m = listening()
+        _ = m.apply(.endOfSpeech)
+        _ = m.apply(.playbackStarted)
+        _ = m.apply(.bargeIn)
+        XCTAssertTrue(m.discardingInterruptedTurn, "that turn has not ended server-side yet")
+
+        XCTAssertTrue(m.apply(.serverOutput).isEmpty)
+        XCTAssertTrue(m.apply(.playbackStarted).isEmpty)
+        XCTAssertEqual(m.state, .listening, "late frames of the cut-off reply change nothing")
+
+        XCTAssertTrue(m.apply(.turnEnded(reason: "", producedReply: true)).isEmpty,
+                      "its end_turn is the end of the dropping, not a turn to act on")
+        XCTAssertFalse(m.discardingInterruptedTurn)
+        XCTAssertEqual(m.state, .listening)
+
+        _ = m.apply(.serverOutput)
+        XCTAssertEqual(m.state, .thinking, "output after that is real again")
+    }
+
+    func testTheInterruptButtonDropsTheRestOfTheReplyToo() {
+        var m = listening()
+        _ = m.apply(.endOfSpeech)
+        _ = m.apply(.playbackStarted)
+        _ = m.apply(.interruptRequested)
+        XCTAssertTrue(m.discardingInterruptedTurn)
+        XCTAssertTrue(m.apply(.playbackStarted).isEmpty)
+        XCTAssertEqual(m.state, .listening)
+    }
+
+    func testANewTurnStartedBeforeTheOldEndTurnArrivesSurvivesIt() {
+        var m = listening()
+        _ = m.apply(.endOfSpeech)
+        _ = m.apply(.playbackStarted)
+        _ = m.apply(.bargeIn)
+        _ = m.apply(.endOfSpeech)          // the user finished their new question
+        XCTAssertEqual(m.state, .thinking)
+
+        // The server always finishes the old turn first, so its end_turn is next.
+        _ = m.apply(.turnEnded(reason: "interrupt", producedReply: true))
+        XCTAssertEqual(m.state, .thinking, "the new question is still being answered")
+        XCTAssertTrue(m.serverTurnOpen)
+
+        _ = m.apply(.serverOutput)
+        _ = m.apply(.playbackStarted)
+        XCTAssertEqual(m.state, .speaking)
+    }
+
+    func testNothingIsDroppedWhenTheInterruptedTurnHadAlreadyEnded() {
+        var m = listening()
+        _ = m.apply(.endOfSpeech)
+        _ = m.apply(.playbackStarted)
+        _ = m.apply(.turnEnded(reason: "", producedReply: true))   // server done, tail still playing
+        _ = m.apply(.bargeIn)
+        XCTAssertFalse(m.discardingInterruptedTurn, "no end_turn is coming to end the dropping")
+    }
+
+    func testDroppingGivesUpIfTheEndTurnNeverComes() {
+        var m = listening()
+        _ = m.apply(.endOfSpeech)
+        _ = m.apply(.playbackStarted)
+        _ = m.apply(.bargeIn)
+        _ = m.apply(.interruptedTurnExpired)
+        XCTAssertFalse(m.discardingInterruptedTurn)
+        _ = m.apply(.serverOutput)
+        XCTAssertEqual(m.state, .thinking)
+    }
+
     func testBargeInIsIgnoredWhileListening() {
         var m = listening()
         XCTAssertFalse(m.bargeInAllowed)
