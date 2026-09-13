@@ -378,6 +378,9 @@ final class VoiceStore {
         self.machine = VoiceTurnMachine(mode: settings.mode)
 
         input.onFrame = { [weak self] chunk in self?.handleMicFrame(chunk) }
+        #if os(iOS)
+        VoiceAudioEngine.shared.onEvent = { [weak self] line in self?.note(line) }
+        #endif
         audio.onIdle = { [weak self] in self?.raise(.playbackDrained) }
         audio.onPlaybackStart = { [weak self] in
             guard let self else { return }

@@ -34,8 +34,13 @@ final class VoiceAudioEngine {
     private var configurationObserver: NSObjectProtocol?
 
     private(set) var voiceProcessing = false
-    /// Latched for the launch once processing delivered no mic audio on a route.
+    /// Set once processing delivered no mic audio on this route. For the rest of
+    /// THIS conversation only: latched for the whole launch, one slow start
+    /// silently took echo cancellation away from every conversation after it.
     private(set) var voiceProcessingUnavailable = false
+
+    /// Engine events for the voice diagnostics (the store points this at `note`).
+    var onEvent: ((String) -> Void)?
 
     private var micInUse = false
     private var streamInUse = false
@@ -135,6 +140,7 @@ final class VoiceAudioEngine {
             }
         }
         JcLog.voice.notice("voice processing gave no mic audio; continuing without it")
+        onEvent?("echo cancellation gave no mic audio; continuing this conversation without it")
     }
 
     // MARK: - Graph
@@ -180,6 +186,7 @@ final class VoiceAudioEngine {
         playerFormat = format
         voiceProcessing = processed
         JcLog.voice.notice("conversation engine: voice processing \(processed ? "on" : "off", privacy: .public), io \(Int(ioFormat.sampleRate))Hz/\(ioFormat.channelCount)ch")
+        onEvent?("audio engine built: echoCancel=\(processed ? "on" : "off") io=\(Int(ioFormat.sampleRate))Hz/\(ioFormat.channelCount)ch")
         return engine
     }
 
@@ -201,6 +208,7 @@ final class VoiceAudioEngine {
     /// A route change (headphones, Bluetooth, the speaker toggle) stops the engine.
     private func configurationChanged() {
         guard let engine, !engine.isRunning, micInUse || streamInUse else { return }
+        onEvent?("audio route changed; restarting engine")
         do {
             try run(engine)
             if streamInUse { player?.play() }
@@ -212,6 +220,8 @@ final class VoiceAudioEngine {
     private func releaseIfIdle() {
         guard !micInUse, !streamInUse else { return }
         tearDown()
+        // The conversation is over: the next one tries echo cancellation again.
+        voiceProcessingUnavailable = false
     }
 
     private func tearDown() {
