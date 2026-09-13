@@ -75,10 +75,11 @@ struct VoiceMicButton: View {
             VStack(spacing: VoiceControlMetrics.stackSpacing) {
                 Image(systemName: active ? "xmark" : "mic.fill")
                     .font(.system(size: VoiceControlMetrics.micIcon, weight: .medium))
-                    .foregroundStyle(active ? JcTheme.text : Color.white)
+                    .foregroundStyle(active ? JcTheme.text : JcTheme.accent)
                     .frame(width: VoiceControlMetrics.micDiameter,
                            height: VoiceControlMetrics.micDiameter)
-                    .jcLiquidGlass(in: Circle(), tint: active ? .clear : JcTheme.primaryBlue)
+                    // Clear glass, not a tinted disc: the accent is the glyph.
+                    .jcLiquidGlass(in: Circle())
                 Text(active ? "End" : "Start")
                     .font(.system(size: VoiceControlMetrics.labelSize, weight: .medium))
                     .foregroundStyle(JcTheme.text)

@@ -24,7 +24,9 @@ struct DeviceView: View {
     @State private var showingSettings = false
 
     private var isSterilising: Bool { manager.status?.isSterilising ?? false }
-    private var uv: Color { JcTheme.accent }
+    /// The UV lamp's violet — the sterilise control, its ring and the 3D beam — so it
+    /// never matches the accent-coloured Auto-clean beside it.
+    private var uv: Color { Color(red: 0.66, green: 0.40, blue: 1.0) }
     private var coolTint: Color { JcTheme.blue }
     private var goodTint: Color { Color(red: 0.29, green: 0.82, blue: 0.49) }
     private var ready: Bool { manager.state == .ready }

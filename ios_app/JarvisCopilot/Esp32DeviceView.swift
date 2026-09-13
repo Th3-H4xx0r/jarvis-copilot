@@ -799,8 +799,9 @@ struct Esp32Card: View {
                         MetricPill(icon: activeLink.icon, label: "Connected", value: activeLink.label,
                                    tint: Color(red: 0.29, green: 0.82, blue: 0.49))
                     } else if board.isOnWifi {
-                        MetricPill(icon: "wifi", label: "Seen on", value: "Wi‑Fi",
-                                   tint: Color(red: 0.29, green: 0.82, blue: 0.49))
+                        // Visible on the network, not linked: neutral, so green on a
+                        // card always means connected (as the Chat dashboard counts it).
+                        MetricPill(icon: "wifi", label: "Seen on", value: "Wi‑Fi", tint: .secondary)
                         if board.record == nil && board.peripheral == nil {
                             Text("needs Bluetooth setup").font(.caption2).foregroundStyle(.secondary)
                         }

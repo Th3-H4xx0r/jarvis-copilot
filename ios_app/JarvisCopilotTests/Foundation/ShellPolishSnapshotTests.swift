@@ -148,6 +148,41 @@ final class ShellPolishSnapshotTests: XCTestCase {
     /// excluded by the cut-off. Cheap, and it fails loudly (nil) if the screen
     /// didn't paint at all.
     private func polishBottomOfBlue(in image: UIImage, above cutoff: CGFloat) -> CGFloat? {
+        guard let pixels = polishPixels(image) else { return nil }
+        let width = Int(Self.deviceSize.width)
+        let limit = min(Int(Self.deviceSize.height), max(0, Int(cutoff)))
+        for y in stride(from: limit - 1, through: 0, by: -1)
+        where polishRowIsTeal(pixels, y: y, xs: 0..<width) {
+            return CGFloat(y + 1)
+        }
+        return nil
+    }
+
+    /// The top and bottom rows of the teal shape nearest above `cutoff`, within the
+    /// columns `xs` — an accent glyph's extent, bridging the few-point gaps inside a
+    /// symbol (the mic's capsule, arc and stand).
+    private func polishTealRun(in image: UIImage, above cutoff: CGFloat,
+                               xs: Range<Int>) -> (top: CGFloat, bottom: CGFloat)? {
+        guard let pixels = polishPixels(image) else { return nil }
+        let limit = min(Int(Self.deviceSize.height), max(0, Int(cutoff)))
+        var bottom: Int?
+        var top = 0
+        var gap = 0
+        for y in stride(from: limit - 1, through: 0, by: -1) {
+            if polishRowIsTeal(pixels, y: y, xs: xs) {
+                if bottom == nil { bottom = y }
+                top = y
+                gap = 0
+            } else if bottom != nil {
+                gap += 1
+                if gap > 4 { break }
+            }
+        }
+        guard let bottom else { return nil }
+        return (CGFloat(top), CGFloat(bottom + 1))
+    }
+
+    private func polishPixels(_ image: UIImage) -> [UInt8]? {
         guard let cg = image.cgImage else { return nil }
         let width = Int(Self.deviceSize.width)
         let height = Int(Self.deviceSize.height)
@@ -158,18 +193,19 @@ final class ShellPolishSnapshotTests: XCTestCase {
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         context.draw(cg, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+        return pixels
+    }
 
-        let limit = min(height, max(0, Int(cutoff)))
-        for y in stride(from: limit - 1, through: 0, by: -1) {
-            for x in 0..<width {
-                let i = (y * width + x) * 4
-                let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
-                // The primary action teal (`JcTheme.primaryBlue` family): green
-                // and blue high and close together, red far below.
-                if g > 110 && b > 110 && abs(g - b) < 40 && g > r + 60 { return CGFloat(y + 1) }
-            }
+    /// The accent teal (`JcAccent` and its shades): green and blue high and close
+    /// together, red far below.
+    private func polishRowIsTeal(_ pixels: [UInt8], y: Int, xs: Range<Int>) -> Bool {
+        let width = Int(Self.deviceSize.width)
+        for x in xs {
+            let i = (y * width + x) * 4
+            let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+            if g > 110 && b > 110 && abs(g - b) < 40 && g > r + 60 { return true }
         }
-        return nil
+        return false
     }
 
     // MARK: 1 — the bottom control clears the pill by one gap, not two
@@ -184,9 +220,15 @@ final class ShellPolishSnapshotTests: XCTestCase {
         harness.settle(0.8)
         let image = harness.snapshot("voice-in-shell")
 
-        guard let micBottom = polishBottomOfBlue(in: image, above: harness.pillTop) else {
+        // The mic is clear glass with an accent glyph centred in it, so the circle's
+        // edge is found from the glyph: its centre plus half the button.
+        let mid = Int(Self.deviceSize.width / 2)
+        let half = Int(VoiceControlMetrics.micDiameter / 2)
+        guard let glyph = polishTealRun(in: image, above: harness.pillTop,
+                                        xs: (mid - half)..<(mid + half)) else {
             return XCTFail("no mic button found above the pill — did the Voice tab paint?")
         }
+        let micBottom = (glyph.top + glyph.bottom) / 2 + VoiceControlMetrics.micDiameter / 2
         let clearance = harness.pillTop - micBottom
         XCTAssertGreaterThan(clearance, 0, "the mic overlaps the nav pill")
         XCTAssertLessThan(clearance, Self.maxClearance,

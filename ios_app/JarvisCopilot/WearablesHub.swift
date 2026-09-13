@@ -195,10 +195,12 @@ final class WearablesHub: ObservableObject {
     /// Record signal for anything the current scan turned up, so a device that drops
     /// out of range keeps a last-known reading to show.
     private func noteWhatWeCanSee() {
-        if let r = bottle.discovered.first?.rssi {
+        // An RSSI of 0 is a remembered device put in the list, not a sighting —
+        // noting it made "last seen" read "just now" forever.
+        if let r = bottle.discovered.first(where: { $0.rssi != 0 })?.rssi {
             WearableIdentity.noteSeen(WearableKeepAlive.bottle, rssi: r)
         }
-        if let r = scale.discovered.first?.rssi {
+        if let r = scale.discovered.first(where: { $0.rssi != 0 })?.rssi {
             WearableIdentity.noteSeen(WearableKeepAlive.scale, rssi: r)
         }
         if let r = esp32.discovered.first(where: { $0.rssi != 0 })?.rssi {

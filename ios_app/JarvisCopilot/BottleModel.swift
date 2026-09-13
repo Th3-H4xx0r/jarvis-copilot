@@ -249,7 +249,7 @@ enum BottleModel {
         let m = SCNMaterial()
         m.lightingModel = .constant
         m.diffuse.contents = UIColor.black
-        m.emission.contents = UIColor(JcAccent.color)
+        m.emission.contents = UIColor(red: 0.62, green: 0.34, blue: 1.0, alpha: 1) // the UV lamp's own violet
         m.blendMode = .add
         m.writesToDepthBuffer = false
         m.isDoubleSided = false
@@ -332,7 +332,7 @@ enum BottleModel {
 
         let lamp = SCNLight()
         lamp.type = .omni
-        lamp.color = UIColor(JcAccent.color)
+        lamp.color = UIColor(red: 0.62, green: 0.34, blue: 1.0, alpha: 1)
         lamp.intensity = 0
         lamp.attenuationStartDistance = 0.0
         lamp.attenuationEndDistance = 0.65
@@ -556,7 +556,7 @@ enum BottleModel {
                 ])),
             ]))
 
-            // The lamp pulses, so the glow falls on the bottle instead of replacing
+            // The lamp pulses, so the violet falls on the bottle instead of replacing
             // its colour.
             let period = 1.7
             let breathe = SCNAction.customAction(duration: period) { node, elapsed in

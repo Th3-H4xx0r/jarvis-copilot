@@ -61,7 +61,9 @@ struct ScanView: View {
                     DeviceView(manager: manager, bottle: bottle)
                         .zoomTransition(id: bottle.id, in: cardNamespace)
                 } label: {
-                    BottleCard(bottle: bottle)
+                    BottleCard(bottle: bottle,
+                               connected: manager.connected?.id == bottle.id && manager.state == .ready,
+                               lastSeen: lastSeen(WearableKeepAlive.bottle, in: entries))
                 }
                 .buttonStyle(.plain)
                 .zoomSource(id: bottle.id, in: cardNamespace)
@@ -298,6 +300,9 @@ private struct BottleCard: View {
     static let bleed: CGFloat = 46
 
     let bottle: DiscoveredBottle
+    var connected = false
+    /// When the bottle was last in range, for the offline corner note.
+    var lastSeen: Date? = nil
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -329,17 +334,27 @@ private struct BottleCard: View {
                 Spacer(minLength: 0)
 
                 HStack(spacing: 8) {
-                    MetricPill(icon: "antenna.radiowaves.left.and.right",
-                               label: "Signal",
-                               value: "\(bottle.rssi) dBm",
-                               tint: signalTint)
-                    SignalBars(rssi: bottle.rssi)
+                    if connected {
+                        MetricPill(icon: "checkmark.circle.fill", label: "Status", value: "Connected",
+                                   tint: Color(red: 0.29, green: 0.82, blue: 0.49))
+                    } else if bottle.rssi == 0 {
+                        // Remembered, not advertising. Its 0 read as "0 dBm" with full
+                        // green bars — a link it didn't have.
+                        DisconnectedPill()
+                    } else {
+                        MetricPill(icon: "antenna.radiowaves.left.and.right",
+                                   label: "Signal",
+                                   value: "\(bottle.rssi) dBm",
+                                   tint: signalTint)
+                        SignalBars(rssi: bottle.rssi)
+                    }
                 }
             }
             .padding(16)
         }
         .frame(height: Self.cardHeight)
         .frame(maxWidth: .infinity)
+        .lastSeenCorner(lastSeen, visible: !connected && bottle.rssi == 0)
         .background(Color.white.opacity(0.07),
                     in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
