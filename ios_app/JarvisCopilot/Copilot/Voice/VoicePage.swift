@@ -60,13 +60,27 @@ struct VoicePage: View {
         // (the request lands before any view exists) and on every generation
         // change for a warm one.
         .task { await store.consumeVoiceLaunch() }
+        // Pre-warm while Voice is the tab on screen: the session and the socket
+        // are ready before the tap, so the tap only has to start the mic.
+        .task { if router.selectedTab == .voice { await store.prewarmVoice() } }
+        .onChange(of: router.selectedTab) { _, tab in
+            if tab == .voice {
+                Task { await store.prewarmVoice() }
+            } else {
+                store.voiceSurfaceHidden()
+            }
+        }
         .onChange(of: router.voiceLaunchGeneration) { _, _ in
             Task { await store.consumeVoiceLaunch() }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background: store.pauseForBackground()
-            case .active: Task { await store.resumeFromBackground() }
+            case .active:
+                Task {
+                    await store.resumeFromBackground()
+                    if router.selectedTab == .voice { await store.prewarmVoice() }
+                }
             default: break
             }
         }
@@ -151,7 +165,9 @@ struct VoicePage: View {
         if store.state == .listening && !store.captureReady { return "Starting microphone…" }
         switch store.state {
         case .idle: return ""
-        case .connecting: return "Connecting"
+        // The mic is live from the tap, and what is said while the socket opens
+        // is kept — so once audio is flowing it IS listening.
+        case .connecting: return store.captureReady ? "Listening" : "Connecting"
         case .listening: return "Listening"
         case .thinking: return store.toolStatus ?? "Thinking"
         case .speaking: return "Jarvis is speaking"
@@ -200,7 +216,8 @@ struct VoicePage: View {
             VStack(spacing: 10) {
                 Text(store.state == .idle ? "What’s on your mind?" :
                      store.state == .listening ? (store.muted ? "Take your time." : "Go ahead, I’m here.") :
-                     store.state == .connecting ? "One moment…" : "Thinking it through…")
+                     store.state == .connecting ? (store.captureReady ? "Go ahead, I’m here." : "One moment…")
+                         : "Thinking it through…")
                     .font(.system(size: 25, weight: .medium))
                     .tracking(-0.6)
                     .foregroundStyle(JcTheme.text)

@@ -1,6 +1,32 @@
 import Foundation
 import Observation
 
+/// When each part of a voice start finished, for one diagnostics line that says
+/// where the wait went. The session lookup, the socket and the mic run at the
+/// same time, so each is timed from when they all began, and the total is from
+/// the tap to the later of the socket and the first mic frame.
+struct VoiceStartupTimer: Equatable {
+    var tap: Date?
+    var checks: Date?
+    var session: Date?
+    var socket: Date?
+    var mic: Date?
+    var warmSocket = false
+    var logged = false
+
+    /// The line, once there is enough to say it. Push-to-talk has no socket.
+    func line(needsSocket: Bool) -> String? {
+        guard !logged, let tap, let checks, let mic, !needsSocket || socket != nil else { return nil }
+        func ms(_ from: Date, _ to: Date?) -> String {
+            to.map { "\(Int(($0.timeIntervalSince(from) * 1000).rounded()))ms" } ?? "-"
+        }
+        let end = [socket, mic].compactMap { $0 }.max() ?? mic
+        return "startup: checks=\(ms(tap, checks)) session=+\(ms(checks, session))"
+            + " socket=+\(ms(checks, socket))\(warmSocket ? "(warm)" : "")"
+            + " mic=+\(ms(checks, mic)) total=\(ms(tap, end))"
+    }
+}
+
 /// Where on-device transcription stands.
 enum VoiceTranscriptionStatus: Equatable, Sendable {
     case idle
@@ -64,6 +90,14 @@ final class VoiceStore {
     /// resuming listening — replies arrive as several segments with gaps, so
     /// resuming instantly made the orb flip listening↔speaking mid-reply.
     static let resumeGraceMs = 1600
+    /// Most audio kept while the socket is still opening. The mic starts at the
+    /// tap, alongside the connection, so words said in that window are held and
+    /// sent once `begin_turn` is out. Bounded, newest kept: a connect that hangs
+    /// must not grow the buffer, and it is the latest words that matter.
+    static let preConnectBufferMs = 3000
+    /// How long a pre-warmed socket waits for a turn before it is closed. Each
+    /// open socket holds a thread on the server.
+    static let warmSocketIdleMs = 60_000
     /// While "thinking", reassure the user if the server is slow and hasn't
     /// streamed anything yet. Without this a slow turn looks like a frozen app.
     static let thinkingWatchdogMs = 18000
@@ -136,6 +170,16 @@ final class VoiceStore {
     /// apart from `userTranscript` because `.clearReply` wipes that at the very
     /// moment the turn ends — this is what puts the words back.
     var livePartial = ""
+    /// Mic audio captured while the socket was still opening, oldest first.
+    var preConnectAudio: [Data] = []
+    var preConnectBytes: Int { preConnectAudio.reduce(0) { $0 + $1.count } }
+    /// Timing of the current start, for the one `startup:` diagnostics line.
+    var startup = VoiceStartupTimer()
+    /// Closes a pre-warmed socket nobody used.
+    var warmExpiry: VoiceTimerToken?
+    /// A voice surface asked for pre-warming and is still on screen — so a
+    /// conversation that ends re-warms for the next one.
+    var prewarmWanted = false
     /// Plain (markdown-stripped) reply, joined segments.
     var assistantText: String { reply.text }
     /// Leading words of `assistantText` already spoken — the view colours these
@@ -344,8 +388,10 @@ final class VoiceStore {
             if machine.state == .listening {
                 raise(.endOfSpeech)
             } else if !machine.state.isActive {
+                startup = VoiceStartupTimer(tap: clock.now)
                 guard await ensureMic() else { return }
                 guard await ensureTranscription() else { return }
+                startup.checks = clock.now
                 qualityPcm.removeAll()
                 livePartial = ""
                 muted = false
@@ -356,12 +402,72 @@ final class VoiceStore {
         if machine.state.isActive {
             await stopAll()
         } else {
+            startup = VoiceStartupTimer(tap: clock.now)
             guard await ensureMic() else { return }
             guard await ensureTranscription() else { return }
             muted = false
             livePartial = ""
+            preConnectAudio.removeAll()
+            startup.checks = clock.now
             raise(.startRequested)
         }
+    }
+
+    // MARK: - Startup
+
+    private func holdPreConnect(_ chunk: Data) {
+        preConnectAudio.append(chunk)
+        let limit = Self.preConnectBufferMs * Self.micRate * 2 / 1000
+        var total = preConnectBytes
+        while total > limit, !preConnectAudio.isEmpty {
+            total -= preConnectAudio.removeFirst().count
+        }
+    }
+
+    /// Replay what was said while connecting, now that `begin_turn` is out and
+    /// the machine is listening: through the ordinary frame path, so it is sent
+    /// (or transcribed) and endpointed exactly like live audio.
+    func flushPreConnectAudio() {
+        let held = preConnectAudio
+        preConnectAudio.removeAll()
+        guard !held.isEmpty else { return }
+        note("replaying \(held.count) frame(s) captured while connecting")
+        held.forEach(handleMicFrame)
+    }
+
+    func logStartupIfComplete() {
+        guard let line = startup.line(needsSocket: machine.mode == .realtime) else { return }
+        startup.logged = true
+        note(line)
+    }
+
+    /// Get the expensive part of starting a conversation done before the tap:
+    /// resolve the voice session and open the socket, so the tap only has to
+    /// start the mic. Called when a voice surface appears. Silent on failure —
+    /// the tap then simply does a normal start.
+    func prewarmVoice() async {
+        prewarmWanted = true
+        guard !isActive, !session.isOpen else { return }
+        do {
+            _ = try await ensureSession()
+            guard !isActive else { return }
+            try await session.prewarm()
+            note("prewarmed voice socket")
+            warmExpiry?.cancel()
+            warmExpiry = clock.schedule(after: Self.warmSocketIdleMs) { [weak self] in
+                guard let self, !self.isActive, self.session.isWarm else { return }
+                self.session.close()
+                self.note("warm socket idle; closed")
+            }
+        } catch {
+            JcLog.dropped(JcLog.voice, "prewarm voice", error)
+        }
+    }
+
+    /// The voice surface went away: stop re-warming after conversations end.
+    /// An already-warm socket still closes on its own idle timer.
+    func voiceSurfaceHidden() {
+        prewarmWanted = false
     }
 
     // MARK: - Transcription
@@ -718,7 +824,9 @@ final class VoiceStore {
     }
 
     var wantsCapture: Bool {
-        mode == .quality ? state == .listening : state.isActive && state != .connecting
+        // Realtime captures from the moment the session starts, connecting
+        // included: the mic no longer waits for the socket.
+        mode == .quality ? state == .listening : state.isActive
     }
 
     /// Detect a stopped engine or stalled tap, independently of speech volume.
@@ -747,6 +855,10 @@ final class VoiceStore {
         guard wantsCapture, !audioInterrupted, !chunk.isEmpty else { return }
         captureReady = true
         micRecoveryAttempts = 0
+        if startup.tap != nil, startup.mic == nil {
+            startup.mic = clock.now
+            logStartupIfComplete()
+        }
         let amp = voicePeakAmplitude(chunk)
 
         if machine.mode == .quality {
@@ -763,9 +875,18 @@ final class VoiceStore {
             return
         }
 
-        // Drive the orb only while listening (playback drives it otherwise).
-        if machine.state == .listening { amplitude = muted ? 0 : amp }
+        // Drive the orb while listening — and while connecting, since the mic is
+        // live then too and the orb answering is how you know it hears you.
+        // (Playback drives it otherwise.)
+        if machine.state == .listening || machine.state == .connecting {
+            amplitude = muted ? 0 : amp
+        }
         if muted { return }
+
+        if machine.state == .connecting {
+            holdPreConnect(chunk)
+            return
+        }
 
         // Barge-in: a loud frame during playback interrupts the assistant. Only
         // while foregrounded — backgrounded, the loud reply can leak past echo
@@ -917,10 +1038,17 @@ final class VoiceStore {
         micTask.cancel()
         await input.stop()
         session.close()
+        preConnectAudio.removeAll()
         await audio.stop()
         // Fully stopping → release the audio session so other apps' audio resumes.
         do { try audioSession.setActive(false) }
         catch { JcLog.dropped(JcLog.voice, "release audio session", error) }
         amplitude = 0
+        // The surface is still on screen: have the next conversation start warm
+        // too. Not after a failure — re-dialling a server that just failed on
+        // every teardown would only hammer it.
+        if prewarmWanted, error == nil {
+            Task { [weak self] in await self?.prewarmVoice() }
+        }
     }
 }

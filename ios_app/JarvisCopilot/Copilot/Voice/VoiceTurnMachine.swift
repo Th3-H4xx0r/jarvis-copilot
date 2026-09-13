@@ -99,7 +99,11 @@ struct VoiceTurnMachine: Equatable {
             serverProducedOutput = false
             if mode == .realtime {
                 state = .connecting
-                return [.clearReply, .resetEndpointer, .newTurnEpoch, .stopPlayback, .openTransport]
+                // The mic and the recognizer start WITH the transport, not after
+                // it: audio said while connecting is held and sent once the
+                // socket is up, so there is nothing to wait for.
+                return [.clearReply, .resetEndpointer, .newTurnEpoch, .stopPlayback, .openTransport,
+                        .startMic, .restartRecognizer]
             }
             state = .listening
             // `.restartRecognizer` so on-device push-to-talk transcribes while
@@ -110,7 +114,9 @@ struct VoiceTurnMachine: Equatable {
         case .connected:
             guard state == .connecting else { return [] }
             state = .listening
-            return [.startMic, .restartRecognizer]
+            // The mic is already running. The recognizer is re-asked so a start
+            // that has not finished still gets one; it is a no-op otherwise.
+            return [.restartRecognizer]
 
         case .endOfSpeech:
             guard state == .listening else { return [] }

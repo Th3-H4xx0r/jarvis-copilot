@@ -133,8 +133,16 @@ struct MacVoicePanel: View {
             await sessionPicker.load()
             await modelPicker.load()
         }
-        .onAppear { onScreen = true }
-        .onDisappear { onScreen = false }
+        .onAppear {
+            onScreen = true
+            // Opening the panel is the moment to connect: the session and the
+            // socket are ready by the time the mic is tapped.
+            Task { await store.prewarmVoice() }
+        }
+        .onDisappear {
+            onScreen = false
+            store.voiceSurfaceHidden()
+        }
         .onChange(of: hasContent) { _, now in
             if now { stickyConversation = true }
         }
@@ -257,7 +265,9 @@ openPicker = .session
         if store.state == .listening && !store.captureReady { return "Starting microphone…" }
         switch store.state {
         case .idle: return ""
-        case .connecting: return "Connecting"
+        // The mic is live from the tap, and what is said while the socket opens
+        // is kept — so once audio is flowing it IS listening.
+        case .connecting: return store.captureReady ? "Listening" : "Connecting"
         case .listening: return "Listening"
         case .thinking: return store.toolStatus ?? "Thinking"
         case .speaking: return "Jarvis is speaking"
@@ -350,7 +360,7 @@ openPicker = .session
         switch store.state {
         case .idle: return "What's on your mind?"
         case .listening: return store.muted ? "Take your time." : "Go ahead, I'm here."
-        case .connecting: return "One moment…"
+        case .connecting: return store.captureReady ? "Go ahead, I'm here." : "One moment…"
         default: return "Thinking it through…"
         }
     }

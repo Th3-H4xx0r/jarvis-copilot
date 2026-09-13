@@ -313,8 +313,15 @@ final class MockVoiceSocket: VoiceSocket {
     private(set) var sentData: [Data] = []
     private(set) var closeCount = 0
 
+    /// How many text frames had gone out when the first audio frame did — so a
+    /// test can prove `begin_turn` preceded the audio.
+    private(set) var textsBeforeFirstData: Int?
+
     func send(text: String) { sentText.append(text) }
-    func send(data: Data) { sentData.append(data) }
+    func send(data: Data) {
+        if textsBeforeFirstData == nil { textsBeforeFirstData = sentText.count }
+        sentData.append(data)
+    }
     func close() { closeCount += 1 }
 
     // Drive the client from the "server" side.
@@ -344,7 +351,20 @@ final class MockVoiceSocketConnector: VoiceSocketConnecting {
     private(set) var connectedHeaders: [[String: String]] = []
     private(set) var socket: MockVoiceSocket?
 
+    /// Hold every connect until `releaseConnect()`, to test what happens while
+    /// the socket is still opening.
+    var holdConnect = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+
+    func releaseConnect() {
+        holdConnect = false
+        let waiting = held
+        held.removeAll()
+        waiting.forEach { $0.resume() }
+    }
+
     func connect(url: URL, headers: [String: String]) async throws -> VoiceSocket {
+        if holdConnect { await withCheckedContinuation { held.append($0) } }
         if let connectError { throw connectError }
         connectedURLs.append(url)
         connectedHeaders.append(headers)

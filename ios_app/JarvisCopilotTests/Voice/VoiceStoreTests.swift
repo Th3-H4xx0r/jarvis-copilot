@@ -114,6 +114,97 @@ final class VoiceStoreTests: XCTestCase {
                        "on-device mode was chosen, so asking for permission is expected")
     }
 
+    // MARK: - Startup latency
+
+    func testTheMicStartsWhileTheSocketIsStillConnecting() async throws {
+        let rig = makeRig()
+        rig.connector.holdConnect = true
+        await rig.store.primaryAction()
+        await waitUntilVoice { !rig.input.startedRates.isEmpty }
+        XCTAssertEqual(rig.store.state, .connecting)
+        XCTAssertEqual(rig.input.startedRates, [VoiceStore.micRate],
+                       "the mic does not wait for the socket")
+        rig.connector.releaseConnect()
+        await waitUntilVoice { rig.store.state == .listening }
+    }
+
+    func testWordsSpokenWhileConnectingReachTheServerAfterBeginTurn() async throws {
+        let rig = makeRig()
+        rig.connector.holdConnect = true
+        await rig.store.primaryAction()
+        await waitUntilVoice { !rig.input.startedRates.isEmpty }
+        rig.input.emitFrames(amplitude: 0.5, ms: 400)
+        await settleVoiceTasks()
+
+        rig.connector.releaseConnect()
+        await waitUntilVoice { rig.store.state == .listening }
+        await settleVoiceTasks()
+
+        let socket = try XCTUnwrap(rig.socket)
+        XCTAssertFalse(socket.sentData.isEmpty, "audio from the connecting window was kept")
+        XCTAssertEqual(socket.textsBeforeFirstData, 1, "begin_turn went out before any audio")
+        XCTAssertEqual(socket.sentTypes.first, "begin_turn")
+    }
+
+    func testTheConnectingBufferKeepsOnlyTheMostRecentAudio() async throws {
+        let rig = makeRig()
+        rig.connector.holdConnect = true
+        await rig.store.primaryAction()
+        await waitUntilVoice { !rig.input.startedRates.isEmpty }
+        rig.input.emitFrames(amplitude: 0.5, ms: VoiceStore.preConnectBufferMs * 3)
+        await settleVoiceTasks()
+        XCTAssertLessThanOrEqual(rig.store.preConnectBytes,
+                                 VoiceStore.preConnectBufferMs * VoiceStore.micRate * 2 / 1000 + 4096,
+                                 "a slow connect cannot grow the buffer without bound")
+        rig.connector.releaseConnect()
+        await waitUntilVoice { rig.store.state == .listening }
+    }
+
+    func testStartupIsMeasuredInTheDiagnostics() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        rig.input.emitFrames(amplitude: 0.1, ms: 60)
+        await settleVoiceTasks()
+        let line = try XCTUnwrap(rig.store.diagnostics.last { $0.contains("startup:") })
+        for part in ["checks=", "session=", "socket=", "mic=", "total="] {
+            XCTAssertTrue(line.contains(part), "\(part) missing from \(line)")
+        }
+    }
+
+    func testPrewarmOpensTheSocketAndTheNextStartReusesIt() async throws {
+        let rig = makeRig()
+        await rig.store.prewarmVoice()
+        XCTAssertEqual(rig.connector.connectedURLs.count, 1)
+        let warm = try XCTUnwrap(rig.socket)
+        XCTAssertTrue(warm.sentTypes.isEmpty, "a warm socket says nothing until a turn starts")
+
+        await startListening(rig)
+        XCTAssertEqual(rig.connector.connectedURLs.count, 1, "the start adopted the warm socket")
+        XCTAssertTrue(rig.socket === warm)
+        XCTAssertEqual(warm.sentTypes, ["begin_turn"])
+    }
+
+    func testAnUnusedWarmSocketIsClosedAfterTheIdleTimeout() async throws {
+        let rig = makeRig()
+        await rig.store.prewarmVoice()
+        let warm = try XCTUnwrap(rig.socket)
+        rig.clock.advance(ms: VoiceStore.warmSocketIdleMs + 10)
+        await settleVoiceTasks()
+        XCTAssertEqual(warm.closeCount, 1)
+    }
+
+    func testAWarmSocketTheServerDroppedIsReplacedOnStart() async throws {
+        let rig = makeRig()
+        await rig.store.prewarmVoice()
+        try XCTUnwrap(rig.socket).serverClosed()
+        await settleVoiceTasks()
+        XCTAssertNil(rig.store.error, "a warm socket closing while idle is not an error")
+
+        await startListening(rig)
+        XCTAssertEqual(rig.connector.connectedURLs.count, 2)
+        XCTAssertEqual(rig.store.state, .listening)
+    }
+
     func testMicPermissionDenialBlocksTheTurn() async {
         let rig = makeRig()
         rig.input.permission = false

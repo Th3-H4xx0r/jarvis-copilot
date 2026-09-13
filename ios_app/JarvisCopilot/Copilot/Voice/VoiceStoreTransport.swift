@@ -14,22 +14,35 @@ extension VoiceStore {
             // Own + activate the audio session BEFORE the mic/playback start, so
             // the loud speaker route is locked in for the whole conversation.
             try acquireAudioSession()
+            startup.warmSocket = session.isWarm
+            // The socket does not need the session id — only `begin_turn` does —
+            // so the handshake runs WHILE the session is resolved and any stale
+            // stream is cleared, instead of after them. These used to run one
+            // after another, and with the mic waiting behind them too that was
+            // most of the pause between the tap and being able to talk.
+            async let socketReady: Void = session.open()
             let sid = try await ensureSession()
+            startup.session = clock.now
             note("session \(sid.isEmpty ? "(none)" : "ok")")
             // Clear any stream the server still thinks is running for this
             // session (e.g. the app was backgrounded mid-turn) — otherwise the
             // next turn fails with "session already has an active stream".
             await voice.cancelActiveStream(sessionID: sid)
-            // Resolving the session is three round trips through the tunnel; a
-            // Stop during them used to leave a socket opening behind the
-            // teardown that was supposed to close it, with the mic already off.
+            try await socketReady
+            startup.socket = clock.now
+            // Resolving the session is round trips through the tunnel; a Stop
+            // during them used to leave a socket opening behind the teardown that
+            // was supposed to close it, with the mic already off.
             guard epoch == turnEpoch, machine.state == .connecting else {
                 note("open transport superseded")
                 return
             }
-            try await session.open()
             session.send(beginTurn(sessionID: sid))
             raise(.connected)
+            // Words said while the socket was opening go out now, after
+            // `begin_turn`, through the ordinary frame path.
+            flushPreConnectAudio()
+            logStartupIfComplete()
             // The machine is `listening` now, which is the only state that
             // accepts a turn.
             deliverPendingWatchTurnIfReady()

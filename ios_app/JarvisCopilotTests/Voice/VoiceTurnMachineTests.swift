@@ -17,11 +17,15 @@ final class VoiceTurnMachineTests: XCTestCase {
         XCTAssertEqual(m.state, .connecting)
         XCTAssertTrue(start.contains(.openTransport))
         XCTAssertTrue(start.contains(.clearReply))
-        XCTAssertFalse(start.contains(.startMic), "the mic waits for the transport")
+        // The mic, the recognizer and the transport all start at once: waiting
+        // for the socket before starting the mic put the two back to back, and
+        // audio said while connecting is buffered rather than lost.
+        XCTAssertTrue(start.contains(.startMic))
+        XCTAssertTrue(start.contains(.restartRecognizer))
 
         let connected = m.apply(.connected)
         XCTAssertEqual(m.state, .listening)
-        XCTAssertEqual(connected, [.startMic, .restartRecognizer])
+        XCTAssertFalse(connected.contains(.startMic), "the mic is already running")
 
         let ended = m.apply(.endOfSpeech)
         XCTAssertEqual(m.state, .thinking)

@@ -138,12 +138,30 @@ final class VoiceSession {
 
     var isOpen: Bool { socket != nil }
 
+    /// A socket opened ahead of any turn by `prewarm`, not yet claimed. The next
+    /// `open` adopts it instead of tearing it down and connecting again — the
+    /// handshake is the part of starting a conversation worth doing early.
+    private(set) var isWarm = false
+
+    /// Open a socket before it is needed, if there is not one already. It sends
+    /// nothing: `begin_turn` is still the turn's to send.
+    func prewarm() async throws {
+        guard socket == nil else { return }
+        try await open()
+        isWarm = true
+    }
+
     init(voice: VoiceAPI, connector: VoiceSocketConnecting) {
         self.voice = voice
         self.connector = connector
     }
 
     func open() async throws {
+        if isWarm, socket != nil {
+            isWarm = false
+            onLog?("ws reuse warm socket")
+            return
+        }
         close()
         let url = try voice.realtimeURL()
         // Path + auth-header NAMES only: the cookie value and the CF-Access
@@ -171,6 +189,7 @@ final class VoiceSession {
         s.onClose = { [weak self] error in
             guard let self else { return }
             self.socket = nil
+            self.isWarm = false
             self.onLog?("ws closed \(error.map { apiErrorMessage($0) } ?? "(clean)")")
             self.onClose?(error)
         }
@@ -200,6 +219,7 @@ final class VoiceSession {
 
     /// Tear down without reporting a close (we asked for it).
     func close() {
+        isWarm = false
         let s = socket
         socket = nil
         s?.onClose = nil
