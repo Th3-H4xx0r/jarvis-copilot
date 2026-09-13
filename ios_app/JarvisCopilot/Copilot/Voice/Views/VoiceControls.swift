@@ -57,6 +57,13 @@ struct VoiceMicButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
+        // `children: .ignore` collapses the label+icon stack into one element,
+        // and on macOS that element reports as a plain group rather than a
+        // button, so VoiceOver and automation see something unpressable. Stating
+        // the trait is the documented answer; it is a no-op on iOS, where the
+        // element is already a button. (Not yet confirmed to change the AX role
+        // on macOS — the label is exposed either way.)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(active ? "End conversation" : "Start talking")
     }
 }
@@ -86,6 +93,7 @@ struct VoiceGhostCircle: View {
         .opacity(action == nil ? 0.35 : 1)
         .disabled(action == nil)
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(label)
     }
 }

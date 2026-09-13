@@ -52,6 +52,18 @@ public final class JarvisVoicePanel: NSObject {
     @objc(orbShaderAvailable)
     public static var orbShaderAvailable: Bool { macVoiceResourceBundle != nil }
 
+    /// The store's diagnostics ring — the same lines the phone shows when you
+    /// long-press its orb.
+    ///
+    /// The Mac panel has no gesture for them, and voice failures here are the
+    /// kind that look like nothing happening ("still listening"), so the tray
+    /// can pull them into the client log instead.
+    @objc(diagnostics)
+    @MainActor
+    public static func diagnostics() -> [String] {
+        VoiceStore.shared.diagnostics
+    }
+
     /// Stop whatever is running and release the mic — for the tray's Quit, and
     /// for a re-pair that invalidates the proxy behind us.
     ///

@@ -84,8 +84,14 @@ enum VoiceDiagnostics {
 
     /// The outbound mic stream, summarised per burst rather than per frame —
     /// one line every ~40 ms would push everything else out of the ring.
-    static func describe(micFrames count: Int, bytes: Int) -> String {
-        "ws→ pcm \(count) frame(s) \(bytes)B"
+    /// `peak` is the loudest sample in the batch, on the same 0…1 scale the
+    /// endpointer thresholds use. Without it a mic that is running but SILENT —
+    /// muted in hardware, denied by the OS, or an input device that hears
+    /// nothing — looks exactly like a healthy one: frames keep flowing, bytes
+    /// keep climbing, and the turn simply never ends.
+    static func describe(micFrames count: Int, bytes: Int, peak: Double) -> String {
+        "ws→ pcm \(count) frame(s) \(bytes)B peak=\(String(format: "%.4f", peak))"
+            + " raw=\(String(format: "%.4f", DefaultAudioInput.lastRawPeak))"
     }
 
     /// The state-machine event, without its payload (an `endTurn` reason is
@@ -149,11 +155,14 @@ extension VoiceStore {
     /// Coalesce the outbound PCM stream into one line per `micLogBatch` frames.
     /// Logging each one would evict everything else from a 200-line ring inside
     /// a single utterance.
-    func noteMicFrame(bytes: Int) {
+    func noteMicFrame(bytes: Int, peak: Double) {
         micFramesSent += 1
         micBytesSent += bytes
+        micPeakSent = max(micPeakSent, peak)
         guard micFramesSent % Self.micLogBatch == 0 else { return }
-        note(VoiceDiagnostics.describe(micFrames: Self.micLogBatch, bytes: micBytesSent))
+        note(VoiceDiagnostics.describe(micFrames: Self.micLogBatch, bytes: micBytesSent,
+                                       peak: micPeakSent))
         micBytesSent = 0
+        micPeakSent = 0
     }
 }

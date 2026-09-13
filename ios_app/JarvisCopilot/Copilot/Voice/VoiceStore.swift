@@ -169,6 +169,8 @@ final class VoiceStore {
     /// Batching counters for `noteMicFrame`.
     var micFramesSent = 0
     var micBytesSent = 0
+    /// Loudest sample seen since the last batched mic line.
+    var micPeakSent = 0.0
     /// One "the socket is gone" line per turn, not one per 43 ms frame.
     var loggedMicDrop = false
 
@@ -708,7 +710,7 @@ final class VoiceStore {
         guard machine.state == .listening else { return }
         bargeRun = 0
         if session.send(pcm: chunk) {
-            noteMicFrame(bytes: chunk.count)
+            noteMicFrame(bytes: chunk.count, peak: amp)
         } else if !loggedMicDrop {
             // The socket went away under a live mic: the user keeps talking into
             // nothing. `onClose` normally raises `.failed`, but if it doesn't

@@ -89,7 +89,10 @@ extension VoiceStore {
                 note("mic start superseded (gen \(generation))")
                 return
             }
-            note("mic started @\(Self.micRate)")
+            note("mic started @\(Self.micRate)"
+                 + " permission=\(DefaultAudioInput.permissionDescription)"
+                 + " input=\(DefaultAudioInput.inputDescription)"
+                 + " hw=\(DefaultAudioInput.lastHardwareFormat)")
             monitorMic()
         } catch {
             guard generation == micGeneration else { return }
