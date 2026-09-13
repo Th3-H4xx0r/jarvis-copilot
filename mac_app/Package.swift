@@ -38,6 +38,12 @@ let package = Package(
                 // local-model stack.
                 "Voice/VoiceLocalLane.swift",
             ],
+            // The orb's shader. SwiftPM compiles it into a `default.metallib`
+            // inside this target's bundle — NOT the host process's main bundle,
+            // which is where `ShaderLibrary.setupOrb` looks by default and which
+            // here belongs to the Python tray. `VoiceOrb` asks for the bundle by
+            // name on this build for exactly that reason.
+            resources: [.process("Voice/Views/OrbShader.metal")],
             // What the shared sources test to know they are in THIS build: the
             // phone's voice loop without the phone's chat UI, navigation shell
             // and on-device model. The handful of `#if JC_MAC_VOICE` in the

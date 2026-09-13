@@ -63,5 +63,16 @@ include = ["jc_client", "jc_client.*"]
 
 # The wearable pictures in the tray menu: renders of each device's own 3D model,
 # produced by the iOS app's render harness and shipped here as PNGs.
+#
+# The voice panel's dylib is committed built, not compiled on install: the
+# installer is a git clone and a pip install, and asking every Mac to have Xcode
+# just to see the menubar orb is a worse trade than 1.3 MB in the repo. Rebuild
+# it with mac_app/build.sh after touching anything under mac_app/ or the phone's
+# Voice sources. The .bundle beside it carries the orb's compiled shader and is
+# found by looking next to the dylib, so the two must stay together.
 [tool.setuptools.package-data]
-jc_client = ["assets/*.png"]
+jc_client = [
+  "assets/*.png",
+  "assets/*.dylib",
+  "assets/JarvisVoiceUI_JarvisVoiceUI.bundle/*",
+]
