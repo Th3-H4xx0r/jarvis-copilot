@@ -17,10 +17,15 @@ struct MacVoicePanel: View {
     /// and the 60 fps loop stops — the conversation underneath keeps running.
     @State private var onScreen = false
 
+    /// Whether to offer "open in a window". True in the menubar popover, false
+    /// in the window itself, which is already the thing the button asks for.
+    private let showsOpenInWindow: Bool
+
     /// A view's `init` is not main-actor-isolated, so the store cannot be a
     /// default argument — the same reason `VoicePage` takes it this way.
-    init(store: VoiceStore? = nil) {
+    init(store: VoiceStore? = nil, showsOpenInWindow: Bool = false) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated { VoiceStore.shared })
+        self.showsOpenInWindow = showsOpenInWindow
     }
 
     private static let orbSize: CGFloat = 124
@@ -38,12 +43,9 @@ struct MacVoicePanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            statusPill
-                .padding(.top, 10)
-                .opacity(store.state == .idle ? 0 : 1)
-                .accessibilityHidden(store.state == .idle)
+            topBar
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
 
             VoiceOrb(state: store.state,
                      amplitude: store.state == .listening && store.muted ? 0 : store.amplitude,
@@ -61,6 +63,9 @@ struct MacVoicePanel: View {
                 // given — over the transcript sitting above it. The panel is
                 // short enough that this is the common case, not the edge one.
                 .clipped()
+
+            statusLine
+                .padding(.bottom, 6)
 
             VoiceControls(state: store.state,
                           isActive: store.isActive,
@@ -91,6 +96,44 @@ struct MacVoicePanel: View {
 
     // MARK: - Chrome
 
+    /// The pop-out affordance, as a corner icon rather than a button in a strip
+    /// of its own.
+    ///
+    /// It used to be an AppKit `NSButton` in a 34-point footer bolted under the
+    /// panel — a grey bar with a text button in it, wearing none of this
+    /// design's clothes and costing the panel a tenth of its height. Here it is
+    /// what it is: one quiet control in the corner, on the row the status pill
+    /// vacated.
+    ///
+    /// It reports by NOTIFICATION rather than a callback: the thing that acts on
+    /// it is the Python tray, and a notification name crosses that bridge
+    /// without either side having to hand the other a function.
+    @ViewBuilder
+    private var topBar: some View {
+        if showsOpenInWindow {
+            HStack {
+                Spacer()
+                Button {
+                    NotificationCenter.default.post(
+                        name: Notification.Name(JarvisVoicePanel.openWindowNotificationName),
+                        object: nil)
+                } label: {
+                    Image(systemName: "macwindow")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(JcTheme.muted)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Open in a window")
+                .accessibilityLabel("Open in a window")
+            }
+            .padding(.top, 4)
+        } else {
+            Color.clear.frame(height: 8)
+        }
+    }
+
     /// The phone's aurora backdrop lives in its design system (`UI/Glass.swift`),
     /// which is built from navigation-bar modifiers that do not exist here. This
     /// is the same two-stop ground with one glow, which is all a 400 pt panel
@@ -111,18 +154,35 @@ struct MacVoicePanel: View {
             .ignoresSafeArea()
     }
 
-    private var statusPill: some View {
-        HStack(spacing: 7) {
+    /// The state, as a caption above the controls rather than a pill above the
+    /// orb.
+    ///
+    /// It moved for two reasons. It sat directly under the popover's arrow, with
+    /// no room between the two; and it said in a label what the headline under
+    /// the orb already says in a sentence — "Listening" over "Go ahead, I'm
+    /// here." Down here it reads as the status of the buttons beside it, it
+    /// fills the space the control hint used to, and it no longer moves when a
+    /// reply grows into the middle of the panel.
+    ///
+    /// The capsule went with it: chrome around two words, in a panel this size,
+    /// was most of what the eye landed on. What the pill carried that the
+    /// headline does not is the TOOL status — "Searching the web" rather than
+    /// "Thinking" — which is the reason it still exists at all.
+    ///
+    /// Kept in the layout at zero opacity when idle: letting it collapse moves
+    /// the buttons under the pointer every time a turn starts or ends.
+    private var statusLine: some View {
+        HStack(spacing: 6) {
             Circle()
                 .fill(store.muted || store.audioInterrupted ? JcTheme.muted : voiceStateColor(store.state))
-                .frame(width: 6, height: 6)
+                .frame(width: 5, height: 5)
             Text(statusText)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(JcTheme.text.opacity(0.85))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(JcTheme.muted)
+                .lineLimit(1)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(.white.opacity(0.045), in: Capsule())
+        .opacity(store.state == .idle ? 0 : 1)
+        .accessibilityHidden(store.state == .idle)
         .accessibilityElement(children: .combine)
     }
 

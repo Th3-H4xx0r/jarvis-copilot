@@ -29,9 +29,16 @@ public final class JarvisVoicePanel: NSObject {
     /// `VoiceStore.shared`, because the mic, the audio devices and the socket
     /// are process-wide too — a second store would fight the first. So the
     /// popover and the pop-out window show one conversation, not two.
-    @objc(makeViewControllerWithBaseURL:)
+    /// The name the panel posts on when its corner button is pressed. The tray
+    /// observes it and opens the standalone window; nothing has to pass a
+    /// callback across the PyObjC bridge.
+    @objc(openWindowNotificationName)
+    public static var openWindowNotificationName: String { "JarvisVoicePanelOpenWindow" }
+
+    @objc(makeViewControllerWithBaseURL:showsOpenInWindow:)
     @MainActor
-    public static func makeViewController(baseURL: String) -> NSViewController? {
+    public static func makeViewController(baseURL: String,
+                                          showsOpenInWindow: Bool) -> NSViewController? {
         guard let url = URL(string: baseURL), url.scheme != nil else { return nil }
         ProxyCredentials.configure(baseURL: url)
         // Default `sizingOptions` (`.preferredContentSize`) on purpose: the
@@ -39,7 +46,8 @@ public final class JarvisVoicePanel: NSObject {
         // an `NSPopover` falls back to when the caller sets no `contentSize` of
         // its own. Clearing the options instead leaves the hosted view at zero
         // bounds — it renders nothing at all.
-        return NSHostingController(rootView: MacVoicePanel())
+        return NSHostingController(
+            rootView: MacVoicePanel(showsOpenInWindow: showsOpenInWindow))
     }
 
     /// Whether the orb's shader library was found beside the dylib.

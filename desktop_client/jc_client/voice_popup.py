@@ -78,7 +78,8 @@ def _run_native_window(origin: str) -> bool:
         from jc_client._mac_media import prepare_microphone
         prepare_microphone()
 
-        panel = cls.makeViewControllerWithBaseURL_(origin)
+        # No pop-out button: this IS the window it would open.
+        panel = cls.makeViewControllerWithBaseURL_showsOpenInWindow_(origin, False)
         if panel is None:
             logger.warning("voice-popup: the native panel refused %s", origin)
             return False

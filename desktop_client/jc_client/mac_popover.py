@@ -499,17 +499,29 @@ class MenuBarVoicePopover:
         from jc_client._mac_media import prepare_microphone
         prepare_microphone()
 
-        total_h = _HEIGHT + _FOOTER_H
-        container = AppKit.NSView.alloc().initWithFrame_(
-            AppKit.NSMakeRect(0, 0, _WIDTH, total_h))
-        frame = AppKit.NSMakeRect(0, _FOOTER_H, _WIDTH, _HEIGHT)
         resize = (_const(AppKit, "NSViewWidthSizable", default=2)
                   | _const(AppKit, "NSViewHeightSizable", default=16))
-
-        self._panel = self._native_panel(origin, frame, resize)
-        content = self._panel.view() if self._panel is not None \
-            else self._web_view(origin, frame, resize)
+        # The native panel carries its own "open in a window" control in its
+        # corner, so it needs no footer strip; the web page has no such control,
+        # so the fallback keeps the AppKit button under it.
+        self._panel = self._native_panel(
+            origin, AppKit.NSMakeRect(0, 0, _WIDTH, _HEIGHT), resize)
+        footer = 0 if self._panel is not None else _FOOTER_H
+        total_h = _HEIGHT + footer
+        container = AppKit.NSView.alloc().initWithFrame_(
+            AppKit.NSMakeRect(0, 0, _WIDTH, total_h))
+        if self._panel is not None:
+            content = self._panel.view()
+        else:
+            content = self._web_view(
+                origin, AppKit.NSMakeRect(0, _FOOTER_H, _WIDTH, _HEIGHT), resize)
         container.addSubview_(content)
+
+        if self._panel is not None:
+            # The panel's corner button reports by notification rather than by
+            # calling us — PyObjC has no clean way to hand Swift a callback.
+            self._observe_open_window()
+            return self._finish_popover(AppKit, container, total_h)
 
         button = AppKit.NSButton.alloc().initWithFrame_(
             AppKit.NSMakeRect(_WIDTH - 150, 6, 142, 22))
@@ -524,6 +536,9 @@ class MenuBarVoicePopover:
                                     | _const(AppKit, "NSViewMaxYMargin", default=32))
         container.addSubview_(button)
 
+        return self._finish_popover(AppKit, container, total_h)
+
+    def _finish_popover(self, AppKit, container, total_h):
         controller = AppKit.NSViewController.alloc().init()
         controller.setView_(container)
         if self._panel is not None:
@@ -541,13 +556,25 @@ class MenuBarVoicePopover:
         popover.setAnimates_(True)
         return popover
 
+    def _observe_open_window(self) -> None:
+        """Route the panel's corner button to the standalone window."""
+        cls = _voice_panel_class()
+        if cls is None or self._delegate is None:
+            return
+        try:
+            from Foundation import NSNotificationCenter
+            NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
+                self._delegate, b"openInWindow:", cls.openWindowNotificationName(), None)
+        except Exception:
+            logger.exception("voice popover: could not observe the pop-out button")
+
     def _native_panel(self, origin: str, frame, resize):
         """The Swift voice panel's view controller, or None if it isn't there."""
         cls = _voice_panel_class()
         if cls is None:
             return None
         try:
-            panel = cls.makeViewControllerWithBaseURL_(origin)
+            panel = cls.makeViewControllerWithBaseURL_showsOpenInWindow_(origin, True)
         except Exception:
             logger.exception("voice popover: the native panel would not build")
             return None
