@@ -583,6 +583,46 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.store.state, .speaking)
     }
 
+    /// At high volume the phone's echo peaks well above the speech gate, in
+    /// syllable-shaped bursts. Seen on device: barge-in fired about a second into
+    /// replies with nobody talking, and the "speech" it then sent was the reply.
+    func testTheEchoOfALoudReplyDoesNotInterruptIt() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, audioMs: 8000)
+        // Syllable-shaped: loud peaks with near-silent frames between words, so a
+        // low percentile of it sits far under its peaks.
+        let loudEcho: [Double] = [0.003, 0.028, 0.035, 0.004, 0.031, 0.026, 0.005, 0.033]
+        // Heard from the first moment of playback, through the settle window.
+        for amp in loudEcho.prefix(5) { rig.input.emitFrames(amplitude: amp, ms: 100, frameMs: 100) }
+        rig.clock.advance(ms: VoiceStore.bargeInSettleMs)
+        for _ in 0..<6 {
+            for amp in loudEcho { rig.input.emitFrames(amplitude: amp, ms: 100, frameMs: 100) }
+        }
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .speaking)
+        XCTAssertFalse(try XCTUnwrap(rig.socket).sentTypes.contains("interrupt"))
+    }
+
+    func testARaisedVoiceStillCutsThroughALoudReply() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, audioMs: 8000)
+        // Syllable-shaped: loud peaks with near-silent frames between words, so a
+        // low percentile of it sits far under its peaks.
+        let loudEcho: [Double] = [0.003, 0.028, 0.035, 0.004, 0.031, 0.026, 0.005, 0.033]
+        for amp in loudEcho.prefix(5) { rig.input.emitFrames(amplitude: amp, ms: 100, frameMs: 100) }
+        rig.clock.advance(ms: VoiceStore.bargeInSettleMs)
+        for _ in 0..<3 {
+            for amp in loudEcho { rig.input.emitFrames(amplitude: amp, ms: 100, frameMs: 100) }
+        }
+        rig.input.emitFrames(amplitude: 0.08, ms: 400, frameMs: 100)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening)
+    }
+
     func testTalkingQuietlyFirstDoesNotRaiseTheBarAgainstYou() async throws {
         let rig = makeRig()
         try await speakingAndSettled(rig)
@@ -647,9 +687,9 @@ final class VoiceStoreTests: XCTestCase {
         await settleVoiceTasks()
         XCTAssertEqual(rig.store.state, .speaking, "the reply's own echo must not interrupt it")
 
-        rig.input.emitFrames(amplitude: 0.04, ms: 600)
+        rig.input.emitFrames(amplitude: 0.028, ms: 600)
         await settleVoiceTasks()
-        XCTAssertEqual(rig.store.state, .speaking, "0.04 is not clearly above a 0.02 echo")
+        XCTAssertEqual(rig.store.state, .speaking, "0.028 is not clearly above a 0.02 echo")
 
         rig.input.emitFrames(amplitude: 0.12, ms: VoiceStore.bargeInSustainMs)
         await settleVoiceTasks()

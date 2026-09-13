@@ -133,18 +133,23 @@ final class VoiceStore {
     /// syllables, and echo leaks in syllable-sized bursts too — but a voice
     /// talking over the reply fills most of the window and a leak does not.
     static let bargeInWindowMs = 500
-    /// Voiced also means at least this many times the echo level heard under
-    /// this reply, so turned-up speakers raise the bar instead of interrupting.
-    static let bargeInEchoMargin = 3.0
-    /// The echo level is a low percentile of the mic over this long. A mean of
-    /// "quiet" frames used to count speech just under the bar as echo, and the
-    /// bar rose past the voice that followed it.
+    /// Voiced also means clearing the reply's own echo by this much, so a
+    /// turned-up speaker raises the bar instead of interrupting itself.
+    static let bargeInEchoMargin = 1.5
+    /// The echo level is a HIGH percentile of the mic over this long: what the
+    /// reply's loud syllables reach, not its average. Echo is syllable-shaped —
+    /// loud peaks with near-silence between words — so a low percentile sat far
+    /// under its peaks; at high volume on the phone those peaks cleared the bar
+    /// about a second into a reply with nobody talking, and the "speech" sent
+    /// on was the reply itself. (A mean of quiet frames, before that, counted
+    /// speech just under the bar as echo instead.)
     static let bargeInEchoWindowMs = 3000
-    static let bargeInEchoPercentile = 0.25
+    static let bargeInEchoPercentile = 0.9
     /// No echo level until this much has been heard. It is gathered from the
     /// moment playback starts — through `bargeInSettleMs`, when the mic can only
-    /// be hearing the reply — so it is ready when barge-in starts listening.
-    static let bargeInEchoMinMs = 500
+    /// be hearing the reply — so it is ready when barge-in starts listening,
+    /// even on the phone's 100 ms frames.
+    static let bargeInEchoMinMs = 300
     /// Nothing counts this soon after playback starts: the echo canceller has
     /// not caught up with the new audio yet, and that is when it leaks most.
     static let bargeInSettleMs = 500
