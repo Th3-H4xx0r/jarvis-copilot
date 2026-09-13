@@ -108,11 +108,17 @@ struct MacVoicePanel: View {
     /// It reports by NOTIFICATION rather than a callback: the thing that acts on
     /// it is the Python tray, and a notification name crosses that bridge
     /// without either side having to hand the other a function.
-    @ViewBuilder
     private var topBar: some View {
-        if showsOpenInWindow {
-            HStack {
-                Spacer()
+        HStack(spacing: 6) {
+            // Disabled mid-turn, like the phone's: switching either one under a
+            // live turn changes which chat it lands in, or which model finishes
+            // answering it.
+            MacSessionMenu { store.sessionTargetChanged() }
+                .disabled(store.isActive)
+            MacModelMenu()
+                .disabled(store.isActive)
+            Spacer(minLength: 2)
+            if showsOpenInWindow {
                 Button {
                     NotificationCenter.default.post(
                         name: Notification.Name(JarvisVoicePanel.openWindowNotificationName),
@@ -128,10 +134,9 @@ struct MacVoicePanel: View {
                 .help("Open in a window")
                 .accessibilityLabel("Open in a window")
             }
-            .padding(.top, 4)
-        } else {
-            Color.clear.frame(height: 8)
         }
+        .opacity(store.isActive ? 0.45 : 1)
+        .padding(.top, 4)
     }
 
     /// The phone's aurora backdrop lives in its design system (`UI/Glass.swift`),

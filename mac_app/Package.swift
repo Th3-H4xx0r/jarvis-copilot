@@ -33,7 +33,6 @@ let package = Package(
                 "Voice/Views/VoiceEnginePicker.swift",
                 "Voice/Views/VoiceSessionPicker.swift",
                 "Voice/Views/VoiceModelPickerSheet.swift",
-                "Voice/VoiceModelSelection.swift",
                 // On-device routing — a phone feature that drags in the whole
                 // local-model stack.
                 "Voice/VoiceLocalLane.swift",

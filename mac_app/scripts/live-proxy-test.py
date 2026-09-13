@@ -28,7 +28,7 @@ origin = f"http://127.0.0.1:{port}"
 print(f"live-proxy-test: proxy up on {origin}")
 try:
     rc = subprocess.call(
-        ["swift", "test", "--filter", "ProxyCredentialsLiveTests"],
+        ["swift", "test", "--filter", "LiveTests"],
         cwd=os.path.join(os.path.dirname(__file__), ".."),
         env=dict(os.environ, JC_PROXY_ORIGIN=origin),
     )

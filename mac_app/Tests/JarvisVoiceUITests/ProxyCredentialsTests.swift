@@ -73,3 +73,43 @@ final class ProxyCredentialsLiveTests: XCTestCase {
         XCTAssertNotNil(devices)
     }
 }
+
+/// The two pickers' content, against a live server.
+///
+/// The menus themselves are a thin shell over these two calls; what can
+/// actually be wrong is that the Mac target builds the stores but the requests
+/// come back empty, and an empty menu looks exactly like a menu that has not
+/// loaded yet. Opt-in like the test above — see `scripts/live-proxy-test.py`.
+@MainActor
+final class VoicePickerLiveTests: XCTestCase {
+
+    private func liveOrigin() throws -> URL {
+        let env = ProcessInfo.processInfo.environment["JC_PROXY_ORIGIN"] ?? ""
+        try XCTSkipIf(env.isEmpty, "set JC_PROXY_ORIGIN to a running PinnedProxy")
+        let url = try XCTUnwrap(URL(string: env))
+        ProxyCredentials.configure(baseURL: url)
+        return url
+    }
+
+    func testTheModelMenuHasAModelCatalogueToShow() async throws {
+        _ = try liveOrigin()
+        let catalog = try await ModelsAPI(api: JarvisAPI(credentials: ProxyCredentials())).list()
+        XCTAssertFalse(catalog.models.isEmpty, "the model menu would be empty")
+        XCTAssertFalse(catalog.providers.isEmpty, "the menu groups by provider")
+        // Every model must land in a section, or it is unreachable in the menu.
+        let grouped = catalog.providers.flatMap { catalog.models(for: $0) }
+        XCTAssertEqual(grouped.count, catalog.models.count)
+    }
+
+    func testTheSessionMenuHasChatsToShow() async throws {
+        _ = try liveOrigin()
+        let sessions = try await SessionsAPI(api: JarvisAPI(credentials: ProxyCredentials())).list()
+        // An account with no chats is legitimate — the menu still offers Voice
+        // and New session — so this asserts the call works, not that it is full.
+        XCTAssertNotNil(sessions)
+        for s in sessions.prefix(5) {
+            XCTAssertFalse(s.id.isEmpty, "a session with no id cannot be selected")
+            XCTAssertFalse(s.displayTitle.isEmpty, "a blank row in the menu")
+        }
+    }
+}
