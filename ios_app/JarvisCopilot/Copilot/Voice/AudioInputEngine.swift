@@ -32,6 +32,10 @@ final class DefaultAudioInput: AudioInput {
     /// Loudest sample the TAP saw, before any conversion. Compared against the
     /// converted peak it says whether silence came from the device or from us.
     nonisolated(unsafe) static var lastRawPeak = 0.0
+    /// Whether the OS is doing echo cancellation and gain control for us. It
+    /// also decides how a multi-channel buffer is folded to mono — see
+    /// `monoMixdown`.
+    private var voiceProcessed = false
 
     private var engine: AVAudioEngine?
     private var lastFrameAt = Date.distantPast
@@ -125,6 +129,33 @@ final class DefaultAudioInput: AudioInput {
     private func startEngine(sampleRate: Int) throws {
         let engine = AVAudioEngine()
         let input = engine.inputNode
+
+        #if !os(iOS)
+        // What `.videoChat` does for the phone, done here.
+        //
+        // On iOS the voice stack asks `AVAudioSession` for `.playAndRecord` +
+        // `.videoChat`, and that mode is what quietly supplies the two things a
+        // conversation depends on: echo cancellation, so the assistant's own
+        // reply doesn't feed back into the live mic, and AUTOMATIC GAIN CONTROL,
+        // so ordinary speech arrives at an ordinary level. macOS has no audio
+        // session, and the arbiter is a no-op here — so without this the engine
+        // reads the mic array raw, and a person talking normally peaks around
+        // 0.005 against an endpointer that wants 0.012. The turn never ends.
+        //
+        // It also asks the OS for the processed MONO stream, which is why the
+        // multi-channel mixdown below usually has nothing left to do.
+        //
+        // Best-effort: a device that cannot do voice processing (some aggregates
+        // and virtual inputs) throws, and raw input is better than no input.
+        do {
+            try input.setVoiceProcessingEnabled(true)
+            voiceProcessed = true
+        } catch {
+            voiceProcessed = false
+            JcLog.dropped(JcLog.voice, "enable voice processing", error)
+        }
+        #endif
+
         let hardware = input.inputFormat(forBus: 0)
         guard hardware.sampleRate > 0, hardware.channelCount > 0 else {
             throw VoiceAudioError.micUnavailable("no input route")
@@ -146,6 +177,7 @@ final class DefaultAudioInput: AudioInput {
         // A plain average across the channels is what the array elements want:
         // they are the same sound a few centimetres apart.
         let mixdown = hardware.channelCount > 1 && hardware.commonFormat == .pcmFormatFloat32
+        let processed = voiceProcessed
         let source = mixdown
             ? AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: hardware.sampleRate,
                             channels: 1, interleaved: false)
@@ -158,7 +190,7 @@ final class DefaultAudioInput: AudioInput {
         let tapGeneration = generation
         input.installTap(onBus: 0, bufferSize: Self.tapBufferSize, format: hardware) { [weak self] buffer, _ in
             Self.lastRawPeak = max(Self.lastRawPeak, Self.rawPeak(buffer))
-            let mono = mixdown ? Self.monoMixdown(buffer, to: source) : buffer
+            let mono = mixdown ? Self.monoMixdown(buffer, to: source, processed: processed) : buffer
             guard let mono,
                   let data = Self.pcm16(mono, converter: converter, target: target, ratio: ratio),
                   !data.isEmpty else { return }
@@ -189,16 +221,40 @@ final class DefaultAudioInput: AudioInput {
         engine = nil
     }
 
-    /// Average every channel of `buffer` into a one-channel buffer of `format`.
+    /// Mix `buffer` down to one channel of `format`.
+    ///
+    /// Which fold is right depends on what produced the buffer, and the two
+    /// cases want opposite things:
+    ///
+    ///  * **Voice processing on.** The unit hands back a nine-channel buffer
+    ///    with its processed, echo-cancelled, gain-controlled stream in channel
+    ///    0 and silence in the rest. Averaging that divides the only real signal
+    ///    by nine — 19 dB thrown away right before the endpointer measures it.
+    ///    Take channel 0.
+    ///  * **Voice processing off.** The bare MacBook mic is a three-element
+    ///    array and every channel is live: the same sound a few centimetres
+    ///    apart. Average them.
+    ///
+    /// Chosen once at engine start, not per buffer: a divisor that changes with
+    /// whichever channels happen to be above a threshold this millisecond is an
+    /// amplitude modulation on the audio the server has to transcribe.
+    ///
     /// Runs on the render thread, so it allocates only the output buffer and
     /// touches no actor state.
     private nonisolated static func monoMixdown(_ buffer: AVAudioPCMBuffer,
-                                                to format: AVAudioFormat) -> AVAudioPCMBuffer? {
+                                                to format: AVAudioFormat,
+                                                processed: Bool) -> AVAudioPCMBuffer? {
         guard let input = buffer.floatChannelData,
               let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: buffer.frameLength),
               let dst = out.floatChannelData
         else { return nil }
         let frames = Int(buffer.frameLength)
+        out.frameLength = buffer.frameLength
+
+        if processed {
+            dst[0].update(from: input[0], count: frames)
+            return out
+        }
         let channels = Int(buffer.format.channelCount)
         let scale = 1 / Float(channels)
         for i in 0..<frames {
@@ -206,7 +262,6 @@ final class DefaultAudioInput: AudioInput {
             for c in 0..<channels { sum += input[c][i] }
             dst[0][i] = sum * scale
         }
-        out.frameLength = buffer.frameLength
         return out
     }
 
