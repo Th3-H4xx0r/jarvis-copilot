@@ -572,22 +572,6 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.store.state, .listening, "a normal voice is enough")
     }
 
-    /// Cutting in early, when the echo window is only a few frames long: your
-    /// own first words must not become the "echo" the bar is measured against.
-    func testCuttingInRightAfterTheReplyStartsWorks() async throws {
-        let rig = makeRig()
-        await startListening(rig)
-        await speakThenPause(rig)
-        try await replyWithAudio(rig, audioMs: 5000)
-        rig.input.emitFrames(amplitude: 0.006, ms: VoiceStore.bargeInSettleMs, frameMs: 100)
-        rig.clock.advance(ms: VoiceStore.bargeInSettleMs)
-        rig.input.emitFrames(amplitude: 0.006, ms: 200, frameMs: 100)
-
-        rig.input.emitFrames(amplitude: 0.018, ms: 500, frameMs: 100)
-        await settleVoiceTasks()
-        XCTAssertEqual(rig.store.state, .listening)
-    }
-
     func testTheEchoOfTheReplyAloneNeverInterruptsOnThePhone() async throws {
         let rig = makeRig()
         try await speakingAndSettled(rig)

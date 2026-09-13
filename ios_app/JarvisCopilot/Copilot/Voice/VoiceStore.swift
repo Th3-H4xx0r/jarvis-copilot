@@ -1055,12 +1055,13 @@ final class VoiceStore {
 
     func detectBargeIn(_ amp: Double, frameMs: Int) -> Bool {
         let voiced = amp >= max(Self.bargeInSpeechAmp, bargeEchoFloor * Self.bargeInEchoMargin)
-        // Only the reply teaches the echo level. A frame over the bar, or any
-        // frame while one is in the window, may be the user starting to talk —
-        // and early in a reply, when the window is a few frames long, two or
-        // three of their words used to become the "echo", lifting the bar to
-        // half again their own voice before it could trigger.
-        if !voiced, bargeVoicedMs == 0 { noteEchoFrame(amp, frameMs: frameMs) }
+        // Every frame teaches the echo level, the loud ones included. Keeping
+        // frames over the bar out of it (so a user's first words could not lift
+        // it) let the reply's own echo stay out too: when a sentence came out
+        // louder than the ones before, its echo cleared the bar and the reply
+        // interrupted itself, over and over. Not hearing an early cut-in is the
+        // lesser failure — the Interrupt button is always there.
+        noteEchoFrame(amp, frameMs: frameMs)
         bargeFrames.append((frameMs, voiced))
         var total = bargeFrames.reduce(0) { $0 + $1.ms }
         while total > Self.bargeInWindowMs, bargeFrames.count > 1 {
