@@ -21,6 +21,7 @@ struct VoiceModelPickerSheet: View {
                     modelSection
                     VoiceEngineSections(store: store)
                     modeSection
+                    transcriptionSection
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
@@ -148,6 +149,37 @@ struct VoiceModelPickerSheet: View {
                 .foregroundStyle(JcTheme.muted)
                 .padding(.top, 10)
                 .padding(.leading, 4)
+        }
+    }
+
+    /// Where speech becomes text. The line under the toggle says what the
+    /// choice does — or, while the language model downloads or when on-device
+    /// cannot run, what is happening instead.
+    private var transcriptionSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassQuietLabel("Transcription")
+            VoiceTranscriptionToggle(value: store.transcription, enabled: !store.isActive) { value in
+                Task { await store.setTranscription(value) }
+            }
+            .frame(maxWidth: .infinity)
+            Group {
+                switch store.transcriptionStatus {
+                case .preparing(let fraction):
+                    Text(fraction.map { "Downloading speech model… \(Int($0 * 100))%" }
+                         ?? "Getting on-device transcription ready…")
+                        .foregroundStyle(JcTheme.muted)
+                case .failed(let message):
+                    Text(message).foregroundStyle(JcTheme.danger)
+                case .ready, .idle:
+                    Text(store.transcription == .onDevice
+                         ? "Transcribed on this iPhone. No audio leaves it."
+                         : "Audio is sent to your server to transcribe.")
+                        .foregroundStyle(JcTheme.muted)
+                }
+            }
+            .font(.system(size: 12))
+            .padding(.top, 10)
+            .padding(.leading, 4)
         }
     }
 }

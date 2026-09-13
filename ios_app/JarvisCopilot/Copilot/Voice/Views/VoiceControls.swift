@@ -154,6 +154,53 @@ struct VoiceTryServerChip: View {
     }
 }
 
+/// On device ⇄ Server transcription, in the same segmented style as the turn
+/// mode beside it. Disabled mid-session: it changes how the turn in flight is
+/// sent.
+struct VoiceTranscriptionToggle: View {
+    let value: VoiceTranscription
+    let enabled: Bool
+    let onChange: (VoiceTranscription) -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(VoiceTranscription.allCases, id: \.self) { segment($0) }
+        }
+        .frame(maxWidth: 260)
+        .background {
+            let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+            shape.fill(JcTheme.surface)
+                .overlay(shape.strokeBorder(JcTheme.border, lineWidth: 1))
+        }
+        .opacity(enabled ? 1 : 0.5)
+    }
+
+    private func segment(_ candidate: VoiceTranscription) -> some View {
+        let active = candidate == value
+        return Button {
+            guard enabled, !active else { return }
+            onChange(candidate)
+        } label: {
+            Text(candidate.label)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(active ? JcTheme.accent : JcTheme.muted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background {
+                    if active {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(JcTheme.accent.opacity(0.16))
+                    }
+                }
+                .padding(2)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
 /// Push-to-talk ⇄ Realtime. Disabled mid-session: switching modes tears the
 /// session down, and doing that from under a live turn reads as a crash.
 ///
