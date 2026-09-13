@@ -13,18 +13,35 @@ struct VoiceKaraokeReply: View {
     let segments: [VoiceSegment]
     /// How many leading words of the whole reply have been spoken.
     let spokenWords: Int
+    /// The user's own words, drawn as the first lines of the SAME scroll.
+    ///
+    /// The Mac panel gives question and answer one scrolling column, so a long
+    /// reply can push the question up and out of view rather than being squeezed
+    /// underneath a transcript pinned above it. The phone draws its transcript
+    /// outside, above the reply, and passes nil — which changes nothing there.
+    var lead: String? = nil
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: VoiceReplyStyle.lineSpacing) {
+                    if let lead, !lead.isEmpty {
+                        Text(lead)
+                            .font(.system(size: VoiceReplyStyle.leadSize))
+                            .foregroundStyle(JcTheme.muted)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding(.bottom, 4)
+                            .id("lead")
+                    }
                     ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
                         Text(attributed(segment))
                             .voiceReplyStyle()
                             .id(index)
                     }
                 }
-                .padding(.bottom, 8)
+                .padding(.top, VoiceReplyStyle.scrollTopInset)
+                .padding(.bottom, VoiceReplyStyle.scrollBottomInset)
                 .frame(maxWidth: .infinity)
             }
             .onChange(of: spokenWords) { _, _ in
@@ -80,11 +97,19 @@ enum VoiceReplyStyle {
     /// collides with the transcript above it — and it is read from desk
     /// distance, where it is simply shouting.
     static let size: CGFloat = 15
-    static let lineSpacing: CGFloat = 3
+    static let lineSpacing: CGFloat = 4
+    static let leadSize: CGFloat = 12
+    /// Room at each end of the scroll for the panel's edge fade to fall on, so
+    /// the first and last lines are never born half-transparent.
+    static let scrollTopInset: CGFloat = 16
+    static let scrollBottomInset: CGFloat = 16
     #else
     static let size: CGFloat = 22
     /// Flutter's `height: 1.4` minus the system font's own line height.
     static let lineSpacing: CGFloat = 4.6
+    static let leadSize: CGFloat = 14
+    static let scrollTopInset: CGFloat = 0
+    static let scrollBottomInset: CGFloat = 8
     #endif
     static let tracking: CGFloat = -0.2
 }

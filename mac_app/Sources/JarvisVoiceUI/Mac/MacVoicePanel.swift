@@ -20,6 +20,14 @@ struct MacVoicePanel: View {
     @State private var modelPicker = MacModelPicker()
     /// Which picker is open. Drawn inside the panel — see `MacVoicePickers`.
     @State private var openPicker: MacPickerKind?
+    /// Holds the conversation layout between turns of a live session.
+    ///
+    /// The store clears the transcript and reply at the START of every turn
+    /// (`.clearReply`), so "is there text right now" flickers false between
+    /// turns. Keyed on that alone, the orb would swell back to full size and
+    /// shrink again every time you spoke. Once a session has shown text it keeps
+    /// the conversation layout until the session ends.
+    @State private var stickyConversation = false
 
     /// Whether to offer "open in a window". True in the menubar popover, false
     /// in the window itself, which is already the thing the button asks for.
@@ -33,6 +41,18 @@ struct MacVoicePanel: View {
     }
 
     private static let orbSize: CGFloat = 124
+    /// The orb once a conversation has the panel: small enough to give the text
+    /// the room, big enough to still read as the voice that is talking.
+    private static let orbCompact: CGFloat = 54
+
+    /// Something to read: the user's words, a reply, or an error.
+    private var hasContent: Bool {
+        !(store.error ?? "").isEmpty || !store.userTranscript.isEmpty || !store.replySegments.isEmpty
+    }
+
+    /// Conversation layout — text above, small orb above the mic — rather than
+    /// the invitation — large orb centred, headline beneath it.
+    private var conversationLayout: Bool { hasContent || stickyConversation }
 
     /// The size the panel is drawn for. The HOST sets the real one — the
     /// popover from its `contentSize`, the window from `setContentSize` — and
@@ -46,38 +66,37 @@ struct MacVoicePanel: View {
     static let minHeight: CGFloat = 380
 
     var body: some View {
+        // ONE stack in a fixed order for both layouts. Which layout is showing
+        // is expressed only as sizes — how tall the conversation may grow, how
+        // much the two spacers may take, how big the orb is — never by swapping
+        // views in and out. That is what lets SwiftUI animate the orb SLIDING
+        // down and SHRINKING as one continuous motion, instead of fading one orb
+        // out and another in somewhere else.
+        //
+        //   invitation:    top bar · ⟷ · status · ORB · headline · ⟷ · controls
+        //   conversation:  top bar · TEXT · status · orb · controls
         VStack(spacing: 0) {
             topBar
 
-            Spacer(minLength: 18)
+            conversation
+                .frame(maxWidth: .infinity, maxHeight: conversationLayout ? .infinity : 0)
+                .opacity(conversationLayout ? 1 : 0)
 
-            VoiceOrb(state: store.state,
-                     amplitude: store.state == .listening && store.muted ? 0 : store.amplitude,
-                     size: Self.orbSize,
-                     animating: onScreen)
-                .frame(height: Self.orbSize + 8)
-                // The orb is decoration and must never take a click. It draws
-                // its shader surface at size / 0.53 — the visible sphere is 53%
-                // of it — inside a frame of `size`, and SwiftUI does not clip:
-                // the rectangle it hit-tests extends about 55 points past the
-                // sphere in every direction, over the row of chips above it.
-                // That is what made the session and model pickers dead while the
-                // pop-out button, sitting beyond the overhang, worked fine.
-                .allowsHitTesting(false)
-
-            Spacer(minLength: 6)
-
-            dialogue
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.top, 8)
-                // The reply is a scroll view that follows the segment being
-                // spoken, and it will happily draw outside the space it was
-                // given — over the transcript sitting above it. The panel is
-                // short enough that this is the common case, not the edge one.
-                .clipped()
+            Spacer(minLength: 0)
+                .frame(maxHeight: conversationLayout ? 0 : .infinity)
 
             statusLine
-                .padding(.bottom, 6)
+                .padding(.bottom, conversationLayout ? 2 : 6)
+
+            orb
+
+            headline
+                .padding(.top, 8)
+                .frame(maxHeight: conversationLayout ? 0 : nil)
+                .opacity(conversationLayout ? 0 : 1)
+
+            Spacer(minLength: 0)
+                .frame(maxHeight: conversationLayout ? 0 : .infinity)
 
             VoiceControls(state: store.state,
                           isActive: store.isActive,
@@ -93,6 +112,7 @@ struct MacVoicePanel: View {
                 // its bottom edge — and that edge is the window's.
                 .padding(.bottom, 8)
         }
+        .animation(.spring(response: 0.55, dampingFraction: 0.86), value: conversationLayout)
         .padding(.horizontal, 16)
         .frame(minWidth: Self.minWidth, idealWidth: Self.idealWidth, maxWidth: .infinity,
                minHeight: Self.minHeight, idealHeight: Self.idealHeight, maxHeight: .infinity)
@@ -115,6 +135,14 @@ struct MacVoicePanel: View {
         }
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false }
+        .onChange(of: hasContent) { _, now in
+            if now { stickyConversation = true }
+        }
+        .onChange(of: store.isActive) { _, active in
+            // A new session opens on the invitation, with the big orb; one that
+            // just ended keeps its last reply on screen if there still is one.
+            stickyConversation = active ? false : hasContent
+        }
         // A popover is dismissed by clicking away, which does not tear the
         // session down — the conversation keeps running in the tray process,
         // and re-opening the panel shows it mid-turn. Stopping is the End
@@ -192,15 +220,14 @@ openPicker = .session
             .ignoresSafeArea()
     }
 
-    /// The state, as a caption above the controls rather than a pill above the
-    /// orb.
+    /// The state, as a small caption directly above the orb — never a pill
+    /// under the popover's arrow, which is where it started and where it had no
+    /// room at all.
     ///
-    /// It moved for two reasons. It sat directly under the popover's arrow, with
-    /// no room between the two; and it said in a label what the headline under
-    /// the orb already says in a sentence — "Listening" over "Go ahead, I'm
-    /// here." Down here it reads as the status of the buttons beside it, it
-    /// fills the space the control hint used to, and it no longer moves when a
-    /// reply grows into the middle of the panel.
+    /// Above the orb because that keeps the two together in both layouts: over
+    /// the big orb in the middle of the panel while it invites you, and between
+    /// the text and the small orb once there is a conversation, where it reads
+    /// as the state of the voice beneath it.
     ///
     /// The capsule went with it: chrome around two words, in a panel this size,
     /// was most of what the eye landed on. What the pill carried that the
@@ -238,43 +265,87 @@ openPicker = .session
         }
     }
 
-    /// No control hint line. The phone carries one under its controls ("Tap the
-    /// microphone to start", "You can interrupt at any time") because it has a
-    /// screen to spend on it; here it was a third line of muted text in a panel
-    /// whose three buttons are already labelled Mute / Start / Send.
+    /// The orb, at whichever size the layout wants.
+    ///
+    /// It is always RENDERED at full size and scaled down, rather than asked for
+    /// at the smaller size. The shader takes its size as an argument, and a
+    /// shader argument does not animate — it would jump to the small surface on
+    /// the first frame while the frame around it was still shrinking, drawing a
+    /// tiny orb in a large hole. A scale interpolates, and a 124-point render
+    /// scaled to 54 looks exactly like a 54-point one.
+    private var orb: some View {
+        let side = conversationLayout ? Self.orbCompact : Self.orbSize
+        return VoiceOrb(state: store.state,
+                        amplitude: store.state == .listening && store.muted ? 0 : store.amplitude,
+                        size: Self.orbSize,
+                        animating: onScreen)
+            .scaleEffect(side / Self.orbSize)
+            .frame(width: side, height: side)
+            .padding(.vertical, conversationLayout ? 6 : 4)
+            // The orb is decoration and must never take a click. It draws its
+            // shader surface at size / 0.53 — the visible sphere is 53% of it —
+            // inside a frame of `size`, and SwiftUI does not clip: the rectangle
+            // it hit-tests extends well past the sphere in every direction. At
+            // the top of the panel that swallowed the picker chips; down here,
+            // right above the controls, it would swallow the mic button.
+            .allowsHitTesting(false)
+    }
+
+    /// Question and answer, in one scrolling column that fades at both ends.
+    ///
+    /// Faded rather than clipped: the reply follows the line being spoken and
+    /// keeps it centred, so text is always leaving the top edge. A hard clip cut
+    /// those lines in half, and a half-line reads as "this is overflowing".
     @ViewBuilder
-    private var dialogue: some View {
-        if let failure = store.error, !failure.isEmpty {
-            VStack(spacing: 10) {
-                Image(systemName: "exclamationmark.circle")
-                    .foregroundStyle(JcTheme.danger)
-                VoicePlainReply(text: failure, tint: JcTheme.text)
-            }
-        } else if !store.replySegments.isEmpty {
-            VStack(spacing: 8) {
-                if !store.userTranscript.isEmpty {
-                    Text(store.userTranscript)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(JcTheme.muted)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
+    private var conversation: some View {
+        Group {
+            if let failure = store.error, !failure.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.circle")
+                        .foregroundStyle(JcTheme.danger)
+                    VoicePlainReply(text: failure, tint: JcTheme.text)
                 }
-                VoiceKaraokeReply(segments: store.replySegments, spokenWords: store.spokenWords)
+                .padding(.top, 16)
+            } else if hasContent {
+                VoiceKaraokeReply(segments: store.replySegments,
+                                  spokenWords: store.spokenWords,
+                                  lead: store.userTranscript)
+            } else {
+                // Between turns of a live session the text area stays where it
+                // is, quietly, rather than the layout folding back up.
+                Text(headlineText)
+                    .font(.system(size: 13))
+                    .foregroundStyle(JcTheme.muted)
+                    .frame(maxHeight: .infinity)
             }
-        } else if !store.userTranscript.isEmpty {
-            VoicePlainReply(text: store.userTranscript)
-        } else {
-            // The headline only. The phone pairs it with a subtitle ("Your words
-            // will appear here") that describes the empty space below it; in a
-            // panel this size that space is a few lines, and saying so twice is
-            // most of what is on screen.
-            Text(store.state == .idle ? "What's on your mind?" :
-                 store.state == .listening ? (store.muted ? "Take your time." : "Go ahead, I'm here.") :
-                 store.state == .connecting ? "One moment…" : "Thinking it through…")
-                .font(.system(size: 17, weight: .medium))
-                .tracking(-0.4)
-                .foregroundStyle(JcTheme.text)
-                .multilineTextAlignment(.center)
+        }
+        .mask {
+            LinearGradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black, location: 0.08),
+                .init(color: .black, location: 0.92),
+                .init(color: .clear, location: 1),
+            ], startPoint: .top, endPoint: .bottom)
+        }
+    }
+
+    /// The invitation beneath the big orb. No subtitle, and no control hint:
+    /// the phone has a screen to spend on both, and here they were two of the
+    /// four things in a panel whose buttons already say Mute / Start / Send.
+    private var headline: some View {
+        Text(headlineText)
+            .font(.system(size: 17, weight: .medium))
+            .tracking(-0.4)
+            .foregroundStyle(JcTheme.text)
+            .multilineTextAlignment(.center)
+    }
+
+    private var headlineText: String {
+        switch store.state {
+        case .idle: return "What's on your mind?"
+        case .listening: return store.muted ? "Take your time." : "Go ahead, I'm here."
+        case .connecting: return "One moment…"
+        default: return "Thinking it through…"
         }
     }
 

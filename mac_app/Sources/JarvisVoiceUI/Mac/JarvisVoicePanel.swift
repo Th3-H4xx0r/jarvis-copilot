@@ -72,6 +72,20 @@ public final class JarvisVoicePanel: NSObject {
         VoiceStore.shared.diagnostics
     }
 
+    /// Ask something by TEXT: a full turn through the same socket, model fields,
+    /// tools and speech as a spoken one, with the words standing in for the
+    /// transcript.
+    ///
+    /// The typed counterpart to the mic, for anywhere the tray wants to hand the
+    /// panel a question — and the way to drive the panel end to end without a
+    /// microphone, whose voice processing (rightly) cancels anything played
+    /// through this Mac's own speakers.
+    @objc(sendText:)
+    @MainActor
+    public static func sendText(_ text: String) {
+        VoiceStore.shared.startWatchTurn(text: text)
+    }
+
     /// Stop whatever is running and release the mic — for the tray's Quit, and
     /// for a re-pair that invalidates the proxy behind us.
     ///
