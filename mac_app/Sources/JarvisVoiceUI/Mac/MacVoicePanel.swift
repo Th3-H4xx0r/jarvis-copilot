@@ -25,6 +25,17 @@ struct MacVoicePanel: View {
 
     private static let orbSize: CGFloat = 168
 
+    /// The size the panel is drawn for. The HOST sets the real one — the
+    /// popover from its `contentSize`, the window from `setContentSize` — and
+    /// these are the floor and the preference underneath that: an
+    /// `NSHostingController` asked to size itself resolves to the MINIMUM, so
+    /// without a floor the controls get squeezed off the bottom. Same numbers as
+    /// `mac_popover._WIDTH` / `_HEIGHT`.
+    static let idealWidth: CGFloat = 400
+    static let idealHeight: CGFloat = 560
+    static let minWidth: CGFloat = 340
+    static let minHeight: CGFloat = 520
+
     var body: some View {
         VStack(spacing: 0) {
             statusPill
@@ -64,7 +75,8 @@ struct MacVoicePanel: View {
                           })
         }
         .padding(.horizontal, 22)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minWidth: Self.minWidth, idealWidth: Self.idealWidth, maxWidth: .infinity,
+               minHeight: Self.minHeight, idealHeight: Self.idealHeight, maxHeight: .infinity)
         .background(backdrop)
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false }

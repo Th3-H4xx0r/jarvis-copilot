@@ -164,3 +164,62 @@ def test_shutdown_stops_the_loopback_proxy():
     panel.shutdown()
     assert proxy.stopped is True
     assert panel._proxy is None
+
+
+def test_a_missing_dylib_leaves_the_web_panel_in_place(monkeypatch, tmp_path):
+    """No dylib is a fallback, not a failure — `build.sh` may never have run."""
+    monkeypatch.setattr(mac_popover, "_panel_class", mac_popover._UNSET)
+    monkeypatch.setattr(mac_popover, "__file__", str(tmp_path / "mac_popover.py"))
+    assert mac_popover._voice_panel_class() is None
+
+
+def test_the_dylib_is_only_looked_for_once(monkeypatch, tmp_path):
+    monkeypatch.setattr(mac_popover, "_panel_class", mac_popover._UNSET)
+    monkeypatch.setattr(mac_popover, "__file__", str(tmp_path / "mac_popover.py"))
+    assert mac_popover._voice_panel_class() is None
+    # A second call must not re-open the dylib; the cached answer stands even if
+    # the file appears afterwards.
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "libJarvisVoiceUI.dylib").write_bytes(b"not a dylib")
+    assert mac_popover._voice_panel_class() is None
+
+
+def test_quitting_stops_a_running_conversation(monkeypatch):
+    """Closing the popover only hides it; the mic and socket outlive it."""
+    stopped = []
+
+    class _PanelClass:
+        @staticmethod
+        def stopEverything():
+            stopped.append(True)
+
+    monkeypatch.setattr(mac_popover, "_panel_class", _PanelClass)
+    popover = _popover()
+    popover._panel = object()          # a controller is installed
+    popover.shutdown()
+    assert stopped == [True]
+
+
+def test_a_panel_that_will_not_stop_does_not_block_the_quit():
+    class _PanelClass:
+        @staticmethod
+        def stopEverything():
+            raise RuntimeError("already gone")
+
+    class _Proxy:
+        def __init__(self):
+            self.stopped = False
+
+        def shutdown(self):
+            self.stopped = True
+
+    popover = _popover()
+    popover._panel = object()
+    popover._proxy = proxy = _Proxy()
+    mac_popover._panel_class = _PanelClass
+    try:
+        popover.shutdown()
+    finally:
+        mac_popover._panel_class = mac_popover._UNSET
+    # The proxy still came down, which is the part that holds a port.
+    assert proxy.stopped is True

@@ -12,10 +12,13 @@ pystray sets the status item's ``menu``, and AppKit then opens that menu on
 from the item and kept aside, and both clicks are routed here instead. It is put
 back for the moment the menu is actually shown.
 
-The popover's content is the same ``/?mini=voice`` page the separate window uses,
-loaded through the shared loopback :class:`PinnedProxy` so the WebView never has
-to trust the gateway's self-signed cert. "Open in Window" hands off to the
-existing standalone popup, which is untouched.
+The popover's content is the NATIVE Swift panel from ``mac_app/`` — the phone's
+own voice stack, built for macOS — loaded out of a dylib. It talks to the server
+through the shared loopback :class:`PinnedProxy`, which holds the pinned cert and
+the session cookie, so the Swift side needs no credentials of its own. When the
+dylib is missing (nobody has run ``mac_app/build.sh``) it falls back to the
+``/?mini=voice`` page in a WebView, which is what this used to be. "Open in
+Window" hands off to the existing standalone popup, which is untouched.
 
 Everything here is best-effort: if PyObjC, WebKit or pystray's internals aren't
 what we expect, :func:`install` returns None and the tray keeps its old
@@ -25,9 +28,15 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
+
+# `None` is a real answer here ("looked, not there"), so the not-yet-looked state
+# needs a value of its own.
+_UNSET = object()
+_panel_class = _UNSET
 
 # Popover size. Matches the standalone window so the page lays out identically.
 _WIDTH = 400
@@ -55,6 +64,46 @@ _HEADER_HEIGHT = 24.0
 _HEADER_INSET = 11.0
 
 
+def _voice_panel_class():
+    """The Swift panel's class, or None when the dylib isn't there.
+
+    ``ctypes.CDLL`` is the whole load: a dylib registers its ``@objc`` classes
+    with the Obj-C runtime as it loads, so the class is then reachable by name.
+    Cached because dlopen is idempotent but the lookup is not free.
+    """
+    global _panel_class
+    if _panel_class is not _UNSET:
+        return _panel_class
+    _panel_class = None
+    # Checked before anything is imported, so "never built" is answered the same
+    # way on a machine without PyObjC as on one with it.
+    dylib = Path(__file__).with_name("assets") / "libJarvisVoiceUI.dylib"
+    if not dylib.exists():
+        logger.info("voice popover: no %s — run mac_app/build.sh; using the web panel",
+                    dylib.name)
+        return None
+    try:
+        import ctypes
+
+        import objc
+
+        ctypes.CDLL(str(dylib))
+        cls = objc.lookUpClass("JarvisVoicePanel")
+    except Exception as exc:
+        logger.info("voice popover: native panel unavailable (%s); using the web panel", exc)
+        return None
+    # A missing shader draws an empty rectangle where the orb should be and
+    # reports nothing, so say it here rather than leave it to be noticed.
+    try:
+        if not cls.orbShaderAvailable():
+            logger.warning("voice popover: the orb's shader bundle is missing "
+                           "next to the dylib — re-run mac_app/build.sh")
+    except Exception:
+        pass
+    _panel_class = cls
+    return cls
+
+
 def _kind_symbol(kind: str, name: str = "") -> str:
     from jc_client.device_roster import kind_symbol
     return kind_symbol(kind, name)
@@ -77,6 +126,9 @@ class MenuBarVoicePopover:
         self._icon = icon
         self._on_open_window = on_open_window
         self._popover = None
+        # Exactly one of these is live: the native Swift panel, or the WebView
+        # that stands in when its dylib was never built.
+        self._panel = None
         self._webview = None
         self._proxy = None
         self._url: Optional[str] = None
@@ -327,9 +379,10 @@ class MenuBarVoicePopover:
         popover.showRelativeToRect_ofView_preferredEdge_(self._button.bounds(), self._button, edge)
         self._pin_to_current_space(popover)
         AppKit.NSApp.activateIgnoringOtherApps_(True)
-        # The page only starts capturing once it has key focus.
+        # Neither panel starts capturing until it has key focus.
+        view = self._panel.view() if self._panel is not None else self._webview
         try:
-            self._webview.window().makeFirstResponder_(self._webview)
+            view.window().makeFirstResponder_(view)
         except Exception:
             pass
 
@@ -374,7 +427,11 @@ class MenuBarVoicePopover:
         return self._popover
 
     def _ensure_url(self) -> Optional[str]:
-        """Start the loopback proxy once and return the page URL."""
+        """Start the loopback proxy once and return its origin.
+
+        The origin, not a page URL: the native panel wants the API base to point
+        `JarvisAPI` at, and the web fallback appends `_MINI_PATH` itself.
+        """
         if self._url is not None:
             return self._url
         from jc_client import credentials
@@ -395,45 +452,26 @@ class MenuBarVoicePopover:
             logger.exception("voice popover: loopback proxy failed to start")
             return None
         self._proxy = proxy
-        self._url = f"http://127.0.0.1:{port}{_MINI_PATH}"
+        self._url = f"http://127.0.0.1:{port}"
         return self._url
 
-    def _build_popover(self, url: str):
+    def _build_popover(self, origin: str):
         import AppKit
-        import WebKit
-        from Foundation import NSURL, NSURLRequest
 
         from jc_client._mac_media import prepare_microphone
         prepare_microphone()
 
-        config = WebKit.WKWebViewConfiguration.alloc().init()
-        try:
-            # TTS has to play without a click, and capture must not need a
-            # gesture the popover never sees.
-            config.setMediaTypesRequiringUserActionForPlayback_(0)
-        except Exception:
-            pass
-
         total_h = _HEIGHT + _FOOTER_H
         container = AppKit.NSView.alloc().initWithFrame_(
             AppKit.NSMakeRect(0, 0, _WIDTH, total_h))
+        frame = AppKit.NSMakeRect(0, _FOOTER_H, _WIDTH, _HEIGHT)
+        resize = (_const(AppKit, "NSViewWidthSizable", default=2)
+                  | _const(AppKit, "NSViewHeightSizable", default=16))
 
-        webview = WebKit.WKWebView.alloc().initWithFrame_configuration_(
-            AppKit.NSMakeRect(0, _FOOTER_H, _WIDTH, _HEIGHT), config)
-        webview.setAutoresizingMask_(
-            _const(AppKit, "NSViewWidthSizable", default=2)
-            | _const(AppKit, "NSViewHeightSizable", default=16))
-        if _WebViewDelegate is not None:
-            self._webview_delegate = _WebViewDelegate.alloc().init()
-            webview.setUIDelegate_(self._webview_delegate)
-        try:
-            # The page is dark; stop a white flash on every open.
-            webview.setValue_forKey_(False, "drawsBackground")
-        except Exception:
-            pass
-        webview.loadRequest_(NSURLRequest.requestWithURL_(NSURL.URLWithString_(url)))
-        container.addSubview_(webview)
-        self._webview = webview
+        self._panel = self._native_panel(origin, frame, resize)
+        content = self._panel.view() if self._panel is not None \
+            else self._web_view(origin, frame, resize)
+        container.addSubview_(content)
 
         button = AppKit.NSButton.alloc().initWithFrame_(
             AppKit.NSMakeRect(_WIDTH - 150, 6, 142, 22))
@@ -450,6 +488,11 @@ class MenuBarVoicePopover:
 
         controller = AppKit.NSViewController.alloc().init()
         controller.setView_(container)
+        if self._panel is not None:
+            # Containment, not just a subview: it is what forwards "the popover
+            # opened/closed" down to the panel, and SwiftUI's `onDisappear` is
+            # what stops the orb's 60 fps ticker when the panel is put away.
+            controller.addChildViewController_(self._panel)
 
         popover = AppKit.NSPopover.alloc().init()
         popover.setContentViewController_(controller)
@@ -460,10 +503,65 @@ class MenuBarVoicePopover:
         popover.setAnimates_(True)
         return popover
 
+    def _native_panel(self, origin: str, frame, resize):
+        """The Swift voice panel's view controller, or None if it isn't there."""
+        cls = _voice_panel_class()
+        if cls is None:
+            return None
+        try:
+            panel = cls.makeViewControllerWithBaseURL_(origin)
+        except Exception:
+            logger.exception("voice popover: the native panel would not build")
+            return None
+        if panel is None:
+            logger.warning("voice popover: the native panel refused %s", origin)
+            return None
+        panel.view().setFrame_(frame)
+        panel.view().setAutoresizingMask_(resize)
+        return panel
+
+    def _web_view(self, origin: str, frame, resize):
+        """The old content: the `/?mini=voice` page in a WebView."""
+        import AppKit  # noqa: F401
+        import WebKit
+        from Foundation import NSURL, NSURLRequest
+
+        config = WebKit.WKWebViewConfiguration.alloc().init()
+        try:
+            # TTS has to play without a click, and capture must not need a
+            # gesture the popover never sees.
+            config.setMediaTypesRequiringUserActionForPlayback_(0)
+        except Exception:
+            pass
+        webview = WebKit.WKWebView.alloc().initWithFrame_configuration_(frame, config)
+        webview.setAutoresizingMask_(resize)
+        if _WebViewDelegate is not None:
+            self._webview_delegate = _WebViewDelegate.alloc().init()
+            webview.setUIDelegate_(self._webview_delegate)
+        try:
+            # The page is dark; stop a white flash on every open.
+            webview.setValue_forKey_(False, "drawsBackground")
+        except Exception:
+            pass
+        url = NSURL.URLWithString_(origin + _MINI_PATH)
+        webview.loadRequest_(NSURLRequest.requestWithURL_(url))
+        self._webview = webview
+        return webview
+
     # ── teardown ─────────────────────────────────────────────────────
 
     def shutdown(self) -> None:
         self.close()
+        if self._panel is not None:
+            # Closing the popover only hides it — a conversation would keep the
+            # mic and the socket for as long as the tray process lives.
+            try:
+                # The class, not the controller: the session is process-wide, so
+                # stopping it is a class method (`self._panel` is the SwiftUI
+                # hosting controller the class handed back).
+                _voice_panel_class().stopEverything()
+            except Exception:
+                logger.debug("voice popover: the native panel would not stop", exc_info=True)
         if self._proxy is not None:
             try:
                 self._proxy.shutdown()
