@@ -267,7 +267,7 @@ final class VoiceStore {
     var foreground = true
     /// The last `bargeInWindowMs` of mic frames under the reply: duration and
     /// whether each counted as voiced.
-    var bargeFrames: [(ms: Int, voiced: Bool)] = []
+    var bargeFrames: [(ms: Int, voiced: Bool, amp: Double)] = []
     var bargeVoicedMs: Int { bargeFrames.reduce(0) { $0 + ($1.voiced ? $1.ms : 0) } }
     /// Recent mic frames under the reply, for the echo level.
     var bargeEchoFrames: [(ms: Int, amp: Double)] = []
@@ -1055,17 +1055,19 @@ final class VoiceStore {
 
     func detectBargeIn(_ amp: Double, frameMs: Int) -> Bool {
         let voiced = amp >= max(Self.bargeInSpeechAmp, bargeEchoFloor * Self.bargeInEchoMargin)
-        // Every frame teaches the echo level, the loud ones included. Keeping
-        // frames over the bar out of it (so a user's first words could not lift
-        // it) let the reply's own echo stay out too: when a sentence came out
-        // louder than the ones before, its echo cleared the bar and the reply
-        // interrupted itself, over and over. Not hearing an early cut-in is the
-        // lesser failure — the Interrupt button is always there.
-        noteEchoFrame(amp, frameMs: frameMs)
-        bargeFrames.append((frameMs, voiced))
+        // A frame under the bar teaches the echo level at once. A frame over it
+        // waits until it leaves the decision window: while it is in the window
+        // it may be the user's first words, and counting those as echo lifted
+        // the bar past the voice trying to clear it. Once it has aged out
+        // without triggering, it was the reply — kept out for good instead, a
+        // reply that grew louder never raised the bar and interrupted itself.
+        if !voiced { noteEchoFrame(amp, frameMs: frameMs) }
+        bargeFrames.append((frameMs, voiced, amp))
         var total = bargeFrames.reduce(0) { $0 + $1.ms }
         while total > Self.bargeInWindowMs, bargeFrames.count > 1 {
-            total -= bargeFrames.removeFirst().ms
+            let aged = bargeFrames.removeFirst()
+            total -= aged.ms
+            if aged.voiced { noteEchoFrame(aged.amp, frameMs: aged.ms) }
         }
         return bargeVoicedMs >= Self.bargeInSustainMs
     }

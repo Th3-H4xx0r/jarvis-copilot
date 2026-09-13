@@ -478,6 +478,7 @@
 		E44E8416D99FC312F8ED16E7 /* IslandPlanNotifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4469E0A7717961EBFEB6DCD /* IslandPlanNotifierTests.swift */; };
 		E45FF104E0EC3C2B89A2CBAE /* AppDeepLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C977B201AFD54C03773DE4 /* AppDeepLinkTests.swift */; };
 		E496A861E5948DF39B1A7F00 /* RingLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C429F206CC9CEAC921AA8F /* RingLog.swift */; };
+		E4BC014AC788D8979B36E2DC /* VoiceAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26A2D39DFF76F0AB58321BD0 /* VoiceAudioEngine.swift */; };
 		E5281B1D6C902D8A4537F5B1 /* ProfilesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AE762F2446273A23EDF876A /* ProfilesTests.swift */; };
 		E5715376CB0AB7D6DF884F76 /* InsightsSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E1E2AFB8843F2E8E43E35CD /* InsightsSections.swift */; };
 		E64C1674A2CCAA1EB7C1EAB2 /* RingProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAE6A435982222E11D399BF /* RingProtocolTests.swift */; };
@@ -668,6 +669,7 @@
 		25BBB13D7EE9E9DBD3031E26 /* BackgroundLocation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundLocation.swift; sourceTree = "<group>"; };
 		25BC2D0813C28A68510582A0 /* MLXEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MLXEngine.swift; sourceTree = "<group>"; };
 		260863C2ECC2D04BDB9C4AC6 /* SelfImprovementStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SelfImprovementStore.swift; sourceTree = "<group>"; };
+		26A2D39DFF76F0AB58321BD0 /* VoiceAudioEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceAudioEngine.swift; sourceTree = "<group>"; };
 		26B49D665BD0D905F5E26589 /* JarvisAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisAPI.swift; sourceTree = "<group>"; };
 		274510D099AF75A2D4633FAD /* VoiceStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceStore.swift; sourceTree = "<group>"; };
 		27872693B9A44032039788FC /* RingDecodersTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RingDecodersTests.swift; sourceTree = "<group>"; };
@@ -1897,6 +1899,7 @@
 				3C43454BB52EA1E28AC849AA /* AudioSessionArbiter.swift */,
 				2C16F21F5307DC5E447CED41 /* VoiceModelFields.swift */,
 				7D6449EBDA32F1C8D8F0CA27 /* SpeechAnalyzerServices.swift */,
+				26A2D39DFF76F0AB58321BD0 /* VoiceAudioEngine.swift */,
 			);
 			name = Voice;
 			path = Voice;
@@ -2894,6 +2897,7 @@
 				66B209556C166D9CF414F994 /* ChatDashboardStore.swift in Sources */,
 				1A41418F70298C4D4C8E4ED6 /* ChatDashboard.swift in Sources */,
 				D76C1BF618CBBE541A40D03A /* WearableArt.swift in Sources */,
+				E4BC014AC788D8979B36E2DC /* VoiceAudioEngine.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

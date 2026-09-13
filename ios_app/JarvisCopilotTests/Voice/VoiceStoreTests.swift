@@ -572,6 +572,39 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.store.state, .listening, "a normal voice is enough")
     }
 
+    /// Cutting in early, when the echo window is only a few frames long: your
+    /// own first words must not become the "echo" the bar is measured against.
+    func testCuttingInRightAfterTheReplyStartsWorks() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, audioMs: 5000)
+        rig.input.emitFrames(amplitude: 0.006, ms: VoiceStore.bargeInSettleMs, frameMs: 100)
+        rig.clock.advance(ms: VoiceStore.bargeInSettleMs)
+        rig.input.emitFrames(amplitude: 0.006, ms: 200, frameMs: 100)
+
+        rig.input.emitFrames(amplitude: 0.018, ms: 500, frameMs: 100)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .listening)
+    }
+
+    /// A reply that gets steadily louder over a couple of seconds: its echo
+    /// ages into the level and lifts the bar with it.
+    func testAReplyThatGrowsLouderDoesNotInterruptItself() async throws {
+        let rig = makeRig()
+        await startListening(rig)
+        await speakThenPause(rig)
+        try await replyWithAudio(rig, audioMs: 8000)
+        rig.input.emitFrames(amplitude: 0.006, ms: VoiceStore.bargeInSettleMs, frameMs: 100)
+        rig.clock.advance(ms: VoiceStore.bargeInSettleMs)
+        for step in 0..<40 {
+            let level = 0.006 + Double(step) * 0.0006          // 0.006 → 0.030 over 4 s
+            rig.input.emitFrames(amplitude: step % 3 == 0 ? level * 0.3 : level, ms: 100, frameMs: 100)
+        }
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .speaking)
+    }
+
     func testTheEchoOfTheReplyAloneNeverInterruptsOnThePhone() async throws {
         let rig = makeRig()
         try await speakingAndSettled(rig)

@@ -44,6 +44,24 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
 
     func startStream(sampleRate: Int) async -> Bool {
         await stopStream()
+        #if os(iOS)
+        // On the phone the reply plays on the conversation engine, beside the
+        // mic, so voice processing cancels it — see `VoiceAudioEngine`.
+        do {
+            streamGeneration += 1
+            let generation = streamGeneration
+            try VoiceAudioEngine.shared.startStream(sampleRate: sampleRate) { [weak self] level in
+                guard let self, self.streamGeneration == generation, self.clip == nil else { return }
+                self.onAmplitude?(level)
+            }
+            streamFormat = VoiceAudioEngine.shared.streamFormat
+            return streamFormat != nil
+        } catch {
+            JcLog.report(JcLog.voice, "start render stream", error)
+            isStreamAvailable = false
+            return false
+        }
+        #else
         let engine = AVAudioEngine()
         let node = AVAudioPlayerNode()
         guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
@@ -81,9 +99,14 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
         self.node = node
         self.streamFormat = format
         return true
+        #endif
     }
 
     func feed(_ pcm: Data) async {
+        #if os(iOS)
+        guard let format = streamFormat, let buffer = Self.floatBuffer(pcm, format: format) else { return }
+        VoiceAudioEngine.shared.schedule(buffer)
+        #else
         guard let node, let format = streamFormat, let engine else { return }
         let frames = pcm.count / 2
         guard frames > 0,
@@ -106,6 +129,22 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
         }
         node.scheduleBuffer(buffer, completionHandler: nil)
         if !node.isPlaying { node.play() }
+        #endif
+    }
+
+    /// PCM16 little-endian → a Float32 buffer in `format`.
+    nonisolated static func floatBuffer(_ pcm: Data, format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let frames = pcm.count / 2
+        guard frames > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
+              let channel = buffer.floatChannelData?[0] else { return nil }
+        buffer.frameLength = AVAudioFrameCount(frames)
+        // Copy into an aligned array first: `Data`'s bytes aren't guaranteed to
+        // be 2-byte aligned, so binding them in place would be undefined.
+        var samples = [Int16](repeating: 0, count: frames)
+        _ = samples.withUnsafeMutableBytes { pcm.copyBytes(to: $0, count: frames * 2) }
+        for i in 0..<frames { channel[i] = Float(Int16(littleEndian: samples[i])) / 32768.0 }
+        return buffer
     }
 
     var outputLatencyMs: Int {
@@ -119,19 +158,27 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
     }
 
     func flushStream() async {
+        #if os(iOS)
+        VoiceAudioEngine.shared.flushStream()
+        #else
         guard let node else { return }
         // `stop()` discards every scheduled buffer; `play()` re-arms for the next feed.
         node.stop()
         node.play()
+        #endif
     }
 
     func stopStream() async {
         streamGeneration += 1
+        #if os(iOS)
+        if streamFormat != nil { VoiceAudioEngine.shared.stopStream() }
+        #else
         node?.stop()
         engine?.mainMixerNode.removeTap(onBus: 0)
         engine?.stop()
         node = nil
         engine = nil
+        #endif
         streamFormat = nil
         onAmplitude?(0)
     }

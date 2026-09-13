@@ -23,7 +23,11 @@ final class DefaultAudioInput: AudioInput {
     /// An engine can stop on route changes without `stop()` being called. Also
     /// consider a tap that stopped delivering buffers unhealthy.
     var isRunning: Bool {
+        #if os(iOS)
+        micStarted && VoiceAudioEngine.shared.isRunning && Date().timeIntervalSince(lastFrameAt) < 3
+        #else
         engine?.isRunning == true && Date().timeIntervalSince(lastFrameAt) < 3
+        #endif
     }
 
     /// The tap's input format, for diagnostics. Set on start, read on the main
@@ -38,6 +42,16 @@ final class DefaultAudioInput: AudioInput {
     private var voiceProcessed = false
 
     private var engine: AVAudioEngine?
+    #if os(iOS)
+    /// The mic's tap is on the shared conversation engine (`VoiceAudioEngine`).
+    private var micStarted = false
+    /// Frames delivered since the last start — the voice-processing watchdog's
+    /// evidence.
+    private var framesSinceStart = 0
+    /// Long enough for a healthy graph to deliver many buffers; short enough that
+    /// a dead one is replaced before anyone decides the app is not listening.
+    static let voiceProcessingWatchdogMs: UInt64 = 2500
+    #endif
     private var lastFrameAt = Date.distantPast
     private var generation = 0
     /// An engine `prepare` is building, or has built, for the next `start`.
@@ -112,6 +126,9 @@ final class DefaultAudioInput: AudioInput {
             do {
                 try Task.checkCancellation()
                 try startEngine(sampleRate: sampleRate, built: ready)
+                #if os(iOS)
+                armVoiceProcessingWatchdog(sampleRate: sampleRate)
+                #endif
                 return
             } catch {
                 if Task.isCancelled { throw CancellationError() }
@@ -164,6 +181,24 @@ final class DefaultAudioInput: AudioInput {
 
     // MARK: - Private
 
+    #if os(iOS)
+    /// Some routes run a voice-processing graph that reports itself started and
+    /// never delivers a buffer. Found in the Moshi bench; the answer there was
+    /// the answer here — no audio in time, rebuild without processing.
+    private func armVoiceProcessingWatchdog(sampleRate: Int) {
+        guard VoiceAudioEngine.shared.voiceProcessing else { return }
+        let started = generation
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.voiceProcessingWatchdogMs * 1_000_000)
+            guard let self, self.generation == started, self.micStarted, self.framesSinceStart == 0 else { return }
+            VoiceAudioEngine.shared.giveUpVoiceProcessing()
+            do { try await self.start(sampleRate: sampleRate) } catch {
+                JcLog.dropped(JcLog.voice, "restart mic without voice processing", error)
+            }
+        }
+    }
+    #endif
+
     /// An engine created ahead, untouched otherwise. Crosses from the building
     /// task to the main actor exactly once and is only ever used on one side at
     /// a time.
@@ -198,8 +233,16 @@ final class DefaultAudioInput: AudioInput {
     }
 
     private func startEngine(sampleRate: Int, built ready: BuiltEngine?) throws {
+        #if os(iOS)
+        // The mic and the reply's player share one voice-processing engine, so
+        // the phone cancels its own speaker — see `VoiceAudioEngine`.
+        let shared = VoiceAudioEngine.shared
+        let hardware = try shared.micFormat()
+        voiceProcessed = shared.voiceProcessing
+        #else
         let engine = ready?.engine ?? AVAudioEngine()
         let input = engine.inputNode
+        #endif
 
         #if !os(iOS)
         // What `.videoChat` does for the phone, done here.
@@ -230,7 +273,9 @@ final class DefaultAudioInput: AudioInput {
         }
         #endif
 
+        #if !os(iOS)
         let hardware = input.inputFormat(forBus: 0)
+        #endif
         guard hardware.sampleRate > 0, hardware.channelCount > 0 else {
             throw VoiceAudioError.micUnavailable("no input route")
         }
@@ -262,7 +307,7 @@ final class DefaultAudioInput: AudioInput {
         let ratio = Double(sampleRate) / hardware.sampleRate
 
         let tapGeneration = generation
-        input.installTap(onBus: 0, bufferSize: Self.tapBufferSize, format: hardware) { [weak self] buffer, _ in
+        let tap: AVAudioNodeTapBlock = { [weak self] buffer, _ in
             Self.lastRawPeak = max(Self.lastRawPeak, Self.rawPeak(buffer))
             let mono = mixdown ? Self.monoMixdown(buffer, to: source, processed: processed) : buffer
             guard let mono,
@@ -275,19 +320,33 @@ final class DefaultAudioInput: AudioInput {
                 MainActor.assumeIsolated {
                     guard let self, self.generation == tapGeneration else { return }
                     self.lastFrameAt = Date()
+                    #if os(iOS)
+                    self.framesSinceStart += 1
+                    #endif
                     self.onFrame?(data)
                 }
             }
         }
+        #if os(iOS)
+        framesSinceStart = 0
+        try shared.startMic(bufferSize: Self.tapBufferSize, tap: tap)
+        micStarted = true
+        #else
+        input.installTap(onBus: 0, bufferSize: Self.tapBufferSize, format: hardware, block: tap)
         self.engine = engine
         engine.prepare()
         try engine.start()
+        #endif
         lastFrameAt = Date()
         Self.lastHardwareFormat = "\(Int(hardware.sampleRate))Hz/\(hardware.channelCount)ch"
     }
 
     private func teardown() {
         generation += 1
+        #if os(iOS)
+        if micStarted { VoiceAudioEngine.shared.stopMic() }
+        micStarted = false
+        #endif
         if let engine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
