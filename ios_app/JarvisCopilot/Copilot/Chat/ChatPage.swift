@@ -14,6 +14,7 @@ struct ChatPage: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var store: ChatStore
+    @State private var dashboard: ChatDashboardStore
     @State private var draft = ""
     /// Bumped on send so the multi-line field is recreated — clearing its binding
     /// while it is focused otherwise leaves the old text on screen.
@@ -34,10 +35,14 @@ struct ChatPage: View {
     /// it nil every turn goes to the server, which is not what the on-device AI
     /// settings promise.
     init(store: ChatStore? = nil,
+         dashboard: ChatDashboardStore? = nil,
          launch: ChatLaunchBus? = nil,
          targets: DeepLinkTargets? = nil) {
         _store = State(initialValue: store ?? MainActor.assumeIsolated {
             ChatStore.production()
+        })
+        _dashboard = State(initialValue: dashboard ?? MainActor.assumeIsolated {
+            ChatDashboardStore.production()
         })
         self.launch = launch ?? MainActor.assumeIsolated { ChatLaunchBus.shared }
         self.targets = targets ?? MainActor.assumeIsolated { DeepLinkTargets.shared }
@@ -89,12 +94,18 @@ struct ChatPage: View {
         .onChange(of: router.selectedTab, initial: true) { _, tab in
             let visible = tab == .chat
             store.setListPolling(visible && scenePhase == .active)
-            if visible { Task { await store.refreshOnFocus() } }
+            if visible {
+                Task { await store.refreshOnFocus() }
+                Task { await dashboard.refresh() }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             let visible = phase == .active && router.selectedTab == .chat
             store.setListPolling(visible)
-            if visible { Task { await store.refreshOnFocus() } }
+            if visible {
+                Task { await store.refreshOnFocus() }
+                Task { await dashboard.refresh() }
+            }
         }
         .sheet(isPresented: $showSessions) { ChatSessionsSheet(store: store) }
         .sheet(isPresented: $showModels) { ChatModelPickerSheet(store: store) }
@@ -108,16 +119,21 @@ struct ChatPage: View {
                 .accessibilityLabel("Chats")
         }
         ToolbarItem(placement: .principal) {
-            VStack(spacing: 2) {
+            // Left-aligned beside the sidebar button, for every chat: centred,
+            // a chat's name was squeezed into a stub between the buttons and
+            // cut off after a couple of words.
+            VStack(alignment: .leading, spacing: 1) {
                 Text("Chat").font(.headline)
                 if !store.messages.isEmpty, !store.sessionTitle.isEmpty {
                     Text(store.sessionTitle)
                         .font(.caption2)
                         .foregroundStyle(JcTheme.muted)
                         .lineLimit(1)
-                        .frame(maxWidth: 120)
+                        .truncationMode(.tail)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
         }
         ToolbarItem(placement: .topBarTrailing) { modelCapsule }
         ToolbarItem(placement: .topBarTrailing) {
@@ -171,10 +187,10 @@ struct ChatPage: View {
                         if store.historyLoading && store.messages.isEmpty {
                             ProgressView().padding(.vertical, 40).frame(maxWidth: .infinity)
                         } else if store.messages.isEmpty {
-                            ChatEmptyState(compact: geometry.size.height < 520) { suggestion in
-                                focused = false
-                                Task { await store.send(suggestion) }
-                            }
+                            ChatEmptyState(compact: geometry.size.height < 520,
+                                           dashboard: dashboard,
+                                           visible: router.selectedTab == .chat && scenePhase == .active,
+                                           onOpen: open)
                             .frame(minHeight: max(0, geometry.size.height - 29))
                             .id(Self.welcomeAnchor)
                         }
@@ -246,34 +262,46 @@ struct ChatPage: View {
     private func stop() {
         Task { await store.cancel() }
     }
+
+    /// A dashboard card, into the screen that owns its data.
+    private func open(_ destination: ChatDashboardDestination) {
+        focused = false
+        switch destination {
+        case .wearables: router.openDevices(.wearables)
+        case .devices:   router.openDevices(.server)
+        case .coding:    router.selectedTab = .coding
+        case .usage:     router.openMore(.insights)
+        }
+    }
 }
 
-/// A spacious welcome that gives way to the conversation after the first turn.
+/// A new chat: the orb, the question, and a status dashboard of what Jarvis is
+/// connected to. Gives way to the conversation after the first turn.
 struct ChatEmptyState: View {
     var compact = false
-    let onSuggestion: (String) -> Void
+    let dashboard: ChatDashboardStore
+    /// Chat is the tab on screen in a foregrounded app. Gates the orb's 60 fps
+    /// ticker and the wearables re-read: every tab stays mounted.
+    var visible = true
+    let onOpen: (ChatDashboardDestination) -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var tight: Bool { compact && !dynamicTypeSize.isAccessibilitySize }
 
-    private static let suggestions = [
-        ("sparkles", "Explore", "What can you do?"),
-        ("sun.horizon", "Reflect", "Summarize my day"),
-        ("desktopcomputer", "Connect", "Check my devices"),
-        ("bolt", "Take action", "Run a skill"),
-    ]
+    /// Wearables connect and drop over Bluetooth while the page is open; this is
+    /// a local read, so it can follow them without touching the network.
+    static let wearablesRefreshSeconds: UInt64 = 5
 
     var body: some View {
-        VStack(spacing: tight ? 20 : 30) {
-            VStack(spacing: tight ? 12 : 18) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: tight ? 24 : 28, weight: .light))
-                    .foregroundStyle(JcTheme.cyan)
-                    .frame(width: tight ? 52 : 72, height: tight ? 52 : 72)
-                    .background {
-                        Circle().fill(JcTheme.cyan.opacity(0.055))
-                            .overlay(Circle().strokeBorder(JcTheme.cyan.opacity(0.14), lineWidth: 0.5))
-                    }
+        VStack(spacing: tight ? 20 : 28) {
+            VStack(spacing: tight ? 10 : 16) {
+                let side: CGFloat = tight ? 60 : 104
+                VoiceOrb(state: .idle, amplitude: 0, size: side, animating: visible)
+                    .frame(width: side, height: side)
+                    // The shader surface overhangs its frame by nearly double,
+                    // and must not take the taps meant for what is around it.
+                    .allowsHitTesting(false)
+                    .padding(.vertical, tight ? 6 : 10)
                     .accessibilityHidden(true)
 
                 VStack(spacing: 10) {
@@ -281,46 +309,31 @@ struct ChatEmptyState: View {
                         .font(.system(.title2, weight: .medium))
                         .tracking(-0.6)
                         .foregroundStyle(JcTheme.text)
-                    Text("A question, a plan, or the next thing to get done.")
-                        .font(.subheadline)
-                        .foregroundStyle(JcTheme.muted)
-                        .frame(maxWidth: 280)
+                    // A small screen spends that line on the cards instead.
+                    if !tight {
+                        Text("A question, a plan, or the next thing to get done.")
+                            .font(.subheadline)
+                            .foregroundStyle(JcTheme.muted)
+                            .frame(maxWidth: 280)
+                    }
                 }
                 .multilineTextAlignment(.center)
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10),
-                                     count: dynamicTypeSize.isAccessibilitySize ? 1 : 2), spacing: 10) {
-                ForEach(Self.suggestions, id: \.2) { symbol, title, suggestion in
-                    Button { onSuggestion(suggestion) } label: {
-                        VStack(alignment: .leading, spacing: tight ? 8 : 12) {
-                            HStack(spacing: 6) {
-                                Image(systemName: symbol).foregroundStyle(JcTheme.cyan.opacity(0.85))
-                                Text(title).foregroundStyle(JcTheme.muted)
-                            }
-                            .font(.caption)
-                            Text(suggestion)
-                                .font((tight ? Font.footnote : Font.subheadline).weight(.medium))
-                                .foregroundStyle(JcTheme.text)
-                                .multilineTextAlignment(.leading)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: tight ? 50 : 66, alignment: .leading)
-                        .padding(tight ? 12 : 15)
-                        .background(.white.opacity(0.035),
-                                    in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .strokeBorder(.white.opacity(0.065), lineWidth: 0.5))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(suggestion)
-                }
-            }
+            ChatDashboard(store: dashboard, compact: tight, onOpen: onOpen)
         }
         .frame(maxWidth: 460)
         .padding(.horizontal, 24)
         .padding(.vertical, tight ? 16 : 24)
         .frame(maxWidth: .infinity)
+        .task(id: visible) {
+            guard visible else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.wearablesRefreshSeconds * 1_000_000_000)
+                if Task.isCancelled { return }
+                dashboard.refreshWearables()
+            }
+        }
     }
 }
 

@@ -33,7 +33,7 @@ final class ChatPageSmokeTests: XCTestCase {
     }
 
     private func page(_ store: ChatStore) -> some View {
-        ChatPage(store: store).environment(AppRouter())
+        ChatPage(store: store, dashboard: .sample()).environment(AppRouter())
     }
 
     // MARK: The three interesting states
@@ -228,7 +228,7 @@ final class ChatStyleSnapshotTests: XCTestCase {
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
         window.frame = CGRect(origin: .zero, size: size)
         let page = VStack(spacing: 0) {
-            ChatPage(store: store, launch: ChatLaunchBus(), targets: DeepLinkTargets())
+            ChatPage(store: store, dashboard: .sample(), launch: ChatLaunchBus(), targets: DeepLinkTargets())
                 .environment(router)
                 .environment(\.dynamicTypeSize, dynamicType)
             GlassNavBar(selection: .constant(.chat), bottomInset: 34)
@@ -285,5 +285,26 @@ final class ChatStyleSnapshotTests: XCTestCase {
 
     private func descendants(_ view: UIView) -> [UIView] {
         [view] + view.subviews.flatMap(descendants)
+    }
+}
+
+@MainActor
+extension ChatDashboardStore {
+    /// A dashboard with a plausible spread of states, and no Bluetooth or network.
+    static func sample() -> ChatDashboardStore {
+        func wearable(_ kind: String, _ connected: Bool) -> WearableEntry {
+            WearableEntry(kind: kind, deviceID: kind, model: kind, name: kind,
+                          connected: connected, rssi: nil, lastRSSI: nil, lastSeen: nil)
+        }
+        return ChatDashboardStore(sources: .init(
+            wearables: { [wearable(WearableKeepAlive.bottle, true), wearable(WearableKeepAlive.scale, true),
+                          wearable(WearableKeepAlive.ring, true), wearable(WearableKeepAlive.esp32, false)] },
+            devices: { [Device(json: ["id": "1", "online": true, "platform": "desktop", "label": "MacBook Pro"]),
+                        Device(json: ["id": "2", "online": true, "platform": "mobile-ios", "label": "iPhone"]),
+                        Device(json: ["id": "3", "online": false, "platform": "desktop", "label": "Apple Watch"])] },
+            codingSessions: { [CodingSession(id: "a", status: "running", activityState: "working"),
+                               CodingSession(id: "b", status: "running", activityState: "waiting")] },
+            quota: { [QuotaProvider(json: ["provider": "claude", "display_name": "Claude Code",
+                                           "windows": [["label": "Weekly", "used_percent": 38]]])] }))
     }
 }

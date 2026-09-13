@@ -21,6 +21,8 @@ struct DevicesPage: View {
     /// what the user reaches for most.
     @State private var section: DevicesSection
     @State private var store: DevicesStore
+    /// Optional so tests and previews without the shell still build the page.
+    @Environment(AppRouter.self) private var router: AppRouter?
 
     /// See `SettingsPage.init` — a view's `init` isn't main-actor-isolated, so
     /// the store can't be a default argument.
@@ -60,6 +62,10 @@ struct DevicesPage: View {
             // missing. The wearables half gets it too now — its own opaque
             // navigation background used to sit over it as a flat black slab.
             .jcScreen("Devices")
+        }
+        // A card elsewhere (the Chat dashboard) asked for a particular half.
+        .onChange(of: router?.screenRequestGeneration, initial: true) { _, _ in
+            if let requested = router?.consumeDevicesSection() { section = requested }
         }
     }
 }

@@ -89,4 +89,37 @@ final class AppRouter {
         voiceLaunchRequested = false
         return true
     }
+
+    // MARK: Opening a screen in another tab
+
+    /// A section of Devices, or a More screen, that another tab asked to show —
+    /// a card on the Chat dashboard, say. Latched like the voice launch: the
+    /// target page may not have been built yet, and takes it when it is.
+    private(set) var devicesSectionRequest: DevicesSection?
+    private(set) var moreDestinationRequest: MoreDestination?
+    /// Bumped on every request, so asking for the screen that is already
+    /// showing (after the user navigated away inside the tab) still notifies.
+    private(set) var screenRequestGeneration = 0
+
+    func openDevices(_ section: DevicesSection) {
+        devicesSectionRequest = section
+        screenRequestGeneration += 1
+        selectedTab = .devices
+    }
+
+    func openMore(_ destination: MoreDestination) {
+        moreDestinationRequest = destination
+        screenRequestGeneration += 1
+        selectedTab = .more
+    }
+
+    func consumeDevicesSection() -> DevicesSection? {
+        defer { devicesSectionRequest = nil }
+        return devicesSectionRequest
+    }
+
+    func consumeMoreDestination() -> MoreDestination? {
+        defer { moreDestinationRequest = nil }
+        return moreDestinationRequest
+    }
 }

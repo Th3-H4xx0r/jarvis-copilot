@@ -242,10 +242,13 @@ final class ChatStore {
     // MARK: Open / switch / new
 
     /// Open the most recent session, or stage a fresh one if there are none.
+    /// A fresh launch opens on a new chat rather than the newest one — what the
+    /// page shows then is the status dashboard. The list still loads for the
+    /// sidebar. A chat opened before this ran (a shared link) is left alone.
     func openInitial() async {
         guard !hasSession else { return }
+        startNewSession()
         await loadSessions()
-        if let first = sessions.first { await openSession(first.id) } else { startNewSession() }
     }
 
     func openSession(_ id: String) async {

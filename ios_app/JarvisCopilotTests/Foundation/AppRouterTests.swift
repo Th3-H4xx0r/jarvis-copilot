@@ -66,6 +66,33 @@ final class AppRouterTests: XCTestCase {
         router.requestVoiceLaunch()
         XCTAssertEqual(router.selectedTab, .voice)
     }
+
+    // MARK: Opening a screen in another tab
+
+    func testOpenDevicesSelectsTheTabAndHandsItTheSection() {
+        let router = AppRouter()
+        router.openDevices(.server)
+        XCTAssertEqual(router.selectedTab, .devices)
+        XCTAssertEqual(router.consumeDevicesSection(), .server)
+        XCTAssertNil(router.consumeDevicesSection(), "taken once")
+    }
+
+    func testOpenMoreSelectsTheTabAndHandsItTheScreen() {
+        let router = AppRouter()
+        router.openMore(.insights)
+        XCTAssertEqual(router.selectedTab, .more)
+        XCTAssertEqual(router.consumeMoreDestination(), .insights)
+        XCTAssertNil(router.consumeMoreDestination())
+    }
+
+    func testAskingForTheSameScreenAgainStillNotifies() {
+        let router = AppRouter()
+        router.openDevices(.wearables)
+        let first = router.screenRequestGeneration
+        _ = router.consumeDevicesSection()
+        router.openDevices(.wearables)
+        XCTAssertGreaterThan(router.screenRequestGeneration, first)
+    }
 }
 
 final class GlassNavBarLayoutTests: XCTestCase {
@@ -74,4 +101,5 @@ final class GlassNavBarLayoutTests: XCTestCase {
         XCTAssertEqual(GlassNavBar.reservedHeight, GlassNavBar.barHeight + GlassNavBar.bottomClearance)
         XCTAssertEqual(GlassNavBar.reservedHeight, 74)
     }
+
 }

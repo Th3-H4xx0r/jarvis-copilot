@@ -13,6 +13,8 @@ struct MorePage: View {
     /// The grid owns its stack. `initialPath` lets a test open a screen without a
     /// tap — SwiftUI's tiles are not `UIView`s, so there is nothing to activate.
     @State private var path: [MoreDestination]
+    /// Optional so tests without the shell still build the page.
+    @Environment(AppRouter.self) private var router: AppRouter?
 
     init(initialPath: [MoreDestination] = []) {
         _path = State(initialValue: initialPath)
@@ -31,6 +33,11 @@ struct MorePage: View {
             }
             .navigationDestination(for: MoreDestination.self) { destination(for: $0) }
             .jcScreen("More")
+        }
+        // A card elsewhere (the Chat dashboard) asked for a screen: open it on
+        // top of the grid, so Back lands on More.
+        .onChange(of: router?.screenRequestGeneration, initial: true) { _, _ in
+            if let requested = router?.consumeMoreDestination() { path = [requested] }
         }
     }
 

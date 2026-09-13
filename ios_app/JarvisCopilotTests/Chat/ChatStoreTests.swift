@@ -405,17 +405,24 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertNil(store.error, "a background refresh must never stomp the view")
     }
 
-    func testOpenInitialOpensTheMostRecentSessionOrStartsFresh() async {
+    /// A fresh launch opens on a new chat — the status dashboard — not on
+    /// whatever was talked about last. History is one tap away in the sidebar,
+    /// so the list is still loaded.
+    func testOpenInitialStartsANewChatAndStillLoadsTheList() async {
         transport.on("GET /api/sessions", .json(["sessions": [["session_id": "a", "updated_at": 1]]]))
-        transport.on("GET /api/session", .json(["session": ["title": "A", "messages": []]]))
         await store.openInitial()
-        XCTAssertEqual(store.sessionID, "a")
+        XCTAssertNil(store.sessionID)
+        XCTAssertEqual(store.sessionTitle, "New chat")
+        XCTAssertTrue(store.messages.isEmpty)
+        XCTAssertEqual(store.sessions.map(\.id), ["a"])
+    }
 
-        let fresh = makeStore()
-        transport.on("GET /api/sessions", .json(["sessions": []]))
-        await fresh.openInitial()
-        XCTAssertNil(fresh.sessionID)
-        XCTAssertEqual(fresh.sessionTitle, "New chat")
+    func testOpenInitialLeavesADeepLinkedChatOpen() async {
+        transport.on("GET /api/session", .json(["session": ["title": "Linked", "messages": []]]))
+        await store.openSession("linked")
+        transport.on("GET /api/sessions", .json(["sessions": [["session_id": "a", "updated_at": 1]]]))
+        await store.openInitial()
+        XCTAssertEqual(store.sessionID, "linked")
     }
 
     // MARK: Open / switch / new session
