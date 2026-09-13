@@ -47,8 +47,8 @@ enum VoiceDiagnostics {
             return "ws→ end_turn text=\(text.map { "\($0.count)ch" } ?? "-")"
                 + " speech_end=\(speechEndTs != nil ? "y" : "n")"
                 + " turn=\(turnID ?? "-")"
-        case .interrupt:
-            return "ws→ interrupt"
+        case .interrupt(let heard):
+            return "ws→ interrupt heard=\(heard.map { "\($0.split(separator: " ").count)w" } ?? "-")"
         }
     }
 

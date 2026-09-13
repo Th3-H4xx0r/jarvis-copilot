@@ -728,7 +728,7 @@ final class VoiceStore {
             lastLocalTranscript = nil
             // A send into a socket that is already gone used to vanish; the turn
             // then waited for a reply that could never arrive.
-            if !session.send(.interrupt) { raise(.failed(Self.connectionLostNotice)); return }
+            if !session.send(.interrupt(heard: reply.heardText)) { raise(.failed(Self.connectionLostNotice)); return }
             if machine.discardingInterruptedTurn {
                 droppedInterruptedFrames = 0
                 interruptedTurnExpiry?.cancel()

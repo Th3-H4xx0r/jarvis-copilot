@@ -765,6 +765,46 @@ _VOICE_REPLY_DIRECTIVE = (
 )
 
 
+# How much of an interrupted reply to quote back to the model. The END of what
+# was heard is what the user is reacting to.
+_HEARD_TEXT_MAX_CHARS = 1200
+
+
+def _voice_turn_directive(heard_before_interrupt):
+    """The voice rules for a turn, plus — when the user cut the previous spoken
+    reply off — what they actually heard of it.
+
+    The model writes a reply much faster than it is spoken, so by the time the
+    user interrupts it has usually finished writing it, and the whole reply sits
+    in the conversation as if it had been said. Without this, the next answer
+    builds on sentences the user never heard ("as I mentioned…"). The note goes
+    in the system directive for this one call, so the Chats tab still shows the
+    reply as it was written.
+    """
+    if heard_before_interrupt is None:
+        return _VOICE_REPLY_DIRECTIVE
+    heard = heard_before_interrupt.strip()
+    if heard:
+        note = (
+            "\n\n[The user interrupted your previous spoken reply. They heard only "
+            f"this much of it: \u201c{heard}\u201d. Nothing after that was heard, so do "
+            "not refer to it as if they know it. Respond to what they say now.]"
+        )
+    else:
+        note = (
+            "\n\n[The user interrupted your previous spoken reply before hearing any "
+            "of it — none of it was heard. Do not assume they know what it said. "
+            "Respond to what they say now.]"
+        )
+    return _VOICE_REPLY_DIRECTIVE + note
+
+
+def _take_heard_before_interrupt(state):
+    """The heard-text note for the next turn, taken once (None when there is
+    none): it describes the reply that was cut off, not any later one."""
+    return state.pop("heard_before_interrupt", None)
+
+
 def _consume_agent_stream(channel, subscriber, stream_id, first_text_emitted=False):
     """GENERATOR. Consume agent-stream events from `subscriber` and yield voice
     segments. Shared by the initial turn (_run_agent_turn_via_chat) and the
@@ -1012,7 +1052,7 @@ def _override_on_cooldown(model: str, provider: str) -> bool:
 
 def _run_agent_turn_via_chat(session_id: str, user_text: str,
                              model_override: str = "", provider_override: str = "",
-                             lane: str = ""):
+                             lane: str = "", heard_before_interrupt=None):
     """GENERATOR. Push `user_text` into the user's active chat session and
     yield segments as they arrive on the SSE stream so callers can react
     incrementally (TTS+play as each text segment lands; show tool status
@@ -1151,7 +1191,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         # The voice rules ride in the SYSTEM prompt for this one call (consumed
         # by the streaming thread) — not prefixed to the user message, which is
         # what the Chats tab shows verbatim.
-        s._voice_turn_directive = _VOICE_REPLY_DIRECTIVE
+        s._voice_turn_directive = _voice_turn_directive(heard_before_interrupt)
     except Exception:
         pass
     print(f"[webui] voice: turn model={eff_model!r} provider={eff_provider!r} lane={lane!r} override={explicit_override} fast_lane={bool(fast_lane)}", flush=True)
@@ -1872,6 +1912,11 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         # lock is released — otherwise the user's next end_turn fails with
         # "session already has an active stream" ("something went wrong").
         state["interrupt"] = True
+        # What of the reply the client had actually played. Absent from older
+        # clients, which leaves the next turn's directive as it was.
+        if "heard" in msg:
+            heard = str(msg.get("heard") or "").strip()
+            state["heard_before_interrupt"] = heard[-_HEARD_TEXT_MAX_CHARS:]
         _cancel_active_voice_stream(state)
     elif t == "end_turn":
         # A previous turn still streaming? The user spoke over it (barge-in
@@ -2597,6 +2642,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
         handled = _stream_segments(conn, sock, state, _run_agent_turn_via_chat(
             sid, transcript, model_override=turn_model, provider_override=turn_provider,
             lane=(state.get("lane") or ""),
+            heard_before_interrupt=_take_heard_before_interrupt(state),
         ), timing=timing)
         _finish_turn_timing(conn, sock, timing)
         if handled:

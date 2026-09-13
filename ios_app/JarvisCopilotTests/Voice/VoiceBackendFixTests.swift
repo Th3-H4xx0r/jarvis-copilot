@@ -382,7 +382,8 @@ final class VoiceBackendFixTests: XCTestCase {
     func testDiagnosticsRecordStateTransitionsAndFrames() async {
         let rig = makeRig()
         await rig.store.primaryAction()
-        _ = await waitUntilVoice { rig.socket != nil }
+        // The socket opens alongside the session lookup; begin_turn follows it.
+        _ = await waitUntilVoice { rig.socket?.sentTypes.contains("begin_turn") == true }
         rig.socket?.receive(json: ["type": "ready", "mode": "bridge"])
         rig.socket?.receive(json: ["type": "assistant_text", "text": "at your service"])
 

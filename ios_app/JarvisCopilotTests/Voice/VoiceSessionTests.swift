@@ -91,8 +91,12 @@ final class VoiceSessionTests: XCTestCase {
         XCTAssertEqual(json.count, 2)
     }
 
-    func testInterruptIsJustATypeTag() {
-        XCTAssertEqual(VoiceClientMessage.interrupt.encoded(), #"{"type":"interrupt"}"#)
+    func testInterruptCarriesWhatWasHeard() {
+        XCTAssertEqual(VoiceClientMessage.interrupt(heard: "It will be sunny").encoded(),
+                       #"{"heard":"It will be sunny","type":"interrupt"}"#)
+        XCTAssertEqual(VoiceClientMessage.interrupt(heard: "").encoded(),
+                       #"{"heard":"","type":"interrupt"}"#, "none of it heard is still worth saying")
+        XCTAssertEqual(VoiceClientMessage.interrupt(heard: nil).encoded(), #"{"type":"interrupt"}"#)
     }
 
     // MARK: - Session
@@ -139,7 +143,7 @@ final class VoiceSessionTests: XCTestCase {
 
         session.send(.beginTurn(sampleRate: 16000, sessionID: "s", model: nil, provider: nil))
         session.send(pcm: Data([7, 8]))
-        session.send(.interrupt)
+        session.send(.interrupt(heard: nil))
 
         XCTAssertEqual(socket.sentTypes, ["begin_turn", "interrupt"])
         XCTAssertEqual(socket.sentData, [Data([7, 8])])
@@ -180,7 +184,7 @@ final class VoiceSessionTests: XCTestCase {
         XCTAssertEqual(socket.closeCount, 1)
         XCTAssertFalse(session.isOpen)
         // Sending after close is a no-op, not a crash.
-        session.send(.interrupt)
+        session.send(.interrupt(heard: nil))
         XCTAssertTrue(socket.sentText.isEmpty)
     }
 

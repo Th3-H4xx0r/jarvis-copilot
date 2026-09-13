@@ -90,7 +90,10 @@ enum VoiceClientMessage: Equatable, Sendable {
     /// moment the user actually stopped talking (plan 0.2). Extra keys are
     /// ignored by older servers, so this stays backward compatible.
     case endTurn(text: String?, clientTs: Int, speechEndTs: Int?, turnID: String?)
-    case interrupt
+    /// Stop the reply. `heard` is how much of it the user had actually heard:
+    /// the server writes it into the next turn's instructions, so the model
+    /// does not build on sentences that were generated but never spoken.
+    case interrupt(heard: String?)
 
     var payload: [String: Any] {
         switch self {
@@ -106,8 +109,10 @@ enum VoiceClientMessage: Equatable, Sendable {
             if let speechEndTs { o["speech_end_ts"] = speechEndTs }
             if let turnID, !turnID.isEmpty { o["turn_id"] = turnID }
             return o
-        case .interrupt:
-            return ["type": "interrupt"]
+        case .interrupt(let heard):
+            var o: [String: Any] = ["type": "interrupt"]
+            if let heard { o["heard"] = heard }
+            return o
         }
     }
 

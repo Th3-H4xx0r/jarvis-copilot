@@ -843,7 +843,10 @@ final class VoiceStoreTests: XCTestCase {
         await rig.store.audio.settle()
 
         XCTAssertEqual(rig.store.state, .listening)
-        XCTAssertTrue(try XCTUnwrap(rig.socket).sentTypes.contains("interrupt"))
+        let socket = try XCTUnwrap(rig.socket)
+        XCTAssertTrue(socket.sentTypes.contains("interrupt"))
+        let interrupt = try XCTUnwrap(socket.sentJSON.first { $0["type"] as? String == "interrupt" })
+        XCTAssertNotNil(interrupt["heard"] as? String, "the server is told how much of the reply was heard")
         XCTAssertGreaterThan(rig.recognizer.startCount, 1, "a fresh recognizer for what they say now")
     }
 

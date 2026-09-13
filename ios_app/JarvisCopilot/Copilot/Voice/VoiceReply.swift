@@ -125,6 +125,19 @@ struct VoiceReply: Equatable {
         recomputeSpoken()
     }
 
+    /// The words the user has heard so far, in order — what an interrupt tells
+    /// the server was actually said.
+    var heardText: String {
+        var remaining = spokenWords
+        var words: [String] = []
+        for segment in segments where remaining > 0 {
+            let take = min(remaining, segment.words.count)
+            words += segment.words.prefix(take)
+            remaining -= take
+        }
+        return words.joined(separator: " ")
+    }
+
     /// Reply finished — light up any words the position stream didn't reach.
     mutating func finalizeSpoken() { spokenWords = totalWords }
 

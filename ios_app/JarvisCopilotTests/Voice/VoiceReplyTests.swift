@@ -227,4 +227,16 @@ final class VoiceReplyStreamingTests: XCTestCase {
         reply.clipStarted(tag: 0, durationMs: 1000)
         XCTAssertEqual(reply.segments[0].durMs, 1000)
     }
+
+    func testHeardTextIsTheWordsSpokenSoFarAcrossSegments() {
+        var reply = VoiceReply()
+        reply.append("Clear skies this afternoon.")
+        reply.append("Highs around twenty two.")
+        XCTAssertEqual(reply.heardText, "")
+        reply.clipStarted(tag: 0, durationMs: 1000)
+        reply.clipPosition(tag: 0, positionMs: 1000)
+        reply.clipStarted(tag: 1, durationMs: 1000)
+        reply.clipPosition(tag: 1, positionMs: 400)
+        XCTAssertEqual(reply.heardText, "Clear skies this afternoon. Highs")
+    }
 }
