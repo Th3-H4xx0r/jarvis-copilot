@@ -154,99 +154,111 @@ struct VoiceTryServerChip: View {
     }
 }
 
-/// On device ⇄ Server transcription, in the same segmented style as the turn
-/// mode beside it. Disabled mid-session: it changes how the turn in flight is
-/// sent.
-struct VoiceTranscriptionToggle: View {
-    let value: VoiceTranscription
-    let enabled: Bool
-    let onChange: (VoiceTranscription) -> Void
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(VoiceTranscription.allCases, id: \.self) { segment($0) }
-        }
-        .frame(maxWidth: 260)
-        .background {
-            let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
-            shape.fill(JcTheme.surface)
-                .overlay(shape.strokeBorder(JcTheme.border, lineWidth: 1))
-        }
-        .opacity(enabled ? 1 : 0.5)
+/// A choice drawn as cards side by side: an icon, a name, and a line on what it
+/// does, with the selected one outlined in the accent. Replaces the bare text
+/// segments these settings used to be — a word like "Server" said nothing about
+/// what choosing it meant.
+struct VoiceOptionCards<Value: Hashable>: View {
+    struct Option: Identifiable {
+        let value: Value
+        let symbol: String
+        let title: String
+        let detail: String
+        var id: Value { value }
     }
 
-    private func segment(_ candidate: VoiceTranscription) -> some View {
-        let active = candidate == value
+    let options: [Option]
+    let selection: Value
+    let enabled: Bool
+    let onSelect: (Value) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            ForEach(options) { card($0) }
+        }
+        .opacity(enabled ? 1 : 0.55)
+    }
+
+    private func card(_ option: Option) -> some View {
+        let selected = option.value == selection
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
         return Button {
-            guard enabled, !active else { return }
-            onChange(candidate)
+            guard enabled, !selected else { return }
+            onSelect(option.value)
         } label: {
-            Text(candidate.label)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(active ? JcTheme.accent : JcTheme.muted)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background {
-                    if active {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(JcTheme.accent.opacity(0.16))
-                    }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
+                    Image(systemName: option.symbol)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(selected ? JcTheme.accent : JcTheme.muted)
+                        .frame(width: 32, height: 32)
+                        .background((selected ? JcTheme.accent : Color.white).opacity(selected ? 0.16 : 0.06),
+                                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    Spacer(minLength: 4)
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 17))
+                        .foregroundStyle(selected ? JcTheme.accent : JcTheme.muted.opacity(0.5))
                 }
-                .padding(2)
-                .contentShape(Rectangle())
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(option.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(JcTheme.text)
+                    Text(option.detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(JcTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(12)
+            .background(selected ? JcTheme.accent.opacity(0.08) : Color.white.opacity(0.035), in: shape)
+            .overlay(shape.strokeBorder(selected ? JcTheme.accent.opacity(0.55) : Color.white.opacity(0.08),
+                                        lineWidth: selected ? 1.2 : 0.5))
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
-/// Push-to-talk ⇄ Realtime. Disabled mid-session: switching modes tears the
-/// session down, and doing that from under a live turn reads as a crash.
-///
-/// Flutter has no such control (it hard-codes realtime), so this lives in the
-/// settings sheet rather than on the screen.
-struct VoiceModeToggle: View {
-    let mode: VoiceMode
-    let enabled: Bool
-    let onChange: (VoiceMode) -> Void
+extension VoiceOptionCards where Value == VoiceMode {
+    static var modes: [Option] {
+        [Option(value: .realtime, symbol: "waveform",
+                title: VoiceMode.realtime.label, detail: "Talk naturally. It listens and answers as you go."),
+         Option(value: .quality, symbol: "hand.tap",
+                title: VoiceMode.quality.label, detail: "Tap to ask, tap again to send.")]
+    }
+}
+
+extension VoiceOptionCards where Value == VoiceTranscription {
+    static var transcriptions: [Option] {
+        #if JC_MAC_VOICE
+        let device = "Private: audio never leaves this Mac."
+        let symbol = "laptopcomputer"
+        #else
+        let device = "Private: audio never leaves this iPhone."
+        let symbol = "iphone"
+        #endif
+        return [Option(value: .onDevice, symbol: symbol,
+                       title: VoiceTranscription.onDevice.label, detail: device),
+                Option(value: .server, symbol: "server.rack",
+                       title: VoiceTranscription.server.label, detail: "Your server's speech model transcribes.")]
+    }
+}
+
+/// A small heading over a set of option cards.
+struct VoiceOptionHeading: View {
+    let title: String
+    init(_ title: String) { self.title = title }
 
     var body: some View {
-        HStack(spacing: 0) {
-            segment(.quality)
-            segment(.realtime)
-        }
-        .frame(maxWidth: 260)
-        .background {
-            let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
-            shape.fill(JcTheme.surface)
-                .overlay(shape.strokeBorder(JcTheme.border, lineWidth: 1))
-        }
-        .opacity(enabled ? 1 : 0.5)
-    }
-
-    private func segment(_ candidate: VoiceMode) -> some View {
-        let active = candidate == mode
-        return Button {
-            guard enabled, !active else { return }
-            onChange(candidate)
-        } label: {
-            Text(candidate.label)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(active ? JcTheme.accent : JcTheme.muted)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background {
-                    if active {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(JcTheme.accent.opacity(0.16))
-                    }
-                }
-                .padding(2)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
+        Text(title)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(JcTheme.text.opacity(0.9))
+            .padding(.leading, 4)
+            .padding(.bottom, 8)
     }
 }

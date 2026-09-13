@@ -20,17 +20,35 @@ import SwiftUI
 
 /// One row of a picker.
 struct PickerRow: Identifiable {
-    enum Kind { case item, header }
+    enum Kind { case item, header, choice }
 
     let id = UUID()
     var kind: Kind = .item
     var title: String = ""
     var checked: Bool = false
     var action: () -> Void = {}
+    /// For `.choice`: the options, side by side.
+    var choices: [PickerChoice] = []
 
     static func header(_ title: String) -> PickerRow {
         PickerRow(kind: .header, title: title)
     }
+
+    static func choice(_ title: String, _ choices: [PickerChoice]) -> PickerRow {
+        PickerRow(kind: .choice, title: title, choices: choices)
+    }
+}
+
+/// One option of a `.choice` row. Choosing it does NOT close the card: the two
+/// conversation settings sit together, and setting one then the other should
+/// not take two trips.
+struct PickerChoice: Identifiable {
+    let id = UUID()
+    let symbol: String
+    let title: String
+    let selected: Bool
+    var enabled: Bool = true
+    let action: () -> Void
 }
 
 /// Which picker is open, if any.
@@ -41,7 +59,7 @@ enum MacPickerKind: Identifiable {
     var title: String {
         switch self {
         case .session: return "Voice session"
-        case .model: return "Model"
+        case .model: return "Voice settings"
         }
     }
 }
@@ -124,13 +142,18 @@ final class MacModelPicker {
 
     func load() async { await models.load() }
 
-    /// The model choices, then how speech becomes text. Transcription lives in
-    /// this card rather than a chip of its own: the phone keeps it in its voice
-    /// settings sheet beside the model, and the top bar has no room for a third.
+    /// How the conversation works, then the model. The conversation settings
+    /// come first — they change every turn, and used to sit under the whole
+    /// catalogue — and live in this card rather than chips of their own: the
+    /// phone keeps them in the same sheet as the model, and the top bar has no
+    /// room for more.
     func rows(store: VoiceStore) -> [PickerRow] {
-        var out = [PickerRow(title: "Auto",
+        var out = Self.conversationRows(store: store)
+        out.append(.header(""))
+        out.append(.header("Model"))
+        out.append(PickerRow(title: "Auto",
                              checked: models.selectedModelID == nil,
-                             action: { self.models.select(nil) })]
+                             action: { self.models.select(nil) }))
         if let catalog = models.catalog {
             for provider in catalog.providers {
                 out.append(.header(provider))
@@ -143,17 +166,29 @@ final class MacModelPicker {
         } else {
             out.append(.header(models.loading ? "Loading…" : (models.loadError ?? "No models")))
         }
-        out.append(contentsOf: Self.transcriptionRows(store: store))
         return out
     }
 
-    static func transcriptionRows(store: VoiceStore) -> [PickerRow] {
-        var out: [PickerRow] = [.header("Transcription")]
-        for value in VoiceTranscription.allCases {
-            out.append(PickerRow(title: value.label,
-                                 checked: store.transcription == value,
-                                 action: { Task { await store.setTranscription(value) } }))
-        }
+    static func conversationRows(store: VoiceStore) -> [PickerRow] {
+        let enabled = !store.isActive
+        var out: [PickerRow] = [
+            .choice("Turn mode", [
+                PickerChoice(symbol: "waveform", title: VoiceMode.realtime.label,
+                             selected: store.mode == .realtime, enabled: enabled,
+                             action: { Task { await store.setMode(.realtime) } }),
+                PickerChoice(symbol: "hand.tap", title: VoiceMode.quality.label,
+                             selected: store.mode == .quality, enabled: enabled,
+                             action: { Task { await store.setMode(.quality) } }),
+            ]),
+            .choice("Transcription", [
+                PickerChoice(symbol: "laptopcomputer", title: VoiceTranscription.onDevice.label,
+                             selected: store.transcription == .onDevice, enabled: enabled,
+                             action: { Task { await store.setTranscription(.onDevice) } }),
+                PickerChoice(symbol: "server.rack", title: VoiceTranscription.server.label,
+                             selected: store.transcription == .server, enabled: enabled,
+                             action: { Task { await store.setTranscription(.server) } }),
+            ]),
+        ]
         switch store.transcriptionStatus {
         case .preparing(let fraction):
             out.append(.header(fraction.map { "Downloading speech model… \(Int($0 * 100))%" }
@@ -269,6 +304,8 @@ struct MacPickerSheet: View {
                                 } else {
                                     Divider().opacity(0.25).padding(.vertical, 5)
                                 }
+                            case .choice:
+                                MacChoiceRow(title: row.title, choices: row.choices)
                             case .item:
                                 Button {
                                     row.action()
@@ -297,7 +334,7 @@ struct MacPickerSheet: View {
                     .padding(.bottom, 6)
                 }
             }
-            .frame(maxHeight: 210)
+            .frame(maxHeight: 280)
             .background {
                 let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
                 shape.fill(Color(jcHex: 0x15151C))
@@ -307,6 +344,56 @@ struct MacPickerSheet: View {
             .padding(.horizontal, 10)
             .padding(.top, 32)
         }
+    }
+}
+
+/// A labelled pair of options as one segmented control: icon and name in each
+/// half, the chosen half filled with the accent.
+private struct MacChoiceRow: View {
+    let title: String
+    let choices: [PickerChoice]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(JcTheme.muted.opacity(0.8))
+            HStack(spacing: 2) {
+                ForEach(choices) { choice in
+                    Button(action: choice.action) {
+                        HStack(spacing: 5) {
+                            Image(systemName: choice.symbol)
+                                .font(.system(size: 10, weight: .semibold))
+                            Text(choice.title)
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(choice.selected ? JcTheme.accent : JcTheme.text.opacity(0.7))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background {
+                            if choice.selected {
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(JcTheme.accent.opacity(0.18))
+                                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                        .strokeBorder(JcTheme.accent.opacity(0.45), lineWidth: 1))
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!choice.enabled || choice.selected)
+                    .accessibilityAddTraits(choice.selected ? [.isButton, .isSelected] : .isButton)
+                }
+            }
+            .padding(2)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.white.opacity(0.05)))
+            .opacity(choices.allSatisfy(\.enabled) ? 1 : 0.5)
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
     }
 }
 

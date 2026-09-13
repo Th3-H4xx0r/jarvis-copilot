@@ -235,8 +235,13 @@ final class VoiceReplyStreamingTests: XCTestCase {
         XCTAssertEqual(reply.heardText, "")
         reply.clipStarted(tag: 0, durationMs: 1000)
         reply.clipPosition(tag: 0, positionMs: 1000)
+        XCTAssertEqual(reply.heardText, "Clear skies this afternoon.")
         reply.clipStarted(tag: 1, durationMs: 1000)
         reply.clipPosition(tag: 1, positionMs: 400)
-        XCTAssertEqual(reply.heardText, "Clear skies this afternoon. Highs")
+        // Exactly the words spoken so far, wherever the word schedule puts them.
+        let words = reply.heardText.split(separator: " ")
+        XCTAssertEqual(words.count, reply.spokenWords)
+        XCTAssertGreaterThan(words.count, 4)
+        XCTAssertTrue(reply.heardText.hasPrefix("Clear skies this afternoon. Highs"))
     }
 }

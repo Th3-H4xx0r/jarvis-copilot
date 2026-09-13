@@ -17,11 +17,13 @@ struct VoiceModelPickerSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 24) {
+                    // How the conversation works comes first: these change how
+                    // every turn behaves, and were buried under the whole model
+                    // catalogue.
+                    conversationSection
                     modelSection
                     VoiceEngineSections(store: store)
-                    modeSection
-                    transcriptionSection
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
@@ -129,57 +131,56 @@ struct VoiceModelPickerSheet: View {
         .padding(.vertical, 24)
     }
 
-    // MARK: - Mode
-    //
-    // Flutter hard-codes realtime and has no toggle; ours keeps one because the
-    // quality (push-to-talk) lane is still reachable here and the screen itself
-    // must stay as clean as the reference.
+    // MARK: - Conversation
 
-    private var modeSection: some View {
+    private var conversationSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassQuietLabel("Turn mode")
-            VoiceModeToggle(mode: store.mode, enabled: !store.isActive) { mode in
+            GlassQuietLabel("Conversation")
+            if store.isActive {
+                Text("End the conversation to change these.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(JcTheme.muted)
+                    .padding(.leading, 4)
+                    .padding(.bottom, 10)
+            }
+
+            VoiceOptionHeading("Turn mode")
+            VoiceOptionCards(options: VoiceOptionCards.modes, selection: store.mode,
+                             enabled: !store.isActive) { mode in
                 Task { await store.setMode(mode) }
             }
-            .frame(maxWidth: .infinity)
-            Text(store.mode == .realtime
-                 ? "Continuous streaming conversation."
-                 : "One question per tap, over the quality lane.")
-                .font(.system(size: 12))
-                .foregroundStyle(JcTheme.muted)
-                .padding(.top, 10)
+
+            VoiceOptionHeading("Transcription")
+                .padding(.top, 16)
+            VoiceOptionCards(options: VoiceOptionCards.transcriptions, selection: store.transcription,
+                             enabled: !store.isActive) { value in
+                Task { await store.setTranscription(value) }
+            }
+            transcriptionStatus
+                .padding(.top, 8)
                 .padding(.leading, 4)
         }
     }
 
-    /// Where speech becomes text. The line under the toggle says what the
-    /// choice does — or, while the language model downloads or when on-device
-    /// cannot run, what is happening instead.
-    private var transcriptionSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            GlassQuietLabel("Transcription")
-            VoiceTranscriptionToggle(value: store.transcription, enabled: !store.isActive) { value in
-                Task { await store.setTranscription(value) }
-            }
-            .frame(maxWidth: .infinity)
-            Group {
-                switch store.transcriptionStatus {
-                case .preparing(let fraction):
-                    Text(fraction.map { "Downloading speech model… \(Int($0 * 100))%" }
-                         ?? "Getting on-device transcription ready…")
-                        .foregroundStyle(JcTheme.muted)
-                case .failed(let message):
-                    Text(message).foregroundStyle(JcTheme.danger)
-                case .ready, .idle:
-                    Text(store.transcription == .onDevice
-                         ? "Transcribed on this iPhone. No audio leaves it."
-                         : "Audio is sent to your server to transcribe.")
-                        .foregroundStyle(JcTheme.muted)
-                }
+    /// Only while something is happening: the model downloading, or on-device
+    /// transcription unable to run. The cards already say what each choice does.
+    @ViewBuilder
+    private var transcriptionStatus: some View {
+        switch store.transcriptionStatus {
+        case .preparing(let fraction):
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.mini).tint(JcTheme.muted)
+                Text(fraction.map { "Downloading speech model… \(Int($0 * 100))%" }
+                     ?? "Getting on-device transcription ready…")
             }
             .font(.system(size: 12))
-            .padding(.top, 10)
-            .padding(.leading, 4)
+            .foregroundStyle(JcTheme.muted)
+        case .failed(let message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(JcTheme.danger)
+        case .ready, .idle:
+            EmptyView()
         }
     }
 }

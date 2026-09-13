@@ -78,7 +78,8 @@ final class VoicePageTests: XCTestCase {
         assertLaysOut(VoiceControls(state: .listening, isActive: true, muted: true,
                                     onPrimary: {}, onMute: {}, onFinish: {}, onInterrupt: {}),
                       name: "controls")
-        assertLaysOut(VoiceModeToggle(mode: .realtime, enabled: true) { _ in }, name: "mode")
+        assertLaysOut(VoiceOptionCards(options: VoiceOptionCards.modes, selection: VoiceMode.realtime,
+                                       enabled: true) { _ in }, name: "mode")
     }
 
     /// The screen's own furniture: the error-as-reply slot, the "Try on server"
