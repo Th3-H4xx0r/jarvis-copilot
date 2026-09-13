@@ -62,12 +62,6 @@ struct MacVoicePanel: View {
                 // short enough that this is the common case, not the edge one.
                 .clipped()
 
-            Text(controlHint)
-                .font(.system(size: 11))
-                .foregroundStyle(JcTheme.muted)
-                .multilineTextAlignment(.center)
-                .padding(.top, 6)
-
             VoiceControls(state: store.state,
                           isActive: store.isActive,
                           muted: store.muted,
@@ -146,18 +140,10 @@ struct MacVoicePanel: View {
         }
     }
 
-    private var controlHint: String {
-        if store.audioInterrupted { return "Your conversation will resume when audio is available." }
-        if store.muted && store.isActive { return "Unmute to keep talking." }
-        switch store.state {
-        case .listening:
-            return store.mode == .quality ? "Tap Send when you're done." : "Pause when you're done, or tap Send."
-        case .thinking, .speaking: return "You can interrupt at any time."
-        case .idle, .error: return "Tap the microphone to start."
-        case .connecting: return "Getting your conversation ready."
-        }
-    }
-
+    /// No control hint line. The phone carries one under its controls ("Tap the
+    /// microphone to start", "You can interrupt at any time") because it has a
+    /// screen to spend on it; here it was a third line of muted text in a panel
+    /// whose three buttons are already labelled Mute / Start / Send.
     @ViewBuilder
     private var dialogue: some View {
         if let failure = store.error, !failure.isEmpty {
@@ -180,20 +166,17 @@ struct MacVoicePanel: View {
         } else if !store.userTranscript.isEmpty {
             VoicePlainReply(text: store.userTranscript)
         } else {
-            VStack(spacing: 8) {
-                Text(store.state == .idle ? "What's on your mind?" :
-                     store.state == .listening ? (store.muted ? "Take your time." : "Go ahead, I'm here.") :
-                     store.state == .connecting ? "One moment…" : "Thinking it through…")
-                    .font(.system(size: 17, weight: .medium))
-                    .tracking(-0.4)
-                    .foregroundStyle(JcTheme.text)
-                    .multilineTextAlignment(.center)
-                Text(store.state == .idle ? "Ask a question or think out loud." :
-                     store.state == .listening ? "Your words will appear here." : "Your reply will appear here.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(JcTheme.muted)
-                    .multilineTextAlignment(.center)
-            }
+            // The headline only. The phone pairs it with a subtitle ("Your words
+            // will appear here") that describes the empty space below it; in a
+            // panel this size that space is a few lines, and saying so twice is
+            // most of what is on screen.
+            Text(store.state == .idle ? "What's on your mind?" :
+                 store.state == .listening ? (store.muted ? "Take your time." : "Go ahead, I'm here.") :
+                 store.state == .connecting ? "One moment…" : "Thinking it through…")
+                .font(.system(size: 17, weight: .medium))
+                .tracking(-0.4)
+                .foregroundStyle(JcTheme.text)
+                .multilineTextAlignment(.center)
         }
     }
 
