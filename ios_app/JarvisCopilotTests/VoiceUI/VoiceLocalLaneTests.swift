@@ -244,9 +244,19 @@ final class VoiceLocalLaneTests: XCTestCase {
                                audioSession: MockAudioSessionControlling(),
                                connector: connector,
                                clock: clock,
-                               keyValueStore: MemoryKeyValueStore(),
+                               keyValueStore: Self.onDeviceTranscription(),
                                launch: nil,
                                local: lane ? localLane : nil)
+        }
+
+        /// The on-device lane answers from a transcript made on this phone, so it
+        /// needs on-device transcription. In Server transcription the audio goes
+        /// to the server and the recognizer never runs — there is no transcript
+        /// here for the lane to act on.
+        private static func onDeviceTranscription() -> MemoryKeyValueStore {
+            let prefs = MemoryKeyValueStore()
+            prefs.set(VoiceTranscription.onDevice.rawValue, forKey: VoiceSettings.transcriptionKey)
+            return prefs
         }
 
         /// Start a realtime session, speak, then end the utterance.

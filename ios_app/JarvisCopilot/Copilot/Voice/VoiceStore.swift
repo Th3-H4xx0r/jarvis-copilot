@@ -378,7 +378,10 @@ final class VoiceStore {
 
     @discardableResult
     func prepareTranscription() async -> SpeechReadiness {
-        transcriptionStatus = .preparing(nil)
+        // Every turn start re-checks readiness. When it is already known good
+        // the check is instant, and flipping to "preparing" would flash the
+        // status for a frame on every turn.
+        if transcriptionStatus != .ready { transcriptionStatus = .preparing(nil) }
         let readiness = await recognizer.prepare { [weak self] fraction in
             self?.transcriptionStatus = .preparing(fraction)
         }

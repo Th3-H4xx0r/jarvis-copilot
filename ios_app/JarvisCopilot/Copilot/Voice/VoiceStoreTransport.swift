@@ -152,6 +152,9 @@ extension VoiceStore {
     func localNoSpeech() {
         toolStatus = "Didn't catch that"
         livePartial = ""
+        // Nothing went to the server, so no words stand as what was said —
+        // including partials the engine guessed and then did not commit.
+        userTranscript = ""
         note("on-device: no words; nothing sent")
         raise(.turnEnded(reason: "no_speech", producedReply: false))
     }
@@ -543,6 +546,10 @@ extension VoiceStore {
             return
         }
         speech = session
+        // The partial belongs to THIS utterance. Left over from the last one, it
+        // would be put back on screen as if just said — after a barge-in with no
+        // new words, say.
+        livePartial = ""
         session.onPartial = { [weak self, weak session] text in
             guard let self, let session, self.speech === session,
                   self.state == .listening, !self.muted else { return }

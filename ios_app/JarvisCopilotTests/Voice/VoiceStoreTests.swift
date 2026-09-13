@@ -205,6 +205,20 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(rig.store.state, .listening)
     }
 
+    func testAMissLeavesNoWordsOnScreen() async throws {
+        // The engine guessed words, then committed none: nothing is sent, so
+        // nothing should stand on screen as what the user said.
+        let rig = makeRig(transcription: .onDevice)
+        rig.recognizer.nextTranscript = ""
+        await startListening(rig)
+        try XCTUnwrap(rig.recognizer.latest).emitPartial("uh")
+        await speakThenPause(rig)
+
+        XCTAssertFalse(try XCTUnwrap(rig.socket).sentTypes.contains("end_turn"))
+        XCTAssertEqual(rig.store.userTranscript, "")
+        XCTAssertEqual(rig.store.livePartial, "")
+    }
+
     func testTheLivePartialSurvivesTheEndOfSpeechClear() async throws {
         let rig = makeRig(transcription: .onDevice)
         await startListening(rig)
