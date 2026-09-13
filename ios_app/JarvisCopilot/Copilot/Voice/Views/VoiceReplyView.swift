@@ -73,9 +73,19 @@ struct VoicePlainReply: View {
 
 /// The reply paragraph's type, shared so the karaoke and plain forms can't drift.
 enum VoiceReplyStyle {
+    #if JC_MAC_VOICE
+    /// The phone's 22 pt is a full-screen size: one reply fills a 6" display and
+    /// reads from arm's length. The Mac panel is a menubar popover a third that
+    /// tall, where the same type runs past the bottom of the reply area and
+    /// collides with the transcript above it — and it is read from desk
+    /// distance, where it is simply shouting.
+    static let size: CGFloat = 15
+    static let lineSpacing: CGFloat = 3
+    #else
     static let size: CGFloat = 22
     /// Flutter's `height: 1.4` minus the system font's own line height.
     static let lineSpacing: CGFloat = 4.6
+    #endif
     static let tracking: CGFloat = -0.2
 }
 

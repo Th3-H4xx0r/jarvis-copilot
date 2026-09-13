@@ -23,7 +23,7 @@ struct MacVoicePanel: View {
         _store = State(initialValue: store ?? MainActor.assumeIsolated { VoiceStore.shared })
     }
 
-    private static let orbSize: CGFloat = 168
+    private static let orbSize: CGFloat = 124
 
     /// The size the panel is drawn for. The HOST sets the real one — the
     /// popover from its `contentSize`, the window from `setContentSize` — and
@@ -31,15 +31,15 @@ struct MacVoicePanel: View {
     /// `NSHostingController` asked to size itself resolves to the MINIMUM, so
     /// without a floor the controls get squeezed off the bottom. Same numbers as
     /// `mac_popover._WIDTH` / `_HEIGHT`.
-    static let idealWidth: CGFloat = 400
-    static let idealHeight: CGFloat = 560
-    static let minWidth: CGFloat = 340
-    static let minHeight: CGFloat = 520
+    static let idealWidth: CGFloat = 320
+    static let idealHeight: CGFloat = 438
+    static let minWidth: CGFloat = 280
+    static let minHeight: CGFloat = 380
 
     var body: some View {
         VStack(spacing: 0) {
             statusPill
-                .padding(.top, 14)
+                .padding(.top, 10)
                 .opacity(store.state == .idle ? 0 : 1)
                 .accessibilityHidden(store.state == .idle)
 
@@ -49,16 +49,21 @@ struct MacVoicePanel: View {
                      amplitude: store.state == .listening && store.muted ? 0 : store.amplitude,
                      size: Self.orbSize,
                      animating: onScreen)
-                .frame(height: Self.orbSize + 12)
+                .frame(height: Self.orbSize + 8)
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
 
             dialogue
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.top, 10)
+                .padding(.top, 8)
+                // The reply is a scroll view that follows the segment being
+                // spoken, and it will happily draw outside the space it was
+                // given — over the transcript sitting above it. The panel is
+                // short enough that this is the common case, not the edge one.
+                .clipped()
 
             Text(controlHint)
-                .font(.system(size: 11.5))
+                .font(.system(size: 11))
                 .foregroundStyle(JcTheme.muted)
                 .multilineTextAlignment(.center)
                 .padding(.top, 6)
@@ -73,8 +78,11 @@ struct MacVoicePanel: View {
                               if store.mode == .quality { Task { await store.stopAll() } }
                               else { store.interrupt() }
                           })
+                // The row centres its buttons, but the labels under them sit on
+                // its bottom edge — and that edge is the window's.
+                .padding(.bottom, 8)
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, 16)
         .frame(minWidth: Self.minWidth, idealWidth: Self.idealWidth, maxWidth: .infinity,
                minHeight: Self.minHeight, idealHeight: Self.idealHeight, maxHeight: .infinity)
         .background(backdrop)
@@ -159,10 +167,10 @@ struct MacVoicePanel: View {
                 VoicePlainReply(text: failure, tint: JcTheme.text)
             }
         } else if !store.replySegments.isEmpty {
-            VStack(spacing: 12) {
+            VStack(spacing: 8) {
                 if !store.userTranscript.isEmpty {
                     Text(store.userTranscript)
-                        .font(.system(size: 13))
+                        .font(.system(size: 11.5))
                         .foregroundStyle(JcTheme.muted)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
@@ -176,13 +184,13 @@ struct MacVoicePanel: View {
                 Text(store.state == .idle ? "What's on your mind?" :
                      store.state == .listening ? (store.muted ? "Take your time." : "Go ahead, I'm here.") :
                      store.state == .connecting ? "One moment…" : "Thinking it through…")
-                    .font(.system(size: 20, weight: .medium))
-                    .tracking(-0.5)
+                    .font(.system(size: 17, weight: .medium))
+                    .tracking(-0.4)
                     .foregroundStyle(JcTheme.text)
                     .multilineTextAlignment(.center)
                 Text(store.state == .idle ? "Ask a question or think out loud." :
                      store.state == .listening ? "Your words will appear here." : "Your reply will appear here.")
-                    .font(.system(size: 13))
+                    .font(.system(size: 12))
                     .foregroundStyle(JcTheme.muted)
                     .multilineTextAlignment(.center)
             }

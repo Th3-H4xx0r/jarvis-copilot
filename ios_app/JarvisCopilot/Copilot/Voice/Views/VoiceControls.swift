@@ -1,5 +1,35 @@
 import SwiftUI
 
+/// How big the controls are. The phone's row is 108 pt tall with a 68 pt mic
+/// button, which is right for a hand at arm's length and a full screen to spend.
+/// The Mac panel is a menubar popover well under half that height, read at desk
+/// distance and clicked with a pointer, so the same row eats a quarter of it.
+enum VoiceControlMetrics {
+    #if JC_MAC_VOICE
+    static let rowHeight: CGFloat = 76
+    static let micDiameter: CGFloat = 50
+    static let micIcon: CGFloat = 19
+    static let micSlot: CGFloat = 66
+    static let ghostDiameter: CGFloat = 38
+    static let ghostIcon: CGFloat = 15
+    static let ghostSlot: CGFloat = 58
+    static let labelSize: CGFloat = 10.5
+    static let stackSpacing: CGFloat = 5
+    static let sideInset: CGFloat = 14
+    #else
+    static let rowHeight: CGFloat = 108
+    static let micDiameter: CGFloat = 68
+    static let micIcon: CGFloat = 25
+    static let micSlot: CGFloat = 86
+    static let ghostDiameter: CGFloat = 50
+    static let ghostIcon: CGFloat = 20
+    static let ghostSlot: CGFloat = 76
+    static let labelSize: CGFloat = 12
+    static let stackSpacing: CGFloat = 8
+    static let sideInset: CGFloat = 32
+    #endif
+}
+
 /// Labeled controls keep stopping a session distinct from submitting a turn.
 struct VoiceControls: View {
     let state: VoiceState
@@ -10,7 +40,7 @@ struct VoiceControls: View {
     let onFinish: () -> Void
     let onInterrupt: () -> Void
 
-    static let height: CGFloat = 108
+    static let height: CGFloat = VoiceControlMetrics.rowHeight
 
     var body: some View {
         HStack(alignment: .center) {
@@ -31,7 +61,7 @@ struct VoiceControls: View {
         }
         .frame(maxWidth: 320)
         .frame(height: Self.height)
-        .padding(.horizontal, 32)
+        .padding(.horizontal, VoiceControlMetrics.sideInset)
         .frame(maxWidth: .infinity)
     }
 }
@@ -42,17 +72,18 @@ struct VoiceMicButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
+            VStack(spacing: VoiceControlMetrics.stackSpacing) {
                 Image(systemName: active ? "xmark" : "mic.fill")
-                    .font(.system(size: 25, weight: .medium))
+                    .font(.system(size: VoiceControlMetrics.micIcon, weight: .medium))
                     .foregroundStyle(active ? JcTheme.text : Color.white)
-                    .frame(width: 68, height: 68)
+                    .frame(width: VoiceControlMetrics.micDiameter,
+                           height: VoiceControlMetrics.micDiameter)
                     .jcLiquidGlass(in: Circle(), tint: active ? .clear : JcTheme.primaryBlue)
                 Text(active ? "End" : "Start")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: VoiceControlMetrics.labelSize, weight: .medium))
                     .foregroundStyle(JcTheme.text)
             }
-            .frame(width: 86)
+            .frame(width: VoiceControlMetrics.micSlot)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -76,17 +107,18 @@ struct VoiceGhostCircle: View {
 
     var body: some View {
         Button { action?() } label: {
-            VStack(spacing: 8) {
+            VStack(spacing: VoiceControlMetrics.stackSpacing) {
                 Image(systemName: symbol)
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: VoiceControlMetrics.ghostIcon, weight: .medium))
                     .foregroundStyle(highlighted ? JcTheme.cyan : JcTheme.text)
-                    .frame(width: 50, height: 50)
+                    .frame(width: VoiceControlMetrics.ghostDiameter,
+                           height: VoiceControlMetrics.ghostDiameter)
                     .jcLiquidGlass(in: Circle(), tint: highlighted ? JcTheme.cyan.opacity(0.25) : .clear)
                 Text(label)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: VoiceControlMetrics.labelSize, weight: .medium))
                     .foregroundStyle(JcTheme.muted)
             }
-            .frame(width: 76)
+            .frame(width: VoiceControlMetrics.ghostSlot)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

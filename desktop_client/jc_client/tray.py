@@ -165,7 +165,7 @@ class TrayApp:
         # When supervised by launchctl/systemd, _svc is None but a
         # service is alive in another process; we read status from its
         # PID file + log tail.
-        self._supervised_pid: int | None = None
+        self._supervised = False
         # The voice-orb popup runs as a separate process (pywebview can't share
         # the macOS main run loop with pystray); track it so the menu item can
         # toggle it open/closed.
@@ -206,9 +206,9 @@ class TrayApp:
             )
             self._svc = None
             self._svc_thread = None
-            self._supervised_pid = running_pid
+            self._supervised = True
             return
-        self._supervised_pid = None
+        self._supervised = False
 
         self._svc = service.Service()
         # Make the active handle reachable from the tray.
@@ -291,6 +291,20 @@ class TrayApp:
             os.startfile(str(path))  # type: ignore[attr-defined]
         else:
             subprocess.Popen(["xdg-open", str(path)])
+
+    @property
+    def _supervised_pid(self) -> Optional[int]:
+        """The service we are watching, re-read from the PID file every time.
+
+        NOT a snapshot taken at startup. The service gets a new PID every time
+        it restarts — `jc-client restart` does it, `jc-client update` does it,
+        and so does the supervisor after a crash — while the tray keeps running
+        across all of them. Holding the old PID, `_pid_alive` says no, so the
+        tray decides the service is stopped and paints the icon RED and the menu
+        "Reconnecting…" for the rest of its life, with a perfectly connected
+        client underneath. The PID file is what actually knows.
+        """
+        return _read_service_pid() if self._supervised else None
 
     def _act_restart(self, _icon, _item) -> None:
         if self._supervised_pid:

@@ -56,8 +56,8 @@ if sys.platform == "darwin":  # pragma: no cover - needs a macOS run loop
 
 _MINI_PATH = "/?mini=voice"
 # Matches the menubar popover, so the panel lays out identically in both.
-_WIDTH = 400
-_HEIGHT = 560
+_WIDTH = 320
+_HEIGHT = 438
 
 
 def _run_native_window(origin: str) -> bool:

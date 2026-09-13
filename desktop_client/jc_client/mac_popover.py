@@ -43,9 +43,10 @@ _panel_class = _UNSET
 # asks.
 _panel_error: Optional[str] = None
 
-# Popover size. Matches the standalone window so the page lays out identically.
-_WIDTH = 400
-_HEIGHT = 560
+# Popover size. Matches the standalone window so the panel lays out identically,
+# and matches `MacVoicePanel.idealWidth/idealHeight` on the Swift side.
+_WIDTH = 320
+_HEIGHT = 438
 # Native strip under the web view carrying "Open in Window".
 _FOOTER_H = 34
 
