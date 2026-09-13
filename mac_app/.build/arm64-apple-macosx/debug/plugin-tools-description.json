@@ -1,0 +1,864 @@
+{
+  "builtTestProducts" : [
+
+  ],
+  "copyCommands" : {
+
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.JarvisVoiceUI-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/sources",
+      "importPath" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Core/JarvisAPI.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Core/JcLog.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Core/KeyValueStore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Probe.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Shared/JcTheme.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioInputEngine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioOutputEngine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioQueue.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioSessionArbiter.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioSessionController.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/DeviceIcon.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Endpointer.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/PcmChunker.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/SpeechServices.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Views/VoiceControls.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Views/VoiceOrb.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Views/VoiceReplyView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceAPI.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceDiagnostics.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceKaraoke.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceLaunch.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceLiveActivity.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceOrbGeometry.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoicePagePresentation.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoicePlatform.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceReply.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSession.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSessionResolver.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSessionSelection.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSettings.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceState.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceStore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceStoreTransport.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceTurnMachine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "JarvisVoiceUI",
+      "moduleOutputPath" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/Modules/JarvisVoiceUI.swiftmodule",
+      "objects" : [
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/JarvisAPI.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/JcLog.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/KeyValueStore.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/Probe.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/JcTheme.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioInputEngine.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioOutputEngine.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioQueue.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioSessionArbiter.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioSessionController.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/DeviceIcon.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/Endpointer.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/PcmChunker.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/SpeechServices.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceControls.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceOrb.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceReplyView.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceAPI.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceDiagnostics.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceKaraoke.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceLaunch.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceLiveActivity.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceOrbGeometry.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoicePagePresentation.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoicePlatform.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceReply.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceSession.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceSessionResolver.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceSessionSelection.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceSettings.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceState.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceStore.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceStoreTransport.swift.o",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceTurnMachine.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx14.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j15",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-emit-objc-header",
+        "-emit-objc-header-path",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/include/JarvisVoiceUI-Swift.h",
+        "-swift-version",
+        "5",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "mac_app"
+      ],
+      "outputFileMapPath" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/JarvisAPI.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/JcLog.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/KeyValueStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/Probe.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/JcTheme.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioInputEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioOutputEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioQueue.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioSessionArbiter.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioSessionController.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/DeviceIcon.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/Endpointer.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/PcmChunker.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/SpeechServices.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceControls.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceOrb.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceReplyView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceAPI.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceDiagnostics.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceKaraoke.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceLaunch.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceLiveActivity.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceOrbGeometry.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoicePagePresentation.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoicePlatform.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceReply.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceSession.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceSessionResolver.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceSessionSelection.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceSettings.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceState.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceStoreTransport.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceTurnMachine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/Modules/JarvisVoiceUI.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Core/JarvisAPI.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Core/JcLog.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Core/KeyValueStore.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Probe.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Shared/JcTheme.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioInputEngine.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioOutputEngine.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioQueue.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioSessionArbiter.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioSessionController.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/DeviceIcon.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Endpointer.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/PcmChunker.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/SpeechServices.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Views/VoiceControls.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Views/VoiceOrb.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Views/VoiceReplyView.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceAPI.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceDiagnostics.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceKaraoke.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceLaunch.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceLiveActivity.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceOrbGeometry.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoicePagePresentation.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoicePlatform.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceReply.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSession.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSessionResolver.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSessionSelection.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSettings.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceState.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceStore.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceStoreTransport.swift",
+        "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceTurnMachine.swift"
+      ],
+      "tempsPath" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "JarvisVoiceUI" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "JarvisVoiceUI",
+      "-package-name",
+      "mac_app",
+      "-c",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Core/JarvisAPI.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Core/JcLog.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Core/KeyValueStore.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Probe.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Shared/JcTheme.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioInputEngine.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioOutputEngine.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioQueue.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioSessionArbiter.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioSessionController.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/DeviceIcon.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Endpointer.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/PcmChunker.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/SpeechServices.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Views/VoiceControls.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Views/VoiceOrb.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Views/VoiceReplyView.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceAPI.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceDiagnostics.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceKaraoke.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceLaunch.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceLiveActivity.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceOrbGeometry.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoicePagePresentation.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoicePlatform.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceReply.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSession.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSessionResolver.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSessionSelection.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSettings.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceState.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceStore.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceStoreTransport.swift",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceTurnMachine.swift",
+      "-I",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx14.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j15",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-emit-objc-header",
+      "-emit-objc-header-path",
+      "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/include/JarvisVoiceUI-Swift.h",
+      "-swift-version",
+      "5",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "mac_app",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "JarvisVoiceUI" : [
+
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Core/JarvisAPI.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Core/JcLog.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Core/KeyValueStore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Probe.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Shared/JcTheme.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioInputEngine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioOutputEngine.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioQueue.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioSessionArbiter.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/AudioSessionController.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/DeviceIcon.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Endpointer.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/PcmChunker.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/SpeechServices.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Views/VoiceControls.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Views/VoiceOrb.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/Views/VoiceReplyView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceAPI.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceDiagnostics.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceKaraoke.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceLaunch.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceLiveActivity.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceOrbGeometry.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoicePagePresentation.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoicePlatform.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceReply.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSession.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSessionResolver.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSessionSelection.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceSettings.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceState.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceStore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceStoreTransport.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/Sources/JarvisVoiceUI/Voice/VoiceTurnMachine.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/sources"
+    },
+    "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioInputEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioOutputEngine.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioQueue.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioSessionArbiter.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/AudioSessionController.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/DeviceIcon.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/Endpointer.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/JarvisAPI.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/JcLog.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/JcTheme.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/KeyValueStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/PcmChunker.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/Probe.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/SpeechServices.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceAPI.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceControls.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceDiagnostics.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceKaraoke.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceLaunch.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceLiveActivity.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceOrb.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceOrbGeometry.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoicePagePresentation.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoicePlatform.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceReply.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceReplyView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceSession.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceSessionResolver.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceSessionSelection.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceSettings.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceState.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceStoreTransport.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.build/VoiceTurnMachine.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/JarvisVoiceUI.product/Objects.LinkFileList"
+    },
+    "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/pranavkrishna/PranavFiles/coding-projects/jarvis-copilot/mac_app/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+    }
+  }
+}
