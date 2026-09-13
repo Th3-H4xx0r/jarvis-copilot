@@ -101,14 +101,33 @@ final class VoiceStore {
     /// While "thinking", reassure the user if the server is slow and hasn't
     /// streamed anything yet. Without this a slow turn looks like a frozen app.
     static let thinkingWatchdogMs = 18000
-    /// Barge-in threshold (normalized 0..1), mirroring voice.js.
-    static let bargeInThreshold = 0.40
-    /// Sustained-speech barge-in: a single frame over 0.40 almost never happens
-    /// for normal speech once echo cancellation has attenuated the mic, so also
-    /// trip on a run of moderately loud frames (~200 ms) — the reply's own echo
-    /// leak stays short and quiet, real speech doesn't.
-    static let bargeInSustainAmp = 0.18
-    static let bargeInSustainFrames = 4
+    /// Talking over the reply interrupts it once this much speech has been heard.
+    ///
+    /// The mic runs through echo cancellation and gain control on both devices,
+    /// and that sets the scale. The old rule — one frame over 0.40, or a run over
+    /// 0.18 — was pitched for a raw browser mic; nobody talking at a normal
+    /// volume reached it, so barge-in never fired.
+    ///
+    /// Measured on a MacBook with a reply playing through its own speakers,
+    /// what echo cancellation lets through is usually tiny (median ≈0.002–0.004)
+    /// but it LEAKS: bursts to 0.05–0.57, worst as playback starts and as the
+    /// canceller re-adapts. Single-frame spikes are therefore never enough, and
+    /// the numbers below are the ones that stayed quiet across those recordings
+    /// while still sitting well under a voice raised to talk over someone.
+    static let bargeInSustainMs = 350
+    /// ...out of the last this-many milliseconds. Density, not an unbroken run:
+    /// speech has gaps between syllables, and echo leaks in syllable-sized
+    /// bursts too — but a voice talking over the reply fills most of the window
+    /// and a leak does not.
+    static let bargeInWindowMs = 500
+    /// Voiced means at least this loud...
+    static let bargeInSpeechAmp = 0.03
+    /// ...and at least this many times the echo the mic has been hearing under
+    /// this reply, so turned-up speakers raise the bar instead of interrupting.
+    static let bargeInEchoMargin = 3.0
+    /// Nothing counts this soon after playback starts: the echo canceller has
+    /// not caught up with the new audio yet, and that is when it leaks most.
+    static let bargeInSettleMs = 500
     /// A backgrounded realtime session sitting in `listening` with nobody talking
     /// is the worst-case battery drain (mic + audio session + WS all live). End it
     /// after this long — but only when genuinely idle.
@@ -221,7 +240,23 @@ final class VoiceStore {
     /// interrupts, stops, or starts a new turn.
     var turnEpoch = 0
     var foreground = true
-    var bargeRun = 0
+    /// The last `bargeInWindowMs` of mic frames under the reply: duration and
+    /// whether each counted as voiced.
+    var bargeFrames: [(ms: Int, voiced: Bool)] = []
+    var bargeVoicedMs: Int { bargeFrames.reduce(0) { $0 + ($1.voiced ? $1.ms : 0) } }
+    /// Running mean of what the mic hears under the reply when nobody is
+    /// talking: the reply's leftover echo.
+    var bargeEchoFloor = 0.0
+    /// The last moments of mic audio under the reply. When they turn out to be
+    /// the user cutting in, they are the start of what was said.
+    var bargeHeld: [Data] = []
+    /// Barge-in listens again from here — see `bargeInSettleMs`.
+    var bargeSettleUntil: Date?
+    /// Loudest mic frame and frame count in the current diagnostics window,
+    /// logged about once a second while the reply plays: what the mic hears
+    /// under the assistant's own voice is what every barge-in threshold hangs on.
+    var bargeWindowPeak = 0.0
+    var bargeWindowFrames = 0
     /// The transcript of the last turn the ON-DEVICE lane answered, kept so the
     /// user can re-run it on the server ("Try on server"). One-shot: cleared on
     /// retry, on a new spoken turn, on interrupt and on Stop.
@@ -308,7 +343,11 @@ final class VoiceStore {
 
         input.onFrame = { [weak self] chunk in self?.handleMicFrame(chunk) }
         audio.onIdle = { [weak self] in self?.raise(.playbackDrained) }
-        audio.onPlaybackStart = { [weak self] in self?.raise(.playbackStarted) }
+        audio.onPlaybackStart = { [weak self] in
+            guard let self else { return }
+            self.bargeSettleUntil = self.clock.now.addingTimeInterval(Double(Self.bargeInSettleMs) / 1000)
+            self.raise(.playbackStarted)
+        }
         audio.onAmplitude = { [weak self] a in self?.amplitude = a }
         // A clip start carries a duration that may still be growing (streamed
         // PCM); only `onSegmentComplete` is exact. See VoiceReply.clipStarted.
@@ -681,7 +720,7 @@ final class VoiceStore {
             reply.finalizeSpoken()
         case .resetEndpointer:
             endpointer.reset()
-            bargeRun = 0
+            resetBargeIn()
             amplitude = 0
             loggedMicDrop = false
         case .newTurnEpoch:
@@ -896,12 +935,29 @@ final class VoiceStore {
         // while foregrounded — backgrounded, the loud reply can leak past echo
         // cancellation and falsely trip the threshold.
         if machine.bargeInAllowed {
-            if foreground, detectBargeIn(amp) { raise(.bargeIn) }
+            bargeWindowPeak = max(bargeWindowPeak, amp)
+            bargeWindowFrames += 1
+            if bargeWindowFrames >= 24 {
+                note(String(format: "mic under reply: peak=%.4f echo=%.4f", bargeWindowPeak, bargeEchoFloor))
+                bargeWindowPeak = 0
+                bargeWindowFrames = 0
+            }
+            if let until = bargeSettleUntil, clock.now < until { return }
+            holdBargeAudio(chunk)
+            let frameMs = Endpointer.frameMsForPcm16(byteLength: chunk.count, sampleRate: Self.micRate)
+            if foreground, detectBargeIn(amp, frameMs: frameMs) {
+                let said = bargeHeld
+                note("barge-in: \(bargeVoicedMs)ms of speech over the reply")
+                raise(.bargeIn)
+                // Now listening: what was heard while deciding goes through the
+                // ordinary path, so the new turn starts with the user's first
+                // words rather than a third of a second into them.
+                said.forEach(handleMicFrame)
+            }
             return // don't stream our own playback back to STT
         }
 
         guard machine.state == .listening else { return }
-        bargeRun = 0
         if settings.transcription == .onDevice {
             // On-device transcription: the audio never leaves this device. The
             // recognizer gets the frame below; the socket gets nothing.
@@ -944,17 +1000,35 @@ final class VoiceStore {
         }
     }
 
-    func detectBargeIn(_ amp: Double) -> Bool {
-        if amp > Self.bargeInThreshold {
-            bargeRun = 0
-            return true
+    func detectBargeIn(_ amp: Double, frameMs: Int) -> Bool {
+        let voiced = amp >= max(Self.bargeInSpeechAmp, bargeEchoFloor * Self.bargeInEchoMargin)
+        // Only quiet stretches teach the echo level, so a voice that is
+        // building up never raises the bar against itself.
+        if !voiced, bargeVoicedMs == 0 {
+            let weight = min(1, Double(frameMs) / 1000)
+            bargeEchoFloor += (amp - bargeEchoFloor) * weight
         }
-        bargeRun = amp > Self.bargeInSustainAmp ? bargeRun + 1 : 0
-        if bargeRun >= Self.bargeInSustainFrames {
-            bargeRun = 0
-            return true
+        bargeFrames.append((frameMs, voiced))
+        var total = bargeFrames.reduce(0) { $0 + $1.ms }
+        while total > Self.bargeInWindowMs, bargeFrames.count > 1 {
+            total -= bargeFrames.removeFirst().ms
         }
-        return false
+        return bargeVoicedMs >= Self.bargeInSustainMs
+    }
+
+    private func holdBargeAudio(_ chunk: Data) {
+        bargeHeld.append(chunk)
+        let limit = (Self.bargeInWindowMs + 200) * Self.micRate * 2 / 1000
+        var total = bargeHeld.reduce(0) { $0 + $1.count }
+        while total > limit, bargeHeld.count > 1 {
+            total -= bargeHeld.removeFirst().count
+        }
+    }
+
+    private func resetBargeIn() {
+        bargeFrames.removeAll()
+        bargeEchoFloor = 0
+        bargeHeld.removeAll()
     }
 
     // MARK: - Timers

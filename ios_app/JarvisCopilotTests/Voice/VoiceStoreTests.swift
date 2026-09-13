@@ -67,11 +67,11 @@ final class VoiceStoreTests: XCTestCase {
     }
 
     /// Drive a reply through to `speaking`.
-    private func replyWithAudio(_ rig: Rig, text: String = "Clear skies.") async throws {
+    private func replyWithAudio(_ rig: Rig, text: String = "Clear skies.", audioMs: Int = 200) async throws {
         let socket = try XCTUnwrap(rig.socket)
         socket.receive(json: ["type": "assistant_text", "text": text])
         socket.receive(json: ["type": "audio_meta", "format": "pcm_s16le", "sample_rate": 24000])
-        socket.receive(binary: replyPcm(ms: 200))
+        socket.receive(binary: replyPcm(ms: audioMs))
         await settleVoiceTasks()
         await rig.store.audio.settle()
     }
@@ -530,17 +530,27 @@ final class VoiceStoreTests: XCTestCase {
 
     // MARK: - Barge-in
 
-    func testALoudFrameWhileSpeakingInterruptsTheAssistant() async throws {
-        let rig = makeRig()
+    /// A reply long enough to talk over, past the moment right after playback
+    /// starts when barge-in is not listening yet.
+    private func speakingAndSettled(_ rig: Rig) async throws {
         await startListening(rig)
         await speakThenPause(rig)
-        try await replyWithAudio(rig)
+        try await replyWithAudio(rig, audioMs: 5000)
+        rig.clock.advance(ms: VoiceStore.bargeInSettleMs)
         XCTAssertEqual(rig.store.state, .speaking)
+    }
 
-        rig.input.emit(amplitude: 0.6, ms: 20)
+    func testTalkingOverTheReplyInterruptsIt() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+
+        rig.input.emitFrames(amplitude: 0.06, ms: VoiceStore.bargeInSustainMs - 20)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .speaking, "not yet — a moment of sound is not a sentence")
+
+        rig.input.emitFrames(amplitude: 0.06, ms: 20)
         await settleVoiceTasks()
         await rig.store.audio.settle()
-
         XCTAssertEqual(rig.store.state, .listening)
         let socket = try XCTUnwrap(rig.socket)
         XCTAssertTrue(socket.sentTypes.contains("interrupt"))
@@ -548,33 +558,81 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertGreaterThan(rig.synthesizer.stopCount, 0)
     }
 
-    func testSustainedModerateSpeechAlsoTripsBargeIn() async throws {
+    func testASpikeOfEchoDoesNotInterrupt() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+
+        // Echo cancellation lets single frames through at well over 0.4.
+        for _ in 0..<10 {
+            rig.input.emitFrames(amplitude: 0.57, ms: 40)
+            rig.input.emitFrames(amplitude: 0.003, ms: 200)
+        }
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .speaking)
+        XCTAssertFalse(try XCTUnwrap(rig.socket).sentTypes.contains("interrupt"))
+    }
+
+    func testTheRepliesUsualEchoDoesNotInterruptIt() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+
+        for _ in 0..<30 {   // three seconds: mostly quiet, short leaks
+            rig.input.emitFrames(amplitude: 0.003, ms: 60)
+            rig.input.emitFrames(amplitude: 0.05, ms: 40)
+        }
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .speaking)
+    }
+
+    func testNothingCountsJustAfterPlaybackStarts() async throws {
         let rig = makeRig()
         await startListening(rig)
         await speakThenPause(rig)
-        try await replyWithAudio(rig)
+        try await replyWithAudio(rig, audioMs: 5000)
 
-        // Below the single-frame threshold but above the sustain level: a run of
-        // these is real speech, while the reply's own echo leak stays short.
-        for _ in 0..<(VoiceStore.bargeInSustainFrames - 1) {
-            rig.input.emit(amplitude: 0.25, ms: 20)
-        }
+        // The canceller is still adapting to the new audio: this is echo.
+        rig.input.emitFrames(amplitude: 0.2, ms: VoiceStore.bargeInSettleMs - 50)
         await settleVoiceTasks()
-        XCTAssertEqual(rig.store.state, .speaking, "not yet — one frame short")
+        XCTAssertEqual(rig.store.state, .speaking)
+    }
 
-        rig.input.emit(amplitude: 0.25, ms: 20)
+    func testLouderEchoRaisesTheBar() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+
+        // Speakers turned up: steady echo at 0.02, so 0.04 is not clearly a voice.
+        rig.input.emitFrames(amplitude: 0.02, ms: 3000)
+        rig.input.emitFrames(amplitude: 0.04, ms: 600)
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.store.state, .speaking, "0.04 is not clearly above a 0.02 echo")
+
+        rig.input.emitFrames(amplitude: 0.12, ms: VoiceStore.bargeInSustainMs)
         await settleVoiceTasks()
         XCTAssertEqual(rig.store.state, .listening)
     }
 
+    func testTheWordsThatInterruptedReachTheServerAfterTheInterrupt() async throws {
+        let rig = makeRig()
+        try await speakingAndSettled(rig)
+        let socket = try XCTUnwrap(rig.socket)
+        let dataBefore = socket.sentData.count
+
+        rig.input.emitFrames(amplitude: 0.06, ms: VoiceStore.bargeInSustainMs)
+        await settleVoiceTasks()
+
+        XCTAssertEqual(rig.store.state, .listening)
+        XCTAssertGreaterThan(socket.sentData.count, dataBefore,
+                             "the start of what they said is not thrown away")
+        let interruptIndex = try XCTUnwrap(socket.sentText.firstIndex { $0.contains("\"interrupt\"") })
+        XCTAssertEqual(interruptIndex, socket.sentText.count - 1, "nothing but audio after the interrupt")
+    }
+
     func testBargeInIsIgnoredWhileBackgrounded() async throws {
         let rig = makeRig()
-        await startListening(rig)
-        await speakThenPause(rig)
-        try await replyWithAudio(rig)
+        try await speakingAndSettled(rig)
         rig.store.pauseForBackground()
 
-        rig.input.emit(amplitude: 0.9, ms: 20)
+        rig.input.emitFrames(amplitude: 0.3, ms: 1000)
         await settleVoiceTasks()
 
         // Backgrounded, the loud reply leaks past echo cancellation and would

@@ -133,6 +133,8 @@ final class MockAudioOutput: AudioOutput {
     var playSucceeds = true
     /// Reported through `onClipDuration` when > 0 (as the real player does).
     var clipDuration: TimeInterval = 0
+    /// How far behind the render the speaker is (Bluetooth, device buffers).
+    var outputLatencyMs = 0
 
     private(set) var startedStreams: [Int] = []
     private(set) var fed = Data()

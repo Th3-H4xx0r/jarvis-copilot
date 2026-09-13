@@ -125,6 +125,10 @@ protocol AudioOutput: AnyObject {
     /// Start one encoded clip. `fileExtension` is the container hint ("mp3"/"wav").
     func play(_ bytes: Data, fileExtension: String) async -> Bool
     func stopClip() async
+    /// How far the speaker lags the render: device buffers, and a Bluetooth
+    /// link's hundred-plus milliseconds. What has been rendered is not yet what
+    /// the listener has heard.
+    var outputLatencyMs: Int { get }
 }
 
 // MARK: - Speech recognition (on-device STT)

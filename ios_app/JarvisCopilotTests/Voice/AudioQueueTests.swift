@@ -189,13 +189,14 @@ final class AudioQueueTests: XCTestCase {
     }
 
     func testANewTagRebasesTheSegmentPositionsWithinOneStream() async {
-        let (queue, output, _) = make()
+        let (queue, output, clock) = make()
         var starts: [(Int?, Int)] = []
         queue.onClipStart = { starts.append(($0, $1)) }
 
         queue.appendPcm(replyPcm(ms: 200), sampleRate: 24000, tag: 0)
         queue.appendPcm(replyPcm(ms: 150), sampleRate: 24000, tag: 1)
         await queue.settle()
+        clock.advance(ms: 200)
 
         XCTAssertEqual(output.startedStreams.count, 1)
         XCTAssertEqual(starts.map(\.0), [0, 1])
@@ -243,6 +244,73 @@ final class AudioQueueTests: XCTestCase {
         clock.advance(ms: AudioQueue.nativeTickMs)
         XCTAssertEqual(positions.map(\.0), [7])
         XCTAssertEqual(positions.map(\.1), [AudioQueue.nativeTickMs])
+    }
+
+    /// The karaoke drifted ahead of the voice: every wait for the next sentence
+    /// is silence at the speaker, but the wall clock kept counting it as played.
+    func testSilenceWhileWaitingForTheNextSentenceDoesNotRunTheHighlightAhead() async {
+        let (queue, _, clock) = make()
+        var positions: [(Int?, Int)] = []
+        queue.onPosition = { positions.append(($0, $1)) }
+
+        queue.appendPcm(replyPcm(ms: 500), sampleRate: 24000, tag: 0)
+        await queue.settle()
+        clock.advance(ms: 1500)          // 500 ms played, then 1 s of nothing to play
+        queue.appendPcm(replyPcm(ms: 500), sampleRate: 24000, tag: 1)
+        await queue.settle()
+        positions.removeAll()
+        clock.advance(ms: 250)          // ticks at +100 and +200
+
+        XCTAssertEqual(positions.last?.0, 1)
+        XCTAssertEqual(positions.last?.1, 200,
+                       "the second sentence has been playing for 200 ms, not since the first one ended")
+    }
+
+    /// The server synthesises faster than it speaks, so the next sentence's
+    /// audio lands while this one is still playing. Announcing it on arrival
+    /// marked the sentence being spoken as finished and jumped the highlight to
+    /// one nobody had heard yet.
+    func testTheNextSentenceIsAnnouncedWhenItIsHeardNotWhenItArrives() async {
+        let (queue, _, clock) = make()
+        var starts: [(Int?, Int)] = []
+        var completes: [(Int?, Int)] = []
+        var positions: [(Int?, Int)] = []
+        queue.onClipStart = { starts.append(($0, $1)) }
+        queue.onSegmentComplete = { completes.append(($0, $1)) }
+        queue.onPosition = { positions.append(($0, $1)) }
+
+        queue.appendPcm(replyPcm(ms: 1000), sampleRate: 24000, tag: 0)
+        queue.endPcmSegment(tag: 0)
+        queue.appendPcm(replyPcm(ms: 500), sampleRate: 24000, tag: 1)
+        queue.endPcmSegment(tag: 1)
+        await queue.settle()
+        XCTAssertEqual(starts.map(\.0), [0], "sentence 1 has arrived, but nothing of it has played")
+        XCTAssertEqual(completes.map(\.0), [0])
+
+        clock.advance(ms: 950)          // last tick at 900
+        XCTAssertEqual(starts.map(\.0), [0])
+        XCTAssertEqual(positions.last?.0, 0)
+        XCTAssertEqual(positions.last?.1, 900)
+
+        clock.advance(ms: 200)          // ticks at 1000 and 1100
+        XCTAssertEqual(starts.last?.0, 1)
+        XCTAssertEqual(starts.last?.1, 500)
+        XCTAssertEqual(completes.map(\.0), [0, 1])
+        XCTAssertEqual(positions.last?.0, 1)
+        XCTAssertEqual(positions.last?.1, 100)
+    }
+
+    func testPositionsAllowForTheSpeakersOwnDelay() async {
+        let (queue, output, clock) = make()
+        output.outputLatencyMs = 150
+        var positions: [(Int?, Int)] = []
+        queue.onPosition = { positions.append(($0, $1)) }
+
+        queue.appendPcm(replyPcm(ms: 1000), sampleRate: 24000, tag: 0)
+        await queue.settle()
+        clock.advance(ms: 430)          // last tick at 400
+
+        XCTAssertEqual(positions.last?.1, 250, "what has been rendered is not yet what has been heard")
     }
 
     func testStopDuringAStreamFlushesAndDoesNotFireIdle() async {
@@ -334,7 +402,7 @@ final class AudioQueueTests: XCTestCase {
 
 extension AudioQueueTests {
     func testSegmentCompleteFiresOncePerSegmentOnTheStream() async {
-        let (queue, _, _) = make()
+        let (queue, _, clock) = make()
         var completes: [(Int?, Int)] = []
         queue.onSegmentComplete = { completes.append(($0, $1)) }
 
@@ -343,6 +411,7 @@ extension AudioQueueTests {
         queue.appendPcm(replyPcm(ms: 150), sampleRate: 24000, tag: 1)
         queue.endPcmSegment(tag: 1)
         await queue.settle()
+        clock.advance(ms: 300)
 
         // Exactly one exact duration per segment: a duplicate would run
         // VoiceReply's speaking-rate average twice for the same sentence.

@@ -8,7 +8,7 @@ import Foundation
 ///  • **Gapless stream** (preferred, plan 1.7) — realtime PCM does NOT wait for a
 ///    whole segment: `appendPcm` feeds one continuous render stream, so the first
 ///    ~160 ms plays while the rest of the sentence is still arriving. Karaoke
-///    timing is derived from bytes fed + wall clock.
+///    timing follows a simulated playhead — see `advanceNativePlayhead`.
 ///  • **Clip queue** (fallback + every MP3) — clips play back-to-back; PCM is cut
 ///    by a `PcmChunker` and wrapped in a WAV header.
 ///
@@ -99,11 +99,34 @@ final class AudioQueue {
     private var nativeFedMs = 0
     /// Fed ms when the current segment began.
     private var nativeSegBaseMs = 0
-    /// `onSegmentComplete` already fired for `nativeTag` (its audio_end
-    /// landed), so the tag-change branch must not fire a second time — the
-    /// duplicate ran VoiceReply's speaking-rate average twice for one segment.
-    private var nativeSegDone = false
     private var nativeStart: Date?
+
+    /// One sentence's place on the stream's timeline.
+    ///
+    /// The server synthesises faster than it speaks, so a sentence routinely
+    /// ARRIVES while the previous one is still playing. Its timing callbacks
+    /// used to fire on arrival, and `VoiceReply` treats a new sentence as the
+    /// one being spoken — marking the one actually being spoken as finished and
+    /// running the highlight a sentence or more ahead of the voice. Sentences
+    /// are now announced from here, when the playhead reaches them.
+    private struct StreamSegment {
+        let tag: Int?
+        let baseMs: Int
+        var fedMs = 0
+        var complete = false
+        var announcedMs = -1
+        var completeAnnounced = false
+    }
+    private var nativeSegments: [StreamSegment] = []
+    /// Index into `nativeSegments` of the sentence the listener is hearing.
+    private var nativeHeardIndex = -1
+    /// How much of the fed audio has played, in ms.
+    private var nativePlayedMs = 0
+    /// When `nativePlayedMs` was last brought up to date.
+    private var nativeClockAt: Date?
+    /// When the playhead caught up with everything fed — the player has had
+    /// nothing to play since then.
+    private var nativeDrainedAt: Date?
     private var nativeTick: VoiceTimerToken?
     /// A feed is queued on the chain but has not yet run.
     private var nativePending = false
@@ -188,9 +211,9 @@ final class AudioQueue {
                 guard let self, ep == self.epoch, self.nativeActive else { return }
                 self.nativeEnded = true
                 // Everything for this segment has been fed: its total is exact now.
-                if (self.nativeTag == tag || tag == nil), !self.nativeSegDone {
-                    self.nativeSegDone = true
-                    self.onSegmentComplete?(self.nativeTag, self.nativeFedMs - self.nativeSegBaseMs)
+                if self.nativeTag == tag || tag == nil, let last = self.nativeSegments.indices.last {
+                    self.nativeSegments[last].complete = true
+                    self.announceHeardSegment()
                 }
             }
             return
@@ -273,24 +296,32 @@ final class AudioQueue {
                 self.nativeSegBaseMs = 0
                 self.nativeStart = nil
                 self.nativeTag = tag
-                self.nativeSegDone = false
+                self.resetNativeTimeline()
+                self.nativeSegments = [StreamSegment(tag: tag, baseMs: 0)]
             }
             if tag != self.nativeTag {
                 // The previous sentence can't grow any more — its total is exact
                 // even if its audio_end got lost.
-                if self.nativeTag != nil, !self.nativeSegDone {
-                    self.onSegmentComplete?(self.nativeTag, self.nativeFedMs - self.nativeSegBaseMs)
+                if let last = self.nativeSegments.indices.last {
+                    self.nativeSegments[last].complete = true
                 }
-                self.nativeSegDone = false
                 // Next sentence in the same stream: positions restart at its base.
                 self.nativeSegBaseMs = self.nativeFedMs
                 self.nativeTag = tag
                 self.currentClipBaseMs = 0
+                self.nativeSegments.append(StreamSegment(tag: tag, baseMs: self.nativeFedMs))
             }
             self.nativeEnded = false
             await self.output.feed(pcm)
             guard ep == self.epoch else { return }
+            // Whatever silence preceded this buffer has been sat through already;
+            // settle the playhead before the new audio extends what it may reach.
+            self.advanceNativePlayhead()
             self.nativeFedMs += ms
+            self.nativeDrainedAt = nil
+            if let last = self.nativeSegments.indices.last {
+                self.nativeSegments[last].fedMs = self.nativeFedMs - self.nativeSegments[last].baseMs
+            }
             self.nativeLastFeed = self.clock.now
             if self.nativeStart == nil {
                 self.nativeStart = self.clock.now
@@ -299,10 +330,64 @@ final class AudioQueue {
                 self.armNativeTick()
             }
             self.currentTag = tag
-            // Running total for this segment so the karaoke schedule stretches as
-            // more of the sentence arrives (a repeat tag = schedule correction).
-            self.onClipStart?(tag, self.nativeFedMs - self.nativeSegBaseMs)
+            self.announceHeardSegment()
         }
+    }
+
+    /// Bring the playhead up to now.
+    ///
+    /// It moves with the clock but never past the audio fed. That is what the
+    /// player does: when the stream runs dry — the server still writing the next
+    /// sentence — it plays silence, and resumes with the next buffer the moment
+    /// one is scheduled. Counting wall time from the first buffer instead, as
+    /// this used to, credited every such wait as speech and left the highlight
+    /// that much further ahead of the voice for the rest of the reply.
+    private func advanceNativePlayhead() {
+        let now = clock.now
+        defer { nativeClockAt = now }
+        guard let last = nativeClockAt else { return }
+        let elapsed = max(0, Int((now.timeIntervalSince(last) * 1000).rounded()))
+        let reach = nativePlayedMs + elapsed
+        if reach >= nativeFedMs, nativeDrainedAt == nil {
+            nativeDrainedAt = now.addingTimeInterval(-Double(reach - nativeFedMs) / 1000)
+        }
+        nativePlayedMs = min(reach, nativeFedMs)
+    }
+
+    /// Where the listener is: the playhead, less the speaker's own delay.
+    private var nativeHeardMs: Int { max(0, nativePlayedMs - output.outputLatencyMs) }
+
+    /// Move to the sentence being heard and tell the reply about it: its running
+    /// total as more of it arrives, and its exact length once complete.
+    private func announceHeardSegment() {
+        let heard = nativeHeardMs
+        while nativeHeardIndex + 1 < nativeSegments.count,
+              nativeHeardIndex < 0 || nativeSegments[nativeHeardIndex + 1].baseMs <= heard,
+              nativeHeardIndex < 0 || nativeSegments[nativeHeardIndex + 1].fedMs > 0 {
+            nativeHeardIndex += 1
+        }
+        guard nativeSegments.indices.contains(nativeHeardIndex) else { return }
+        let segment = nativeSegments[nativeHeardIndex]
+        if segment.fedMs != segment.announcedMs, !segment.completeAnnounced {
+            nativeSegments[nativeHeardIndex].announcedMs = segment.fedMs
+            // Running total so the karaoke schedule stretches as more of the
+            // sentence arrives (a repeat tag = schedule correction).
+            onClipStart?(segment.tag, segment.fedMs)
+        }
+        if segment.complete, !segment.completeAnnounced {
+            // Exactly once per sentence: a duplicate would run VoiceReply's
+            // speaking-rate average twice for one segment.
+            nativeSegments[nativeHeardIndex].completeAnnounced = true
+            onSegmentComplete?(segment.tag, segment.fedMs)
+        }
+    }
+
+    private func resetNativeTimeline() {
+        nativeSegments.removeAll()
+        nativeHeardIndex = -1
+        nativePlayedMs = 0
+        nativeClockAt = nil
+        nativeDrainedAt = nil
     }
 
     private func armNativeTick() {
@@ -314,17 +399,25 @@ final class AudioQueue {
 
     private func nativeTickFired() {
         nativeTick = nil
-        guard nativeActive, let start = nativeStart else { return }
-        let elapsed = Int(clock.now.timeIntervalSince(start) * 1000)
-        let played = min(max(elapsed, 0), nativeFedMs)
-        if let tag = nativeTag { onPosition?(tag, played - nativeSegBaseMs) }
-        if nativeEnded, elapsed >= nativeFedMs + Self.nativeIdleGraceMs {
+        guard nativeActive, nativeStart != nil else { return }
+        advanceNativePlayhead()
+        announceHeardSegment()
+        if nativeSegments.indices.contains(nativeHeardIndex) {
+            let segment = nativeSegments[nativeHeardIndex]
+            onPosition?(segment.tag, min(max(nativeHeardMs - segment.baseMs, 0), segment.fedMs))
+        }
+        let now = clock.now
+        let drainedMs = nativeDrainedAt.map { Int((now.timeIntervalSince($0) * 1000).rounded()) }
+        // The speaker is still playing the last of it for `outputLatencyMs`
+        // after the render ran out; stopping the stream sooner clips the tail.
+        if nativeEnded, let drainedMs,
+           drainedMs >= Self.nativeIdleGraceMs + output.outputLatencyMs {
             finishNative(fireIdle: true)
             return
         }
-        if !nativePending, let last = nativeLastFeed,
-           elapsed >= nativeFedMs + Self.nativeStallIdleMs,
-           Int(clock.now.timeIntervalSince(last) * 1000) >= Self.nativeStallIdleMs {
+        if !nativePending, let last = nativeLastFeed, let drainedMs,
+           drainedMs >= Self.nativeStallIdleMs,
+           Int(now.timeIntervalSince(last) * 1000) >= Self.nativeStallIdleMs {
             // No audio_end — idle after the stall rather than hanging in "speaking".
             finishNative(fireIdle: true)
             return
@@ -340,6 +433,7 @@ final class AudioQueue {
         nativeStart = nil
         nativeLastFeed = nil
         nativeTag = nil
+        resetNativeTimeline()
         currentTag = nil
         playing = false
         let ep = epoch

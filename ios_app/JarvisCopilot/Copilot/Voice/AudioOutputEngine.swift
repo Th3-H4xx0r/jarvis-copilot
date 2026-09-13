@@ -108,6 +108,16 @@ final class DefaultAudioOutput: NSObject, AudioOutput {
         if !node.isPlaying { node.play() }
     }
 
+    var outputLatencyMs: Int {
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        return Int(((session.outputLatency + session.ioBufferDuration) * 1000).rounded())
+        #else
+        guard let engine else { return 0 }
+        return Int((engine.outputNode.presentationLatency * 1000).rounded())
+        #endif
+    }
+
     func flushStream() async {
         guard let node else { return }
         // `stop()` discards every scheduled buffer; `play()` re-arms for the next feed.

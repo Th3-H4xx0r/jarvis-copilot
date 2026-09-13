@@ -124,7 +124,8 @@ final class VoiceBackendFixTests: XCTestCase {
     func testLostSocketWhileRecordingDoesNotRemainListening() async {
         let rig = makeRig()
         await rig.store.primaryAction()
-        _ = await waitUntilVoice { rig.input.isRunning }
+        // Recording, not still connecting: the mic runs before the socket is up.
+        _ = await waitUntilVoice { rig.input.isRunning && rig.store.state == .listening }
         rig.store.session.close() // no onClose callback, as on a silent drop
         rig.input.emit(amplitude: 0.025, ms: 20)
         XCTAssertEqual(rig.store.state, .error)
