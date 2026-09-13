@@ -369,15 +369,15 @@ private struct MacChoiceRow: View {
                                 .font(.system(size: 11.5, weight: .semibold))
                                 .lineLimit(1)
                         }
-                        .foregroundStyle(choice.selected ? JcTheme.accent : JcTheme.text.opacity(0.7))
+                        .foregroundStyle(choice.selected ? JcTheme.cyan : JcTheme.text.opacity(0.7))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                         .background {
                             if choice.selected {
                                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(JcTheme.accent.opacity(0.18))
+                                    .fill(Color.white.opacity(0.08))
                                     .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .strokeBorder(JcTheme.accent.opacity(0.45), lineWidth: 1))
+                                        .strokeBorder(JcTheme.cyan.opacity(0.5), lineWidth: 1))
                             }
                         }
                         .contentShape(Rectangle())

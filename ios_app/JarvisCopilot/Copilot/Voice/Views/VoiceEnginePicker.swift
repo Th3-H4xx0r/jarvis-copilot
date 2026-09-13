@@ -99,7 +99,7 @@ struct VoicePickerCheck: View {
         if on {
             Image(systemName: "checkmark")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(JcTheme.primaryBlueHi)
+                .foregroundStyle(JcTheme.cyan)
         }
     }
 }

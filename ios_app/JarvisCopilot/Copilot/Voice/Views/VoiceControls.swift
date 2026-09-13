@@ -155,9 +155,9 @@ struct VoiceTryServerChip: View {
 }
 
 /// A choice drawn as cards side by side: an icon, a name, and a line on what it
-/// does, with the selected one outlined in the accent. Replaces the bare text
-/// segments these settings used to be — a word like "Server" said nothing about
-/// what choosing it meant.
+/// does. Styled like the More tiles — cyan glyphs on the app's glass cards — with
+/// the chosen card lit in cyan. Replaces the bare text segments these settings
+/// used to be: a word like "Server" said nothing about what choosing it meant.
 struct VoiceOptionCards<Value: Hashable>: View {
     struct Option: Identifiable {
         let value: Value
@@ -181,7 +181,7 @@ struct VoiceOptionCards<Value: Hashable>: View {
 
     private func card(_ option: Option) -> some View {
         let selected = option.value == selection
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
         return Button {
             guard enabled, !selected else { return }
             onSelect(option.value)
@@ -189,15 +189,13 @@ struct VoiceOptionCards<Value: Hashable>: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top) {
                     Image(systemName: option.symbol)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(selected ? JcTheme.accent : JcTheme.muted)
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(JcTheme.cyan.opacity(selected ? 1 : 0.7))
                         .frame(width: 32, height: 32)
-                        .background((selected ? JcTheme.accent : Color.white).opacity(selected ? 0.16 : 0.06),
-                                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                     Spacer(minLength: 4)
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 17))
-                        .foregroundStyle(selected ? JcTheme.accent : JcTheme.muted.opacity(0.5))
+                        .foregroundStyle(selected ? JcTheme.cyan : JcTheme.muted.opacity(0.45))
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(option.title)
@@ -212,9 +210,9 @@ struct VoiceOptionCards<Value: Hashable>: View {
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(12)
-            .background(selected ? JcTheme.accent.opacity(0.08) : Color.white.opacity(0.035), in: shape)
-            .overlay(shape.strokeBorder(selected ? JcTheme.accent.opacity(0.55) : Color.white.opacity(0.08),
-                                        lineWidth: selected ? 1.2 : 0.5))
+            .background(Color.white.opacity(selected ? 0.07 : 0.045), in: shape)
+            .overlay(shape.strokeBorder(selected ? JcTheme.cyan.opacity(0.55) : JcTheme.glassBorder,
+                                        lineWidth: 1))
             .contentShape(shape)
         }
         .buttonStyle(.plain)
