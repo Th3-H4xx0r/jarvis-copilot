@@ -19,7 +19,27 @@ import Speech
 @MainActor
 final class DefaultSpeechRecognizing: SpeechRecognizing {
 
+    /// `AnalyzerSpeechEngine` on iOS 26 / macOS 26, nil otherwise. `AnyObject`
+    /// because a stored property cannot carry an availability condition.
+    private let modernEngine: AnyObject?
+
+    init() {
+        if #available(iOS 26.0, macOS 26.0, *) {
+            modernEngine = AnalyzerSpeechEngine()
+        } else {
+            modernEngine = nil
+        }
+    }
+
     func startSession(sampleRate: Int, prompt: Bool) async -> SpeechSession? {
+        if #available(iOS 26.0, macOS 26.0, *), let engine = modernEngine as? AnalyzerSpeechEngine {
+            if !engine.isPrepared {
+                // Only a caller that means it pays for a model download here;
+                // the settings flow normally prepared it already.
+                guard prompt, await engine.prepare(onProgress: { _ in }) == .ready else { return nil }
+            }
+            return engine.makeSession(sampleRate: sampleRate)
+        }
         guard await authorize(prompt: prompt) else { return nil }
         guard let recognizer = SFSpeechRecognizer(),
               recognizer.isAvailable,
@@ -34,6 +54,9 @@ final class DefaultSpeechRecognizing: SpeechRecognizing {
     /// The SFSpeechRecognizer engine's readiness: permission, a recognizer for
     /// this language, and on-device support. It has no model to download.
     func prepare(onProgress: @escaping @MainActor (Double) -> Void) async -> SpeechReadiness {
+        if #available(iOS 26.0, macOS 26.0, *), let engine = modernEngine as? AnalyzerSpeechEngine {
+            return await engine.prepare(onProgress: onProgress)
+        }
         guard await authorize(prompt: true) else { return .denied }
         guard let recognizer = SFSpeechRecognizer() else {
             return .unsupportedLanguage(SpeechReadiness.currentLanguageName)

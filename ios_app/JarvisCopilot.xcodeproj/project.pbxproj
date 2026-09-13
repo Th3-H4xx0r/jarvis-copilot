@@ -44,6 +44,7 @@
 		0D785B0B38A3BB96570E3338 /* WearableKeepAlive.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3CFC22BAB81F97AC993A527 /* WearableKeepAlive.swift */; };
 		0E417891F65C1C75850F30E3 /* OnDeviceAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF35BD612E7FA661FE43D21E /* OnDeviceAI.swift */; };
 		0E94C214683B5F9B3991F55D /* VoiceSessionSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7275E274C36ABAB424A96B5 /* VoiceSessionSelectionTests.swift */; };
+		0EF5FC37A0A94387FDEF2139 /* SpeechAnalyzerServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D6449EBDA32F1C8D8F0CA27 /* SpeechAnalyzerServices.swift */; };
 		0F940F8BB8B243893DCF1CD5 /* CodeMasterSettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25159CEA86AB41F696FDEA56 /* CodeMasterSettingsPage.swift */; };
 		1089378A7B6EC20A7F093BD6 /* JarvisAlarmMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */; };
 		117D6F7BA8B87E4A3045ACE1 /* ProfilesAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BA6255BEA379704AED580E9 /* ProfilesAPI.swift */; };
@@ -810,6 +811,7 @@
 		7C9C939812877EA192CCACFD /* VoiceReplyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceReplyTests.swift; sourceTree = "<group>"; };
 		7D087F3502193DBA679D33E0 /* QuotaTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuotaTests.swift; sourceTree = "<group>"; };
 		7D47A6D7A646C7790970F30E /* AudioSessionController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioSessionController.swift; sourceTree = "<group>"; };
+		7D6449EBDA32F1C8D8F0CA27 /* SpeechAnalyzerServices.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpeechAnalyzerServices.swift; sourceTree = "<group>"; };
 		7D80FE4FB1B0C68D6E945677 /* AttachPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AttachPicker.swift; sourceTree = "<group>"; };
 		7F40E6FA16F0520E66BF37D4 /* VoiceEnginePicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceEnginePicker.swift; sourceTree = "<group>"; };
 		8023D162C95F038AAE3D644A /* Composer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Composer.swift; sourceTree = "<group>"; };
@@ -1884,6 +1886,7 @@
 				6296963762822E601E846885 /* VoiceDiagnostics.swift */,
 				3C43454BB52EA1E28AC849AA /* AudioSessionArbiter.swift */,
 				2C16F21F5307DC5E447CED41 /* VoiceModelFields.swift */,
+				7D6449EBDA32F1C8D8F0CA27 /* SpeechAnalyzerServices.swift */,
 			);
 			name = Voice;
 			path = Voice;
@@ -2865,6 +2868,7 @@
 				6108A9E5CED363F1861A2E83 /* TaskHandle.swift in Sources */,
 				581537C070C63F2F4AE19A89 /* LiquidGlass.swift in Sources */,
 				BEA4B729A18BDE7679650B5A /* VoiceModelFields.swift in Sources */,
+				0EF5FC37A0A94387FDEF2139 /* SpeechAnalyzerServices.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
