@@ -131,15 +131,15 @@ final class DefaultAudioInput: AudioInput {
         teardown()
     }
 
-    /// Build the engine in the background so the tap that starts a conversation
-    /// only has to attach and run it.
+    /// Create the engine in the background so the tap that starts a
+    /// conversation does not pay for it (~100–135 ms on a MacBook).
     ///
-    /// On a Mac, creating the engine and switching on voice processing is most
-    /// of what starting the mic costs — measured on a MacBook: ~100–135 ms for
-    /// the engine, ~270–375 ms for voice processing, against ~85 ms to start a
-    /// prepared one. A prepared engine that has not started leaves the input
-    /// device idle (`kAudioDevicePropertyDeviceIsRunningSomewhere` stays 0), so
-    /// holding one shows no recording indicator.
+    /// Only the engine and its input node — NOT voice processing, and not
+    /// `prepare()`. Voice processing is the slower half (~270–375 ms), and it
+    /// used to be done here too, but on macOS it DUCKS EVERY OTHER APP'S AUDIO
+    /// for as long as it is switched on, recording or not: with the panel open
+    /// and the mic off, music and video elsewhere went quiet. It is switched on
+    /// by `start`, so the dimming lasts exactly as long as the conversation.
     ///
     /// Mac only. On the phone an engine is only usable once the audio session is
     /// active, and activating it early would duck whatever else is playing.
@@ -151,9 +151,9 @@ final class DefaultAudioInput: AudioInput {
         guard engine == nil, preparing == nil,
               AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
         preparing = Task.detached(priority: .userInitiated) {
-            let built = Self.buildEngine()
-            built.engine.prepare()
-            return built
+            let engine = AVAudioEngine()
+            _ = engine.inputNode
+            return BuiltEngine(engine: engine, device: Self.defaultDeviceID)
         }
         #endif
     }
@@ -164,31 +164,21 @@ final class DefaultAudioInput: AudioInput {
 
     // MARK: - Private
 
-    /// An engine with its input configured, not yet tapped or started. Crosses
-    /// from the building task to the main actor exactly once and is only ever
-    /// used on one side at a time.
+    /// An engine created ahead, untouched otherwise. Crosses from the building
+    /// task to the main actor exactly once and is only ever used on one side at
+    /// a time.
     private final class BuiltEngine: @unchecked Sendable {
         let engine: AVAudioEngine
-        let voiceProcessed: Bool
-        let voiceProcessingError: Error?
-        /// What the input looked like when it was built. A device plugged in or
-        /// switched since makes the engine stale.
-        let hardware: AVAudioFormat
+        /// The input it was created against. A device plugged in or switched
+        /// since makes it stale.
         let device: String?
 
-        init(engine: AVAudioEngine, voiceProcessed: Bool, voiceProcessingError: Error?,
-             hardware: AVAudioFormat, device: String?) {
+        init(engine: AVAudioEngine, device: String?) {
             self.engine = engine
-            self.voiceProcessed = voiceProcessed
-            self.voiceProcessingError = voiceProcessingError
-            self.hardware = hardware
             self.device = device
         }
 
-        var isCurrent: Bool {
-            engine.inputNode.inputFormat(forBus: 0) == hardware
-                && DefaultAudioInput.defaultDeviceID == device
-        }
+        var isCurrent: Bool { DefaultAudioInput.defaultDeviceID == device }
     }
 
     private nonisolated static var defaultDeviceID: String? {
@@ -207,11 +197,10 @@ final class DefaultAudioInput: AudioInput {
         return built
     }
 
-    private nonisolated static func buildEngine() -> BuiltEngine {
-        let engine = AVAudioEngine()
+    private func startEngine(sampleRate: Int, built ready: BuiltEngine?) throws {
+        let engine = ready?.engine ?? AVAudioEngine()
         let input = engine.inputNode
-        var processed = false
-        var failure: Error?
+
         #if !os(iOS)
         // What `.videoChat` does for the phone, done here.
         //
@@ -225,29 +214,21 @@ final class DefaultAudioInput: AudioInput {
         // 0.005 against an endpointer that wants 0.012. The turn never ends.
         //
         // It also asks the OS for the processed MONO stream, which is why the
-        // multi-channel mixdown in `startEngine` usually has nothing left to do.
+        // multi-channel mixdown below usually has nothing left to do.
+        //
+        // Switched on here and never ahead of time: it dims other apps' audio
+        // for as long as it is on (see `prepare`).
         //
         // Best-effort: a device that cannot do voice processing (some aggregates
         // and virtual inputs) throws, and raw input is better than no input.
         do {
             try input.setVoiceProcessingEnabled(true)
-            processed = true
+            voiceProcessed = true
         } catch {
-            failure = error
+            voiceProcessed = false
+            JcLog.dropped(JcLog.voice, "enable voice processing", error)
         }
         #endif
-        return BuiltEngine(engine: engine, voiceProcessed: processed, voiceProcessingError: failure,
-                           hardware: input.inputFormat(forBus: 0), device: defaultDeviceID)
-    }
-
-    private func startEngine(sampleRate: Int, built ready: BuiltEngine?) throws {
-        let built = ready ?? Self.buildEngine()
-        let engine = built.engine
-        let input = engine.inputNode
-        voiceProcessed = built.voiceProcessed
-        if let failure = built.voiceProcessingError {
-            JcLog.dropped(JcLog.voice, "enable voice processing", failure)
-        }
 
         let hardware = input.inputFormat(forBus: 0)
         guard hardware.sampleRate > 0, hardware.channelCount > 0 else {

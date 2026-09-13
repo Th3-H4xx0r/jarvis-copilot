@@ -107,9 +107,12 @@ enum VoiceReplyStyle {
     static let size: CGFloat = 22
     /// Flutter's `height: 1.4` minus the system font's own line height.
     static let lineSpacing: CGFloat = 4.6
-    static let leadSize: CGFloat = 14
-    static let scrollTopInset: CGFloat = 0
-    static let scrollBottomInset: CGFloat = 8
+    /// The user's own words at the head of the conversation column: quieter
+    /// than the reply, still readable while they are still talking.
+    static let leadSize: CGFloat = 17
+    /// Room for the conversation column's edge fade to fall on.
+    static let scrollTopInset: CGFloat = 28
+    static let scrollBottomInset: CGFloat = 28
     #endif
     static let tracking: CGFloat = -0.2
 }
