@@ -8,6 +8,16 @@ enum WatchTurnOutcome {
     case failed(String)
 }
 
+#if JC_MAC_VOICE
+/// The Mac voice client builds none of the on-device stack the lane needs — no
+/// skills registry, no local router, no on-device model — so there is no lane
+/// type for it to name. `Never` says precisely that: `VoiceStore.local` can only
+/// ever be nil there, and every turn goes to the server.
+typealias VoiceLocalLaneRef = Never
+#else
+typealias VoiceLocalLaneRef = VoiceLocalLane
+#endif
+
 /// Drives the voice screen. Port of `voice/voice_controller.dart`.
 ///
 /// Owns the mic, the FSM (`VoiceTurnMachine`), the playback queue
@@ -29,7 +39,13 @@ final class VoiceStore {
     /// the store — `consumeVoiceLaunch()` takes it and starts a turn. `local:` is
     /// the on-device lane (`VoiceLocalLane`); with the on-device tier off it
     /// escalates every turn, i.e. today's server-only behaviour.
+    #if JC_MAC_VOICE
+    /// The Mac build has neither layer: no Siri/Control-Center latch to consume
+    /// and no on-device model, so every turn goes to the server.
+    static let shared = VoiceStore()
+    #else
     static let shared = VoiceStore(launch: AppRouter.shared, local: VoiceLocalLane())
+    #endif
 
     // MARK: - Tuning
 
@@ -83,7 +99,7 @@ final class VoiceStore {
     let clock: VoiceClock
     private let launch: VoiceLaunchRequesting?
     /// The on-device answer path. nil = every turn goes to the server.
-    let local: VoiceLocalLane?
+    let local: VoiceLocalLaneRef?
     let audio: AudioQueue
     let session: VoiceSession
     let liveActivity: VoiceLiveActivityThrottle
@@ -204,7 +220,7 @@ final class VoiceStore {
          clock: VoiceClock? = nil,
          keyValueStore: KeyValueStore = UserDefaults.standard,
          launch: VoiceLaunchRequesting? = nil,
-         local: VoiceLocalLane? = nil) {
+         local: VoiceLocalLaneRef? = nil) {
         let input = input ?? DefaultAudioInput()
         let output = output ?? DefaultAudioOutput()
         let audioSession = audioSession ?? DefaultAudioSessionControlling()

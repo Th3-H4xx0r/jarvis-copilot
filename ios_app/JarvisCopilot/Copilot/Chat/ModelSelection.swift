@@ -4,8 +4,10 @@ import Foundation
 /// own selection, so you can run a fast model for voice and a stronger one for
 /// chat. Ported from `services/model_selection.dart`.
 ///
-/// `VoiceSurface` (chat | voice) is the shared enum from `Copilot/Skills` — the
-/// same name Flutter uses, and what the voice surface already keys off.
+/// `VoiceSurface` (chat | voice) is the key — the same name Flutter uses, and
+/// what the voice surface already keys off. It is declared here, with the thing
+/// it indexes; it used to sit in `Skills/OnDeviceModel.swift`, which meant any
+/// target wanting a model choice had to build the on-device model stack too.
 ///
 /// A nil value for either field means "no explicit override" — the caller then
 /// falls back to the server's active/default model.
@@ -13,6 +15,9 @@ import Foundation
 /// Keys (unchanged from the Flutter app, so a migrated install keeps its choice):
 ///   - `sel_chat_model`  / `sel_chat_provider`
 ///   - `sel_voice_model` / `sel_voice_provider`
+/// Which app surface a turn came from.
+enum VoiceSurface: String, Sendable { case chat, voice }
+
 struct ModelSelection: Sendable {
     /// Preferences, not credentials: the model id is not a secret, and reading it
     /// synchronously means the composer never renders a stale "Default".

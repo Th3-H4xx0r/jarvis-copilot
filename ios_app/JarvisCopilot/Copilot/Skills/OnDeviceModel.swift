@@ -36,9 +36,6 @@ enum ToolExecClass: String, Sendable {
     case serverOnly
 }
 
-/// Which app surface a turn came from.
-enum VoiceSurface: String, Sendable { case chat, voice }
-
 /// Engine availability snapshot.
 struct OnDeviceAvailability: Sendable {
     let available: Bool

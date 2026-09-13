@@ -157,11 +157,15 @@ extension VoiceStore {
         pushLiveActivity()
         // The on-device lane gets first refusal: when it finishes the turn here
         // there is no `end_turn`, so the server never runs the agent for it.
+        // (`tryLocalTurn` lives in `VoiceLocalLane.swift`, which the Mac client
+        // does not build — there every turn is a server turn.)
+        #if !JC_MAC_VOICE
         if await tryLocalTurn(transcript, epoch: epoch) {
             guard epoch == turnEpoch, machine.state.isActive else { return }
             resetServerTurn()
             return
         }
+        #endif
         guard epoch == turnEpoch, machine.state.isActive else { return }
         sendEndTurn(text: transcript)
     }
@@ -473,7 +477,14 @@ extension VoiceStore {
         // (Flutter passes `LocalAiSettings.enabledForVoice` here). Otherwise we
         // take the session only if permission was already granted, so enabling
         // nothing still changes nothing.
+        // Without an on-device lane there is nothing on this machine that would
+        // use the recognizer beyond what the server already does, so we never
+        // prompt for it.
+        #if JC_MAC_VOICE
+        let prompt = false
+        #else
         let prompt = local != nil && LocalAiSettings.shared.enabledForVoice
+        #endif
         guard let session = await recognizer.startSession(sampleRate: Self.micRate,
                                                           prompt: prompt) else { return }
         guard machine.state.isActive else {

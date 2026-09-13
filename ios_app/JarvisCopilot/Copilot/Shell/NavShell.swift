@@ -163,18 +163,3 @@ struct GlassNavBar: View {
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
     }
 }
-
-extension View {
-    /// Use the system optical material on iOS 26, with a readable material
-    /// fallback on the older iOS versions supported by this app.
-    @ViewBuilder
-    func jcLiquidGlass<S: Shape>(in shape: S, tint: Color = .clear) -> some View {
-        if #available(iOS 26.0, *) {
-            self.glassEffect(.regular.tint(tint).interactive(), in: shape)
-        } else {
-            self.background(.ultraThinMaterial, in: shape)
-                .background(tint.opacity(0.2), in: shape)
-                .overlay(shape.stroke(.white.opacity(0.16), lineWidth: 0.5))
-        }
-    }
-}

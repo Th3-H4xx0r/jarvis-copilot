@@ -1,4 +1,6 @@
+#if os(iOS)
 import AVFoundation
+#endif
 import Foundation
 
 // The one writer of the process-wide `AVAudioSession`.
@@ -35,6 +37,8 @@ enum AudioSessionClient: CaseIterable, Sendable {
     /// The `record_audio` skill's clip capture.
     case recording
 }
+
+#if os(iOS)
 
 /// The session configuration one set of claims adds up to.
 struct AudioSessionPlan: Equatable, Sendable {
@@ -76,9 +80,13 @@ final class SystemAudioSession: AudioSessionApplying {
     }
 }
 
+#endif
+
 @MainActor
 final class AudioSessionArbiter {
     static let shared = AudioSessionArbiter()
+
+    #if os(iOS)
 
     /// `.videoChat` routes to the loud speaker AND runs echo cancellation, which
     /// is how calling apps get full volume with a simultaneous live mic.
@@ -130,7 +138,11 @@ final class AudioSessionArbiter {
         return idlePlan
     }
 
+    #endif
+
     private(set) var holders: Set<AudioSessionClient> = []
+
+    #if os(iOS)
 
     private let session: AudioSessionApplying
     private var isActive = false
@@ -142,6 +154,8 @@ final class AudioSessionArbiter {
     }
 
     var plan: AudioSessionPlan { Self.plan(for: holders) }
+
+    #endif
 
     func holds(_ client: AudioSessionClient) -> Bool { holders.contains(client) }
 
@@ -179,6 +193,8 @@ final class AudioSessionArbiter {
         try apply()
     }
 
+    #if os(iOS)
+
     private func apply(forceActivation: Bool = false) throws {
         let plan = self.plan
         guard plan.active else {
@@ -211,4 +227,15 @@ final class AudioSessionArbiter {
             && session.mode == plan.mode
             && session.categoryOptions.isSuperset(of: plan.options)
     }
+
+    #else
+
+    /// macOS has no process-wide audio session: there is no `AVAudioSession`, no
+    /// category to lose and nothing for the three clients to clobber — CoreAudio
+    /// picks the default input and output devices itself. The claims are still
+    /// tracked, because `holds(_:)` and the hold/release pairing are shared code
+    /// the voice stack relies on; applying them is simply nothing.
+    private func apply(forceActivation: Bool = false) throws {}
+
+    #endif
 }

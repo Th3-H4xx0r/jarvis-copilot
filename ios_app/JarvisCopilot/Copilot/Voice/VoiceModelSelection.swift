@@ -11,8 +11,10 @@ import Observation
 /// means "Auto" — the server's configured fast lane decides.
 ///
 /// This file is owned by the Voice **UI**; the store itself is not edited here.
-/// See ``voiceTurnModelFields(_:)`` for what the transport must merge into the
-/// realtime hello and the quality-turn body.
+/// The two helpers the TRANSPORT needs — ``voiceTurnModelFields(_:)`` and
+/// ``voiceModelShortLabel(_:)`` — live next door in `VoiceModelFields.swift`,
+/// which is why the Mac voice client can build the turn machine without
+/// building this picker.
 
 // MARK: - Catalogue + selection
 
@@ -78,39 +80,6 @@ final class VoiceModelStore {
         selectedProviderID = model.flatMap { $0.providerID.isEmpty ? nil : $0.providerID }
         selection.set(.voice, model: selectedModelID, provider: selectedProviderID)
     }
-}
-
-/// The `model` / `model_provider` fields every voice turn carries. Port of
-/// `_voiceModelFields()` — omitted entirely when nothing is selected, so the
-/// server keeps using its own fast lane.
-///
-/// `model_provider` is the catalogue's canonical `provider_id` (see
-/// ``VoiceModelStore/select(_:)``); the display name the picker groups under
-/// does not route.
-///
-/// The transport should merge this into the realtime hello and the
-/// `/api/voice/quality-turn` body.
-func voiceTurnModelFields(_ selection: ModelSelection = .shared) -> [String: Any] {
-    var fields: [String: Any] = [:]
-    if let model = selection.model(for: .voice), !model.isEmpty { fields["model"] = model }
-    if let provider = selection.provider(for: .voice), !provider.isEmpty {
-        fields["model_provider"] = provider
-    }
-    return fields
-}
-
-/// A readable short name for a model id ("anthropic/claude-opus-4.7" →
-/// "claude-opus-4.7"). Port of `_ModelChipState._label()`.
-func voiceModelShortLabel(_ model: String?) -> String {
-    guard let model, !model.isEmpty else { return "Auto" }
-    var out = model
-    if let slash = out.lastIndex(of: "/"), out.index(after: slash) < out.endIndex {
-        out = String(out[out.index(after: slash)...])
-    }
-    if let colon = out.lastIndex(of: ":"), out.index(after: colon) < out.endIndex {
-        out = String(out[out.index(after: colon)...])
-    }
-    return out
 }
 
 // MARK: - Optional store capabilities

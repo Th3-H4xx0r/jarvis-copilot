@@ -22,7 +22,11 @@ protocol VoiceLaunchRequesting: AnyObject {
     func consumeVoiceLaunch() -> Bool
 }
 
+// `AppRouter` is the phone's tab/navigation shell, which the Mac voice client
+// does not build; there the store is constructed with no launch latch at all.
+#if os(iOS)
 extension AppRouter: VoiceLaunchRequesting {}
+#endif
 
 /// Bridges the native side of the Flutter launch path to `AppRouter`.
 ///

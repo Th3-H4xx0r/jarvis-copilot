@@ -37,7 +37,14 @@ let package = Package(
                 // On-device routing — a phone feature that drags in the whole
                 // local-model stack.
                 "Voice/VoiceLocalLane.swift",
-            ]
+            ],
+            // What the shared sources test to know they are in THIS build: the
+            // phone's voice loop without the phone's chat UI, navigation shell
+            // and on-device model. The handful of `#if JC_MAC_VOICE` in the
+            // shared tree are all of that shape — a layer this target leaves
+            // out — and never a real iOS/macOS difference, which stays
+            // `#if os(iOS)`.
+            swiftSettings: [.define("JC_MAC_VOICE")]
         ),
     ]
 )

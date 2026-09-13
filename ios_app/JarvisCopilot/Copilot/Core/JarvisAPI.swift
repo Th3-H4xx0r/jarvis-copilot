@@ -23,10 +23,34 @@ protocol APITransport: Sendable {
     func stream(_ request: URLRequest) async throws -> (AsyncThrowingStream<Data, Error>, HTTPURLResponse)
 }
 
+/// The phone's credentials: the paired-device bridge knows the server URL and
+/// holds the session token. The Mac client has neither — it points `JarvisAPI`
+/// at the local `PinnedProxy`, which does the pinning and the cookie itself —
+/// so `BridgeClient` (and this) is iOS-only.
+#if os(iOS)
 struct BridgeCredentials: APICredentials {
     var baseURL: URL? { BridgeClient.shared.apiBaseURL() }
     var headers: [String: String] { BridgeClient.shared.apiAuthHeaders() }
 }
+#else
+/// The Mac's credentials: the loopback `PinnedProxy` the desktop client already
+/// runs. It terminates TLS against the pinned certificate and injects the
+/// session cookie, so nothing here is a secret — only which port it came up on,
+/// and that the host process knows and this dylib does not.
+///
+/// Read through on every request rather than captured: `JarvisAPI.shared` is
+/// built the first time anything touches it, which can be before the host has
+/// called `configure`.
+struct ProxyCredentials: APICredentials {
+    /// Set once by `JarvisVoicePanel` as it hands the popover its view
+    /// controller — on the main thread, before any request exists.
+    @MainActor static var proxy: URL?
+    @MainActor static var extraHeaders: [String: String] = [:]
+
+    var baseURL: URL? { MainActor.assumeIsolated { Self.proxy } }
+    var headers: [String: String] { MainActor.assumeIsolated { Self.extraHeaders } }
+}
+#endif
 
 /// Cookie-free URLSession so the only credential on the wire is the one we set.
 final class URLSessionTransport: APITransport {
@@ -322,8 +346,15 @@ final class JarvisAPI: @unchecked Sendable {
     let credentials: APICredentials
     let transport: APITransport
 
-    init(credentials: APICredentials = BridgeCredentials(), transport: APITransport = URLSessionTransport()) {
-        self.credentials = credentials
+    /// `credentials:` is an optional rather than a defaulted `BridgeCredentials()`
+    /// because where they come from is per-platform: the paired-device bridge on
+    /// the phone, the local pinned proxy on the Mac.
+    init(credentials: APICredentials? = nil, transport: APITransport = URLSessionTransport()) {
+        #if os(iOS)
+        self.credentials = credentials ?? BridgeCredentials()
+        #else
+        self.credentials = credentials ?? ProxyCredentials()
+        #endif
         self.transport = transport
     }
 

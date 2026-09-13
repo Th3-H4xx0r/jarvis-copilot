@@ -78,3 +78,6 @@ docs/superpowers/*
 # Claude Code project scaffolding
 .claude/
 .superpowers/
+
+# SwiftPM build output for the Mac voice dylib
+mac_app/.build/

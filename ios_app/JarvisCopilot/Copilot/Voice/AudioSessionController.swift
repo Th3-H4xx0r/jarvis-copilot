@@ -1,4 +1,6 @@
+#if os(iOS)
 import AVFoundation
+#endif
 import Foundation
 
 /// The voice stack's claim on `AVAudioSession`, expressed through
@@ -32,6 +34,10 @@ final class DefaultAudioSessionControlling: AudioSessionControlling {
     init(center: NotificationCenter = .default, arbiter: AudioSessionArbiter? = nil) {
         self.center = center
         self.arbiter = arbiter ?? .shared
+        // Interruptions are an iOS concept — a phone call or an alarm seizing the
+        // one session. macOS has neither the notification nor the session, so
+        // there is nothing to observe and `onInterruption` never fires there.
+        #if os(iOS)
         observer = center.addObserver(
             forName: AVAudioSession.interruptionNotification,
             object: nil, queue: .main
@@ -43,6 +49,7 @@ final class DefaultAudioSessionControlling: AudioSessionControlling {
                 self.onInterruption?(type == .began ? .began : .ended)
             }
         }
+        #endif
     }
 
     deinit {
