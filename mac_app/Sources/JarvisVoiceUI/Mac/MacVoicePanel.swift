@@ -16,6 +16,10 @@ struct MacVoicePanel: View {
     /// popover takes its content view out of the hierarchy, so this goes false
     /// and the 60 fps loop stops — the conversation underneath keeps running.
     @State private var onScreen = false
+    @State private var sessionPicker = MacSessionPicker()
+    @State private var modelPicker = MacModelPicker()
+    /// Which picker is open. Drawn inside the panel — see `MacVoicePickers`.
+    @State private var openPicker: MacPickerKind?
 
     /// Whether to offer "open in a window". True in the menubar popover, false
     /// in the window itself, which is already the thing the button asks for.
@@ -52,6 +56,14 @@ struct MacVoicePanel: View {
                      size: Self.orbSize,
                      animating: onScreen)
                 .frame(height: Self.orbSize + 8)
+                // The orb is decoration and must never take a click. It draws
+                // its shader surface at size / 0.53 — the visible sphere is 53%
+                // of it — inside a frame of `size`, and SwiftUI does not clip:
+                // the rectangle it hit-tests extends about 55 points past the
+                // sphere in every direction, over the row of chips above it.
+                // That is what made the session and model pickers dead while the
+                // pop-out button, sitting beyond the overhang, worked fine.
+                .allowsHitTesting(false)
 
             Spacer(minLength: 6)
 
@@ -85,6 +97,22 @@ struct MacVoicePanel: View {
         .frame(minWidth: Self.minWidth, idealWidth: Self.idealWidth, maxWidth: .infinity,
                minHeight: Self.minHeight, idealHeight: Self.idealHeight, maxHeight: .infinity)
         .background(backdrop)
+        .overlay {
+            if let kind = openPicker {
+                MacPickerSheet(title: kind.title,
+                               rows: kind == .session
+                                   ? sessionPicker.rows { store.sessionTargetChanged() }
+                                   : modelPicker.rows()) {
+                    openPicker = nil
+                }
+            }
+        }
+        .task {
+            // Loaded up front so a chip opens onto its list rather than onto
+            // "Loading…" — both are one small request.
+            await sessionPicker.load()
+            await modelPicker.load()
+        }
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false }
         // A popover is dismissed by clicking away, which does not tear the
@@ -113,8 +141,16 @@ struct MacVoicePanel: View {
             // Disabled mid-turn, like the phone's: switching either one under a
             // live turn changes which chat it lands in, or which model finishes
             // answering it.
-            MacSessionMenu(enabled: !store.isActive) { store.sessionTargetChanged() }
-            MacModelMenu(enabled: !store.isActive)
+            MacPickerChip(symbol: "bubble.left", text: sessionPicker.chipLabel,
+                          enabled: !store.isActive,
+                          accessibilityLabel: "Voice session: \(sessionPicker.chipLabel)") {
+openPicker = .session
+            }
+            MacPickerChip(symbol: "sparkles", text: modelPicker.chipLabel,
+                          enabled: !store.isActive,
+                          accessibilityLabel: "Voice model: \(modelPicker.chipLabel)") {
+                openPicker = .model
+            }
             Spacer(minLength: 2)
             if showsOpenInWindow {
                 Button {
