@@ -72,7 +72,9 @@ final class VoiceBackendFixTests: XCTestCase {
     func testRealtimeStillConfiguresTheAudioSessionBeforeTheMic() async {
         let rig = makeRig()
         await rig.store.primaryAction()
-        _ = await waitUntilVoice { rig.input.isRunning }
+        // The mic starts while the socket is still connecting, so a running mic
+        // alone does not mean the turn has reached listening yet.
+        _ = await waitUntilVoice { rig.input.isRunning && rig.store.state == .listening }
 
         XCTAssertTrue(rig.audioSession.configureCount >= 1)
         XCTAssertTrue(rig.audioSession.activeCalls.contains(true))
@@ -421,7 +423,12 @@ final class VoiceBackendFixTests: XCTestCase {
         await settleVoiceTasks()
 
         XCTAssertEqual(rig.store.state, .idle)
-        XCTAssertNil(rig.connector.socket, "a superseded open must not leave a live socket")
+        // The handshake runs alongside the session lookup, so a socket may
+        // already be on its way — but it must not outlive the stop.
+        XCTAssertFalse(rig.store.session.isOpen, "a superseded open must not leave a live socket")
+        if let socket = rig.connector.socket {
+            XCTAssertEqual(socket.closeCount, 1, "a socket that lands after the stop is closed")
+        }
     }
 
     // MARK: - 9. Turn timers must survive a scroll

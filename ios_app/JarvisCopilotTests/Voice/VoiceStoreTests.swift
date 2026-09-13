@@ -184,6 +184,45 @@ final class VoiceStoreTests: XCTestCase {
         XCTAssertEqual(warm.sentTypes, ["begin_turn"])
     }
 
+    func testStartingWhileTheWarmUpIsStillConnectingUsesThatSocket() async throws {
+        let rig = makeRig()
+        rig.connector.holdConnect = true
+        let warming = Task { await rig.store.prewarmVoice() }
+        await waitUntilVoice { rig.connector.heldCount == 1 }
+
+        await rig.store.primaryAction()
+        await settleVoiceTasks()
+        XCTAssertEqual(rig.connector.heldCount, 1,
+                       "the start waits for the warm-up's handshake instead of dialing a second socket")
+
+        rig.connector.releaseConnect()
+        await waitUntilVoice { rig.store.state == .listening }
+        await warming.value
+        XCTAssertEqual(rig.connector.connectedURLs.count, 1)
+        XCTAssertEqual(rig.socket?.sentTypes, ["begin_turn"])
+        XCTAssertEqual(rig.socket?.closeCount, 0)
+    }
+
+    func testStoppingATurnWaitingOnTheWarmUpLeavesNoSocket() async throws {
+        let rig = makeRig()
+        rig.connector.holdConnect = true
+        let warming = Task { await rig.store.prewarmVoice() }
+        await waitUntilVoice { rig.connector.heldCount == 1 }
+        await rig.store.primaryAction()
+        await settleVoiceTasks()
+
+        rig.store.voiceSurfaceHidden()
+        await rig.store.stopAll()
+        rig.connector.releaseConnect()
+        await warming.value
+        await settleVoiceTasks()
+
+        XCTAssertEqual(rig.store.state, .idle)
+        XCTAssertEqual(rig.connector.connectedURLs.count, 1, "nothing dials again after the stop")
+        XCTAssertEqual(rig.socket?.closeCount, 1, "the warm-up's socket is closed when it lands")
+        XCTAssertFalse(rig.store.session.isOpen)
+    }
+
     func testAnUnusedWarmSocketIsClosedAfterTheIdleTimeout() async throws {
         let rig = makeRig()
         await rig.store.prewarmVoice()
@@ -203,6 +242,37 @@ final class VoiceStoreTests: XCTestCase {
         await startListening(rig)
         XCTAssertEqual(rig.connector.connectedURLs.count, 2)
         XCTAssertEqual(rig.store.state, .listening)
+    }
+
+    func testPrewarmPreparesTheMicWithoutOpeningIt() async {
+        let rig = makeRig()
+        await rig.store.prewarmVoice()
+        XCTAssertEqual(rig.input.preparedRates, [VoiceStore.micRate])
+        XCTAssertTrue(rig.input.startedRates.isEmpty, "preparing must not start recording")
+        XCTAssertFalse(rig.input.isRunning)
+    }
+
+    func testTheMicIsPreparedEvenWhenTheSocketIsAlreadyWarm() async {
+        let rig = makeRig()
+        await rig.store.prewarmVoice()
+        await rig.store.prewarmVoice()
+        XCTAssertEqual(rig.connector.connectedURLs.count, 1)
+        XCTAssertEqual(rig.input.preparedRates.count, 2)
+    }
+
+    func testLeavingTheVoiceSurfaceReleasesThePreparedMic() async {
+        let rig = makeRig()
+        await rig.store.prewarmVoice()
+        rig.store.voiceSurfaceHidden()
+        XCTAssertEqual(rig.input.releaseCount, 1)
+    }
+
+    func testLeavingTheVoiceSurfaceMidConversationKeepsTheMic() async {
+        let rig = makeRig()
+        await startListening(rig)
+        rig.store.voiceSurfaceHidden()
+        XCTAssertEqual(rig.input.releaseCount, 0)
+        XCTAssertTrue(rig.input.isRunning)
     }
 
     func testMicPermissionDenialBlocksTheTurn() async {

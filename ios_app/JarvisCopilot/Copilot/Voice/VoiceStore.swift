@@ -447,7 +447,9 @@ final class VoiceStore {
     /// the tap then simply does a normal start.
     func prewarmVoice() async {
         prewarmWanted = true
-        guard !isActive, !session.isOpen else { return }
+        guard !isActive else { return }
+        input.prepare(sampleRate: Self.micRate)
+        guard !session.isOpen else { return }
         do {
             _ = try await ensureSession()
             guard !isActive else { return }
@@ -464,10 +466,12 @@ final class VoiceStore {
         }
     }
 
-    /// The voice surface went away: stop re-warming after conversations end.
-    /// An already-warm socket still closes on its own idle timer.
+    /// The voice surface went away: stop re-warming after conversations end, and
+    /// let go of a prepared mic. An already-warm socket still closes on its own
+    /// idle timer.
     func voiceSurfaceHidden() {
         prewarmWanted = false
+        if !isActive { input.releasePrepared() }
     }
 
     // MARK: - Transcription

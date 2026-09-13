@@ -143,12 +143,37 @@ final class VoiceSession {
     /// handshake is the part of starting a conversation worth doing early.
     private(set) var isWarm = false
 
+    /// Bumped by every `close`. A handshake that finishes to find it changed was
+    /// cancelled while it was connecting, and closes the socket it got.
+    ///
+    /// Connecting takes hundreds of milliseconds and now starts early — beside
+    /// the session lookup, and ahead of any turn — so a Stop, or another open,
+    /// landing mid-handshake is ordinary. Without the check the late socket was
+    /// installed anyway: live, unowned, and never closed.
+    private var generation = 0
+    /// The warm-up's handshake while it is still in flight. A turn that starts
+    /// meanwhile waits for it rather than dialing a second socket beside it.
+    private var warming: Task<Error?, Never>?
+
     /// Open a socket before it is needed, if there is not one already. It sends
     /// nothing: `begin_turn` is still the turn's to send.
     func prewarm() async throws {
-        guard socket == nil else { return }
-        try await open()
-        isWarm = true
+        guard socket == nil, warming == nil else { return }
+        let generation = self.generation
+        let task = Task<Error?, Never> { [weak self] in
+            guard let self else { return nil }
+            do {
+                try await self.dial(generation)
+                self.isWarm = self.socket != nil
+                return nil
+            } catch {
+                return error
+            }
+        }
+        warming = task
+        let failure = await task.value
+        if warming == task { warming = nil }
+        if let failure { throw failure }
     }
 
     init(voice: VoiceAPI, connector: VoiceSocketConnecting) {
@@ -157,17 +182,35 @@ final class VoiceSession {
     }
 
     func open() async throws {
+        if let pending = warming {
+            warming = nil
+            let entry = generation
+            _ = await pending.value   // a failed warm-up just means dialing fresh below
+            // Stopped while waiting: the caller has been superseded, and a fresh
+            // dial now would open a socket nobody is going to use.
+            guard entry == generation else { return }
+        }
         if isWarm, socket != nil {
             isWarm = false
             onLog?("ws reuse warm socket")
             return
         }
         close()
+        try await dial(generation)
+    }
+
+    /// Connect and install the socket — unless a `close` landed meanwhile.
+    private func dial(_ generation: Int) async throws {
         let url = try voice.realtimeURL()
         // Path + auth-header NAMES only: the cookie value and the CF-Access
         // secret must never reach a log the user can screenshot.
         onLog?("ws open \(url.path) auth=\(voice.api.credentials.headers.keys.sorted().joined(separator: ","))")
         let s = try await connector.connect(url: url, headers: voice.api.credentials.headers)
+        guard generation == self.generation else {
+            s.close()
+            onLog?("ws open cancelled; closed")
+            return
+        }
         s.onFrame = { [weak self] frame in
             guard let self else { return }
             switch frame {
@@ -219,6 +262,7 @@ final class VoiceSession {
 
     /// Tear down without reporting a close (we asked for it).
     func close() {
+        generation += 1
         isWarm = false
         let s = socket
         socket = nil

@@ -126,8 +126,17 @@ enum VoiceDiagnostics {
     static func mirror(_ line: String) {
         #if DEBUG
         fputs("[voice] \(line)\n", stderr)
+        #else
+        if mirrorsToConsole { fputs("[voice] \(line)\n", stderr) }
         #endif
     }
+
+    /// A Release build on a real phone mirrors too when launched with
+    /// `JC_VOICE_CONSOLE=1` — `xcrun devicectl device process launch --console
+    /// --environment-variables '{"JC_VOICE_CONSOLE":"1"}' <bundle id>` — so a
+    /// timing problem can be read off the device while someone talks to it. The
+    /// lines are the diagnostics sheet's, which already carry no secrets.
+    private static let mirrorsToConsole = ProcessInfo.processInfo.environment["JC_VOICE_CONSOLE"] == "1"
 
     // MARK: - Private
 

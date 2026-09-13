@@ -20,7 +20,7 @@ extension VoiceStore {
             // stream is cleared, instead of after them. These used to run one
             // after another, and with the mic waiting behind them too that was
             // most of the pause between the tap and being able to talk.
-            async let socketReady: Void = session.open()
+            async let socketReady: Void = openSocket(for: epoch)
             let sid = try await ensureSession()
             startup.session = clock.now
             note("session \(sid.isEmpty ? "(none)" : "ok")")
@@ -49,6 +49,18 @@ extension VoiceStore {
         } catch {
             raise(.failed("Could not start voice: \(JcLog.report(JcLog.voice, "open transport", error))"))
         }
+    }
+
+    /// Open the socket for the turn `epoch` — unless it has already been stopped.
+    ///
+    /// The open runs as a child task, which can first get the main actor AFTER a
+    /// Stop's teardown has closed the session; opening then would install a
+    /// socket nothing is left to close. The check and the start of the open run
+    /// in one go, so a Stop is either seen here or lands mid-handshake, where
+    /// `VoiceSession` closes the socket on arrival.
+    private func openSocket(for epoch: Int) async throws {
+        guard epoch == turnEpoch, machine.state == .connecting else { return }
+        try await session.open()
     }
 
     /// The `begin_turn` frame, with this surface's model choice attached.
@@ -96,6 +108,9 @@ extension VoiceStore {
             // Both modes route through here, so this is the one place that can
             // guarantee the session is recordable before the engine is built.
             try acquireAudioSession()
+            // Stamped, so the diagnostics timeline splits the session claim
+            // (a category switch and reactivation on the phone) from the engine.
+            note("audio session ready")
             try await input.start(sampleRate: Self.micRate)
             guard generation == micGeneration, wantsCapture, !audioInterrupted else {
                 await input.stop()

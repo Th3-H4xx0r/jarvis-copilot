@@ -62,10 +62,15 @@ final class MockAudioInput: AudioInput {
     var stallStart = false
     private(set) var startedRates: [Int] = []
     private(set) var stopCount = 0
+    private(set) var preparedRates: [Int] = []
+    private(set) var releaseCount = 0
 
     private var startGate: CheckedContinuation<Void, Never>?
 
     func requestPermission() async -> Bool { permission }
+
+    func prepare(sampleRate: Int) { preparedRates.append(sampleRate) }
+    func releasePrepared() { releaseCount += 1 }
 
     func start(sampleRate: Int) async throws {
         if stallStart {
@@ -355,6 +360,9 @@ final class MockVoiceSocketConnector: VoiceSocketConnecting {
     /// the socket is still opening.
     var holdConnect = false
     private var held: [CheckedContinuation<Void, Never>] = []
+
+    /// Connects waiting on `releaseConnect()`.
+    var heldCount: Int { held.count }
 
     func releaseConnect() {
         holdConnect = false

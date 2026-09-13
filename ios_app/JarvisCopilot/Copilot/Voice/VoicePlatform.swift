@@ -79,6 +79,17 @@ protocol AudioInput: AnyObject {
     func requestPermission() async -> Bool
     func start(sampleRate: Int) async throws
     func stop() async
+    /// Do the slow part of `start` ahead of time, without opening the mic —
+    /// no input runs and no recording indicator shows. The next `start` adopts
+    /// it. Never prompts for permission.
+    func prepare(sampleRate: Int)
+    /// Drop whatever `prepare` built.
+    func releasePrepared()
+}
+
+extension AudioInput {
+    func prepare(sampleRate: Int) {}
+    func releasePrepared() {}
 }
 
 // MARK: - Playback
