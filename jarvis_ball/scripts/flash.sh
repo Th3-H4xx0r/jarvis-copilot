@@ -32,7 +32,8 @@ if [ -z "$port" ]; then
 fi
 echo "ball on $port"
 
-mac="$(python -m esptool --chip esp32s3 --port "$port" read-mac 2>/dev/null | awk '/^MAC:/{gsub(":","",$2); print $2; exit}')"
+# No early `exit` in awk: closing the pipe mid-output kills esptool and pipefail aborts the script.
+mac="$(python -m esptool --chip esp32s3 --port "$port" read-mac 2>&1 | awk '!found && /^MAC:/{gsub(":","",$2); print $2; found=1}' || true)"
 [ -n "$mac" ] || { echo "Couldn't read the ball's MAC over $port" >&2; exit 1; }
 backups="$HOME/.jarvis_ball/backups"
 backup="$backups/$mac.bin"
