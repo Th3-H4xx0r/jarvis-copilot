@@ -64,15 +64,21 @@ void OnWifiEvent(void*, esp_event_base_t base, int32_t id, void* data) {
     }
 }
 
+// "" for a transient reason worth another try.
 std::string WifiError(uint8_t reason) {
     switch (reason) {
+        case WIFI_REASON_MIC_FAILURE:
+        case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+        case WIFI_REASON_AUTH_FAIL:
+        case WIFI_REASON_HANDSHAKE_TIMEOUT:
+            return "wifi_auth";
         case WIFI_REASON_NO_AP_FOUND:
         case WIFI_REASON_NO_AP_FOUND_W_COMPATIBLE_SECURITY:
         case WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD:
         case WIFI_REASON_NO_AP_FOUND_IN_RSSI_THRESHOLD:
             return "wifi_not_found";
         default:
-            return "wifi_auth";
+            return "";
     }
 }
 
@@ -84,14 +90,29 @@ void Attempt() {
     strncpy(reinterpret_cast<char*>(sta.sta.ssid), req.ssid.c_str(), sizeof(sta.sta.ssid));
     strncpy(reinterpret_cast<char*>(sta.sta.password), req.password.c_str(), sizeof(sta.sta.password));
     sta.sta.threshold.authmode = req.password.empty() ? WIFI_AUTH_OPEN : WIFI_AUTH_WEP;
-    xEventGroupClearBits(g_events, kGotIp | kDisconnected);
     esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(200));  // let that disconnect's own event land before we listen
     esp_wifi_set_config(WIFI_IF_STA, &sta);
-    esp_wifi_connect();
-
-    EventBits_t bits = xEventGroupWaitBits(g_events, kGotIp | kDisconnected, pdTRUE, pdFALSE, pdMS_TO_TICKS(20000));
+    // Up to three tries inside 20 s: transient failures (AP busy, assoc leave) are common.
+    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(20000);
+    EventBits_t bits = 0;
+    std::string err = "no_ip";
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        xEventGroupClearBits(g_events, kGotIp | kDisconnected);
+        esp_wifi_connect();
+        TickType_t now = xTaskGetTickCount();
+        if (now >= deadline) break;
+        bits = xEventGroupWaitBits(g_events, kGotIp | kDisconnected, pdTRUE, pdFALSE, deadline - now);
+        if (bits & kGotIp) break;
+        if (!(bits & kDisconnected)) break;  // timed out waiting
+        std::string reason = WifiError(g_disconnect_reason);
+        if (!reason.empty()) {
+            err = reason;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
     if (!(bits & kGotIp)) {
-        std::string err = (bits & kDisconnected) ? WifiError(g_disconnect_reason) : "no_ip";
         std::string msg = err == "wifi_auth"        ? "Wrong Wi-Fi password"
                           : err == "wifi_not_found" ? "Can't find " + req.ssid
                                                     : "The network didn't give the ball an address";

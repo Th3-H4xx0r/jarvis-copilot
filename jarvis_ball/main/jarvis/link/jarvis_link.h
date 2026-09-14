@@ -29,8 +29,9 @@ struct HttpResult {
 
 // `with_cookie` false for the claim (no session yet). Credentials are only ever sent
 // to the paired server's own host (callers pass that server's URLs).
+// `max_body` > 0 stops reading (and fails) once the body would exceed it.
 HttpResult HttpRequest(const std::string& method, const std::string& url, const std::string& body,
-                       const store::Pairing& auth, bool with_cookie, int timeout_ms = 15000);
+                       const store::Pairing& auth, bool with_cookie, int timeout_ms = 15000, size_t max_body = 0);
 
 void ApplyAuthHeaders(WebSocket& ws, const store::Pairing& auth);
 
@@ -85,6 +86,10 @@ private:
     std::atomic<LinkState> state_{LinkState::Offline};
     std::atomic<bool> started_{false};
     std::atomic<bool> closed_{false};
+    // Replies owed to the server, sent from Run(): the socket's receive task has a
+    // small stack and fires before ws_ is published.
+    std::atomic<bool> register_pending_{false};
+    std::atomic<bool> pong_pending_{false};
     std::atomic<int64_t> last_rx_ms_{0};
     std::mutex ws_mutex_;
     WebSocket* ws_ = nullptr;

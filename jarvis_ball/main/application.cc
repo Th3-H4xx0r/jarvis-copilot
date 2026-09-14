@@ -30,7 +30,8 @@ bool Application::SetDeviceState(DeviceState state) {
 
 void Application::Schedule(std::function<void()>&& callback) {
     auto* fn = new std::function<void()>(std::move(callback));
-    if (!queue_ || xQueueSend(queue_, &fn, pdMS_TO_TICKS(50)) != pdTRUE) {
+    // Never block the caller: audio, socket and button tasks all post here.
+    if (!queue_ || xQueueSend(queue_, &fn, 0) != pdTRUE) {
         ESP_LOGW(TAG, "main queue full, dropping a task");
         delete fn;
     }
@@ -56,7 +57,7 @@ static void ApplyTimezone(const jarvis::store::UiSettings& ui) {
 }
 
 void Application::Initialize() {
-    queue_ = xQueueCreate(24, sizeof(std::function<void()>*));
+    queue_ = xQueueCreate(64, sizeof(std::function<void()>*));
     auto& board = Board::GetInstance();  // constructs the board: probes codec + touch
     auto* display = board.GetDisplay();
     display->SetupUI();
@@ -73,7 +74,9 @@ void Application::Initialize() {
     audio_service_.Initialize(board.GetAudioCodec());
     audio_service_.Start();
     AudioServiceCallbacks callbacks;
-    callbacks.on_send_queue_available = [this]() { Schedule([this]() { voice_.SendMic(); }); };
+    callbacks.on_send_queue_available = [this]() {
+        if (voice_.NeedsMicWakeup()) Schedule([this]() { voice_.SendMic(); });
+    };
     callbacks.on_wake_word_detected = [this](const std::string&) { Schedule([this]() { voice_.Trigger(); }); };
     callbacks.on_vad_change = [this](bool speaking) { Schedule([this, speaking]() { voice_.OnVad(speaking); }); };
     callbacks.on_playback_drained = [this]() { Schedule([this]() { voice_.OnPlaybackDrained(); }); };
@@ -138,9 +141,15 @@ void Application::OnSettingsChanged() {
     });
 }
 
+void Application::WakeScreen() {
+    // The power-save timer dims the screen after 60 s on battery; any interaction wakes it.
+    if (!setup_mode_) Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::BALANCED);
+}
+
 void Application::OnButtonClick() {
     Schedule([this]() {
         if (setup_mode_) return;
+        WakeScreen();
         if (Ui::Get().MenuOpen()) Ui::Get().MenuNext();
         else if (network_up_) voice_.Trigger();
     });
@@ -148,13 +157,16 @@ void Application::OnButtonClick() {
 
 void Application::OnButtonDoubleClick() {
     Schedule([this]() {
-        if (!setup_mode_) Ui::Get().ToggleMenu();
+        if (setup_mode_) return;
+        WakeScreen();
+        Ui::Get().ToggleMenu();
     });
 }
 
 void Application::OnButtonLongPress() {
     Schedule([this]() {
         if (setup_mode_) return;
+        WakeScreen();
         if (Ui::Get().MenuOpen()) Ui::Get().MenuSelect();
         else Ui::Get().Back();
     });
@@ -170,7 +182,10 @@ void Application::OnFactoryReset() {
 }
 
 void Application::OnTouchTap(int x, int y) {
-    Schedule([x, y]() { Ui::Get().OnTap(x, y); });
+    Schedule([this, x, y]() {
+        WakeScreen();
+        Ui::Get().OnTap(x, y);
+    });
 }
 
 void Application::Run() {

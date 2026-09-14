@@ -1075,6 +1075,7 @@ idf_component_register(SRCS ${SOURCES}
                         fatfs
                         xiaozhi-fonts
                         esp_http_server
+                        esp_http_client
                         esp_wifi
                         spiffs
                         lwip

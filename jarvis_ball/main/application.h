@@ -48,6 +48,7 @@ public:
     void OnTouchTap(int x, int y);
     void OnWifiUnavailable();
     void OnSettingsChanged();  // any thread
+    void WakeScreen();         // main task
     jarvis::Voice& voice() { return voice_; }
 
 private:

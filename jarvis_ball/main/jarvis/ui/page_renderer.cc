@@ -74,8 +74,8 @@ std::string ClockText(bool clock_24h, const char* format) {
     if (tm_now.tm_year + 1900 < 2024) return "--:--";
     char buf[48];
     const char* fmt = (format && *format) ? format : (clock_24h ? "%H:%M" : "%I:%M");
-    strftime(buf, sizeof(buf), fmt, &tm_now);
-    std::string s = buf;
+    size_t n = strftime(buf, sizeof(buf), fmt, &tm_now);
+    std::string s(buf, n);  // 0 on overflow: the buffer contents are unspecified then
     if (!clock_24h && (!format || !*format) && s.size() > 1 && s[0] == '0') s.erase(0, 1);
     return s;
 }

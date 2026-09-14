@@ -27,6 +27,8 @@ constexpr int64_t kFollowUpMs = 6000;
 constexpr int64_t kMaxTurnMs = 30000;
 constexpr int64_t kSocketIdleMs = 60000;
 constexpr int64_t kDiscardExpiryMs = 10000;
+constexpr int64_t kReplyWatchdogMs = 45000;
+constexpr int64_t kErrorVisibleMs = 2500;
 
 int64_t NowMs() { return esp_timer_get_time() / 1000; }
 }  // namespace
@@ -51,7 +53,7 @@ bool Voice::EnsureConnected() {
     store::Pairing pairing = store::LoadPairing();
     if (!pairing.paired()) return false;
 
-    HttpResult r = HttpRequest("GET", logic::JoinUrl(pairing.server, "/api/voice/session"), "", pairing, true, 10000);
+    HttpResult r = HttpRequest("GET", logic::JoinUrl(pairing.server, "/api/voice/session"), "", pairing, true, 6000);
     if (r.status != 200) {
         ESP_LOGW(TAG, "voice session: status %d %s", r.status, r.error.c_str());
         return false;
@@ -86,11 +88,7 @@ bool Voice::EnsureConnected() {
     ws_->OnDisconnected([this]() {
         socket_closed_ = true;
         Application::GetInstance().Schedule([this]() {
-            if (phase_ != Phase::Idle) {
-                Ui::Get().SetCaption("Lost the connection to Jarvis");
-                Ui::Get().SetOrbState(OrbState::Error);
-                GoIdle();
-            }
+            if (phase_ != Phase::Idle) FailTurn("Lost the connection to Jarvis");
         });
     });
     std::string url = logic::WsUrl(pairing.server, "/api/voice/s2s/ws");
@@ -99,7 +97,7 @@ bool Voice::EnsureConnected() {
         ws_.reset();
         return false;
     }
-    for (int i = 0; i < 50 && !ready_; ++i) vTaskDelay(pdMS_TO_TICKS(100));
+    for (int i = 0; i < 30 && !ready_; ++i) vTaskDelay(pdMS_TO_TICKS(100));
     if (!ready_) {
         CloseSocket();
         return false;
@@ -146,6 +144,8 @@ void Voice::Trigger(const std::string& text) {
         if (speech_seen_) EndTurn();  // tapped to say "I'm done"
         return;
     }
+    hide_overlay_at_ms_ = 0;
+    Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);  // wakes the dimmed screen too
     audio_->EnableWakeWordDetection(false);
     Ui::Get().SetVoiceActive(true);
     Ui::Get().SetCaption(text.empty() ? "Listening…" : text);
@@ -153,14 +153,12 @@ void Voice::Trigger(const std::string& text) {
     if (text.empty()) audio_->EnableVoiceProcessing(true);  // start capturing while we connect
 
     if (!EnsureConnected()) {
-        audio_->EnableVoiceProcessing(false);
-        Ui::Get().SetCaption("Can't reach Jarvis");
-        Ui::Get().SetOrbState(OrbState::Error);
-        GoIdle();
+        FailTurn("Can't reach Jarvis");
         return;
     }
     BeginTurn();
     turn_start_ms_ = NowMs();
+    last_server_ms_ = NowMs();
     speech_seen_ = false;
     silence_since_ms_ = 0;
     follow_up_ = false;
@@ -179,6 +177,7 @@ void Voice::Trigger(const std::string& text) {
 }
 
 void Voice::SendMic() {
+    mic_pending_ = false;
     if (!audio_) return;
     while (auto packet = audio_->PopPacketFromSendQueue()) {
         if (phase_ == Phase::Listening && ws_ && ws_->IsConnected()) {
@@ -205,6 +204,7 @@ void Voice::EndTurn() {
     audio_->EnableVoiceProcessing(false);
     while (audio_->PopPacketFromSendQueue()) {}
     phase_ = Phase::Thinking;
+    last_server_ms_ = NowMs();
     Ui::Get().SetOrbState(OrbState::Thinking);
     Ui::Get().SetCaption("");
 }
@@ -220,8 +220,12 @@ void Voice::Interrupt() {
     SendText(s);
     cJSON_free(s);
     cJSON_Delete(msg);
-    discard_audio_ = true;
-    discard_since_ms_ = NowMs();
+    // Only a reply still on the wire has frames to throw away; once its end_turn has
+    // arrived nothing would ever clear the flag.
+    if (!server_done_) {
+        discard_audio_ = true;
+        discard_since_ms_ = NowMs();
+    }
     audio_->ResetDecoder();
     phase_ = Phase::Idle;
     Trigger();  // straight back to listening
@@ -246,8 +250,21 @@ void Voice::GoIdle() {
     audio_->EnableVoiceProcessing(false);
     while (audio_->PopPacketFromSendQueue()) {}
     last_turn_end_ms_ = NowMs();
+    hide_overlay_at_ms_ = 0;
     Ui::Get().SetVoiceActive(false);
+    Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::BALANCED);
     ApplyWakeWord();
+}
+
+void Voice::FailTurn(const std::string& message) {
+    phase_ = Phase::Idle;
+    follow_up_ = false;
+    audio_->EnableVoiceProcessing(false);
+    while (audio_->PopPacketFromSendQueue()) {}
+    last_turn_end_ms_ = NowMs();
+    Ui::Get().SetCaption(message);
+    Ui::Get().SetOrbState(OrbState::Error);
+    hide_overlay_at_ms_ = NowMs() + kErrorVisibleMs;  // Tick hides it
 }
 
 void Voice::HandleJson(const std::string& text) {
@@ -256,6 +273,7 @@ void Voice::HandleJson(const std::string& text) {
     const cJSON* body = cJSON_GetObjectItemCaseSensitive(msg, "text");
     std::string t = cJSON_IsString(type) ? type->valuestring : "";
     std::string s = cJSON_IsString(body) ? body->valuestring : "";
+    last_server_ms_ = NowMs();
 
     if (discard_audio_) {
         // Frames of the interrupted reply are still arriving until its end_turn.
@@ -275,13 +293,14 @@ void Voice::HandleJson(const std::string& text) {
         Ui::Get().SetOrbState(OrbState::Speaking);
     } else if (t == "error") {
         const cJSON* e = cJSON_GetObjectItemCaseSensitive(msg, "error");
-        Ui::Get().SetCaption(cJSON_IsString(e) ? e->valuestring : "Something went wrong");
-        Ui::Get().SetOrbState(OrbState::Error);
+        FailTurn(cJSON_IsString(e) ? e->valuestring : "Something went wrong");
     } else if (t == "end_turn") {
         const cJSON* reason = cJSON_GetObjectItemCaseSensitive(msg, "reason");
         std::string r = cJSON_IsString(reason) ? reason->valuestring : "";
         server_done_ = true;
-        if (r == "no_speech" || r == "error") {
+        if (hide_overlay_at_ms_) {
+            // An error is on screen; let it stay its full time.
+        } else if (r == "no_speech" || r == "error") {
             GoIdle();
         } else if (phase_ != Phase::Speaking || audio_->IsPlaybackIdle()) {
             FinishTurn();
@@ -296,6 +315,15 @@ void Voice::OnPlaybackDrained() {
 
 void Voice::Tick() {
     int64_t now = NowMs();
+    if (discard_audio_ && now - discard_since_ms_ > kDiscardExpiryMs) discard_audio_ = false;
+    if (hide_overlay_at_ms_ && now >= hide_overlay_at_ms_ && phase_ == Phase::Idle) {
+        GoIdle();
+        return;
+    }
+    if ((phase_ == Phase::Thinking || phase_ == Phase::Speaking) && now - last_server_ms_ > kReplyWatchdogMs) {
+        FailTurn("Jarvis took too long to answer");
+        return;
+    }
     if (phase_ == Phase::Listening) {
         if (speech_seen_ && silence_since_ms_ && now - silence_since_ms_ >= kEndSilenceMs) {
             EndTurn();

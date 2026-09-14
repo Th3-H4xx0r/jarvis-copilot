@@ -27,6 +27,9 @@ public:
     void ApplyWakeWord();
 
     bool Busy() const { return phase_ != Phase::Idle; }
+    // The audio task calls this for every encoded packet; only the first of a burst
+    // schedules SendMic on the main task.
+    bool NeedsMicWakeup() { return !mic_pending_.exchange(true); }
 
 private:
     enum class Phase { Idle, Listening, Thinking, Speaking };
@@ -37,6 +40,7 @@ private:
     void EndTurn();
     void FinishTurn();
     void GoIdle();
+    void FailTurn(const std::string& message);  // show the error, then hide the overlay
     void HandleJson(const std::string& text);
     void SendText(const std::string& json);
 
@@ -56,6 +60,9 @@ private:
     int64_t silence_since_ms_ = 0;
     int64_t last_turn_end_ms_ = 0;
     int64_t discard_since_ms_ = 0;
+    int64_t last_server_ms_ = 0;       // watchdog for Thinking/Speaking
+    int64_t hide_overlay_at_ms_ = 0;   // an error stays on screen until then
+    std::atomic<bool> mic_pending_{false};
     std::vector<std::string> spoken_;  // assistant_text of the current reply, in order
 };
 

@@ -235,7 +235,8 @@ std::vector<std::string> NearSymbols(const std::string& sf_name) {
 bool IsBuiltinHome(const std::string& id) { return id == "orb" || id == "clock"; }
 
 bool ValidPageId(const std::string& id) {
-    if (id.empty() || id.size() > 32) return false;
+    // "/pages/<id>.json" must fit SPIFFS's 31-char object names.
+    if (id.empty() || id.size() > 20) return false;
     return std::all_of(id.begin(), id.end(), [](char c) {
         return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
     });
@@ -373,7 +374,13 @@ struct PageCheck {
             return Value(node, "max", path, false);
         }
         if (type == "timer") return Value(node, "to", path, true);
-        if (type == "clock") return Value(node, "format", path, false);
+        if (type == "clock") {
+            const cJSON* format = cJSON_GetObjectItemCaseSensitive(node, "format");
+            if (format && !(cJSON_IsString(format) && strlen(format->valuestring) <= 32)) {
+                Add(path + ".format", "must be a strftime string of at most 32 chars");
+            }
+            return;
+        }
         if (type == "symbol") {
             const cJSON* name = cJSON_GetObjectItemCaseSensitive(node, "name");
             if (cJSON_IsString(name)) {
@@ -431,7 +438,7 @@ std::vector<std::string> ValidatePage(const cJSON* page) {
     if (!cJSON_IsObject(page)) return {"page: must be an object"};
     const cJSON* id = cJSON_GetObjectItemCaseSensitive(page, "id");
     if (id && !(cJSON_IsString(id) && ValidPageId(id->valuestring))) {
-        check.Add("id", "must be 1-32 chars of a-z 0-9 _ -");
+        check.Add("id", "must be 1-20 chars of a-z 0-9 _ -");
     }
     const cJSON* title = cJSON_GetObjectItemCaseSensitive(page, "title");
     if (title && !(cJSON_IsString(title) && strlen(title->valuestring) <= 40)) {

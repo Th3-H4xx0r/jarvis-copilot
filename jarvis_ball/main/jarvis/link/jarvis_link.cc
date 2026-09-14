@@ -2,6 +2,9 @@
 
 #include <cJSON.h>
 #include <esp_app_desc.h>
+#include <esp_crt_bundle.h>
+#include <esp_http_client.h>
+#include <strings.h>
 #include <esp_log.h>
 #include <esp_mac.h>
 #include <esp_random.h>
@@ -23,7 +26,7 @@ static int64_t NowMs() { return esp_timer_get_time() / 1000; }
 std::string UserAgent() { return std::string("JarvisBall/") + esp_app_get_description()->version; }
 
 HttpResult HttpRequest(const std::string& method, const std::string& url, const std::string& body,
-                       const store::Pairing& auth, bool with_cookie, int timeout_ms) {
+                       const store::Pairing& auth, bool with_cookie, int timeout_ms, size_t max_body) {
     HttpResult out;
     auto http = Board::GetInstance().GetNetwork()->CreateHttp(0);
     if (!http) {
@@ -54,7 +57,26 @@ HttpResult HttpRequest(const std::string& method, const std::string& url, const 
     out.status = *status;
     std::string cookie = http->GetResponseHeader("Set-Cookie");
     out.set_cookie = cookie.substr(0, cookie.find(';'));
-    out.body = http->ReadAll();
+    if (max_body > 0) {
+        if (http->GetBodyLength() > max_body) {
+            out.error = "response too large";
+            http->Close();
+            return out;
+        }
+        char buf[1024];
+        for (;;) {  // chunked bodies report no length: cap while reading
+            auto n = http->Read(buf, sizeof(buf));
+            if (!n || *n <= 0) break;
+            out.body.append(buf, *n);
+            if (out.body.size() > max_body) {
+                out.body.clear();
+                out.error = "response too large";
+                break;
+            }
+        }
+    } else {
+        out.body = http->ReadAll();
+    }
     http->Close();
     return out;
 }
@@ -133,20 +155,54 @@ bool Link::Claim(const std::string& server, const std::string& code, const std::
     cJSON_free(text);
     cJSON_Delete(body);
 
-    HttpResult r = HttpRequest("POST", logic::JoinUrl(server, "/api/auth/pair/claim"), json, auth, false);
-    if (!r.error.empty() || r.status >= 500 || r.status < 0) {
+    // esp_http_client rather than HttpRequest: the response can carry several Set-Cookie
+    // headers (Cloudflare adds its own) and only this client shows us every one of them.
+    struct ClaimCtx {
+        std::string session_cookie;
+        std::string body;
+    } ctx;
+    esp_http_client_config_t cfg = {};
+    std::string url = logic::JoinUrl(server, "/api/auth/pair/claim");
+    cfg.url = url.c_str();
+    cfg.method = HTTP_METHOD_POST;
+    cfg.timeout_ms = 15000;
+    cfg.crt_bundle_attach = esp_crt_bundle_attach;
+    cfg.user_data = &ctx;
+    cfg.event_handler = [](esp_http_client_event_t* e) -> esp_err_t {
+        auto* c = static_cast<ClaimCtx*>(e->user_data);
+        if (e->event_id == HTTP_EVENT_ON_HEADER && strcasecmp(e->header_key, "Set-Cookie") == 0) {
+            std::string value = e->header_value;
+            std::string pair = value.substr(0, value.find(';'));
+            if (pair.rfind("hermes_session=", 0) == 0) c->session_cookie = pair;
+        } else if (e->event_id == HTTP_EVENT_ON_DATA && c->body.size() < 8192) {
+            c->body.append(static_cast<const char*>(e->data), e->data_len);
+        }
+        return ESP_OK;
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_header(client, "User-Agent", UserAgent().c_str());
+    if (!cf_id.empty()) {
+        esp_http_client_set_header(client, "CF-Access-Client-Id", cf_id.c_str());
+        esp_http_client_set_header(client, "CF-Access-Client-Secret", cf_secret.c_str());
+    }
+    esp_http_client_set_post_field(client, json.c_str(), json.size());
+    esp_err_t err = esp_http_client_perform(client);
+    int status = err == ESP_OK ? esp_http_client_get_status_code(client) : -1;
+    esp_http_client_cleanup(client);
+    if (status < 0 || status >= 500) {
         err_code = "server_unreachable";
         message = "The ball reached Wi-Fi but not Jarvis";
         return false;
     }
-    if (r.status != 200 || r.set_cookie.empty()) {
+    if (status != 200 || ctx.session_cookie.empty()) {
         err_code = "code_rejected";
         message = "Jarvis rejected the pairing code";
         return false;
     }
     out = auth;
-    out.cookie = r.set_cookie;
-    cJSON* reply = cJSON_Parse(r.body.c_str());
+    out.cookie = ctx.session_cookie;
+    cJSON* reply = cJSON_Parse(ctx.body.c_str());
     const cJSON* cf = cJSON_GetObjectItemCaseSensitive(reply, "cf_access");
     const cJSON* id = cJSON_GetObjectItemCaseSensitive(cf, "client_id");
     const cJSON* secret = cJSON_GetObjectItemCaseSensitive(cf, "client_secret");
@@ -191,13 +247,9 @@ void Link::HandleText(const std::string& text) {
     std::string t = type->valuestring;
     cJSON_Delete(msg);
     if (t == "hello") {
-        std::string reg = Tools().RegisterMessage();
-        std::lock_guard<std::mutex> lock(ws_mutex_);
-        if (ws_) ws_->Send(reg);
-        ESP_LOGI(TAG, "bridge up, skills registered");
+        register_pending_ = true;
     } else if (t == "ping") {
-        std::lock_guard<std::mutex> lock(ws_mutex_);
-        if (ws_) ws_->Send(std::string("{\"type\":\"pong\"}"));
+        pong_pending_ = true;
     } else if (t == "invoke") {
         auto* copy = new std::string(text);
         if (xQueueSend(static_cast<QueueHandle_t>(invoke_queue_), &copy, 0) != pdTRUE) {
@@ -250,6 +302,8 @@ void Link::Run() {
         ApplyAuthHeaders(*ws, pairing);
         ws->SetReceiveBufferSize(32 * 1024);
         closed_ = false;
+        register_pending_ = false;
+        pong_pending_ = false;
         ws->OnData([this](const char* data, size_t len, bool binary) {
             if (!binary) HandleText(std::string(data, len));
         });
@@ -265,7 +319,17 @@ void Link::Run() {
             SetState(LinkState::Connected);
             int64_t last_ping = NowMs();
             while (!closed_ && ws->IsConnected()) {
-                vTaskDelay(pdMS_TO_TICKS(1000));
+                vTaskDelay(pdMS_TO_TICKS(100));
+                if (register_pending_.exchange(false)) {
+                    std::string reg = Tools().RegisterMessage();
+                    std::lock_guard<std::mutex> lock(ws_mutex_);
+                    ws->Send(reg);
+                    ESP_LOGI(TAG, "bridge up, skills registered");
+                }
+                if (pong_pending_.exchange(false)) {
+                    std::lock_guard<std::mutex> lock(ws_mutex_);
+                    ws->Send(std::string("{\"type\":\"pong\"}"));
+                }
                 int64_t now = NowMs();
                 if (now - last_rx_ms_ > 90000) {
                     ESP_LOGW(TAG, "bridge silent for 90 s, reconnecting");

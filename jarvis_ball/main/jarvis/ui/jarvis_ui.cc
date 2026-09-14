@@ -345,10 +345,17 @@ struct Ui::Impl {
         lv_obj_move_foreground(back_btn);
     }
 
-    static std::string HomeTitle(const std::string& id) {
+    std::vector<std::pair<std::string, std::string>> homes_cache;  // saved homes, read once per menu visit
+
+    const std::vector<std::pair<std::string, std::string>>& Homes() {
+        if (homes_cache.empty()) homes_cache = store::ListHomes();
+        return homes_cache;
+    }
+
+    std::string HomeTitle(const std::string& id) {
         if (id == "orb") return "Orb";
         if (id == "clock") return "Clock";
-        for (auto& [hid, title] : store::ListHomes()) {
+        for (auto& [hid, title] : Homes()) {
             if (hid == id) return title;
         }
         return id;
@@ -374,7 +381,7 @@ struct Ui::Impl {
         settings = store::LoadUi();
         rows.push_back({"Home: " + HomeTitle(settings.home), [this] {
                             std::vector<std::string> ids = {"orb", "clock"};
-                            for (auto& [id, title] : store::ListHomes()) ids.push_back(id);
+                            for (auto& [id, title] : Homes()) ids.push_back(id);
                             auto it = std::find(ids.begin(), ids.end(), settings.home);
                             settings.home = (it == ids.end() || it + 1 == ids.end()) ? ids[0] : *(it + 1);
                             store::SaveUi(settings);
@@ -413,12 +420,14 @@ struct Ui::Impl {
     }
 
     void Changed() {
+        homes_cache.clear();
         if (owner->on_settings_changed) owner->on_settings_changed();
         RenderMenu();
     }
 
-    void RenderMenu() {
-        BuildMenuRows();
+    // `rebuild` false only moves the highlight: rebuilding reads NVS and the pages partition.
+    void RenderMenu(bool rebuild = true) {
+        if (rebuild || rows.empty()) BuildMenuRows();
         highlight = std::max(0, std::min<int>(highlight, rows.size() - 1));
         lv_obj_clean(menu_layer);
         lv_obj_t* title = lv_label_create(menu_layer);
@@ -452,6 +461,7 @@ struct Ui::Impl {
     }
 
     void OpenMenu() {
+        homes_cache.clear();
         menu_open = true;
         settings_menu = false;
         highlight = 0;
@@ -645,7 +655,7 @@ void Ui::MenuNext() {
     auto* m = impl_;
     if (!m->menu_open || m->rows.empty()) return;
     m->highlight = (m->highlight + 1) % static_cast<int>(m->rows.size());
-    m->RenderMenu();
+    m->RenderMenu(false);
 }
 
 void Ui::MenuSelect() {
@@ -718,12 +728,19 @@ void Ui::OnTap(int x, int y) {
 void Ui::ApplySettings() {
     DisplayLockGuard lock(impl_->display);
     auto* m = impl_;
+    // A change made from the Settings menu must not close it.
+    bool menu_open = m->menu_open, settings_menu = m->settings_menu;
+    int highlight = m->highlight;
     if (m->screen == Screen::Home) m->ShowHomeLocked();  // theme / home / clock format
-    else {
-        m->settings = store::LoadUi();
-        m->UpdateChrome();
+    m->settings = store::LoadUi();
+    if (menu_open) {
+        m->menu_open = true;
+        m->settings_menu = settings_menu;
+        m->highlight = highlight;
+        lv_obj_remove_flag(m->menu_layer, LV_OBJ_FLAG_HIDDEN);
+        m->RenderMenu();
     }
-    if (m->menu_open) m->RenderMenu();
+    m->UpdateChrome();
 }
 
 }  // namespace jarvis

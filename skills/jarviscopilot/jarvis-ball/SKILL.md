@@ -50,7 +50,7 @@ button (top-right) from the ball itself — don't draw your own.
 ```
 
 Every node is `{"type", …props, "style": {…}, "children": […], "onTap": {…}}`.
-`id` is optional (a-z 0-9 _ -, max 32; saving with an existing id replaces that home).
+`id` is optional (a-z 0-9 _ -, max 20; saving with an existing id replaces that home).
 
 **Containers:** `vstack`, `hstack` (flex; `style.gap`, `style.align` left|center|right),
 `zstack` (children overlap, centred; `style.width/height`), `spacer`.

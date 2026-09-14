@@ -202,6 +202,7 @@ void RegisterBallTools() {
               if (!err.empty()) return err;
               Ui::Get().CacheImages(FetchPageImages(page));
               Ui::Get().ShowPage(PrintJson(page));
+              Application::GetInstance().Schedule([]() { Application::GetInstance().WakeScreen(); });
               cJSON_AddBoolToObject(out, "ok", true);
               return std::string();
           });
@@ -354,7 +355,7 @@ std::map<std::string, std::string> FetchPageImages(const cJSON* page) {
     for (auto& url : urls) {
         if (out.count(url)) continue;
         bool own_server = !pairing.server.empty() && HostOf(url) == HostOf(pairing.server);
-        HttpResult r = HttpRequest("GET", url, "", own_server ? pairing : store::Pairing{}, own_server, 10000);
+        HttpResult r = HttpRequest("GET", url, "", own_server ? pairing : store::Pairing{}, own_server, 10000, 100 * 1024);
         if (r.status == 200 && !r.body.empty() && r.body.size() <= 100 * 1024) out[url] = std::move(r.body);
     }
     return out;

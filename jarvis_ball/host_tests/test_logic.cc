@@ -113,6 +113,8 @@ int main() {
 
     CHECK(IsBuiltinHome("orb") && IsBuiltinHome("clock") && !IsBuiltinHome("weather"));
     CHECK(ValidPageId("weather_1") && !ValidPageId("") && !ValidPageId("UPPER"));
+    CHECK(ValidPageId("a2345678901234567890") && !ValidPageId("a23456789012345678901"));  // SPIFFS name limit
+    CHECK(Contains(Validate("{\"root\":{\"type\":\"clock\",\"format\":\"%H:%M:%S %A %B %d %Y and some more text\"}}"), "32 chars"));
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

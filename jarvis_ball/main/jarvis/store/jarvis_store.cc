@@ -108,7 +108,8 @@ std::vector<std::pair<std::string, std::string>> ListHomes() {
 bool SaveHome(const std::string& id, const std::string& json) {
     if (!MountPages()) return false;
     std::lock_guard<std::mutex> lock(g_mutex);
-    std::string tmp = PathFor(id) + ".tmp";
+    // SPIFFS names cap at 31 chars: a fixed short temp name keeps long ids writable.
+    std::string tmp = std::string(kPagesDir) + "/.tmp";
     FILE* f = fopen(tmp.c_str(), "wb");
     if (!f) return false;
     bool ok = fwrite(json.data(), 1, json.size(), f) == json.size();
