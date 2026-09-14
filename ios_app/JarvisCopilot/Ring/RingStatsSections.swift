@@ -19,16 +19,19 @@ struct RingStatsSections: View {
             }
             if capabilities.hrv || day.hrv != nil {
                 series("HRV", unit: "ms", color: JcTheme.blue, values: day.hrv, extra: [],
-                       stats: [("Average", summary.hrvAvg.map { "\($0) ms" }), ("Latest", summary.hrvLatest.map { "\($0) ms" })])
+                       stats: [("Latest", summary.hrvLatest.map { "\($0) ms" }), ("Average", summary.hrvAvg.map { "\($0) ms" })],
+                       format: { "\(Int($0.rounded())) ms" })
             }
             if capabilities.stress || day.stress != nil {
                 series("Stress", unit: "", color: JcTheme.amber, values: day.stress, extra: [],
-                       stats: [("Average", summary.stressAvg.map(String.init)), ("Latest", summary.stressLatest.map(String.init))])
+                       stats: [("Latest", summary.stressLatest.map(String.init)), ("Average", summary.stressAvg.map(String.init))],
+                       format: { "\(Int($0.rounded()))" })
             }
             if capabilities.anyTemperature || day.temperature != nil || !day.instantTemperature.isEmpty {
                 series("Temperature", unit: "°C", color: .orange, values: day.temperature, extra: day.instantTemperature,
-                       stats: [("Average", summary.temperatureAvg.map { String(format: "%.1f °C", $0) }),
-                               ("Latest", summary.temperatureLatest.map { String(format: "%.1f °C", $0) })])
+                       stats: [("Latest", summary.temperatureLatest.map { String(format: "%.1f °C", $0) }),
+                               ("Average", summary.temperatureAvg.map { String(format: "%.1f °C", $0) })],
+                       format: { String(format: "%.1f °C", $0) })
             }
             if capabilities.bloodPressure || !day.bloodPressure.isEmpty { bloodPressure(day) }
             if capabilities.bloodSugar || day.bloodSugar != nil { bloodSugar(day) }
@@ -37,64 +40,82 @@ struct RingStatsSections: View {
     }
 
     // MARK: Sections
+    //
+    // Each chart card leads with its headline stat and scrubs: see `RingMetricCard`.
 
     private func activity(_ day: RingDay, _ s: RingDaySummary) -> some View {
-        CardGroup("Activity") {
-            statGrid([
-                ("Steps", s.steps.map(String.init)),
-                ("Calories", s.kilocalories.map { String(format: "%.0f kcal", $0) }),
-                ("Distance", s.distanceMeters.map { String(format: "%.2f km", Double($0) / 1000) }),
-                ("Active", s.activeMinutes.map { "\($0) min" }),
-                ("Running steps", day.activity.map { String($0.runningSteps) }),
-                ("15-min slots", day.stepSlots.isEmpty ? nil : String(day.stepSlots.count)),
-            ])
-            if !day.stepSlots.isEmpty {
-                RowDivider()
-                Chart(day.stepSlots, id: \.slot) { slot in
+        RingMetricCard(
+            title: "Activity",
+            headline: RingStat(label: "Steps", value: s.steps.map { $0.formatted() }),
+            details: [
+                RingStat(label: "Calories", value: s.kilocalories.map { String(format: "%.0f kcal", $0) }),
+                RingStat(label: "Distance", value: s.distanceMeters.map { String(format: "%.2f km", Double($0) / 1000) }),
+                RingStat(label: "Active", value: s.activeMinutes.map { "\($0) min" }),
+                RingStat(label: "Running steps", value: day.activity.map { $0.runningSteps.formatted() }),
+            ],
+            emptyText: day.stepSlots.isEmpty ? "No step timeline for this day" : nil,
+            readout: { (hour: Double) -> RingScrubReadout? in
+                let at = RingChartScrub.steps(day.stepSlots, hour: hour)
+                return RingScrubReadout(value: "\(at.steps.formatted()) steps",
+                                        caption: "\(RingChartScrub.clock(minute: at.slot * 15)) · \(at.soFar.formatted()) so far")
+            }
+        ) { selected, selection in
+            Chart {
+                ForEach(day.stepSlots, id: \.slot) { slot in
                     BarMark(x: .value("Hour", Double(slot.slot) / 4), y: .value("Steps", slot.steps), width: 3)
                         .foregroundStyle(JcTheme.accent.gradient)
                 }
-                .chartXScale(domain: 0.0...24.0)
-                .chartXAxis { hourAxis }
-                .frame(height: 120)
-                .padding(14)
+                if let selected { RingScrubRule(x: selected) }
             }
+            .chartXScale(domain: 0.0...24.0)
+            .chartXAxis { hourAxis }
+            .chartXSelection(value: selection)
+            .frame(height: 120)
         }
     }
 
     private func sleep(_ day: RingDay, _ s: RingDaySummary) -> some View {
-        CardGroup("Sleep") {
-            statGrid([
-                ("Asleep", s.sleepMinutes.map(duration)),
-                ("Deep", s.deepMinutes.map(duration)),
-                ("Light", s.lightMinutes.map(duration)),
-                ("REM", s.remMinutes.map(duration)),
-                ("Awake", s.awakeMinutes.map(duration)),
-                ("Naps", day.naps.isEmpty ? nil : day.naps.map { "\(time($0.start))–\(time($0.end))" }.joined(separator: ", ")),
-            ])
-            if let night = day.sleep.max(by: { $0.asleepMinutes < $1.asleepMinutes }) {
-                RowDivider()
+        let night = day.sleep.max(by: { $0.asleepMinutes < $1.asleepMinutes })
+        let noNight = day.legacySleepSlots.isEmpty
+            ? "No sleep recorded for this day"
+            : "\(day.legacySleepSlots.count) legacy sleep slots recorded"
+        return RingMetricCard(
+            title: "Sleep",
+            headline: RingStat(label: "Asleep", value: s.sleepMinutes.map(duration)),
+            details: [
+                RingStat(label: "Deep", value: s.deepMinutes.map(duration)),
+                RingStat(label: "Light", value: s.lightMinutes.map(duration)),
+                RingStat(label: "REM", value: s.remMinutes.map(duration)),
+                RingStat(label: "Awake", value: s.awakeMinutes.map(duration)),
+                RingStat(label: "Naps", value: day.naps.isEmpty ? nil : String(day.naps.count)),
+            ],
+            emptyText: night == nil ? noNight : nil,
+            readout: { (date: Date) -> RingScrubReadout? in
+                guard let night, let at = RingChartScrub.stage(in: night, at: date) else { return nil }
+                let name = stageName(at.stage)
+                let length = duration(Int(at.end.timeIntervalSince(at.start) / 60))
+                return RingScrubReadout(value: name, caption: "\(time(date)) · \(length) of \(name.lowercased())")
+            }
+        ) { selected, selection in
+            if let night {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("\(time(night.start)) – \(time(night.end))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Chart(stageSegments(night)) { segment in
-                        BarMark(xStart: .value("Start", segment.start), xEnd: .value("End", segment.end),
-                                y: .value("Stage", segment.name))
-                            .foregroundStyle(by: .value("Stage", segment.name))
+                    Chart {
+                        ForEach(stageSegments(night)) { segment in
+                            BarMark(xStart: .value("Start", segment.start), xEnd: .value("End", segment.end),
+                                    y: .value("Stage", segment.name))
+                                .foregroundStyle(by: .value("Stage", segment.name))
+                        }
+                        if let selected { RingScrubRule(x: selected) }
                     }
                     .chartForegroundStyleScale(["Awake": Color.orange, "REM": JcTheme.accentAlt,
                                                 "Light": JcTheme.accent, "Deep": JcTheme.primaryBlue])
                     .chartLegend(.hidden)
+                    .chartXSelection(value: selection)
                     .frame(height: 130)
                 }
-                .padding(14)
-            } else if !day.legacySleepSlots.isEmpty {
-                RowDivider()
-                empty("\(day.legacySleepSlots.count) legacy sleep slots recorded")
-            } else {
-                RowDivider()
-                empty("No sleep recorded for this day")
             }
         }
     }
@@ -102,102 +123,128 @@ struct RingStatsSections: View {
     private func heartRate(_ day: RingDay, _ s: RingDaySummary) -> some View {
         let line = timed(day.heartRate)
         let points = day.manualHeartRate + day.instantHeartRate
-        return CardGroup("Heart rate") {
-            statGrid([
-                ("Latest", s.heartRateLatest.map { "\($0) bpm" }),
-                ("Average", s.heartRateAvg.map { "\($0) bpm" }),
-                ("Lowest", s.heartRateMin.map { "\($0) bpm" }),
-                ("Highest", s.heartRateMax.map { "\($0) bpm" }),
-                ("Sample interval", day.heartRate.map { "\($0.intervalMinutes) min" }),
-                ("Spot readings", points.isEmpty ? nil : String(points.count)),
-            ])
-            RowDivider()
-            if line.isEmpty && points.isEmpty {
-                empty("No heart-rate readings for this day")
-            } else {
-                Chart {
-                    ForEach(line, id: \.minute) { reading in
-                        LineMark(x: .value("Hour", Double(reading.minute) / 60), y: .value("bpm", reading.value))
-                            .foregroundStyle(Color.red)
-                            .interpolationMethod(.catmullRom)
-                    }
-                    ForEach(Array(points.enumerated()), id: \.offset) { _, point in
-                        PointMark(x: .value("Hour", Double(point.minute) / 60), y: .value("bpm", point.value))
-                            .foregroundStyle(Color.pink)
-                    }
-                }
-                .chartXScale(domain: 0.0...24.0)
-                .chartXAxis { hourAxis }
-                .frame(height: 150)
-                .padding(14)
+        let tolerance = max(15, day.heartRate?.intervalMinutes ?? 0)
+        return RingMetricCard(
+            title: "Heart rate",
+            headline: RingStat(label: "Latest", value: s.heartRateLatest.map { "\($0) bpm" }),
+            details: [
+                RingStat(label: "Average", value: s.heartRateAvg.map { "\($0) bpm" }),
+                RingStat(label: "Lowest", value: s.heartRateMin.map { "\($0) bpm" }),
+                RingStat(label: "Highest", value: s.heartRateMax.map { "\($0) bpm" }),
+                RingStat(label: "Sample interval", value: day.heartRate.map { "\($0.intervalMinutes) min" }),
+                RingStat(label: "Spot readings", value: points.isEmpty ? nil : String(points.count)),
+            ],
+            emptyText: line.isEmpty && points.isEmpty ? "No heart-rate readings for this day" : nil,
+            readout: { (hour: Double) -> RingScrubReadout? in
+                guard let reading = RingChartScrub.nearest(line + points, hour: hour, toleranceMinutes: tolerance)
+                else { return nil }
+                let spot = !line.contains(reading)
+                return RingScrubReadout(value: "\(Int(reading.value.rounded())) bpm",
+                                        caption: RingChartScrub.clock(minute: reading.minute) + (spot ? " · spot reading" : ""))
             }
+        ) { selected, selection in
+            Chart {
+                ForEach(line, id: \.minute) { reading in
+                    LineMark(x: .value("Hour", Double(reading.minute) / 60), y: .value("bpm", reading.value))
+                        .foregroundStyle(Color.red)
+                        .interpolationMethod(.catmullRom)
+                }
+                ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+                    PointMark(x: .value("Hour", Double(point.minute) / 60), y: .value("bpm", point.value))
+                        .foregroundStyle(Color.pink)
+                }
+                if let selected { RingScrubRule(x: selected) }
+            }
+            .chartXScale(domain: 0.0...24.0)
+            .chartXAxis { hourAxis }
+            .chartXSelection(value: selection)
+            .frame(height: 150)
         }
     }
 
     private func spo2(_ day: RingDay, _ s: RingDaySummary) -> some View {
         let hours = hourlyRanges(day.spo2)
         let points = day.manualSpO2 + day.instantSpO2
-        return CardGroup("Blood oxygen") {
-            statGrid([
-                ("Latest", s.spo2Latest.map { "\($0)%" }),
-                ("Average", s.spo2Avg.map { "\($0)%" }),
-                ("Lowest", s.spo2Min.map { "\($0)%" }),
-                ("Spot readings", points.isEmpty ? nil : String(points.count)),
-            ])
-            RowDivider()
-            if hours.isEmpty && points.isEmpty {
-                empty("No SpO₂ readings for this day")
-            } else {
-                Chart {
-                    ForEach(hours, id: \.hour) { range in
-                        RuleMark(x: .value("Hour", Double(range.hour) + 0.5),
-                                 yStart: .value("Low", range.low), yEnd: .value("High", range.high))
-                            .lineStyle(StrokeStyle(lineWidth: 6, lineCap: .round))
-                            .foregroundStyle(Color.cyan.opacity(0.8))
-                    }
-                    ForEach(Array(points.enumerated()), id: \.offset) { _, point in
-                        PointMark(x: .value("Hour", Double(point.minute) / 60), y: .value("%", point.value))
-                            .foregroundStyle(Color.white)
-                    }
+        return RingMetricCard(
+            title: "Blood oxygen",
+            headline: RingStat(label: "Latest", value: s.spo2Latest.map { "\($0)%" }),
+            details: [
+                RingStat(label: "Average", value: s.spo2Avg.map { "\($0)%" }),
+                RingStat(label: "Lowest", value: s.spo2Min.map { "\($0)%" }),
+                RingStat(label: "Spot readings", value: points.isEmpty ? nil : String(points.count)),
+            ],
+            emptyText: hours.isEmpty && points.isEmpty ? "No SpO₂ readings for this day" : nil,
+            readout: { (hour: Double) -> RingScrubReadout? in
+                if let spot = RingChartScrub.nearest(points, hour: hour, toleranceMinutes: 15) {
+                    return RingScrubReadout(value: "\(Int(spot.value.rounded()))%",
+                                            caption: RingChartScrub.clock(minute: spot.minute) + " · spot reading")
                 }
-                .chartXScale(domain: 0.0...24.0)
-                .chartYScale(domain: 80...100)
-                .chartXAxis { hourAxis }
-                .frame(height: 140)
-                .padding(14)
+                guard let range = RingChartScrub.hourRange(day.spo2, hour: hour) else { return nil }
+                let from = Int(hour) * 60
+                return RingScrubReadout(value: range.low == range.high ? "\(range.low)%" : "\(range.low)–\(range.high)%",
+                                        caption: "\(RingChartScrub.clock(minute: from))–\(RingChartScrub.clock(minute: from + 60))")
             }
+        ) { selected, selection in
+            Chart {
+                ForEach(hours, id: \.hour) { range in
+                    RuleMark(x: .value("Hour", Double(range.hour) + 0.5),
+                             yStart: .value("Low", range.low), yEnd: .value("High", range.high))
+                        .lineStyle(StrokeStyle(lineWidth: 6, lineCap: .round))
+                        .foregroundStyle(Color.cyan.opacity(0.8))
+                }
+                ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+                    PointMark(x: .value("Hour", Double(point.minute) / 60), y: .value("%", point.value))
+                        .foregroundStyle(Color.white)
+                }
+                if let selected { RingScrubRule(x: selected) }
+            }
+            .chartXScale(domain: 0.0...24.0)
+            .chartYScale(domain: 80...100)
+            .chartXAxis { hourAxis }
+            .chartXSelection(value: selection)
+            .frame(height: 140)
         }
     }
 
+    /// A single time series (HRV, stress, temperature). The first of `stats` is the
+    /// headline; `format` renders a scrubbed reading.
     private func series(_ title: String, unit: String, color: Color, values: RingSeries?, extra: [RingTimedValue],
-                        stats: [(String, String?)]) -> some View {
+                        stats: [(String, String?)], format: @escaping (Double) -> String) -> some View {
         let line = timed(values)
-        return CardGroup(title) {
-            statGrid(stats + [("Sample interval", values.map { "\($0.intervalMinutes) min" })])
-            RowDivider()
-            if line.isEmpty && extra.isEmpty {
-                empty("No \(title.lowercased()) readings for this day")
-            } else {
-                Chart {
-                    ForEach(line, id: \.minute) { reading in
-                        LineMark(x: .value("Hour", Double(reading.minute) / 60), y: .value(unit, reading.value))
-                            .foregroundStyle(color)
-                            .interpolationMethod(.catmullRom)
-                        PointMark(x: .value("Hour", Double(reading.minute) / 60), y: .value(unit, reading.value))
-                            .foregroundStyle(color)
-                            .symbolSize(14)
-                    }
-                    ForEach(Array(extra.enumerated()), id: \.offset) { _, point in
-                        PointMark(x: .value("Hour", Double(point.minute) / 60), y: .value(unit, point.value))
-                            .foregroundStyle(Color.white)
-                    }
-                }
-                .chartXScale(domain: 0.0...24.0)
-                .chartYScale(domain: .automatic(includesZero: false))
-                .chartXAxis { hourAxis }
-                .frame(height: 140)
-                .padding(14)
+        let tolerance = max(15, values?.intervalMinutes ?? 0)
+        let all = stats.map { RingStat(label: $0.0, value: $0.1) }
+            + [RingStat(label: "Sample interval", value: values.map { "\($0.intervalMinutes) min" })]
+        return RingMetricCard(
+            title: title,
+            headline: all[0],
+            details: Array(all.dropFirst()),
+            emptyText: line.isEmpty && extra.isEmpty ? "No \(title.lowercased()) readings for this day" : nil,
+            readout: { (hour: Double) -> RingScrubReadout? in
+                guard let reading = RingChartScrub.nearest(line + extra, hour: hour, toleranceMinutes: tolerance)
+                else { return nil }
+                return RingScrubReadout(value: format(reading.value), caption: RingChartScrub.clock(minute: reading.minute))
             }
+        ) { selected, selection in
+            Chart {
+                ForEach(line, id: \.minute) { reading in
+                    LineMark(x: .value("Hour", Double(reading.minute) / 60), y: .value(unit, reading.value))
+                        .foregroundStyle(color)
+                        .interpolationMethod(.catmullRom)
+                    PointMark(x: .value("Hour", Double(reading.minute) / 60), y: .value(unit, reading.value))
+                        .foregroundStyle(color)
+                        .symbolSize(14)
+                }
+                ForEach(Array(extra.enumerated()), id: \.offset) { _, point in
+                    PointMark(x: .value("Hour", Double(point.minute) / 60), y: .value(unit, point.value))
+                        .foregroundStyle(Color.white)
+                }
+                if let selected { RingScrubRule(x: selected) }
+            }
+            .chartXScale(domain: 0.0...24.0)
+            .chartYScale(domain: .automatic(includesZero: false))
+            .chartXAxis { hourAxis }
+            .chartXSelection(value: selection)
+            .frame(height: 140)
         }
     }
 
@@ -247,23 +294,6 @@ struct RingStatsSections: View {
             AxisGridLine()
             AxisValueLabel { Text("\(Int(value.as(Double.self) ?? 0))h") }
         }
-    }
-
-    private func statGrid(_ items: [(String, String?)]) -> some View {
-        LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
-                  alignment: .leading, spacing: 12) {
-            ForEach(items.indices, id: \.self) { index in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(items[index].0).font(.caption).foregroundStyle(.secondary)
-                    Text(items[index].1 ?? "—")
-                        .font(.system(.title3, design: .rounded).weight(.semibold))
-                        .monospacedDigit()
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.7)
-                }
-            }
-        }
-        .padding(16)
     }
 
     private func empty(_ text: String) -> some View {

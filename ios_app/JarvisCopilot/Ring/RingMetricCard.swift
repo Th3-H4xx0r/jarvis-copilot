@@ -1,0 +1,101 @@
+import Charts
+import SwiftUI
+
+/// One stat on a ring card: its name and the day's value, nil when the ring has none.
+struct RingStat {
+    let label: String
+    let value: String?
+}
+
+/// A ring metric card: the headline stat big and bold at the top left, the rest
+/// small beneath it, and a chart you can scrub. While a finger is on the chart the
+/// headline becomes the reading at that moment, captioned with when it was; letting
+/// go puts the day's number back.
+struct RingMetricCard<X: Plottable & Equatable, ChartBody: View>: View {
+    let title: String
+    let headline: RingStat
+    var details: [RingStat] = []
+    /// Shown in place of the chart when there is nothing to plot.
+    var emptyText: String?
+    /// The reading under the finger, or nil for a gap.
+    let readout: (X) -> RingScrubReadout?
+    /// The chart, given the scrubbed position to mark and the binding to scrub with.
+    @ViewBuilder let chart: (_ selected: X?, _ selection: Binding<X?>) -> ChartBody
+
+    @State private var selection: X?
+
+    private var scrubbed: RingScrubReadout? {
+        guard let selection else { return nil }
+        return readout(selection) ?? RingScrubReadout(value: "—", caption: "No reading here")
+    }
+
+    var body: some View {
+        CardGroup(title) {
+            VStack(alignment: .leading, spacing: 14) {
+                headlineBlock
+                if !shownDetails.isEmpty { detailGrid }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            RowDivider()
+            if let emptyText {
+                Row { Text(emptyText).font(.subheadline).foregroundStyle(.secondary) }
+            } else {
+                chart(selection, $selection)
+                    .padding(14)
+                    .accessibilityHint("Drag across the chart to see the reading at each time")
+            }
+        }
+        .sensoryFeedback(.selection, trigger: scrubbed)
+    }
+
+    private var headlineBlock: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(scrubbed?.caption ?? headline.label)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(scrubbed == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(JcTheme.accent))
+                .lineLimit(1)
+            Text(scrubbed?.value ?? headline.value ?? "—")
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .contentTransition(.numericText())
+        }
+        .animation(.snappy(duration: 0.18), value: scrubbed)
+    }
+
+    /// Only the stats the ring actually has: a small grid of dashes was noise.
+    private var shownDetails: [RingStat] { details.filter { $0.value != nil } }
+
+    private var detailGrid: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3),
+                  alignment: .leading, spacing: 10) {
+            ForEach(shownDetails.indices, id: \.self) { index in
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(shownDetails[index].label)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(shownDetails[index].value ?? "—")
+                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+            }
+        }
+    }
+}
+
+/// The scrub marker every ring chart draws at the selected position, in the scale
+/// chart's style.
+struct RingScrubRule<X: Plottable>: ChartContent {
+    let x: X
+
+    var body: some ChartContent {
+        RuleMark(x: .value("Selected", x))
+            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+            .foregroundStyle(.white.opacity(0.55))
+    }
+}
