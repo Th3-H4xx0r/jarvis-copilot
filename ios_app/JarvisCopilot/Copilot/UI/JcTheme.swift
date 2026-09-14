@@ -14,7 +14,7 @@ enum JcTheme {
 
     // MARK: Canvas
 
-    static let bg = Color(jcHex: 0x070710)
+    static let bg = Color.black
 
     // MARK: Glass surfaces
     //

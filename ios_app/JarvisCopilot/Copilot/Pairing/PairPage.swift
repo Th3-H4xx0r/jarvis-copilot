@@ -90,7 +90,7 @@ struct PairPage: View {
             }
             .coordinateSpace(name: "pair")
         }
-        .background(LivingAurora(reduceMotion: reduceMotion).ignoresSafeArea())
+        .background(JcTheme.bg.ignoresSafeArea())
         // A scanned QR that carried a Cloudflare token opens the manual form so
         // the values it filled are visible.
         .onChange(of: store.showsCloudflareFields) { _, shown in if shown { showManual = true } }
@@ -411,43 +411,6 @@ private struct SlotTopKey: PreferenceKey {
     }
 }
 
-/// The aurora, alive: four soft colour fields drifting on slow Lissajous paths.
-/// Same palette and weight as `AuroraBackdrop`, so the page still reads as the
-/// rest of the app — it just breathes. Static under Reduce Motion.
-private struct LivingAurora: View {
-    let reduceMotion: Bool
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { tl in
-            let t = reduceMotion ? 0 : tl.date.timeIntervalSinceReferenceDate
-            GeometryReader { g in
-                let w = g.size.width, h = g.size.height
-                ZStack {
-                    LinearGradient(colors: [Color(jcHex: 0x04050A), Color(jcHex: 0x020307)],
-                                   startPoint: .top, endPoint: .bottom)
-                    // Small, deep-toned glows on slow orbits — an accent in the dark,
-                    // never a light show.
-                    blob(JcAccent.shade(0.45), 0.16, 160,
-                         x: w * (0.28 + 0.36 * sin(t / 4.2)), y: h * (0.20 + 0.20 * cos(t / 3.6)))
-                    blob(Color(jcHex: 0x0C4C55), 0.14, 150,
-                         x: w * (0.72 + 0.34 * cos(t / 3.9 + 1)), y: h * (0.52 + 0.28 * sin(t / 4.6)))
-                    blob(JcAccent.shade(0.62), 0.12, 170,
-                         x: w * (0.42 + 0.40 * sin(t / 5.1 + 2)), y: h * (0.80 + 0.16 * cos(t / 4.0 + 1)))
-                    blob(JcAccent.shade(0.38), 0.10, 130,
-                         x: w * (0.60 + 0.36 * cos(t / 4.4 + 3)), y: h * (0.36 + 0.32 * sin(t / 5.3 + 2)))
-                }
-            }
-        }
-    }
-
-    private func blob(_ color: Color, _ alpha: Double, _ size: CGFloat, x: CGFloat, y: CGFloat) -> some View {
-        Circle()
-            .fill(color.opacity(alpha))
-            .frame(width: size, height: size)
-            .blur(radius: size * 0.22)
-            .position(x: x, y: y)
-    }
-}
 
 /// A line of text whose words fade in one after another. Opacity is a function
 /// of elapsed time since `revealAt` — no implicit animation, so nothing but

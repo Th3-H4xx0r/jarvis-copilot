@@ -5,38 +5,10 @@ import SwiftUI
 
 // MARK: - Backdrop
 
-/// The app's signature backdrop: a near-black vertical gradient with four soft
-/// aurora glows — cool teals up top, a warm hint low-left.
-///
-/// Deliberately static. It is behind every screen including scrolling lists, so
-/// there is no animation and no blur here: four radial gradients composite in one
-/// pass and cost nothing per frame.
+/// The backdrop behind every screen: plain black (`JcTheme.bg`), no gradient.
 struct AuroraBackdrop: View {
     var body: some View {
-        LinearGradient(colors: [Color(jcHex: 0x0A0C12), Color(jcHex: 0x050608)],
-                       startPoint: .top, endPoint: .bottom)
-            .overlay(alignment: .topLeading) {
-                glow(JcAccent.deep, 340, 0.12).offset(x: -50, y: -60)
-            }
-            .overlay(alignment: .topTrailing) {
-                glow(JcAccent.color, 360, 0.06).offset(x: 90, y: 20)
-            }
-            .overlay(alignment: .bottomLeading) {
-                glow(Color(jcHex: 0xB0703A), 300, 0.05).offset(x: -70, y: 40)
-            }
-            .overlay(alignment: .bottomTrailing) {
-                glow(JcAccent.deep, 300, 0.06).offset(x: 60, y: -80)
-            }
-            .clipped()
-            .allowsHitTesting(false)
-    }
-
-    private func glow(_ color: Color, _ diameter: CGFloat, _ alpha: Double) -> some View {
-        Circle()
-            .fill(RadialGradient(
-                colors: [color.opacity(alpha), color.opacity(0)],
-                center: .center, startRadius: 0, endRadius: diameter / 2))
-            .frame(width: diameter, height: diameter)
+        JcTheme.bg.allowsHitTesting(false)
     }
 }
 
