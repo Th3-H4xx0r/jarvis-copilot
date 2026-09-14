@@ -60,11 +60,15 @@ enum JcTheme {
     static let primaryBlueLo = JcAccent.deeper
     static let primaryBlueHi = JcAccent.bright
 
-    static let success = Color(jcHex: 0x5BE5A0)
-    static let amber = Color(jcHex: 0xFFC34D)           // warning / mock-mode
+    // Hex first so devices that can't take a SwiftUI Color (the Jarvis Ball) get the same values.
+    static let successHex: UInt32 = 0x5BE5A0
+    static let amberHex: UInt32 = 0xFFC34D
+    static let dangerHex: UInt32 = 0xFF6B7E
+    static let success = Color(jcHex: successHex)
+    static let amber = Color(jcHex: amberHex)           // warning / mock-mode
     /// A dark wash of the accent for the user's own bubbles in coding chats.
     static let slate = JcAccent.shade(0.4)
-    static let danger = Color(jcHex: 0xFF6B7E)
+    static let danger = Color(jcHex: dangerHex)
 
     // MARK: Gradients
 

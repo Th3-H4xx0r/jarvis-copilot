@@ -21,6 +21,10 @@ struct DevicesPage: View {
     /// what the user reaches for most.
     @State private var section: DevicesSection
     @State private var store: DevicesStore
+    /// Scan a Jarvis device's setup QR, then pair it in the stepper.
+    @State private var scanningForDevice = false
+    @State private var setupCode: BallSetupCode?
+    @Environment(\.horizontalSizeClass) private var sizeClass
     /// Optional so tests and previews without the shell still build the page.
     @Environment(AppRouter.self) private var router: AppRouter?
 
@@ -62,6 +66,27 @@ struct DevicesPage: View {
             // missing. The wearables half gets it too now — its own opaque
             // navigation background used to sit over it as a flat black slab.
             .jcScreen("Devices")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { scanningForDevice = true } label: {
+                        Image(systemName: "qrcode.viewfinder").foregroundStyle(JcTheme.accent)
+                    }
+                    .accessibilityLabel("Scan to add a device")
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $scanningForDevice) {
+            BallScanView { code in
+                scanningForDevice = false
+                setupCode = code
+            }
+        }
+        .fullScreenCover(item: sizeClass == .compact ? $setupCode : .constant(nil)) { code in
+            BallSetupView(code: code) { Task { await JarvisBallStore.shared.refresh(force: true); await store.refresh() } }
+        }
+        .sheet(item: sizeClass == .compact ? .constant(nil) : $setupCode) { code in
+            BallSetupView(code: code) { Task { await JarvisBallStore.shared.refresh(force: true); await store.refresh() } }
+                .presentationDetents([.large])
         }
         // A card elsewhere (the Chat dashboard) asked for a particular half.
         .onChange(of: router?.screenRequestGeneration, initial: true) { _, _ in

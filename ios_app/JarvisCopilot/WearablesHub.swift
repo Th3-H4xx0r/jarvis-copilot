@@ -189,6 +189,8 @@ final class WearablesHub: ObservableObject {
                                      lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.ring),
                                      listed: live != nil))
         }
+        // The Jarvis Ball talks to the server, not the phone: its card comes from JarvisBallStore.
+        out.append(contentsOf: JarvisBallStore.shared.rosterEntries)
         return out
     }
 

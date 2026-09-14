@@ -27,7 +27,8 @@ struct ScanView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if manager.discovered.isEmpty && scaleManager.discovered.isEmpty
-                    && esp32Manager.discovered.isEmpty && ringManager.discovered.isEmpty && absent.isEmpty {
+                    && esp32Manager.discovered.isEmpty && ringManager.discovered.isEmpty && absent.isEmpty
+                    && JarvisBallStore.shared.balls.isEmpty {
                     emptyState
                 } else {
                     grid(entries, absent: absent)
@@ -38,6 +39,7 @@ struct ScanView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
+        .task { await JarvisBallStore.shared.pollWhileVisible() }
     }
 
     @ToolbarContentBuilder private var scanToolbar: some ToolbarContent {
@@ -56,6 +58,14 @@ struct ScanView: View {
 
     private func grid(_ entries: [WearableEntry], absent: [WearableEntry]) -> some View {
         VStack(spacing: spacing) {
+            ForEach(JarvisBallStore.shared.balls) { ball in
+                NavigationLink {
+                    JarvisBallView(ballID: ball.id)
+                } label: {
+                    JarvisBallCard(ball: ball, status: JarvisBallStore.shared.statuses[ball.id])
+                }
+                .buttonStyle(.plain)
+            }
             ForEach(manager.discovered) { bottle in
                 NavigationLink {
                     DeviceView(manager: manager, bottle: bottle)
