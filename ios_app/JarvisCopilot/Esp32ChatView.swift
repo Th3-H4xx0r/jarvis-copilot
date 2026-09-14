@@ -215,7 +215,7 @@ struct Esp32ChatView: View {
                 Image(systemName: "arrow.up.left").font(.caption2).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -398,9 +398,9 @@ struct Esp32ChatView: View {
             } label: {
                 Image(systemName: sending ? "stop.fill" : "arrow.up")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(sending ? JcTheme.text : (canSend ? JcTheme.accent : JcTheme.muted))
                     .frame(width: 30, height: 30)
-                    .background(sending ? Color.white.opacity(0.14) : (canSend ? userTint : Color.white.opacity(0.14)), in: Circle())
+                    .jcLiquidGlass(in: Circle())
             }
             .disabled(!sending && !canSend)
             .animation(.smooth(duration: 0.2), value: sending)

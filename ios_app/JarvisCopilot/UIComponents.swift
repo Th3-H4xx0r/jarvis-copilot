@@ -69,7 +69,7 @@ struct RowDivider: View {
 }
 
 /// A circular command button with its name underneath, like the action row on a
-/// contact card. Fills with its tint while the command is active.
+/// contact card. Liquid glass, tinted with its colour while the command is active.
 struct ActionButton: View {
     let title: String
     let icon: String
@@ -84,7 +84,7 @@ struct ActionButton: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(isOn ? .white : tint)
                     .frame(width: 56, height: 56)
-                    .background(isOn ? tint : tint.opacity(0.15), in: Circle())
+                    .jcLiquidGlass(in: Circle(), tint: isOn ? tint.opacity(0.6) : .clear)
                 Text(title)
                     .font(.caption)
                     .foregroundStyle(.secondary)

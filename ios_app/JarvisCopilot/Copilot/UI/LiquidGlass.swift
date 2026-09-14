@@ -20,3 +20,42 @@ extension View {
         }
     }
 }
+
+/// The app's button: its label on clear liquid glass, with the colour in the label
+/// (the accent, or a status colour) rather than a solid fill. For system-style text
+/// buttons; custom buttons put `jcLiquidGlass` on their own shape the same way.
+struct JcGlassButtonStyle: ButtonStyle {
+    var tint: Color = JcTheme.accent
+    var compact = false
+    /// Stretch to the width offered, for a row of equal buttons.
+    var full = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        GlassLabel(configuration: configuration, style: self)
+    }
+
+    private struct GlassLabel: View {
+        let configuration: Configuration
+        let style: JcGlassButtonStyle
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: style.compact ? 13 : 15, weight: .semibold))
+                .foregroundStyle(style.tint)
+                .frame(maxWidth: style.full ? .infinity : nil)
+                .padding(.horizontal, style.compact ? 12 : 18)
+                .padding(.vertical, style.compact ? 6 : 12)
+                .jcLiquidGlass(in: Capsule())
+                .opacity(isEnabled ? 1 : 0.45)
+        }
+    }
+}
+
+extension ButtonStyle where Self == JcGlassButtonStyle {
+    static var jcGlass: JcGlassButtonStyle { JcGlassButtonStyle() }
+    static func jcGlass(tint: Color = JcTheme.accent, compact: Bool = false,
+                        full: Bool = false) -> JcGlassButtonStyle {
+        JcGlassButtonStyle(tint: tint, compact: compact, full: full)
+    }
+}

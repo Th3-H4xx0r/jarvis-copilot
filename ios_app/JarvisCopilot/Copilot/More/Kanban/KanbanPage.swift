@@ -412,9 +412,9 @@ struct KanbanHeaderButton: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 19))
-                .foregroundStyle(tint ?? JcTheme.text)
+                .foregroundStyle(tint ?? JcTheme.accent)
                 .frame(width: 46, height: 46)
-                .background(.white.opacity(0.045), in: Circle())
+                .jcLiquidGlass(in: Circle())
         }
         .buttonStyle(.plain)
     }

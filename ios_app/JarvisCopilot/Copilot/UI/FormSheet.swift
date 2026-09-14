@@ -44,9 +44,7 @@ struct FormSheet<Fields: View>: View {
                 fields
                 HStack(spacing: 12) {
                     Button("Cancel") { dismiss() }
-                        .buttonStyle(.bordered)
-                        .tint(JcTheme.muted)
-                        .frame(maxWidth: .infinity)
+                        .buttonStyle(.jcGlass(tint: JcTheme.text, full: true))
                         .disabled(saving)
                     Button {
                         saving = true
@@ -57,14 +55,12 @@ struct FormSheet<Fields: View>: View {
                         }
                     } label: {
                         if saving {
-                            ProgressView().controlSize(.small).tint(.white)
+                            ProgressView().controlSize(.small).tint(JcTheme.accent)
                         } else {
                             Text(saveLabel)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(JcTheme.accent)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(.jcGlass(full: true))
                     .disabled(saving)
                 }
                 .padding(.top, 20)

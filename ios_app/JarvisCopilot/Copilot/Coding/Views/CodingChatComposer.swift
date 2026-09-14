@@ -70,15 +70,14 @@ struct CodingChatComposer: View {
                 Button(action: send) {
                     Group {
                         if sending {
-                            ProgressView().controlSize(.small).tint(.white)
+                            ProgressView().controlSize(.small).tint(JcTheme.accent)
                         } else {
                             Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold))
                         }
                     }
-                    .foregroundStyle(canSend ? .white : JcTheme.muted)
+                    .foregroundStyle(canSend ? JcTheme.accent : JcTheme.muted)
                     .frame(width: 40, height: 40)
-                    .background(canSend ? AnyShapeStyle(JcTheme.blueGradient)
-                                        : AnyShapeStyle(JcTheme.glassFill), in: Circle())
+                    .jcLiquidGlass(in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend)

@@ -205,8 +205,7 @@ struct RingDeviceView: View {
                     if m.isActive {
                         ProgressView()
                         Button("Stop") { session.cancelMeasurement() }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                            .buttonStyle(.jcGlass(tint: JcTheme.danger, compact: true))
                     }
                 }
             }

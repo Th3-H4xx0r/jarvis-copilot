@@ -88,8 +88,7 @@ struct CodingApprovalCard: View {
                     .foregroundStyle(JcTheme.danger)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+                    .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 11, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(busy)
@@ -110,16 +109,16 @@ struct CodingApprovalCard: View {
             Button { send("allow", nil) } label: {
                 HStack(spacing: 6) {
                     if busy {
-                        ProgressView().controlSize(.small).tint(.black)
+                        ProgressView().controlSize(.small).tint(CodingUI.green)
                     } else {
                         Image(systemName: "checkmark").font(.system(size: 15, weight: .bold))
                     }
                     Text("Approve").font(.system(size: 14, weight: .bold))
                 }
-                .foregroundStyle(Color.black)
+                .foregroundStyle(CodingUI.green)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .background(CodingUI.green, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 11, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(busy)
@@ -142,13 +141,13 @@ struct CodingApprovalCard: View {
                 Spacer()
                 Button { send("deny", reply) } label: {
                     HStack(spacing: 6) {
-                        if busy { ProgressView().controlSize(.small).tint(.black) }
+                        if busy { ProgressView().controlSize(.small).tint(tint) }
                         Text("Send to Claude").font(.system(size: 14, weight: .bold))
                     }
-                    .foregroundStyle(Color.black)
+                    .foregroundStyle(tint)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
-                    .background(tint, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(busy)

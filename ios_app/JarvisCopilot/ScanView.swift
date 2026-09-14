@@ -452,8 +452,7 @@ private struct AbsentDeviceCard: View {
                 ProgressView()
             } else {
                 Button("Connect", action: connect)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(.jcGlass(compact: true))
             }
         }
         .padding(14)

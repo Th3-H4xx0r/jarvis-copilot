@@ -212,14 +212,13 @@ struct GlassIconButton: View {
                 .font(.system(size: iconSize, weight: .regular))
                 .foregroundStyle(tint ?? JcTheme.accent)
                 .frame(width: size, height: size)
-                .background(JcTheme.glassFill, in: Circle())
-                .overlay(Circle().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+                .jcLiquidGlass(in: Circle())
         }
         .buttonStyle(.plain)
     }
 }
 
-/// Primary action: brand-gradient pill. `ghost` is the transparent glass variant.
+/// A labelled glass button: accent label, or the plain text colour for `ghost`.
 struct GlassButton: View {
     let title: String
     var symbol: String? = nil
@@ -235,19 +234,11 @@ struct GlassButton: View {
                 }
                 Text(title).font(JcText.body.weight(.semibold))
             }
-            .foregroundStyle(ghost ? JcTheme.text : Color.white)
+            .foregroundStyle(ghost ? JcTheme.text : JcTheme.accent)
             .frame(maxWidth: full ? .infinity : nil)
             .padding(.horizontal, 22)
             .padding(.vertical, 14)
-            .background {
-                let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-                if ghost {
-                    shape.fill(JcTheme.glassFill).overlay(shape.strokeBorder(JcTheme.glassBorder, lineWidth: 1))
-                } else {
-                    shape.fill(JcTheme.brandGradient)
-                        .shadow(color: JcTheme.accent.opacity(0.35), radius: 12, y: 8)
-                }
-            }
+            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
         .opacity(action == nil ? 0.5 : 1)

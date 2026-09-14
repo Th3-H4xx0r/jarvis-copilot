@@ -120,8 +120,7 @@ struct CodingPage: View {
                     .foregroundStyle(JcTheme.text)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    .background(JcTheme.surfaceAlt, in: Capsule())
-                    .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+                    .jcLiquidGlass(in: Capsule())
             }
             .buttonStyle(.plain)
             .disabled(store.busyProjects)
@@ -129,11 +128,10 @@ struct CodingPage: View {
             Button { launch = .fleet } label: {
                 Label("Launch", systemImage: "plus")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(JcTheme.accent)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 14)
-                    .background(JcTheme.blueGradient, in: Capsule())
-                    .shadow(color: JcTheme.primaryBlue.opacity(0.4), radius: 12, y: 6)
+                    .jcLiquidGlass(in: Capsule())
             }
             .buttonStyle(.plain)
             .disabled(store.launching)

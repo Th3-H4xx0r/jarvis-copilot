@@ -206,14 +206,14 @@ struct Esp32DeviceView: View {
                             }
                         } label: {
                             HStack(spacing: 8) {
-                                if resetting { ProgressView().controlSize(.small).tint(.white) }
+                                if resetting { ProgressView().controlSize(.small).tint(JcTheme.accent) }
                                 Text(resetting ? "Resetting…" : "Reset")
                                     .font(.system(size: 15, weight: .semibold))
                             }
-                            .foregroundStyle(.white)
+                            .foregroundStyle(JcTheme.accent)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
-                            .background(JcTheme.primaryBlue, in: Capsule())
+                            .jcLiquidGlass(in: Capsule())
                         }
                         .buttonStyle(.plain)
                         .disabled(resetting || manager.connected?.id != board.id)

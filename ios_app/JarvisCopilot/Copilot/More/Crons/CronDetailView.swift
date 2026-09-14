@@ -142,7 +142,7 @@ struct CronActionButton: View {
     var danger: Bool = false
     let action: () -> Void
 
-    private var tint: Color { danger ? JcTheme.danger : (primary ? .white : JcTheme.text) }
+    private var tint: Color { danger ? JcTheme.danger : (primary ? JcTheme.accent : JcTheme.text) }
 
     var body: some View {
         Button(action: action) {
@@ -152,17 +152,7 @@ struct CronActionButton: View {
             }
             .foregroundStyle(tint)
             .frame(maxWidth: .infinity, minHeight: 48)
-            .background {
-                let shape = Capsule()
-                if primary {
-                    shape.fill(JcTheme.primaryBlue)
-                } else {
-                    shape.fill(JcTheme.glassFill)
-                        .overlay(shape.strokeBorder(
-                            danger ? JcTheme.danger.opacity(0.45) : JcTheme.glassBorder,
-                            lineWidth: 1))
-                }
-            }
+            .jcLiquidGlass(in: Capsule())
         }
         .buttonStyle(.plain)
     }

@@ -149,11 +149,9 @@ struct PairPage: View {
             Button { go(to: .connect) } label: {
                 Image(systemName: "arrow.right")
                     .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(JcTheme.accent)
                     .frame(width: 64, height: 64)
-                    .background(JcTheme.blueGradient, in: Circle())
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
-                    .shadow(color: JcTheme.primaryBlue.opacity(0.45), radius: 14, y: 8)
+                    .jcLiquidGlass(in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Next")

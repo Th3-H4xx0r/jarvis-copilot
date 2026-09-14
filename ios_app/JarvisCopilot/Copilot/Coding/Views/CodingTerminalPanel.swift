@@ -215,15 +215,14 @@ struct CodingTerminalInputRow: View {
             Button(action: send) {
                 Group {
                     if sending {
-                        ProgressView().controlSize(.small).tint(.white)
+                        ProgressView().controlSize(.small).tint(JcTheme.accent)
                     } else {
                         Image(systemName: "arrow.up").font(.system(size: 15, weight: .bold))
                     }
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(canSend ? JcTheme.accent : JcTheme.muted)
                 .frame(width: 38, height: 38)
-                .background(canSend ? AnyShapeStyle(JcTheme.blueGradient)
-                                    : AnyShapeStyle(JcTheme.glassFill), in: Circle())
+                .jcLiquidGlass(in: Circle())
             }
             .buttonStyle(.plain)
             .disabled(!canSend)

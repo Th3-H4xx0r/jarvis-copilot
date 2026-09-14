@@ -126,14 +126,14 @@ struct CodingPromptSheet: View {
             } label: {
                 Group {
                     if pending == "text" {
-                        ProgressView().controlSize(.small).tint(.white)
+                        ProgressView().controlSize(.small).tint(JcTheme.accent)
                     } else {
                         Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold))
                     }
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(JcTheme.accent)
                 .frame(width: 42, height: 42)
-                .background(JcTheme.blueGradient, in: Circle())
+                .jcLiquidGlass(in: Circle())
             }
             .buttonStyle(.plain)
             .disabled(pending != nil)

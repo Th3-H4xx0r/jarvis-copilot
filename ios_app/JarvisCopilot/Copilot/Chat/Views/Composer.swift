@@ -57,10 +57,9 @@ struct ChatComposer: View {
                 } label: {
                     Image(systemName: canStop ? "stop.fill" : "arrow.up")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(canSend || canStop ? .white : JcTheme.muted)
+                        .foregroundStyle(canStop ? JcTheme.text : (canSend ? JcTheme.accent : JcTheme.muted))
                         .frame(width: 44, height: 44)
-                        .background(sendFill, in: Circle())
-                        .overlay(Circle().strokeBorder(.white.opacity(canSend ? 0.22 : 0.06), lineWidth: 0.5))
+                        .jcLiquidGlass(in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!canStop && !canSend)
@@ -73,11 +72,6 @@ struct ChatComposer: View {
         .padding(.vertical, 6)
         .jcLiquidGlass(in: shape)
         .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 12)
-    }
-
-    private var sendFill: Color {
-        if canStop { return Color.white.opacity(0.18) }
-        return canSend ? JcTheme.primaryBlue : Color.white.opacity(0.055)
     }
 }
 

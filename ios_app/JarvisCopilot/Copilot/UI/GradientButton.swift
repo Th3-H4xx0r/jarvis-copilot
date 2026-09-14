@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Primary CTA — the cyan-to-teal brand gradient with a white foreground.
+/// Primary CTA — accent label on clear liquid glass. (The name is historical.)
 struct GradientButton: View {
     let title: String
     var symbol: String? = nil
@@ -25,19 +25,17 @@ struct GradientButton: View {
         Button { action?() } label: {
             HStack(spacing: 8) {
                 if busy {
-                    ProgressView().controlSize(.small).tint(.white)
+                    ProgressView().controlSize(.small).tint(JcTheme.accent)
                 } else if let symbol {
                     Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
                 }
                 Text(title).font(.system(size: 15, weight: .semibold))
             }
-            .foregroundStyle(Color.white)
+            .foregroundStyle(JcTheme.accent)
             .frame(maxWidth: full ? .infinity : nil)
             .padding(.horizontal, 20)
             .padding(.vertical, 13)
-            // The Voice page's primary control: one flat brand-blue capsule, no
-            // gradient, no glow. (The name is historical.)
-            .background(JcTheme.primaryBlue, in: Capsule())
+            .jcLiquidGlass(in: Capsule())
         }
         .buttonStyle(.plain)
         .opacity(action == nil && !busy ? 0.45 : 1)
@@ -45,9 +43,8 @@ struct GradientButton: View {
     }
 }
 
-/// The primary CTA pill — `pair_page.dart`'s `_BlueButton`, now glossy teal. The
-/// solid pill (rather than the brand sweep) is the reference's colour for the one
-/// commit action on a screen: Pair, mic, send.
+/// The primary CTA pill — `pair_page.dart`'s `_BlueButton`, the one commit action on
+/// a screen (Pair, Pair another device): accent label on clear liquid glass.
 struct BlueButton: View {
     let title: String
     var busy: Bool = false
@@ -62,18 +59,14 @@ struct BlueButton: View {
     var body: some View {
         Button { action?() } label: {
             HStack(spacing: 10) {
-                if busy { ProgressView().controlSize(.small).tint(.white) }
+                if busy { ProgressView().controlSize(.small).tint(JcTheme.accent) }
                 Text(title).font(.system(size: 15, weight: .bold))
             }
-            .foregroundStyle(Color.white)
+            .foregroundStyle(JcTheme.accent)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 22)
             .padding(.vertical, 15)
-            .background {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(JcTheme.blueGradient)
-                    .shadow(color: JcTheme.primaryBlue.opacity(0.4), radius: 12, y: 6)
-            }
+            .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .buttonStyle(.plain)
         .opacity(action == nil && !busy ? 0.5 : 1)

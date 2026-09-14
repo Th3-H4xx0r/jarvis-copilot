@@ -154,22 +154,14 @@ struct KanbanTaskDetailView: View {
                 } else {
                     HStack(spacing: 6) {
                         Image(systemName: "play.fill")
-                            .font(.system(size: 17)).foregroundStyle(.white)
+                            .font(.system(size: 17)).foregroundStyle(JcTheme.accent)
                         Text("Run").font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(JcTheme.accent)
                     }
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 48)
-            .background {
-                let shape = Capsule()
-                if store.isRunning {
-                    shape.fill(JcTheme.danger.opacity(0.15))
-                        .overlay(shape.strokeBorder(JcTheme.danger.opacity(0.5), lineWidth: 1))
-                } else {
-                    shape.fill(JcTheme.primaryBlue)
-                }
-            }
+            .jcLiquidGlass(in: Capsule())
         }
         .buttonStyle(.plain)
         .disabled(store.isBusy)
@@ -246,8 +238,7 @@ struct KanbanSheetAction: View {
             .foregroundStyle(danger ? JcTheme.danger : JcTheme.text)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(JcTheme.glassFill, in: Capsule())
-            .overlay(Capsule().strokeBorder(JcTheme.glassBorder, lineWidth: 1))
+            .jcLiquidGlass(in: Capsule())
         }
         .buttonStyle(.plain)
     }
