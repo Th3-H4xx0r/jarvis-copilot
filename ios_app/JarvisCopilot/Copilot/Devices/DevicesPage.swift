@@ -24,6 +24,7 @@ struct DevicesPage: View {
     /// Scan a Jarvis device's setup QR, then pair it in the stepper.
     @State private var scanningForDevice = false
     @State private var setupCode: BallSetupCode?
+    @State private var scannedCode: BallSetupCode?
     @Environment(\.horizontalSizeClass) private var sizeClass
     /// Optional so tests and previews without the shell still build the page.
     @Environment(AppRouter.self) private var router: AppRouter?
@@ -75,11 +76,18 @@ struct DevicesPage: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $scanningForDevice) {
-            BallScanView { code in
-                scanningForDevice = false
+        // The stepper opens once the camera cover has finished closing; presenting it
+        // mid-dismissal gets dropped.
+        .fullScreenCover(isPresented: $scanningForDevice, onDismiss: {
+            if let code = scannedCode {
+                scannedCode = nil
                 setupCode = code
             }
+        }) {
+            BallScanView(onFound: { code in
+                scannedCode = code
+                scanningForDevice = false
+            }, onClose: { scanningForDevice = false })
         }
         .fullScreenCover(item: sizeClass == .compact ? $setupCode : .constant(nil)) { code in
             BallSetupView(code: code) { Task { await JarvisBallStore.shared.refresh(force: true); await store.refresh() } }

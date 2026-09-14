@@ -3,19 +3,31 @@ import SwiftUI
 /// Full-screen camera that looks for a Jarvis device setup code.
 struct BallScanView: View {
     let onFound: (BallSetupCode) -> Void
-    @Environment(\.dismiss) private var dismiss
+    /// Closing goes through the presenter's binding: `dismiss` from inside a camera
+    /// cover didn't close it.
+    let onClose: () -> Void
     @State private var scanner = CameraQRScanner()
     @State private var hint: String?
 
     var body: some View {
         ZStack {
-            QRPreview(scanner: scanner).ignoresSafeArea()
+            Color.black.ignoresSafeArea()
+            // The UIKit preview must never take the taps meant for the close button.
+            QRPreview(scanner: scanner).ignoresSafeArea().allowsHitTesting(false)
             VStack {
                 HStack {
                     Spacer()
-                    Button { dismiss() } label: { Image(systemName: "xmark").foregroundStyle(JcTheme.text) }
-                        .buttonStyle(.jcGlass(tint: JcTheme.text, compact: true))
-                        .accessibilityLabel("Close")
+                    Button {
+                        scanner.stop()
+                        onClose()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .foregroundStyle(JcTheme.text)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.jcGlass(tint: JcTheme.text, compact: true))
+                    .accessibilityLabel("Close")
                 }
                 Spacer()
                 Text(hint ?? scanner.failureMessage ?? "Point the camera at the QR code on your Jarvis device")
