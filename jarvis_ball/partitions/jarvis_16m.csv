@@ -1,0 +1,7 @@
+# Jarvis Ball partition table (16 MB). No OTA: firmware goes over USB.
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x10000,
+phy_init, data, phy,     0x19000,  0x1000,
+factory,  app,  factory, 0x20000,  0x6E0000,
+pages,    data, spiffs,  0x700000, 0x100000,
+assets,   data, spiffs,  0x800000, 8M,

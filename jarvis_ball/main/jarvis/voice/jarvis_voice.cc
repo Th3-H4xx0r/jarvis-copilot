@@ -1,0 +1,312 @@
+#include "jarvis_voice.h"
+
+#include <cJSON.h>
+#include <esp_log.h>
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <web_socket.h>
+
+#include "application.h"
+#include "audio_service.h"
+#include "board.h"
+#include "jarvis/link/jarvis_link.h"
+#include "jarvis/logic/jarvis_logic.h"
+#include "jarvis/store/jarvis_store.h"
+#include "jarvis/ui/jarvis_ui.h"
+#include "protocol.h"
+
+#define TAG "JarvisVoice"
+
+namespace jarvis {
+
+namespace {
+constexpr int64_t kEndSilenceMs = 700;
+constexpr int64_t kNoSpeechMs = 8000;
+constexpr int64_t kFollowUpMs = 6000;
+constexpr int64_t kMaxTurnMs = 30000;
+constexpr int64_t kSocketIdleMs = 60000;
+constexpr int64_t kDiscardExpiryMs = 10000;
+
+int64_t NowMs() { return esp_timer_get_time() / 1000; }
+}  // namespace
+
+void Voice::Init(AudioService* audio) {
+    audio_ = audio;
+    ApplyWakeWord();
+}
+
+void Voice::ApplyWakeWord() {
+    if (!audio_) return;
+    audio_->EnableWakeWordDetection(phase_ == Phase::Idle && store::LoadUi().wake_word);
+}
+
+void Voice::SendText(const std::string& json) {
+    if (ws_ && ws_->IsConnected()) ws_->Send(json);
+}
+
+bool Voice::EnsureConnected() {
+    if (ws_ && ws_->IsConnected() && ready_ && !socket_closed_) return true;
+    CloseSocket();
+    store::Pairing pairing = store::LoadPairing();
+    if (!pairing.paired()) return false;
+
+    HttpResult r = HttpRequest("GET", logic::JoinUrl(pairing.server, "/api/voice/session"), "", pairing, true, 10000);
+    if (r.status != 200) {
+        ESP_LOGW(TAG, "voice session: status %d %s", r.status, r.error.c_str());
+        return false;
+    }
+    cJSON* body = cJSON_Parse(r.body.c_str());
+    const cJSON* sid = cJSON_GetObjectItemCaseSensitive(body, "session_id");
+    session_id_ = cJSON_IsString(sid) ? sid->valuestring : "";
+    cJSON_Delete(body);
+
+    ws_ = Board::GetInstance().GetNetwork()->CreateWebSocket(2);
+    ApplyAuthHeaders(*ws_, pairing);
+    ws_->SetReceiveBufferSize(8192);
+    ready_ = false;
+    socket_closed_ = false;
+    ws_->OnData([this](const char* data, size_t len, bool binary) {
+        if (binary) {
+            if (discard_audio_) return;
+            auto packet = std::make_unique<AudioStreamPacket>();
+            packet->sample_rate = 24000;
+            packet->frame_duration = 60;
+            packet->payload.assign(data, data + len);
+            audio_->PushPacketToDecodeQueue(std::move(packet), true);
+            return;
+        }
+        std::string text(data, len);
+        if (text.find("\"ready\"") != std::string::npos) {
+            ready_ = true;
+            return;
+        }
+        Application::GetInstance().Schedule([this, text]() { HandleJson(text); });
+    });
+    ws_->OnDisconnected([this]() {
+        socket_closed_ = true;
+        Application::GetInstance().Schedule([this]() {
+            if (phase_ != Phase::Idle) {
+                Ui::Get().SetCaption("Lost the connection to Jarvis");
+                Ui::Get().SetOrbState(OrbState::Error);
+                GoIdle();
+            }
+        });
+    });
+    std::string url = logic::WsUrl(pairing.server, "/api/voice/s2s/ws");
+    if (!ws_->Connect(url.c_str())) {
+        ESP_LOGW(TAG, "voice socket connect failed");
+        ws_.reset();
+        return false;
+    }
+    for (int i = 0; i < 50 && !ready_; ++i) vTaskDelay(pdMS_TO_TICKS(100));
+    if (!ready_) {
+        CloseSocket();
+        return false;
+    }
+    return true;
+}
+
+void Voice::CloseSocket() {
+    if (ws_) {
+        ws_->Close();
+        ws_.reset();
+    }
+    ready_ = false;
+    socket_closed_ = true;
+    session_started_ = false;
+}
+
+// Once per socket, like the phone: the server takes and clears the mic buffer at each
+// end_turn itself, and a second begin_turn would re-arm an interrupted reply's audio.
+void Voice::BeginTurn() {
+    spoken_.clear();
+    server_done_ = false;
+    if (session_started_) return;
+    session_started_ = true;
+    cJSON* msg = cJSON_CreateObject();
+    cJSON_AddStringToObject(msg, "type", "begin_turn");
+    cJSON_AddStringToObject(msg, "session_id", session_id_.c_str());
+    cJSON_AddNumberToObject(msg, "sample_rate", 16000);
+    cJSON_AddStringToObject(msg, "codec", "opus");
+    cJSON_AddStringToObject(msg, "client", "jarvis_ball");
+    char* s = cJSON_PrintUnformatted(msg);
+    SendText(s);
+    cJSON_free(s);
+    cJSON_Delete(msg);
+}
+
+void Voice::Trigger(const std::string& text) {
+    if (!audio_) return;  // Wi-Fi isn't up yet
+    if (phase_ == Phase::Speaking || phase_ == Phase::Thinking) {
+        Interrupt();
+        return;
+    }
+    if (phase_ == Phase::Listening) {
+        if (speech_seen_) EndTurn();  // tapped to say "I'm done"
+        return;
+    }
+    audio_->EnableWakeWordDetection(false);
+    Ui::Get().SetVoiceActive(true);
+    Ui::Get().SetCaption(text.empty() ? "Listening…" : text);
+    Ui::Get().SetOrbState(text.empty() ? OrbState::Listening : OrbState::Thinking);
+    if (text.empty()) audio_->EnableVoiceProcessing(true);  // start capturing while we connect
+
+    if (!EnsureConnected()) {
+        audio_->EnableVoiceProcessing(false);
+        Ui::Get().SetCaption("Can't reach Jarvis");
+        Ui::Get().SetOrbState(OrbState::Error);
+        GoIdle();
+        return;
+    }
+    BeginTurn();
+    turn_start_ms_ = NowMs();
+    speech_seen_ = false;
+    silence_since_ms_ = 0;
+    follow_up_ = false;
+    if (!text.empty()) {
+        cJSON* msg = cJSON_CreateObject();
+        cJSON_AddStringToObject(msg, "type", "end_turn");
+        cJSON_AddStringToObject(msg, "text", text.c_str());
+        char* s = cJSON_PrintUnformatted(msg);
+        SendText(s);
+        cJSON_free(s);
+        cJSON_Delete(msg);
+        phase_ = Phase::Thinking;
+        return;
+    }
+    phase_ = Phase::Listening;
+}
+
+void Voice::SendMic() {
+    if (!audio_) return;
+    while (auto packet = audio_->PopPacketFromSendQueue()) {
+        if (phase_ == Phase::Listening && ws_ && ws_->IsConnected()) {
+            ws_->Send(packet->payload.data(), packet->payload.size(), true);
+        }
+    }
+}
+
+void Voice::OnVad(bool speaking) {
+    if (phase_ != Phase::Listening) return;
+    if (speaking) {
+        speech_seen_ = true;
+        silence_since_ms_ = 0;
+    } else if (speech_seen_) {
+        silence_since_ms_ = NowMs();
+    }
+}
+
+void Voice::EndTurn() {
+    SendMic();  // flush what's queued before the end marker
+    char msg[96];
+    snprintf(msg, sizeof(msg), "{\"type\":\"end_turn\",\"client_ts\":%lld}", static_cast<long long>(NowMs()));
+    SendText(msg);
+    audio_->EnableVoiceProcessing(false);
+    while (audio_->PopPacketFromSendQueue()) {}
+    phase_ = Phase::Thinking;
+    Ui::Get().SetOrbState(OrbState::Thinking);
+    Ui::Get().SetCaption("");
+}
+
+void Voice::Interrupt() {
+    std::string heard;
+    // Everything but the sentence still playing counts as heard.
+    for (size_t i = 0; i + 1 < spoken_.size(); ++i) heard += (heard.empty() ? "" : " ") + spoken_[i];
+    cJSON* msg = cJSON_CreateObject();
+    cJSON_AddStringToObject(msg, "type", "interrupt");
+    cJSON_AddStringToObject(msg, "heard", heard.c_str());
+    char* s = cJSON_PrintUnformatted(msg);
+    SendText(s);
+    cJSON_free(s);
+    cJSON_Delete(msg);
+    discard_audio_ = true;
+    discard_since_ms_ = NowMs();
+    audio_->ResetDecoder();
+    phase_ = Phase::Idle;
+    Trigger();  // straight back to listening
+}
+
+void Voice::FinishTurn() {
+    last_turn_end_ms_ = NowMs();
+    // Follow-up window: listen again without the wake word.
+    audio_->EnableVoiceProcessing(true);
+    BeginTurn();
+    phase_ = Phase::Listening;
+    follow_up_ = true;
+    speech_seen_ = false;
+    silence_since_ms_ = 0;
+    turn_start_ms_ = NowMs();
+    Ui::Get().SetOrbState(OrbState::Listening);
+}
+
+void Voice::GoIdle() {
+    phase_ = Phase::Idle;
+    follow_up_ = false;
+    audio_->EnableVoiceProcessing(false);
+    while (audio_->PopPacketFromSendQueue()) {}
+    last_turn_end_ms_ = NowMs();
+    Ui::Get().SetVoiceActive(false);
+    ApplyWakeWord();
+}
+
+void Voice::HandleJson(const std::string& text) {
+    cJSON* msg = cJSON_Parse(text.c_str());
+    const cJSON* type = cJSON_GetObjectItemCaseSensitive(msg, "type");
+    const cJSON* body = cJSON_GetObjectItemCaseSensitive(msg, "text");
+    std::string t = cJSON_IsString(type) ? type->valuestring : "";
+    std::string s = cJSON_IsString(body) ? body->valuestring : "";
+
+    if (discard_audio_) {
+        // Frames of the interrupted reply are still arriving until its end_turn.
+        if (t == "end_turn" || NowMs() - discard_since_ms_ > kDiscardExpiryMs) discard_audio_ = false;
+        cJSON_Delete(msg);
+        return;
+    }
+    if (t == "transcript") {
+        if (!s.empty()) Ui::Get().SetCaption(s);
+    } else if (t == "assistant_text") {
+        spoken_.push_back(s);
+        Ui::Get().SetCaption(s);
+    } else if (t == "tool") {
+        if (phase_ != Phase::Speaking) Ui::Get().SetOrbState(OrbState::Thinking);
+    } else if (t == "audio_meta") {
+        phase_ = Phase::Speaking;
+        Ui::Get().SetOrbState(OrbState::Speaking);
+    } else if (t == "error") {
+        const cJSON* e = cJSON_GetObjectItemCaseSensitive(msg, "error");
+        Ui::Get().SetCaption(cJSON_IsString(e) ? e->valuestring : "Something went wrong");
+        Ui::Get().SetOrbState(OrbState::Error);
+    } else if (t == "end_turn") {
+        const cJSON* reason = cJSON_GetObjectItemCaseSensitive(msg, "reason");
+        std::string r = cJSON_IsString(reason) ? reason->valuestring : "";
+        server_done_ = true;
+        if (r == "no_speech" || r == "error") {
+            GoIdle();
+        } else if (phase_ != Phase::Speaking || audio_->IsPlaybackIdle()) {
+            FinishTurn();
+        }
+    }
+    cJSON_Delete(msg);
+}
+
+void Voice::OnPlaybackDrained() {
+    if (audio_ && phase_ == Phase::Speaking && server_done_) FinishTurn();
+}
+
+void Voice::Tick() {
+    int64_t now = NowMs();
+    if (phase_ == Phase::Listening) {
+        if (speech_seen_ && silence_since_ms_ && now - silence_since_ms_ >= kEndSilenceMs) {
+            EndTurn();
+        } else if (!speech_seen_ && now - turn_start_ms_ >= (follow_up_ ? kFollowUpMs : kNoSpeechMs)) {
+            GoIdle();
+        } else if (now - turn_start_ms_ >= kMaxTurnMs) {
+            EndTurn();
+        }
+    } else if (phase_ == Phase::Idle && ws_ && last_turn_end_ms_ && now - last_turn_end_ms_ >= kSocketIdleMs) {
+        CloseSocket();
+    }
+}
+
+}  // namespace jarvis
