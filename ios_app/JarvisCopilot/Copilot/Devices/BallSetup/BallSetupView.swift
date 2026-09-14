@@ -17,16 +17,10 @@ struct BallScanView: View {
             VStack {
                 HStack {
                     Spacer()
-                    Button {
+                    GlassIconButton(symbol: "xmark", size: 44, iconSize: 17) {
                         scanner.stop()
                         onClose()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .foregroundStyle(JcTheme.text)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.jcGlass(tint: JcTheme.text, compact: true))
                     .accessibilityLabel("Close")
                 }
                 Spacer()
