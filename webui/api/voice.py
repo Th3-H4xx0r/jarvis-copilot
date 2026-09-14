@@ -770,7 +770,23 @@ _VOICE_REPLY_DIRECTIVE = (
 _HEARD_TEXT_MAX_CHARS = 1200
 
 
-def _voice_turn_directive(heard_before_interrupt):
+# Voice clients that aren't the phone or Mac say what they are on begin_turn, so
+# "show me X" lands on the device the user is talking through.
+_CLIENT_DIRECTIVES = {
+    "jarvis_ball": (
+        "\n\n[The user is speaking through their Jarvis Ball, a small device with a "
+        "round 240 px screen. To show them something, call device_ball_show; to make "
+        "or change their home page, call device_ball_home_save.]"
+    ),
+}
+
+
+def _voice_turn_directive(heard_before_interrupt, client: str = ""):
+    base = _voice_turn_directive_heard(heard_before_interrupt)
+    return base + _CLIENT_DIRECTIVES.get((client or "").strip().lower(), "")
+
+
+def _voice_turn_directive_heard(heard_before_interrupt):
     """The voice rules for a turn, plus — when the user cut the previous spoken
     reply off — what they actually heard of it.
 
@@ -1052,7 +1068,7 @@ def _override_on_cooldown(model: str, provider: str) -> bool:
 
 def _run_agent_turn_via_chat(session_id: str, user_text: str,
                              model_override: str = "", provider_override: str = "",
-                             lane: str = "", heard_before_interrupt=None):
+                             lane: str = "", heard_before_interrupt=None, client: str = ""):
     """GENERATOR. Push `user_text` into the user's active chat session and
     yield segments as they arrive on the SSE stream so callers can react
     incrementally (TTS+play as each text segment lands; show tool status
@@ -1191,7 +1207,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         # The voice rules ride in the SYSTEM prompt for this one call (consumed
         # by the streaming thread) — not prefixed to the user message, which is
         # what the Chats tab shows verbatim.
-        s._voice_turn_directive = _voice_turn_directive(heard_before_interrupt)
+        s._voice_turn_directive = _voice_turn_directive(heard_before_interrupt, client)
     except Exception:
         pass
     print(f"[webui] voice: turn model={eff_model!r} provider={eff_provider!r} lane={lane!r} override={explicit_override} fast_lane={bool(fast_lane)}", flush=True)
@@ -1749,6 +1765,10 @@ def _run_voice_ws(conn, sock) -> None:
             for event in conn.events():
                 if isinstance(event, BytesMessage):
                     payload = event.data or b""
+                    if state.get("codec") == "opus":
+                        payload = _opus_packet_to_pcm(state, payload, event.message_finished)
+                        if not payload:
+                            continue
                     with state["lock"]:
                         if len(state["pcm_buf"]) + len(payload) <= _WS_BUFFER_LIMIT_BYTES:
                             state["pcm_buf"].extend(payload)
@@ -1906,6 +1926,13 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         pretext = (msg.get("text") or "").strip()
         if pretext:
             state["pretranscript"] = pretext
+        # Opt-in Opus transport (the Jarvis Ball). Absent → PCM, as before.
+        codec = (msg.get("codec") or "").strip().lower()
+        if codec in ("opus", "pcm"):
+            state["codec"] = codec
+        client = (msg.get("client") or "").strip().lower()
+        if client:
+            state["client"] = client
     elif t == "interrupt":
         # Barge-in. Stop sending audio (the turn thread polls this flag) AND
         # cancel the chat stream so the model stops generating and the session
@@ -2245,12 +2272,68 @@ def _decode_mp3_to_pcm24k(mp3_bytes: bytes):
     return _mp3_to_pcm24k(mp3_bytes)
 
 
+def _opus_packet_to_pcm(state: dict, chunk: bytes, finished: bool) -> bytes:
+    """One Opus client packet (one WS binary message) → s16le PCM at the turn's
+    sample rate. wsproto can split a message across recv chunks, so pieces are
+    held until the message is complete. Returns b"" until then, or on a bad
+    packet (dropped rather than killing the turn)."""
+    partial = state.setdefault("opus_partial", bytearray())
+    partial.extend(chunk)
+    if not finished:
+        return b""
+    packet = bytes(partial)
+    partial.clear()
+    if state.get("opus_error"):
+        return b""
+    dec = state.get("opus_dec")
+    if dec is None:
+        from api.voice_opus import OpusDecoder, OpusUnavailable
+        try:
+            dec = OpusDecoder(int(state.get("sample_rate") or 16000), 1)
+        except OpusUnavailable as exc:
+            print(f"[webui] voice: opus client but {exc}", flush=True)
+            state["opus_error"] = True
+            return b""
+        state["opus_dec"] = dec
+    return dec.decode(packet)
+
+
+def _send_audio_opus(conn, sock, state, fmt, data) -> bool:
+    """`_send_audio` for Opus clients: whatever TTS produced → 24 kHz PCM →
+    60 ms Opus packets, one WS binary message each."""
+    from api.voice_opus import OpusEncoder, OpusUnavailable, FRAME_MS
+    pcm = _decode_mp3_to_pcm24k(data) if fmt == "mp3" else data
+    if not pcm:
+        return True
+    try:
+        enc = state.get("opus_enc")
+        if enc is None:
+            enc = state["opus_enc"] = OpusEncoder(24000, 1)
+        packets = enc.encode(pcm)
+    except OpusUnavailable as exc:
+        _ws_send_text(conn, sock, json.dumps({"type": "error", "error": str(exc)}))
+        return False
+    if state["interrupt"]:
+        return False
+    _ws_send_text(conn, sock, json.dumps({"type": "audio_meta", "format": "opus",
+                                          "sample_rate": 24000, "frame_ms": FRAME_MS}))
+    for packet in packets:
+        if state["interrupt"]:
+            return False
+        if not _ws_send_bytes(conn, sock, packet):
+            return False
+    _ws_send_text(conn, sock, json.dumps({"type": "audio_end"}))
+    return True
+
+
 def _send_audio(conn, sock, state, audio) -> bool:
     """Stream a synthesized ('pcm'|'mp3', bytes) result over the WS in order.
     Returns False to abort (interrupt / socket dead)."""
     if not audio:
         return True
     fmt, data = audio
+    if state.get("codec") == "opus":
+        return _send_audio_opus(conn, sock, state, fmt, data)
     if fmt == "mp3":
         if state["interrupt"]:
             return False
@@ -2643,6 +2726,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
             sid, transcript, model_override=turn_model, provider_override=turn_provider,
             lane=(state.get("lane") or ""),
             heard_before_interrupt=_take_heard_before_interrupt(state),
+            client=state.get("client", ""),
         ), timing=timing)
         _finish_turn_timing(conn, sock, timing)
         if handled:
