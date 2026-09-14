@@ -309,7 +309,20 @@ extension View {
     func jcScreen(_ title: String? = nil) -> some View {
         self
             .background(AuroraBackdrop().ignoresSafeArea())
+            .modifier(JcNoTopEdgeLine())
             .modifier(JcNavigationTitle(title: title))
+    }
+}
+
+/// iOS 26 draws a scroll-edge effect under the navigation bar — a lighter band ending
+/// in a hard line between the bar and the page. The pages are plain black, so hide it.
+private struct JcNoTopEdgeLine: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.scrollEdgeEffectHidden(true, for: .top)
+        } else {
+            content
+        }
     }
 }
 
