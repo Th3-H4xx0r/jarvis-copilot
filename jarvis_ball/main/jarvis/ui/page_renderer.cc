@@ -1,6 +1,9 @@
 // Page JSON → LVGL objects. Input is already validated (logic::ValidatePage).
 #include <cJSON.h>
+#include <esp_heap_caps.h>
 #include <mbedtls/base64.h>
+
+#include "jpg/jpeg_to_image.h"
 #include <wifi_manager.h>
 
 #include <algorithm>
@@ -187,10 +190,26 @@ static lv_obj_t* Image(lv_obj_t* parent, const cJSON* node, Ctx& ctx) {
         lv_obj_t* ph = Label(parent, LV_SYMBOL_IMAGE, 24, lv_color_hex(0x8A8F98));
         return ph;
     }
-    ctx.image_bytes.push_back(std::move(bytes));
     lv_image_dsc_t dsc = {};
     dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-    dsc.header.cf = LV_COLOR_FORMAT_RAW;
+    const auto* magic = reinterpret_cast<const uint8_t*>(bytes.data());
+    if (bytes.size() > 3 && magic[0] == 0xFF && magic[1] == 0xD8) {
+        // Photos: decode the JPEG to RGB565 (in PSRAM) and let LVGL fit it to the box.
+        uint8_t* pixels = nullptr;
+        size_t len = 0, pw = 0, ph = 0, stride = 0;
+        if (jpeg_to_image(magic, bytes.size(), &pixels, &len, &pw, &ph, &stride) != ESP_OK || !pixels) {
+            return Label(parent, LV_SYMBOL_IMAGE, 24, lv_color_hex(0x8A8F98));
+        }
+        ctx.image_bytes.emplace_back(reinterpret_cast<const char*>(pixels), len);
+        heap_caps_free(pixels);
+        dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+        dsc.header.w = pw;
+        dsc.header.h = ph;
+        dsc.header.stride = stride;
+    } else {
+        ctx.image_bytes.push_back(std::move(bytes));  // PNG: LVGL's own decoder reads the file bytes
+        dsc.header.cf = LV_COLOR_FORMAT_RAW;
+    }
     dsc.data_size = ctx.image_bytes.back().size();
     dsc.data = reinterpret_cast<const uint8_t*>(ctx.image_bytes.back().data());
     ctx.image_dscs.push_back(dsc);

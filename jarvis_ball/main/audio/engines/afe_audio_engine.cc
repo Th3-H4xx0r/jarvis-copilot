@@ -174,6 +174,8 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         if (wakenet_models.size() > 1) {
             afe_config->wakenet_model_name_2 = wakenet_models[1];
         }
+        // JARVIS: the more sensitive detection mode, so "Jarvis" works at speaking volume.
+        afe_config->wakenet_mode = DET_MODE_95;
     }
     afe_config->agc_init = false;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;

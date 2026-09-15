@@ -355,8 +355,10 @@ std::map<std::string, std::string> FetchPageImages(const cJSON* page) {
     for (auto& url : urls) {
         if (out.count(url)) continue;
         bool own_server = !pairing.server.empty() && HostOf(url) == HostOf(pairing.server);
-        HttpResult r = HttpRequest("GET", url, "", own_server ? pairing : store::Pairing{}, own_server, 10000, 100 * 1024);
-        if (r.status == 200 && !r.body.empty() && r.body.size() <= 100 * 1024) out[url] = std::move(r.body);
+        // Photos from the web are big: take up to 1.5 MB (PSRAM), decoded and fitted on the ball.
+        constexpr size_t kMaxImageBytes = 1500 * 1024;
+        HttpResult r = HttpRequest("GET", url, "", own_server ? pairing : store::Pairing{}, own_server, 15000, kMaxImageBytes);
+        if (r.status == 200 && !r.body.empty()) out[url] = std::move(r.body);
     }
     return out;
 }

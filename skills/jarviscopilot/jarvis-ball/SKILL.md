@@ -63,7 +63,7 @@ Every node is `{"type", …props, "style": {…}, "children": […], "onTap": {�
 | `titleSubtitle` | `title`, `subtitle` |
 | `stat` | `value` (big), `label` (small) |
 | `symbol` | `name` — one of the names below; style `size`, `color` |
-| `image` | `source`: `https://…` or `data:image/png;base64,…` / `data:image/jpeg;base64,…`, ≤ 100 KB; style `width`, `height` (default 96) |
+| `image` | `source`: a direct `https://…` link to a **JPEG or PNG** (up to 1.5 MB; photos are decoded and fitted to the box), or a small `data:image/png;base64,…` / `data:image/jpeg;base64,…`; style `width`, `height` (default 96). WebP/GIF/SVG won't show. |
 | `badge` | `text`; style `color` (pill background) |
 | `progress` | `value` 0–1; style `color`, `width` |
 | `gauge` | `value`, `min`, `max` — an arc ring, great on a round screen; style `size` (diameter), `thickness`, `color` |
@@ -110,6 +110,19 @@ There are no weather glyphs: use text ("18°", "Rain"), a `gauge`, or an `image`
 
 For values that change (prices, weather), save the page once with bindings, then push only
 the numbers: `device_ball_data {"target": "home" | "shown", "data": {"price": "$143.02"}}`.
+
+## Showing a picture
+
+"Show me a picture of a red panda" → find a direct JPEG/PNG image URL with your web tools
+(the file itself, ending in .jpg/.jpeg/.png — not a web page or a WebP), then:
+
+```json
+{"page": {"root": {"type": "image", "source": "https://upload.wikimedia.org/…/red_panda.jpg",
+                   "style": {"width": 200, "height": 200}}}}
+```
+
+The circle clips it, so a centred subject reads best. Use a caption `text` below only if it
+adds something. If the result says the image didn't load, try another URL.
 
 ## Examples
 

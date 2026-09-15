@@ -3,7 +3,10 @@
 #include <cJSON.h>
 #include <esp_app_desc.h>
 #include <esp_log.h>
+#include <esp_partition.h>
 #include <wifi_manager.h>
+
+#include <cstring>
 
 #include <algorithm>
 
@@ -119,6 +122,11 @@ struct Ui::Impl {
     lv_obj_t* glow = nullptr;
     lv_obj_t* mid = nullptr;
     lv_obj_t* core = nullptr;
+    // The phone's orb, pre-rendered (scripts/render_orb.sh) and memory-mapped from flash.
+    lv_obj_t* orb_img = nullptr;
+    lv_timer_t* orb_timer = nullptr;
+    std::vector<lv_image_dsc_t> orb_frames;
+    int orb_frame = 0;
     lv_obj_t* caption = nullptr;
     lv_obj_t* menu_btn = nullptr;
     lv_obj_t* back_btn = nullptr;
@@ -255,13 +263,15 @@ struct Ui::Impl {
     void UpdateOrbLayer() {
         if (!OrbVisible()) {
             lv_obj_add_flag(orb_layer, LV_OBJ_FLAG_HIDDEN);
+            if (orb_timer) lv_timer_pause(orb_timer);
             return;
         }
+        if (orb_timer) lv_timer_resume(orb_timer);
         lv_obj_remove_flag(orb_layer, LV_OBJ_FLAG_HIDDEN);
         bool full = OrbFull();
         lv_obj_set_style_bg_opa(orb_layer, full ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
         if (full) {
-            lv_obj_set_size(orb_box, 200, 200);
+            lv_obj_set_size(orb_box, orb_img ? 176 : 200, orb_img ? 176 : 200);
             lv_obj_align(orb_box, LV_ALIGN_CENTER, 0, -8);
         } else {
             lv_obj_set_size(orb_box, 48, 48);
@@ -272,7 +282,37 @@ struct Ui::Impl {
         ApplyOrbState();
     }
 
+    static void ScaleAnim(void* var, int32_t v) { lv_image_set_scale(static_cast<lv_obj_t*>(var), static_cast<uint32_t>(v)); }
+
+    // The pre-rendered orb: speed and a gentle pulse say what state it's in.
+    void ApplyFramesState() {
+        lv_anim_delete(orb_img, nullptr);
+        bool full = OrbFull();
+        int32_t base = full ? 256 : 256 * 48 / 160;
+        lv_image_set_scale(orb_img, base);
+        lv_obj_center(orb_img);
+        bool error = orb_state == OrbState::Error;
+        lv_obj_set_style_image_recolor(orb_img, lv_color_hex(settings.theme.danger), 0);
+        lv_obj_set_style_image_recolor_opa(orb_img, error ? 120 : 0, 0);
+        uint32_t period = 125;
+        switch (orb_state) {
+            case OrbState::Idle: period = 125; break;
+            case OrbState::Listening:
+                period = 60;
+                Pulse(orb_img, ScaleAnim, base, base + base / 12, 520);
+                break;
+            case OrbState::Thinking: period = 45; break;
+            case OrbState::Speaking:
+                period = 55;
+                Pulse(orb_img, ScaleAnim, base, base + base / 9, 340);
+                break;
+            case OrbState::Error: period = 90; break;
+        }
+        lv_timer_set_period(orb_timer, period);
+    }
+
     void ApplyOrbState() {
+        if (orb_img) return ApplyFramesState();
         for (lv_obj_t* o : {glow, mid, core}) lv_anim_delete(o, nullptr);
         bool full = OrbFull();
         int s = full ? 1 : 0;
@@ -312,6 +352,39 @@ struct Ui::Impl {
         }
     }
 
+    void LoadOrbFrames() {
+        const esp_partition_t* part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                                               static_cast<esp_partition_subtype_t>(0x40), "orb");
+        if (!part) return;
+        const void* ptr = nullptr;
+        esp_partition_mmap_handle_t handle;
+        if (esp_partition_mmap(part, 0, part->size, ESP_PARTITION_MMAP_DATA, &ptr, &handle) != ESP_OK) return;
+        const auto* base = static_cast<const uint8_t*>(ptr);
+        uint32_t count, w, h;
+        memcpy(&count, base + 4, 4);
+        memcpy(&w, base + 8, 4);
+        memcpy(&h, base + 12, 4);
+        size_t frame_bytes = static_cast<size_t>(w) * h * 2;
+        if (memcmp(base, "ORB1", 4) != 0 || count == 0 || count > 512 || w == 0 || w > 240 || h == 0 || h > 240 ||
+            16 + count * frame_bytes > part->size) {
+            ESP_LOGW(TAG, "orb partition has no frames; using the drawn orb");
+            esp_partition_munmap(handle);
+            return;
+        }
+        for (uint32_t i = 0; i < count; ++i) {
+            lv_image_dsc_t dsc = {};
+            dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+            dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+            dsc.header.w = w;
+            dsc.header.h = h;
+            dsc.header.stride = w * 2;
+            dsc.data_size = frame_bytes;
+            dsc.data = base + 16 + i * frame_bytes;
+            orb_frames.push_back(dsc);
+        }
+        ESP_LOGI(TAG, "orb: %u frames %ux%u from flash", (unsigned)count, (unsigned)w, (unsigned)h);
+    }
+
     void BuildOrb() {
         orb_layer = Layer(root, true);
         orb_box = lv_obj_create(orb_layer);
@@ -320,6 +393,21 @@ struct Ui::Impl {
         glow = Circle(orb_box, 196);
         mid = Circle(orb_box, 150);
         core = Circle(orb_box, 90);
+        LoadOrbFrames();
+        if (!orb_frames.empty()) {
+            for (lv_obj_t* o : {glow, mid, core}) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+            orb_img = lv_image_create(orb_box);
+            lv_image_set_src(orb_img, &orb_frames[0]);
+            lv_obj_center(orb_img);
+            orb_timer = lv_timer_create(
+                [](lv_timer_t* t) {
+                    auto* impl = static_cast<Impl*>(lv_timer_get_user_data(t));
+                    impl->orb_frame = (impl->orb_frame + 1) % static_cast<int>(impl->orb_frames.size());
+                    lv_image_set_src(impl->orb_img, &impl->orb_frames[impl->orb_frame]);
+                },
+                125, this);
+            lv_timer_pause(orb_timer);
+        }
         caption = lv_label_create(orb_layer);
         lv_label_set_text(caption, "");
         lv_obj_set_style_text_font(caption, &lv_font_montserrat_14, 0);

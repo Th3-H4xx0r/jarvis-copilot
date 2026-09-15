@@ -40,5 +40,8 @@ menu, back, orb, clock), `board_caps.h`. `partitions/jarvis_16m.csv`, `scripts/`
 | `main/idf_component.yml` | dropped `image_player`, `esp_emote_expression` (duplicate `qrcodegen` with LVGL) |
 | `sdkconfig.defaults` | Jarvis partition table, board type, Montserrat fonts, QR code, chart, TJPGD; no app rollback |
 | `sdkconfig.defaults.esp32s3` | wake word `wn9_jarvis_tts` instead of `nihaoxiaozhi` |
+| `main/audio/codecs/es8311_audio_codec.cc` | mic input gain 30 → 42 dB (wake word at speaking volume) |
+| `main/audio/engines/afe_audio_engine.cc` | `wakenet_mode = DET_MODE_95` |
+| `partitions/jarvis_16m.csv` (new) | factory 3.5 MB, `orb` data 0x40 at 0x3A0000 (frames from `scripts/render_orb.sh`, written by `flash.sh`), pages, assets |
 | `main/boards/common/wifi_board.cc` | hostname prefix `Jarvis`; no open config hotspot — `Application::OnWifiUnavailable()` and keep retrying |
 | `main/boards/spotpear/sp-esp32-s3-1.28-box/sp-esp32-s3-1.28-box.cc` | codec/touch probes → `jarvis::Caps()`; BOOT single/double/long/5 s and taps → `Application`; no auto power-off |
