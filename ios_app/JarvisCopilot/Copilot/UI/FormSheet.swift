@@ -157,8 +157,7 @@ struct FormChipMulti: View {
                     } label: {
                         HStack(spacing: 5) {
                             if on {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 10, weight: .bold))
+                                JcIcon("checkmark", size: 10, weight: .bold)
                                     .foregroundStyle(JcTheme.accent)
                             }
                             Text(item).font(JcText.small)

@@ -45,11 +45,11 @@ struct CodingChatTranscript: View {
     private var needsInputBanner: some View {
         Button { Task { await onOpenPrompt() } } label: {
             HStack(spacing: 8) {
-                Image(systemName: "questionmark.circle").font(.system(size: 14))
+                JcIcon("questionmark.circle", size: 14)
                 Text("Claude is asking for input — tap to answer")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer(minLength: 4)
-                Image(systemName: "chevron.right").font(.system(size: 13))
+                JcIcon("chevron.right", size: 13)
             }
             .foregroundStyle(CodingUI.waiting)
             .padding(.horizontal, 12)
@@ -127,7 +127,7 @@ struct CodingChatTranscript: View {
     private func emptyState(symbol: String, text: String) -> some View {
         ScrollView {
             VStack(spacing: 14) {
-                Image(systemName: symbol).font(.system(size: 38))
+                JcIcon(symbol).font(.system(size: 38))
                     .foregroundStyle(JcTheme.muted.opacity(0.6))
                 Text(text)
                     .font(.system(size: 14))
@@ -231,7 +231,7 @@ struct CodingMessageTile: View {
         HStack(alignment: .top, spacing: 10) {
             ZStack {
                 Circle().fill(JcTheme.accent.opacity(0.18)).frame(width: 26, height: 26)
-                Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(JcTheme.accent)
+                JcIcon("sparkles", size: 12).foregroundStyle(JcTheme.accent)
             }
             .padding(.top, 2)
             VStack(alignment: .leading, spacing: 8) {
@@ -291,7 +291,7 @@ struct CodingPendingBubble: View {
                     .background(JcTheme.slate.opacity(0.45),
                                 in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 HStack(spacing: 3) {
-                    Image(systemName: working ? "clock" : "checkmark")
+                    JcIcon(working ? "clock" : "checkmark")
                         .font(.system(size: 9))
                     Text(working ? "Queued" : "Sent").font(.system(size: 10.5))
                 }

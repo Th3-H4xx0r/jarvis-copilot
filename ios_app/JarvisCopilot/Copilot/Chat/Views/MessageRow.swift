@@ -61,7 +61,7 @@ struct ChatUserBubble: View {
             .foregroundStyle(JcTheme.text)
             .contextMenu {
                 if let onCopy, !message.plainText.isEmpty {
-                    Button { onCopy() } label: { Label("Copy", systemImage: "doc.on.doc") }
+                    Button { onCopy() } label: { Label("Copy", jcIcon: "doc.on.doc") }
                 }
             }
         }
@@ -96,7 +96,7 @@ struct ChatSentAttachment: View {
             }
         } else {
             HStack(spacing: 4) {
-                Image(systemName: "paperclip").font(.system(size: 10))
+                JcIcon("paperclip", size: 10)
                 Text(attachment.name).font(.system(size: 11)).lineLimit(1)
             }
             .foregroundStyle(.white.opacity(0.75))

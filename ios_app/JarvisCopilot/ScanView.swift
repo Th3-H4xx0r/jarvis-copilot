@@ -47,9 +47,9 @@ struct ScanView: View {
             NavigationLink {
                 BridgeSettingsView()
             } label: {
-                Image(systemName: "gearshape").foregroundStyle(JcTheme.accent)
+                JcIcon("gearshape").foregroundStyle(JcTheme.accent)
             }
-            Button("Rescan", systemImage: "arrow.clockwise") { WearablesHub.shared.rescanAll() }
+            Button("Rescan", jcIcon: "arrow.clockwise") { WearablesHub.shared.rescanAll() }
                 .disabled(!manager.bluetoothReady)
         }
     }
@@ -162,8 +162,7 @@ struct ScanView: View {
             .padding(.vertical, 50)
         } else {
             VStack(spacing: 14) {
-                Image(systemName: "antenna.radiowaves.left.and.right.slash")
-                    .font(.system(size: 40, weight: .light))
+                JcIcon("antenna.radiowaves.left.and.right.slash", size: 40, weight: .light)
                     .foregroundStyle(.orange)
                 Text("Turn on Bluetooth")
                     .font(.headline)
@@ -193,7 +192,7 @@ struct ScanView: View {
             .padding(.horizontal, 8)
         } else {
             HStack(spacing: 10) {
-                Image(systemName: "antenna.radiowaves.left.and.right.slash").foregroundStyle(.orange)
+                JcIcon("antenna.radiowaves.left.and.right.slash").foregroundStyle(.orange)
                 Text("Turn on Bluetooth to find more devices")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
@@ -238,7 +237,7 @@ private struct ScanRadar: View {
                     .animation(.easeOut(duration: 2.4).repeatForever(autoreverses: false).delay(Double(i) * 0.8),
                                value: animate)
             }
-            Image(systemName: "dot.radiowaves.left.and.right")
+            JcIcon("dot.radiowaves.left.and.right")
                 .font(.system(size: size * 0.2, weight: .light))
                 .foregroundStyle(JcTheme.accent)
         }
@@ -327,8 +326,7 @@ private struct BottleCard: View {
             } else {
                 HStack {
                     Spacer()
-                    Image(systemName: "antenna.radiowaves.left.and.right")
-                        .font(.system(size: 34, weight: .light))
+                    JcIcon("antenna.radiowaves.left.and.right", size: 34, weight: .light)
                         .foregroundStyle(.secondary)
                         .padding(.trailing, 34)
                 }
@@ -442,8 +440,7 @@ private struct AbsentDeviceCard: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: "antenna.radiowaves.left.and.right.slash")
-                .font(.system(size: 26, weight: .light))
+            JcIcon("antenna.radiowaves.left.and.right.slash", size: 26, weight: .light)
                 .foregroundStyle(.secondary)
                 .frame(width: 34)
 

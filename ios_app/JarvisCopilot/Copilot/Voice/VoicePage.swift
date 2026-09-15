@@ -240,7 +240,7 @@ struct VoicePage: View {
         Group {
             if let failure = store.error, !failure.isEmpty {
                 VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.circle")
+                    JcIcon("exclamationmark.circle")
                         .foregroundStyle(JcTheme.danger)
                     VoicePlainReply(text: failure, tint: JcTheme.text)
                 }
@@ -337,8 +337,7 @@ struct VoicePage: View {
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Button { showSessionPicker = true } label: {
-                Image(systemName: "bubble.left")
-                    .font(.system(size: 15, weight: .medium))
+                JcIcon("bubble.left", size: 15, weight: .medium)
                     .foregroundStyle(JcTheme.accent)
             }
             .accessibilityLabel("Voice session: \(sessionSelection.chipLabel)")
@@ -346,7 +345,7 @@ struct VoicePage: View {
         ToolbarItem(placement: .topBarTrailing) {
             Button { showPicker = true } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "sparkles").foregroundStyle(JcTheme.accent)
+                    JcIcon("sparkles").foregroundStyle(JcTheme.accent)
                     Text(models.chipLabel).lineLimit(1)
                 }
                 .font(.system(size: 14, weight: .medium))

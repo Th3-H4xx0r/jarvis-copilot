@@ -88,8 +88,7 @@ struct CodeMemoryStatsHeader: View {
                         .padding(.horizontal, 8)
                         .padding(.top, 14)
                     HStack(spacing: 6) {
-                        Image(systemName: "clock")
-                            .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
+                        JcIcon("clock", size: 11).foregroundStyle(JcTheme.muted)
                         Text("Last active \(activity)")
                             .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                     }
@@ -108,7 +107,7 @@ struct CodeMemoryStatsHeader: View {
 
     private func stat(_ symbol: String, _ color: Color, _ label: String, _ value: Int) -> some View {
         VStack(spacing: 0) {
-            Image(systemName: symbol).font(.system(size: 16)).foregroundStyle(color)
+            JcIcon(symbol).font(.system(size: 16)).foregroundStyle(color)
                 .padding(.bottom, 6)
             Text("\(value)")
                 .font(.system(size: 22, weight: .semibold))
@@ -127,8 +126,7 @@ struct CodeMemoryProjectRow: View {
     var body: some View {
         GlassCard(padding: 0) {
             HStack(alignment: .top, spacing: 0) {
-                Image(systemName: "point.3.filled.connected.trianglepath.dotted")
-                    .font(.system(size: 17))
+                JcIcon("point.3.filled.connected.trianglepath.dotted", size: 17)
                     .foregroundStyle(JcTheme.blue)
                     .frame(width: 40, height: 40)
                     .background(JcTheme.blue.opacity(0.12), in: Circle())
@@ -155,8 +153,7 @@ struct CodeMemoryProjectRow: View {
                         let seen = project.lastSeenLabel()
                         if !seen.isEmpty {
                             HStack(spacing: 4) {
-                                Image(systemName: "clock")
-                                    .font(.system(size: 10)).foregroundStyle(JcTheme.muted)
+                                JcIcon("clock", size: 10).foregroundStyle(JcTheme.muted)
                                 Text(seen).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                             }
                         }
@@ -164,8 +161,7 @@ struct CodeMemoryProjectRow: View {
                     .padding(.top, 8)
                 }
                 Spacer(minLength: 4)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
+                JcIcon("chevron.right", size: 14, weight: .semibold)
                     .foregroundStyle(JcTheme.muted.opacity(0.7))
                     .padding(.top, 10)
                     .padding(.leading, 4)
@@ -186,8 +182,7 @@ struct CodeMemorySearchField: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 15)).foregroundStyle(JcTheme.muted)
+            JcIcon("magnifyingglass", size: 15).foregroundStyle(JcTheme.muted)
             TextField(hint, text: $text)
                 .font(JcText.body)
                 .foregroundStyle(JcTheme.text)
@@ -200,8 +195,7 @@ struct CodeMemorySearchField: View {
                     text = ""
                     onClear?()
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15)).foregroundStyle(JcTheme.muted)
+                    JcIcon("xmark.circle.fill", size: 15).foregroundStyle(JcTheme.muted)
                 }
                 .buttonStyle(.plain)
             }

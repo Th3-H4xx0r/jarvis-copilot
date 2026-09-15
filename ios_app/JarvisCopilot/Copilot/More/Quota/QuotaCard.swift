@@ -34,8 +34,7 @@ struct QuotaCard: View {
                 ProgressView().controlSize(.small).tint(JcTheme.muted)
             } else {
                 Button { store.reload() } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 16, weight: .semibold))
+                    JcIcon("arrow.clockwise", size: 16, weight: .semibold)
                         .foregroundStyle(JcTheme.accent)
                 }
                 .buttonStyle(.plain)
@@ -91,7 +90,7 @@ struct QuotaProviderBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Image(systemName: provider.iconName)
+                JcIcon(provider.iconName)
                     .font(.system(size: 16))
                     .foregroundStyle(JcTheme.text)
                     .frame(width: 30, height: 30)

@@ -224,8 +224,7 @@ struct InsightsMessageRow: View {
                     // A cache hit is why an "expensive" turn was cheap — worth a
                     // glyph, as the web panel does.
                     if message.cacheReadTokens > 0 {
-                        Image(systemName: "bolt.fill")
-                            .font(.system(size: 10))
+                        JcIcon("bolt.fill", size: 10)
                             .foregroundStyle(JcTheme.cyan)
                     }
                     Text(Insights.formatTokensCompact(message.inputTokens))

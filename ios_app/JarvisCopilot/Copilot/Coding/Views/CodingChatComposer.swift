@@ -32,7 +32,7 @@ struct CodingChatComposer: View {
         VStack(spacing: 0) {
             if let warning = warning ?? session.attachments.attachError {
                 HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle").font(.system(size: 11))
+                    JcIcon("exclamationmark.triangle", size: 11)
                     Text(warning).font(.system(size: 12))
                     Spacer(minLength: 0)
                 }
@@ -72,7 +72,7 @@ struct CodingChatComposer: View {
                         if sending {
                             ProgressView().controlSize(.small).tint(JcTheme.accent)
                         } else {
-                            Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold))
+                            JcIcon("arrow.up", size: 16, weight: .bold)
                         }
                     }
                     .foregroundStyle(canSend ? JcTheme.accent : JcTheme.muted)

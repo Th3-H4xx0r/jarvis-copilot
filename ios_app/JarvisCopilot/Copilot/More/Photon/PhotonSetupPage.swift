@@ -141,7 +141,7 @@ struct PhotonStatusPill: View {
     var body: some View {
         let tint = Color(tone: status.tone)
         HStack(spacing: 10) {
-            Image(systemName: status.iconName).font(.system(size: 18)).foregroundStyle(tint)
+            JcIcon(status.iconName).font(.system(size: 18)).foregroundStyle(tint)
             Text(status.label)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(tint)

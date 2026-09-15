@@ -55,7 +55,7 @@ struct ChatComposer: View {
                 Button {
                     if canStop { onStop() } else { onSend() }
                 } label: {
-                    Image(systemName: canStop ? "stop.fill" : "arrow.up")
+                    JcIcon(canStop ? "stop.fill" : "arrow.up")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(canStop ? JcTheme.text : (canSend ? JcTheme.accent : JcTheme.muted))
                         .frame(width: 44, height: 44)
@@ -126,8 +126,7 @@ struct AttachmentChip: View {
                     .foregroundStyle(JcTheme.muted)
             }
             Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
+                JcIcon("xmark", size: 10, weight: .semibold)
                     .foregroundStyle(JcTheme.muted)
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
@@ -150,15 +149,14 @@ struct AttachmentChip: View {
                     .frame(width: 30, height: 30)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 if attachment.isVideo {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 8))
+                    JcIcon("play.fill", size: 8)
                         .foregroundStyle(.white)
                         .frame(width: 16, height: 16)
                         .background(Color.black.opacity(0.45), in: Circle())
                 }
             }
         } else {
-            Image(systemName: glyph).font(.system(size: 13)).foregroundStyle(JcTheme.muted)
+            JcIcon(glyph).font(.system(size: 13)).foregroundStyle(JcTheme.muted)
         }
     }
 }

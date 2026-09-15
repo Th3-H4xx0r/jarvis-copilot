@@ -174,7 +174,7 @@ struct InsightsStatTile: View {
         let tint = Color(tone: tone)
         GlassCard(padding: 14) {
             VStack(alignment: .leading, spacing: 10) {
-                Image(systemName: symbol)
+                JcIcon(symbol)
                     .font(.system(size: 17))
                     .foregroundStyle(tint)
                     .frame(width: 32, height: 32)

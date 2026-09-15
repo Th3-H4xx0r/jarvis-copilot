@@ -78,8 +78,7 @@ struct VoiceSessionPicker: View {
     }
 
     private var check: some View {
-        Image(systemName: "checkmark")
-            .font(.system(size: 14, weight: .semibold))
+        JcIcon("checkmark", size: 14, weight: .semibold)
             .foregroundStyle(JcTheme.cyan)
     }
 

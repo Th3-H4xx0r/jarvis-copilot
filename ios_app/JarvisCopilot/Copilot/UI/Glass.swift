@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Shared dark-glass primitives. Every screen composes from these
 /// so the visual identity stays consistent and tunable from one place.
@@ -143,8 +144,7 @@ extension GlassRow where Trailing == AnyView {
         self.init(symbol: symbol, title: title, subtitle: subtitle,
                   subtitleLineLimit: subtitleLineLimit,
                   last: last, danger: danger, action: action) {
-            AnyView(Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .semibold))
+            AnyView(JcIcon("chevron.right", size: 14, weight: .semibold)
                 .foregroundStyle(JcTheme.muted.opacity(0.7)))
         }
     }
@@ -159,7 +159,7 @@ struct GlassCircleIcon: View {
     var body: some View {
         // Accent glyph on neutral glass, like the More tiles; a caller's tint
         // (danger rows) colours both.
-        Image(systemName: symbol)
+        JcIcon(symbol)
             .font(.system(size: size * 0.5, weight: .regular))
             .foregroundStyle(tint ?? JcTheme.accent)
             .frame(width: size, height: size)
@@ -180,7 +180,7 @@ struct GlassIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            JcIcon(symbol)
                 .font(.system(size: iconSize, weight: .regular))
                 .foregroundStyle(tint ?? JcTheme.accent)
                 .frame(width: size, height: size)
@@ -202,7 +202,7 @@ struct GlassButton: View {
         Button { action?() } label: {
             HStack(spacing: 8) {
                 if let symbol {
-                    Image(systemName: symbol).font(.system(size: 16, weight: .semibold))
+                    JcIcon(symbol).font(.system(size: 16, weight: .semibold))
                 }
                 Text(title).font(JcText.body.weight(.semibold))
             }
@@ -247,7 +247,7 @@ struct JcEmptyState: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: symbol)
+            JcIcon(symbol)
                 .font(.system(size: 28, weight: .light))
                 .foregroundStyle(JcTheme.muted)
                 .padding(.bottom, 6)
@@ -281,7 +281,7 @@ struct JcSegmented<T: Hashable & Identifiable>: View {
                 let selected = item == selection
                 Button { selection = item } label: {
                     HStack(spacing: 6) {
-                        if let symbol { Image(systemName: symbol(item)).font(.system(size: 12.5)) }
+                        if let symbol { JcIcon(symbol(item)).font(.system(size: 12.5)) }
                         Text(label(item)).font(.system(size: 13, weight: .medium)).lineLimit(1)
                     }
                     .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)
@@ -411,5 +411,55 @@ extension View {
     /// Animated beam around `shape`'s border while `active`.
     func jcBorderBeam<S: InsettableShape>(_ shape: S, active: Bool) -> some View {
         modifier(JcBorderBeam(shape: shape, active: active))
+    }
+}
+
+// MARK: - Icons (Phosphor)
+
+/// One icon from the bundled Phosphor set (MIT), drawn as a template image so it takes
+/// the surrounding foreground colour. `size` is the icon's height in points — SF Symbols
+/// took their size from the font, asset images can't, so each call site names it.
+struct JcIcon: View {
+    let name: String
+    var size: CGFloat = 17
+    var weight: Font.Weight = .regular   // kept for call-site parity; Phosphor is one weight
+
+    init(_ name: String, size: CGFloat = 17, weight: Font.Weight = .regular) {
+        self.name = name
+        self.size = size
+        self.weight = weight
+    }
+
+    private var asset: String { "jc_" + name.replacingOccurrences(of: ".", with: "_") }
+
+    var body: some View {
+        if UIImage(named: asset) != nil {
+            Image(asset)
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+        } else {
+            // A name with no Phosphor mapping (usually built at runtime): keep Apple's.
+            JcIcon(name)
+                .font(.system(size: size * 0.92, weight: weight))
+        }
+    }
+}
+
+extension Label where Title == Text, Icon == JcIcon {
+    /// `Label("Rename", jcIcon: "pencil")` — the Phosphor stand-in for `systemImage:`.
+    init(_ title: String, jcIcon: String) {
+        self.init { Text(title) } icon: { JcIcon(jcIcon, size: 16) }
+    }
+}
+
+extension Button where Label == SwiftUI.Label<Text, JcIcon> {
+    init(_ title: String, jcIcon: String, action: @escaping () -> Void) {
+        self.init(action: action) { SwiftUI.Label(title, jcIcon: jcIcon) }
+    }
+
+    init(_ title: String, jcIcon: String, role: ButtonRole?, action: @escaping () -> Void) {
+        self.init(role: role, action: action) { SwiftUI.Label(title, jcIcon: jcIcon) }
     }
 }

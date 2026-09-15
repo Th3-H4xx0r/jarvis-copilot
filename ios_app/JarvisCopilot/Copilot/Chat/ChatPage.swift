@@ -115,7 +115,7 @@ struct ChatPage: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button { showSessions = true } label: { Image(systemName: "sidebar.left").foregroundStyle(JcTheme.accent) }
+            Button { showSessions = true } label: { JcIcon("sidebar.left").foregroundStyle(JcTheme.accent) }
                 .accessibilityLabel("Chats")
         }
         ToolbarItem(placement: .principal) {
@@ -141,7 +141,7 @@ struct ChatPage: View {
                 draft = ""
                 composerGeneration += 1
                 store.startNewSession()
-            } label: { Image(systemName: "square.and.pencil").foregroundStyle(JcTheme.accent) }
+            } label: { JcIcon("square.and.pencil").foregroundStyle(JcTheme.accent) }
             .accessibilityLabel("New chat")
         }
     }
@@ -149,7 +149,7 @@ struct ChatPage: View {
     private var modelCapsule: some View {
         Button { showModels = true } label: {
             HStack(spacing: 6) {
-                Image(systemName: "sparkles")
+                JcIcon("sparkles")
                     .foregroundStyle(JcTheme.accent)
                 Text(ChatUIFormat.shortModelName(store.selectedModel?.label ?? store.selectedModelID ?? ""))
                     .lineLimit(1)
@@ -164,11 +164,11 @@ struct ChatPage: View {
 
     private func banner(_ text: String) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(JcTheme.danger)
+            JcIcon("exclamationmark.triangle.fill").foregroundStyle(JcTheme.danger)
             Text(text).font(.footnote).foregroundStyle(JcTheme.text)
             Spacer(minLength: 0)
             Button { store.error = nil } label: {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                JcIcon("xmark", size: 11, weight: .semibold)
                     .foregroundStyle(JcTheme.muted)
             }
             .buttonStyle(.plain)
@@ -348,7 +348,7 @@ struct ChatClarifyBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: "questionmark.circle").font(.system(size: 12))
+                JcIcon("questionmark.circle", size: 12)
                 Text("Quick question").font(.system(size: 11, weight: .bold))
             }
             .foregroundStyle(JcTheme.cyan)

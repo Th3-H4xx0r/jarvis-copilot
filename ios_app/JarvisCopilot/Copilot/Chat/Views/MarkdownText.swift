@@ -120,7 +120,7 @@ struct ChatCodeBlock: View {
                     UIPasteboard.general.string = code
                     withAnimation(.snappy) { copied = true }
                 } label: {
-                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    JcIcon(copied ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(copied ? JcTheme.success : JcTheme.muted)
                 }

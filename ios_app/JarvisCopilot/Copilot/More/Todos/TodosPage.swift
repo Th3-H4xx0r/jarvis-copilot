@@ -92,7 +92,7 @@ struct TodoCard: View {
         if style.spin {
             TodoSpinningIcon(symbol: style.iconName, color: tone)
         } else {
-            Image(systemName: style.iconName).font(.system(size: 18)).foregroundStyle(tone)
+            JcIcon(style.iconName).font(.system(size: 18)).foregroundStyle(tone)
         }
     }
 }
@@ -105,7 +105,7 @@ struct TodoSpinningIcon: View {
     @State private var spinning = false
 
     var body: some View {
-        Image(systemName: symbol)
+        JcIcon(symbol)
             .font(.system(size: 18))
             .foregroundStyle(color)
             .rotationEffect(.degrees(spinning ? 360 : 0))

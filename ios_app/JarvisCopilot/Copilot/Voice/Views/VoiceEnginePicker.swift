@@ -97,8 +97,7 @@ struct VoicePickerCheck: View {
 
     var body: some View {
         if on {
-            Image(systemName: "checkmark")
-                .font(.system(size: 14, weight: .semibold))
+            JcIcon("checkmark", size: 14, weight: .semibold)
                 .foregroundStyle(JcTheme.cyan)
         }
     }

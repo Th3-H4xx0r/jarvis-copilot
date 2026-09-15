@@ -80,7 +80,7 @@ struct ActionButton: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 8) {
-                Image(systemName: icon)
+                JcIcon(icon)
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(isOn ? .white : tint)
                     .frame(width: 56, height: 56)
@@ -108,7 +108,7 @@ struct MetricPill: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: icon)
+            JcIcon(icon)
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(tint)
                 .frame(width: 26, height: 26)

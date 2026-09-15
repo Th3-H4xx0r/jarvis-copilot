@@ -131,7 +131,7 @@ struct ContentView: View {
                     Button { audio.stopSpeaking() } label: {
                         VStack(spacing: 4) {
                             VoiceOrb(mode: .speaking, size: 84)
-                            Label("Stop", systemImage: "stop.fill").font(.inter(12, .medium))
+                            Label("Stop", jcIcon: "stop.fill").font(.inter(12, .medium))
                         }
                     }
                     .buttonStyle(.plain)
@@ -172,17 +172,17 @@ struct ContentView: View {
         // wider than a 42 mm screen.
         HStack(spacing: 18) {
             Button { activeSheet = .volume } label: {
-                Image(systemName: "speaker.wave.2.fill").font(.system(size: 15, weight: .medium))
+                JcIcon("speaker.wave.2.fill", size: 15, weight: .medium)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Volume")
             Button { activeSheet = .chats } label: {
-                Image(systemName: "bubble.left").font(.system(size: 15, weight: .medium))
+                JcIcon("bubble.left", size: 15, weight: .medium)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Chats")
             Button { activeSheet = .menu } label: {
-                Image(systemName: "ellipsis.circle").font(.system(size: 15, weight: .medium))
+                JcIcon("ellipsis.circle", size: 15, weight: .medium)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Menu")

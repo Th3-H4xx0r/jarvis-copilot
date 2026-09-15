@@ -112,8 +112,7 @@ struct VoiceModelPickerSheet: View {
 
     private func loadFailure(_ message: String) -> some View {
         VStack(spacing: 8) {
-            Image(systemName: "icloud.slash")
-                .font(.system(size: 26))
+            JcIcon("icloud.slash", size: 26)
                 .foregroundStyle(JcTheme.muted)
             Text("Couldn't load models")
                 .font(.system(size: 14, weight: .semibold))
@@ -177,7 +176,7 @@ struct VoiceModelPickerSheet: View {
             .font(.system(size: 12))
             .foregroundStyle(JcTheme.muted)
         case .failed(let message):
-            Label(message, systemImage: "exclamationmark.triangle.fill")
+            Label(message, jcIcon: "exclamationmark.triangle.fill")
                 .font(.system(size: 12))
                 .foregroundStyle(JcTheme.danger)
         case .ready, .idle:

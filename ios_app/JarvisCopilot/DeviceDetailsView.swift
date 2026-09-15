@@ -111,7 +111,7 @@ struct DeviceDetailsView: View {
                                   .dailyAutoReset(false), .uvIntensity(.normal),
                                   .setScreenSeconds(5), .setClock(Date())])
                 } label: {
-                    Label("Restore safe defaults", systemImage: "arrow.uturn.backward")
+                    Label("Restore safe defaults", jcIcon: "arrow.uturn.backward")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -186,7 +186,7 @@ struct DeviceDetailsView: View {
                 RowDivider()
                 Row(minHeight: 46) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Image(systemName: entry.direction == .out
+                        JcIcon(entry.direction == .out
                               ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
                             .foregroundStyle(entry.direction == .out ? .orange : .green)
                         VStack(alignment: .leading, spacing: 2) {

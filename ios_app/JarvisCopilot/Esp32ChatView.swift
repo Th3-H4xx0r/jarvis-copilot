@@ -65,14 +65,14 @@ struct Esp32ChatView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button { showConsole.toggle() } label: {
-                        Label(showConsole ? "Hide console" : "Show console", systemImage: "terminal")
+                        Label(showConsole ? "Hide console" : "Show console", jcIcon: "terminal")
                     }
-                    Button { manager.clearScriptLog() } label: { Label("Clear console", systemImage: "eraser") }
+                    Button { manager.clearScriptLog() } label: { Label("Clear console", jcIcon: "eraser") }
                     Divider()
                     Button(role: .destructive) {
                         chat.newConversation()
-                    } label: { Label("New conversation", systemImage: "square.and.pencil") }
-                } label: { Image(systemName: "ellipsis.circle").foregroundStyle(JcTheme.accent) }
+                    } label: { Label("New conversation", jcIcon: "square.and.pencil") }
+                } label: { JcIcon("ellipsis.circle").foregroundStyle(JcTheme.accent) }
             }
         }
         .onAppear {
@@ -109,7 +109,7 @@ struct Esp32ChatView: View {
                     selectedModelID = ""
                 } label: {
                     Label("Default" + (defaultModel.isEmpty ? "" : " (\(shortName(defaultModel)))"),
-                          systemImage: selectedModelID.isEmpty ? "checkmark" : "")
+                          jcIcon: selectedModelID.isEmpty ? "checkmark" : "")
                 }
                 ForEach(Dictionary(grouping: models, by: \.provider).keys.sorted(), id: \.self) { provider in
                     Section(provider.isEmpty ? "Models" : provider) {
@@ -117,7 +117,7 @@ struct Esp32ChatView: View {
                             Button {
                                 selectedModelID = m.id
                             } label: {
-                                Label(m.label, systemImage: selectedModelID == m.id ? "checkmark" : "")
+                                Label(m.label, jcIcon: selectedModelID == m.id ? "checkmark" : "")
                             }
                         }
                     }
@@ -125,7 +125,7 @@ struct Esp32ChatView: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "cpu")
+                JcIcon("cpu")
                 Text(selectedModel.map { shortName($0.label) } ?? "Auto")
                     .font(.footnote.weight(.medium))
             }
@@ -141,7 +141,7 @@ struct Esp32ChatView: View {
 
     private func banner(_ text: String, icon: String) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: icon).foregroundStyle(.orange)
+            JcIcon(icon).foregroundStyle(.orange)
             Text(text).font(.footnote)
             Spacer(minLength: 0)
         }
@@ -166,7 +166,7 @@ struct Esp32ChatView: View {
                     }
                     if let error {
                         HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.circle").foregroundStyle(.red)
+                            JcIcon("exclamationmark.circle").foregroundStyle(.red)
                             Text(error).font(.footnote).foregroundStyle(.red)
                         }
                         .padding(.horizontal, 16)
@@ -188,7 +188,7 @@ struct Esp32ChatView: View {
     private var intro: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Image(systemName: "sparkles").font(.title3).foregroundStyle(JcTheme.accent)
+                JcIcon("sparkles").font(.title3).foregroundStyle(JcTheme.accent)
                 Text("Tell Jarvis what this board should do.").font(.headline)
             }
             Text("Jarvis writes a small script, installs it on the board, and it keeps running there — with or without the phone.")
@@ -212,7 +212,7 @@ struct Esp32ChatView: View {
             HStack {
                 Text(text).font(.footnote).multilineTextAlignment(.leading)
                 Spacer(minLength: 6)
-                Image(systemName: "arrow.up.left").font(.caption2).foregroundStyle(.tertiary)
+                JcIcon("arrow.up.left").font(.caption2).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
             .jcLiquidGlass(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -236,7 +236,7 @@ struct Esp32ChatView: View {
             HStack(alignment: .top, spacing: 10) {
                 ZStack {
                     Circle().fill(JcTheme.accent.opacity(0.18)).frame(width: 26, height: 26)
-                    Image(systemName: "sparkles").font(.caption).foregroundStyle(JcTheme.accent)
+                    JcIcon("sparkles").font(.caption).foregroundStyle(JcTheme.accent)
                 }
                 .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 8) {
@@ -297,7 +297,7 @@ struct Esp32ChatView: View {
             ForEach(tools) { t in
                 HStack(alignment: .top, spacing: 8) {
                     if t.done {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(JcTheme.accent).font(.footnote)
+                        JcIcon("checkmark.circle.fill").foregroundStyle(JcTheme.accent).font(.footnote)
                     } else {
                         ProgressView().controlSize(.mini)
                     }
@@ -335,7 +335,7 @@ struct Esp32ChatView: View {
         if showConsole {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    Label("Board console", systemImage: "terminal").font(.footnote.weight(.semibold))
+                    Label("Board console", jcIcon: "terminal").font(.footnote.weight(.semibold))
                     if let s = manager.script {
                         Text("· \(s.name.isEmpty ? s.state.label : "\(s.name) · \(s.state.label)")")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -344,12 +344,12 @@ struct Esp32ChatView: View {
                     Button {
                         UIPasteboard.general.string = manager.scriptLog.joined(separator: "\n")
                     } label: {
-                        Image(systemName: "doc.on.doc").font(.caption)
+                        JcIcon("doc.on.doc").font(.caption)
                     }
                     .disabled(manager.scriptLog.isEmpty)
                     .padding(.trailing, 6)
                     Button { withAnimation { showConsole = false } } label: {
-                        Image(systemName: "chevron.down").font(.caption)
+                        JcIcon("chevron.down").font(.caption)
                     }
                 }
                 .padding(.horizontal, 16).padding(.vertical, 8)
@@ -362,8 +362,8 @@ struct Esp32ChatView: View {
                                     .foregroundStyle(line.hasPrefix("error") ? .red : line.hasPrefix("→") || line.hasPrefix("←") || line.hasPrefix("—") ? .secondary : .primary)
                                     .textSelection(.enabled)
                                     .contextMenu {
-                                        Button { UIPasteboard.general.string = line } label: { Label("Copy line", systemImage: "doc.on.doc") }
-                                        Button { UIPasteboard.general.string = manager.scriptLog.joined(separator: "\n") } label: { Label("Copy all", systemImage: "doc.on.doc.fill") }
+                                        Button { UIPasteboard.general.string = line } label: { Label("Copy line", jcIcon: "doc.on.doc") }
+                                        Button { UIPasteboard.general.string = manager.scriptLog.joined(separator: "\n") } label: { Label("Copy all", jcIcon: "doc.on.doc.fill") }
                                     }
                             }
                             Color.clear.frame(height: 1).id("logEnd")
@@ -396,7 +396,7 @@ struct Esp32ChatView: View {
             Button {
                 if sending { cancel() } else { send() }
             } label: {
-                Image(systemName: sending ? "stop.fill" : "arrow.up")
+                JcIcon(sending ? "stop.fill" : "arrow.up")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(sending ? JcTheme.text : (canSend ? JcTheme.accent : JcTheme.muted))
                     .frame(width: 30, height: 30)

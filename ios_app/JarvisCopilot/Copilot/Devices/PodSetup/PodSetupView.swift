@@ -102,7 +102,7 @@ struct PodSetupView: View {
                     Button {
                         if flow.finished || flow.failedStep != nil { close() } else { confirmCancel = true }
                     } label: {
-                        Image(systemName: "xmark").foregroundStyle(JcTheme.text)
+                        JcIcon("xmark").foregroundStyle(JcTheme.text)
                     }
                     .accessibilityLabel("Cancel")
                 }
@@ -182,7 +182,7 @@ struct PodSetupView: View {
 
     private func tip(_ symbol: String, _ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Image(systemName: symbol).foregroundStyle(JcTheme.accent).frame(width: 22)
+            JcIcon(symbol).foregroundStyle(JcTheme.accent).frame(width: 22)
             Text(text).font(.subheadline).foregroundStyle(JcTheme.muted)
         }
     }
@@ -249,11 +249,11 @@ struct PodSetupView: View {
                 ProgressView().controlSize(.mini).tint(JcTheme.accent)
             case .done:
                 Circle().fill(JcTheme.accent)
-                Image(systemName: "checkmark").font(.caption.weight(.heavy)).foregroundStyle(JcTheme.bg)
+                JcIcon("checkmark").font(.caption.weight(.heavy)).foregroundStyle(JcTheme.bg)
             case .failed:
                 Circle().fill(JcTheme.danger.opacity(0.18))
                 Circle().strokeBorder(JcTheme.danger, lineWidth: 1.5)
-                Image(systemName: "exclamationmark").font(.caption.weight(.heavy)).foregroundStyle(JcTheme.danger)
+                JcIcon("exclamationmark").font(.caption.weight(.heavy)).foregroundStyle(JcTheme.danger)
             }
         }
         .frame(width: 26, height: 26)
@@ -274,13 +274,13 @@ struct PodSetupView: View {
                     flow.selectedSSID = network.ssid
                 } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: "wifi", variableValue: signal(network.rssi))
+                        JcIcon("wifi")
                             .foregroundStyle(selected ? JcTheme.accent : JcTheme.muted)
                             .frame(width: 22)
                         Text(network.ssid).foregroundStyle(JcTheme.text).lineLimit(1)
                         Spacer()
-                        if network.secure { Image(systemName: "lock.fill").font(.caption).foregroundStyle(JcTheme.muted) }
-                        if selected { Image(systemName: "checkmark").font(.footnote.weight(.bold)).foregroundStyle(JcTheme.accent) }
+                        if network.secure { JcIcon("lock.fill").font(.caption).foregroundStyle(JcTheme.muted) }
+                        if selected { JcIcon("checkmark").font(.footnote.weight(.bold)).foregroundStyle(JcTheme.accent) }
                     }
                     .padding(.vertical, 11)
                     .padding(.horizontal, 12)
@@ -302,7 +302,7 @@ struct PodSetupView: View {
                     .onSubmit { if flow.canSubmitWifi { Task { await flow.submitWifi() } } }
             }
             HStack {
-                Button("Refresh", systemImage: "arrow.clockwise") { Task { await flow.loadNetworks() } }
+                Button("Refresh", jcIcon: "arrow.clockwise") { Task { await flow.loadNetworks() } }
                     .buttonStyle(.jcGlass(tint: JcTheme.muted, compact: true))
                 Spacer()
                 Button("Continue") { Task { await flow.submitWifi() } }

@@ -87,7 +87,7 @@ struct MemoryMtimeChip: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "clock").font(.system(size: 11)).foregroundStyle(JcTheme.muted)
+            JcIcon("clock", size: 11).foregroundStyle(JcTheme.muted)
             Text("Last edited \(mtime)").font(.system(size: 12)).foregroundStyle(JcTheme.muted)
         }
         .padding(.horizontal, 11)
@@ -150,8 +150,7 @@ struct MemoryEditorView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 6) {
-                    Image(systemName: "text.alignleft")
-                        .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+                    JcIcon("text.alignleft", size: 12).foregroundStyle(JcTheme.muted)
                     Text("Markdown supported")
                         .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                     Spacer(minLength: 8)
@@ -170,8 +169,7 @@ struct MemoryEditorView: View {
 
                 if let visibleSaveError {
                     HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 12))
+                        JcIcon("exclamationmark.triangle.fill", size: 12)
                         Text(visibleSaveError)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }

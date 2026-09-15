@@ -54,7 +54,7 @@ struct ScaleDeviceView: View {
                 Button {
                     connected ? manager.disconnect() : manager.connect(scale)
                 } label: {
-                    Image(systemName: connected ? "bluetooth.slash" : "arrow.clockwise")
+                    JcIcon(connected ? "bluetooth.slash" : "arrow.clockwise")
                 }
                 .accessibilityLabel(connected ? "Disconnect" : "Reconnect")
             }
@@ -113,7 +113,7 @@ struct ScaleDeviceView: View {
     private var statusLine: some View {
         HStack {
             HStack(spacing: 8) {
-                Image(systemName: connected ? "bluetooth" : "bluetooth.slash")
+                JcIcon(connected ? "bluetooth" : "bluetooth.slash")
                     .foregroundStyle(connected ? blue : .secondary)
                 Text(connectionText)
             }
@@ -153,7 +153,7 @@ struct ScaleDeviceView: View {
 
     private var composition: some View {
         VStack(alignment: .leading, spacing: 13) {
-            Label("Body composition", systemImage: "figure.stand").font(.headline)
+            Label("Body composition", jcIcon: "figure.stand").font(.headline)
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 ForEach(BodyMetric.allCases.filter { $0 != .weight && metrics[$0] != nil }) { metric in
@@ -170,7 +170,7 @@ struct ScaleDeviceView: View {
         let recent = Array(readings.prefix(12).reversed())
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Weight trend", systemImage: "chart.line.uptrend.xyaxis").font(.headline)
+                Label("Weight trend", jcIcon: "chart.line.uptrend.xyaxis").font(.headline)
                 Spacer()
                 if let deltaText { Text(deltaText).font(.caption.weight(.semibold)).foregroundStyle(deltaTint) }
             }
@@ -196,15 +196,18 @@ struct ScaleDeviceView: View {
     private var recentHistory: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Recent measurements", systemImage: "clock.arrow.circlepath").font(.headline)
+                Label("Recent measurements", jcIcon: "clock.arrow.circlepath").font(.headline)
                 Spacer()
                 Text("\(readings.count)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 16)
 
             if readings.isEmpty {
-                ContentUnavailableView("No measurements yet", systemImage: "scalemass",
-                                       description: Text("Stable readings will be saved automatically."))
+                ContentUnavailableView {
+                    Label("No measurements yet", jcIcon: "scalemass")
+                } description: {
+                    Text("Stable readings will be saved automatically.")
+                }
                     .frame(maxWidth: .infinity).padding(.vertical, 12)
             } else {
                 CardGroup {
@@ -214,7 +217,7 @@ struct ScaleDeviceView: View {
                             HStack {
                                 ZStack {
                                     Circle().fill(blue.opacity(0.14)).frame(width: 34, height: 34)
-                                    Image(systemName: "scalemass.fill").font(.caption).foregroundStyle(blue)
+                                    JcIcon("scalemass.fill").font(.caption).foregroundStyle(blue)
                                 }
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(reading.date.formatted(date: .abbreviated, time: .shortened))
@@ -240,7 +243,7 @@ struct ScaleDeviceView: View {
                     HStack {
                         Text("Settings")
                         Spacer()
-                        Image(systemName: "chevron.right")
+                        JcIcon("chevron.right")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.tertiary)
                     }
@@ -335,7 +338,7 @@ private struct ScaleSettingsView: View {
         CardGroup("Preferences") {
             Row {
                 HStack {
-                    Label("Display unit", systemImage: "ruler")
+                    Label("Display unit", jcIcon: "ruler")
                     Spacer(minLength: 12)
                     Picker("Display unit", selection: $unit) {
                         ForEach(WeightUnit.allCases) { Text($0.label).tag($0) }
@@ -349,7 +352,7 @@ private struct ScaleSettingsView: View {
             Button { showingProfile = true } label: {
                 Row {
                     HStack {
-                        Label(profile?.name ?? "Profile", systemImage: "person.crop.circle")
+                        Label(profile?.name ?? "Profile", jcIcon: "person.crop.circle")
                         Spacer()
                         VStack(alignment: .trailing, spacing: 1) {
                             Text(profile?.athleteMode == true ? "Athlete mode" : "Standard")
@@ -361,7 +364,7 @@ private struct ScaleSettingsView: View {
                                     .foregroundStyle(.tertiary)
                             }
                         }
-                        Image(systemName: "chevron.right")
+                        JcIcon("chevron.right")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.tertiary)
                     }
@@ -397,7 +400,7 @@ private struct ScaleMetricCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Image(systemName: metric.icon)
+                JcIcon(metric.icon)
                     .font(.system(size: 13, weight: .bold)).foregroundStyle(metric.tint)
                     .frame(width: 30, height: 30).background(metric.tint.opacity(0.15), in: Circle())
                 Spacer()

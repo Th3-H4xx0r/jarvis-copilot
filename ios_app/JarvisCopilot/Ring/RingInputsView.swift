@@ -72,7 +72,7 @@ struct RingInputsSection: View {
                                 .lineLimit(2)
                         }
                         Spacer(minLength: 0)
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                        JcIcon("chevron.right").font(.caption).foregroundStyle(.tertiary)
                     }
                     .padding(.vertical, 10)
                     .contentShape(Rectangle())
@@ -123,7 +123,7 @@ struct RingInputsSection: View {
                 RowDivider()
                 Row {
                     HStack(spacing: 8) {
-                        Image(systemName: shakeArmed ? "checkmark.circle.fill" : "exclamationmark.circle")
+                        JcIcon(shakeArmed ? "checkmark.circle.fill" : "exclamationmark.circle")
                             .foregroundStyle(shakeArmed ? Color.green : Color.orange)
                         Text(shakeArmed
                              ? "Shake detector armed. Shake your hand firmly; it waits three seconds "
@@ -185,7 +185,7 @@ struct RingInputsSection: View {
                 } else {
                     ForEach(gestureFeed.prefix(6)) { event in
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Image(systemName: event.kind.icon)
+                            JcIcon(event.kind.icon)
                                 .font(.caption2)
                                 .foregroundStyle(tint(event.kind))
                                 .frame(width: 14)
@@ -294,7 +294,7 @@ struct RingActionPicker: View {
                         Text(option.label).font(.subheadline)
                         Spacer(minLength: 0)
                         if isCurrent(option) {
-                            Image(systemName: "checkmark").font(.caption).foregroundStyle(.green)
+                            JcIcon("checkmark").font(.caption).foregroundStyle(.green)
                         }
                     }
                     .contentShape(Rectangle())

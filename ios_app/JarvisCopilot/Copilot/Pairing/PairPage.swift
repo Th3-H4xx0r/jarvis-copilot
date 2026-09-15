@@ -147,8 +147,7 @@ struct PairPage: View {
             }
             // The arrow is pinned to the bottom, outside the centred group.
             Button { go(to: .connect) } label: {
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 22, weight: .semibold))
+                JcIcon("arrow.right", size: 22, weight: .semibold)
                     .foregroundStyle(JcTheme.accent)
                     .frame(width: 64, height: 64)
                     .jcLiquidGlass(in: Circle())
@@ -219,7 +218,7 @@ struct PairPage: View {
                 BlueButton("Pair", busy: store.phase == .pairing,
                            action: store.canSubmit ? { focus = nil; Task { await store.submit() } } : nil)
                 Button { startScanning() } label: {
-                    Label("Scan QR code instead", systemImage: "qrcode.viewfinder")
+                    Label("Scan QR code instead", jcIcon: "qrcode.viewfinder")
                         .font(JcText.small)
                         .foregroundStyle(JcTheme.muted)
                 }

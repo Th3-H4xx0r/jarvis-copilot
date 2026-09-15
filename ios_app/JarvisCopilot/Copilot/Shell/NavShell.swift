@@ -138,7 +138,7 @@ struct GlassNavBar: View {
             }
         } label: {
             VStack(spacing: 4) {
-                Image(systemName: active ? tab.filledSymbol : tab.symbol)
+                JcIcon(active ? tab.filledSymbol : tab.symbol)
                     .font(.system(size: 20, weight: .medium))
                     .frame(height: 25)
                 Text(tab.title)

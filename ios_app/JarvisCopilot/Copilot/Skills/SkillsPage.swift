@@ -146,7 +146,7 @@ struct SkillsRunnerCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 Toggle(isOn: Binding(get: { paused }, set: onChange)) {
                     HStack(spacing: 8) {
-                        Image(systemName: paused ? "pause.circle.fill" : "play.circle")
+                        JcIcon(paused ? "pause.circle.fill" : "play.circle")
                             .font(.system(size: 17))
                             .foregroundStyle(paused ? JcTheme.amber : JcTheme.success)
                         Text("Invoke runner paused")
@@ -180,8 +180,7 @@ struct SkillsInvokeLog: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader("Recent invokes") {
                 Button(action: onReload) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 13, weight: .semibold))
+                    JcIcon("arrow.clockwise", size: 13, weight: .semibold)
                         .foregroundStyle(JcTheme.accent)
                 }
                 .buttonStyle(.plain)
@@ -333,8 +332,7 @@ struct SkillArgFieldView: View {
                             .font(JcText.body)
                             .foregroundStyle(text.isEmpty ? JcTheme.muted : JcTheme.text)
                         Spacer(minLength: 0)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 12, weight: .semibold))
+                        JcIcon("chevron.down", size: 12, weight: .semibold)
                             .foregroundStyle(JcTheme.muted)
                     }
                     .padding(.horizontal, 16)

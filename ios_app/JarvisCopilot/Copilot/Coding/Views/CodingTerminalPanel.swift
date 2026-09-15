@@ -42,7 +42,7 @@ struct CodingTerminalPanel: View {
                 .font(.system(size: 12))
                 .foregroundStyle(JcTheme.muted)
             Button { session.detachTerminal() } label: {
-                Image(systemName: "xmark.circle").font(.system(size: 15))
+                JcIcon("xmark.circle", size: 15)
                     .foregroundStyle(JcTheme.muted)
             }
             .buttonStyle(.plain)
@@ -76,7 +76,7 @@ struct CodingTerminalPanel: View {
 
     private func errorStrip(_ message: String) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10))
+            JcIcon("exclamationmark.triangle.fill", size: 10)
             Text(message).font(.system(size: 11)).lineLimit(2)
             Spacer(minLength: 0)
         }
@@ -217,7 +217,7 @@ struct CodingTerminalInputRow: View {
                     if sending {
                         ProgressView().controlSize(.small).tint(JcTheme.accent)
                     } else {
-                        Image(systemName: "arrow.up").font(.system(size: 15, weight: .bold))
+                        JcIcon("arrow.up", size: 15, weight: .bold)
                     }
                 }
                 .foregroundStyle(canSend ? JcTheme.accent : JcTheme.muted)

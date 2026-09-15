@@ -243,8 +243,7 @@ struct CodingDirSuggestField: View {
             ForEach(suggestions.prefix(6), id: \.self) { dir in
                 Button { pick(dir) } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
+                        JcIcon("folder", size: 13).foregroundStyle(JcTheme.muted)
                         Text(CodingJSON.basename(dir))
                             .font(.system(size: 13)).foregroundStyle(JcTheme.text)
                             .lineLimit(1)

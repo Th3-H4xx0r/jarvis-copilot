@@ -34,7 +34,7 @@ struct ChatSessionsSheet: View {
                         Button {
                             store.startNewSession()
                             dismiss()
-                        } label: { Image(systemName: "square.and.pencil").foregroundStyle(JcTheme.accent) }
+                        } label: { JcIcon("square.and.pencil").foregroundStyle(JcTheme.accent) }
                         .accessibilityLabel("New chat")
                     }
                 }
@@ -100,7 +100,7 @@ struct ChatSessionsSheet: View {
         } label: {
             HStack(spacing: 8) {
                 if session.pinned {
-                    Image(systemName: "pin.fill").font(.system(size: 10)).foregroundStyle(JcTheme.amber)
+                    JcIcon("pin.fill", size: 10).foregroundStyle(JcTheme.amber)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(session.displayTitle)
@@ -125,33 +125,33 @@ struct ChatSessionsSheet: View {
                 Task { await store.pinSession(session.id, pinned: !session.pinned) }
             } label: {
                 Label(session.pinned ? "Unpin" : "Pin",
-                      systemImage: session.pinned ? "pin.slash" : "pin")
+                      jcIcon: session.pinned ? "pin.slash" : "pin")
             }
             .tint(JcTheme.amber)
         }
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) { deleting = session } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Delete", jcIcon: "trash")
             }
             Button {
                 renameText = session.displayTitle
                 renaming = session
-            } label: { Label("Rename", systemImage: "pencil") }
+            } label: { Label("Rename", jcIcon: "pencil") }
             .tint(JcTheme.primaryBlue)
         }
         .contextMenu {
             Button {
                 renameText = session.displayTitle
                 renaming = session
-            } label: { Label("Rename", systemImage: "pencil") }
+            } label: { Label("Rename", jcIcon: "pencil") }
             Button {
                 Task { await store.pinSession(session.id, pinned: !session.pinned) }
             } label: {
                 Label(session.pinned ? "Unpin" : "Pin",
-                      systemImage: session.pinned ? "pin.slash" : "pin")
+                      jcIcon: session.pinned ? "pin.slash" : "pin")
             }
             Button(role: .destructive) { deleting = session } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Delete", jcIcon: "trash")
             }
         }
     }

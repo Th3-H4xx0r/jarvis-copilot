@@ -28,6 +28,8 @@ TEST_TARGET = 'JarvisCopilotTests'
 WIDGET_DIR = 'JarvisWidget'
 WIDGET_TARGET = 'JarvisWidget'
 WATCH_TARGET = 'JarvisWatch'
+WATCH_WIDGET_DIR = 'JarvisWatchWidget'
+WATCH_WIDGET_TARGET = 'JarvisWatchWidget'
 SHARED_DIR = File.join(APP_DIR, 'Copilot', 'Shared')
 LOCK = File.join(ROOT, 'build', '.sync-project.lock')
 
@@ -35,6 +37,9 @@ LOCK = File.join(ROOT, 'build', '.sync-project.lock')
 # takes the same one.
 unless system(RbConfig.ruby, File.join(__dir__, 'add-widget-target.rb'), out: File::NULL)
   warn 'sync-project: add-widget-target.rb failed; continuing without the widget'
+end
+unless system(RbConfig.ruby, File.join(__dir__, 'add-watch-widget-target.rb'), out: File::NULL)
+  warn 'sync-project: add-watch-widget-target.rb failed; continuing without the watch complication'
 end
 
 FileUtils.mkdir_p(File.dirname(LOCK))
@@ -154,6 +159,13 @@ begin
   # compiles only the accent (the rest is ActivityKit and App Group plumbing).
   watch = project.targets.find { |t| t.name == WATCH_TARGET }
   added_widget += share_sources(project, watch, SHARED_DIR, 'JcAccent.swift') if watch
+
+  # The watch face complication: its own sources only (no App Group plumbing).
+  watch_widget = project.targets.find { |t| t.name == WATCH_WIDGET_TARGET }
+  if watch_widget && Dir.exist?(File.join(ROOT, WATCH_WIDGET_DIR))
+    added_widget += sync_sources(project, watch_widget, WATCH_WIDGET_DIR,
+                                 ensure_group(project, WATCH_WIDGET_DIR))
+  end
 
   # The test target needs the app's @testable interface.
   app.build_configurations.each do |cfg|

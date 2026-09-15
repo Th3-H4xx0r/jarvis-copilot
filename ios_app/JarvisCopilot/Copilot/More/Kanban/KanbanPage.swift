@@ -53,15 +53,13 @@ struct KanbanPage: View {
             Button { if !store.boards.isEmpty { route = .boardPicker } } label: {
                 GradientBorder(radius: 14) {
                     HStack(spacing: 10) {
-                        Image(systemName: "rectangle.split.3x1")
-                            .font(.system(size: 16)).foregroundStyle(JcTheme.cyan)
+                        JcIcon("rectangle.split.3x1", size: 16).foregroundStyle(JcTheme.cyan)
                         Text(store.activeBoard?.displayName ?? store.currentSlug ?? "Board")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(JcTheme.text)
                             .lineLimit(1)
                         Spacer(minLength: 0)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 14, weight: .semibold))
+                        JcIcon("chevron.down", size: 14, weight: .semibold)
                             .foregroundStyle(JcTheme.muted)
                     }
                     .padding(.leading, 14)
@@ -410,7 +408,7 @@ struct KanbanHeaderButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            JcIcon(symbol)
                 .font(.system(size: 19))
                 .foregroundStyle(tint ?? JcTheme.accent)
                 .frame(width: 46, height: 46)

@@ -17,12 +17,11 @@ struct ChatReasoningCard: View {
                 withAnimation(.snappy(duration: 0.18)) { expanded.toggle() }
             } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: "sparkles").font(.system(size: 11))
+                    JcIcon("sparkles", size: 11)
                     Text(active ? "Thinking…" : "Thought process")
                         .font(.system(size: 12, weight: .medium))
                     Spacer(minLength: 6)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                    JcIcon("chevron.right", size: 10, weight: .semibold)
                         .opacity(0.7)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }

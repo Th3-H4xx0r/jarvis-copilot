@@ -20,7 +20,7 @@ struct SelfImprovementPage: View {
             .jcScreen("Learning")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { store.load() } label: { Image(systemName: "arrow.clockwise").foregroundStyle(JcTheme.accent) }
+                    Button { store.load() } label: { JcIcon("arrow.clockwise").foregroundStyle(JcTheme.accent) }
                         .disabled(store.isLoading)
                         .accessibilityLabel("Reload")
                 }

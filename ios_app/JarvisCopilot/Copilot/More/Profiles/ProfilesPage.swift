@@ -25,7 +25,7 @@ struct ProfilesPage: View {
             .jcScreen("Profiles")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { creating = true } label: { Image(systemName: "plus").foregroundStyle(JcTheme.accent) }
+                    Button { creating = true } label: { JcIcon("plus").foregroundStyle(JcTheme.accent) }
                         .accessibilityLabel("New profile")
                 }
             }
@@ -144,8 +144,7 @@ struct ProfileCard: View {
                     }
                     if !subtitle.isEmpty {
                         HStack(spacing: 5) {
-                            Image(systemName: "memorychip")
-                                .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
+                            JcIcon("memorychip", size: 11).foregroundStyle(JcTheme.muted)
                             Text(subtitle)
                                 .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
                                 .lineLimit(1)
@@ -153,8 +152,7 @@ struct ProfileCard: View {
                     }
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
+                JcIcon("chevron.right", size: 14, weight: .semibold)
                     .foregroundStyle(JcTheme.muted.opacity(0.7))
                     .padding(.top, 3)
             }

@@ -151,8 +151,7 @@ struct CodeMemoryEntriesView: View {
                     StatusPill(type, color: tone, dense: true)
                     let ts = entry.tsLabel()
                     if !ts.isEmpty {
-                        Image(systemName: "clock")
-                            .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
+                        JcIcon("clock", size: 11).foregroundStyle(JcTheme.muted)
                         Text(ts).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
                     }
                 }
@@ -188,7 +187,7 @@ struct CodeMemoryEntryRow: View {
     var body: some View {
         GlassCard(padding: 0) {
             HStack(alignment: .top, spacing: 11) {
-                Image(systemName: symbol)
+                JcIcon(symbol)
                     .font(.system(size: 16))
                     .foregroundStyle(tone)
                     .padding(.top, 1)

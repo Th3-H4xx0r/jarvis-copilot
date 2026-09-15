@@ -27,7 +27,7 @@ struct GradientButton: View {
                 if busy {
                     ProgressView().controlSize(.small).tint(JcTheme.accent)
                 } else if let symbol {
-                    Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
+                    JcIcon(symbol).font(.system(size: 15, weight: .semibold))
                 }
                 Text(title).font(.system(size: 15, weight: .semibold))
             }

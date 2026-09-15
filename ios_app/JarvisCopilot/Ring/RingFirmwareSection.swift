@@ -38,12 +38,12 @@ struct RingFirmwareSection: View {
                             Button(image.version.isEmpty ? image.name : image.version) { selectedID = image.id }
                         }
                         Divider()
-                        Button { importing = true } label: { Label("Choose a .bin file…", systemImage: "folder") }
+                        Button { importing = true } label: { Label("Choose a .bin file…", jcIcon: "folder") }
                     } label: {
                         HStack(spacing: 4) {
                             Text(selected.map { $0.version.isEmpty ? $0.name : $0.version } ?? "none")
                                 .font(.callout.monospacedDigit())
-                            Image(systemName: "chevron.up.chevron.down").font(.caption2)
+                            JcIcon("chevron.up.chevron.down").font(.caption2)
                         }
                     }
                 }
@@ -52,7 +52,7 @@ struct RingFirmwareSection: View {
                 RowDivider()
                 Row {
                     HStack(alignment: .top) {
-                        Image(systemName: image.preflight == nil ? "checkmark.seal.fill" : "xmark.octagon.fill")
+                        JcIcon(image.preflight == nil ? "checkmark.seal.fill" : "xmark.octagon.fill")
                             .foregroundStyle(image.preflight == nil ? .green : .red)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(image.preflight?.reason ?? "Pre-flight OK — the ring's own receiver checks all pass")
@@ -71,12 +71,12 @@ struct RingFirmwareSection: View {
             Row {
                 HStack {
                     if flasher.phase.isRunning {
-                        Button { showSheet = true } label: { Label("Show progress", systemImage: "gauge.with.needle") }
+                        Button { showSheet = true } label: { Label("Show progress", jcIcon: "gauge.with.needle") }
                     } else {
                         Button {
                             confirmFlash = true
                         } label: {
-                            Label("Flash to ring", systemImage: "arrow.down.circle.fill")
+                            Label("Flash to ring", jcIcon: "arrow.down.circle.fill")
                         }
                         .disabled(!ready || selected == nil || selected?.preflight != nil)
                     }
@@ -149,9 +149,9 @@ struct RingFirmwareSection: View {
                 Text("Verifying…").font(.caption)
             }
         case .succeeded:
-            Label("Flashed", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+            Label("Flashed", jcIcon: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
         case .failed(let why):
-            Label(why == "cancelled" ? "Cancelled" : "Failed", systemImage: "xmark.circle.fill")
+            Label(why == "cancelled" ? "Cancelled" : "Failed", jcIcon: "xmark.circle.fill")
                 .font(.caption).foregroundStyle(.red)
         }
     }

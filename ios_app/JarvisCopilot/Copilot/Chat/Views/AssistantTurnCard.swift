@@ -16,7 +16,7 @@ struct ChatAssistantTurnCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 7) {
-                Image(systemName: message.onDevice ? "bolt.fill" : "sparkles")
+                JcIcon(message.onDevice ? "bolt.fill" : "sparkles")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(JcTheme.cyan)
                     .accessibilityHidden(true)
@@ -85,7 +85,7 @@ struct ChatAssistantTurnCard: View {
                 withAnimation(.snappy) { copied = true }
                 Task { try? await Task.sleep(for: .seconds(1.6)); withAnimation { copied = false } }
             } label: {
-                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                JcIcon(copied ? "checkmark" : "doc.on.doc")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(copied ? JcTheme.success : JcTheme.muted)
                     .frame(width: 24, height: 24)
@@ -95,8 +95,7 @@ struct ChatAssistantTurnCard: View {
             .accessibilityLabel(copied ? "Copied" : "Copy message")
 
             Button { selecting = true } label: {
-                Image(systemName: "text.cursor")
-                    .font(.system(size: 13, weight: .medium))
+                JcIcon("text.cursor", size: 13, weight: .medium)
                     .foregroundStyle(JcTheme.muted)
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
@@ -112,11 +111,11 @@ struct ChatAssistantTurnCard: View {
 
     @ViewBuilder private var menu: some View {
         if hasText, let onCopy {
-            Button { onCopy() } label: { Label("Copy", systemImage: "doc.on.doc") }
+            Button { onCopy() } label: { Label("Copy", jcIcon: "doc.on.doc") }
         }
         if message.onDevice, !message.streaming, let onRetryOnServer {
             Button { onRetryOnServer() } label: {
-                Label("Try on server", systemImage: "cloud.and.arrow.up")
+                Label("Try on server", jcIcon: "cloud.and.arrow.up")
             }
         }
     }
@@ -162,7 +161,7 @@ struct ChatSelectTextSheet: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Button {
                             UIPasteboard.general.string = text
-                        } label: { Image(systemName: "doc.on.doc").foregroundStyle(JcTheme.accent) }
+                        } label: { JcIcon("doc.on.doc").foregroundStyle(JcTheme.accent) }
                         .accessibilityLabel("Copy all")
                     }
                     ToolbarItem(placement: .topBarTrailing) {

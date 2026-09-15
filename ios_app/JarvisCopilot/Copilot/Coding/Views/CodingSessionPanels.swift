@@ -30,7 +30,7 @@ struct CodingSyncCard: View {
                             if refreshing {
                                 ProgressView().controlSize(.mini).tint(JcTheme.muted)
                             } else {
-                                Image(systemName: "arrow.clockwise").font(.system(size: 12))
+                                JcIcon("arrow.clockwise", size: 12)
                                     .foregroundStyle(JcTheme.accent)
                             }
                             Text("Refresh").font(.system(size: 12, weight: .semibold))
@@ -117,7 +117,7 @@ struct CodingEndedPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: "power").font(.system(size: 16)).foregroundStyle(JcTheme.muted)
+                JcIcon("power", size: 16).foregroundStyle(JcTheme.muted)
                 Text("Session ended")
                     .font(.system(size: 15, weight: .bold)).foregroundStyle(JcTheme.text)
             }
@@ -158,13 +158,13 @@ struct CodingEndedChatBanner: View {
     var body: some View {
         Button(action: onRecover) {
             HStack(spacing: 8) {
-                Image(systemName: "power").font(.system(size: 13)).foregroundStyle(JcTheme.muted)
+                JcIcon("power", size: 13).foregroundStyle(JcTheme.muted)
                 Text("Session ended — chat is read-only. Tap for recovery options.")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(JcTheme.muted)
                     .multilineTextAlignment(.leading)
                 Spacer(minLength: 4)
-                Image(systemName: "chevron.right").font(.system(size: 12))
+                JcIcon("chevron.right", size: 12)
                     .foregroundStyle(JcTheme.muted)
             }
             .padding(.horizontal, 12)

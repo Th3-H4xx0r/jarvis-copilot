@@ -390,7 +390,7 @@ struct RingSettingsView: View {
                 Button(role: .destructive) {
                     confirmPowerOff = true
                 } label: {
-                    Label("Power off / restart", systemImage: "power").frame(maxWidth: .infinity, alignment: .leading)
+                    Label("Power off / restart", jcIcon: "power").frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             RowDivider()
@@ -398,7 +398,7 @@ struct RingSettingsView: View {
                 Button(role: .destructive) {
                     confirmReset = true
                 } label: {
-                    Label("Factory reset", systemImage: "arrow.counterclockwise").frame(maxWidth: .infinity, alignment: .leading)
+                    Label("Factory reset", jcIcon: "arrow.counterclockwise").frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -435,9 +435,9 @@ struct RingSettingsView: View {
                         Spacer()
                         switch session.probe.works(feature) {
                         case true?:
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                            JcIcon("checkmark.circle.fill").foregroundStyle(.green)
                         case false?:
-                            Image(systemName: "minus.circle").foregroundStyle(.secondary)
+                            JcIcon("minus.circle").foregroundStyle(.secondary)
                         case nil:
                             Text("—").font(.caption).foregroundStyle(.tertiary)
                         }
@@ -521,7 +521,7 @@ struct RingSettingsView: View {
                     HStack {
                         Text("\(flags[index].group) · \(flags[index].name)").font(.subheadline)
                         Spacer()
-                        Image(systemName: flags[index].on ? "checkmark.circle.fill" : "minus.circle")
+                        JcIcon(flags[index].on ? "checkmark.circle.fill" : "minus.circle")
                             .foregroundStyle(flags[index].on ? Color.green : Color.secondary)
                     }
                 }
@@ -598,7 +598,7 @@ struct RingSettingsView: View {
                 RowDivider()
                 Row(minHeight: 44) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Image(systemName: entry.frame.cmd == 0 ? "sparkles"
+                        JcIcon(entry.frame.cmd == 0 ? "sparkles"
                                 : entry.frame.outbound ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
                             .foregroundStyle(tint(entry))
                         VStack(alignment: .leading, spacing: 2) {

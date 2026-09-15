@@ -77,7 +77,7 @@ struct CodeMasterSettingsPage: View {
                 }
                 if store.savedAt != nil && store.error == nil {
                     HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill").font(.system(size: 13))
+                        JcIcon("checkmark.circle.fill", size: 13)
                         Text("Code Master settings saved").font(.system(size: 13, weight: .semibold))
                     }
                     .foregroundStyle(JcTheme.success)
@@ -107,7 +107,7 @@ struct CodeMasterSettingsPage: View {
                         get: { store.value(event: event.key, channel: channel.key) },
                         set: { store.set(event: event.key, channel: channel.key, $0) })) {
                             HStack(spacing: 12) {
-                                Image(systemName: channel.symbol)
+                                JcIcon(channel.symbol)
                                     .font(.system(size: 15))
                                     .foregroundStyle(JcTheme.muted)
                                     .frame(width: 20)

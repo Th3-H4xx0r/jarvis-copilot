@@ -29,7 +29,7 @@ struct ServerLogsPage: View {
         .jcScreen("Server logs")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { store.load() } label: { Image(systemName: "arrow.clockwise").foregroundStyle(JcTheme.accent) }
+                Button { store.load() } label: { JcIcon("arrow.clockwise").foregroundStyle(JcTheme.accent) }
                     .disabled(store.isLoading)
                     .accessibilityLabel("Reload logs")
             }
@@ -47,16 +47,14 @@ struct ServerLogsPage: View {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let message = store.errorMessage, store.tail.lines.isEmpty {
             VStack(spacing: 12) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 30, weight: .light))
+                JcIcon("exclamationmark.triangle", size: 30, weight: .light)
                     .foregroundStyle(JcTheme.danger)
                 CenteredMessage(text: message, color: JcTheme.danger) { store.load() }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if store.displayLines.isEmpty {
             VStack(spacing: 12) {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 30, weight: .light))
+                JcIcon("doc.text", size: 30, weight: .light)
                     .foregroundStyle(JcTheme.muted)
                 Text(store.tail.hint.isEmpty ? "No log lines." : store.tail.hint)
                     .font(JcText.body)
@@ -156,7 +154,7 @@ struct ServerLogsControls: View {
                     }
                     Button(action: onCopy) {
                         HStack(spacing: 6) {
-                            Image(systemName: "doc.on.doc").font(.system(size: 13))
+                            JcIcon("doc.on.doc", size: 13)
                             Text("Copy").font(.system(size: 13, weight: .semibold))
                         }
                         .foregroundStyle(JcTheme.text)
@@ -228,8 +226,7 @@ struct ServerLogsMenuChip: View {
                 Text(value)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(JcTheme.text)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
+                JcIcon("chevron.down", size: 11, weight: .semibold)
                     .foregroundStyle(JcTheme.muted)
             }
             .padding(.horizontal, 13)
@@ -265,7 +262,7 @@ struct ServerLogsFooter: View {
             }
             if store.tail.truncated {
                 HStack(spacing: 5) {
-                    Image(systemName: "scissors").font(.system(size: 11)).foregroundStyle(JcTheme.blue)
+                    JcIcon("scissors", size: 11).foregroundStyle(JcTheme.blue)
                     Text("Truncated — showing the tail of a large file.")
                         .font(.system(size: 12)).foregroundStyle(JcTheme.blue)
                 }
@@ -282,7 +279,7 @@ struct ServerLogsFooter: View {
 
     private func meta(_ symbol: String, _ text: String) -> some View {
         HStack(spacing: 5) {
-            Image(systemName: symbol).font(.system(size: 11)).foregroundStyle(JcTheme.muted)
+            JcIcon(symbol).font(.system(size: 11)).foregroundStyle(JcTheme.muted)
             Text(text).font(.system(size: 12)).foregroundStyle(JcTheme.muted)
         }
     }

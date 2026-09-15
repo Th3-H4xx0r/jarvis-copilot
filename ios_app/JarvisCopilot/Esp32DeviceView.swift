@@ -59,11 +59,11 @@ struct Esp32DeviceView: View {
             Text(linkMessage ?? "")
         }
         .toolbar {
-            Button("Refresh", systemImage: "arrow.clockwise") {
+            Button("Refresh", jcIcon: "arrow.clockwise") {
                 manager.perform { try await manager.refreshState(); try await manager.refreshWifi() }
             }
             .disabled(!ready)
-            Button("Disconnect", systemImage: "xmark.circle") {
+            Button("Disconnect", jcIcon: "xmark.circle") {
                 manager.disconnect()
                 dismiss()
             }
@@ -78,8 +78,7 @@ struct Esp32DeviceView: View {
         VStack(spacing: 16) {
             ZStack {
                 Circle().fill(blue.opacity(0.12)).frame(width: 120, height: 120)
-                Image(systemName: "cpu")
-                    .font(.system(size: 54, weight: .light))
+                JcIcon("cpu", size: 54, weight: .light)
                     .foregroundStyle(blue)
                     .symbolEffect(.pulse, isActive: manager.state == .connecting || manager.state == .discovering)
             }
@@ -111,7 +110,7 @@ struct Esp32DeviceView: View {
 
     private func errorBanner(_ text: String) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            JcIcon("exclamationmark.triangle.fill").foregroundStyle(.orange)
             Text(text).font(.footnote)
             Spacer(minLength: 0)
         }
@@ -168,10 +167,10 @@ struct Esp32DeviceView: View {
                 } label: {
                     Row {
                         HStack(spacing: 12) {
-                            Image(systemName: "sparkles").foregroundStyle(JcTheme.accent)
+                            JcIcon("sparkles").foregroundStyle(JcTheme.accent)
                             Text("Program with Jarvis")
                             Spacer()
-                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                            JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
                         }
                         .contentShape(Rectangle())
                     }
@@ -252,7 +251,7 @@ struct Esp32DeviceView: View {
             if let s = manager.script, s.state != .none {
                 Row(minHeight: 56) {
                     HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: "scroll.fill")
+                        JcIcon("scroll.fill")
                             .foregroundStyle(scriptTint(s.state))
                             .frame(width: 26, height: 26)
                             .background(scriptTint(s.state).opacity(0.16), in: Circle())
@@ -283,13 +282,13 @@ struct Esp32DeviceView: View {
                 Row {
                     HStack(spacing: 22) {
                         if s.state == .running {
-                            Button { manager.perform { try await manager.stopScript() } } label: { Label("Pause", systemImage: "pause.fill") }
+                            Button { manager.perform { try await manager.stopScript() } } label: { Label("Pause", jcIcon: "pause.fill") }
                         } else {
-                            Button { manager.perform { try await manager.startScript() } } label: { Label("Start", systemImage: "play.fill") }
+                            Button { manager.perform { try await manager.startScript() } } label: { Label("Start", jcIcon: "play.fill") }
                         }
                         Button(role: .destructive) {
                             manager.perform { try await manager.deleteScript() }
-                        } label: { Label("Clear", systemImage: "trash") }
+                        } label: { Label("Clear", jcIcon: "trash") }
                         Spacer()
                     }
                     .font(.subheadline)
@@ -297,7 +296,7 @@ struct Esp32DeviceView: View {
             } else {
                 Row {
                     HStack(spacing: 12) {
-                        Image(systemName: "scroll").foregroundStyle(.secondary)
+                        JcIcon("scroll").foregroundStyle(.secondary)
                         Text("No script").foregroundStyle(.secondary)
                     }
                 }
@@ -353,7 +352,7 @@ struct Esp32DeviceView: View {
                         HStack {
                             Text(manager.wifi?.state == .off ? "Set up network" : "Change network")
                             Spacer()
-                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                            JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
                         }
                         .contentShape(Rectangle())
                     }
@@ -399,7 +398,7 @@ struct Esp32DeviceView: View {
                                 Text(linking ? "Linking…" : (manager.cloud?.state == .off ? "Link directly" : "Retry link"))
                                 Spacer()
                                 if linking { ProgressView().controlSize(.small) }
-                                else { Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary) }
+                                else { JcIcon("chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary) }
                             }
                             .contentShape(Rectangle())
                         }
@@ -472,7 +471,7 @@ struct Esp32DeviceView: View {
             if scriptRunning {
                 Row(minHeight: 44) {
                     HStack(spacing: 10) {
-                        Image(systemName: "scroll.fill").foregroundStyle(green)
+                        JcIcon("scroll.fill").foregroundStyle(green)
                         Text("Script running — controls paused").font(.footnote)
                         Spacer(minLength: 0)
                     }
@@ -515,8 +514,8 @@ struct Esp32DeviceView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .contextMenu {
-                    Button { UIPasteboard.general.string = manager.scriptLog.joined(separator: "\n") } label: { Label("Copy all", systemImage: "doc.on.doc") }
-                    Button(role: .destructive) { manager.clearScriptLog() } label: { Label("Clear", systemImage: "trash") }
+                    Button { UIPasteboard.general.string = manager.scriptLog.joined(separator: "\n") } label: { Label("Copy all", jcIcon: "doc.on.doc") }
+                    Button(role: .destructive) { manager.clearScriptLog() } label: { Label("Clear", jcIcon: "trash") }
                 }
             }
         }
@@ -679,12 +678,12 @@ private struct Esp32WifiSheet: View {
                             HStack {
                                 Text(n.ssid)
                                 if n.ssid == manager.wifi?.ssid {
-                                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                                    JcIcon("checkmark").foregroundStyle(.tint)
                                 }
                                 Spacer()
                                 if joining == n.ssid { ProgressView().controlSize(.small) }
-                                if n.secure { Image(systemName: "lock.fill").font(.caption).foregroundStyle(.secondary) }
-                                Image(systemName: n.rssi >= -75 ? "wifi" : "wifi.exclamationmark").foregroundStyle(.secondary)
+                                if n.secure { JcIcon("lock.fill").font(.caption).foregroundStyle(.secondary) }
+                                JcIcon(n.rssi >= -75 ? "wifi" : "wifi.exclamationmark").foregroundStyle(.secondary)
                             }
                             .contentShape(Rectangle())
                         }
@@ -784,8 +783,7 @@ struct Esp32Card: View {
         ZStack(alignment: .topLeading) {
             HStack {
                 Spacer()
-                Image(systemName: "cpu")
-                    .font(.system(size: 64, weight: .ultraLight))
+                JcIcon("cpu", size: 64, weight: .ultraLight)
                     .foregroundStyle(blue.opacity(0.7))
                     .padding(.trailing, 34)
             }
@@ -820,7 +818,7 @@ struct Esp32Card: View {
                                    value: "\(board.rssi) dBm", tint: signalTint)
                     }
                     if board.isOnWifi && board.rssi != 0 && activeLink == nil {
-                        Image(systemName: "wifi").font(.caption).foregroundStyle(.secondary)
+                        JcIcon("wifi").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -856,7 +854,7 @@ private struct DetailRow: View {
         Row(minHeight: 52) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 10) {
-                    Image(systemName: icon)
+                    JcIcon(icon)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(tint)
                         .frame(width: 22)

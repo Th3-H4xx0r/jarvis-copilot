@@ -33,7 +33,7 @@ struct ImageViewerPage: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button { dismiss() } label: { Image(systemName: "arrow.left") }
+                Button { dismiss() } label: { JcIcon("arrow.left") }
                     .tint(JcTheme.text)
             }
         }

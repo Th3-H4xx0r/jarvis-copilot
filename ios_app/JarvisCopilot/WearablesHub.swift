@@ -60,9 +60,9 @@ struct WearableMoreMenu: View {
 
     var body: some View {
         Menu {
-            Button("Rename", systemImage: "pencil", action: onRename)
+            Button("Rename", jcIcon: "pencil", action: onRename)
         } label: {
-            Image(systemName: "ellipsis").foregroundStyle(JcTheme.accent)
+            JcIcon("ellipsis").foregroundStyle(JcTheme.accent)
         }
         .accessibilityLabel("More")
     }

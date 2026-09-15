@@ -186,7 +186,7 @@ struct DeviceServerCard: View {
 
     private var identityRow: some View {
         HStack(spacing: 12) {
-            Image(systemName: deviceSectionSymbol(device))
+            JcIcon(deviceSectionSymbol(device))
                 .font(.system(size: 18, weight: .regular))
                 .foregroundStyle(JcTheme.text.opacity(device.online ? 0.9 : 0.55))
                 .frame(width: 26, height: 26)
@@ -218,18 +218,17 @@ struct DeviceServerCard: View {
         // The same two actions on a long press, for anyone who reaches for the
         // row rather than the glyph.
         .contextMenu {
-            Button("Log out", systemImage: "rectangle.portrait.and.arrow.right", action: onLogout)
-            Button("Revoke", systemImage: "trash", role: .destructive, action: onRevoke)
+            Button("Log out", jcIcon: "rectangle.portrait.and.arrow.right", action: onLogout)
+            Button("Revoke", jcIcon: "trash", role: .destructive, action: onRevoke)
         }
     }
 
     private var actionMenu: some View {
         Menu {
-            Button("Log out", systemImage: "rectangle.portrait.and.arrow.right", action: onLogout)
-            Button("Revoke", systemImage: "trash", role: .destructive, action: onRevoke)
+            Button("Log out", jcIcon: "rectangle.portrait.and.arrow.right", action: onLogout)
+            Button("Revoke", jcIcon: "trash", role: .destructive, action: onRevoke)
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 15, weight: .semibold))
+            JcIcon("ellipsis", size: 15, weight: .semibold)
                 .foregroundStyle(JcTheme.accent)
                 .frame(width: 34, height: 34)
                 .contentShape(Rectangle())
@@ -254,8 +253,7 @@ struct DeviceServerCard: View {
         } label: {
             HStack(spacing: 8) {
                 summaryLabel
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
+                JcIcon("chevron.down", size: 11, weight: .semibold)
                     .foregroundStyle(JcTheme.muted.opacity(0.8))
                     .rotationEffect(.degrees(expanded ? 0 : -90))
             }
@@ -340,8 +338,7 @@ struct DevicesErrorState: View {
         VStack {
             GlassCard(padding: 22) {
                 VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 26, weight: .light))
+                    JcIcon("exclamationmark.triangle", size: 26, weight: .light)
                         .foregroundStyle(JcTheme.muted)
                     Text("Can't load your devices")
                         .font(.system(size: 15, weight: .semibold))

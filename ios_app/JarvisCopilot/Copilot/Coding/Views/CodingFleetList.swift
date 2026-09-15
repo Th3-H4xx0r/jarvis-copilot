@@ -115,7 +115,7 @@ struct CodingProjectGroup: View {
         HStack(spacing: 6) {
             Button(action: onToggle) {
                 HStack(spacing: 6) {
-                    Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                    JcIcon(collapsed ? "chevron.right" : "chevron.down")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(JcTheme.muted)
                         .frame(width: 16)
@@ -141,8 +141,7 @@ struct CodingProjectGroup: View {
 
             if let onNewSession {
                 Button(action: onNewSession) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 15, weight: .semibold))
+                    JcIcon("plus", size: 15, weight: .semibold)
                         .foregroundStyle(JcTheme.accent)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
@@ -152,8 +151,7 @@ struct CodingProjectGroup: View {
             }
             if let onSettings {
                 Button(action: onSettings) {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 14, weight: .semibold))
+                    JcIcon("slider.horizontal.3", size: 14, weight: .semibold)
                         .foregroundStyle(JcTheme.accent)
                         .frame(width: 30, height: 32)
                         .contentShape(Rectangle())
@@ -247,8 +245,7 @@ struct CodingSessionRow: View {
                 }
             }
             if !transcriptIdle {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
+                JcIcon("chevron.right", size: 13, weight: .semibold)
                     .foregroundStyle(JcTheme.muted)
                     .padding(.top, 2)
             }
@@ -298,7 +295,7 @@ struct CodingResumeButton: View {
                 if busy {
                     ProgressView().controlSize(.mini).tint(JcTheme.accent)
                 } else {
-                    Image(systemName: "play.fill").font(.system(size: 11, weight: .bold))
+                    JcIcon("play.fill", size: 11, weight: .bold)
                 }
                 Text(busy ? "Resuming…" : "Resume")
                     .font(.system(size: 12, weight: .bold))
@@ -375,7 +372,7 @@ struct CodingDesktopIndicator: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: online ? "desktopcomputer" : "desktopcomputer.trianglebadge.exclamationmark")
+            JcIcon(online ? "desktopcomputer" : "desktopcomputer.trianglebadge.exclamationmark")
                 .font(.system(size: 13))
                 .foregroundStyle(online ? JcTheme.success : JcTheme.muted)
             Text(label).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(JcTheme.text)
@@ -397,7 +394,7 @@ struct CodingDesktopIndicator: View {
 struct CodingEmptyHint: View {
     var body: some View {
         VStack(spacing: 0) {
-            Image(systemName: "terminal").font(.system(size: 38)).foregroundStyle(JcTheme.muted)
+            JcIcon("terminal", size: 38).foregroundStyle(JcTheme.muted)
             Text("No coding sessions yet")
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(JcTheme.text)
@@ -420,8 +417,7 @@ struct CodingErrorState: View {
     var body: some View {
         GlassCard {
             VStack(spacing: 12) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 28)).foregroundStyle(JcTheme.danger)
+                JcIcon("exclamationmark.triangle", size: 28).foregroundStyle(JcTheme.danger)
                 Text(message)
                     .font(.system(size: 14))
                     .foregroundStyle(JcTheme.danger)
@@ -439,8 +435,7 @@ struct CodingInlineError: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.circle")
-                .font(.system(size: 15)).foregroundStyle(JcTheme.danger)
+            JcIcon("exclamationmark.circle", size: 15).foregroundStyle(JcTheme.danger)
             Text(message).font(.system(size: 13)).foregroundStyle(JcTheme.danger)
             Spacer(minLength: 0)
         }

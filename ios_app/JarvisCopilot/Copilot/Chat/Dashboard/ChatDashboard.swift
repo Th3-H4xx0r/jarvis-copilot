@@ -139,8 +139,7 @@ private struct DashboardCard<Art: View>: View {
                 HStack(alignment: .top) {
                     art()
                     Spacer(minLength: 4)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
+                    JcIcon("chevron.right", size: 11, weight: .semibold)
                         .foregroundStyle(JcTheme.muted.opacity(0.7))
                         .padding(.top, 2)
                 }
@@ -220,7 +219,7 @@ private struct StackedAvatars: View {
     }
 
     private func symbol(_ name: String) -> some View {
-        Image(systemName: name)
+        JcIcon(name)
             .font(.system(size: 14, weight: .medium))
             .foregroundStyle(JcTheme.cyan)
     }
@@ -240,7 +239,7 @@ private struct SymbolBadge: View {
     var dot: Color?
 
     var body: some View {
-        Image(systemName: symbol)
+        JcIcon(symbol)
             .font(.system(size: 14, weight: .medium))
             .foregroundStyle(JcTheme.cyan)
             .frame(width: 34, height: 34)

@@ -84,8 +84,7 @@ struct CronPromptCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 12)).foregroundStyle(JcTheme.accent)
+                JcIcon("bolt.fill", size: 12).foregroundStyle(JcTheme.accent)
                 Text("PROMPT")
                     .font(.system(size: 11, weight: .semibold))
                     .kerning(0.6)
@@ -112,7 +111,7 @@ struct CronInfoTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: symbol)
+                JcIcon(symbol)
                     .font(.system(size: 11)).foregroundStyle(JcTheme.muted)
                 Text(label.uppercased())
                     .font(.system(size: 10.5, weight: .semibold))
@@ -147,7 +146,7 @@ struct CronActionButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 7) {
-                Image(systemName: symbol).font(.system(size: 15))
+                JcIcon(symbol).font(.system(size: 15))
                 Text(label).font(.system(size: 14, weight: .semibold))
             }
             .foregroundStyle(tint)
@@ -213,8 +212,7 @@ struct CronRunRow: View {
                         }
                     }
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
+                    JcIcon("chevron.right", size: 12, weight: .semibold)
                         .foregroundStyle(isExpanded ? JcTheme.accent : JcTheme.muted)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }

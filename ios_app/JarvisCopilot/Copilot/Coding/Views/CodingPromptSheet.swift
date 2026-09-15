@@ -53,8 +53,7 @@ struct CodingPromptSheet: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "hand.tap")
-                .font(.system(size: 18))
+            JcIcon("hand.tap", size: 18)
                 .foregroundStyle(CodingUI.waiting)
                 .frame(width: 38, height: 38)
                 .background(CodingUI.waiting.opacity(0.14),
@@ -105,7 +104,7 @@ struct CodingPromptSheet: View {
 
     private var failureNote: some View {
         HStack(alignment: .top, spacing: 6) {
-            Image(systemName: "exclamationmark.circle").font(.system(size: 13))
+            JcIcon("exclamationmark.circle", size: 13)
             Text("Couldn’t reach the session — it may have detached. "
                  + "Try again or use the Terminal view.")
                 .font(.system(size: 12.5))
@@ -128,7 +127,7 @@ struct CodingPromptSheet: View {
                     if pending == "text" {
                         ProgressView().controlSize(.small).tint(JcTheme.accent)
                     } else {
-                        Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold))
+                        JcIcon("arrow.up", size: 16, weight: .bold)
                     }
                 }
                 .foregroundStyle(JcTheme.accent)
@@ -180,7 +179,7 @@ struct CodingPromptOptionButton: View {
                 if pending {
                     ProgressView().controlSize(.small).tint(JcTheme.accent)
                 } else {
-                    Image(systemName: "chevron.right").font(.system(size: 13))
+                    JcIcon("chevron.right", size: 13)
                         .foregroundStyle(JcTheme.muted)
                 }
             }

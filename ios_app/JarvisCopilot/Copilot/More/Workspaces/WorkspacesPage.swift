@@ -24,7 +24,7 @@ struct WorkspacesPage: View {
             .jcScreen("Workspaces")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { adding = true } label: { Image(systemName: "plus").foregroundStyle(JcTheme.accent) }
+                    Button { adding = true } label: { JcIcon("plus").foregroundStyle(JcTheme.accent) }
                         .accessibilityLabel("Add workspace")
                 }
             }
@@ -106,7 +106,7 @@ struct WorkspaceRow: View {
         GlassCard(padding: 12, fill: JcTheme.surface,
                   borderColor: isLastUsed ? JcTheme.success.opacity(0.35) : JcTheme.glassBorder) {
             HStack(spacing: 12) {
-                Image(systemName: isLastUsed ? "folder.fill" : "folder")
+                JcIcon(isLastUsed ? "folder.fill" : "folder")
                     .font(.system(size: 19))
                     .foregroundStyle(accent)
                     .frame(width: 38, height: 38)
@@ -130,13 +130,12 @@ struct WorkspaceRow: View {
                 }
                 Spacer(minLength: 0)
                 Menu {
-                    Button { onRename() } label: { Label("Rename", systemImage: "pencil") }
+                    Button { onRename() } label: { Label("Rename", jcIcon: "pencil") }
                     Button(role: .destructive) { onRemove() } label: {
-                        Label("Remove", systemImage: "trash")
+                        Label("Remove", jcIcon: "trash")
                     }
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 16, weight: .semibold))
+                    JcIcon("ellipsis", size: 16, weight: .semibold)
                         .foregroundStyle(JcTheme.accent)
                         .frame(width: 34, height: 34)
                         .contentShape(Rectangle())
@@ -172,8 +171,7 @@ struct WorkspaceAddSheet: View {
                                 store.clearSuggestions()
                             } label: {
                                 HStack(spacing: 8) {
-                                    Image(systemName: "folder")
-                                        .font(.system(size: 13))
+                                    JcIcon("folder", size: 13)
                                         .foregroundStyle(JcTheme.muted)
                                     Text(suggestion)
                                         .font(.system(size: 13))
@@ -220,7 +218,7 @@ struct WorkspaceRenameSheet: View {
         FormSheet(title: "Rename workspace", saveLabel: "Rename",
                   onSave: { await store.rename(workspace, to: name) }) {
             HStack(spacing: 8) {
-                Image(systemName: "folder").font(.system(size: 14)).foregroundStyle(JcTheme.muted)
+                JcIcon("folder", size: 14).foregroundStyle(JcTheme.muted)
                 Text(workspace.path)
                     .font(.system(size: 12.5))
                     .foregroundStyle(JcTheme.muted)

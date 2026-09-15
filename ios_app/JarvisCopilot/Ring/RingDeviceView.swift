@@ -79,7 +79,7 @@ struct RingDeviceView: View {
             RingSettingsView(manager: manager)
         }
         .toolbar {
-            Button("Sync week", systemImage: "arrow.triangle.2.circlepath") {
+            Button("Sync week", jcIcon: "arrow.triangle.2.circlepath") {
                 Task { await sync.sync(days: sync.historyDays) }
             }
             .disabled(!ready || sync.isSyncing)
@@ -136,7 +136,7 @@ struct RingDeviceView: View {
     @ViewBuilder private var wearStatus: some View {
         let state = session.wearState
         HStack(spacing: 5) {
-            Image(systemName: icon(for: state))
+            JcIcon(icon(for: state))
             Text(state.label)
         }
         .foregroundStyle(state == .unknown ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
@@ -198,7 +198,7 @@ struct RingDeviceView: View {
         CardGroup("Measurement") {
             Row(minHeight: 64) {
                 HStack(spacing: 14) {
-                    Image(systemName: m.type.icon)
+                    JcIcon(m.type.icon)
                         .font(.title2)
                         .foregroundStyle(m.type.tint)
                         .frame(width: 34)
@@ -325,7 +325,7 @@ struct RingDeviceView: View {
                     HStack {
                         Text("Settings & diagnostics")
                         Spacer()
-                        Image(systemName: "chevron.right")
+                        JcIcon("chevron.right")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.tertiary)
                     }

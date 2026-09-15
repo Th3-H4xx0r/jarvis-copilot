@@ -122,8 +122,7 @@ struct KanbanTaskDetailView: View {
                         if await store.postComment(text) { draftComment = "" }
                     }
                 } label: {
-                    Image(systemName: "paperplane.fill")
-                        .font(.system(size: 16)).foregroundStyle(JcTheme.accent)
+                    JcIcon("paperplane.fill", size: 16).foregroundStyle(JcTheme.accent)
                 }
                 .buttonStyle(.plain)
             }
@@ -146,15 +145,13 @@ struct KanbanTaskDetailView: View {
                 } else if store.isRunning {
                     HStack(spacing: 6) {
                         PulsingDot(color: JcTheme.danger, size: 8)
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: 17)).foregroundStyle(JcTheme.danger)
+                        JcIcon("stop.fill", size: 17).foregroundStyle(JcTheme.danger)
                         Text("Stop").font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(JcTheme.danger)
                     }
                 } else {
                     HStack(spacing: 6) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 17)).foregroundStyle(JcTheme.accent)
+                        JcIcon("play.fill", size: 17).foregroundStyle(JcTheme.accent)
                         Text("Run").font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(JcTheme.accent)
                     }
@@ -189,8 +186,7 @@ struct KanbanTaskDetailView: View {
                             .foregroundStyle(JcTheme.success)
                     } else {
                         Button { Task { await store.loadLog() } } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 13)).foregroundStyle(JcTheme.accent)
+                            JcIcon("arrow.clockwise", size: 13).foregroundStyle(JcTheme.accent)
                         }
                         .buttonStyle(.plain)
                     }
@@ -212,7 +208,7 @@ struct KanbanTaskDetailView: View {
         } else {
             Button { Task { await store.loadLog() } } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "doc.text").font(.system(size: 14))
+                    JcIcon("doc.text", size: 14)
                     Text("Load worker log").font(JcText.label)
                 }
                 .foregroundStyle(JcTheme.accent)
@@ -232,7 +228,7 @@ struct KanbanSheetAction: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 15))
+                JcIcon(symbol).font(.system(size: 15))
                 Text(label).font(JcText.label)
             }
             .foregroundStyle(danger ? JcTheme.danger : JcTheme.text)

@@ -86,7 +86,7 @@ struct MorePage: View {
 
         var body: some View {
             VStack(spacing: 9) {
-                Image(systemName: item.symbol)
+                JcIcon(item.symbol)
                     .font(.system(size: 21, weight: .regular))
                     .foregroundStyle(JcTheme.cyan.opacity(0.9))
                     .frame(height: 26)

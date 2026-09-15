@@ -149,7 +149,7 @@ struct SettingsPage: View {
                     Text("Notifications are off. Approvals and alerts won't appear — "
                        + "turn them on in iOS Settings → JarvisCopilot.")
                 } icon: {
-                    Image(systemName: "bell.slash.fill")
+                    JcIcon("bell.slash.fill")
                 }
                 .font(JcText.small)
                 .foregroundStyle(JcTheme.amber)

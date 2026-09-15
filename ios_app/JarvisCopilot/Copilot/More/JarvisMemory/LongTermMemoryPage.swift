@@ -80,8 +80,7 @@ struct LongTermMemoryPage: View {
         GlassCard {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 14) {
-                    Image(systemName: "brain")
-                        .font(.system(size: 22))
+                    JcIcon("brain", size: 22)
                         .foregroundStyle(JcTheme.accent)
                         .frame(width: 46, height: 46)
                         .background(JcTheme.accent.opacity(0.14), in: Circle())
@@ -111,8 +110,7 @@ struct LongTermMemoryPage: View {
 
     private var searchBox: some View {
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 15)).foregroundStyle(JcTheme.muted)
+            JcIcon("magnifyingglass", size: 15).foregroundStyle(JcTheme.muted)
             TextField("Search your long-term memory…", text: $query)
                 .font(JcText.body)
                 .foregroundStyle(JcTheme.text)
@@ -128,8 +126,7 @@ struct LongTermMemoryPage: View {
                     query = ""
                     store.runSearch("")
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15)).foregroundStyle(JcTheme.muted)
+                    JcIcon("xmark.circle.fill", size: 15).foregroundStyle(JcTheme.muted)
                 }
                 .buttonStyle(.plain)
             }
@@ -199,8 +196,7 @@ struct LongTermMemoryPage: View {
     private var unavailable: some View {
         GlassCard(padding: 20) {
             VStack(spacing: 0) {
-                Image(systemName: "icloud.slash")
-                    .font(.system(size: 26))
+                JcIcon("icloud.slash", size: 26)
                     .foregroundStyle(JcTheme.muted)
                     .frame(width: 64, height: 64)
                     .background(JcTheme.muted.opacity(0.12), in: Circle())
@@ -273,8 +269,7 @@ struct MemoryEntryCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 8) {
                     if !meta.isEmpty {
-                        Image(systemName: "tag")
-                            .font(.system(size: 11))
+                        JcIcon("tag", size: 11)
                             .foregroundStyle(JcTheme.muted.opacity(0.8))
                         Text(meta)
                             .font(.system(size: 11.5))
@@ -286,8 +281,7 @@ struct MemoryEntryCard: View {
                         StatusPill(String(format: "%.2f", score), color: JcTheme.cyan, dense: true)
                     }
                     Button(action: onDelete) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 15))
+                        JcIcon("trash", size: 15)
                             .foregroundStyle(JcTheme.danger)
                             .padding(6)
                     }
@@ -319,8 +313,7 @@ struct MemoryReflectionCard: View {
         GlassCard(padding: 0, fill: JcTheme.surface) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 14)).foregroundStyle(JcTheme.accent)
+                    JcIcon("sparkles", size: 14).foregroundStyle(JcTheme.accent)
                     Text(title)
                         .font(.system(size: 14.5, weight: .semibold))
                         .foregroundStyle(JcTheme.text)
@@ -357,7 +350,7 @@ struct MemorySectionEmpty: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: symbol)
+            JcIcon(symbol)
                 .font(.system(size: 26))
                 .foregroundStyle(JcTheme.muted.opacity(0.7))
             Text(message)

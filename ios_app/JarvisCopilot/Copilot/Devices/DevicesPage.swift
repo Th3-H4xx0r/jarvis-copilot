@@ -70,7 +70,7 @@ struct DevicesPage: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { scanningForDevice = true } label: {
-                        Image(systemName: "qrcode.viewfinder").foregroundStyle(JcTheme.accent)
+                        JcIcon("qrcode.viewfinder").foregroundStyle(JcTheme.accent)
                     }
                     .accessibilityLabel("Scan to add a device")
                 }

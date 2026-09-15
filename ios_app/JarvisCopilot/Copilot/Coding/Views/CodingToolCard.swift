@@ -42,7 +42,7 @@ struct CodingToolCard: View {
                         .tint(isSubagent ? JcTheme.accent : CodingUI.green)
                         .frame(width: 16, height: 16)
                 } else {
-                    Image(systemName: symbol).font(.system(size: 14)).foregroundStyle(tint)
+                    JcIcon(symbol).font(.system(size: 14)).foregroundStyle(tint)
                         .frame(width: 16, height: 16)
                 }
                 Text(name)
@@ -54,7 +54,7 @@ struct CodingToolCard: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 if hasOutput {
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    JcIcon(expanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(JcTheme.muted)
                 }

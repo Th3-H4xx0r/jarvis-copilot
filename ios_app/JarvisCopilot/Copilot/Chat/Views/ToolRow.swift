@@ -33,7 +33,7 @@ struct ChatToolRow: View {
         HStack(alignment: .top, spacing: 8) {
             Group {
                 if tool.done {
-                    Image(systemName: tool.isError ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+                    JcIcon(tool.isError ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
                         .foregroundStyle(statusColor)
                         .font(.footnote)
                 } else {
@@ -64,8 +64,7 @@ struct ChatToolRow: View {
                     .monospacedDigit()
             }
             if tool.hasDetail {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                JcIcon("chevron.right", size: 9, weight: .semibold)
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(expanded ? 90 : 0))
                     .padding(.top, 3)

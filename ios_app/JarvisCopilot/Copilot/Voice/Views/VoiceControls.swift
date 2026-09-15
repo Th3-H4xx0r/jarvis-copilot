@@ -73,7 +73,7 @@ struct VoiceMicButton: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: VoiceControlMetrics.stackSpacing) {
-                Image(systemName: active ? "xmark" : "mic.fill")
+                JcIcon(active ? "xmark" : "mic.fill")
                     .font(.system(size: VoiceControlMetrics.micIcon, weight: .medium))
                     .foregroundStyle(active ? JcTheme.text : JcTheme.accent)
                     .frame(width: VoiceControlMetrics.micDiameter,
@@ -109,7 +109,7 @@ struct VoiceGhostCircle: View {
     var body: some View {
         Button { action?() } label: {
             VStack(spacing: VoiceControlMetrics.stackSpacing) {
-                Image(systemName: symbol)
+                JcIcon(symbol)
                     .font(.system(size: VoiceControlMetrics.ghostIcon, weight: .medium))
                     .foregroundStyle(highlighted ? JcTheme.cyan : JcTheme.text)
                     .frame(width: VoiceControlMetrics.ghostDiameter,
@@ -140,8 +140,7 @@ struct VoiceTryServerChip: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: "icloud.and.arrow.up")
-                    .font(.system(size: 13, weight: .medium))
+                JcIcon("icloud.and.arrow.up", size: 13, weight: .medium)
                 Text("Try on server")
                     .font(.system(size: 13, weight: .semibold))
             }
@@ -189,12 +188,12 @@ struct VoiceOptionCards<Value: Hashable>: View {
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top) {
-                    Image(systemName: option.symbol)
+                    JcIcon(option.symbol)
                         .font(.system(size: 18, weight: .regular))
                         .foregroundStyle(JcTheme.cyan.opacity(selected ? 1 : 0.7))
                         .frame(width: 32, height: 32)
                     Spacer(minLength: 4)
-                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    JcIcon(selected ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 17))
                         .foregroundStyle(selected ? JcTheme.cyan : JcTheme.muted.opacity(0.45))
                 }

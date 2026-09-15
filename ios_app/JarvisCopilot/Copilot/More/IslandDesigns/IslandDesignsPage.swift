@@ -136,7 +136,7 @@ struct IslandRadioRow: View {
                             .multilineTextAlignment(.leading)
                     }
                     Spacer(minLength: 8)
-                    Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    JcIcon(selected ? "largecircle.fill.circle" : "circle")
                         .font(.system(size: 20))
                         .foregroundStyle(selected ? JcTheme.accent : JcTheme.muted)
                 }
@@ -174,8 +174,7 @@ struct IslandManageRow: View {
                 priority
                 if let onDelete {
                     Button(action: onDelete) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 15))
+                        JcIcon("trash", size: 15)
                             .foregroundStyle(JcTheme.muted)
                             .frame(width: 34, height: 34)
                             .contentShape(Rectangle())
@@ -203,7 +202,7 @@ struct IslandManageRow: View {
     private var priority: some View {
         HStack(spacing: 2) {
             Button { onPriority(max(0, entry.priority - 1)) } label: {
-                Image(systemName: "minus").font(.system(size: 11, weight: .semibold))
+                JcIcon("minus", size: 11, weight: .semibold)
                     .frame(width: 24, height: 24).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -213,7 +212,7 @@ struct IslandManageRow: View {
                 .foregroundStyle(JcTheme.text)
                 .frame(minWidth: 18)
             Button { onPriority(min(99, entry.priority + 1)) } label: {
-                Image(systemName: "plus").font(.system(size: 11, weight: .semibold))
+                JcIcon("plus", size: 11, weight: .semibold)
                     .frame(width: 24, height: 24).contentShape(Rectangle())
             }
             .buttonStyle(.plain)

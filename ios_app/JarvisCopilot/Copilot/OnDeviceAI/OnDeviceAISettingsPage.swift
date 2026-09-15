@@ -35,8 +35,7 @@ struct OnDeviceAISettingsPage: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { Task { await store.refresh() } } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 15, weight: .medium))
+                    JcIcon("arrow.clockwise", size: 15, weight: .medium)
                         .foregroundStyle(JcTheme.accent)
                 }
                 .accessibilityLabel("Refresh")
@@ -109,8 +108,7 @@ struct OnDeviceAISettingsPage: View {
                         title: title, subtitle: subtitle, subtitleLineLimit: 3,
                         last: last, action: { store.setTier(tier) }) {
             if selected {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 14, weight: .semibold))
+                JcIcon("checkmark", size: 14, weight: .semibold)
                     .foregroundStyle(JcTheme.cyan)
             }
         }
@@ -152,19 +150,17 @@ struct OnDeviceAISettingsPage: View {
                             Button { store.cancelDownload(model) } label: {
                                 ZStack {
                                     ProgressView(value: progress).progressViewStyle(.circular).tint(JcTheme.cyan)
-                                    Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                                    JcIcon("xmark", size: 8, weight: .bold)
                                         .foregroundStyle(JcTheme.muted)
                                 }
                                 .frame(width: 22, height: 22)
                             }
                             .buttonStyle(.plain)
                         } else if selected {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 14, weight: .semibold))
+                            JcIcon("checkmark", size: 14, weight: .semibold)
                                 .foregroundStyle(JcTheme.cyan)
                         } else if downloadable {
-                            Image(systemName: "arrow.down.circle")
-                                .font(.system(size: 16, weight: .medium))
+                            JcIcon("arrow.down.circle", size: 16, weight: .medium)
                                 .foregroundStyle(JcTheme.cyan)
                         }
                     }
@@ -172,7 +168,7 @@ struct OnDeviceAISettingsPage: View {
                     .contextMenu {
                         if model.engine == .mlx, model.installed {
                             Button(role: .destructive) { store.delete(model) } label: {
-                                Label("Delete weights", systemImage: "trash")
+                                Label("Delete weights", jcIcon: "trash")
                             }
                         }
                     }

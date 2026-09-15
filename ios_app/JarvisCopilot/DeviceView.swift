@@ -97,7 +97,7 @@ struct DeviceView: View {
             }
         }
         .toolbar {
-            Button("Refresh", systemImage: "arrow.clockwise") { manager.send(.status) }
+            Button("Refresh", jcIcon: "arrow.clockwise") { manager.send(.status) }
             WearableMoreMenu { renaming = true }
         }
     }
@@ -291,7 +291,7 @@ struct DeviceView: View {
                     HStack {
                         Text("Settings")
                         Spacer()
-                        Image(systemName: "chevron.right")
+                        JcIcon("chevron.right")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.tertiary)
                     }

@@ -92,7 +92,7 @@ struct CodingSessionScreen: View {
                 Button {
                     Task { live ? await coding.stop() : await coding.restart() }
                 } label: {
-                    Image(systemName: live ? "stop.fill" : "arrow.clockwise.circle")
+                    JcIcon(live ? "stop.fill" : "arrow.clockwise.circle")
                         .font(.system(size: 16))
                 }
                 .tint(live ? JcTheme.danger : JcTheme.accent)
@@ -101,7 +101,7 @@ struct CodingSessionScreen: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { confirmingDelete = true } label: {
-                    Image(systemName: "trash").font(.system(size: 15))
+                    JcIcon("trash", size: 15)
                 }
                 .tint(JcTheme.accent)
                 .disabled(coding.busy)
@@ -110,7 +110,7 @@ struct CodingSessionScreen: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { settingsOpen = true } label: {
-                Image(systemName: "slider.horizontal.3").font(.system(size: 16))
+                JcIcon("slider.horizontal.3", size: 16)
             }
             .tint(JcTheme.accent)
             .disabled(detail == nil)
@@ -245,7 +245,7 @@ struct CodingModeToggle: View {
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 13))
+                JcIcon(symbol).font(.system(size: 13))
                 Text(label).font(.system(size: 13, weight: .semibold))
             }
             .foregroundStyle(selected ? JcTheme.text : JcTheme.muted)

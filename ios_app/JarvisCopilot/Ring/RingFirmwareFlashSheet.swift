@@ -67,11 +67,11 @@ struct RingFirmwareFlashSheet: View {
                 VStack(spacing: 2) {
                     switch flasher.phase {
                     case .succeeded:
-                        Image(systemName: "checkmark").font(.system(size: 44, weight: .semibold)).foregroundStyle(.green)
+                        JcIcon("checkmark", size: 44, weight: .semibold).foregroundStyle(.green)
                     case .verifying:
                         ProgressView().controlSize(.large)
                     case .failed:
-                        Image(systemName: "xmark").font(.system(size: 44, weight: .semibold)).foregroundStyle(.red)
+                        JcIcon("xmark", size: 44, weight: .semibold).foregroundStyle(.red)
                     default:
                         Text("\(Int(flasher.fraction * 100))%")
                             .font(.system(size: 40, weight: .semibold, design: .rounded)).monospacedDigit()
@@ -101,7 +101,7 @@ struct RingFirmwareFlashSheet: View {
 
     private var lockedNotice: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "lock.fill").foregroundStyle(.orange)
+            JcIcon("lock.fill").foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 3) {
                 Text("This cannot be cancelled").font(.subheadline.weight(.semibold))
                 Text("Keep the ring close to the phone and leave this screen open until it finishes. "

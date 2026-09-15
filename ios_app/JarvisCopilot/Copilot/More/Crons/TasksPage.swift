@@ -160,8 +160,7 @@ struct CronJobCard: View {
                     }
                     if !job.schedule.isEmpty {
                         HStack(spacing: 6) {
-                            Image(systemName: "clock")
-                                .font(.system(size: 12)).foregroundStyle(JcTheme.muted)
+                            JcIcon("clock", size: 12).foregroundStyle(JcTheme.muted)
                             Text(job.schedule)
                                 .font(.system(size: 13)).foregroundStyle(JcTheme.muted)
                                 .lineLimit(1)
@@ -201,7 +200,7 @@ struct CronMetaChip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: symbol)
+            JcIcon(symbol)
                 .font(.system(size: 11)).foregroundStyle(JcTheme.muted.opacity(0.8))
             Text(label)
                 .font(.system(size: 12)).foregroundStyle(JcTheme.muted.opacity(0.7))
@@ -226,7 +225,7 @@ struct CronRunButton: View {
                 if starting {
                     ProgressView().controlSize(.small).tint(JcTheme.accent)
                 } else {
-                    Image(systemName: running ? "arrow.triangle.2.circlepath" : "play.fill")
+                    JcIcon(running ? "arrow.triangle.2.circlepath" : "play.fill")
                         .font(.system(size: 16))
                         .foregroundStyle(running ? JcTheme.muted : JcTheme.accent)
                 }

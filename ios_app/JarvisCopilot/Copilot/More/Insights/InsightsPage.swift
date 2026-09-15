@@ -161,7 +161,7 @@ struct InsightsEmptyBlock: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: symbol).font(.system(size: 16)).foregroundStyle(JcTheme.muted)
+            JcIcon(symbol).font(.system(size: 16)).foregroundStyle(JcTheme.muted)
             Text(text).font(.system(size: 13)).foregroundStyle(JcTheme.muted)
         }
         .frame(maxWidth: .infinity)

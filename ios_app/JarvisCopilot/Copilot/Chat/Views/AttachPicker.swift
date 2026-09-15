@@ -36,15 +36,14 @@ struct AttachControl: View {
     var body: some View {
         Menu {
             if ChatCameraPicker.isAvailable {
-                Button { showCamera = true } label: { Label("Camera", systemImage: "camera") }
+                Button { showCamera = true } label: { Label("Camera", jcIcon: "camera") }
             }
             Button { showPhotos = true } label: {
-                Label(allowsVideo ? "Photo or video" : "Photo", systemImage: "photo.on.rectangle")
+                Label(allowsVideo ? "Photo or video" : "Photo", jcIcon: "photo.on.rectangle")
             }
-            Button { showFiles = true } label: { Label("File", systemImage: "doc") }
+            Button { showFiles = true } label: { Label("File", jcIcon: "doc") }
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 20, weight: .regular))
+            JcIcon("plus", size: 20, weight: .regular)
                 .foregroundStyle(enabled ? JcTheme.accent : JcTheme.muted.opacity(0.5))
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())

@@ -89,14 +89,14 @@ struct CodingPage: View {
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             NavigationLink { CodeMasterSettingsPage() } label: {
-                Image(systemName: "gearshape").font(.system(size: 17))
+                JcIcon("gearshape", size: 17)
             }
             .tint(JcTheme.accent)
             .accessibilityLabel("Code Master settings")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { Task { await store.discoverRefresh() } } label: {
-                Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 17))
+                JcIcon("dot.radiowaves.left.and.right", size: 17)
             }
             .tint(store.busyProjects ? JcTheme.muted : JcTheme.accent)
             .disabled(store.busyProjects)
@@ -104,7 +104,7 @@ struct CodingPage: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { Task { await store.loadSessions() } } label: {
-                Image(systemName: "arrow.clockwise").font(.system(size: 17))
+                JcIcon("arrow.clockwise", size: 17)
             }
             .tint(store.loading ? JcTheme.muted : JcTheme.accent)
             .disabled(store.loading)
@@ -115,7 +115,7 @@ struct CodingPage: View {
     private var actionButtons: some View {
         VStack(alignment: .trailing, spacing: 12) {
             Button { newProject = true } label: {
-                Label("Project", systemImage: "folder.badge.plus")
+                Label("Project", jcIcon: "folder.badge.plus")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(JcTheme.text)
                     .padding(.horizontal, 16)
@@ -126,7 +126,7 @@ struct CodingPage: View {
             .disabled(store.busyProjects)
 
             Button { launch = .fleet } label: {
-                Label("Launch", systemImage: "plus")
+                Label("Launch", jcIcon: "plus")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(JcTheme.accent)
                     .padding(.horizontal, 18)

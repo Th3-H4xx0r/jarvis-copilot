@@ -65,15 +65,14 @@ struct PickerField<Value: Hashable>: View {
             GradientBorder(radius: JcTheme.fieldRadius) {
                 HStack(spacing: 10) {
                     if let symbol = current?.symbol {
-                        Image(systemName: symbol).font(.system(size: 16)).foregroundStyle(JcTheme.cyan)
+                        JcIcon(symbol).font(.system(size: 16)).foregroundStyle(JcTheme.cyan)
                     }
                     Text(current?.label ?? hint)
                         .font(JcText.body.weight(.semibold))
                         .foregroundStyle(current == nil ? JcTheme.muted : JcTheme.text)
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 13, weight: .semibold))
+                    JcIcon("chevron.down", size: 13, weight: .semibold)
                         .foregroundStyle(JcTheme.muted)
                 }
                 .padding(.leading, 14)
@@ -138,7 +137,7 @@ private struct PickerRow<Value: Hashable>: View {
     var body: some View {
         HStack(spacing: 12) {
             if let symbol = option.symbol {
-                Image(systemName: symbol)
+                JcIcon(symbol)
                     .font(.system(size: 17))
                     .foregroundStyle(selected ? JcTheme.cyan : JcTheme.muted)
             }
@@ -152,8 +151,7 @@ private struct PickerRow<Value: Hashable>: View {
             }
             Spacer(minLength: 0)
             if selected {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 18)).foregroundStyle(JcTheme.cyan)
+                JcIcon("checkmark.circle.fill", size: 18).foregroundStyle(JcTheme.cyan)
             }
         }
         .padding(.horizontal, 14)

@@ -70,7 +70,7 @@ struct JarvisPodView: View {
               VStack(alignment: .leading, spacing: 26) {
                 hero
                 if let error = store.error {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                    Label(error, jcIcon: "exclamationmark.triangle.fill")
                         .font(.footnote).foregroundStyle(JcTheme.danger)
                 }
                 homeSection
@@ -116,19 +116,19 @@ struct JarvisPodView: View {
                     if refreshing {
                         ProgressView().tint(JcTheme.accent)
                     } else {
-                        Image(systemName: "arrow.clockwise").foregroundStyle(JcTheme.accent)
+                        JcIcon("arrow.clockwise").foregroundStyle(JcTheme.accent)
                     }
                 }
                 .accessibilityLabel("Refresh")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("Rename", systemImage: "pencil") { renaming = true }
-                    Button("Restart", systemImage: "arrow.clockwise") { confirmReboot = true }
-                    Button("Set up again", systemImage: "qrcode") { showSetupHelp = true }
-                    Button("Revoke", systemImage: "xmark.octagon", role: .destructive) { confirmRevoke = true }
+                    Button("Rename", jcIcon: "pencil") { renaming = true }
+                    Button("Restart", jcIcon: "arrow.clockwise") { confirmReboot = true }
+                    Button("Set up again", jcIcon: "qrcode") { showSetupHelp = true }
+                    Button("Revoke", jcIcon: "xmark.octagon", role: .destructive) { confirmRevoke = true }
                 } label: {
-                    Image(systemName: "ellipsis").foregroundStyle(JcTheme.accent)
+                    JcIcon("ellipsis").foregroundStyle(JcTheme.accent)
                 }
             }
         }
@@ -199,7 +199,7 @@ struct JarvisPodView: View {
 
     private func chip(_ text: String, symbol: String, tint: Color) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: symbol).font(.caption2.weight(.bold)).foregroundStyle(tint)
+            JcIcon(symbol).font(.caption2.weight(.bold)).foregroundStyle(tint)
             Text(text).font(.footnote.weight(.semibold)).foregroundStyle(JcTheme.text).lineLimit(1)
         }
         .padding(.horizontal, 12)
@@ -269,8 +269,7 @@ struct JarvisPodView: View {
                 .overlay(alignment: .topTrailing) {
                     if !home.builtin {
                         Button { pendingDelete = home } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 10, weight: .bold))
+                            JcIcon("xmark", size: 10, weight: .bold)
                                 .foregroundStyle(JcTheme.text)
                                 .frame(width: 24, height: 24)
                                 .jcLiquidGlass(in: Circle())
@@ -291,7 +290,7 @@ struct JarvisPodView: View {
         .buttonStyle(.plain)
         .contextMenu {
             if !home.builtin {
-                Button("Delete", systemImage: "trash", role: .destructive) {
+                Button("Delete", jcIcon: "trash", role: .destructive) {
                     Task { await store.deleteHome(podID, home: home.id) }
                 }
             }
@@ -324,7 +323,7 @@ struct JarvisPodView: View {
                     .font(.system(size: 10, weight: .medium)).foregroundStyle(JcTheme.muted)
             }
         default:
-            Image(systemName: "sparkles").font(.system(size: 26, weight: .medium)).foregroundStyle(JcTheme.accent)
+            JcIcon("sparkles", size: 26, weight: .medium).foregroundStyle(JcTheme.accent)
         }
     }
 
@@ -394,7 +393,7 @@ struct JarvisPodView: View {
                     if player.loadingID == rec.id {
                         ProgressView().tint(JcTheme.accent)
                     } else {
-                        Image(systemName: playing ? "pause.fill" : "play.fill")
+                        JcIcon(playing ? "pause.fill" : "play.fill")
                             .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(JcTheme.accent)
                     }
@@ -453,7 +452,7 @@ struct JarvisPodView: View {
     }
 
     private func iconTile(_ symbol: String) -> some View {
-        Image(systemName: symbol)
+        JcIcon(symbol)
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(JcTheme.accent)
             .frame(width: 30, height: 30)
@@ -578,8 +577,7 @@ private struct SwipeToDelete<Content: View>: View {
                     close()
                     onDelete()
                 } label: {
-                    Image(systemName: "trash.fill")
-                        .font(.system(size: 16, weight: .semibold))
+                    JcIcon("trash.fill", size: 16, weight: .semibold)
                         .foregroundStyle(.white)
                         .frame(width: -revealed)
                         .frame(maxHeight: .infinity)

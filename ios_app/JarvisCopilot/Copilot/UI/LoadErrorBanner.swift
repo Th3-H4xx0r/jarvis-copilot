@@ -39,8 +39,7 @@ struct LoadErrorBannerModifier: ViewModifier {
 
     private func banner(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12))
+            JcIcon("exclamationmark.triangle.fill", size: 12)
                 .foregroundStyle(JcTheme.amber)
             Text(text)
                 .font(JcText.small)
@@ -49,8 +48,7 @@ struct LoadErrorBannerModifier: ViewModifier {
             Button {
                 dismissed = text
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                JcIcon("xmark", size: 11, weight: .semibold)
                     .foregroundStyle(JcTheme.muted)
             }
             .buttonStyle(.plain)

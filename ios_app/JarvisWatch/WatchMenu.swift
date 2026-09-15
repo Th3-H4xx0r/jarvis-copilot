@@ -161,7 +161,7 @@ struct WatchMenuScreen: View {
                 dismiss()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onVoice() }
             } label: {
-                Label("Voice", systemImage: "waveform")
+                Label("Voice", jcIcon: "waveform")
             }
 
             Section("Jarvis wearables") {
@@ -190,7 +190,7 @@ struct WatchWearableRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: device.symbol)
+            JcIcon(device.symbol)
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(device.connected ? JcWatch.accent : JcWatch.muted)
                 .frame(width: 22)
@@ -219,7 +219,7 @@ struct WatchWearableScreen: View {
         List {
             Section {
                 HStack(spacing: 10) {
-                    Image(systemName: live.symbol)
+                    JcIcon(live.symbol)
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(live.connected ? JcWatch.accent : JcWatch.muted)
                     Text(live.state).font(.inter(12)).foregroundStyle(JcWatch.muted)
@@ -229,7 +229,7 @@ struct WatchWearableScreen: View {
                         store.connect(live.id)
                     } label: {
                         Label(store.loading ? "Connecting…" : "Connect",
-                              systemImage: "antenna.radiowaves.left.and.right")
+                              jcIcon: "antenna.radiowaves.left.and.right")
                     }
                     .disabled(store.loading)
                 }
@@ -277,7 +277,7 @@ struct WatchChatPicker: View {
             Button {
                 store.startNewChat { dismiss() }
             } label: {
-                Label("New chat", systemImage: "plus.bubble")
+                Label("New chat", jcIcon: "plus.bubble")
             }
 
             Section("Recent") {
@@ -298,7 +298,7 @@ struct WatchChatPicker: View {
                             }
                             Spacer()
                             if session.id == store.selectedSessionID {
-                                Image(systemName: "checkmark").foregroundStyle(JcWatch.accent)
+                                JcIcon("checkmark").foregroundStyle(JcWatch.accent)
                             }
                         }
                     }

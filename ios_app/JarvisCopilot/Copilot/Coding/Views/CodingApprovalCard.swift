@@ -57,7 +57,7 @@ struct CodingApprovalCard: View {
 
     private var header: some View {
         HStack(spacing: 7) {
-            Image(systemName: "lock").font(.system(size: 14)).foregroundStyle(tint)
+            JcIcon("lock", size: 14).foregroundStyle(tint)
             Text("Claude needs approval")
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(tint)
@@ -83,7 +83,7 @@ struct CodingApprovalCard: View {
     private var actions: some View {
         HStack(spacing: 8) {
             Button { send("deny", nil) } label: {
-                Label("Deny", systemImage: "xmark")
+                Label("Deny", jcIcon: "xmark")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(JcTheme.danger)
                     .frame(maxWidth: .infinity)
@@ -97,8 +97,7 @@ struct CodingApprovalCard: View {
                 replying = true
                 replyFocused = true
             } label: {
-                Image(systemName: "arrowshape.turn.up.left")
-                    .font(.system(size: 16, weight: .semibold))
+                JcIcon("arrowshape.turn.up.left", size: 16, weight: .semibold)
                     .foregroundStyle(tint)
                     .frame(width: 40, height: 38)
             }
@@ -111,7 +110,7 @@ struct CodingApprovalCard: View {
                     if busy {
                         ProgressView().controlSize(.small).tint(CodingUI.green)
                     } else {
-                        Image(systemName: "checkmark").font(.system(size: 15, weight: .bold))
+                        JcIcon("checkmark", size: 15, weight: .bold)
                     }
                     Text("Approve").font(.system(size: 14, weight: .bold))
                 }
