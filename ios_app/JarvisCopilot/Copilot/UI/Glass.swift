@@ -180,8 +180,7 @@ struct GlassIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            JcIcon(symbol)
-                .font(.system(size: iconSize, weight: .regular))
+            JcIcon(symbol, size: iconSize)
                 .foregroundStyle(tint ?? JcTheme.accent)
                 .frame(width: size, height: size)
                 .jcLiquidGlass(in: Circle())
@@ -431,6 +430,9 @@ struct JcIcon: View {
     }
 
     private var asset: String { "jc_" + name.replacingOccurrences(of: ".", with: "_") }
+    /// An SF Symbol at N points draws a glyph taller than N; Phosphor's square icons at
+    /// the same N looked small next to the text, so they get a little more room.
+    private var drawn: CGFloat { size * 1.25 }
 
     var body: some View {
         if UIImage(named: asset) != nil {
@@ -438,7 +440,7 @@ struct JcIcon: View {
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
-                .frame(width: size, height: size)
+                .frame(width: drawn, height: drawn)
         } else {
             // A name with no Phosphor mapping (usually built at runtime): keep Apple's.
             // NOT JcIcon(name) — that would recurse forever.
