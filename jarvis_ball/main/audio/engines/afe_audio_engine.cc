@@ -203,7 +203,7 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
     if (wake_detector_ == WakeDetector::kWakeNet) {
         afe_iface_->disable_wakenet(afe_data_);
         // JARVIS: the Jarvis model ships at ~0.63; slightly lower so speaking volume still fires.
-        if (afe_iface_->set_wakenet_threshold) afe_iface_->set_wakenet_threshold(afe_data_, 1, 0.58f);
+        if (afe_iface_->set_wakenet_threshold) afe_iface_->set_wakenet_threshold(afe_data_, 1, 0.55f);
     }
     if (codec_->input_reference()) {
         afe_iface_->disable_aec(afe_data_);

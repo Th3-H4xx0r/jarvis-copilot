@@ -30,8 +30,8 @@ constexpr int64_t kMinSpeechMs = 300;
 constexpr int64_t kTapGuardMs = 350;
 // Energy endpointing: speech is this far above the noise floor; the turn ends after
 // this long back near it.
-constexpr float kLoudAboveFloorDb = 9.0f;
-constexpr float kLoudMinDb = -58.0f;
+constexpr float kLoudAboveFloorDb = 8.0f;
+constexpr float kLoudMinDb = -60.0f;
 constexpr int64_t kEnergyEndMs = 800;
 // Conversation mode: listening continues until a tap, a stop phrase, or this long with no speech.
 constexpr int64_t kListenCapMs = 120000;
@@ -385,6 +385,8 @@ void Voice::TrackMicLevel(int64_t now) {
     if (floor_db_ == 0 || db < floor_db_) floor_db_ = db;
     else floor_db_ += (db - floor_db_) * 0.01f;
     bool loud = db > floor_db_ + kLoudAboveFloorDb && db > kLoudMinDb;
+    static int ticks = 0;
+    if (++ticks % 10 == 0) ESP_LOGI(TAG, "mic: %.0f dBFS, floor %.0f dBFS%s", db, floor_db_, loud ? " (speech)" : "");
     int level = loud ? std::min(100, static_cast<int>((db - floor_db_ - kLoudAboveFloorDb) * 5.0f)) : 0;
     Ui::Get().SetVoiceLevel(level);
     if (now - turn_start_ms_ < kTapGuardMs) return;
