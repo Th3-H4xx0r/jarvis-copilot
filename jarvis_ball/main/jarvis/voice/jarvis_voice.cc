@@ -22,8 +22,24 @@ namespace jarvis {
 
 namespace {
 constexpr int64_t kEndSilenceMs = 700;
-constexpr int64_t kNoSpeechMs = 8000;
-constexpr int64_t kFollowUpMs = 6000;
+// Conversation mode: listening continues until a tap, a stop phrase, or this long with no speech.
+constexpr int64_t kListenCapMs = 120000;
+
+bool IsStopPhrase(std::string text) {
+    std::string t;
+    for (char c : text) {
+        if (isalpha(static_cast<unsigned char>(c)) || c == ' ' || c == '\'') t.push_back(static_cast<char>(tolower(c)));
+    }
+    while (!t.empty() && t.back() == ' ') t.pop_back();
+    while (!t.empty() && t.front() == ' ') t.erase(0, 1);
+    static const char* kStops[] = {"stop", "stop listening", "nothing", "never mind", "nevermind", "that's all",
+                                   "thats all", "that's it", "thats it", "cancel", "goodbye", "bye", "no thanks",
+                                   "no thank you", "i'm done", "im done", "jarvis stop", "okay stop", "ok stop"};
+    for (const char* s : kStops) {
+        if (t == s) return true;
+    }
+    return false;
+}
 constexpr int64_t kMaxTurnMs = 15000;
 constexpr int64_t kSocketIdleMs = 60000;
 constexpr int64_t kDiscardExpiryMs = 10000;
@@ -141,7 +157,8 @@ void Voice::Trigger(const std::string& text) {
         return;
     }
     if (phase_ == Phase::Listening) {
-        if (speech_seen_) EndTurn();  // tapped to say "I'm done"
+        ESP_LOGI(TAG, "turn: tapped while listening, stopping");
+        GoIdle();  // a tap turns listening mode off
         return;
     }
     hide_overlay_at_ms_ = 0;
@@ -288,6 +305,18 @@ void Voice::HandleJson(const std::string& text) {
         return;
     }
     if (t == "transcript") {
+        if (IsStopPhrase(s)) {
+            // "Stop" / "nothing" / "that's all": cut the reply the server is starting and stop listening.
+            ESP_LOGI(TAG, "turn: stop phrase \"%s\"", s.c_str());
+            SendText("{\"type\":\"interrupt\",\"heard\":\"\"}");
+            discard_audio_ = true;
+            discard_since_ms_ = NowMs();
+            audio_->ResetDecoder();
+            Ui::Get().SetCaption("Okay");
+            GoIdle();
+            cJSON_Delete(msg);
+            return;
+        }
         if (!s.empty()) Ui::Get().SetCaption(s);
     } else if (t == "assistant_text") {
         spoken_.push_back(s);
@@ -333,8 +362,8 @@ void Voice::Tick() {
     if (phase_ == Phase::Listening) {
         if (speech_seen_ && silence_since_ms_ && now - silence_since_ms_ >= kEndSilenceMs) {
             EndTurn();
-        } else if (!speech_seen_ && now - turn_start_ms_ >= (follow_up_ ? kFollowUpMs : kNoSpeechMs)) {
-            ESP_LOGI(TAG, "turn: no speech heard, going idle");
+        } else if (!speech_seen_ && now - turn_start_ms_ >= kListenCapMs) {
+            ESP_LOGI(TAG, "turn: nothing said for 2 minutes, going idle");
             GoIdle();
         } else if (now - turn_start_ms_ >= kMaxTurnMs) {
             EndTurn();
