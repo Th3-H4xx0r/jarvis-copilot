@@ -359,3 +359,56 @@ private struct JcNavigationTitle: ViewModifier {
         }
     }
 }
+
+// MARK: - Border beam
+
+/// A glow that rides the border, in the manner of libraries.dev/beam: an angular
+/// gradient sweeping round the shape, painted on the stroke only. It runs while
+/// `active` (the composer uses "you're typing, or Jarvis is replying") so nothing
+/// animates in the background.
+private struct JcBorderBeam<S: InsettableShape>: ViewModifier {
+    let shape: S
+    let active: Bool
+    var lineWidth: CGFloat = 1.6
+    var duration: Double = 2.6
+    @State private var angle: Double = 0
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                shape
+                    .strokeBorder(
+                        AngularGradient(
+                            gradient: Gradient(stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: .clear, location: 0.55),
+                                .init(color: JcTheme.accent.opacity(0.65), location: 0.74),
+                                .init(color: JcTheme.accent, location: 0.85),
+                                .init(color: JcTheme.accentAlt.opacity(0.9), location: 0.93),
+                                .init(color: .clear, location: 1),
+                            ]),
+                            center: .center,
+                            angle: .degrees(angle)
+                        ),
+                        lineWidth: lineWidth
+                    )
+                    .opacity(active ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.25), value: active)
+                    .allowsHitTesting(false)
+            }
+            .onAppear { if active { spin() } }
+            .onChange(of: active) { _, on in if on { spin() } }
+    }
+
+    private func spin() {
+        angle = 0
+        withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) { angle = 360 }
+    }
+}
+
+extension View {
+    /// Animated beam around `shape`'s border while `active`.
+    func jcBorderBeam<S: InsettableShape>(_ shape: S, active: Bool) -> some View {
+        modifier(JcBorderBeam(shape: shape, active: active))
+    }
+}

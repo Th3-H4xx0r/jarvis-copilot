@@ -71,6 +71,8 @@ struct ChatComposer: View {
         }
         .padding(.vertical, 6)
         .jcLiquidGlass(in: shape)
+        // The beam rides the composer's edge while you type and while Jarvis replies.
+        .jcBorderBeam(shape, active: focused || store.streaming)
         .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 12)
     }
 }

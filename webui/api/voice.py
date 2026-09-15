@@ -2456,6 +2456,33 @@ def _spoken_failure(seg: dict) -> str:
     return f"Sorry, the model returned an error: {detail}." if detail else "Sorry, the model returned an error."
 
 
+# "MEDIA:<url>" is how a reply carries a picture to the chat UIs. The pod has no chat
+# bubble, so the line was read out and printed on its screen: pull it out and put the
+# picture on the screen instead.
+_MEDIA_LINE_RE = re.compile(r"^[ \t]*MEDIA:[ \t]*(\S+)[ \t]*$", re.MULTILINE)
+
+
+def _take_pod_media(state: dict, text: str) -> str:
+    if state.get("client") != "jarvis_pod" or "MEDIA:" not in (text or ""):
+        return text
+    urls = [u for u in _MEDIA_LINE_RE.findall(text) if u.lower().startswith("http")]
+    cleaned = _MEDIA_LINE_RE.sub("", text).strip()
+    device_id = (state.get("origin") or {}).get("device_id")
+    if urls and device_id:
+        page = {"page": {"root": {"type": "image", "source": urls[0],
+                                  "style": {"width": 220, "height": 220}}}}
+
+        def _show():
+            try:
+                from api.device_bridge import invoke_skill
+                invoke_skill(device_id, "pod_show", page, timeout=25)
+            except Exception:
+                logger.debug("voice: could not show the picture on the pod", exc_info=True)
+
+        threading.Thread(target=_show, name="pod-show-media", daemon=True).start()
+    return cleaned or "Here it is, sir."
+
+
 def _stream_segment(conn, sock, state, seg: dict) -> bool:
     """Inline (non-pipelined) send of one segment. Used for the spoken apology
     messages and the no-session fallback reply. Returns False to abort."""
@@ -2469,7 +2496,7 @@ def _stream_segment(conn, sock, state, seg: dict) -> bool:
         return True
     if kind != "text":
         return True
-    text = (seg.get("text") or "").strip()
+    text = _take_pod_media(state, (seg.get("text") or "").strip())
     if not text:
         return True
     _ws_send_text(conn, sock, json.dumps({"type": "assistant_text", "text": text}))
@@ -2645,7 +2672,7 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
             if k != "text":
                 print(f"[webui] voice: seg kind={k} {str(seg)[:160]}", flush=True)
             if k == "text":
-                t = (seg.get("text") or "").strip()
+                t = _take_pod_media(state, (seg.get("text") or "").strip())
                 if t and not ack_state["first_text_sent"]:
                     # The model acked anyway ("Right away, sir.") on top of the
                     # server's ack — drop that bare sentence.

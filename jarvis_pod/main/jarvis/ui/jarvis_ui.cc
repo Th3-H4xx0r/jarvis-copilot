@@ -27,7 +27,10 @@ namespace {
 constexpr int kScreen = 240;
 // Orb animation paused while the pod's responsiveness is sorted out: one still frame,
 // no frame timer, no pulses. Flip to true to bring the motion back.
-constexpr bool kAnimateOrb = false;
+// The pre-rendered orb plays only where it is cheap: the big orb, on screen, one 160x160
+// blit per frame. The small reply orb (a scaled copy per frame) and the drawn-circle
+// fallback stay still, and the timer is paused whenever the orb isn't on screen.
+constexpr bool kAnimateOrb = true;
 const lv_color_t kBlack = lv_color_hex(0x000000);
 const lv_color_t kWhite = lv_color_hex(0xFFFFFF);
 const lv_color_t kMuted = lv_color_hex(0x8A8F98);
@@ -550,7 +553,7 @@ struct Ui::Impl {
             if (orb_img && orb_morph) { lv_anim_delete(orb_box, nullptr); orb_morph_target = 0; SetOrbMorph(0); }
             return;
         }
-        if (orb_timer && kAnimateOrb) lv_timer_resume(orb_timer);
+        // Resumed by ApplyOrbState only when the big orb is showing.
         lv_obj_remove_flag(orb_layer, LV_OBJ_FLAG_HIDDEN);
         bool full = OrbFull();
         lv_obj_set_style_bg_opa(orb_layer, full ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
@@ -631,9 +634,14 @@ struct Ui::Impl {
                 else lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
             }
         }
+        if (frames && OrbBig()) {
+            if (orb_timer && kAnimateOrb) lv_timer_resume(orb_timer);
+            return ApplyFramesState();
+        }
+        if (orb_timer) lv_timer_pause(orb_timer);
         if (frames) return ApplyFramesState();
         for (lv_obj_t* o : {glow, mid, core}) lv_anim_delete(o, nullptr);
-        if (!kAnimateOrb) {
+        {  // the drawn fallback (no frames in flash): still circles, sized for the slot
             bool small = !OrbBig();
             lv_color_t still = lv_color_hex(orb_state == OrbState::Error ? settings.theme.danger : settings.theme.accent);
             for (lv_obj_t* o : {glow, mid, core}) lv_obj_set_style_bg_color(o, still, 0);
@@ -642,43 +650,6 @@ struct Ui::Impl {
             SizeAnim(glow, small ? 46 : 196);
             SizeAnim(mid, small ? 36 : 150);
             SizeAnim(core, small ? 24 : 92);
-            return;
-        }
-        bool full = OrbFull();
-        int s = full ? 1 : 0;
-        lv_color_t accent = lv_color_hex(orb_state == OrbState::Error ? settings.theme.danger : settings.theme.accent);
-        lv_obj_set_style_bg_color(glow, accent, 0);
-        lv_obj_set_style_bg_color(mid, accent, 0);
-        lv_obj_set_style_bg_color(core, lv_color_mix(kWhite, accent, 70), 0);
-        lv_obj_set_style_shadow_color(core, accent, 0);
-        lv_obj_set_style_shadow_width(core, full ? 40 : 12, 0);
-        lv_obj_set_style_shadow_opa(core, LV_OPA_80, 0);
-        auto size = [&](int big, int small) { return s ? big : small; };
-        lv_obj_set_style_bg_opa(mid, 70, 0);
-        SizeAnim(mid, size(150, 36));
-        SizeAnim(glow, size(196, 46));
-        switch (orb_state) {
-            case OrbState::Idle:
-                Pulse(core, SizeAnim, size(86, 22), size(98, 26), 2600);
-                Pulse(glow, OpaAnim, 25, 60, 2600);
-                break;
-            case OrbState::Listening:
-                Pulse(core, SizeAnim, size(96, 24), size(126, 32), 520);
-                Pulse(glow, OpaAnim, 60, 140, 520);
-                break;
-            case OrbState::Thinking:
-                Pulse(mid, SizeAnim, size(140, 32), size(172, 42), 700);
-                Pulse(core, SizeAnim, size(88, 22), size(96, 25), 260);
-                Pulse(glow, OpaAnim, 40, 90, 700);
-                break;
-            case OrbState::Speaking:
-                Pulse(core, SizeAnim, size(94, 24), size(136, 34), 340);
-                Pulse(glow, OpaAnim, 90, 190, 340);
-                break;
-            case OrbState::Error:
-                Pulse(core, SizeAnim, size(90, 22), size(120, 30), 180, 3);
-                lv_obj_set_style_bg_opa(glow, 120, 0);
-                break;
         }
     }
 
