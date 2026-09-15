@@ -2,6 +2,7 @@
 
 #include <cJSON.h>
 #include <esp_app_desc.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_partition.h>
 #include <wifi_manager.h>
@@ -131,7 +132,12 @@ struct Ui::Impl {
     std::vector<lv_image_dsc_t> orb_frames;
     int orb_frame = 0;
     lv_obj_t* caption = nullptr;
-    bool reply_shown = false;          // the orb is down in the reply layout
+    // Reply layout morph: 0 = the big orb in the centre, 1000 = the small orb at the bottom.
+    // The same orb frame, box-filtered to each size, so it shrinks instead of swapping.
+    int orb_morph = 0;
+    int orb_morph_target = 0;
+    uint16_t* orb_scaled_px = nullptr;
+    lv_image_dsc_t orb_scaled = {};
     lv_obj_t* status_pill = nullptr;   // "● Listening" above the orb, like the phone
     lv_obj_t* status_label = nullptr;
     lv_obj_t* menu_btn = nullptr;
@@ -270,10 +276,113 @@ struct Ui::Impl {
     bool ReplyLayout() const { return OrbFull() && voice_active && orb_state == OrbState::Speaking; }
     bool OrbBig() const { return OrbFull() && !ReplyLayout(); }
 
+    static constexpr int kOrbNative = 160;
+    static constexpr int kOrbSmall = 48;
+    int BigCy() const { return kScreen / 2 + (voice_active ? 4 : -8); }  // voice: pill above, caption below
+    static constexpr int kOrbSmallCy = 202; // bottom, under the reply text
+
+    // Writes the current orb frame at `size` px into orb_scaled (box filter; caches are off,
+    // so re-pointing the image at the same descriptor picks up the new pixels).
+    const lv_image_dsc_t* ScaledOrb(int size) {
+        const lv_image_dsc_t& src = orb_frames[orb_frame];
+        if (size >= kOrbNative) return &src;
+        if (!orb_scaled_px) {
+            orb_scaled_px = static_cast<uint16_t*>(
+                heap_caps_malloc(kOrbNative * kOrbNative * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            if (!orb_scaled_px) return &src;
+        }
+        const uint8_t* in = src.data;
+        for (int y = 0; y < size; ++y) {
+            int y0 = y * kOrbNative / size, y1 = std::max(y0 + 1, (y + 1) * kOrbNative / size);
+            for (int x = 0; x < size; ++x) {
+                int x0 = x * kOrbNative / size, x1 = std::max(x0 + 1, (x + 1) * kOrbNative / size);
+                uint32_t r = 0, g = 0, b = 0, n = 0;
+                for (int sy = y0; sy < y1; ++sy) {
+                    const uint8_t* row = in + sy * kOrbNative * 2;
+                    for (int sx = x0; sx < x1; ++sx) {
+                        uint16_t px = row[sx * 2] | (row[sx * 2 + 1] << 8);
+                        r += px >> 11; g += (px >> 5) & 0x3F; b += px & 0x1F; ++n;
+                    }
+                }
+                uint16_t out = static_cast<uint16_t>(((r / n) << 11) | ((g / n) << 5) | (b / n));
+                orb_scaled_px[y * size + x] = out;  // little-endian RGB565, like the frames
+            }
+        }
+        orb_scaled.header.magic = LV_IMAGE_HEADER_MAGIC;
+        orb_scaled.header.cf = LV_COLOR_FORMAT_RGB565;
+        orb_scaled.header.w = size;
+        orb_scaled.header.h = size;
+        orb_scaled.header.stride = size * 2;
+        orb_scaled.data_size = size * size * 2;
+        orb_scaled.data = static_cast<const uint8_t*>(static_cast<void*>(orb_scaled_px));
+        return &orb_scaled;
+    }
+
+    void SetOrbMorph(int v) {
+        orb_morph = v;
+        int size = kOrbNative - (kOrbNative - kOrbSmall) * v / 1000;
+        int cy = BigCy() + (kOrbSmallCy - BigCy()) * v / 1000;
+        lv_obj_set_size(orb_box, size, size);
+        lv_obj_align(orb_box, LV_ALIGN_TOP_LEFT, kScreen / 2 - size / 2, cy - size / 2);
+        lv_image_set_src(orb_img, ScaledOrb(size));
+        lv_obj_center(orb_img);
+    }
+
+    void MorphOrbTo(int target) {
+        if (target == orb_morph_target && lv_anim_get(orb_box, nullptr)) return;
+        if (target == orb_morph) return SetOrbMorph(target);  // settled: just re-place it
+        orb_morph_target = target;
+        lv_anim_delete(orb_box, nullptr);
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, orb_box);
+        lv_anim_set_user_data(&a, this);
+        lv_anim_set_values(&a, orb_morph, target);
+        lv_anim_set_duration(&a, 60 + 420 * std::abs(target - orb_morph) / 1000);
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+        lv_anim_set_custom_exec_cb(&a, [](lv_anim_t* anim, int32_t v) {
+            static_cast<Impl*>(lv_anim_get_user_data(anim))->SetOrbMorph(v);
+        });
+        lv_anim_start(&a);
+    }
+
+    // Reply text: as big as it can be while it fits between the menu button and the orb.
+    void FitCaption() {
+        if (!reply_caption) return;
+        const char* text = lv_label_get_text(caption);
+        const lv_font_t* font = &lv_font_montserrat_16;
+        for (const lv_font_t* f : {&lv_font_montserrat_24, &lv_font_montserrat_20}) {
+            lv_point_t size;
+            lv_text_get_size(&size, text, f, 0, 0, kReplyW, LV_TEXT_FLAG_NONE);
+            if (size.y <= kReplyH) { font = f; break; }
+        }
+        lv_obj_set_style_text_font(caption, font, 0);
+    }
+
+    void FadeIn(lv_obj_t* obj, uint32_t delay) {
+        lv_anim_delete(obj, nullptr);
+        lv_obj_set_style_text_opa(obj, LV_OPA_TRANSP, 0);
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, obj);
+        lv_anim_set_values(&a, LV_OPA_TRANSP, LV_OPA_COVER);
+        lv_anim_set_delay(&a, delay);
+        lv_anim_set_duration(&a, 220);
+        lv_anim_set_exec_cb(&a, [](void* var, int32_t v) {
+            lv_obj_set_style_text_opa(static_cast<lv_obj_t*>(var), v, 0);
+        });
+        lv_anim_start(&a);
+    }
+
+    static constexpr int kReplyW = 184;
+    static constexpr int kReplyH = 92;  // y 80..172: below the menu button, above the small orb
+    bool reply_caption = false;
+
     void UpdateOrbLayer() {
         if (!OrbVisible()) {
             lv_obj_add_flag(orb_layer, LV_OBJ_FLAG_HIDDEN);
             if (orb_timer) lv_timer_pause(orb_timer);
+            if (orb_img && orb_morph) { lv_anim_delete(orb_box, nullptr); orb_morph_target = 0; SetOrbMorph(0); }
             return;
         }
         if (orb_timer && kAnimateOrb) lv_timer_resume(orb_timer);
@@ -281,41 +390,29 @@ struct Ui::Impl {
         bool full = OrbFull();
         lv_obj_set_style_bg_opa(orb_layer, full ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
         bool reply = ReplyLayout();
-        lv_label_set_long_mode(caption, reply ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
-        lv_obj_set_style_text_font(caption, reply ? &lv_font_montserrat_20 : &lv_font_montserrat_16, 0);
-        if (reply) {
-            lv_obj_set_size(caption, 190, 120);
-            lv_obj_align(caption, LV_ALIGN_TOP_MID, 0, 50);
-        } else {
-            lv_obj_set_size(caption, 150, 20);
-            lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -18);
+        if (reply != reply_caption) {
+            reply_caption = reply;
+            lv_label_set_long_mode(caption, LV_LABEL_LONG_DOT);
+            if (reply) {
+                lv_obj_set_size(caption, kReplyW, kReplyH);
+                lv_obj_align(caption, LV_ALIGN_TOP_MID, 0, 80);
+                FitCaption();
+            } else {
+                lv_obj_set_style_text_font(caption, &lv_font_montserrat_16, 0);
+                lv_obj_set_size(caption, 150, 20);
+                lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -18);
+            }
+            // Let the orb get out of the way before the words appear.
+            if (full && orb_img) FadeIn(caption, reply ? 240 : 300);
         }
-        bool entering_reply = reply && !reply_shown;
-        reply_shown = reply;
-        if (reply) {
-            lv_obj_set_size(orb_box, 48, 48);
-            lv_obj_align(orb_box, LV_ALIGN_BOTTOM_MID, 0, -14);
-        }
-        if (entering_reply) {
-            // Slide down from the centre, like the phone (once per reply, not per sentence).
-            lv_anim_t a;
-            lv_anim_init(&a);
-            lv_anim_set_var(&a, orb_box);
-            lv_anim_set_values(&a, -90, 0);
-            lv_anim_set_duration(&a, 320);
-            lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
-            lv_anim_set_exec_cb(&a, [](void* var, int32_t v) {
-                lv_obj_set_style_translate_y(static_cast<lv_obj_t*>(var), v, 0);
-            });
-            lv_anim_start(&a);
-        } else if (reply) {
-            // already in the reply layout
+        if (orb_img && full) {
+            MorphOrbTo(reply ? 1000 : 0);
         } else if (full) {
-            lv_obj_set_style_translate_y(orb_box, 0, 0);
-            lv_obj_set_size(orb_box, orb_img ? 176 : 200, orb_img ? 176 : 200);
-            // Voice: pill above, caption below, so the orb sits a little lower.
-            lv_obj_align(orb_box, LV_ALIGN_CENTER, 0, voice_active ? 4 : -8);
+            lv_obj_set_size(orb_box, reply ? 48 : 200, reply ? 48 : 200);
+            if (reply) lv_obj_align(orb_box, LV_ALIGN_BOTTOM_MID, 0, -14);
+            else lv_obj_align(orb_box, LV_ALIGN_CENTER, 0, voice_active ? 4 : -8);
         } else {
+            if (orb_img && orb_morph) { lv_anim_delete(orb_box, nullptr); orb_morph_target = 0; orb_morph = 0; }
             lv_obj_set_size(orb_box, 48, 48);
             lv_obj_align(orb_box, LV_ALIGN_BOTTOM_MID, 0, -6);
         }
@@ -337,7 +434,6 @@ struct Ui::Impl {
     void ApplyFramesState() {
         lv_anim_delete(orb_img, nullptr);
         lv_image_set_scale(orb_img, LV_SCALE_NONE);
-        lv_obj_center(orb_img);
         bool error = orb_state == OrbState::Error;
         lv_obj_set_style_image_recolor(orb_img, lv_color_hex(settings.theme.danger), 0);
         lv_obj_set_style_image_recolor_opa(orb_img, error ? 120 : 0, 0);
@@ -359,7 +455,7 @@ struct Ui::Impl {
     void ApplyOrbState() {
         // Frames only draw at their native size (LVGL scaling of them renders a solid box),
         // so the small in-page indicator uses the drawn orb.
-        bool frames = orb_img && OrbBig();
+        bool frames = orb_img && OrbFull();
         if (orb_img) {
             if (frames) lv_obj_remove_flag(orb_img, LV_OBJ_FLAG_HIDDEN);
             else lv_obj_add_flag(orb_img, LV_OBJ_FLAG_HIDDEN);
@@ -464,11 +560,11 @@ struct Ui::Impl {
         if (!orb_frames.empty()) {
             for (lv_obj_t* o : {glow, mid, core}) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
             orb_img = lv_image_create(orb_box);
-            lv_image_set_src(orb_img, &orb_frames[0]);
-            lv_obj_center(orb_img);
+            SetOrbMorph(0);
             orb_timer = lv_timer_create(
                 [](lv_timer_t* t) {
                     auto* impl = static_cast<Impl*>(lv_timer_get_user_data(t));
+                    if (impl->orb_morph) return;  // the reply layout draws a scaled copy
                     impl->orb_frame = (impl->orb_frame + 1) % static_cast<int>(impl->orb_frames.size());
                     lv_image_set_src(impl->orb_img, &impl->orb_frames[impl->orb_frame]);
                 },
@@ -872,6 +968,7 @@ void Ui::SetVoiceActive(bool active) {
 void Ui::SetCaption(const std::string& text) {
     DisplayLockGuard lock(impl_->display);
     lv_label_set_text(impl_->caption, text.c_str());
+    impl_->FitCaption();
 }
 
 void Ui::OnTap(int x, int y) {

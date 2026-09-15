@@ -152,13 +152,10 @@ void Voice::BeginTurn() {
 
 void Voice::Trigger(const std::string& text) {
     if (!audio_) return;  // Wi-Fi isn't up yet
-    if (phase_ == Phase::Speaking || phase_ == Phase::Thinking) {
-        Interrupt();
-        return;
-    }
-    if (phase_ == Phase::Listening) {
-        ESP_LOGI(TAG, "turn: tapped while listening, stopping");
-        GoIdle();  // a tap turns listening mode off
+    if (phase_ != Phase::Idle) {
+        ESP_LOGI(TAG, "turn: tapped while active, stopping");
+        if (phase_ == Phase::Speaking || phase_ == Phase::Thinking) Interrupt();
+        GoIdle();  // a tap turns voice off, whatever it was doing
         return;
     }
     hide_overlay_at_ms_ = 0;
@@ -249,8 +246,6 @@ void Voice::Interrupt() {
         discard_since_ms_ = NowMs();
     }
     audio_->ResetDecoder();
-    phase_ = Phase::Idle;
-    Trigger();  // straight back to listening
 }
 
 void Voice::FinishTurn() {
