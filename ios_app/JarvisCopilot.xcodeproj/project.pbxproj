@@ -673,7 +673,7 @@
 		1F4173328AB81A5A728A6B18 /* ToolRow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ToolRow.swift; sourceTree = "<group>"; };
 		2170AA740F2CBD103E3717DB /* WorkspacesAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkspacesAPI.swift; sourceTree = "<group>"; };
 		2178BAB61B6E8581D0A37620 /* IslandModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IslandModels.swift; sourceTree = "<group>"; };
-		220197378345D1B7372B1837 /* JarvisWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = JarvisWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		220197378345D1B7372B1837 /* JarvisWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JarvisWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		226F61510C3CC2718C33EA61 /* BackgroundKeepaliveArbiterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundKeepaliveArbiterTests.swift; sourceTree = "<group>"; };
 		23A1421C19FD0E3AFE144B98 /* ShellPolishSnapshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShellPolishSnapshotTests.swift; sourceTree = "<group>"; };
 		24078FA5F9BEBEB758697D2A /* ServerLogsPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ServerLogsPage.swift; sourceTree = "<group>"; };
@@ -865,7 +865,7 @@
 		87AFCD28D46279B3A077F8B4 /* SelfImprovementTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SelfImprovementTests.swift; sourceTree = "<group>"; };
 		880324585FCBF620B71CB25A /* SystemSkills.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemSkills.swift; sourceTree = "<group>"; };
 		883B8048C4A61D4DFCC04066 /* KanbanModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanModels.swift; sourceTree = "<group>"; };
-		888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SpokenMarkdown.swift; path = SpokenMarkdown.swift; sourceTree = "<group>"; };
+		888601362BE4A63013AF6D72 /* SpokenMarkdown.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpokenMarkdown.swift; sourceTree = "<group>"; };
 		889D92C554FB71D50C20DD9D /* JarvisDesignModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = JarvisDesignModel.swift; path = JarvisWidget/JarvisDesignModel.swift; sourceTree = "<group>"; };
 		88F31B15B05E8F7F84FF4017 /* VoiceAPITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceAPITests.swift; sourceTree = "<group>"; };
 		89F3F4C3C872FDEE46671EE6 /* JarvisAlarmMetadata.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JarvisAlarmMetadata.swift; sourceTree = "<group>"; };
@@ -1186,7 +1186,6 @@
 				A5FE4EA7B8C34DDDB922C004 /* ChatMarkdownCache.swift */,
 				E62A2763B2AE775BDE6655BF /* Dashboard */,
 			);
-			name = Chat;
 			path = Chat;
 			sourceTree = "<group>";
 		};
@@ -1219,7 +1218,6 @@
 				E21A43FEFD342DDD8E1D67F1 /* CodingPromptSheet.swift */,
 				25159CEA86AB41F696FDEA56 /* CodeMasterSettingsPage.swift */,
 			);
-			name = Views;
 			path = Views;
 			sourceTree = "<group>";
 		};
@@ -1242,7 +1240,6 @@
 				DD7C0E11A2C0CEC54959FA90 /* Shared */,
 				E60850773F9A5197F734CA87 /* Services */,
 			);
-			name = Copilot;
 			path = Copilot;
 			sourceTree = "<group>";
 		};
@@ -1259,7 +1256,6 @@
 				76F49FA45D26A5348A0DB282 /* OnDeviceChatBridge.swift */,
 				9BBAF4DEE3A26FB116A04D7C /* OnDeviceModelCatalog.swift */,
 			);
-			name = OnDeviceAI;
 			path = OnDeviceAI;
 			sourceTree = "<group>";
 		};
@@ -1283,7 +1279,6 @@
 				39D675E0FFE07AB3C4A95C95 /* VoiceBackendFixTests.swift */,
 				C9FE55E95B0218E30FE62808 /* AudioSessionArbiterTests.swift */,
 			);
-			name = Voice;
 			path = Voice;
 			sourceTree = "<group>";
 		};
@@ -1295,7 +1290,6 @@
 				1CAB96E7132FCDB494738F7F /* JarvisMemoryStore.swift */,
 				B659300802E9BA5F5211D96D /* LongTermMemoryPage.swift */,
 			);
-			name = JarvisMemory;
 			path = JarvisMemory;
 			sourceTree = "<group>";
 		};
@@ -1320,7 +1314,6 @@
 				3CD789B1A172654A7E485137 /* ShortcutRunnerTests.swift */,
 				0B5A7079298755592C4A14CE /* SkillArgsTests.swift */,
 			);
-			name = Skills;
 			path = Skills;
 			sourceTree = "<group>";
 		};
@@ -1331,7 +1324,6 @@
 				30E2AB7620D490D3BFC3363C /* CodingViewHostingTests.swift */,
 				82D64AC1D5A30DE01403F4FD /* CodingLoadErrorBannerUITests.swift */,
 			);
-			name = CodingUI;
 			path = CodingUI;
 			sourceTree = "<group>";
 		};
@@ -1340,7 +1332,6 @@
 			children = (
 				C956FABE32435FAA03316F30 /* HarnessSmokeTests.swift */,
 			);
-			name = .;
 			path = .;
 			sourceTree = "<group>";
 		};
@@ -1397,7 +1388,6 @@
 				ED69956E5A404410D189DB90 /* PairPage.swift */,
 				B37DF0C3DF7421F1CE6005EC /* PairingPayload.swift */,
 			);
-			name = Pairing;
 			path = Pairing;
 			sourceTree = "<group>";
 		};
@@ -1409,7 +1399,6 @@
 				50286C204C30CC4F88E81AE1 /* TodosStore.swift */,
 				F9569A4B4B8FF962E8FDA6B1 /* TodosPage.swift */,
 			);
-			name = Todos;
 			path = Todos;
 			sourceTree = "<group>";
 		};
@@ -1431,7 +1420,6 @@
 				8D91A09459A1EF560956AB28 /* CenteredMessage.swift */,
 				34BFD044F8D3BE886C0EE2BF /* LiquidGlass.swift */,
 			);
-			name = UI;
 			path = UI;
 			sourceTree = "<group>";
 		};
@@ -1443,7 +1431,6 @@
 				5072183EC782BEB4F738CF5E /* JcLog.swift */,
 				0A6FC7810141604FE28A053C /* TaskHandle.swift */,
 			);
-			name = Core;
 			path = Core;
 			sourceTree = "<group>";
 		};
@@ -1454,7 +1441,6 @@
 				451350B37D84B249122DE911 /* DevicesModels.swift */,
 				95AC21F22B83E0AFEF9A9BBA /* DevicesStore.swift */,
 			);
-			name = Devices;
 			path = Devices;
 			sourceTree = "<group>";
 		};
@@ -1466,7 +1452,6 @@
 				0AE3F02F71BEB4F1F5B0D06A /* PhotonStore.swift */,
 				3A9E4531BA814D4B3CB7CD83 /* PhotonSetupPage.swift */,
 			);
-			name = Photon;
 			path = Photon;
 			sourceTree = "<group>";
 		};
@@ -1480,7 +1465,6 @@
 				C6480C0ADC9254A6368121AE /* VoiceModelSelectionTests.swift */,
 				D2C2B34BEC3DB3CBC1D0BA13 /* VoiceSnapshotTests.swift */,
 			);
-			name = VoiceUI;
 			path = VoiceUI;
 			sourceTree = "<group>";
 		};
@@ -1499,7 +1483,6 @@
 				C56842DEF1D899E094B3AC5A /* BackgroundKeepaliveTests.swift */,
 				76E2F4CF0FD8E7B48221EECB /* LocalConnectionNotifierTests.swift */,
 			);
-			name = Services;
 			path = Services;
 			sourceTree = "<group>";
 		};
@@ -1512,7 +1495,6 @@
 				BA6DBFD8DDF3ED5E5D3C647D /* CodeMemoryPage.swift */,
 				F29BC98268712C15516BC6D2 /* CodeMemoryEntriesView.swift */,
 			);
-			name = CodeMemory;
 			path = CodeMemory;
 			sourceTree = "<group>";
 		};
@@ -1528,7 +1510,6 @@
 				6E2A4A7B3E94BF71678C423F /* ChatStoreTests.swift */,
 				9081C25AB9471B3CBAF06BED /* ChatDashboardStoreTests.swift */,
 			);
-			name = Chat;
 			path = Chat;
 			sourceTree = "<group>";
 		};
@@ -1545,7 +1526,6 @@
 				E9D2755340D3BA0F5C5AF68B /* CodingSessionStoreTests.swift */,
 				0E625D4AE8CDFFB786EDE8F0 /* CodeMasterSettingsStoreTests.swift */,
 			);
-			name = Coding;
 			path = Coding;
 			sourceTree = "<group>";
 		};
@@ -1576,7 +1556,6 @@
 				14B28F720B2069CA6D8DD306 /* TaskHandleTests.swift */,
 				BEA8341C7336CAEB461139EA /* MoreGapTests.swift */,
 			);
-			name = More;
 			path = More;
 			sourceTree = "<group>";
 		};
@@ -1586,7 +1565,6 @@
 				C8C72BB81CD5599B46B3DA6E /* SettingsStore.swift */,
 				DFB31C1D5D1C17CAEA923456 /* SettingsPage.swift */,
 			);
-			name = Settings;
 			path = Settings;
 			sourceTree = "<group>";
 		};
@@ -1599,7 +1577,6 @@
 				5E6D12D601532672D3F8FC63 /* OnDeviceChatBridgeTests.swift */,
 				C580FD564D8B7C718DA78E00 /* OnDeviceAISettingsStoreTests.swift */,
 			);
-			name = OnDeviceAI;
 			path = OnDeviceAI;
 			sourceTree = "<group>";
 		};
@@ -1609,7 +1586,6 @@
 				DE3C5004FED17ED37904FEF2 /* JarvisAPITests.swift */,
 				F3930D1FDDC8450259305F67 /* TestSupport.swift */,
 			);
-			name = Core;
 			path = Core;
 			sourceTree = "<group>";
 		};
@@ -1621,7 +1597,6 @@
 				9EED26F185CDA727DCE0E891 /* BallSetupFlow.swift */,
 				6C601845F66BEC45F2AD905F /* BallSetupView.swift */,
 			);
-			name = BallSetup;
 			path = BallSetup;
 			sourceTree = "<group>";
 		};
@@ -1662,7 +1637,6 @@
 				C8C7F52F70DFEFD0D90074F0 /* CodingStoreActions.swift */,
 				11CC9E255C1937885881DF98 /* Views */,
 			);
-			name = Coding;
 			path = Coding;
 			sourceTree = "<group>";
 		};
@@ -1675,7 +1649,6 @@
 				B6130E81B617077424A8B1A7 /* ProductionWiringTests.swift */,
 				B03B77A548BAE82FDD698C5E /* WatchReplyContractTests.swift */,
 			);
-			name = Wiring;
 			path = Wiring;
 			sourceTree = "<group>";
 		};
@@ -1687,7 +1660,6 @@
 				260863C2ECC2D04BDB9C4AC6 /* SelfImprovementStore.swift */,
 				DB56569DF77F1738D105A43C /* SelfImprovementPage.swift */,
 			);
-			name = SelfImprovement;
 			path = SelfImprovement;
 			sourceTree = "<group>";
 		};
@@ -1699,7 +1671,6 @@
 				AA8A7240047AC81094C397C2 /* WorkspacesStore.swift */,
 				C5320BD89E7050ECC1C16B40 /* WorkspacesPage.swift */,
 			);
-			name = Workspaces;
 			path = Workspaces;
 			sourceTree = "<group>";
 		};
@@ -1711,7 +1682,6 @@
 				1CDD52DB7E10082EBDBF61E9 /* QuotaStore.swift */,
 				4427D18CA560FC8794B4334D /* QuotaCard.swift */,
 			);
-			name = Quota;
 			path = Quota;
 			sourceTree = "<group>";
 		};
@@ -1740,7 +1710,6 @@
 				61FB989F0209FBFF65A00019 /* SelfImprovement */,
 				C75583ED220BFED37FE53BE0 /* IslandDesigns */,
 			);
-			name = More;
 			path = More;
 			sourceTree = "<group>";
 		};
@@ -1758,7 +1727,6 @@
 				23A1421C19FD0E3AFE144B98 /* ShellPolishSnapshotTests.swift */,
 				9711C75711CD06B21F08800F /* MemoryKeyValueStore.swift */,
 			);
-			name = Foundation;
 			path = Foundation;
 			sourceTree = "<group>";
 		};
@@ -1770,7 +1738,6 @@
 				14F3A4C823D2A935733DDEAD /* MemoryStore.swift */,
 				C53594B4B0809B49BE3F0440 /* MemoryPage.swift */,
 			);
-			name = Memory;
 			path = Memory;
 			sourceTree = "<group>";
 		};
@@ -1808,7 +1775,6 @@
 				0EDA87658BCF6EC069838DBB /* VoiceReplyView.swift */,
 				1917563EC6747D52C7302762 /* VoiceModelPickerSheet.swift */,
 			);
-			name = Views;
 			path = Views;
 			sourceTree = "<group>";
 		};
@@ -1822,7 +1788,6 @@
 				F921A7653FBD147B687E427B /* Ball */,
 				53D66575C20C11C4242337ED /* BallSetup */,
 			);
-			name = Devices;
 			path = Devices;
 			sourceTree = "<group>";
 		};
@@ -1837,7 +1802,6 @@
 				737ECD2335407D3C6AA3B54A /* JarvisLiveActivity.swift */,
 				09A6D4A89AFA43BB8B0A8975 /* JarvisWidget.swift */,
 			);
-			name = .;
 			path = .;
 			sourceTree = "<group>";
 		};
@@ -1849,7 +1813,6 @@
 				B55E0D7E58635BEC7823851E /* ServerLogsStore.swift */,
 				24078FA5F9BEBEB758697D2A /* ServerLogsPage.swift */,
 			);
-			name = ServerLogs;
 			path = ServerLogs;
 			sourceTree = "<group>";
 		};
@@ -1902,7 +1865,6 @@
 				FAD8A1EDEAC1B1071D820CEC /* LocalRouter.swift */,
 				BB35718003FB55A2A8045E68 /* Views */,
 			);
-			name = Skills;
 			path = Skills;
 			sourceTree = "<group>";
 		};
@@ -1943,7 +1905,6 @@
 				7D6449EBDA32F1C8D8F0CA27 /* SpeechAnalyzerServices.swift */,
 				26A2D39DFF76F0AB58321BD0 /* VoiceAudioEngine.swift */,
 			);
-			name = Voice;
 			path = Voice;
 			sourceTree = "<group>";
 		};
@@ -1968,7 +1929,6 @@
 				60590CB28DB760BB475613C9 /* Wiring */,
 				E2F14E6EC2FEC1A300A0A710 /* Devices */,
 			);
-			name = JarvisCopilotTests;
 			path = JarvisCopilotTests;
 			sourceTree = "<group>";
 		};
@@ -1980,7 +1940,6 @@
 				056DD31ABA27162A9A80A666 /* ProfilesStore.swift */,
 				9936CC470532BD87F9B6D2F2 /* ProfilesPage.swift */,
 			);
-			name = Profiles;
 			path = Profiles;
 			sourceTree = "<group>";
 		};
@@ -1990,7 +1949,6 @@
 				D03A1C8EE55E835D55208BEE /* SkillsGrouping.swift */,
 				10AB262C0BC02FC5A3E2B77F /* SkillsPageModel.swift */,
 			);
-			name = Views;
 			path = Views;
 			sourceTree = "<group>";
 		};
@@ -2002,7 +1960,6 @@
 				D132B7937C3D516237DC06DE /* MoreUIARouteTests.swift */,
 				42726FC7D424203700ABE2E7 /* MoreUIAHostingTests.swift */,
 			);
-			name = MoreUIA;
 			path = MoreUIA;
 			sourceTree = "<group>";
 		};
@@ -2016,7 +1973,6 @@
 				5012A8FA2E076631A6DEEAB7 /* KanbanPage.swift */,
 				61EEA57AB59E41F065C44F60 /* KanbanTaskDetailView.swift */,
 			);
-			name = Kanban;
 			path = Kanban;
 			sourceTree = "<group>";
 		};
@@ -2036,7 +1992,6 @@
 				CC2B17CF791F5B815FD41CA3 /* SkillsUITests.swift */,
 				831EA93461D058E7FDDB52F0 /* LoadErrorBannerUITests.swift */,
 			);
-			name = MoreUIB;
 			path = MoreUIB;
 			sourceTree = "<group>";
 		};
@@ -2050,7 +2005,6 @@
 				1449F3D6EF57843C53341D70 /* CronFormSheet.swift */,
 				11C68CD5E3CB910CEC450F59 /* TasksPage.swift */,
 			);
-			name = Crons;
 			path = Crons;
 			sourceTree = "<group>";
 		};
@@ -2067,7 +2021,6 @@
 				E59E07D2EDF7FA617EA5FCB5 /* IslandSync.swift */,
 				1ADFF9AFA07D037BF229025D /* IslandDesignsPage.swift */,
 			);
-			name = IslandDesigns;
 			path = IslandDesigns;
 			sourceTree = "<group>";
 		};
@@ -2079,7 +2032,6 @@
 				761F447336B9D6435436D928 /* ChatPageSmokeTests.swift */,
 				5543E00864B127432DB9F6F1 /* ChatMarkdownCacheTests.swift */,
 			);
-			name = ChatUI;
 			path = ChatUI;
 			sourceTree = "<group>";
 		};
@@ -2099,7 +2051,6 @@
 				D4DD8F4776D0F9268EC4831C /* ModelPickerSheet.swift */,
 				96BE122E9B3721EF10F3EC20 /* ChatLinkGuard.swift */,
 			);
-			name = Views;
 			path = Views;
 			sourceTree = "<group>";
 		};
@@ -2114,7 +2065,6 @@
 				DD4A473E2CA82D35F62AB3DA /* VoiceLaunchIntent.swift */,
 				49BD547D065A4A998BAAFE07 /* JcAccent.swift */,
 			);
-			name = Shared;
 			path = Shared;
 			sourceTree = "<group>";
 		};
@@ -2153,7 +2103,6 @@
 				1D9ED059DAAEDB954A3DE400 /* BallSetupFlowTests.swift */,
 				2BD0A95997264D8485F52BC0 /* JarvisBallAPITests.swift */,
 			);
-			name = Devices;
 			path = Devices;
 			sourceTree = "<group>";
 		};
@@ -2168,7 +2117,6 @@
 				5E1E2AFB8843F2E8E43E35CD /* InsightsSections.swift */,
 				D1A8E1BF732F60ACA8D9E1A8 /* InsightsCharts.swift */,
 			);
-			name = Insights;
 			path = Insights;
 			sourceTree = "<group>";
 		};
@@ -2189,7 +2137,6 @@
 				D3CA494DBEEF37C0B184E03F /* MetricKitReporter.swift */,
 				C70D9A5B75C48F0F5001D44C /* PersonaLoader.swift */,
 			);
-			name = Services;
 			path = Services;
 			sourceTree = "<group>";
 		};
@@ -2200,7 +2147,6 @@
 				EBFD7DFA6DB3D4B1B5317BC9 /* ChatDashboard.swift */,
 				7864490CBD79D96EC84DEE07 /* WearableArt.swift */,
 			);
-			name = Dashboard;
 			path = Dashboard;
 			sourceTree = "<group>";
 		};
@@ -2231,7 +2177,6 @@
 				A6FC1077A89BDD3610381855 /* RingChartScrub.swift */,
 				6351F42356D9E8EF6FBA3C3E /* RingMetricCard.swift */,
 			);
-			name = Ring;
 			path = Ring;
 			sourceTree = "<group>";
 		};
@@ -2242,7 +2187,6 @@
 				FEB8B049A1D4CC82D1EABBF8 /* JarvisBallStore.swift */,
 				CA9D00957599C8C01C1BE514 /* JarvisBallView.swift */,
 			);
-			name = Ball;
 			path = Ball;
 			sourceTree = "<group>";
 		};
@@ -2264,7 +2208,6 @@
 				A1203E07EA5D17F444878DFA /* RootView.swift */,
 				6D6F7E8EC75E4B09BBBE69EC /* AppServices.swift */,
 			);
-			name = Shell;
 			path = Shell;
 			sourceTree = "<group>";
 		};
