@@ -2694,6 +2694,19 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
     return handled
 
 
+def _record_ball_turn(state: dict, pcm: bytes, sr: int, transcript: str) -> None:
+    """Every turn the Jarvis Ball streams is kept for the phone's Recordings list
+    (api/voice_recordings.py), on a background thread."""
+    origin = state.get("origin") or {}
+    if state.get("client") != "jarvis_ball" or not origin.get("device_id"):
+        return
+    try:
+        from api import voice_recordings
+        voice_recordings.save_async(origin["device_id"], pcm, sr, transcript or "")
+    except Exception:
+        logger.debug("voice: could not keep the ball recording", exc_info=True)
+
+
 def _bridge_pipeline(state: dict, conn, sock) -> None:
     """Realtime bridge pipeline. Mirrors Quality mode: routes through the
     active chat session so realtime mode also gets tools and segmented
@@ -2722,6 +2735,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
         _t0 = time.monotonic()
         transcript = _pcm_to_transcript(pcm, sr, realtime=True)
         _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)
+        _record_ball_turn(state, pcm, sr, transcript)
         if not transcript:
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))
             return
@@ -2777,6 +2791,7 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
         _t0 = time.monotonic()
         transcript = _pcm_to_transcript(pcm, sr, realtime=True)
         _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)
+        _record_ball_turn(state, pcm, sr, transcript)
         if not transcript:
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))
             return

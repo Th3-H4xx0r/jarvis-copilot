@@ -161,6 +161,27 @@ enum JarvisBallLook {
     }
 }
 
+/// One voice turn the ball streamed, kept by the server (webui/api/voice_recordings.py).
+struct JarvisBallRecording: Identifiable, Equatable, Sendable {
+    let id: String
+    let date: Date
+    let durationMs: Int
+    let transcript: String
+
+    init?(json: [String: Any]?) {
+        guard let json, let id = json["id"] as? String, !id.isEmpty else { return nil }
+        self.id = id
+        date = Date(timeIntervalSince1970: (json["ts"] as? Double) ?? 0)
+        durationMs = json["duration_ms"] as? Int ?? 0
+        transcript = (json["transcript"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var durationText: String {
+        let s = max(1, Int((Double(durationMs) / 1000).rounded()))
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
 struct JarvisBallAPI: Sendable {
     func balls() async throws -> [JarvisBallDevice] {
         let list = try await JarvisAPI.shared.get("/api/devices").array(key: "devices")
@@ -195,6 +216,22 @@ struct JarvisBallAPI: Sendable {
         return Data(base64Encoded: String(uri[uri.index(after: comma)...]))
     }
     func reboot(_ id: String) async throws { _ = try await invoke(id, "ball_reboot") }
+
+    // Recordings live on the server, so they work while the ball is offline.
+    func recordings(_ id: String) async throws -> [JarvisBallRecording] {
+        try await JarvisAPI.shared.get("/api/devices/ball/recordings", query: ["device_id": id])
+            .array(key: "recordings").compactMap { JarvisBallRecording(json: $0 as? [String: Any]) }
+    }
+
+    func recordingAudio(_ id: String, _ recordingID: String) async throws -> Data {
+        try await JarvisAPI.shared.get("/api/devices/ball/recordings/audio",
+                                       query: ["device_id": id, "id": recordingID]).data
+    }
+
+    func deleteRecording(_ id: String, _ recordingID: String) async throws {
+        _ = try await JarvisAPI.shared.post("/api/devices/ball/recordings/delete",
+                                            json: ["device_id": id, "id": recordingID])
+    }
 }
 
 // MARK: - Server side of setup

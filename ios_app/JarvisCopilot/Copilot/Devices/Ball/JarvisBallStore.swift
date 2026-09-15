@@ -15,6 +15,8 @@ final class JarvisBallStore {
     private(set) var screens: [String: Data] = [:]
     /// Balls whose screenshot is being fetched: the tile shows a spinner, not a stale screen.
     private(set) var loadingScreens: Set<String> = []
+    /// Voice turns the server kept for each ball, newest first.
+    private(set) var recordings: [String: [JarvisBallRecording]] = [:]
     private(set) var error: String?
 
     private let api: JarvisBallAPI
@@ -104,6 +106,23 @@ final class JarvisBallStore {
         do {
             try await api.deleteHome(id, home: home)
             await loadDetail(id)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func loadRecordings(_ id: String) async {
+        if let list = try? await api.recordings(id) { recordings[id] = list }
+    }
+
+    func recordingAudio(_ id: String, _ recording: JarvisBallRecording) async throws -> Data {
+        try await api.recordingAudio(id, recording.id)
+    }
+
+    func deleteRecording(_ id: String, _ recording: JarvisBallRecording) async {
+        do {
+            try await api.deleteRecording(id, recording.id)
+            recordings[id]?.removeAll { $0.id == recording.id }
         } catch {
             self.error = error.localizedDescription
         }

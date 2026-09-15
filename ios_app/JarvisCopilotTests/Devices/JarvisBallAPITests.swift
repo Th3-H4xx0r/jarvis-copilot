@@ -14,6 +14,17 @@ final class JarvisBallAPITests: XCTestCase {
         XCTAssertEqual(code.ballName, "Jarvis Ball 64D5")
     }
 
+    func testRecordingParsesServerEntry() throws {
+        let rec = try XCTUnwrap(JarvisBallRecording(json: [
+            "id": "1757900000123", "ts": 1_757_900_000.123, "duration_ms": 2400, "transcript": " turn on the lights ",
+        ]))
+        XCTAssertEqual(rec.transcript, "turn on the lights")
+        XCTAssertEqual(rec.durationText, "0:02")
+        XCTAssertEqual(rec.date.timeIntervalSince1970, 1_757_900_000.123, accuracy: 0.001)
+        XCTAssertEqual(JarvisBallRecording(json: ["id": "1", "ts": 1, "duration_ms": 61_500, "transcript": ""])?.durationText, "1:02")
+        XCTAssertNil(JarvisBallRecording(json: ["ts": 1]))
+    }
+
     func testSetupCodeRejectsOtherCodes() {
         XCTAssertNil(BallSetupCode.parse("jarviscopilot://pair?server=x&code=ABC-DEF"))
         XCTAssertNil(BallSetupCode.parse("jarviscopilot://device-setup?v=1&kind=toaster&ssid=A&pw=ABCDEFGH&id=240ac41264d5"))

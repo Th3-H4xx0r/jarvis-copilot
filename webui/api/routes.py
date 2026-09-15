@@ -3565,6 +3565,11 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/pair":
         return t(handler, _PAIR_PAGE_HTML, content_type="text/html; charset=utf-8")
 
+    if parsed.path in ("/api/devices/ball/recordings", "/api/devices/ball/recordings/audio"):
+        # The Jarvis Ball's saved voice turns (list / WAV), for the phone's ball page.
+        from api.voice_recordings import handle_get as _recordings_get
+        return _recordings_get(handler, parsed)
+
     if parsed.path == "/api/devices/ball/image":
         # Web pictures re-encoded for the Jarvis Ball's screen (baseline JPEG, square).
         from api.ball_image import handle_ball_image
@@ -6262,6 +6267,10 @@ def handle_post(handler, parsed) -> bool:
     # Authed callers (chat skill, agent, devops) ask a paired device to
     # execute one of its registered skills. Synchronous — returns the
     # device's result or an error.
+    if parsed.path == "/api/devices/ball/recordings/delete":
+        from api.voice_recordings import handle_delete as _recordings_delete
+        return _recordings_delete(handler, body)
+
     if parsed.path == "/api/devices/skills/invoke":
         from api.device_bridge import invoke_skill
         device_id = (body.get("device_id") or "").strip()
