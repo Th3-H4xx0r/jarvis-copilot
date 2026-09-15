@@ -26,8 +26,11 @@ WATCH_APP="$APP/Watch/JarvisWatch.app"
 
 echo "==> Detecting devices"
 DEV="$(xcrun devicectl list devices 2>/dev/null || true)"
-IPHONE_ID="${IPHONE_ID:-$(printf '%s\n' "$DEV" | grep -i iphone | grep -ioE "$RE" | head -1 || true)}"
-WATCH_ID="${WATCH_ID:-$(printf '%s\n' "$DEV" | grep -i watch  | grep -ioE "$RE" | head -1 || true)}"
+# Only real, paired hardware: the list also carries every simulator, and picking one
+# fails later with "Install Application is not supported by this device".
+REAL="$(printf '%s\n' "$DEV" | grep -v simulated | grep "available")"
+IPHONE_ID="${IPHONE_ID:-$(printf '%s\n' "$REAL" | grep -i iphone | grep -ioE "$RE" | head -1 || true)}"
+WATCH_ID="${WATCH_ID:-$(printf '%s\n' "$REAL" | grep -i watch  | grep -ioE "$RE" | head -1 || true)}"
 echo "    iPhone=${IPHONE_ID:-<none>}  Watch=${WATCH_ID:-<none>}"
 [ -n "$IPHONE_ID" ] || { echo "✗ no iPhone connected — unlock it and check Developer Mode"; exit 1; }
 

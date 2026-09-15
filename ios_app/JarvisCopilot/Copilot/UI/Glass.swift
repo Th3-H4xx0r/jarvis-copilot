@@ -441,7 +441,8 @@ struct JcIcon: View {
                 .frame(width: size, height: size)
         } else {
             // A name with no Phosphor mapping (usually built at runtime): keep Apple's.
-            JcIcon(name)
+            // NOT JcIcon(name) — that would recurse forever.
+            Image(systemName: name)
                 .font(.system(size: size * 0.92, weight: weight))
         }
     }
