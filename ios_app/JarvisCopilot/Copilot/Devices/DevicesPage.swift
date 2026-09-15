@@ -90,10 +90,14 @@ struct DevicesPage: View {
             }, onClose: { scanningForDevice = false })
         }
         .fullScreenCover(item: sizeClass == .compact ? $setupCode : .constant(nil)) { code in
-            PodSetupView(code: code) { Task { await JarvisPodStore.shared.refresh(force: true); await store.refresh() } }
+            PodSetupView(code: code, onClose: { setupCode = nil }) {
+                Task { await JarvisPodStore.shared.refresh(force: true); await store.refresh() }
+            }
         }
         .sheet(item: sizeClass == .compact ? .constant(nil) : $setupCode) { code in
-            PodSetupView(code: code) { Task { await JarvisPodStore.shared.refresh(force: true); await store.refresh() } }
+            PodSetupView(code: code, onClose: { setupCode = nil }) {
+                Task { await JarvisPodStore.shared.refresh(force: true); await store.refresh() }
+            }
                 .presentationDetents([.large])
         }
         // A card elsewhere (the Chat dashboard) asked for a particular half.

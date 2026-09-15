@@ -56,9 +56,13 @@ struct PodSetupView: View {
     @State private var confirmCancel = false
     @FocusState private var passwordFocused: Bool
     var onFinished: () -> Void = {}
+    /// Closing goes through the presenter's binding, like the scanner: `dismiss` from
+    /// inside the setup cover didn't close it, so Done did nothing.
+    var onClose: (() -> Void)?
 
-    init(code: PodSetupCode, onFinished: @escaping () -> Void = {}) {
+    init(code: PodSetupCode, onClose: (() -> Void)? = nil, onFinished: @escaping () -> Void = {}) {
         _flow = State(initialValue: PodSetupFlow(code: code))
+        self.onClose = onClose
         self.onFinished = onFinished
     }
 
@@ -118,7 +122,7 @@ struct PodSetupView: View {
             if !finished { await flow.cancel() }
             if finished { onFinished() }
         }
-        dismiss()
+        if let onClose { onClose() } else { dismiss() }
     }
 
     // MARK: Hero

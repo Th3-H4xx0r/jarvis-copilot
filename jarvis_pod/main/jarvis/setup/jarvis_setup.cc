@@ -165,7 +165,9 @@ esp_err_t HandleInfo(httpd_req_t* req) {
     cJSON* root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "kind", "jarvis_pod");
     cJSON_AddStringToObject(root, "board", "sp-esp32-s3-1.28-box");
-    cJSON_AddStringToObject(root, "fw", UserAgent().substr(11).c_str());
+    std::string ua = UserAgent();  // "JarvisPod/2.5.0": the version is after the slash
+    size_t slash = ua.find('/');
+    cJSON_AddStringToObject(root, "fw", (slash == std::string::npos ? ua : ua.substr(slash + 1)).c_str());
     cJSON_AddStringToObject(root, "mac", g_mac12.c_str());
     cJSON_AddNumberToObject(root, "battery", level);
     cJSON_AddBoolToObject(root, "touch", jarvis::Caps().touch_present);
