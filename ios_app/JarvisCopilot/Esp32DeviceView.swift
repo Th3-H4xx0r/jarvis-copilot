@@ -7,6 +7,7 @@ struct Esp32DeviceView: View {
     @StateObject private var bridge = BridgeClient.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showingWifiSheet = false
+    @State private var renaming = false
     @State private var preference: Esp32LinkPreference = .auto
     @State private var linking = false
     @State private var linkMessage: String?
@@ -39,7 +40,10 @@ struct Esp32DeviceView: View {
             }
             .padding(.bottom, 40)
         }
-        .navigationTitle(board.name)
+        .navigationTitle(WearableNames.shared.name(WearableKeepAlive.esp32, fallback: board.name))
+        .wearableRename(isPresented: $renaming, current: WearableNames.shared.name(WearableKeepAlive.esp32, fallback: board.name)) {
+            WearableNames.shared.rename(WearableKeepAlive.esp32, to: $0)
+        }
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             preference = Esp32Manager.linkPreference(for: deviceID)
@@ -64,6 +68,7 @@ struct Esp32DeviceView: View {
                 dismiss()
             }
             .disabled(manager.connected?.id != board.id)
+            WearableMoreMenu { renaming = true }
         }
     }
 
@@ -786,7 +791,7 @@ struct Esp32Card: View {
             }
 
             VStack(alignment: .leading, spacing: 0) {
-                Text(board.name)
+                Text(WearableNames.shared.name(WearableKeepAlive.esp32, fallback: board.name))
                     .font(.title3.weight(.semibold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.75)

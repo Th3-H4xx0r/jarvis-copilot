@@ -28,7 +28,7 @@ struct ScanView: View {
             VStack(alignment: .leading, spacing: 20) {
                 if manager.discovered.isEmpty && scaleManager.discovered.isEmpty
                     && esp32Manager.discovered.isEmpty && ringManager.discovered.isEmpty && absent.isEmpty
-                    && JarvisBallStore.shared.balls.isEmpty {
+                    && JarvisPodStore.shared.pods.isEmpty {
                     emptyState
                 } else {
                     grid(entries, absent: absent)
@@ -39,7 +39,7 @@ struct ScanView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .task { await JarvisBallStore.shared.pollWhileVisible() }
+        .task { await JarvisPodStore.shared.pollWhileVisible() }
     }
 
     @ToolbarContentBuilder private var scanToolbar: some ToolbarContent {
@@ -58,11 +58,11 @@ struct ScanView: View {
 
     private func grid(_ entries: [WearableEntry], absent: [WearableEntry]) -> some View {
         VStack(spacing: spacing) {
-            ForEach(JarvisBallStore.shared.balls) { ball in
+            ForEach(JarvisPodStore.shared.pods) { pod in
                 NavigationLink {
-                    JarvisBallView(ballID: ball.id)
+                    JarvisPodView(podID: pod.id)
                 } label: {
-                    JarvisBallCard(ball: ball, status: JarvisBallStore.shared.statuses[ball.id])
+                    JarvisPodCard(pod: pod, status: JarvisPodStore.shared.statuses[pod.id])
                 }
                 .buttonStyle(.plain)
             }
@@ -261,7 +261,7 @@ private struct ScaleCard: View {
                 .allowsHitTesting(false)
 
             VStack(alignment: .leading, spacing: 0) {
-                Text(scale.name.isEmpty ? "ESF551" : scale.name)
+                Text(WearableNames.shared.name(WearableKeepAlive.scale, fallback: scale.name.isEmpty ? "ESF551" : scale.name))
                     .font(.title3.weight(.semibold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.76)
@@ -335,7 +335,7 @@ private struct BottleCard: View {
             }
 
             VStack(alignment: .leading, spacing: 0) {
-                Text(bottle.name.isEmpty ? "Unnamed" : bottle.name)
+                Text(WearableNames.shared.name(WearableKeepAlive.bottle, fallback: bottle.name.isEmpty ? "Unnamed" : bottle.name))
                     .font(.title3.weight(.semibold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.75)

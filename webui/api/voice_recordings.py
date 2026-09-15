@@ -1,7 +1,7 @@
-"""Saved voice turns from the Jarvis Ball.
+"""Saved voice turns from the Jarvis Pod.
 
-Every turn the ball streams (the decoded 16 kHz mono PCM the server transcribes)
-is kept as a WAV next to its transcript, per device, so the phone's ball page can
+Every turn the pod streams (the decoded 16 kHz mono PCM the server transcribes)
+is kept as a WAV next to its transcript, per device, so the phone's pod page can
 list and play them. Kept 30 days, at most 2000 per device.
 
     STATE_DIR/voice_recordings/<device_id>/<id>.wav
@@ -53,7 +53,8 @@ def _write_index(d: Path, recs: list[dict]) -> None:
     tmp.replace(d / "index.json")
 
 
-def save(device_id: str, pcm: bytes, sample_rate: int, transcript: str, now: Optional[float] = None) -> Optional[dict]:
+def save(device_id: str, pcm: bytes, sample_rate: int, transcript: str, now: Optional[float] = None,
+         cleaned: bool = False) -> Optional[dict]:
     """Store one turn; returns its index entry, or None when there's nothing to keep."""
     d = _device_dir(device_id)
     if d is None or len(pcm) < _MIN_PCM_BYTES or sample_rate <= 0:
@@ -76,6 +77,7 @@ def save(device_id: str, pcm: bytes, sample_rate: int, transcript: str, now: Opt
             "ts": round(now, 3),
             "duration_ms": int(len(pcm) / 2 / sample_rate * 1000),
             "transcript": (transcript or "").strip()[:2000],
+            "cleaned": cleaned,
         }
         recs.insert(0, entry)
         keep = [r for r in recs if now - float(r.get("ts") or 0) <= MAX_AGE_SECONDS][:MAX_PER_DEVICE]
@@ -87,10 +89,19 @@ def save(device_id: str, pcm: bytes, sample_rate: int, transcript: str, now: Opt
     return entry
 
 
-def save_async(device_id: str, pcm: bytes, sample_rate: int, transcript: str) -> None:
-    """Fire-and-forget: a turn never waits on the disk."""
-    threading.Thread(target=save, args=(device_id, pcm, sample_rate, transcript),
-                     name="voice-recording", daemon=True).start()
+def save_async(device_id: str, pcm: bytes, sample_rate: int, transcript: str,
+               noise_cancel: bool = False) -> None:
+    """Fire-and-forget: a turn never waits on the disk (or on noise suppression)."""
+    def _run():
+        audio, cleaned = pcm, False
+        if noise_cancel:
+            from api import voice_denoise
+            out = voice_denoise.clean(device_id, pcm, sample_rate)
+            if out:
+                audio, cleaned = out, True
+        save(device_id, audio, sample_rate, transcript, cleaned=cleaned)
+
+    threading.Thread(target=_run, name="voice-recording", daemon=True).start()
 
 
 def list_recordings(device_id: str) -> list[dict]:
@@ -126,7 +137,7 @@ def delete(device_id: str, rec_id: str) -> bool:
 # ── HTTP ─────────────────────────────────────────────────────────────────────
 
 def handle_get(handler, parsed) -> bool:
-    """GET /api/devices/ball/recordings?device_id=  and  .../recordings/audio?device_id=&id="""
+    """GET /api/devices/pod/recordings?device_id=  and  .../recordings/audio?device_id=&id="""
     from api.helpers import j
 
     qs = urllib.parse.parse_qs(parsed.query)
@@ -152,7 +163,7 @@ def handle_get(handler, parsed) -> bool:
 
 
 def handle_delete(handler, body: dict) -> bool:
-    """POST /api/devices/ball/recordings/delete  {device_id, id}"""
+    """POST /api/devices/pod/recordings/delete  {device_id, id}"""
     from api.helpers import j
 
     ok = delete(str(body.get("device_id") or ""), str(body.get("id") or ""))

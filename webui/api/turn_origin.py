@@ -1,7 +1,7 @@
 """Which paired device a chat or voice turn came from.
 
 The agent otherwise can't tell a request typed on the Mac from one spoken to the
-Jarvis Ball: "show me a cat" came back as a link, and "directions to Taco Bell"
+Jarvis Pod: "show me a cat" came back as a link, and "directions to Taco Bell"
 could open on whichever device offered the skill first. Each turn's entry point
 resolves the paired device from the request's session cookie (so a client can't
 claim to be another device), then

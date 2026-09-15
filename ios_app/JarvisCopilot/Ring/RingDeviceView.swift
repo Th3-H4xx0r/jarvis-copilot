@@ -8,6 +8,7 @@ struct RingDeviceView: View {
     @ObservedObject private var sync: RingSync
 
     @State private var dayOffset = 0
+    @State private var renaming = false
     @State private var showingSettings = false
     @State private var findToken = 0
     @State private var actionError: String?
@@ -51,7 +52,10 @@ struct RingDeviceView: View {
             .padding(.bottom, 40)
         }
         .refreshable { await sync.sync(days: dayOffset) }
-        .navigationTitle(ring.name)
+        .navigationTitle(WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name))
+        .wearableRename(isPresented: $renaming, current: WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name)) {
+            WearableNames.shared.rename(WearableKeepAlive.ring, to: $0)
+        }
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             manager.screenIsOpen = true
@@ -79,6 +83,7 @@ struct RingDeviceView: View {
                 Task { await sync.sync(days: sync.historyDays) }
             }
             .disabled(!ready || sync.isSyncing)
+            WearableMoreMenu { renaming = true }
         }
     }
 
@@ -353,7 +358,7 @@ struct RingCard: View {
             }
             .frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
-                Text(ring.name.isEmpty ? "Smart ring" : ring.name)
+                Text(WearableNames.shared.name(WearableKeepAlive.ring, fallback: ring.name.isEmpty ? "Smart ring" : ring.name))
                     .font(.title3.weight(.semibold))
                     .lineLimit(1)
                 Text("Colmi R12 smart ring")

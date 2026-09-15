@@ -7,6 +7,7 @@ struct ScaleDeviceView: View {
     @StateObject private var history = ScaleHistoryStore.shared
     @AppStorage("scaleDisplayUnit") private var unit: WeightUnit = .kilograms
     @State private var showingSettings = false
+    @State private var renaming = false
 
     private let blue = JcTheme.accent
     /// A weighing in progress: the soft accent, apart from the connected cyan.
@@ -42,7 +43,11 @@ struct ScaleDeviceView: View {
             }
             .padding(.bottom, 40)
         }
-        .navigationTitle(scale.name.isEmpty ? "ESF551" : scale.name)
+        .navigationTitle(WearableNames.shared.name(WearableKeepAlive.scale, fallback: scale.name.isEmpty ? "ESF551" : scale.name))
+        .wearableRename(isPresented: $renaming,
+                        current: WearableNames.shared.name(WearableKeepAlive.scale, fallback: scale.name.isEmpty ? "ESF551" : scale.name)) {
+            WearableNames.shared.rename(WearableKeepAlive.scale, to: $0)
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem {
@@ -52,6 +57,9 @@ struct ScaleDeviceView: View {
                     Image(systemName: connected ? "bluetooth.slash" : "arrow.clockwise")
                 }
                 .accessibilityLabel(connected ? "Disconnect" : "Reconnect")
+            }
+            ToolbarItem {
+                WearableMoreMenu { renaming = true }
             }
         }
         .navigationDestination(isPresented: $showingSettings) {

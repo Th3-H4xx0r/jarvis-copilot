@@ -13,7 +13,7 @@ import api.device_bridge as device_bridge  # noqa: E402
 import api.pairing as pairing  # noqa: E402
 from api import turn_origin  # noqa: E402
 
-BALL = {"id": "ball1", "name": "Jarvis Ball", "kind": "browser"}
+POD = {"id": "pod1", "name": "Jarvis Pod", "kind": "browser"}
 PHONE = {"id": "phone1", "name": "Pranav's iPhone", "kind": "mobile-ios"}
 
 
@@ -24,13 +24,13 @@ def _paired(monkeypatch, device, skills):
     monkeypatch.setattr(device_bridge, "skills_for_device", lambda did: [{"name": n} for n in skills])
 
 
-def test_voice_from_the_ball_names_it_and_asks_for_the_screen(monkeypatch):
-    _paired(monkeypatch, BALL, ["ball_show", "ball_status"])
+def test_voice_from_the_pod_names_it_and_asks_for_the_screen(monkeypatch):
+    _paired(monkeypatch, POD, ["pod_show", "pod_status"])
     origin = turn_origin.origin_for_handler(object())
     text = turn_origin.directive(origin, "voice")
-    assert '"Jarvis Ball" (id ball1' in text
+    assert '"Jarvis Pod" (id pod1' in text
     assert "by voice" in text
-    assert 'device="ball1"' in text
+    assert 'device="pod1"' in text
     assert "never answer with only a link" in text
 
 

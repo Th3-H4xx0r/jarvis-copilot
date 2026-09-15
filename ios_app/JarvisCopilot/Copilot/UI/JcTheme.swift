@@ -60,7 +60,7 @@ enum JcTheme {
     static let primaryBlueLo = JcAccent.deeper
     static let primaryBlueHi = JcAccent.bright
 
-    // Hex first so devices that can't take a SwiftUI Color (the Jarvis Ball) get the same values.
+    // Hex first so devices that can't take a SwiftUI Color (the Jarvis Pod) get the same values.
     static let successHex: UInt32 = 0x5BE5A0
     static let amberHex: UInt32 = 0xFFC34D
     static let dangerHex: UInt32 = 0xFF6B7E

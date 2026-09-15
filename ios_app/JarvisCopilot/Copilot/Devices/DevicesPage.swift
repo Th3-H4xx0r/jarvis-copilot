@@ -23,8 +23,8 @@ struct DevicesPage: View {
     @State private var store: DevicesStore
     /// Scan a Jarvis device's setup QR, then pair it in the stepper.
     @State private var scanningForDevice = false
-    @State private var setupCode: BallSetupCode?
-    @State private var scannedCode: BallSetupCode?
+    @State private var setupCode: PodSetupCode?
+    @State private var scannedCode: PodSetupCode?
     @Environment(\.horizontalSizeClass) private var sizeClass
     /// Optional so tests and previews without the shell still build the page.
     @Environment(AppRouter.self) private var router: AppRouter?
@@ -84,16 +84,16 @@ struct DevicesPage: View {
                 setupCode = code
             }
         }) {
-            BallScanView(onFound: { code in
+            PodScanView(onFound: { code in
                 scannedCode = code
                 scanningForDevice = false
             }, onClose: { scanningForDevice = false })
         }
         .fullScreenCover(item: sizeClass == .compact ? $setupCode : .constant(nil)) { code in
-            BallSetupView(code: code) { Task { await JarvisBallStore.shared.refresh(force: true); await store.refresh() } }
+            PodSetupView(code: code) { Task { await JarvisPodStore.shared.refresh(force: true); await store.refresh() } }
         }
         .sheet(item: sizeClass == .compact ? .constant(nil) : $setupCode) { code in
-            BallSetupView(code: code) { Task { await JarvisBallStore.shared.refresh(force: true); await store.refresh() } }
+            PodSetupView(code: code) { Task { await JarvisPodStore.shared.refresh(force: true); await store.refresh() } }
                 .presentationDetents([.large])
         }
         // A card elsewhere (the Chat dashboard) asked for a particular half.

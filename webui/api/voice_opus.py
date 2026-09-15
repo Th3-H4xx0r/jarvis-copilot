@@ -1,10 +1,10 @@
-"""Opus for voice clients that can't carry raw PCM (the Jarvis Ball).
+"""Opus for voice clients that can't carry raw PCM (the Jarvis Pod).
 
 A thin ctypes binding over the system libopus (`libopus0` on Linux, `opus` from
 Homebrew on macOS) — no pip dependency. Only the voice socket's opt-in
 `codec: "opus"` path uses it; phone and Mac stay on PCM.
 
-Frames are 60 ms: the ball's audio service encodes the mic at 16 kHz mono in
+Frames are 60 ms: the pod's audio service encodes the mic at 16 kHz mono in
 60 ms packets and decodes the reply at 24 kHz mono.
 """
 from __future__ import annotations

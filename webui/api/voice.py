@@ -775,11 +775,11 @@ _HEARD_TEXT_MAX_CHARS = 1200
 # Voice clients that aren't the phone or Mac say what they are on begin_turn, so
 # "show me X" lands on the device the user is talking through.
 _CLIENT_DIRECTIVES = {
-    "jarvis_ball": (
-        "\n\n[The user is speaking through their Jarvis Ball, a small device with a "
-        "round 240 px screen. To show them something, call device_ball_show (a picture goes "
+    "jarvis_pod": (
+        "\n\n[The user is speaking through their Jarvis Pod, a small device with a "
+        "round 240 px screen. To show them something, call device_pod_show (a picture goes "
         "on its screen as an image block — never answer with only a link); to make "
-        "or change their home page, call device_ball_home_save.]"
+        "or change their home page, call device_pod_home_save.]"
     ),
 }
 
@@ -1939,13 +1939,15 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
         pretext = (msg.get("text") or "").strip()
         if pretext:
             state["pretranscript"] = pretext
-        # Opt-in Opus transport (the Jarvis Ball). Absent → PCM, as before.
+        # Opt-in Opus transport (the Jarvis Pod). Absent → PCM, as before.
         codec = (msg.get("codec") or "").strip().lower()
         if codec in ("opus", "pcm"):
             state["codec"] = codec
         client = (msg.get("client") or "").strip().lower()
         if client:
             state["client"] = client
+        if "noise_cancel" in msg:  # the pod's "Noise cancelling" setting
+            state["noise_cancel"] = bool(msg.get("noise_cancel"))
     elif t == "interrupt":
         # Barge-in. Stop sending audio (the turn thread polls this flag) AND
         # cancel the chat stream so the model stops generating and the session
@@ -2694,17 +2696,18 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
     return handled
 
 
-def _record_ball_turn(state: dict, pcm: bytes, sr: int, transcript: str) -> None:
-    """Every turn the Jarvis Ball streams is kept for the phone's Recordings list
+def _record_pod_turn(state: dict, pcm: bytes, sr: int, transcript: str) -> None:
+    """Every turn the Jarvis Pod streams is kept for the phone's Recordings list
     (api/voice_recordings.py), on a background thread."""
     origin = state.get("origin") or {}
-    if state.get("client") != "jarvis_ball" or not origin.get("device_id"):
+    if state.get("client") != "jarvis_pod" or not origin.get("device_id"):
         return
     try:
         from api import voice_recordings
-        voice_recordings.save_async(origin["device_id"], pcm, sr, transcript or "")
+        voice_recordings.save_async(origin["device_id"], pcm, sr, transcript or "",
+                                    noise_cancel=bool(state.get("noise_cancel")))
     except Exception:
-        logger.debug("voice: could not keep the ball recording", exc_info=True)
+        logger.debug("voice: could not keep the pod recording", exc_info=True)
 
 
 def _bridge_pipeline(state: dict, conn, sock) -> None:
@@ -2735,7 +2738,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
         _t0 = time.monotonic()
         transcript = _pcm_to_transcript(pcm, sr, realtime=True)
         _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)
-        _record_ball_turn(state, pcm, sr, transcript)
+        _record_pod_turn(state, pcm, sr, transcript)
         if not transcript:
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))
             return
@@ -2791,7 +2794,7 @@ def _bridge_answer_clarify(state: dict, conn, sock) -> None:
         _t0 = time.monotonic()
         transcript = _pcm_to_transcript(pcm, sr, realtime=True)
         _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)
-        _record_ball_turn(state, pcm, sr, transcript)
+        _record_pod_turn(state, pcm, sr, transcript)
         if not transcript:
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "no_speech"}))
             return

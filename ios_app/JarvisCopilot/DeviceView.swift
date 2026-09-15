@@ -9,6 +9,7 @@ struct DeviceView: View {
 
     /// Wall-clock elapsed time for the running cycle.
     @State private var cycleStart: Date?
+    @State private var renaming = false
     @State private var now = Date()
     /// Lags `isSterilising` on the way out so the layout doesn't revert mid-unwind.
     @State private var cinematic = false
@@ -51,7 +52,10 @@ struct DeviceView: View {
             }
             .padding(.bottom, 40)
         }
-        .navigationTitle(bottle.name)
+        .navigationTitle(WearableNames.shared.name(WearableKeepAlive.bottle, fallback: bottle.name))
+        .wearableRename(isPresented: $renaming, current: WearableNames.shared.name(WearableKeepAlive.bottle, fallback: bottle.name)) {
+            WearableNames.shared.rename(WearableKeepAlive.bottle, to: $0)
+        }
         .navigationBarTitleDisplayMode(.inline)
         // Connect when this is a different bottle — OR the same bottle whose link
         // is down (dropped while we were away, or a connect that failed). The old
@@ -94,6 +98,7 @@ struct DeviceView: View {
         }
         .toolbar {
             Button("Refresh", systemImage: "arrow.clockwise") { manager.send(.status) }
+            WearableMoreMenu { renaming = true }
         }
     }
 

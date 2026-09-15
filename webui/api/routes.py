@@ -3565,15 +3565,15 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/pair":
         return t(handler, _PAIR_PAGE_HTML, content_type="text/html; charset=utf-8")
 
-    if parsed.path in ("/api/devices/ball/recordings", "/api/devices/ball/recordings/audio"):
-        # The Jarvis Ball's saved voice turns (list / WAV), for the phone's ball page.
+    if parsed.path in ("/api/devices/pod/recordings", "/api/devices/pod/recordings/audio"):
+        # The Jarvis Pod's saved voice turns (list / WAV), for the phone's pod page.
         from api.voice_recordings import handle_get as _recordings_get
         return _recordings_get(handler, parsed)
 
-    if parsed.path == "/api/devices/ball/image":
-        # Web pictures re-encoded for the Jarvis Ball's screen (baseline JPEG, square).
-        from api.ball_image import handle_ball_image
-        return handle_ball_image(handler, parsed)
+    if parsed.path == "/api/devices/pod/image":
+        # Web pictures re-encoded for the Jarvis Pod's screen (baseline JPEG, square).
+        from api.pod_image import handle_pod_image
+        return handle_pod_image(handler, parsed)
 
     if parsed.path == "/api/devices":
         # Authed callers (sidebar Devices tab) get the full list.
@@ -6267,7 +6267,7 @@ def handle_post(handler, parsed) -> bool:
     # Authed callers (chat skill, agent, devops) ask a paired device to
     # execute one of its registered skills. Synchronous — returns the
     # device's result or an error.
-    if parsed.path == "/api/devices/ball/recordings/delete":
+    if parsed.path == "/api/devices/pod/recordings/delete":
         from api.voice_recordings import handle_delete as _recordings_delete
         return _recordings_delete(handler, body)
 
@@ -6422,6 +6422,27 @@ def handle_post(handler, parsed) -> bool:
             address=addr,
         )
         return j(handler, {"ok": True, "stored": entry})
+
+    # ── Rename a paired device (POST /api/devices/<id>/rename {name}) ──
+    if parsed.path.startswith("/api/devices/") and parsed.path.endswith("/rename"):
+        rest = parsed.path[len("/api/devices/"):-len("/rename")].strip("/")
+        name = " ".join(str(body.get("name") or "").split())[:64]
+        if not rest or not name:
+            return bad(handler, "device id and name are required")
+        from api.pairing import list_devices, update_device_fields
+        if not any(d.get("id") == rest for d in list_devices()):
+            return j(handler, {"error": "device not found"}, status=404)
+        update_device_fields(rest, name=name)
+        try:
+            # A live bridge connection names the device's tools; follow the rename now.
+            from api import device_bridge
+            conn = device_bridge._REG.get(rest)
+            if conn is not None:
+                conn.name = name
+                device_bridge._notify_registry_change()
+        except Exception:
+            pass
+        return j(handler, {"ok": True, "name": name})
 
     # ── Device session logout (POST /api/devices/<id>/logout) ──
     # Invalidates the session bound to a paired device while keeping the

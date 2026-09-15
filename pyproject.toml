@@ -67,7 +67,7 @@ dependencies = [
   # (which is a silent killer on Windows — see CONTRIBUTING.md) and
   # `os.killpg` (which doesn't exist on Windows).
   "psutil==7.2.2",
-  # /api/devices/ball/image re-encodes web pictures for the Jarvis Ball's screen.
+  # /api/devices/pod/image re-encodes web pictures for the Jarvis Pod's screen.
   "Pillow>=10",
 ]
 
@@ -85,6 +85,9 @@ fal = ["fal-client==0.13.1"]
 # Edge TTS — default TTS provider but still optional (users can pick
 # ElevenLabs / OpenAI / MiniMax instead).
 edge-tts = ["edge-tts==7.2.7"]
+# Noise suppression for the Jarvis Pod's saved recordings (webui/api/voice_denoise.py);
+# without it recordings are kept as recorded. Linux wheels only.
+pod-noise = ["webrtc-noise-gain>=1.2"]
 modal = ["modal==1.3.4"]
 daytona = ["daytona==0.155.0"]
 vercel = ["vercel==0.5.7"]

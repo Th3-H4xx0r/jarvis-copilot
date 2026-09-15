@@ -1,5 +1,72 @@
 import Foundation
 import Combine
+import Observation
+import SwiftUI
+
+/// Names the user gave their Bluetooth wearables, kept on the phone. Keyed by kind
+/// (`WearableKeepAlive.bottle`, …) — the roster pairs one device per kind — so the
+/// cards, device pages and the agent's device list all show the same name.
+@Observable
+@MainActor
+final class WearableNames {
+    static let shared = WearableNames()
+    private static let key = "wearableCustomNames"
+    private(set) var names: [String: String]
+
+    private init() {
+        names = UserDefaults.standard.dictionary(forKey: Self.key) as? [String: String] ?? [:]
+    }
+
+    func name(_ kind: String, fallback: String) -> String { names[kind] ?? fallback }
+
+    /// An empty name goes back to the device's own.
+    func rename(_ kind: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        names[kind] = trimmed.isEmpty ? nil : String(trimmed.prefix(64))
+        UserDefaults.standard.set(names, forKey: Self.key)
+    }
+}
+
+/// A device page's ⋯ menu Rename: the same alert the chat list uses to rename a chat.
+private struct WearableRenameAlert: ViewModifier {
+    @Binding var isPresented: Bool
+    let current: String
+    let onSave: (String) -> Void
+    @State private var text = ""
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: isPresented) { _, shown in if shown { text = current } }
+            .alert("Rename device", isPresented: $isPresented) {
+                TextField("Name", text: $text)
+                Button("Cancel", role: .cancel) {}
+                Button("Save") {
+                    let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if name != current { onSave(name) }
+                }
+            }
+    }
+}
+
+extension View {
+    func wearableRename(isPresented: Binding<Bool>, current: String, onSave: @escaping (String) -> Void) -> some View {
+        modifier(WearableRenameAlert(isPresented: isPresented, current: current, onSave: onSave))
+    }
+}
+
+/// The ⋯ button at the top of a wearable's page.
+struct WearableMoreMenu: View {
+    let onRename: () -> Void
+
+    var body: some View {
+        Menu {
+            Button("Rename", systemImage: "pencil", action: onRename)
+        } label: {
+            Image(systemName: "ellipsis").foregroundStyle(JcTheme.accent)
+        }
+        .accessibilityLabel("More")
+    }
+}
 
 /// One paired wearable as both the agent and the Devices list see it.
 ///
@@ -143,7 +210,8 @@ final class WearablesHub: ObservableObject {
             out.append(WearableEntry(kind: WearableKeepAlive.bottle,
                                      deviceID: id,
                                      model: VsitooS1Pro.model,
-                                     name: live?.name ?? bottle.connected?.name ?? VsitooS1Pro.model,
+                                     name: WearableNames.shared.name(WearableKeepAlive.bottle,
+                                                                     fallback: live?.name ?? bottle.connected?.name ?? VsitooS1Pro.model),
                                      connected: bottle.state == .ready,
                                      rssi: live?.rssi,
                                      lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.bottle),
@@ -155,7 +223,8 @@ final class WearablesHub: ObservableObject {
             out.append(WearableEntry(kind: WearableKeepAlive.scale,
                                      deviceID: id,
                                      model: Esf551Scale.model,
-                                     name: live?.name ?? scale.connected?.name ?? Esf551Scale.model,
+                                     name: WearableNames.shared.name(WearableKeepAlive.scale,
+                                                                     fallback: live?.name ?? scale.connected?.name ?? Esf551Scale.model),
                                      connected: scale.connected != nil && scale.state == .ready,
                                      rssi: live?.rssi,
                                      lastRSSI: WearableIdentity.lastRSSI(WearableKeepAlive.scale),
@@ -167,7 +236,8 @@ final class WearablesHub: ObservableObject {
             out.append(WearableEntry(kind: WearableKeepAlive.esp32,
                                      deviceID: id,
                                      model: Esp32Board.model,
-                                     name: live?.name ?? esp32.connected?.name ?? Esp32Board.model,
+                                     name: WearableNames.shared.name(WearableKeepAlive.esp32,
+                                                                     fallback: live?.name ?? esp32.connected?.name ?? Esp32Board.model),
                                      connected: esp32.state == .ready,
                                      // A board on Wi-Fi has no RSSI; 0 means "remembered,
                                      // not advertising" in `DiscoveredEsp32`.
@@ -181,7 +251,8 @@ final class WearablesHub: ObservableObject {
             out.append(WearableEntry(kind: WearableKeepAlive.ring,
                                      deviceID: id,
                                      model: ColmiR12.model,
-                                     name: live?.name ?? ring.connected?.name ?? ColmiR12.model,
+                                     name: WearableNames.shared.name(WearableKeepAlive.ring,
+                                                                     fallback: live?.name ?? ring.connected?.name ?? ColmiR12.model),
                                      connected: ring.state == .ready,
                                      // A ring surfaced from iOS's own link has no RSSI (0).
                                      rssi: (live?.rssi).flatMap { $0 == 0 ? nil : $0 },
@@ -189,8 +260,8 @@ final class WearablesHub: ObservableObject {
                                      lastSeen: WearableIdentity.lastSeen(WearableKeepAlive.ring),
                                      listed: live != nil))
         }
-        // The Jarvis Ball talks to the server, not the phone: its card comes from JarvisBallStore.
-        out.append(contentsOf: JarvisBallStore.shared.rosterEntries)
+        // The Jarvis Pod talks to the server, not the phone: its card comes from JarvisPodStore.
+        out.append(contentsOf: JarvisPodStore.shared.rosterEntries)
         return out
     }
 
