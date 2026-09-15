@@ -23,22 +23,25 @@
 namespace jarvis {
 
 namespace {
-constexpr int64_t kEndSilenceMs = 700;
+constexpr int64_t kEndSilenceMs = 550;
 // A tap's click isn't a request: the first moments after a tap are ignored, and a sound
-// must last this long to count as speech. Short enough for a one-word answer ("yes",
-// "stop"); a cough that slips through just comes back no_speech and listening goes on.
-constexpr int64_t kMinSpeechMs = 150;
-constexpr int64_t kTapGuardMs = 350;
+// must be loud for two 100 ms readings in a row to count as speech — enough for a
+// one-word answer ("yes", "stop"); a cough that slips through comes back no_speech.
+constexpr int64_t kTouchGuardMs = 200;  // only after a tap or button press (its click)
 // Energy endpointing: speech is this far above the noise floor; the turn ends after
 // this long back near it.
 constexpr float kLoudAboveFloorDb = 8.0f;
 constexpr float kLoudMinDb = -60.0f;
-constexpr int64_t kEnergyEndMs = 800;
+constexpr int64_t kEnergyEndMs = 550;
+// The pause hint goes out this far into the quiet; end_turn follows at kEnergyEndMs.
+constexpr int64_t kPauseHintMs = 100;
 // Conversation mode: listening continues until a tap, a stop phrase, or this long with no speech.
 constexpr int64_t kListenCapMs = 120000;
 
 constexpr int64_t kMaxTurnMs = 15000;
-constexpr int64_t kSocketIdleMs = 60000;
+constexpr int64_t kKeepaliveMs = 25000;   // under Cloudflare's 100 s idle-WebSocket cut
+constexpr int64_t kReconnectMinMs = 3000;
+constexpr int64_t kReconnectMaxMs = 60000;
 constexpr int64_t kDiscardExpiryMs = 10000;
 constexpr int64_t kReplyWatchdogMs = 45000;
 constexpr int64_t kErrorVisibleMs = 2500;
@@ -148,7 +151,7 @@ void Voice::BeginTurn() {
     cJSON_Delete(msg);
 }
 
-void Voice::Trigger(const std::string& text) {
+void Voice::Trigger(const std::string& text, bool by_touch) {
     if (!audio_) return;  // Wi-Fi isn't up yet
     if (phase_ != Phase::Idle) {
         ESP_LOGI(TAG, "turn: tapped while active, stopping");
@@ -172,6 +175,9 @@ void Voice::Trigger(const std::string& text) {
     ESP_LOGI(TAG, "turn: socket ready (text=%d)", !text.empty());
     BeginTurn();
     turn_start_ms_ = NowMs();
+    // A wake word leaves no click, and people say "Jarvis, hello" in one breath: the
+    // old 350 ms guard swallowed that hello and the turn never ended on its pause.
+    guard_ms_ = by_touch ? kTouchGuardMs : 0;
     last_server_ms_ = NowMs();
     speech_seen_ = false;
     speech_start_ms_ = 0;
@@ -209,16 +215,20 @@ void Voice::OnVad(bool speaking) {
     ESP_LOGI(TAG, "vad: %s (phase %d)", speaking ? "speech" : "silence", static_cast<int>(phase_));
     if (phase_ != Phase::Listening) return;
     int64_t now = NowMs();
-    if (now - turn_start_ms_ < kTapGuardMs) return;
+    if (now - turn_start_ms_ < guard_ms_) return;
     if (speaking) {
         if (!speech_start_ms_) speech_start_ms_ = now;
         silence_since_ms_ = 0;
+        pause_hint_sent_ = false;
         return;
     }
     // The VAD only reports speech after ~128 ms of it (vad_min_speech_ms), so any run counts.
     if (speech_start_ms_) speech_seen_ = true;
     speech_start_ms_ = 0;
-    if (speech_seen_) silence_since_ms_ = now;
+    if (speech_seen_) {
+        silence_since_ms_ = now;
+        NotePause();
+    }
 }
 
 void Voice::EndTurn() {
@@ -356,7 +366,37 @@ void Voice::OnPlaybackDrained() {
     if (audio_ && phase_ == Phase::Speaking && server_done_) FinishTurn();
 }
 
+void Voice::NotePause() {
+    if (pause_hint_sent_) return;
+    pause_hint_sent_ = true;
+    SendText("{\"type\":\"speech_pause\"}");
+}
+
+// Idle: keep the socket open (a keepalive every 25 s) and reopen it with backoff after
+// a drop, so a wake word goes straight to listening instead of two TLS handshakes.
+void Voice::KeepWarm(int64_t now) {
+    if (!audio_) return;  // Wi-Fi isn't up yet
+    if (ws_ && ws_->IsConnected() && ready_ && !socket_closed_) {
+        if (now - last_keepalive_ms_ >= kKeepaliveMs) {
+            SendText("{\"type\":\"keepalive\"}");
+            last_keepalive_ms_ = now;
+        }
+        return;
+    }
+    if (now < next_connect_ms_) return;
+    if (EnsureConnected()) {
+        connect_failures_ = 0;
+        last_keepalive_ms_ = NowMs();
+        ESP_LOGI(TAG, "voice socket open and waiting");
+    } else {
+        connect_failures_ = std::min(connect_failures_ + 1, 5);
+        next_connect_ms_ = NowMs() + std::min(kReconnectMaxMs, kReconnectMinMs << connect_failures_);
+    }
+}
+
 void Voice::ResetEndpointing() {
+    pause_hint_sent_ = false;
+    loud_ticks_ = 0;
     loud_since_ms_ = 0;
     quiet_since_ms_ = 0;
     energy_speech_ = false;
@@ -377,16 +417,22 @@ void Voice::TrackMicLevel(int64_t now) {
     if (++ticks % 10 == 0) ESP_LOGI(TAG, "mic: %.0f dBFS, floor %.0f dBFS%s", db, floor_db_, loud ? " (speech)" : "");
     int level = loud ? std::min(100, static_cast<int>((db - floor_db_ - kLoudAboveFloorDb) * 5.0f)) : 0;
     Ui::Get().SetVoiceLevel(level);
-    if (now - turn_start_ms_ < kTapGuardMs) return;
+    if (now - turn_start_ms_ < guard_ms_) return;
     if (loud) {
         if (!loud_since_ms_) loud_since_ms_ = now;
-        quiet_since_ms_ = 0;
-        // Each tick's reading covers the 100 ms before it.
-        if (now - loud_since_ms_ + 100 >= kMinSpeechMs) energy_speech_ = true;
+        // One loud reading in a pause is a noise blip, not the user talking again: only
+        // two in a row (each covers the 100 ms before it) reset the end-of-speech timer.
+        if (++loud_ticks_ >= 2) {
+            quiet_since_ms_ = 0;
+            pause_hint_sent_ = false;
+            energy_speech_ = true;
+        }
         return;
     }
+    loud_ticks_ = 0;
     loud_since_ms_ = 0;
     if (!quiet_since_ms_) quiet_since_ms_ = now;
+    if (energy_speech_ && now - quiet_since_ms_ >= kPauseHintMs) NotePause();
     if (energy_speech_ && now - quiet_since_ms_ >= kEnergyEndMs) {
         ESP_LOGI(TAG, "turn: speech ended (level %.0f dB, floor %.0f dB)", db, floor_db_);
         EndTurn();
@@ -415,8 +461,8 @@ void Voice::Tick() {
         } else if (now - turn_start_ms_ >= kMaxTurnMs) {
             EndTurn();
         }
-    } else if (phase_ == Phase::Idle && ws_ && last_turn_end_ms_ && now - last_turn_end_ms_ >= kSocketIdleMs) {
-        CloseSocket();
+    } else if (phase_ == Phase::Idle) {
+        KeepWarm(now);
     }
 }
 

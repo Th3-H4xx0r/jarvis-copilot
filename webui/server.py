@@ -421,6 +421,13 @@ def _raise_fd_soft_limit(target: int = 4096) -> dict:
 def main() -> None:
     from api.config import print_startup_config, verify_hermes_imports, _HERMES_FOUND
 
+    try:
+        # Load the realtime STT model now, not on the first voice turn after a restart.
+        from api.voice import _spawn_stt_warm
+        _spawn_stt_warm()
+    except Exception:
+        pass
+
     print_startup_config()
 
     fd_limit = _raise_fd_soft_limit()

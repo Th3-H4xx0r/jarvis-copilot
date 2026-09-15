@@ -104,3 +104,54 @@ def test_pcm_clients_unchanged(monkeypatch):
     assert voice._send_audio(None, None, _state(), ("pcm", b"\x00\x01" * 3840))
     assert texts[0]["format"] == "pcm_s16le"
     assert b"".join(blobs) == b"\x00\x01" * 3840
+
+
+def _spec_state(pcm_len):
+    import threading as _threading
+    return {"lock": _threading.Lock(), "pcm_buf": bytearray(b"\x01\x00" * (pcm_len // 2)), "sample_rate": 16000}
+
+
+def test_pause_hint_transcript_is_used_when_only_the_endpoint_wait_followed(monkeypatch):
+    import api.voice as voice
+
+    calls = []
+    monkeypatch.setattr(voice, "_pcm_to_transcript", lambda pcm, sr, realtime=False: calls.append(len(pcm)) or "a short poem")
+    state = _spec_state(64000)
+    voice._start_speculative_stt(state)
+    assert state["spec_stt"]["done"].wait(2)
+    # 0.5 s of trailing silence arrived before end_turn: the pause-time text stands.
+    assert voice._take_speculative_transcript(state, 64000 + 16000) == "a short poem"
+    assert calls == [64000]
+    assert "spec_stt" not in state and "spec_mark" not in state
+
+
+def test_speech_after_the_pause_discards_the_speculative_transcript(monkeypatch):
+    import api.voice as voice
+
+    monkeypatch.setattr(voice, "_pcm_to_transcript", lambda pcm, sr, realtime=False: "hello")
+    state = _spec_state(32000)
+    voice._start_speculative_stt(state)
+    assert state["spec_stt"]["done"].wait(2)
+    # More than a second of audio after the pause: the user kept talking.
+    assert voice._take_speculative_transcript(state, 32000 + 48000) is None
+
+    import threading as _threading
+
+    release = _threading.Event()
+    monkeypatch.setattr(voice, "_pcm_to_transcript", lambda pcm, sr, realtime=False: release.wait(2) and "hello")
+    state = _spec_state(32000)
+    voice._start_speculative_stt(state)            # first pause: still transcribing...
+    state["pcm_buf"].extend(b"\x01\x00" * 8000)
+    voice._start_speculative_stt(state)            # ...when the user pauses again later
+    release.set()
+    assert voice._take_speculative_transcript(state, 48000) is None  # the first text misses the new words
+
+
+def test_short_audio_starts_no_speculative_stt(monkeypatch):
+    import api.voice as voice
+
+    monkeypatch.setattr(voice, "_pcm_to_transcript", lambda *a, **k: "x")
+    state = _spec_state(200)
+    voice._start_speculative_stt(state)
+    assert "spec_stt" not in state
+    assert voice._take_speculative_transcript(state, 200) is None

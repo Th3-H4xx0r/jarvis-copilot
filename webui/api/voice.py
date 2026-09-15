@@ -1948,6 +1948,12 @@ def _handle_control_frame(msg: dict, state: dict, conn, sock) -> None:
             state["client"] = client
         if "noise_cancel" in msg:  # the pod's "Noise cancelling" setting
             state["noise_cancel"] = bool(msg.get("noise_cancel"))
+    elif t == "speech_pause":
+        # The Jarvis Pod heard the user pause: transcribe what's in so far now, so the
+        # text is ready (or nearly) when its end_turn follows ~0.45 s later.
+        _start_speculative_stt(state)
+    elif t == "keepalive":
+        pass  # the pod keeps its idle socket open (Cloudflare drops silent WebSockets)
     elif t == "interrupt":
         # Barge-in. Stop sending audio (the turn thread polls this flag) AND
         # cancel the chat stream so the model stops generating and the session
@@ -2696,6 +2702,53 @@ def _stream_segments(conn, sock, state, gen, timing: Optional[dict] = None) -> b
     return handled
 
 
+# A speculative transcript is used only when at most this much audio arrived after the
+# pause it was taken at (the pod's 550 ms end-of-speech wait plus packet slack).
+_SPEC_STT_MAX_TAIL_BYTES = int(16000 * 2 * 1.0)
+
+
+def _start_speculative_stt(state: dict) -> None:
+    """Transcribe the turn's audio so far on a background thread (see "speech_pause").
+
+    Every hint is remembered (``spec_mark``); a transcription only starts when none is
+    running, and ``_take_speculative_transcript`` accepts it only if it was taken at
+    the latest pause — speech after the pause sends a new hint, so a stale result
+    can't drop the user's last words.
+    """
+    with state["lock"]:
+        pcm = bytes(state["pcm_buf"])
+        sr = state["sample_rate"]
+    if len(pcm) < 1000:
+        return
+    state["spec_mark"] = len(pcm)
+    running = state.get("spec_stt")
+    if running is not None and not running["done"].is_set():
+        return
+    spec = {"bytes": len(pcm), "done": threading.Event(), "text": None}
+    state["spec_stt"] = spec
+
+    def _run():
+        try:
+            spec["text"] = _pcm_to_transcript(pcm, sr, realtime=True)
+        except Exception:
+            logger.debug("voice: speculative STT failed", exc_info=True)
+        finally:
+            spec["done"].set()
+
+    threading.Thread(target=_run, name="voice-spec-stt", daemon=True).start()
+
+
+def _take_speculative_transcript(state: dict, pcm_len: int, wait_s: float = 15.0):
+    """The pause-time transcript for a turn ending at ``pcm_len`` bytes, or None to run STT."""
+    spec = state.pop("spec_stt", None)
+    mark = state.pop("spec_mark", None)
+    if spec is None or mark != spec["bytes"] or pcm_len - spec["bytes"] > _SPEC_STT_MAX_TAIL_BYTES:
+        return None
+    if not spec["done"].wait(timeout=wait_s):
+        return None
+    return spec["text"]
+
+
 def _record_pod_turn(state: dict, pcm: bytes, sr: int, transcript: str) -> None:
     """Every turn the Jarvis Pod streams is kept for the phone's Recordings list
     (api/voice_recordings.py), on a background thread."""
@@ -2736,7 +2789,11 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
             _ws_send_text(conn, sock, json.dumps({"type": "end_turn", "reason": "empty"}))
             return
         _t0 = time.monotonic()
-        transcript = _pcm_to_transcript(pcm, sr, realtime=True)
+        transcript = _take_speculative_transcript(state, len(pcm))
+        if transcript is None:
+            transcript = _pcm_to_transcript(pcm, sr, realtime=True)
+        else:
+            _mark_span(timing, "stt_speculative", 1.0)
         _mark_span(timing, "stt_ms", (time.monotonic() - _t0) * 1000.0)
         _record_pod_turn(state, pcm, sr, transcript)
         if not transcript:

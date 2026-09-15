@@ -86,7 +86,7 @@ void Application::Initialize() {
     callbacks.on_playback_drained = [this]() { Schedule([this]() { voice_.OnPlaybackDrained(); }); };
     audio_service_.SetCallbacks(callbacks);
 
-    Ui::Get().on_voice = [this](const std::string& text) { Schedule([this, text]() { voice_.Trigger(text); }); };
+    Ui::Get().on_voice = [this](const std::string& text) { Schedule([this, text]() { voice_.Trigger(text, true); }); };
     Ui::Get().on_settings_changed = [this]() { OnSettingsChanged(); };
 
     auto pairing = jarvis::store::LoadPairing();
@@ -158,7 +158,7 @@ void Application::OnButtonClick() {
         if (setup_mode_) return;
         WakeScreen();
         if (Ui::Get().MenuOpen()) Ui::Get().MenuNext();
-        else if (network_up_) voice_.Trigger();
+        else if (network_up_) voice_.Trigger("", true);
     });
 }
 

@@ -18,7 +18,9 @@ class Voice {
 public:
     void Init(AudioService* audio);
 
-    void Trigger(const std::string& text = "");  // wake word / tap / button / page action
+    // wake word / tap / button / page action. by_touch: a tap or button press, whose click
+    // the mic hears for a moment; after a wake word you may talk straight away.
+    void Trigger(const std::string& text = "", bool by_touch = false);
     void Interrupt();
     void OnVad(bool speaking);
     void SendMic();
@@ -59,10 +61,21 @@ private:
     // Energy endpointing alongside the VAD, which can hold "speech" through room noise.
     float floor_db_ = 0;           // adaptive noise floor; 0 = not measured yet
     int64_t loud_since_ms_ = 0;
+    int loud_ticks_ = 0;           // consecutive loud 100 ms readings
+    int64_t guard_ms_ = 0;         // sound ignored this long after a touch starts a turn
     int64_t quiet_since_ms_ = 0;
     bool energy_speech_ = false;
     void ResetEndpointing();
     void TrackMicLevel(int64_t now);
+    // Speed: the voice socket stays open between turns (two TLS handshakes saved per
+    // wake), and the first pause in speech is sent as a hint so the server starts
+    // transcribing before end_turn.
+    void KeepWarm(int64_t now);
+    void NotePause();
+    bool pause_hint_sent_ = false;
+    int64_t last_keepalive_ms_ = 0;
+    int64_t next_connect_ms_ = 0;
+    int connect_failures_ = 0;
     int64_t last_heard_ms_ = 0;    // last tap or transcribed words: the 2-minute listening cap
     bool server_done_ = false;
     int64_t turn_start_ms_ = 0;
