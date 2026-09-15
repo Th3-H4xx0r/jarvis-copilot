@@ -13,6 +13,8 @@ final class JarvisBallStore {
     private(set) var homes: [String: [JarvisBallHome]] = [:]
     /// The latest screenshot of each ball's screen (JPEG), for the live home preview.
     private(set) var screens: [String: Data] = [:]
+    /// Balls whose screenshot is being fetched: the tile shows a spinner, not a stale screen.
+    private(set) var loadingScreens: Set<String> = []
     private(set) var error: String?
 
     private let api: JarvisBallAPI
@@ -77,7 +79,9 @@ final class JarvisBallStore {
     }
 
     func loadScreen(_ id: String) async {
+        loadingScreens.insert(id)
         if let data = try? await api.snapshot(id) { screens[id] = data }
+        loadingScreens.remove(id)
     }
 
     func update(_ id: String, _ changes: [String: Any]) async {
@@ -86,6 +90,8 @@ final class JarvisBallStore {
             if let status = try? await api.status(id) { statuses[id] = status }
             error = nil
             if changes["home"] != nil {
+                screens[id] = nil               // never show the previous home's screen
+                loadingScreens.insert(id)
                 try? await Task.sleep(for: .milliseconds(600))  // let the ball draw the new home first
                 await loadScreen(id)
             }

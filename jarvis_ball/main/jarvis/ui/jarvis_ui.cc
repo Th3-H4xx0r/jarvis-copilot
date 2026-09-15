@@ -131,6 +131,8 @@ struct Ui::Impl {
     std::vector<lv_image_dsc_t> orb_frames;
     int orb_frame = 0;
     lv_obj_t* caption = nullptr;
+    lv_obj_t* status_pill = nullptr;   // "● Listening" above the orb, like the phone
+    lv_obj_t* status_label = nullptr;
     lv_obj_t* menu_btn = nullptr;
     lv_obj_t* back_btn = nullptr;
     lv_obj_t* menu_layer = nullptr;
@@ -275,13 +277,23 @@ struct Ui::Impl {
         lv_obj_set_style_bg_opa(orb_layer, full ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
         if (full) {
             lv_obj_set_size(orb_box, orb_img ? 176 : 200, orb_img ? 176 : 200);
-            lv_obj_align(orb_box, LV_ALIGN_CENTER, 0, -8);
+            // Voice: pill above, caption below, so the orb sits a little lower.
+            lv_obj_align(orb_box, LV_ALIGN_CENTER, 0, voice_active ? 4 : -8);
         } else {
             lv_obj_set_size(orb_box, 48, 48);
             lv_obj_align(orb_box, LV_ALIGN_BOTTOM_MID, 0, -6);
         }
-        if (full && voice_active) lv_obj_remove_flag(caption, LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(caption, LV_OBJ_FLAG_HIDDEN);
+        if (full && voice_active) {
+            lv_obj_remove_flag(caption, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(status_pill, LV_OBJ_FLAG_HIDDEN);
+            const char* word = orb_state == OrbState::Thinking ? "Thinking"
+                               : orb_state == OrbState::Speaking ? "Speaking"
+                               : orb_state == OrbState::Error ? "Something's wrong" : "Listening";
+            lv_label_set_text(status_label, word);
+        } else {
+            lv_obj_add_flag(caption, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(status_pill, LV_OBJ_FLAG_HIDDEN);
+        }
         ApplyOrbState();
     }
 
@@ -429,12 +441,32 @@ struct Ui::Impl {
         }
         caption = lv_label_create(orb_layer);
         lv_label_set_text(caption, "");
-        lv_obj_set_style_text_font(caption, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(caption, &lv_font_montserrat_16, 0);
         lv_obj_set_style_text_color(caption, kWhite, 0);
         lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_long_mode(caption, LV_LABEL_LONG_DOT);
-        lv_obj_set_size(caption, 170, 36);
-        lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -22);
+        lv_obj_set_size(caption, 150, 20);
+        lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -18);
+
+        status_pill = lv_obj_create(orb_layer);
+        lv_obj_remove_style_all(status_pill);
+        lv_obj_set_size(status_pill, LV_SIZE_CONTENT, 24);
+        lv_obj_set_style_radius(status_pill, 12, 0);
+        lv_obj_set_style_bg_color(status_pill, lv_color_hex(0x1A1C22), 0);
+        lv_obj_set_style_bg_opa(status_pill, LV_OPA_COVER, 0);
+        lv_obj_set_style_pad_hor(status_pill, 10, 0);
+        lv_obj_set_flex_flow(status_pill, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(status_pill, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(status_pill, 6, 0);
+        lv_obj_remove_flag(status_pill, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t* dot = Circle(status_pill, 7);
+        lv_obj_set_style_bg_color(dot, lv_color_hex(settings.theme.accent), 0);
+        status_label = lv_label_create(status_pill);
+        lv_label_set_text(status_label, "Listening");
+        lv_obj_set_style_text_font(status_label, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(status_label, kWhite, 0);
+        lv_obj_align(status_pill, LV_ALIGN_TOP_MID, 0, 16);
+        lv_obj_add_flag(status_pill, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(orb_layer, LV_OBJ_FLAG_HIDDEN);
     }
 
@@ -775,7 +807,7 @@ void Ui::SetOrbState(OrbState state) {
     auto* m = impl_;
     m->orb_state = state;
     if (lv_obj_has_flag(m->orb_layer, LV_OBJ_FLAG_HIDDEN)) return;
-    m->ApplyOrbState();
+    m->UpdateOrbLayer();  // re-applies the orb and the status pill's word
     if (state == OrbState::Error) {
         if (m->error_timer) lv_timer_delete(m->error_timer);
         m->error_timer = lv_timer_create(

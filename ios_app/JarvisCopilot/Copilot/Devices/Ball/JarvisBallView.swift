@@ -283,7 +283,9 @@ struct JarvisBallView: View {
     @ViewBuilder
     private func homePreview(_ home: JarvisBallHome, selected: Bool) -> some View {
         // The current home shows the ball's real screen (a live screenshot).
-        if selected, let data = store.screens[ballID], let image = UIImage(data: data) {
+        if selected && store.loadingScreens.contains(ballID) {
+            ProgressView().tint(JcTheme.accent)
+        } else if selected, let data = store.screens[ballID], let image = UIImage(data: data) {
             Image(uiImage: image).resizable().scaledToFill()
         } else {
             builtinPreview(home)

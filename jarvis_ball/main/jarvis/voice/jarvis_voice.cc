@@ -24,7 +24,7 @@ namespace {
 constexpr int64_t kEndSilenceMs = 700;
 constexpr int64_t kNoSpeechMs = 8000;
 constexpr int64_t kFollowUpMs = 6000;
-constexpr int64_t kMaxTurnMs = 30000;
+constexpr int64_t kMaxTurnMs = 15000;
 constexpr int64_t kSocketIdleMs = 60000;
 constexpr int64_t kDiscardExpiryMs = 10000;
 constexpr int64_t kReplyWatchdogMs = 45000;
@@ -148,7 +148,7 @@ void Voice::Trigger(const std::string& text) {
     Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);  // wakes the dimmed screen too
     audio_->EnableWakeWordDetection(false);
     Ui::Get().SetVoiceActive(true);
-    Ui::Get().SetCaption(text.empty() ? "Listening…" : text);
+    Ui::Get().SetCaption(text.empty() ? "Go ahead, I'm here." : text);
     Ui::Get().SetOrbState(text.empty() ? OrbState::Listening : OrbState::Thinking);
     if (text.empty()) audio_->EnableVoiceProcessing(true);  // start capturing while we connect
 
@@ -212,7 +212,6 @@ void Voice::EndTurn() {
     phase_ = Phase::Thinking;
     last_server_ms_ = NowMs();
     Ui::Get().SetOrbState(OrbState::Thinking);
-    Ui::Get().SetCaption("");
 }
 
 void Voice::Interrupt() {
