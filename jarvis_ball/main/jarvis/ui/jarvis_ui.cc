@@ -23,6 +23,9 @@ namespace jarvis {
 namespace {
 
 constexpr int kScreen = 240;
+// Orb animation paused while the ball's responsiveness is sorted out: one still frame,
+// no frame timer, no pulses. Flip to true to bring the motion back.
+constexpr bool kAnimateOrb = false;
 const lv_color_t kBlack = lv_color_hex(0x000000);
 const lv_color_t kWhite = lv_color_hex(0xFFFFFF);
 const lv_color_t kMuted = lv_color_hex(0x8A8F98);
@@ -266,7 +269,7 @@ struct Ui::Impl {
             if (orb_timer) lv_timer_pause(orb_timer);
             return;
         }
-        if (orb_timer) lv_timer_resume(orb_timer);
+        if (orb_timer && kAnimateOrb) lv_timer_resume(orb_timer);
         lv_obj_remove_flag(orb_layer, LV_OBJ_FLAG_HIDDEN);
         bool full = OrbFull();
         lv_obj_set_style_bg_opa(orb_layer, full ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
@@ -319,6 +322,17 @@ struct Ui::Impl {
         }
         if (frames) return ApplyFramesState();
         for (lv_obj_t* o : {glow, mid, core}) lv_anim_delete(o, nullptr);
+        if (!kAnimateOrb) {
+            bool small = !OrbFull();
+            lv_color_t still = lv_color_hex(orb_state == OrbState::Error ? settings.theme.danger : settings.theme.accent);
+            for (lv_obj_t* o : {glow, mid, core}) lv_obj_set_style_bg_color(o, still, 0);
+            lv_obj_set_style_bg_opa(glow, 40, 0);
+            lv_obj_set_style_bg_opa(mid, 70, 0);
+            SizeAnim(glow, small ? 46 : 196);
+            SizeAnim(mid, small ? 36 : 150);
+            SizeAnim(core, small ? 24 : 92);
+            return;
+        }
         bool full = OrbFull();
         int s = full ? 1 : 0;
         lv_color_t accent = lv_color_hex(orb_state == OrbState::Error ? settings.theme.danger : settings.theme.accent);

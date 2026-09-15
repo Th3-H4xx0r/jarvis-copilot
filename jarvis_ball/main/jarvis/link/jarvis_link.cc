@@ -254,7 +254,7 @@ void Link::Start() {
     if (started_.exchange(true)) return;
     invoke_queue_ = xQueueCreate(8, sizeof(std::string*));
     xTaskCreate([](void* self) { static_cast<Link*>(self)->Run(); }, "jarvis_link", 8192, this, 4, nullptr);
-    xTaskCreate([](void* self) { static_cast<Link*>(self)->Worker(); }, "jarvis_tools", 12288, this, 3, nullptr);
+    xTaskCreate([](void* self) { static_cast<Link*>(self)->Worker(); }, "jarvis_tools", 16384, this, 3, nullptr);
 }
 
 void Link::SendJson(cJSON* msg) {

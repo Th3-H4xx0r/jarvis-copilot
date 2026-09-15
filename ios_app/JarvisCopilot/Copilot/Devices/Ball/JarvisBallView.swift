@@ -159,7 +159,7 @@ struct JarvisBallView: View {
 
     private var hero: some View {
         VStack(spacing: 14) {
-            VoiceOrb(state: online ? .idle : .error, amplitude: 0, size: 168, animating: online)
+            VoiceOrb(state: online ? .idle : .error, amplitude: 0, size: 168, animating: false)
                 .frame(height: 168)
                 .opacity(online ? 1 : 0.55)
             Text(ball?.name ?? "Jarvis Ball")
