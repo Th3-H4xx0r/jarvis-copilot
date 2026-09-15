@@ -4006,6 +4006,11 @@ def _run_agent_streaming(
                         agent._lazy_tools_manifest = ""
                     except Exception:
                         logger.debug("voice: load_all_deferred failed", exc_info=True)
+                # A chat turn's sender device (voice turns carry it in their directive).
+                _origin_directive = getattr(_voice_sess, "_turn_origin_directive", None)
+                if _origin_directive:
+                    _voice_sess._turn_origin_directive = None
+                    workspace_system_msg = ((workspace_system_msg or "").rstrip() + "\n\n" + str(_origin_directive)).strip()
             except Exception:
                 _voice_swap = False
             # The agent's token counters are running session totals; snapshot

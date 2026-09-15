@@ -344,14 +344,30 @@ def _invoke(device_id: str, skill_name: str, args: dict) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
-def _resolve_device(args: dict, candidates: list[dict]) -> tuple[Optional[str], Optional[str]]:
-    """Return ``(device_id, error)`` for a skill offered by one or more devices."""
+def _origin_device(session_id: Optional[str]) -> Optional[str]:
+    """The paired device the current turn came from (webui/api/turn_origin.py)."""
+    try:
+        from api import turn_origin
+        return turn_origin.device_for_session(session_id)
+    except Exception:
+        return None
+
+
+def _resolve_device(args: dict, candidates: list[dict],
+                    preferred: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+    """Return ``(device_id, error)`` for a skill offered by one or more devices.
+
+    With no ``device`` argument, ``preferred`` (the device the user is talking
+    from) wins when it offers the skill.
+    """
     if not candidates:
         return None, "no device currently offers this skill"
     if len(candidates) == 1:
         return candidates[0]["device_id"], None
     wanted = str((args or {}).get("device") or "").strip()
     if not wanted:
+        if preferred and any(c["device_id"] == preferred for c in candidates):
+            return preferred, None
         # No preference given — default to the first connected match rather
         # than erroring, so the common single-relevant-device case still works
         # without forcing the model to always pass `device`.
@@ -367,7 +383,8 @@ def _resolve_device(args: dict, candidates: list[dict]) -> tuple[Optional[str], 
 
 def _make_handler(skill_name: str, candidates: list[dict]) -> Callable:
     def _handler(args=None, **_kw):
-        device_id, err = _resolve_device(args or {}, candidates)
+        # task_id is the chat session id for webui turns.
+        device_id, err = _resolve_device(args or {}, candidates, _origin_device(_kw.get("task_id")))
         if err:
             return json.dumps({"ok": False, "error": err})
         call_args = dict(args or {})
@@ -408,8 +425,8 @@ def _build_schema(skill_name: str, candidates: list[dict]) -> tuple[dict, str]:
             "type": "string",
             "description": (
                 "Which device to target, by id or a substring of its name. "
-                f"Available: {', '.join(device_names)}. Defaults to the first "
-                "connected match if omitted."
+                f"Available: {', '.join(device_names)}. Defaults to the device "
+                "the user is talking from, else the first connected match."
             ),
         }
         description = f"{base_description} (available on: {', '.join(device_names)})"

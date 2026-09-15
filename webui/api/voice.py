@@ -674,9 +674,11 @@ def _voice_quality_turn(handler, body) -> bool:
         return True
 
     try:
+        from api import turn_origin
         for seg in _run_agent_turn_via_chat(session_id, transcript,
                                             model_override=turn_model,
-                                            provider_override=turn_provider):
+                                            provider_override=turn_provider,
+                                            origin=turn_origin.origin_for_handler(handler)):
             if seg.get("kind") == "text":
                 text = (seg.get("text") or "").strip()
                 if not text:
@@ -775,7 +777,8 @@ _HEARD_TEXT_MAX_CHARS = 1200
 _CLIENT_DIRECTIVES = {
     "jarvis_ball": (
         "\n\n[The user is speaking through their Jarvis Ball, a small device with a "
-        "round 240 px screen. To show them something, call device_ball_show; to make "
+        "round 240 px screen. To show them something, call device_ball_show (a picture goes "
+        "on its screen as an image block — never answer with only a link); to make "
         "or change their home page, call device_ball_home_save.]"
     ),
 }
@@ -1068,7 +1071,8 @@ def _override_on_cooldown(model: str, provider: str) -> bool:
 
 def _run_agent_turn_via_chat(session_id: str, user_text: str,
                              model_override: str = "", provider_override: str = "",
-                             lane: str = "", heard_before_interrupt=None, client: str = ""):
+                             lane: str = "", heard_before_interrupt=None, client: str = "",
+                             origin=None):
     """GENERATOR. Push `user_text` into the user's active chat session and
     yield segments as they arrive on the SSE stream so callers can react
     incrementally (TTS+play as each text segment lands; show tool status
@@ -1208,6 +1212,13 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
         # by the streaming thread) — not prefixed to the user message, which is
         # what the Chats tab shows verbatim.
         s._voice_turn_directive = _voice_turn_directive(heard_before_interrupt, client)
+        # Which paired device is speaking (api/turn_origin.py): in the system text,
+        # and the default target for device tools this turn.
+        from api import turn_origin
+        origin_text = turn_origin.directive(origin, "voice")
+        if origin_text:
+            s._voice_turn_directive = s._voice_turn_directive.rstrip() + "\n\n" + origin_text
+        turn_origin.note_turn(session_id, origin)
     except Exception:
         pass
     print(f"[webui] voice: turn model={eff_model!r} provider={eff_provider!r} lane={lane!r} override={explicit_override} fast_lane={bool(fast_lane)}", flush=True)
@@ -1273,7 +1284,7 @@ def _run_agent_turn_via_chat(session_id: str, user_text: str,
             except Exception:
                 pass
     if fallback_to_fast:
-        yield from _run_agent_turn_via_chat(session_id, user_text, lane="fast")
+        yield from _run_agent_turn_via_chat(session_id, user_text, lane="fast", client=client, origin=origin)
 
 
 # ---------------------------------------------------------------------------
@@ -1706,7 +1717,8 @@ def handle_websocket(handler, parsed) -> bool:
             break
     if not accepted:
         return True
-    _run_voice_ws(conn, sock)
+    from api import turn_origin
+    _run_voice_ws(conn, sock, origin=turn_origin.origin_for_handler(handler))
     return True
 
 
@@ -1730,7 +1742,7 @@ _WS_BUFFER_LIMIT_BYTES = 4 * 1024 * 1024
 _WS_RECV_CHUNK = 8192
 
 
-def _run_voice_ws(conn, sock) -> None:
+def _run_voice_ws(conn, sock, origin=None) -> None:
     """Bridge-mode S2S pump loop. Blocks until the client disconnects.
 
     The state dict carries per-connection turn state. Only one synchronous
@@ -1751,6 +1763,7 @@ def _run_voice_ws(conn, sock) -> None:
         "lock": threading.Lock(),
         "interrupt": False,
         "closed": False,
+        "origin": origin,  # the paired device on this socket (api/turn_origin.py)
     }
     _ws_send_text(conn, sock, json.dumps({"type": "ready", "mode": "bridge"}))
     try:
@@ -2727,6 +2740,7 @@ def _bridge_pipeline(state: dict, conn, sock) -> None:
             lane=(state.get("lane") or ""),
             heard_before_interrupt=_take_heard_before_interrupt(state),
             client=state.get("client", ""),
+            origin=state.get("origin"),
         ), timing=timing)
         _finish_turn_timing(conn, sock, timing)
         if handled:

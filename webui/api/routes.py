@@ -8905,6 +8905,16 @@ def _handle_chat_start(handler, body, diag=None, stream=False):
             runtime_adapter_enabled,
         )
 
+        # Which paired device sent this (api/turn_origin.py): system text for this
+        # call, consumed by the streaming thread, and the default device-tool target.
+        try:
+            from api import turn_origin
+            _origin = turn_origin.origin_for_handler(handler)
+            s._turn_origin_directive = turn_origin.directive(_origin, "chat") or None
+            turn_origin.note_turn(s.session_id, _origin)
+        except Exception:
+            pass
+
         if runtime_adapter_enabled():
             def _legacy_start_run(request: StartRunRequest) -> dict:
                 return _start_chat_stream_for_session(
