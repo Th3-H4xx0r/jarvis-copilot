@@ -69,14 +69,14 @@
         .sample_rate = ESP_AUDIO_SAMPLE_RATE_16K,                                              \
         .channel = ESP_AUDIO_MONO,                                                             \
         .bits_per_sample = ESP_AUDIO_BIT16,                                                    \
-        /* JARVIS: speech for the server's transcription, not a music stream: VOIP mode, */    \
-        /* 32 kbps (auto chose ~19) and complexity 3 (was 0). DTX stays off — in VOIP it */    \
-        /* would drop "silent" frames, clipping quiet word starts. */                          \
+        /* JARVIS: 32 kbps for the server's transcription (auto chose ~19). VOIP mode at */     \
+        /* complexity 3 overflowed the 24 KB opus_codec stack the moment listening began, */   \
+        /* so mode and complexity stay as upstream ran them. */                                \
         .bitrate = 32000,                                                                      \
         .frame_duration =                                                                      \
             (esp_opus_enc_frame_duration_t)AS_OPUS_GET_FRAME_DRU_ENUM(OPUS_FRAME_DURATION_MS), \
-        .application_mode = ESP_OPUS_ENC_APPLICATION_VOIP,                                     \
-        .complexity = 3,                                                                       \
+        .application_mode = ESP_OPUS_ENC_APPLICATION_AUDIO,                                    \
+        .complexity = 0,                                                                       \
         .enable_fec = false,                                                                   \
         .enable_dtx = false,                                                                   \
         .enable_vbr = true,                                                                    \
