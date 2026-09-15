@@ -314,12 +314,13 @@ extension View {
     }
 }
 
-/// iOS 26 draws a scroll-edge effect under the navigation bar — a lighter band ending
-/// in a hard line between the bar and the page. The pages are plain black, so hide it.
+/// iOS 26's scroll-edge effect under the navigation bar: the hard style ends in a line
+/// across the page, and hiding it altogether left the bar clear, so the chat scrolled
+/// through the title. The soft style is the glass blur without the line.
 private struct JcNoTopEdgeLine: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.scrollEdgeEffectHidden(true, for: .top)
+            content.scrollEdgeEffectStyle(.soft, for: .top)
         } else {
             content
         }
