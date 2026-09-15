@@ -176,9 +176,10 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         if (wakenet_models.size() > 1) {
             afe_config->wakenet_model_name_2 = wakenet_models[1];
         }
-        // JARVIS: normal detection mode — the aggressive one (with the lowered threshold) fired on
-        // room noise once the mic gain went up.
-        afe_config->wakenet_mode = DET_MODE_90;
+        // JARVIS: the sensitive mode, because "Jarvis" only has a TTS-trained model and the
+        // normal mode missed it across a room. Paired with a threshold above the 0.50 that
+        // fired on room noise.
+        afe_config->wakenet_mode = DET_MODE_95;
     }
     // JARVIS: AGC on the processed output (after WakeNet), so near and far speech reach the
     // server and the endpointing at a similar level; its limiter stops loud words clipping.
@@ -207,8 +208,8 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
 
     if (wake_detector_ == WakeDetector::kWakeNet) {
         afe_iface_->disable_wakenet(afe_data_);
-        // JARVIS: the Jarvis model ships at ~0.63; slightly lower so speaking volume still fires.
-        if (afe_iface_->set_wakenet_threshold) afe_iface_->set_wakenet_threshold(afe_data_, 1, 0.52f);
+        // JARVIS: the Jarvis model ships at ~0.63; lower so speaking volume across a room fires.
+        if (afe_iface_->set_wakenet_threshold) afe_iface_->set_wakenet_threshold(afe_data_, 1, 0.55f);
     }
     if (codec_->input_reference()) {
         afe_iface_->disable_aec(afe_data_);
