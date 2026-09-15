@@ -155,6 +155,8 @@ struct Ui::Impl {
     lv_obj_t* clock_time = nullptr;
     lv_obj_t* clock_date = nullptr;
     lv_obj_t* clock_arc = nullptr;
+    lv_obj_t* clock_wifi = nullptr;     // status row above the time: Wi-Fi + battery
+    lv_obj_t* clock_battery = nullptr;
     lv_timer_t* tick = nullptr;
     lv_timer_t* error_timer = nullptr;
 
@@ -179,7 +181,7 @@ struct Ui::Impl {
         ctx.live.clear();
         ctx.image_dscs.clear();
         ctx.image_bytes.clear();
-        clock_time = clock_date = clock_arc = nullptr;
+        clock_time = clock_date = clock_arc = clock_wifi = clock_battery = nullptr;
         if (page_doc) cJSON_Delete(page_doc);
         page_doc = nullptr;
     }
@@ -237,6 +239,16 @@ struct Ui::Impl {
         lv_obj_set_style_arc_width(clock_arc, 3, LV_PART_INDICATOR);
         lv_obj_set_style_arc_color(clock_arc, lv_color_hex(0x1C1E22), LV_PART_MAIN);
         lv_obj_set_style_arc_color(clock_arc, lv_color_hex(settings.theme.accent), LV_PART_INDICATOR);
+        lv_obj_t* status = lv_obj_create(page_layer);
+        lv_obj_remove_style_all(status);
+        lv_obj_set_size(status, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(status, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(status, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(status, 10, 0);
+        lv_obj_remove_flag(status, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(status, LV_ALIGN_TOP_MID, 0, 22);
+        clock_wifi = Text(status, LV_SYMBOL_WIFI, &lv_font_montserrat_14, kMuted);
+        clock_battery = Text(status, "", &lv_font_montserrat_14, kMuted);
         lv_obj_t* col = Column(page_layer);
         clock_time = Text(col, "--:--", &lv_font_montserrat_48, kWhite);
         clock_date = Text(col, "", &lv_font_montserrat_16, kMuted);
@@ -250,7 +262,34 @@ struct Ui::Impl {
         lv_label_set_text(clock_date, date.rfind("--", 0) == 0 ? "" : date.c_str());
         int level = 0;
         bool charging = false, discharging = false;
-        if (Board::GetInstance().GetBatteryLevel(level, charging, discharging)) lv_arc_set_value(clock_arc, level);
+        bool battery = Board::GetInstance().GetBatteryLevel(level, charging, discharging);
+        if (battery) lv_arc_set_value(clock_arc, level);
+        UpdateClockStatus(battery, level, charging);
+    }
+
+    // Wi-Fi: white when the signal is good, grey when weak, red when offline.
+    // Battery: level glyph + percent (a bolt while charging), red under 15%.
+    void UpdateClockStatus(bool battery, int level, bool charging) {
+        if (!clock_wifi) return;
+        auto& wifi = WifiManager::GetInstance();
+        bool online = wifi.IsConnected();
+        lv_color_t wifi_color = !online ? lv_color_hex(settings.theme.danger) : wifi.GetRssi() >= -67 ? kWhite : kMuted;
+        lv_obj_set_style_text_color(clock_wifi, wifi_color, 0);
+        if (!battery) {
+            lv_obj_add_flag(clock_battery, LV_OBJ_FLAG_HIDDEN);
+            return;
+        }
+        lv_obj_remove_flag(clock_battery, LV_OBJ_FLAG_HIDDEN);
+        const char* glyph = level >= 90 ? LV_SYMBOL_BATTERY_FULL
+                            : level >= 65 ? LV_SYMBOL_BATTERY_3
+                            : level >= 40 ? LV_SYMBOL_BATTERY_2
+                            : level >= 15 ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
+        char text[40];
+        snprintf(text, sizeof(text), "%s%s %d%%", charging ? LV_SYMBOL_CHARGE " " : "", glyph, level);
+        if (strcmp(lv_label_get_text(clock_battery), text) != 0) lv_label_set_text(clock_battery, text);
+        lv_color_t color = charging ? lv_color_hex(settings.theme.success)
+                           : level < 15 ? lv_color_hex(settings.theme.danger) : kWhite;
+        lv_obj_set_style_text_color(clock_battery, color, 0);
     }
 
     void ShowHomeLocked() {
