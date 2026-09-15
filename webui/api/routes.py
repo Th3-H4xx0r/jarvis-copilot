@@ -3565,6 +3565,11 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/pair":
         return t(handler, _PAIR_PAGE_HTML, content_type="text/html; charset=utf-8")
 
+    if parsed.path == "/api/devices/ball/image":
+        # Web pictures re-encoded for the Jarvis Ball's screen (baseline JPEG, square).
+        from api.ball_image import handle_ball_image
+        return handle_ball_image(handler, parsed)
+
     if parsed.path == "/api/devices":
         # Authed callers (sidebar Devices tab) get the full list.
         from api.pairing import list_devices

@@ -294,19 +294,20 @@ struct Ui::Impl {
         bool error = orb_state == OrbState::Error;
         lv_obj_set_style_image_recolor(orb_img, lv_color_hex(settings.theme.danger), 0);
         lv_obj_set_style_image_recolor_opa(orb_img, error ? 120 : 0, 0);
-        uint32_t period = 125;
+        // 64 frames span the shader's 38.4 s cycle; idle plays it in ~24 s (the phone is 38 s).
+        uint32_t period = 375;
         switch (orb_state) {
-            case OrbState::Idle: period = 125; break;
+            case OrbState::Idle: period = 375; break;
             case OrbState::Listening:
-                period = 60;
-                Pulse(orb_img, ScaleAnim, base, base + base / 12, 520);
+                period = 200;
+                Pulse(orb_img, ScaleAnim, base, base + base / 14, 700);
                 break;
-            case OrbState::Thinking: period = 45; break;
+            case OrbState::Thinking: period = 160; break;
             case OrbState::Speaking:
-                period = 55;
-                Pulse(orb_img, ScaleAnim, base, base + base / 9, 340);
+                period = 180;
+                Pulse(orb_img, ScaleAnim, base, base + base / 11, 450);
                 break;
-            case OrbState::Error: period = 90; break;
+            case OrbState::Error: period = 250; break;
         }
         lv_timer_set_period(orb_timer, period);
     }

@@ -186,9 +186,8 @@ static lv_obj_t* Image(lv_obj_t* parent, const cJSON* node, Ctx& ctx) {
         if (it != ctx.images->end()) bytes = it->second;
     }
     int w = StyleInt(node, "width", 96), h = StyleInt(node, "height", 96);
-    if (bytes.empty()) {  // not fetched / bad data: a quiet placeholder rather than nothing
-        lv_obj_t* ph = Label(parent, LV_SYMBOL_IMAGE, 24, lv_color_hex(0x8A8F98));
-        return ph;
+    if (bytes.empty()) {  // not fetched / bad data: say so rather than leave a blank screen
+        return Label(parent, LV_SYMBOL_IMAGE "  Image unavailable", 16, lv_color_hex(0x8A8F98));
     }
     lv_image_dsc_t dsc = {};
     dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
@@ -198,7 +197,7 @@ static lv_obj_t* Image(lv_obj_t* parent, const cJSON* node, Ctx& ctx) {
         uint8_t* pixels = nullptr;
         size_t len = 0, pw = 0, ph = 0, stride = 0;
         if (jpeg_to_image(magic, bytes.size(), &pixels, &len, &pw, &ph, &stride) != ESP_OK || !pixels) {
-            return Label(parent, LV_SYMBOL_IMAGE, 24, lv_color_hex(0x8A8F98));
+            return Label(parent, LV_SYMBOL_IMAGE "  Image unavailable", 16, lv_color_hex(0x8A8F98));
         }
         ctx.image_bytes.emplace_back(reinterpret_cast<const char*>(pixels), len);
         heap_caps_free(pixels);

@@ -205,6 +205,13 @@ void Es8311AudioCodec::EnableOutput(bool enable) {
 int Es8311AudioCodec::Read(int16_t* dest, int samples) {
     if (input_enabled_) {
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_read(dev_, (void*)dest, samples * sizeof(int16_t)));
+        // JARVIS: 42 dB is the ES8311's top analog step and the mic was still too quiet for the
+        // wake word; add ~+12 dB in software, clamped so loud speech saturates instead of wrapping.
+        constexpr int kMicBoost = 4;
+        for (int i = 0; i < samples; ++i) {
+            int v = dest[i] * kMicBoost;
+            dest[i] = static_cast<int16_t>(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+        }
     }
     return samples;
 }

@@ -20,6 +20,8 @@
 
 namespace jarvis {
 
+static void CollectUrls(const cJSON* node, const cJSON* data, std::vector<std::string>& urls);
+
 static const char* LinkName(LinkState s) {
     switch (s) {
         case LinkState::Connected: return "connected";
@@ -200,10 +202,21 @@ void RegisterBallTools() {
               const cJSON* page = cJSON_GetObjectItemCaseSensitive(args, "page");
               std::string err = CheckPage(page);
               if (!err.empty()) return err;
-              Ui::Get().CacheImages(FetchPageImages(page));
+              auto images = FetchPageImages(page);
+              std::vector<std::string> wanted;
+              CollectUrls(cJSON_GetObjectItemCaseSensitive(page, "root"), cJSON_GetObjectItemCaseSensitive(page, "data"), wanted);
+              Ui::Get().CacheImages(images);
               Ui::Get().ShowPage(PrintJson(page));
               Application::GetInstance().Schedule([]() { Application::GetInstance().WakeScreen(); });
               cJSON_AddBoolToObject(out, "ok", true);
+              cJSON* failed = cJSON_AddArrayToObject(out, "images_failed");
+              for (auto& url : wanted) {
+                  if (!images.count(url)) cJSON_AddItemToArray(failed, cJSON_CreateString(url.c_str()));
+              }
+              if (cJSON_GetArraySize(failed) > 0) {
+                  cJSON_AddStringToObject(out, "note", "Some images didn't load (not a reachable JPEG/PNG under 1.5 MB). "
+                                                       "Show the page again with a different direct image URL.");
+              }
               return std::string();
           });
 
@@ -355,9 +368,23 @@ std::map<std::string, std::string> FetchPageImages(const cJSON* page) {
     for (auto& url : urls) {
         if (out.count(url)) continue;
         bool own_server = !pairing.server.empty() && HostOf(url) == HostOf(pairing.server);
-        // Photos from the web are big: take up to 1.5 MB (PSRAM), decoded and fitted on the ball.
-        constexpr size_t kMaxImageBytes = 1500 * 1024;
-        HttpResult r = HttpRequest("GET", url, "", own_server ? pairing : store::Pairing{}, own_server, 15000, kMaxImageBytes);
+        // Web pictures go through Jarvis (/api/devices/ball/image): it re-encodes them as a small
+        // baseline JPEG, which is all the ball's decoder handles (no progressive JPEG, WebP, GIF).
+        std::string fetch = url;
+        if (!own_server && !pairing.server.empty()) {
+            std::string enc;
+            for (unsigned char c : url) {
+                if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+                    enc.push_back(static_cast<char>(c));
+                } else {
+                    char hex[4];
+                    snprintf(hex, sizeof(hex), "%%%02X", c);
+                    enc += hex;
+                }
+            }
+            fetch = logic::JoinUrl(pairing.server, "/api/devices/ball/image?size=240&url=" + enc);
+        }
+        HttpResult r = HttpRequest("GET", fetch, "", pairing, true, 20000, 1500 * 1024);
         if (r.status == 200 && !r.body.empty()) out[url] = std::move(r.body);
     }
     return out;

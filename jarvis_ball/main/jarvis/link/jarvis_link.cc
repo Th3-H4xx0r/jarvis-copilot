@@ -25,8 +25,33 @@ static int64_t NowMs() { return esp_timer_get_time() / 1000; }
 
 std::string UserAgent() { return std::string("JarvisBall/") + esp_app_get_description()->version; }
 
+static HttpResult HttpOnce(const std::string& method, const std::string& url, const std::string& body,
+                           const store::Pairing& auth, bool with_cookie, int timeout_ms, size_t max_body,
+                           std::string* redirect);
+
 HttpResult HttpRequest(const std::string& method, const std::string& url, const std::string& body,
                        const store::Pairing& auth, bool with_cookie, int timeout_ms, size_t max_body) {
+    // Image links on the web usually redirect (CDNs, wiki "Special:FilePath"); follow GETs.
+    std::string target = url;
+    for (int hop = 0; hop < 4; ++hop) {
+        std::string next;
+        HttpResult r = HttpOnce(method, target, body, auth, with_cookie, timeout_ms, max_body,
+                                method == "GET" ? &next : nullptr);
+        if (next.empty()) return r;
+        // Credentials never follow a redirect to another host.
+        auto host = [](const std::string& u) { size_t s = u.find("://"); return s == std::string::npos ? u : u.substr(0, u.find('/', s + 3)); };
+        if (next.rfind("/", 0) == 0) next = host(target) + next;
+        if (host(next) != host(target)) with_cookie = false;
+        target = next;
+    }
+    HttpResult out;
+    out.error = "too many redirects";
+    return out;
+}
+
+static HttpResult HttpOnce(const std::string& method, const std::string& url, const std::string& body,
+                           const store::Pairing& auth, bool with_cookie, int timeout_ms, size_t max_body,
+                           std::string* redirect) {
     HttpResult out;
     auto http = Board::GetInstance().GetNetwork()->CreateHttp(0);
     if (!http) {
@@ -55,6 +80,13 @@ HttpResult HttpRequest(const std::string& method, const std::string& url, const 
         return out;
     }
     out.status = *status;
+    if (redirect && out.status >= 301 && out.status <= 308 && out.status != 304) {
+        *redirect = http->GetResponseHeader("Location");
+        if (!redirect->empty()) {
+            http->Close();
+            return out;
+        }
+    }
     std::string cookie = http->GetResponseHeader("Set-Cookie");
     out.set_cookie = cookie.substr(0, cookie.find(';'));
     if (max_body > 0) {
