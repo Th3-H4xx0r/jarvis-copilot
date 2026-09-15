@@ -187,6 +187,13 @@ struct JarvisBallAPI: Sendable {
     }
 
     func deleteHome(_ id: String, home: String) async throws { _ = try await invoke(id, "ball_home_delete", ["id": home]) }
+
+    /// What the ball's screen shows right now, as JPEG bytes.
+    func snapshot(_ id: String) async throws -> Data? {
+        let o = try await invoke(id, "ball_snapshot")
+        guard let uri = o["image"] as? String, let comma = uri.firstIndex(of: ",") else { return nil }
+        return Data(base64Encoded: String(uri[uri.index(after: comma)...]))
+    }
     func reboot(_ id: String) async throws { _ = try await invoke(id, "ball_reboot") }
 }
 

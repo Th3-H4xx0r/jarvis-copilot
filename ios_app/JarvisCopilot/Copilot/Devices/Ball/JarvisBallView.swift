@@ -52,6 +52,8 @@ struct JarvisBallView: View {
     @State private var confirmReboot = false
     @State private var confirmRevoke = false
     @State private var showSetupHelp = false
+    @State private var pendingDelete: JarvisBallHome?
+    @State private var refreshing = false
 
     private var ball: JarvisBallDevice? { store.balls.first { $0.id == ballID } }
     private var status: JarvisBallStatus? { store.statuses[ballID] }
@@ -91,10 +93,23 @@ struct JarvisBallView: View {
             .padding(.bottom, 28)
             .disabled(!online)
         }
+        .refreshable { await reload() }
         .background(JcTheme.bg.ignoresSafeArea())
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Task { await reload() }
+                } label: {
+                    if refreshing {
+                        ProgressView().tint(JcTheme.accent)
+                    } else {
+                        Image(systemName: "arrow.clockwise").foregroundStyle(JcTheme.accent)
+                    }
+                }
+                .accessibilityLabel("Refresh")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("Restart", systemImage: "arrow.clockwise") { confirmReboot = true }
@@ -105,11 +120,16 @@ struct JarvisBallView: View {
                 }
             }
         }
-        .task {
-            await store.refresh(force: true)
-            if online { await store.loadDetail(ballID) }
+        .task { await reload() }
+        .confirmationDialog("Delete \u{201C}\(pendingDelete?.title ?? "")\u{201D}?",
+                            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+                            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let home = pendingDelete { Task { await store.deleteHome(ballID, home: home.id) } }
+                pendingDelete = nil
+            }
         }
-        .onChange(of: settings) { _, s in
+        .onChange(of: settings, initial: true) { _, s in
             if let s {
                 brightness = Double(s.brightness)
                 volume = Double(s.volume)
@@ -170,6 +190,13 @@ struct JarvisBallView: View {
         .jcLiquidGlass(in: Capsule())
     }
 
+    private func reload() async {
+        refreshing = true
+        await store.refresh(force: true)
+        if online { await store.loadDetail(ballID) }
+        refreshing = false
+    }
+
     private var offlineText: String {
         if let note = DisconnectedPill.lastSeenNote(ball?.lastSeen) { return "Offline · \(note)" }
         return "Offline"
@@ -215,11 +242,26 @@ struct JarvisBallView: View {
             VStack(spacing: 10) {
                 ZStack {
                     Circle().fill(Color.white.opacity(0.05))
-                    homePreview(home)
+                    homePreview(home, selected: selected)
                 }
                 .frame(width: 92, height: 92)
+                .clipShape(Circle())
                 .overlay(Circle().strokeBorder(selected ? JcTheme.accent : Color.white.opacity(0.1), lineWidth: selected ? 2.5 : 1))
                 .shadow(color: selected ? JcTheme.accent.opacity(0.35) : .clear, radius: 12)
+                .overlay(alignment: .topTrailing) {
+                    if !home.builtin {
+                        Button { pendingDelete = home } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(JcTheme.text)
+                                .frame(width: 24, height: 24)
+                                .jcLiquidGlass(in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Delete \(home.title)")
+                        .offset(x: 4, y: -2)
+                    }
+                }
                 VStack(spacing: 2) {
                     Text(home.title).font(.subheadline.weight(.semibold)).foregroundStyle(JcTheme.text).lineLimit(1)
                     Text(selected ? "Current" : home.builtin ? "Built in" : "Made by Jarvis")
@@ -239,7 +281,17 @@ struct JarvisBallView: View {
     }
 
     @ViewBuilder
-    private func homePreview(_ home: JarvisBallHome) -> some View {
+    private func homePreview(_ home: JarvisBallHome, selected: Bool) -> some View {
+        // The current home shows the ball's real screen (a live screenshot).
+        if selected, let data = store.screens[ballID], let image = UIImage(data: data) {
+            Image(uiImage: image).resizable().scaledToFill()
+        } else {
+            builtinPreview(home)
+        }
+    }
+
+    @ViewBuilder
+    private func builtinPreview(_ home: JarvisBallHome) -> some View {
         switch home.id {
         case "orb":
             VoiceOrb(state: .idle, amplitude: 0, size: 64, animating: false).frame(width: 64, height: 64)

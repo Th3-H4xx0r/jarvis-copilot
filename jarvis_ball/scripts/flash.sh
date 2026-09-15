@@ -55,13 +55,13 @@ cd "$here"
 [ -f "$here/build_host/orb/orb_frames.bin" ] || "$here/scripts/render_orb.sh"
 idf.py build
 idf.py -p "$port" flash
-# The `orb` partition (partitions/jarvis_16m.csv, 0x3A0000) holds the pre-rendered orb:
+# The `orb` partition (partitions/jarvis_16m.csv, 0x800000) holds the pre-rendered orb:
 # write it when the frames changed for this ball.
 frames="$here/build_host/orb/orb_frames.bin"
 stamp="$here/build_host/orb/.flashed-$mac"
 sum="$(shasum "$frames" | awk '{print $1}')"
 if [ "$(cat "$stamp" 2>/dev/null)" != "$sum" ]; then
-    python -m esptool --chip esp32s3 --port "$port" -b 921600 write-flash 0x3A0000 "$frames"
+    python -m esptool --chip esp32s3 --port "$port" -b 921600 write-flash 0x800000 "$frames"
     echo "$sum" > "$stamp"
 fi
 if [ "$monitor" -eq 1 ]; then

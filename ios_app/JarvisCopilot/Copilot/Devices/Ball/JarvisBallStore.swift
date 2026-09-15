@@ -11,6 +11,8 @@ final class JarvisBallStore {
     private(set) var statuses: [String: JarvisBallStatus] = [:]
     private(set) var settings: [String: JarvisBallSettings] = [:]
     private(set) var homes: [String: [JarvisBallHome]] = [:]
+    /// The latest screenshot of each ball's screen (JPEG), for the live home preview.
+    private(set) var screens: [String: Data] = [:]
     private(set) var error: String?
 
     private let api: JarvisBallAPI
@@ -68,9 +70,14 @@ final class JarvisBallStore {
             if !sync.isEmpty { s = try await api.setSettings(id, sync) }
             settings[id] = s
             error = nil
+            await loadScreen(id)
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    func loadScreen(_ id: String) async {
+        if let data = try? await api.snapshot(id) { screens[id] = data }
     }
 
     func update(_ id: String, _ changes: [String: Any]) async {
@@ -78,6 +85,10 @@ final class JarvisBallStore {
             settings[id] = try await api.setSettings(id, changes)
             if let status = try? await api.status(id) { statuses[id] = status }
             error = nil
+            if changes["home"] != nil {
+                try? await Task.sleep(for: .milliseconds(600))  // let the ball draw the new home first
+                await loadScreen(id)
+            }
         } catch {
             self.error = error.localizedDescription
         }

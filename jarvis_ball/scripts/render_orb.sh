@@ -7,4 +7,4 @@ out="$here/build_host/orb"
 mkdir -p "$out"
 swiftc -O -o "$out/render_orb" "$here/tools/orb_render/render_orb.swift"
 "$out/render_orb" "$repo/ios_app/JarvisCopilot/Copilot/Voice/Views/OrbShader.metal" \
-    "$out/orb_frames.bin" "$out/preview.png" 64 160 130
+    "$out/orb_frames.bin" "$out/preview.png" 150 160 130

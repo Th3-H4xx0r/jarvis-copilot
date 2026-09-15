@@ -7,9 +7,11 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <mbedtls/base64.h>
 #include <wifi_manager.h>
 
 #include "application.h"
+#include "display.h"
 #include "audio_codec.h"
 #include "board.h"
 #include "jarvis/board_caps.h"
@@ -132,6 +134,22 @@ void RegisterBallTools() {
               esp_read_mac(mac, ESP_MAC_WIFI_STA);
               cJSON_AddStringToObject(out, "mac", logic::Mac12(mac).c_str());
               cJSON_AddStringToObject(out, "ip", WifiManager::GetInstance().GetIpAddress().c_str());
+              return std::string();
+          });
+
+    t.Add("ball_snapshot", "A JPEG of exactly what the Jarvis Ball's screen shows right now (data URI).",
+          R"({"type":"object","properties":{}})", [](const cJSON*, cJSON* out) -> std::string {
+              std::string jpeg;
+              auto* display = Board::GetInstance().GetDisplay();
+              if (!display || !display->SnapshotToJpeg(jpeg, 70) || jpeg.empty()) return "the screen couldn't be captured";
+              size_t len = 0;
+              std::string b64(4 * ((jpeg.size() + 2) / 3) + 1, '\0');
+              if (mbedtls_base64_encode(reinterpret_cast<unsigned char*>(&b64[0]), b64.size(), &len,
+                                        reinterpret_cast<const unsigned char*>(jpeg.data()), jpeg.size()) != 0) {
+                  return "the screenshot couldn't be encoded";
+              }
+              b64.resize(len);
+              cJSON_AddStringToObject(out, "image", ("data:image/jpeg;base64," + b64).c_str());
               return std::string();
           });
 
