@@ -16,7 +16,10 @@ Es8311AudioCodec::Es8311AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
     output_sample_rate_ = output_sample_rate;
     pa_pin_ = pa_pin;
     pa_inverted_ = pa_inverted;
-    input_gain_ = 42;  // JARVIS: 30 dB needed shouting for the wake word across a room
+    // JARVIS: 36 dB. 30 needed shouting for the wake word; 42 (plus a software boost) made the
+    // speech detector hear constant "speech" and garbled transcription. Wake word sensitivity
+    // comes from the WakeNet threshold/mode instead (afe_audio_engine.cc).
+    input_gain_ = 36;
 
     assert(input_sample_rate_ == output_sample_rate_);
     CreateDuplexChannels(mclk, bclk, ws, dout, din);
@@ -205,13 +208,6 @@ void Es8311AudioCodec::EnableOutput(bool enable) {
 int Es8311AudioCodec::Read(int16_t* dest, int samples) {
     if (input_enabled_) {
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_read(dev_, (void*)dest, samples * sizeof(int16_t)));
-        // JARVIS: 42 dB is the ES8311's top analog step and the mic was still quiet; +6 dB more in
-        // software, clamped. (4× clipped speech badly enough to break transcription.)
-        constexpr int kMicBoost = 2;
-        for (int i = 0; i < samples; ++i) {
-            int v = dest[i] * kMicBoost;
-            dest[i] = static_cast<int16_t>(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
-        }
     }
     return samples;
 }
