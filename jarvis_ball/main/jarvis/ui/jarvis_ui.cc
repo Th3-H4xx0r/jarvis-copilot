@@ -131,6 +131,7 @@ struct Ui::Impl {
     std::vector<lv_image_dsc_t> orb_frames;
     int orb_frame = 0;
     lv_obj_t* caption = nullptr;
+    bool reply_shown = false;          // the orb is down in the reply layout
     lv_obj_t* status_pill = nullptr;   // "● Listening" above the orb, like the phone
     lv_obj_t* status_label = nullptr;
     lv_obj_t* menu_btn = nullptr;
@@ -265,6 +266,10 @@ struct Ui::Impl {
 
     bool OrbVisible() const { return OrbFull() || (voice_active && screen == Screen::Shown); }
 
+    // Like the phone: while Jarvis speaks, the orb shrinks to the bottom and the words take the screen.
+    bool ReplyLayout() const { return OrbFull() && voice_active && orb_state == OrbState::Speaking; }
+    bool OrbBig() const { return OrbFull() && !ReplyLayout(); }
+
     void UpdateOrbLayer() {
         if (!OrbVisible()) {
             lv_obj_add_flag(orb_layer, LV_OBJ_FLAG_HIDDEN);
@@ -275,7 +280,38 @@ struct Ui::Impl {
         lv_obj_remove_flag(orb_layer, LV_OBJ_FLAG_HIDDEN);
         bool full = OrbFull();
         lv_obj_set_style_bg_opa(orb_layer, full ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
-        if (full) {
+        bool reply = ReplyLayout();
+        lv_label_set_long_mode(caption, reply ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_font(caption, reply ? &lv_font_montserrat_20 : &lv_font_montserrat_16, 0);
+        if (reply) {
+            lv_obj_set_size(caption, 190, 120);
+            lv_obj_align(caption, LV_ALIGN_TOP_MID, 0, 50);
+        } else {
+            lv_obj_set_size(caption, 150, 20);
+            lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -18);
+        }
+        bool entering_reply = reply && !reply_shown;
+        reply_shown = reply;
+        if (reply) {
+            lv_obj_set_size(orb_box, 48, 48);
+            lv_obj_align(orb_box, LV_ALIGN_BOTTOM_MID, 0, -14);
+        }
+        if (entering_reply) {
+            // Slide down from the centre, like the phone (once per reply, not per sentence).
+            lv_anim_t a;
+            lv_anim_init(&a);
+            lv_anim_set_var(&a, orb_box);
+            lv_anim_set_values(&a, -90, 0);
+            lv_anim_set_duration(&a, 320);
+            lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+            lv_anim_set_exec_cb(&a, [](void* var, int32_t v) {
+                lv_obj_set_style_translate_y(static_cast<lv_obj_t*>(var), v, 0);
+            });
+            lv_anim_start(&a);
+        } else if (reply) {
+            // already in the reply layout
+        } else if (full) {
+            lv_obj_set_style_translate_y(orb_box, 0, 0);
             lv_obj_set_size(orb_box, orb_img ? 176 : 200, orb_img ? 176 : 200);
             // Voice: pill above, caption below, so the orb sits a little lower.
             lv_obj_align(orb_box, LV_ALIGN_CENTER, 0, voice_active ? 4 : -8);
@@ -323,7 +359,7 @@ struct Ui::Impl {
     void ApplyOrbState() {
         // Frames only draw at their native size (LVGL scaling of them renders a solid box),
         // so the small in-page indicator uses the drawn orb.
-        bool frames = orb_img && OrbFull();
+        bool frames = orb_img && OrbBig();
         if (orb_img) {
             if (frames) lv_obj_remove_flag(orb_img, LV_OBJ_FLAG_HIDDEN);
             else lv_obj_add_flag(orb_img, LV_OBJ_FLAG_HIDDEN);
@@ -335,7 +371,7 @@ struct Ui::Impl {
         if (frames) return ApplyFramesState();
         for (lv_obj_t* o : {glow, mid, core}) lv_anim_delete(o, nullptr);
         if (!kAnimateOrb) {
-            bool small = !OrbFull();
+            bool small = !OrbBig();
             lv_color_t still = lv_color_hex(orb_state == OrbState::Error ? settings.theme.danger : settings.theme.accent);
             for (lv_obj_t* o : {glow, mid, core}) lv_obj_set_style_bg_color(o, still, 0);
             lv_obj_set_style_bg_opa(glow, 40, 0);
